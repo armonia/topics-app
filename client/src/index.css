@@ -1701,6 +1701,16 @@ audio::-webkit-media-controls-panel {
   }
 }
 
+/* A raw pointer drag is in flight (`lib/dragSelectionGuard.ts`): nothing on the
+   page can be selected until it ends, fields included, because the pointer is
+   carrying a window, not a caret. `!important` beats every `select-text` the
+   transcript sets for itself. */
+html.drag-no-select,
+html.drag-no-select * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
 /* macOS titlebar spacing — push content below traffic lights */
 .titlebar-inset {
   padding-top: env(titlebar-area-height, 0px);

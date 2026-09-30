@@ -1,0 +1,131 @@
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { goToApp } from "./helpers";
+import { E2E_BASE } from "./helpers/test-server";
+import {
+  createTopic,
+  deleteTopic,
+  waitForTopicVisible,
+  resetPaneStore,
+  closeAllBrowserContexts,
+} from "./helpers/api-fixtures";
+import { seedMessage } from "./helpers/seed-messages";
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
+
+/**
+ * DRAGGING A FLOATING BROWSER WINDOW MUST NOT SELECT THE CHAT UNDER IT.
+ *
+ * Reported 30/09: "mentre faccio dnd di un tab browser floating, mi seleziona
+ * il testo del topic sotto". The floating window of a topic is moved by a raw
+ * pointer drag on its bar (`TopicBrowserWindow.startMove`), not by HTML5 DnD,
+ * so nothing stops the engine's own default for a pressed, moving mouse: a
+ * text selection that follows the pointer over the transcript.
+ *
+ * Measured the way a hand does it: real mouse moves, and the selection read
+ * DURING the drag, not only after it, because what the person sees is the
+ * transcript turning blue under the window while it moves.
+ */
+
+const BASE = E2E_BASE;
+
+async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
+  const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const { topics } = (await res.json()) as {
+    topics: Record<string, { id: string; sessionKey: string }>;
+  };
+  return Object.values(topics).find((t) => t.id === topicId)?.sessionKey ?? "";
+}
+
+const LINE = "Il testo della chat che sta sotto la finestra e non va selezionato trascinando.";
+
+async function selectionText(page: Page): Promise<string> {
+  return page.evaluate(() => window.getSelection()?.toString() ?? "");
+}
+
+test.afterAll(async ({ request }) => {
+  await closeAllBrowserContexts(request);
+});
+
+test.describe("TOPIC-BROWSER-01 la finestra browser flottante si trascina senza selezionare la chat", () => {
+  test.beforeEach(async ({ request }, testInfo) => {
+    testInfo.annotations.push({ type: "spec", description: "TOPIC-BROWSER-01" });
+    await resetPaneStore(request, []);
+  });
+
+  test("TOPIC-BROWSER-01s: trascinando la barra sopra il testo della chat non si seleziona niente, durante e dopo", async ({ page, request }) => {
+    const topic = await createTopic(request, `E2E-DragNoSelect-${Date.now()}`);
+    try {
+      const sessionKey = await sessionKeyOf(request, topic.id);
+      for (let i = 0; i < 6; i++) {
+        await seedMessage(request, { sessionKey, role: i % 2 ? "assistant" : "user", content: `Messaggio ${i + 1}: ${LINE} ${LINE}` });
+      }
+      const put = await request.put(`${BASE}/api/ui-state/topic-browser:${topic.id}`, {
+        data: {
+          mode: "min",
+          minPos: { right: 40, bottom: 140 },
+          expandedWidth: null,
+          tabs: [{ contextId: "dns-1", url: "https://example.com", title: "Example", openedBy: "user" }],
+          activeContextId: "dns-1",
+          promoted: [],
+        },
+        ignoreHTTPSErrors: true,
+      });
+      expect(put.ok()).toBeTruthy();
+
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await page.locator(`[data-pane-id="${topic.id}"], [data-topic-id="${topic.id}"]`).first().click();
+      await expect(page.getByText(`Messaggio 1: ${LINE}`)).toBeVisible({ timeout: 15000 });
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+      // The transcript line the drag will sweep across, and the grip: the bar's
+      // own empty space, right of the sheet, where a hand grabs a window.
+      const text = (await page.getByText(`Messaggio 1: ${LINE}`).boundingBox())!;
+      const bar = (await page.locator('[data-testid="topic-browser-bar"]').boundingBox())!;
+      const tab = (await page.locator('[data-testid="topic-browser-tab"]').first().boundingBox())!;
+      const grip = { x: Math.min(tab.x + tab.width + 40, bar.x + bar.width - 60), y: bar.y + bar.height / 2 };
+      const target = { x: text.x + text.width / 2, y: text.y + text.height / 2 };
+
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      const samples: string[] = [];
+      // Big legs on purpose: the window follows the pointer one render late,
+      // and a hand moving fast is ahead of it, over the transcript, for that
+      // render. Tiny steps keep the pointer on the bar and hide the defect.
+      const legs = 4;
+      for (let leg = 1; leg <= legs; leg++) {
+        await page.mouse.move(
+          grip.x + ((target.x - grip.x) * leg) / legs,
+          grip.y + ((target.y - grip.y) * leg) / legs,
+          { steps: 2 },
+        );
+        samples.push(await selectionText(page));
+      }
+      // The window really is being dragged: the gesture under test is a drag,
+      // not a press that went nowhere.
+      const during = (await windowEl.boundingBox())!;
+      expect(during.y).toBeLessThan(bar.y - 20);
+      expect(samples, "text selected while the window was being dragged").toEqual(["", "", "", ""]);
+
+      await page.mouse.up();
+      expect(await selectionText(page), "text selected after the drop").toBe("");
+
+      // The guard is gone with the gesture: the transcript selects again. The
+      // stroke stays on the left of the line, which the moved window (now over
+      // the middle of the transcript) does not cover.
+      await expect(page.locator("html")).not.toHaveClass(/drag-no-select/);
+      const after = (await page.getByText(`Messaggio 2: ${LINE}`).boundingBox())!;
+      await page.mouse.move(after.x + 2, after.y + after.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(after.x + 60, after.y + after.height / 2, { steps: 5 });
+      await page.mouse.up();
+      expect((await selectionText(page)).length, "the chat can no longer be selected after a drag").toBeGreaterThan(0);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+});

@@ -592,6 +592,11 @@ export default defineConfig({
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",
+        // A raw pointer drag (the floating browser window's bar) must not let
+        // the engine start a text selection over the chat: whether a pressed,
+        // moving mouse selects is the engine's default, so it is read on the
+        // engine that ships.
+        "**/drag-no-text-selection.spec.ts",
         // The card's changed-files chip end to end: count, show-all, filter,
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",

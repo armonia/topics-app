@@ -20,6 +20,7 @@ import { useT } from '../../hooks/useT';
 import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from './browserDevTypes';
 import { installNativeViewDragGate } from './nativeViewDragGate';
+import { suppressTextSelection } from '../../lib/dragSelectionGuard';
 
 /** Inset (px) of each native WebContentsView vs its placeholder. 0 = the page
  *  fills the pane edge-to-edge (no visible "padding" frame), so the browser
@@ -82,6 +83,9 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       height: Math.max(MIN_RESP, Math.round(pr.height * 0.7)),
     };
     window.dispatchEvent(new Event('topics:pane-resize-start'));
+    // A cancelled `pointerdown` is not a cancelled `mousedown` on every engine:
+    // the page around the handle must not turn into a selection while it moves.
+    const unlockSelection = suppressTextSelection();
     const move = (ev: PointerEvent) => {
       let w = start.width, h = start.height;
       if (axis !== 'y') w = Math.max(MIN_RESP, Math.min(Math.round(ev.clientX - pr.left), Math.round(pr.width)));
@@ -91,6 +95,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      unlockSelection();
       window.dispatchEvent(new Event('topics:pane-resize-end'));
     };
     window.addEventListener('pointermove', move);
