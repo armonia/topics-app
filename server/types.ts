@@ -171,6 +171,18 @@ export interface ReattachedPartial extends StoredMessage {
 export interface ThreadLoadOpts {
   withBlocks?: boolean;
   withToolCalls?: boolean;
+  /**
+   * `false`: a closed row's tool output that lives in `message_tool_outputs`
+   * is NOT read back; the tool call keeps `''` in its place and the
+   * `movedOutput` mark that `leanMessagesForHistory` turns into `detailBytes`.
+   * Only the history page asks for this, because it ships none of that text.
+   * Partial rows always come back whole. Default: read back.
+   *
+   * A message read this way is for the wire only: written back, its rows
+   * would keep marks whose text `saveLocalMessages` has just deleted with the
+   * old rows.
+   */
+  withToolOutputs?: boolean;
 }
 
 /**
@@ -540,8 +552,8 @@ export interface AppContext {
   /** Upserts only the given rows. */
   saveUnreadEntries: (entries: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
-  /** Fills `blocks`/`tool_calls` back into messages loaded lean. */
-  hydrateMessageBodies: (msgs: StoredMessage[]) => StoredMessage[];
+  /** Fills `blocks`/`tool_calls` back into messages loaded lean. `withToolOutputs`: see ThreadLoadOpts. */
+  hydrateMessageBodies: (msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">) => StoredMessage[];
   /** Rows of the WHOLE session (dead branches included) - what a deletion
    *  actually hits. */
   countMessagesBySession: (sessionKey: string) => number;

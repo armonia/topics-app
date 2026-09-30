@@ -35,6 +35,7 @@ import { defaultLifecycleHooks } from "./services/lifecycle-hooks";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
 import { blocksForDisk, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
+import { blocksColumn, restoreFromStore, writeSplitRow, type BlocksColumn } from "./lib/tool-output-store";
 import { sendWsFrame } from "./lib/ws-send";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
@@ -742,11 +743,19 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  /** The `blocks` column, parsed and sanitized. `undefined` when unusable. */
-  function parseBlocksCol(raw: unknown, messageId: string): ContentBlock[] | undefined {
+  /**
+   * The `blocks` column, parsed and sanitized. `undefined` when unusable.
+   *
+   * `outputs`: `'full'` puts back the tool output stored in
+   * `message_tool_outputs` BEFORE the detail is sanitized, so the row reads
+   * exactly as it was written whole; `'stub'` leaves the `''` and the mark,
+   * for the history page and for readers that only look at kinds and marks.
+   */
+  function parseBlocksCol(raw: unknown, messageId: string, outputs: "full" | "stub" = "full"): ContentBlock[] | undefined {
     try {
       const parsed: unknown = JSON.parse(decodeCol(raw) ?? "null");
       if (!Array.isArray(parsed)) return undefined;
+      if (outputs === "full") restoreFromStore(db, messageId, parsed);
       // v3 foundations NORM-01 DB hydration: each block of kind 'tool'
       // carries a toolCall whose `detail` may be a legacy / drifted
       // shape. Sanitize at the boundary so downstream consumers always
@@ -765,6 +774,12 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  /** Whether a read puts the stored tool output back: always, unless the caller
+   *  opted out, and always for a partial row, which the wire ships whole. */
+  function outputsMode(opts: Pick<ThreadLoadOpts, "withToolOutputs"> | undefined, partial: unknown): "full" | "stub" {
+    return opts?.withToolOutputs === false && !partial ? "stub" : "full";
+  }
+
   /** `toolCalls` rebuilt from the tool blocks when the column left it empty (see rowToMessage). */
   function restoreToolCallsFromBlocks(msg: StoredMessage): void {
     if (!msg.toolCalls?.length && msg.blocks?.length) {
@@ -775,7 +790,7 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  function rowToMessage(row: any, opts?: { withBlocks?: boolean; withToolCalls?: boolean }): StoredMessage {
+  function rowToMessage(row: any, opts?: ThreadLoadOpts): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
       role: row.role,
@@ -788,7 +803,7 @@ export function createAppContext(baseDir: string): AppContext {
       if (parsed !== undefined) msg.toolCalls = parsed;
     }
     if (row.blocks && opts?.withBlocks !== false) {
-      const parsed = parseBlocksCol(row.blocks, row.id);
+      const parsed = parseBlocksCol(row.blocks, row.id, outputsMode(opts, row.partial));
       if (parsed !== undefined) msg.blocks = parsed;
     }
     // The `tool_calls` column is not written when the row has `blocks`
@@ -835,7 +850,7 @@ export function createAppContext(baseDir: string): AppContext {
   // schema in 014-message-meta.sql + 015-message-blocks.sql; passing null
   // means "leave existing value alone" because updateMessage uses COALESCE
   // on these fields.
-  function metaParams(msg: Partial<StoredMessage>) {
+  function metaParams(msg: Partial<StoredMessage>, col?: BlocksColumn) {
     return {
       $latency_ms: msg.latencyMs ?? null,
       $usage_prompt_tokens: msg.usagePromptTokens ?? null,
@@ -866,8 +881,22 @@ export function createAppContext(baseDir: string): AppContext {
       // compressed anything and the table went back to growing in plaintext at
       // ~13 MB a day. Under a streaming turn `persistBlocks` rewrites this row
       // dozens of times, so the saving is on the WAL too, not just on the file.
-      $blocks: encodeCol(blocksForDisk(msg.blocks)) ?? null,
+      //
+      // `col`: the writer already built the column, splitting the tool output
+      // of a closed row out to `message_tool_outputs` (`blocksColumn`,
+      // server/lib/tool-output-store.ts). Without it, the timeline goes whole.
+      $blocks: col ? col.value : blocksColumn(msg.blocks, false).value,
     };
+  }
+
+  /**
+   * One row write whose `blocks` may shed its tool output: `run` receives the
+   * column value to write, and the output is stored in the same transaction
+   * (see `writeSplitRow`). `final` = the row is closed after this write.
+   */
+  function writeMessage(messageId: string, blocks: ContentBlock[] | null | undefined, final: boolean, run: (col: BlocksColumn) => void): void {
+    const col = blocksColumn(blocks, final);
+    writeSplitRow(db, messageId, col, (value) => run({ ...col, value }));
   }
 
   // --- Broadcast helpers ---
@@ -1448,7 +1477,7 @@ export function createAppContext(baseDir: string): AppContext {
    * Mutates in place. A message whose row has nothing in either column comes
    * back untouched.
    */
-  function hydrateMessageBodies(msgs: StoredMessage[]): StoredMessage[] {
+  function hydrateMessageBodies(msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">): StoredMessage[] {
     /** The three columns the second pass reads back, and nothing else. */
     interface BodyRow { id: string; blocks: unknown; tool_calls: unknown }
     if (msgs.length === 0) return msgs;
@@ -1470,7 +1499,7 @@ export function createAppContext(baseDir: string): AppContext {
         if (parsed !== undefined) m.toolCalls = parsed;
       }
       if (row.blocks) {
-        const parsed = parseBlocksCol(row.blocks, m.id);
+        const parsed = parseBlocksCol(row.blocks, m.id, outputsMode(opts, m.partial));
         if (parsed !== undefined) m.blocks = parsed;
       }
       // A closed row comes out as a fat read builds it: without this a row
@@ -1516,7 +1545,7 @@ export function createAppContext(baseDir: string): AppContext {
       stmts.deleteActiveBranchesBySession.run(sessionKey);
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i];
-        stmts.insertMessage.run({
+        writeMessage(msg.id, msg.blocks, !msg.partial, (col) => stmts.insertMessage.run({
           $id: msg.id,
           $session_key: sessionKey,
           $role: msg.role,
@@ -1531,8 +1560,8 @@ export function createAppContext(baseDir: string): AppContext {
           $sort_order: i,
           $parent_id: msg.parentId || null,
           $branch_index: msg.branchIndex || 0,
-          ...metaParams(msg),
-        });
+          ...metaParams(msg, col),
+        }));
       }
     })();
   }
@@ -1569,7 +1598,7 @@ export function createAppContext(baseDir: string): AppContext {
       // Written whole, in one go: a sub-agent's report, a notice, an answer.
       ...(role === "assistant" ? { endReason: "done" as const } : {}),
     };
-    stmts.insertMessage.run({
+    writeMessage(stored.id, stored.blocks, true, (col) => stmts.insertMessage.run({
       $id: stored.id,
       $session_key: sessionKey,
       $role: role,
@@ -1584,8 +1613,8 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: 0,
-      ...metaParams(stored),
-    });
+      ...metaParams(stored, col),
+    }));
     return stored;
   }
 
@@ -1606,7 +1635,7 @@ export function createAppContext(baseDir: string): AppContext {
       const base = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order as number;
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i]!;
-        stmts.insertMessage.run({
+        writeMessage(msg.id, msg.blocks, true, (col) => stmts.insertMessage.run({
           $id: msg.id,
           $session_key: sessionKey,
           $role: msg.role,
@@ -1621,8 +1650,8 @@ export function createAppContext(baseDir: string): AppContext {
           $sort_order: base + 1 + i,
           $parent_id: msg.parentId || null,
           $branch_index: msg.branchIndex || 0,
-          ...metaParams(msg),
-        });
+          ...metaParams(msg, col),
+        }));
       }
     })();
   }
@@ -1727,7 +1756,7 @@ export function createAppContext(baseDir: string): AppContext {
     // that then failed turned it into an error row offering Retry again.
     const closedFromOutsideWhileAlive = isAssistant && !stillPartial
       && (row.end_reason === "closed-outside" || (row.end_reason !== "done" && row.latency_ms == null))
-      && !hasMachineMark(parseBlocksCol(row.blocks, String(row.id)));
+      && !hasMachineMark(parseBlocksCol(row.blocks, String(row.id), "stub"));
     if (isAssistant && (stillPartial || closedFromOutsideWhileAlive)) {
       const now = new Date().toISOString();
       db.run("UPDATE messages SET streamed_at = ?, partial = 1, end_reason = NULL WHERE id = ?", [now, String(row.id)]);
@@ -1809,7 +1838,9 @@ export function createAppContext(baseDir: string): AppContext {
     // existing column — a partial update (e.g. flipping `partial` on timeout)
     // must never re-persist a stale content/thinking/tool snapshot over
     // concurrent writes, which is how turns were being blanked.
-    stmts.updateMessage.run({
+    // The turn's closing write (`partial` off, whole timeline) is where a new
+    // row sheds its tool output: while the row is open the stream rewrites it.
+    writeMessage(msg.id, updates.blocks, !msg.partial, (col) => stmts.updateMessage.run({
       $id: msg.id,
       $content: 'content' in updates ? (msg.content || '') : null,
       $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
@@ -1820,8 +1851,8 @@ export function createAppContext(baseDir: string): AppContext {
       $plan_status: msg.planStatus || null,
       // Only the partial-msg fields landing in `updates` should overwrite —
       // the SQL's COALESCE keeps existing values when these are null.
-      ...metaParams(updates),
-    });
+      ...metaParams(updates, col),
+    }));
     return msg;
   }
 
@@ -2036,7 +2067,11 @@ export function createAppContext(baseDir: string): AppContext {
         ? { kind: "tool" as const, toolCall: { ...b.toolCall, ...patch } }
         : b,
     );
-    stmts.updateMessage.run({
+    // Same column as `metaParams`: this writer overrides `$blocks`, so without
+    // the codec the pending-permission path would put the timeline back in
+    // plaintext on a row the stream had just compressed. The row was read
+    // whole (its stored tool output put back), so a closed one is split again.
+    writeMessage(msg.id, nextBlocks, !msg.partial, (col) => stmts.updateMessage.run({
       $id: msg.id,
       $content: null,
       $thinking: null,
@@ -2046,11 +2081,8 @@ export function createAppContext(baseDir: string): AppContext {
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
       ...metaParams({}),
-      // Same codec as `metaParams`: this writer overrides `$blocks`, so without
-      // `encodeCol` here the pending-permission path would put the timeline
-      // back in plaintext on a row the stream had just compressed.
-      $blocks: encodeCol(blocksForDisk(nextBlocks)) ?? null,
-    });
+      $blocks: col.value,
+    }));
     return msg;
   }
 

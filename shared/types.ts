@@ -26,6 +26,7 @@
 // Type-only: erased at build time, so this module still has no runtime
 // dependency (and no zod on the client through the back door).
 import type { STOP_CAUSES } from './ws-outbound';
+import type { MovedOutputMark } from './lean-tool-call';
 
 // ─── Language (the interface AND the model's answers) ──────────────────
 
@@ -838,6 +839,13 @@ export interface ToolCall {
    * fetch, when the row opens.
    */
   argsBytes?: number;
+  /**
+   * SERVER-SIDE ONLY: the output of this call lives in `message_tool_outputs`
+   * and the stored row holds `''` in its place (server/lib/tool-output-store.ts).
+   * The full read puts the text back and removes this; the history read turns
+   * it into `detailBytes`. No client ever receives it.
+   */
+  movedOutput?: MovedOutputMark;
   /** See client mirror for full semantics. Populated for tools that
    *  request human input; lives on the row so re-renders + scrollback
    *  show the original prompt. */

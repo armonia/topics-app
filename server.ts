@@ -29,6 +29,7 @@ import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase, refreshPlannerStats } from "./server/db";
+import { startToolOutputBackfill } from "./server/lib/tool-output-store";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
@@ -6640,6 +6641,14 @@ idleGcTimer.unref?.();
  */
 const loopLagTimer = startLoopLagSampler({ log: (line) => console.log(line) });
 
+// Tool output of the rows written before it had its own table
+// (server/lib/tool-output-store.ts): moved out a few rows at a time, after the
+// boot has settled, never while the loop is behind.
+const stopToolOutputBackfill = startToolOutputBackfill(ctx.db, {
+  startDelayMs: 2 * 60_000,
+  log: (line) => console.log(line),
+});
+
 // Graceful shutdown
 let shutdownInProgress = false;
 async function gracefulShutdown(signal: string) {
@@ -6662,6 +6671,7 @@ async function gracefulShutdown(signal: string) {
   clearInterval(relayLicenzaTimer);
   clearInterval(idleGcTimer);
   clearInterval(loopLagTimer);
+  stopToolOutputBackfill();
   // A process left STOPped by the governor is a process nobody will ever
   // continue: the one thing that could send it SIGCONT is the loop that is
   // about to stop. Thaw before anything else goes away.
