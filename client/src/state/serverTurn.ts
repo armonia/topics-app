@@ -45,8 +45,28 @@ const turns = new Map<string, ServerTurn>();
  * turn's open) does not make the Stop untrue: what was queued before it holds.
  */
 const stops = new Map<string, TurnRef>();
+/**
+ * The server boot this window last heard from. A statement of another boot is
+ * a restarted server (the old one cannot speak after it: its sockets and
+ * answers died with it), and the Stops heard in the old boot are forgotten
+ * then. A window opened after the restart never hears of them (the server
+ * keeps `lastStop` per boot), so a window that stayed open must not either:
+ * it held, in the new boot, a message another window queued after the Stop,
+ * and every one after it, for the life of the window. What an old Stop still
+ * holds is already written down: the durable hold (`holdQueue`), raised by the
+ * drain the moment the Stop was heard with a queue written before it.
+ */
+let currentBoot: string | null = null;
+
+function enterBoot(boot: string): void {
+  if (boot === currentBoot) return;
+  currentBoot = boot;
+  for (const [sessionKey, stop] of stops) if (stop.boot !== boot) stops.delete(sessionKey);
+}
 
 function noteStop(sessionKey: string, stop: TurnRef): void {
+  // A Stop of a boot other than the one heard last is from the server before the restart.
+  if (currentBoot !== null && stop.boot !== currentBoot) return;
   const held = stops.get(sessionKey);
   if (held && held.boot === stop.boot && held.turnId >= stop.turnId) return;
   stops.set(sessionKey, stop);
@@ -72,6 +92,7 @@ export function serverTurnOf(sessionKey: string): ServerTurn | undefined {
  */
 export function noteServerTurn(sessionKey: string, next: unknown): boolean {
   if (!isServerTurn(next)) return false;
+  enterBoot(next.boot);
   // A Stop is a fact whatever the order it arrives in: taken even from a stale statement.
   if (typeof next.lastStop === 'number') noteStop(sessionKey, { boot: next.boot, turnId: next.lastStop });
   if (!next.open && next.stopped === true) noteStop(sessionKey, { boot: next.boot, turnId: next.turnId });
@@ -93,6 +114,7 @@ export function noteServerTurn(sessionKey: string, next: unknown): boolean {
 export function noteTurnSnapshot(snapshot: unknown): string[] {
   const s = snapshot as { boot?: unknown; asOf?: unknown; open?: unknown; awaiting?: unknown; stopped?: unknown } | null;
   if (!s || typeof s.boot !== 'string' || typeof s.asOf !== 'number' || !Array.isArray(s.open)) return [];
+  enterBoot(s.boot);
   const listed = new Map<string, ServerTurn>();
   // The sessions whose last turn ended on a question for a person are listed
   // too: closed, but not free (`decideDrain` holds on `awaitsHuman`).
@@ -141,5 +163,6 @@ export function noteStopHeard(sessionKey: string): void {
 export function __resetServerTurns(): void {
   turns.clear();
   stops.clear();
+  currentBoot = null;
   baseline = null;
 }

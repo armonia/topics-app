@@ -312,6 +312,52 @@ describe('the close of a turn says how it ended, and the queue obeys it', () => 
     d.unmount();
   });
 
+  test('a Stop heard before a server restart: a message another window queues in the new boot leaves at its turn\'s end', async () => {
+    // This window heard a Stop pressed elsewhere, nothing queued; the server
+    // restarts; a window opened after it (its storage is all that is shared)
+    // queues during a turn. It used to stay held here, the old Stop's boot not
+    // being the boot the message waited in.
+    const d = drive();
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 });
+    await settle();
+    d.ws({ type: 'turn:snapshot', boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 1, turnId: 1, open: true });
+    enqueueTurn(d.sk, 'FROM-OTHER-WINDOW', undefined, { boot: 'b2', turnId: 1 });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 2, turnId: 1, open: false });
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual(['FROM-OTHER-WINDOW']);
+    expect(isHeld(d.sk)).toBe(false);
+    d.unmount();
+  });
+
+  test('a Stop heard before a server restart, and a Stop lifted in the new boot: this window\'s own queued messages leave at each turn\'s end', async () => {
+    // The lift named in b2 (a Stop pressed on a turn already closed, then a
+    // send) never covered the Stop of b1: every message queued here after it
+    // stayed held at the end of its turn, for the life of the window.
+    const d = drive();
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 });
+    await settle();
+    d.ws({ type: 'turn:snapshot', boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 2, turnId: 1, open: false });
+    holdQueue(d.sk, { boot: 'b2', turnId: 1 });
+    releaseHold(d.sk);
+    for (const [openAt, closeAt, tag] of [[3, 4, 'OWN-X'], [5, 6, 'OWN-Y']] as const) {
+      d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: openAt, turnId: openAt, open: true });
+      await d.chat.sendMessage(d.sk, tag);
+      await settle();
+      expect(getQueue(d.sk)).toHaveLength(1);
+      d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: closeAt, turnId: openAt, open: false });
+      await settle();
+      expect(sent.map((s) => s.content)).toContain(tag);
+      expect(isHeld(d.sk)).toBe(false);
+      expect(getQueue(d.sk)).toHaveLength(0);
+    }
+    d.unmount();
+  });
+
   test('a Stop on another device while this socket was down: the reconnect holds the queue', async () => {
     const d = drive();
     d.ws(open(d.sk, 1));

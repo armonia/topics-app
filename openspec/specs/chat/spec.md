@@ -2470,6 +2470,9 @@ latest turn a person stopped on each session since the server started
 hold on it in every window, whenever that window hears it; the person's own
 send, «send now» or emptying the queue SHALL lift it for every window of the
 profile, and a later word of the same Stop SHALL NOT hold the queue again.
+A Stop of a server that has since restarted SHALL NOT hold a message queued
+after it: a window that stayed open through the restart SHALL know of that
+Stop only what a window opened after it knows, the holds it already raised.
 
 A Stop on claude-code SHALL close the session's turn at once: the stopped child
 takes no more input and its tail belongs to nobody, so waiting for its exit
@@ -2523,6 +2526,11 @@ after the Stop waiting.
 - **GIVEN** a Stop lifted by «send now» in one window
 - **WHEN** the other window reads the close of the stopped turn after that
 - **THEN** it SHALL NOT hold the queue again, and a message queued in the next turn SHALL leave at its end
+
+#### Scenario: a Stop heard before a server restart
+- **GIVEN** a window that heard a Stop with nothing queued, and stayed open while the server restarted
+- **WHEN** another window of the profile queues a message during a turn of the new server
+- **THEN** the message SHALL leave at the end of that turn
 
 #### Scenario: a plan approval left by a turn started elsewhere
 - **GIVEN** a queued message and a turn, started from another device or the board, that ends on a plan approval

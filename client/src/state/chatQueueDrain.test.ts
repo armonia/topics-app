@@ -194,6 +194,28 @@ describe("a person's Stop, heard by a window however late", () => {
     expect(lastStopOf(SK)).toEqual(ref(7));
   });
 
+  test('a Stop heard before a server restart holds nothing queued in the new boot', () => {
+    // This window heard a Stop in b1 with nothing queued, and stayed open
+    // through the restart. Another window queues during a turn of b2.
+    noteServerTurn(SK, { ...closed(7, 8), stopped: true, lastStop: 7 });
+    expect(lastStopOf(SK)).toEqual(ref(7));
+    noteTurnSnapshot({ boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    expect(lastStopOf(SK)).toBeUndefined();
+    noteServerTurn(SK, { boot: 'b2', asOf: 1, turnId: 1, open: true });
+    const head = { waitsFor: openTurnRef(SK) };
+    noteServerTurn(SK, { boot: 'b2', asOf: 2, turnId: 1, open: false });
+    expect(verdict({ serverTurn: serverTurnOf(SK), head, stop: lastStopOf(SK) })).toBe('drain');
+  });
+
+  test('the first word of the new boot forgets the old Stop, whatever carries it (a history answer before the snapshot)', () => {
+    noteServerTurn(SK, { ...closed(7, 8), stopped: true });
+    noteServerTurn('topic:other', { boot: 'b2', asOf: 3, turnId: 2, open: false });
+    expect(lastStopOf(SK)).toBeUndefined();
+    // A Stop the new boot says is kept.
+    noteServerTurn(SK, { boot: 'b2', asOf: 5, turnId: 4, open: false, stopped: true });
+    expect(lastStopOf(SK)).toEqual(ref(4, 'b2'));
+  });
+
   test('a user_abort names the turn the server last spoke of', () => {
     noteStopHeard(SK);
     expect(lastStopOf(SK)).toBeUndefined();

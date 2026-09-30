@@ -29,6 +29,10 @@
  *   7. Two windows of one profile, «send now» in one: the message queued in
  *      the next turn still leaves at its end (the other window used to hold
  *      the queue again on the same close, for good).
+ *   8. A window hears a Stop, the server restarts, and a window opened after
+ *      the restart queues a message: it leaves at its turn's end (the old
+ *      Stop, remembered by the first window, held it for good). `@nightly`:
+ *      the restart would be paid by the specs after this one on the PR gate.
  *
  * Behaviour, not layout: video on, the .webm is the proof.
  *
@@ -43,6 +47,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installQueueTurnsCli } from "./helpers/fake-claude-cli";
+import { restartTestServer } from "./helpers/restart-test-server";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -401,5 +406,49 @@ test.describe("the turn queue waits for the real end of the turn", () => {
     } finally {
       await other.close();
     }
+  });
+  test("a Stop heard before a server restart does not hold a message another window queues after it @nightly", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-07" });
+    // Window A hears a Stop pressed on another device, with nothing queued.
+    await openChat(page, chatPage);
+    const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+    const stopped = startTurn(topic.sk, "SLOWINIT:300:bootone");
+    await expect(chat.getByText("bootone tick 2.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+    expect((await remoteStop(topic.sk)).status).toBe(200);
+    await stopped;
+    await expect(page.getByTestId("queue-send-now")).toHaveCount(0);
+    expect(await queueHeld(page, topic.sk)).toBe(false);
+
+    // The server restarts (every save does, in production); window A stays open and reconnects.
+    await restartTestServer();
+
+    // Window B of the same profile, opened after the restart, queues a message
+    // during a turn, and is closed: the queue is in the shared storage, A drains it.
+    const other = await page.context().newPage();
+    const TAG = "QUEUED-AFTER-THE-RESTART";
+    let turn: Promise<void> = Promise.resolve();
+    try {
+      await goToApp(other);
+      await other.keyboard.press("Escape");
+      await openTopic(other, new RegExp(topic.name));
+      turn = startTurn(topic.sk, "LONGTURN:2:2000:boottwo");
+      const otherChat = other.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+      await expect(otherChat.getByText("boottwo round 1.", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+      const otherInput = other.getByRole("textbox", { name: /Campo del messaggio|Message input for/ });
+      await otherInput.fill(TAG);
+      await otherInput.press("Enter");
+      await expect(queuedBubbles(other)).toHaveCount(1, { timeout: 10_000 });
+    } finally {
+      await other.close();
+    }
+    await turn;
+
+    await expect.poll(() => receivedWith(TAG).length, { timeout: 30_000, message: "the message queued in window B reaches the CLI" }).toBe(1);
+    const end = turnEvent("turn-end", "boottwo")!;
+    const [got] = receivedWith(TAG);
+    expect(got!.busy).toBe(false);
+    expect(got!.at).toBeGreaterThanOrEqual(end.at);
+    expect(await queueHeld(page, topic.sk)).toBe(false);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 });
