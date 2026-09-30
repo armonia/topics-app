@@ -13,6 +13,26 @@
           "scope": null
         },
         {
+          "it": "The composer motion contract, measured at paint: an empty chat's composer never glides up, a new chat's is placed from its first frame, attachments open and close over frames, a new line on the phone moves the last message in the same frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The composer only slides down, starts its descent on the key and carries it across the draft's promotion, and the list's bottom gutter follows its height in the same frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Composer attachments open and close the card over MOTION.fast, chips fade in and keep their node when a sibling goes (core:F13)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "useComposerDock names in English: COMPOSER_HEIGHT_PROPERTY, frame",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The spawn window closes only on the ack of the spawn in flight now, so an earlier spawn overtaken by a kill and a respawn cannot let its child's exit through",
           "en": "",
           "scope": null
@@ -48,12 +68,47 @@
           "scope": null
         },
         {
+          "it": "The skeleton gutter test reads the Footer as it is now: the composer's height property plus CHAT_BOTTOM_GUTTER_PX, and every write of that property goes with inputAreaHeight from the same h",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The composer's descent starts on the first frame painted after Enter, never at the key, in the draft or in the pane that takes over from it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Skeleton gutter test: its new comment and name in English, as the language rails ask",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A failed answer post waits before the next one, doubling up to a minute, and a disposed relay stops for good, so a failure that ends a turn no longer re-posts in a loop",
           "en": "",
           "scope": null
         },
         {
           "it": "The question bench closes every turn its tests opened, a disposed relay ignores a late first event, and the wiring test follows the reattach legs into reattachSurvivors",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dragging the floating browser window no longer selects the chat text under it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The drag selection guard now holds through Escape and a lost window focus for as long as the bar's drag goes on",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The drag spec re-selects the chat where the page says nothing covers the line, start and end, instead of at a fixed offset",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The drag spec checks the guard's release the same way on every engine, and keeps the real re-selection stroke on WebKit",
           "en": "",
           "scope": null
         }
@@ -90,6 +145,26 @@
         },
         {
           "it": "An ai-bridge reply answers the request whose rid it echoes, so a late attach ack or a write's error no longer settles another request",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The transcript motion contract, measured at paint: streamed lines, tool bodies, a clicked row, a cold open, a phone return",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A cold open shows one chat skeleton, anchored where the messages land",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A streamed reply keeps its bottom on every painted frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A tool body opens and closes over its animation, and a pinned chat follows it",
           "en": "",
           "scope": null
         },

@@ -6,6 +6,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - An error echoing a request's rid rejects that request, and only a spawned that answered a waiter closes the spawn window
+- The composer motion contract, measured at paint: an empty chat's composer never glides up, a new chat's is placed from its first frame, attachments open and close over frames, a new line on the phone moves the last message in the same frame
+- The composer only slides down, starts its descent on the key and carries it across the draft's promotion, and the list's bottom gutter follows its height in the same frame
+- Composer attachments open and close the card over MOTION.fast, chips fade in and keep their node when a sibling goes (core:F13)
+- useComposerDock names in English: COMPOSER_HEIGHT_PROPERTY, frame
 - The spawn window closes only on the ack of the spawn in flight now, so an earlier spawn overtaken by a kill and a respawn cannot let its child's exit through
 - A Stop learned from a history answer holds the message queued before it, across a restart
 - An answer still owed at a restart is loaded again whatever the question's age, the row's state or the topic's archive flag
@@ -13,8 +17,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - An owed answer is keyed by chat and tool call, so a question answered in a chat and in its fork keeps both answers, and an unreadable row cannot stop the boot
 - server/utils.ts records 2877 lines in the bloat baseline: the turn ledger (queue) and the turn-end signal with the owed answers (questions) land together
 - The question bench's restart forgets the turn ledger too, as a new process does, so the chat route no longer refuses the next message with a 409
+- The skeleton gutter test reads the Footer as it is now: the composer's height property plus CHAT_BOTTOM_GUTTER_PX, and every write of that property goes with inputAreaHeight from the same h
+- The composer's descent starts on the first frame painted after Enter, never at the key, in the draft or in the pane that takes over from it
+- Skeleton gutter test: its new comment and name in English, as the language rails ask
 - A failed answer post waits before the next one, doubling up to a minute, and a disposed relay stops for good, so a failure that ends a turn no longer re-posts in a loop
 - The question bench closes every turn its tests opened, a disposed relay ignores a late first event, and the wiring test follows the reattach legs into reattachSurvivors
+- Dragging the floating browser window no longer selects the chat text under it
+- The drag selection guard now holds through Escape and a lost window focus for as long as the bar's drag goes on
+- The drag spec re-selects the chat where the page says nothing covers the line, start and end, instead of at a fixed offset
+- The drag spec checks the guard's release the same way on every engine, and keeps the real re-selection stroke on WebKit
 
 ## 2.2.416 — 2026-09-30
 
@@ -24,6 +35,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The board and pane-loading lane comes back: the BOARD-18 red it was reverted for was the reduced-motion scroll override, fixed on main in d52d7a7aa
 - A Stop heard before a server restart no longer holds, in the new boot, a message queued after it
 - An ai-bridge reply answers the request whose rid it echoes, so a late attach ack or a write's error no longer settles another request
+- The transcript motion contract, measured at paint: streamed lines, tool bodies, a clicked row, a cold open, a phone return
+- A cold open shows one chat skeleton, anchored where the messages land
+- A streamed reply keeps its bottom on every painted frame
+- A tool body opens and closes over its animation, and a pinned chat follows it
 - An answer the person gave first reaches the model first after a restart too, and stays owed until the turn that carries it has really started
 
 ## 2.2.415 — 2026-09-30
