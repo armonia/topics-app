@@ -7,11 +7,19 @@
  *
  * @covers ASK-11
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { createAnswerRelay, owedAnswerOf, type AnswerRelay, type OwedAnswer } from "./answer-relay";
 import { announceTurnEnded, turnEndedListenerCount } from "./turn-ended";
 
 let benchSeq = 0;
+
+/** Past the relay's wait after a failed post (1 s the first time, doubled after each failure in a row). */
+let clock = 0;
+function afterTheWait(ms = 1_001): void {
+  clock = (clock || Date.now()) + ms;
+  setSystemTime(new Date(clock));
+}
+afterEach(() => { clock = 0; setSystemTime(); });
 
 /**
  * The relay over a fake chat route that behaves like the real gate: a busy
@@ -36,6 +44,8 @@ function bench(statuses: number[] = []) {
       const id = body.questionAnswer.toolCallId;
       posted.push(id);
       const forced = statuses.shift();
+      // A forced 409 is the real gate's: a turn in flight, `stream_in_flight` (routes/chat.ts).
+      if (forced === 409) return new Response(JSON.stringify({ code: "stream_in_flight" }), { status: 409 });
       if (forced !== undefined && forced !== 200) return new Response("{}", { status: forced });
       if (busy) return new Response(JSON.stringify({ code: "stream_in_flight" }), { status: 409 });
       const claimed = relay.claim(sessionKey, id);
@@ -106,17 +116,71 @@ describe("answer relay", () => {
     expect(b.posted).toEqual(["toolu_a", "toolu_b"]);
   });
 
-  test("any other refusal leaves it owed, says so once, and the next turn end sends it", async () => {
+  test("any other refusal leaves it owed, says so once, and the first turn end after the wait sends it", async () => {
     const b = bench([503, 503]);
     b.relay.enqueue(b.owed("toolu_3"));
     await b.relay.idle();
     expect(b.settled).toEqual([]);
+    // A turn end inside the wait does not post: a refusal is not retried at once.
+    await b.endTurn();
+    expect(b.posted).toEqual(["toolu_3"]);
+    afterTheWait();
     await b.endTurn();
     expect(b.settled).toEqual([]);
     expect(b.logs.filter((l) => l.includes("toolu_3"))).toHaveLength(1);
     expect(b.logs[0]).toContain("owed to the next turn end");
+    // Refused twice in a row: the wait doubled, one second is not enough.
+    afterTheWait();
+    await b.endTurn();
+    expect(b.posted).toHaveLength(2);
+    afterTheWait();
     await b.endTurn();
     expect(b.settled).toEqual(["toolu_3"]);
+  });
+
+  test("a post that fails and ends a turn of its own is not posted again by that end: no loop (CI run 36726755945)", async () => {
+    const sessionKey = `topic:relay-loop-${++benchSeq}`;
+    let posts = 0;
+    const logs: string[] = [];
+    const relay = createAnswerRelay({
+      isBusy: () => false,
+      // The route fails the way a closed database made it fail: the stream it
+      // opened is ended (a turn end), then the request throws.
+      route: async () => {
+        posts++;
+        announceTurnEnded(sessionKey);
+        throw new Error("Cannot use a closed database");
+      },
+      settle: () => {},
+      log: (m) => { logs.push(m); },
+    });
+    try {
+      relay.enqueue({ sessionKey, toolCallId: "toolu_loop", rowId: "row-1", content: "answer" });
+      await new Promise((r) => setTimeout(r, 200));
+      await relay.idle();
+      expect(posts).toBe(1);
+      expect(logs).toHaveLength(1);
+      afterTheWait();
+      announceTurnEnded(sessionKey);
+      await new Promise((r) => setTimeout(r, 50));
+      await relay.idle();
+      expect(posts).toBe(2);
+      expect(logs).toHaveLength(1);
+    } finally {
+      relay.dispose();
+    }
+  });
+
+  test("a disposed relay posts nothing and listens to no turn end", async () => {
+    const b = bench();
+    const before = turnEndedListenerCount();
+    b.setBusy(true);
+    b.relay.enqueue(b.owed("toolu_d"));
+    expect(turnEndedListenerCount()).toBe(before + 1);
+    b.relay.dispose();
+    expect(turnEndedListenerCount()).toBe(before);
+    await b.endTurn();
+    expect(b.posted).toEqual([]);
   });
 
   test("a person's message takes every owed answer in order, and the relay then has nothing left to post", async () => {
@@ -149,8 +213,9 @@ describe("answer relay", () => {
     expect(b.posted).toEqual(["toolu_f"]);
     expect(b.logs.filter((l) => l.includes("toolu_f"))).toHaveLength(1);
     expect(b.logs[0]).toContain("before the model heard anything");
-    // Somebody else's turn ends later: now it goes, and the model hears it.
+    // Somebody else's turn ends later, after the wait: now it goes, and the model hears it.
     b.setModelFails(false);
+    afterTheWait();
     await b.endTurn();
     expect(b.posted).toEqual(["toolu_f", "toolu_f"]);
     expect(b.settled).toEqual(["toolu_f"]);

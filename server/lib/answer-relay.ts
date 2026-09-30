@@ -107,7 +107,17 @@ export interface AnswerRelay {
   hold: () => () => void;
   /** Resolves when no post is in flight. For tests and shutdown logs. */
   idle: () => Promise<void>;
+  /**
+   * Stops for good: no listener on turn ends, no timer, no post. A process has
+   * one relay for its life; a test that builds one per server it boots must
+   * drop it, or a later file's turn ends reach it over a closed database.
+   */
+  dispose: () => void;
 }
+
+/** The first wait after a post that failed, doubled at each failure in a row up to the cap. */
+const RETRY_FIRST_MS = 1_000;
+const RETRY_MAX_MS = 60_000;
 
 export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
   /** Per session, the answers still owed, oldest first. */
@@ -118,7 +128,29 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
   const posting = new Map<string, Promise<void>>();
   /** Answers whose delay was already logged, so a session that keeps refusing says it once. */
   const delayLogged = new Set<string>();
+  /**
+   * Per session, a post that failed and when the next may go. A failed attempt
+   * ends a turn of its own, and a turn end is what wakes the relay: without a
+   * wait it posted again at once, for ever (CI run 36726755945: every 40 ms
+   * against a closed database, until the job was cancelled). The wait doubles
+   * at each failure in a row and ends when the model hears the answer.
+   */
+  const retry = new Map<string, { at: number; ms: number; timer?: ReturnType<typeof setTimeout> }>();
   let holds = 0;
+  let disposed = false;
+
+  function failedFor(sessionKey: string): void {
+    const last = retry.get(sessionKey);
+    if (last?.timer) clearTimeout(last.timer);
+    const ms = last ? Math.min(last.ms * 2, RETRY_MAX_MS) : RETRY_FIRST_MS;
+    retry.set(sessionKey, { at: Date.now() + ms, ms });
+  }
+
+  function clearRetry(sessionKey: string): void {
+    const last = retry.get(sessionKey);
+    if (last?.timer) clearTimeout(last.timer);
+    retry.delete(sessionKey);
+  }
 
   function logDelay(owed: OwedAnswer, why: string): void {
     if (delayLogged.has(owed.toolCallId)) return;
@@ -153,15 +185,27 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
     // Somebody else's turn got in first, or a person's message carried the
     // answer already (`answer_not_owed`): nothing to say.
     if (code === "stream_in_flight" || code === "answer_not_owed") return;
+    failedFor(owed.sessionKey);
     logDelay(owed, `the chat route answered ${resp?.status ?? "nothing"}${code ? ` ${String(code)}` : ""}`);
   }
 
   /** Post the oldest answer the session owes, if the session is free and nothing of ours is on its way. */
   function pump(sessionKey: string): void {
     const head = owedBySession.get(sessionKey)?.[0];
-    if (!head || holds > 0 || posting.has(sessionKey) || deps.isBusy(sessionKey)) return;
+    if (disposed || !head || holds > 0 || posting.has(sessionKey) || deps.isBusy(sessionKey)) return;
+    const wait = retry.get(sessionKey);
+    if (wait && Date.now() < wait.at) {
+      if (!wait.timer) {
+        wait.timer = setTimeout(() => { wait.timer = undefined; pump(sessionKey); }, wait.at - Date.now());
+        wait.timer.unref?.();
+      }
+      return;
+    }
     const sending: Promise<void> = post(head)
-      .catch((err) => { deps.log?.(`${sessionKey} ${head.toolCallId}: ${err instanceof Error ? err.message : String(err)}`); })
+      .catch((err) => {
+        failedFor(sessionKey);
+        logDelay(head, err instanceof Error ? err.message : String(err));
+      })
       .finally(() => { if (posting.get(sessionKey) === sending) posting.delete(sessionKey); });
     posting.set(sessionKey, sending);
   }
@@ -194,6 +238,7 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
     const queued = owedBySession.get(carry.sessionKey) ?? [];
     const back = carry.answers.filter((o) => !queued.some((q) => q.toolCallId === o.toolCallId));
     owedBySession.set(carry.sessionKey, [...back, ...queued]);
+    failedFor(carry.sessionKey);
     for (const o of back) logDelay(o, why);
     listen();
   }
@@ -218,7 +263,7 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
    */
   let stopListening: (() => void) | null = null;
   function listen(): void {
-    const busy = owedBySession.size > 0 || carrying.size > 0;
+    const busy = !disposed && (owedBySession.size > 0 || carrying.size > 0);
     if (busy && !stopListening) stopListening = onTurnEnded(onEnd);
     else if (!busy && stopListening) { stopListening(); stopListening = null; }
   }
@@ -241,6 +286,7 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
     },
     heard(carry) {
       if (!release(carry)) return;
+      clearRetry(carry.sessionKey);
       for (const o of carry.answers) {
         delayLogged.delete(o.toolCallId);
         deps.settle(o);
@@ -262,6 +308,11 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
     },
     async idle() {
       while (posting.size > 0) await Promise.all([...posting.values()]);
+    },
+    dispose() {
+      disposed = true;
+      for (const sessionKey of [...retry.keys()]) clearRetry(sessionKey);
+      listen();
     },
   };
 }

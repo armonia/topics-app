@@ -160,13 +160,16 @@ async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string,
   return resp?.status ?? 0;
 }
 
+/** Every relay a test booted: disposed after it, so none outlives its file's database. */
+const bootedRelays: AnswerRelay[] = [];
+
 /** The server, as a process starts it: fresh routers over the same database. */
 export function bootServer(opts: { modelAnswersRelay?: boolean } = {}) {
   const lateMessages: Array<{ sessionKey: string; content: string }> = [];
   let relay: AnswerRelay | null = null;
   const chat = chatRouter(() => relay!);
   const topics = createTopicsRouter(ctx, undefined, undefined, {
-    exposeAnswerRelay: (r) => { relay = r; },
+    exposeAnswerRelay: (r) => { relay = r; bootedRelays.push(r); },
     // The answer goes through the REAL chat route to the model, and the model
     // closes that turn at once, as `postChat` does for a typed message.
     answerRelayRoute: async (req, url, pathname, method) => {
@@ -229,6 +232,7 @@ export function useQuestionBench(name: string): void {
   });
 
   afterEach(() => {
+    for (const r of bootedRelays.splice(0)) r.dispose();
     setSystemTime();
     _dropAskStateLikeARestart();
     streamEnds.length = 0;
