@@ -1430,7 +1430,7 @@ html, body {
   transition: padding-left 200ms ease, left 200ms ease;
 }
 
-/* Sidebar transitions */
+/* Sidebar transitions (desktop column; the phone drawer is `.sidebar-drawer`) */
 .sidebar-transition {
   transition: width 200ms ease, transform 200ms ease, opacity 150ms ease;
   /* No static will-change: `width` isn't compositable (animating it forces
@@ -1439,8 +1439,31 @@ html, body {
      already scopes the 200ms reflow. */
   contain: layout style;
 }
-.sidebar-transition[style*="width: 0"] {
-  opacity: 0;
+
+/* THE PHONE DRAWER slides on `transform` alone, at a constant 100vw.
+   It used to animate `width` 0 <-> 100vw together with the transform and an
+   opacity, so every row re-wrapped from 363px to 16px across the slide (steps
+   of 67-91px per frame, measured at 375x812), off the motion tokens, and the
+   same under reduced motion. A closed drawer is now hidden by `visibility`
+   (not a reflowing width), switched only after the exit slide ends so the
+   slide stays visible; on the way in it is visible from the first frame. */
+.sidebar-drawer {
+  transition: transform var(--motion-base) var(--ease-standard), visibility 0s linear var(--motion-base);
+  contain: layout style;
+}
+.sidebar-drawer[data-drawer="open"] {
+  transition: transform var(--motion-base) var(--ease-standard), visibility 0s;
+}
+.sidebar-drawer[data-drawer="closed"] {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No slide: the drawer and its scrim are simply there, or not. */
+  .sidebar-drawer,
+  .sidebar-drawer[data-drawer="open"],
+  .sidebar-scrim {
+    transition: none;
+  }
 }
 
 /* IL VELO DEL CASSETTO MOBILE, montato sempre e spento dal CSS.
@@ -1455,7 +1478,7 @@ html, body {
 .sidebar-scrim {
   opacity: 0;
   visibility: hidden;
-  transition: opacity 200ms ease, visibility 200ms;
+  transition: opacity var(--motion-base) var(--ease-standard), visibility var(--motion-base);
 }
 .sidebar-scrim[data-open="true"] {
   opacity: 1;
@@ -4134,9 +4157,9 @@ html.windows-acrylic .floating-splits [data-split-card] [data-split-card] {
   border-radius: var(--float-radius);
   border-bottom: none;
 }
-/* When the sidebar is COLLAPSED (inline `width: 0px`) drop its gap margin so no
+/* When the sidebar is COLLAPSED (the phone drawer, `data-drawer="closed"`) drop its gap margin so no
  * empty strip lingers on the left — the content sits flush to the edge. */
-.floating-splits [role="navigation"][aria-label="Topics sidebar"][style*="width: 0px"] {
+.floating-splits [role="navigation"][aria-label="Topics sidebar"][data-drawer="closed"] {
   /* The extra [style*=...] attribute selector already out-specifies the base
    * sidebar rule above, and there's no inline margin to fight — no !important. */
   margin: 0;

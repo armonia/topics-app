@@ -35,7 +35,7 @@ import { applyZoomWeights, cellKeysForPanes, liveCellKeys, type ZoomGridItem, ty
 import { resolveEntryScope, resolveZoomCells, type ZoomScope } from './zoomScope';
 import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { useTopics, useTerminalSessions, useTopicsPending } from '../../contexts/TopicsContext';
 import { notifyPaneReflow } from './paneReflow';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
@@ -908,6 +908,14 @@ export function GroupLayout({
   // zero weight in the tree, `display:none` on the cell wrapper, no box on the
   // panes that cell hosts. None of the three covers the others.
   const topics = useTopics();
+  const topicsPending = useTopicsPending();
+  // "No chats open" only once it is KNOWN: one effects pass after mount and after
+  // the topics answer (the same pass as the project chat sync), and never while
+  // panes or groups still wait to become rows. Before: shown for up to 900 ms at boot.
+  const [emptyTrusted, setEmptyTrusted] = useState(false);
+  useEffect(() => {
+    if (!topicsPending && !emptyTrusted) setEmptyTrusted(true);
+  }, [topicsPending, emptyTrusted]);
   const terminalSessions = useTerminalSessions();
   const spawnedBrowserByTopic = useSpawnedBrowserMap();
 
@@ -1222,7 +1230,9 @@ export function GroupLayout({
           </div>
         </div>
         {belowSlot && <LeadingSlot node={belowSlot} />}
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
+        {/* Unknown is not absent: the chrome row stays, the claim waits. */}
+        {emptyTrusted && groups.length === 0 && panes.length === 0 && (
+        <div data-testid="group-layout-empty" className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
           <div className="text-body-lg leading-5">No chats open</div>
           {onNewChatInGroup && (
             <button
@@ -1233,6 +1243,7 @@ export function GroupLayout({
             </button>
           )}
         </div>
+        )}
       </div>
     );
   }

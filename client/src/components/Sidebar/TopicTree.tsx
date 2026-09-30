@@ -60,6 +60,7 @@ import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@/state/waitingQueue';
 import { SpaceGroupCard } from './SpaceGroups';
 import { useGoToSpace, useSpaceCards } from './useSpaceCards';
+import { useSidebarRowFlip } from './useSidebarRowFlip';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
@@ -636,6 +637,9 @@ export function TopicTree({
   /** La colonna che scorre: col dito serve il suo RETTANGOLO, perché il gesto
    *  non le manda nessun evento (vedi `sfissaDalDito`). */
   const colonna = useRef<HTMLDivElement>(null);
+  // Reorders, accordions, pins and archives move the rows instead of making
+  // them jump (see useSidebarRowFlip).
+  useSidebarRowFlip(colonna);
 
   /**
    * IL DITO È QUI SOPRA LA LISTA? — la stessa domanda che col mouse è implicita.
@@ -1498,7 +1502,7 @@ export function TopicTree({
             mezzo a righe trasparenti si leggerebbe come una riga SELEZIONATA —
             cioè l'ambiguità che tutto questo file esiste per togliere. A dire
             «sono un'intestazione» ci pensa l'altezza. */}
-        <div className={`group flex items-center ${SECTION_H} ${ROW_PX} ${sidebarRowCard({})}`}>
+        <div data-sidebar-flip className={`group flex items-center ${SECTION_H} ${ROW_PX} ${sidebarRowCard({})}`}>
           <button
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
@@ -2060,7 +2064,7 @@ export function TopicTree({
                 >
                   {rows.length > 0
                     ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
-                    : <div className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
+                    : <div data-sidebar-flip className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
             })}

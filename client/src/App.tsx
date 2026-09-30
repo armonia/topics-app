@@ -1330,7 +1330,7 @@ function App() {
   const unsent = useUnsentController(expiredMessages, retryExpired, dismissExpiredSession, isMobile && !sidebarCollapsed);
 
   return (
-    <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects}>
+    <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects} topicsPending={topicsLoading && Object.keys(topics).length === 0}>
     <UnsentContext.Provider value={unsent}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <SplitPositionProvider>
@@ -1467,9 +1467,13 @@ function App() {
         // Con le pane FLOTTANTI l'ombra è giusta e resta: lì la sidebar sta
         // davvero su un piano diverso, staccata dal suo gap. Senza, i due piani
         // sono uno, e ciò che serve è un confine — un pixel, non venticinque.
-        className={`group/sidebar bg-app-chrome flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
-          isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
-            : `fixed inset-y-0 left-0 z-40 ${appSettings.floatingSplits ? 'shadow-2xl' : 'border-r border-app-border'}`
+        // The phone drawer has its own rule (`.sidebar-drawer`, index.css): it
+        // slides on transform alone at a constant width, and hides itself with
+        // `visibility` once it is off screen, which is what `data-drawer` drives.
+        data-drawer={isMobile ? (sidebarCollapsed ? 'closed' : 'open') : undefined}
+        className={`group/sidebar bg-app-chrome flex flex-col flex-shrink-0 overflow-hidden ${
+          isMobile ? 'sidebar-drawer fixed inset-y-0 left-0 z-50 w-full'
+            : `sidebar-transition fixed inset-y-0 left-0 z-40 ${appSettings.floatingSplits ? 'shadow-2xl' : 'border-r border-app-border'}`
         }`}
         style={{
           // Non-mobile: the sidebar is position:fixed with a CONSTANT width and collapses

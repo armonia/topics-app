@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment, Suspense, lazy } from 'react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack, CompactionMarker } from '../../types';
-import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { useTopics, useTerminalSessions, useTopicsPending } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
@@ -414,6 +414,11 @@ export function PanelGrid({
   // is still empty. Persistence is NOT gated — see usePanelGridPersistence
   // for the rationale.
   const isServerHydrated = useServerHydrated();
+  // Boot: until the pane store and the topics list have answered, an empty
+  // grid is "not known yet", not "nothing open". The welcome text there was a
+  // false statement shown for up to a second before the real tabs arrived.
+  const topicsPending = useTopicsPending();
+  const bootUnknown = !isServerHydrated || topicsPending;
 
   // Active Spazio — the grid layout is PER-SPACE (App remounts this component
   // via key={activeSpaceId}, so the value is mount-stable and the persistence
@@ -3000,7 +3005,8 @@ export function PanelGrid({
           if (id) onOpenPanelAt(id, 0);
         }}
       >
-        <div className={`text-center transition-all duration-300 max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
+        {!bootUnknown && (
+        <div data-testid="grid-welcome" className={`text-center transition-all duration-300 max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
           {emptyDragOver ? (
             <>
               <div className="text-display-lg mb-3 float-icon">{'\uD83D\uDCCC'}</div>
@@ -3033,6 +3039,7 @@ export function PanelGrid({
             </>
           )}
         </div>
+        )}
       </div>
       {unsentBand}
       </div>

@@ -2201,6 +2201,12 @@ stringe, quindi la trasformata scopre una striscia larga quanto lo spostamento �
 la «banda grigia» segnalata riaprendo la sidebar. Una trasformata non puo'
 dipingere cio' che non e' dentro la scatola.
 
+On the HIDE the layer SHALL be NARROWED by the same shift instead (`100% -
+delta` in the first frame, growing to `100%` with the slide): shifted at its
+final, wider box, whatever is centred inside it (the chat column) jumps right by
+half the shift in the first frame and only then slides left. Measured at
+1440x900: +128px, then -256px, on every hide.
+
 La larghezza aggiunta SHALL essere azzerata PRIMA della misura successiva: un
 ciclo rapido chiudi-riapri misurerebbe altrimenti un layer che indossa ancora
 l'extra del giro precedente, e l'errore si accumulerebbe a ogni giro.

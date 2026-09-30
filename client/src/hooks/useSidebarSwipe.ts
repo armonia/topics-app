@@ -70,7 +70,10 @@ const CURVA = 'cubic-bezier(0.2, 0, 0, 1)';
  */
 export function mobileDrawerStyle(collapsed: boolean): { width: string; transform: string } {
   return {
-    width: collapsed ? '0px' : '100vw',
+    // Constant width: the drawer slides, it does not shrink. Animating `width`
+    // re-wrapped every row on every frame of the slide; a closed drawer is
+    // now hidden by `visibility` (`.sidebar-drawer[data-drawer="closed"]`).
+    width: '100vw',
     transform: collapsed ? 'translateX(-100%)' : 'translateX(0)',
   };
 }
@@ -94,6 +97,10 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
     chiuso.current = collapsed;
     applica.current = setCollapsed;
   }, [collapsed, setCollapsed]);
+  useEffect(() => {
+    // `data-drawer` now matches the state: visibility belongs to CSS again.
+    if (enabled) sidebarRef.current?.style.removeProperty('visibility');
+  }, [collapsed, enabled, sidebarRef]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -156,6 +163,7 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
       if (node) {
         node.style.transition = 'none';
         node.style.width = '100vw';
+        node.style.visibility = 'visible';
         node.style.transform = `translateX(${(p - 1) * 100}%)`;
       }
       const s = velo();
@@ -188,6 +196,11 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
         node.style.transition = 'none';
         node.style.width = s.width;
         node.style.transform = s.transform;
+        // The inline `visible` the drag wrote goes back to CSS only once React
+        // has written the matching `data-drawer`: cleared now when the state is
+        // not changing, otherwise by the effect below on the next commit, so a
+        // drawer swiped open is never hidden for the frame in between.
+        if (!aperto === chiuso.current) node.style.visibility = '';
         requestAnimationFrame(() => { node.style.transition = ''; });
       }
       const v = velo();
