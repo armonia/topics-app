@@ -1446,13 +1446,19 @@ html, body {
    of 67-91px per frame, measured at 375x812), off the motion tokens, and the
    same under reduced motion. A closed drawer is now hidden by `visibility`
    (not a reflowing width), switched only after the exit slide ends so the
-   slide stays visible; on the way in it is visible from the first frame. */
+   slide stays visible; on the way in it is visible from the first frame.
+   PACE: a transform-only slide uncovers the chat along 375*(1-p), where the
+   old width+transform slide went along 375*(1-p)^2, so it needs a shorter and
+   harder-decelerating motion to keep that pace: `--motion-fast` on
+   `--ease-spring` uncovers half the chat at ~24ms and 90% at ~55ms (the old
+   slide: ~28 and ~74ms). `--ease-standard` is not an option here: a second
+   `:root` further down redefines it as a slow-start curve (90% at ~150ms). */
 .sidebar-drawer {
-  transition: transform var(--motion-base) var(--ease-standard), visibility 0s linear var(--motion-base);
+  transition: transform var(--motion-fast) var(--ease-spring), visibility 0s linear var(--motion-fast);
   contain: layout style;
 }
 .sidebar-drawer[data-drawer="open"] {
-  transition: transform var(--motion-base) var(--ease-standard), visibility 0s;
+  transition: transform var(--motion-fast) var(--ease-spring), visibility 0s;
 }
 .sidebar-drawer[data-drawer="closed"] {
   visibility: hidden;
@@ -1478,7 +1484,7 @@ html, body {
 .sidebar-scrim {
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--motion-base) var(--ease-standard), visibility var(--motion-base);
+  transition: opacity var(--motion-fast) var(--ease-spring), visibility var(--motion-fast);
 }
 .sidebar-scrim[data-open="true"] {
   opacity: 1;

@@ -341,6 +341,53 @@ test.describe("Sidebar motion contract", () => {
       expect(transition, "width is not part of the drawer's transition").not.toContain("width");
     });
 
+    test("tapping a chat uncovers it at least as fast as the old width slide did", async ({ page }) => {
+      // Tapping a row is the most frequent navigation on a phone, and what the
+      // user waits for is the chat behind the drawer. The old slide shrank the
+      // width AND translated, so its right edge followed 375*(1-p)^2 over
+      // 200ms `ease`: half the chat uncovered at ~28ms, 90% at ~74ms, all of it
+      // at 200ms. A transform-only slide covers only 375*(1-p), so it needs a
+      // shorter, harder-decelerating curve to keep that pace.
+      //
+      // Judged on the transition's OWN clock (`currentTime` of the drawer's
+      // transform transition), not on the wall clock: a loaded CI machine
+      // stretches the wall clock and would make the test about the machine.
+      await openPhone(page);
+      await page.evaluate(() => {
+        const w = window as unknown as { __reveal: { ct: number | null; right: number }[]; __revealStop: boolean };
+        w.__reveal = [];
+        w.__revealStop = false;
+        const nav = document.querySelector('[aria-label="Topics sidebar"]') as HTMLElement;
+        const tick = () => {
+          const transition = nav.getAnimations().find((a) => (a as Animation & { transitionProperty?: string }).transitionProperty === "transform");
+          const ct = transition ? Number(transition.currentTime) : null;
+          w.__reveal.push({ ct, right: Math.max(0, nav.getBoundingClientRect().right) });
+          if (!w.__revealStop) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      await page.locator(row(NAMES.top)).tap();
+      await expect.poll(() => page.locator(SIDEBAR).evaluate((el) => Math.max(0, el.getBoundingClientRect().right)), { timeout: 5_000 }).toBe(0);
+      const samples = await page.evaluate(() => {
+        const w = window as unknown as { __reveal: { ct: number | null; right: number }[]; __revealStop: boolean };
+        w.__revealStop = true;
+        return w.__reveal;
+      });
+      const width = 375;
+      // First frame in which at most `left` of the drawer still covers the chat.
+      const at = (left: number) => samples.find((s) => s.right <= left * width);
+      const half = at(0.5);
+      const ninety = at(0.1);
+      const trace = samples.filter((s) => s.ct !== null).slice(0, 12).map((s) => `${Math.round(s.ct!)}ms:${Math.round(s.right)}`).join(" ");
+      expect(half?.ct ?? null, `half of the chat uncovered while the slide runs (${trace})`).not.toBeNull();
+      expect(ninety?.ct ?? null, `90% of the chat uncovered while the slide runs (${trace})`).not.toBeNull();
+      // One 60Hz frame (17ms) of slack on top of the old slide's pace.
+      expect(half!.ct!, `THE DEFECT: half of the chat is uncovered later than the old slide did it (${trace})`).toBeLessThanOrEqual(28 + 17);
+      expect(ninety!.ct!, `THE DEFECT: 90% of the chat is uncovered later than the old slide did it (${trace})`).toBeLessThanOrEqual(74 + 17);
+      const duration = await page.locator(SIDEBAR).evaluate((el) => getComputedStyle(el).transitionDuration);
+      expect(duration.split(",").map((d) => parseFloat(d) * (d.trim().endsWith("ms") ? 1 : 1000)).every((ms) => ms <= 200), `the whole slide lasts no longer than the old 200ms (${duration})`).toBe(true);
+    });
+
     test("Add, then Chat, with the list showing: the drawer gets out of the way", async ({ page }) => {
       await openPhone(page);
       await page.getByRole("button", { name: /^(Aggiungi|Add)$/ }).first().tap();

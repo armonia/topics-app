@@ -619,13 +619,13 @@ test.describe("Cross-Feature Interactions", () => {
     // Wait for layout to adapt -- main content should still be visible
     await expect(layoutPage.mainContent).toBeVisible({ timeout: 5_000 });
 
-    // On mobile, sidebar auto-collapses (useEffect sets sidebarCollapsed=true)
-    // Wait for the sidebar to become hidden (width transitions to 0)
+    // On mobile the drawer auto-collapses: it keeps 100vw and slides off on
+    // `transform`, so "hidden" is its RIGHT edge at 0, not a width near 0.
     await expect(async () => {
-      const width = await layoutPage.sidebar.evaluate(
-        (el) => el.getBoundingClientRect().width
+      const right = await layoutPage.sidebar.evaluate(
+        (el) => el.getBoundingClientRect().right
       );
-      expect(width).toBeLessThan(10);
+      expect(right).toBeLessThan(10);
     }).toPass({ timeout: 5_000 });
 
     test.info().annotations.push({
