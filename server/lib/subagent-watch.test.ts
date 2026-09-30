@@ -225,7 +225,7 @@ describe("extractTextContent", () => {
 describe("deliverExit - the report of a spawn_agent child", () => {
   const outcome = { status: "completed" as const, partial: false, text: "Report: 3 files" };
 
-  function exitWatcher(turnOpen: { value: boolean }) {
+  function exitWatcher() {
     const topic = { id: TOPIC_ID, sessionKey: SESSION_KEY, name: "Chat" } as unknown as Topic;
     const appended: string[] = [];
     const watcher = createSubagentWatcher({
@@ -242,28 +242,13 @@ describe("deliverExit - the report of a spawn_agent child", () => {
       bumpUnread: () => {},
       resolveProvider: () => ({ name: "anthropic" }) as unknown as AIProvider,
       pollIntervalMs: 60_000,
-      isTurnOpen: () => turnOpen.value,
-      turnWaitStepMs: 5,
     });
     live = watcher;
     return { watcher, appended };
   }
 
-  it("waits for the parent's open turn to close before writing its row", async () => {
-    // The parent stops its child from inside a turn. A row written under that
-    // turn was overwritten by the turn's own body: the report vanished (858162f5).
-    const turn = { value: true };
-    const { watcher, appended } = exitWatcher(turn);
-    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c1", name: "dnd-audit", outcome, exitCode: null });
-    await Bun.sleep(30);
-    expect(appended).toEqual([]);
-    turn.value = false;
-    for (let i = 0; i < 100 && appended.length === 0; i++) await Bun.sleep(5);
-    expect(appended).toEqual(['**Sotto-agente "dnd-audit", esito:**\n\nReport: 3 files']);
-  });
-
-  it("writes at once when no turn is open, and only once per child", () => {
-    const { watcher, appended } = exitWatcher({ value: false });
+  it("writes at once, and only once per child", () => {
+    const { watcher, appended } = exitWatcher();
     watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c2", name: "lane-a", outcome, exitCode: 0 });
     watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c2", name: "lane-a", outcome, exitCode: 0 });
     expect(appended).toHaveLength(1);

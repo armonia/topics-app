@@ -13,7 +13,7 @@
  * `os.homedir()` is fixed per process under Bun, so the cwd is a throwaway
  * test directory and its project folder is removed afterwards (the same
  * precedent as `server/lib/claude-transcript-path.test.ts`).
- * @covers SUBAGENT-04, SUBAGENT-05, SUBAGENT-17
+ * @covers SUBAGENT-04, SUBAGENT-05, SUBAGENT-07, SUBAGENT-17
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -24,6 +24,7 @@ import { createInterface } from "node:readline";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
+import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
 
 const ROOT = testTmpDir("subagent-life");
@@ -285,4 +286,78 @@ describe("spawn_agent from a chat", () => {
     const [report] = await until("the report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
     expect(report!.outcome).toEqual({ status: "lost", partial: true, text: "Lancio la build", reason: { code: "terminal-lost" } });
   }, 30_000);
+
+  test("a stop from inside the parent's open turn is written at once, and the turn's end leaves that row alone", async () => {
+    // The real wiring: the topics router registers the watcher that writes the
+    // report into the parent chat. The collector goes back in `finally`.
+    const terminal = await import("../../server/routes/terminal");
+    const { createTopicsRouter } = await import("../../server/routes/topics");
+    const { createChatRouter } = await import("../../server/routes/chat");
+    createTopicsRouter(ctx);
+    let turn: StreamHandler | undefined;
+    const provider = {
+      name: "fake-stream",
+      capabilities: new Set(["streaming"]),
+      contextStrategy: "history-aware",
+      get connected() { return true; },
+      registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { turn = h; },
+      unregisterStreamHandler: () => {},
+      // The turn stays open until the test ends it with `onDone`.
+      sendChat: () => new Promise<{ runId?: string }>(() => {}),
+      defaultModel: () => "fake-model",
+      abort: async () => {},
+      start: () => {}, stop: () => {},
+      complete: async () => ({ content: "" }),
+    } as unknown as AIProvider;
+    const chat = createChatRouter(ctx, {
+      resolveProvider: () => provider,
+      detectLocalhostAutoNav: () => {},
+      bindTopicToProject: () => {},
+      resolveProjectRef: () => null,
+      getProjectIdForTopic: () => null,
+      getWorkspaceProjects: () => [],
+      autoBindProject: () => {},
+      watchSessionForSubagents: () => {},
+      updateUnreadCount: () => {},
+      browserNavigatedTopics: new Set<string>(),
+      WORKSPACE_DIR: join(ROOT, "ws"),
+    } as never);
+    const rows = () => ctx.db.query(
+      "SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order, rowid",
+    ).all(PARENT) as Array<{ id: string; content: string }>;
+    try {
+      const url = new URL("http://h/api/chat");
+      const res = await chat(new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionKey: PARENT, messages: [{ role: "user", content: "Ferma lo scout e dimmi cosa ha trovato." }] }),
+      }), url, url.pathname, "POST");
+      expect(res?.status).toBe(200);
+      res?.body?.cancel().catch(() => {});
+      const handler = await until("the parent's turn", () => turn);
+      const turnRowId = rows().at(-1)!.id;
+      let text = "";
+      for (let i = 1; i <= 12; i++) { const d = `Fermo lo scout ${i}. `; text += d; handler.onTextDelta(d, text); }
+
+      const { agentId, child } = await spawn("scout-open-turn", "Cerca i call site di deliverExit.");
+      await until("the prompt record", () => hasPrompt(child));
+      append(child, { type: "assistant", message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "Found 2 call sites" }] } });
+      expect((await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/${agentId}/stop`, "POST")).status).toBe(200);
+
+      // Was held in a timer until the turn closed (up to 30 minutes), and a
+      // restart in between lost it: `/stop` had already deleted the child's row.
+      const report = await until("the report row, under the open turn", () =>
+        rows().find((r) => r.id !== turnRowId && r.content.includes("scout-open-turn")), 10_000);
+      expect(ctx.activeStreams.has(PARENT)).toBe(true);
+      expect(report.content).toContain("Found 2 call sites");
+
+      handler.onDone({ content: [{ type: "text", text: text + "Fatto." }] } as never);
+      await until("the turn to close", () => !ctx.activeStreams.has(PARENT), 10_000);
+      const after = rows();
+      expect(after.find((r) => r.id === report.id)?.content).toBe(report.content);
+      expect(after.find((r) => r.id === turnRowId)?.content).toContain("Fermo lo scout 12.");
+    } finally {
+      terminal.setSubAgentExitHandler((info) => { reports.push(info); });
+    }
+  }, 40_000);
 });

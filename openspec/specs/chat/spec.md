@@ -1438,7 +1438,7 @@ Gateway-side sub-agents announce their completion inside the PARENT session's tr
 
 ### Requirement: SUBAGENT-07 — A sub-agent's exit report is its own row and does not swallow the live turn
 
-The exit report is persisted and broadcast as an ordinary new message. The server SHALL NOT write it while the PARENT's turn is still open: the row waits for that turn to close (capped at 30 minutes), since a turn persisting into the session's last row overwrote a report written under it. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
+The exit report is persisted and broadcast as an ordinary new message at once, while the PARENT's turn is still open: the parent usually stops its child from inside a turn, and a report held in memory until that turn closes is lost for good by a restart. The open turn writes its own row by id, so the report's row keeps its content when the turn ends. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
 
 #### Scenario: The report lands beside the live turn, which keeps filling
 - **GIVEN** a turn that announced its id and has already streamed part of its text
@@ -1456,6 +1456,12 @@ The exit report is persisted and broadcast as an ordinary new message. The serve
 - **GIVEN** a bubble filled from the catch-up frame with the whole text of the turn
 - **WHEN** a persisted message for that same id arrives carrying a shorter preview
 - **THEN** the text already displayed SHALL NOT be shortened
+
+#### Scenario: A report delivered under the parent's open turn is written at once and outlives that turn
+- **GIVEN** a parent turn still streaming, from which the parent stops its child
+- **WHEN** the child's end is reported
+- **THEN** the report's row SHALL be in the database before the turn closes
+- **AND** when the turn ends, the report's row SHALL keep its content and the turn's row SHALL hold the turn's text
 
 ### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
 

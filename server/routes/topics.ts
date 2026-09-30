@@ -583,8 +583,6 @@ export function createTopicsRouter(
     broadcastToAll,
     bumpUnread: updateUnreadCount,
     resolveProvider,
-    // The report waits for the parent's open turn to close (SUBAGENT-07).
-    isTurnOpen: (sessionKey) => activeStreams.has(sessionKey),
     reportLanguage: () => (resolveOutputLanguage() === "en" ? "en" : "it"),
   });
   const watchSessionForSubagents = subagents.watch;
