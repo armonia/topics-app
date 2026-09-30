@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "fs";
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
+import { writeFileAtomic } from "./lib/atomic-write";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
@@ -1121,14 +1121,7 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Atomic write (kept for backward compat with non-DB file writes) ---
   function atomicWriteJSON(filepath: string, data: object): void {
-    const tempPath = filepath + ".tmp." + process.pid + "." + Date.now();
-    try {
-      writeFileSync(tempPath, JSON.stringify(data, null, 2));
-      renameSync(tempPath, filepath);
-    } catch (err) {
-      try { unlinkSync(tempPath); } catch {}
-      throw err;
-    }
+    writeFileAtomic(filepath, JSON.stringify(data, null, 2));
   }
 
   // --- Topics (SQLite-backed) ---

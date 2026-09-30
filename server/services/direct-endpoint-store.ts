@@ -10,8 +10,9 @@
  * next key save would drop anything else written next to them. It gets a
  * sibling file of its own, 0600, keyed by endpoint id.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeFileAtomic } from "../lib/atomic-write";
 import { resolveStateDir } from "../lib/data-dir";
 import { validateDirectEndpoint, type DirectEndpointConfig } from "../../shared/direct-endpoints";
 
@@ -21,16 +22,6 @@ const SECRETS_FILE = "direct-endpoint-secrets.json";
 function stateRoot(): string { return resolveStateDir(process.cwd()); }
 
 function secretsDirectory(root: string): string { return join(root, ".topics-secrets"); }
-
-function writeAtomic(file: string, body: string, mode: number): void {
-  const temp = `${file}.${crypto.randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, body, { mode, flag: "wx" });
-    renameSync(temp, file);
-  } finally {
-    try { unlinkSync(temp); } catch { /* renamed, or never created */ }
-  }
-}
 
 /**
  * Every endpoint the file declares, in file order.
@@ -60,7 +51,7 @@ export function getDirectEndpoint(id: string, root = stateRoot()): DirectEndpoin
 
 function writeAll(endpoints: DirectEndpointConfig[], root: string): void {
   mkdirSync(root, { recursive: true });
-  writeAtomic(join(root, STORE_FILE), JSON.stringify(endpoints, null, 2), 0o600);
+  writeFileAtomic(join(root, STORE_FILE), JSON.stringify(endpoints, null, 2), { mode: 0o600 });
 }
 
 /** Insert or replace by id, keeping the position of an endpoint already there. */
@@ -99,7 +90,7 @@ function writeSecrets(secrets: Record<string, string>, root: string): void {
   const dir = secretsDirectory(root);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
-  writeAtomic(join(dir, SECRETS_FILE), JSON.stringify(secrets), 0o600);
+  writeFileAtomic(join(dir, SECRETS_FILE), JSON.stringify(secrets), { mode: 0o600 });
 }
 
 export function readEndpointSecret(id: string, root = stateRoot()): string | undefined {

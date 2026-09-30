@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, renameSync, unlinkSync } from "fs";
+import { readFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
+import { writeFileAtomic } from "../lib/atomic-write";
 import type { UsageRecord, UsageSummary, DaySummary } from "./types";
 
 let USAGE_DIR = "";
@@ -17,7 +18,8 @@ function enqueue(fn: () => void): Promise<void> {
 export const ORPHAN_TMP_AGE_MS = 60_000;
 
 /**
- * `atomicWrite` names its temp `<file>.tmp.<pid>.<epochMs>`, so the name says
+ * `atomicWrite` (`lib/atomic-write.ts`) names its temp
+ * `<file>.tmp.<pid>.<epochMs>.<seq>`, so the name says
  * both who wrote it and when. Anything we cannot date is KEPT: leaving a few
  * stale kilobytes costs nothing, deleting a live write cost 253 tests.
  */
@@ -69,14 +71,7 @@ function dayFilePath(date: string): string {
 }
 
 function atomicWrite(filepath: string, data: object) {
-  const tmp = filepath + ".tmp." + process.pid + "." + Date.now();
-  try {
-    writeFileSync(tmp, JSON.stringify(data, null, 2));
-    renameSync(tmp, filepath);
-  } catch (err) {
-    try { unlinkSync(tmp); } catch {}
-    throw err;
-  }
+  writeFileAtomic(filepath, JSON.stringify(data, null, 2));
 }
 
 function loadDayRecords(date: string): UsageRecord[] {

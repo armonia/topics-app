@@ -24,10 +24,8 @@
  */
 import { homedir, uptime } from "node:os";
 import { join, sep } from "node:path";
-import {
-  mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
-  chmodSync,
-} from "node:fs";
+import { writeFileAtomic } from "../lib/atomic-write";
+import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { probePort, realProbeDeps, type PortVerdict } from "../lib/port-squatter";
 
@@ -121,25 +119,6 @@ function ensureHomeDir(): void {
 }
 
 /**
- * Write `data` to `path` atomically: write to `<path>.<pid>.<ts>.tmp`
- * then rename. Caller is responsible for removing the file at exit.
- *
- * @param mode permission bits applied AFTER rename so a sneaky reader
- *             can't observe the file at world-readable mode briefly.
- */
-function atomicWrite(path: string, data: string, mode = 0o644): void {
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    writeFileSync(tmp, data, { mode });
-    chmodSync(tmp, mode);
-    renameSync(tmp, path);
-  } catch (err) {
-    try { unlinkSync(tmp); } catch {}
-    throw err;
-  }
-}
-
-/**
  * Try to read the lock file. Returns null if missing or unparseable.
  */
 function readLock(): LockFile | null {
@@ -217,7 +196,7 @@ export function acquireLock(): LockFile {
     );
   }
   const lock: LockFile = { pid: process.pid, acquiredAt: new Date().toISOString() };
-  atomicWrite(lockPath(), JSON.stringify(lock), 0o600);
+  writeFileAtomic(lockPath(), JSON.stringify(lock), { mode: 0o600 });
   return lock;
 }
 
@@ -234,7 +213,7 @@ export function writeState(port: number): DaemonState {
     token: randomBytes(32).toString("hex"),
     startedAt: new Date().toISOString(),
   };
-  atomicWrite(statePath(), JSON.stringify(state), 0o600);
+  writeFileAtomic(statePath(), JSON.stringify(state), { mode: 0o600 });
   return state;
 }
 
