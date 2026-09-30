@@ -8,7 +8,7 @@ import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
-import { backgroundStatusRows, stopBackgroundOnly, type StreamingStatusRow } from "../providers/background-probes";
+import { withBackgroundWork, stopBackgroundOnly, type TurnStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
@@ -1157,7 +1157,7 @@ export function createTopicsRouter(
       // agente che in realtà sta aspettando noi da mezz'ora. `awaitingSince` è
       // l'istante in cui ha smesso di lavorare, così chi disegna può dire da
       // quanto senza tenere un proprio cronometro.
-      const sessions: StreamingStatusRow[] = [];
+      const sessions: TurnStatusRow[] = [];
       for (const sessionKey of activeStreams.keys()) {
         const topic = getTopicBySessionKey(sessionKey);
         if (!topic?.sessionKey) continue;
@@ -1192,8 +1192,7 @@ export function createTopicsRouter(
           ...(awaitingSince != null ? { awaitingSince } : {}),
         });
       }
-      sessions.push(...backgroundStatusRows(sessions, getTopicBySessionKey));
-      return json({ sessions });
+      return json({ sessions: withBackgroundWork(sessions, getTopicBySessionKey) });
     }
 
     /**
