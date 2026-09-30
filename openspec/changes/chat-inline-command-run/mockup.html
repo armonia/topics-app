@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8">
+<title>chat-inline-command-run — mockup</title>
+<!-- Static mockup of the five states of a runnable shell block. Not wired to anything. -->
+<style>
+  :root{
+    --bg:#191919; --panel:#1f1f1f; --code:#141414; --border:#2e2e2e;
+    --text:#e8e6e3; --muted:#9b9691; --dim:#6f6a66; --accent:#818cf8;
+    --ok:#5b9f6a; --err:#d25555; --warn:#d8a24a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,sans-serif;padding:24px 32px}
+  h2{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:28px 0 8px}
+  .msg{max-width:760px;color:var(--muted);margin:0 0 8px}
+  .block{max-width:760px;border-radius:7px;overflow:hidden;border:1px solid var(--border)}
+  .hdr{display:flex;align-items:center;justify-content:space-between;background:var(--code);
+       padding:4px 10px;border-bottom:1px solid #ffffff0d;font-size:11px}
+  .lang{color:#a5b4fcb3;text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-right:8px}
+  .lines{color:#9ca3af}
+  .btns{display:flex;gap:4px}
+  .b{color:#9ca3af;padding:2px 7px;border-radius:4px;display:inline-flex;gap:4px;align-items:center}
+  .b.run{color:#c7d2fe;background:#6366f126}
+  .b.danger{color:#fff;background:#b3404080}
+  .b.focus{outline:2px solid var(--accent);outline-offset:1px;color:var(--text)}
+  pre{margin:0;background:var(--code);padding:9px 10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#f3f4f6}
+  .strip{display:flex;align-items:center;gap:10px;background:#3a1f1f;color:#f1c4c4;padding:6px 10px;font-size:12px}
+  .strip b{color:#fff}
+  .strip .sp{flex:1}
+  .run{border-top:1px solid var(--border);background:#171717}
+  .rh{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:11px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .dot.ok{background:var(--ok)} .dot.run{border:2px solid var(--accent);border-right-color:transparent}
+  .code{font-family:ui-monospace,Menlo,monospace}
+  .err .rh{color:#f1b0b0}
+  .rbar{border-left:3px solid var(--err)}
+  .rh .sp{flex:1}
+  .out{margin:0;padding:6px 10px 9px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#d4d4d4;background:#171717;white-space:pre}
+  .out.live{height:120px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+  .more{font-size:11px;color:#a5b4fcb3;padding:4px 10px 0}
+  .red{color:#f87171}.grn{color:#86efac}.yel{color:#fde68a}.bold{font-weight:700}
+  .note{max-width:760px;color:var(--dim);font-size:11.5px;margin-top:6px}
+</style></head><body>
+
+<h2>1 · Fermo: risposta finita, blocco bash</h2>
+<p class="msg">Per verificare il client dei nodi lancia:</p>
+<div class="block">
+  <div class="hdr"><div><span class="lang">bash</span><span class="lines">1 riga</span></div>
+    <div class="btns"><span class="b">#</span><span class="b">↩</span><span class="b">Copia</span>
+      <span class="b" title="Apri nel terminale">&#9638; Terminale</span><span class="b run">&#9654; Esegui</span></div></div>
+  <pre>bun test server/services/node-client.test.ts</pre>
+</div>
+<p class="note">Esegui e Terminale compaiono solo su bash/sh/zsh/shell/console, in una risposta dell'agente già completa, per il proprietario.</p>
+
+<h2>2 · Secondo passo: comando distruttivo (scelta 2)</h2>
+<div class="block">
+  <div class="strip">Questo comando <b>cancella file</b> (<span class="code">rm -rf</span>). <span class="sp"></span>
+    <span class="b focus">Annulla</span><span class="b danger">Esegui comunque</span></div>
+  <pre>cd ~/Projects/topics-app && rm -rf client/node_modules/.vite</pre>
+</div>
+
+<h2>3 · In corso: output che scorre, Stop</h2>
+<div class="block">
+  <div class="hdr"><div><span class="lang">bash</span><span class="lines">1 riga</span></div>
+    <div class="btns"><span class="b">Copia</span></div></div>
+  <pre>bun test server/services/node-client.test.ts</pre>
+  <div class="run">
+    <div class="rh"><span class="dot run"></span><span>in corso · 00:07</span><span class="code">~/Projects/topics-app</span><span class="sp"></span><span class="b">&#9632; Stop</span></div>
+    <div class="out live"><span>server/services/node-client.test.ts:</span><span class="grn">✓ node client › pairs with a fresh token [12.40ms]</span><span class="grn">✓ node client › refuses an expired token [3.10ms]</span><span class="grn">✓ node client › retries after 503 [201.77ms]</span><span>…</span></div>
+  </div>
+</div>
+<p class="note">Riquadro di 16 righe che segue il fondo; se scorri su smette di seguire.</p>
+
+<h2>4 · Riuscito</h2>
+<div class="block">
+  <div class="hdr"><div><span class="lang">bash</span><span class="lines">1 riga</span></div>
+    <div class="btns"><span class="b">Copia</span><span class="b">&#9638; Terminale</span><span class="b run">&#8635; Riesegui</span></div></div>
+  <pre>bun test server/services/node-client.test.ts</pre>
+  <div class="run">
+    <div class="rh"><span class="dot ok"></span><span class="code">exit 0</span><span>· 9,4 s</span><span class="code">~/Projects/topics-app</span><span class="sp"></span>
+      <span class="b">Copia output</span><span class="b">Manda all'agente</span><span class="b">Nascondi</span></div>
+    <div class="more">Mostra tutte le 58 righe</div>
+<pre class="out"><span class="grn">✓ node client › retries after 503 [201.77ms]</span>
+
+ <span class="grn">14 pass</span>
+ 0 fail
+ 31 expect() calls
+Ran 14 tests across 1 file. [412.00ms]</pre>
+  </div>
+</div>
+
+<h2>5 · Fallito (Warp / VS Code: barra rossa, exit code)</h2>
+<div class="block err rbar">
+  <div class="hdr"><div><span class="lang">bash</span><span class="lines">1 riga</span></div>
+    <div class="btns"><span class="b">Copia</span><span class="b">&#9638; Terminale</span><span class="b run">&#8635; Riesegui</span></div></div>
+  <pre>sudo wg-quick up edm</pre>
+  <div class="run">
+    <div class="rh"><span class="code red bold">exit 1</span><span>· 0,1 s</span><span class="code">~</span><span class="sp"></span>
+      <span class="b">Copia output</span><span class="b">Manda all'agente</span><span class="b">Nascondi</span></div>
+<pre class="out"><span class="red">sudo: a terminal is required to read the password; either use the -S option to read from standard input or configure an askpass helper</span></pre>
+  </div>
+</div>
+<p class="note">Senza terminale non c'è password: l'uscita è «Terminale», che apre una shell nella stessa cartella con il comando scritto e non eseguito.</p>
+
+</body></html>
