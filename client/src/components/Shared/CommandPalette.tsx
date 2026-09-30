@@ -593,13 +593,15 @@ export function CommandPalette({
     if (!isMobile) inputRef.current?.focus();
   }, [isMobile]);
 
-  // Keep the selected row in view. On the list too, not only on the index: a
-  // keystroke resets the selection to 0, and when it already was 0 a column
-  // scrolled down with the trackpad kept the selected row out of sight.
+  // Keep the selected row in view. On a new query or filter too, not only on
+  // the index: a keystroke resets the selection to 0, and when it already was 0
+  // a column scrolled down with the trackpad kept the selected row out of sight.
+  // Not on any change of the list: it changes on every topic:updated (the end
+  // of a turn in any chat), and a finger scroll leaves the selection on 0.
   useEffect(() => {
     const el = listRef.current?.querySelector(`[data-cmd-idx="${selectedIndex}"]`);
     el?.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex, allItems]);
+  }, [selectedIndex, query, historyKind, historyRange, scope]);
 
   if (!isOpen) return null;
 

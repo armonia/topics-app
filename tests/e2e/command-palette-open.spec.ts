@@ -6,7 +6,7 @@
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/command-palette.fixture";
-import { createTopic, cleanupAll, resetPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
+import { createTopic, cleanupAll, resetPaneStore, unarchiveTopic, patchTopic } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
@@ -152,5 +152,47 @@ test.describe("Command Palette, opening and typing", () => {
     await expect(commandPalettePage.searchInput).toHaveValue(`${prefix}-`);
     await expect(selected).toHaveAttribute("data-cmd-idx", "0");
     await expect.poll(inView, { message: "after a keystroke the selected first row is in view" }).toBe(true);
+  });
+
+  test.describe("on a phone", () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+    test("PALETTE-19: results scrolled by finger stay where they are when a chat is updated in the background", async ({
+      commandPalettePage,
+      page,
+      request,
+    }) => {
+      test.info().annotations.push({ type: "spec", description: "CMD-01" });
+      // A finger scroll sends no mouse event, so the selection stays on the
+      // first row while the list goes down. The selected row was scrolled back
+      // into view on every change of the result list, and the list changes on
+      // every topic:updated (the end of a turn in any chat, a rename, a new
+      // chat): the list jumped back to the top under the user's finger.
+      const prefix = `E2E-PalTouch-${TS}`;
+      const ids: string[] = [];
+      for (let i = 0; i < 30; i++) {
+        const t = await createTopic(request, `${prefix}-${String(i).padStart(2, "0")}`);
+        topicIds.push(t.id);
+        ids.push(t.id);
+      }
+      await goToApp(page);
+      await commandPalettePage.search(prefix);
+      await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(`${prefix}-00`) })).toBeAttached();
+      const selected = commandPalettePage.overlay.locator('[role="option"][aria-selected="true"]');
+      await expect(selected).toHaveAttribute("data-cmd-idx", "0");
+      // The phone's list is one scroller holding both columns.
+      const list = selected.locator("xpath=ancestor::*[contains(@class,'overflow-y-auto')][1]");
+      const bottom = await list.evaluate((el) => { el.scrollTop = el.scrollHeight; return el.scrollTop; });
+      expect(bottom, "the results are long enough to scroll").toBeGreaterThan(200);
+
+      // One of the listed chats is renamed elsewhere: the rename reaching the
+      // list is the sync point, the scroll position is what is read.
+      const renamed = `${prefix}-05-renamed`;
+      await patchTopic(request, ids[5], { name: renamed });
+      await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(renamed) })).toBeAttached();
+      await expect(selected).toHaveAttribute("data-cmd-idx", "0");
+      const after = await list.evaluate((el) => new Promise<number>((res) => requestAnimationFrame(() => res(el.scrollTop))));
+      expect(after, `the list stays where the finger left it (${bottom} -> ${after})`).toBeGreaterThanOrEqual(bottom - 2);
+    });
   });
 });
