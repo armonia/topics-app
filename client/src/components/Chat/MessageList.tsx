@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
@@ -691,8 +691,14 @@ export function MessageList({
    * e scrivere `scrollTop` da soli incolla a un `scrollHeight` che non contiene
    * ancora la coda; `scrollToIndex('LAST')` lo materializza, il rAF successivo
    * incolla sull'altezza vera. Chi decide resta sempre e solo `reduceScroll`.
+   *
+   * `now`: the first attempt runs in the caller's turn, for callers between a
+   * layout and its paint (layout effect, ResizeObserver): growth and pin land
+   * in the same frame. Live text is flushed inside a rAF (useChat), and a rAF
+   * requested from there is the NEXT frame: the bottom of a streamed reply
+   * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
-  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number }) => {
+  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean }) => {
     if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
     if (opts?.viaVirtuoso) virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
     // Il fondo si raggiunge PER DAVVERO, non "quasi".
@@ -723,7 +729,8 @@ export function MessageList({
         requestAnimationFrame(run);
       }
     };
-    if (opts?.frames === 2) requestAnimationFrame(() => requestAnimationFrame(run));
+    if (opts?.now) run();
+    else if (opts?.frames === 2) requestAnimationFrame(() => requestAnimationFrame(run));
     else requestAnimationFrame(run);
   }, [jumpPending]);
 
@@ -1390,7 +1397,8 @@ export function MessageList({
    *  dritta nel ramo che ri-pinna al fondo. Cioè: un salto in fondo a ogni
    *  transizione di streaming, anche a chi era risalito a leggere. */
   const streamingRef = useRef(_currentStreaming);
-  useEffect(() => {
+  // A layout effect, so it still runs before the streaming pin below.
+  useLayoutEffect(() => {
     streamingRef.current = _currentStreaming;
     if (_currentStreaming && !prevStreamingRef.current) dispatchScroll({ type: 'stream-start' });
     prevStreamingRef.current = _currentStreaming;
@@ -1402,12 +1410,13 @@ export function MessageList({
   // bypassing Virtuoso's item-height measurement which may lag the actual layout.
   // Non decide niente: chiede a `shouldPin` (che include il veto del salto da
   // palette) e incolla. Il ri-controllo dentro il frame è dentro `pinToBottom`.
-  useEffect(() => {
+  // A LAYOUT effect pinning `now`: the new line and the pin share a frame (F03).
+  useLayoutEffect(() => {
     // Same guard as the "anonymous" growth below: if a token arrives inside
     // a gesture window (click on a tool-call row, dragging the scrollbar)
     // this pin scrolls the row out of Virtuoso's overscan, which unmounts
     // and remounts it collapsed. See `gestureUntilRef`.
-    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom();
+    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
   }, [filteredMessages, _currentStreaming, pinToBottom]);
 
   // Detect a GENUINE user scroll-up so the streaming bottom-pin can yield to it.
@@ -1696,7 +1705,8 @@ export function MessageList({
       // scarto fermo che si vede, si sceglie il ballo. Se lo si vuole chiudere
       // davvero, la leva è la bistabilità della lista (`increaseViewportBy`),
       // non la soglia di questa regola.
-      pinToBottom();
+      // `now`: after layout, before paint, so pinned in the frame it shows (F03).
+      pinToBottom({ now: true });
     });
     ro.observe(el);
     // Anche il CONTENUTO, non solo il contenitore: lo scroller cambia dimensione
