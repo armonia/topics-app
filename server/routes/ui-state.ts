@@ -687,6 +687,14 @@ export const UI_STATE_INIT_EXCLUDED_PREFIXES = [
   // topics it has in cache on reconnect (`reloadTopicWindowsFromServer`). It
   // would otherwise ride in every snapshot, which is the 30,8% measured above.
   "topic-browser:",
+  // The RESULTS of the dev probes (`client/src/lib/dev*Probe.ts`): written by
+  // one window with a PUT and read back with curl on the single-key GET, never
+  // from the snapshot. One heap probe run on 27/08 left 31,766 B, 26% of every
+  // `ui-state:init` since. The armed FLAGS (`dev-heap-probe` and siblings) are
+  // not matched by these prefixes and stay in the snapshot.
+  "dev-heap-probe-result",
+  "dev-layout-probe-result",
+  "dev-storage-probe-result",
 ] as const;
 
 /** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */

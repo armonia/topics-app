@@ -1,6 +1,7 @@
 import type { BrowserContext } from "playwright-core";
-import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync, readFileSync, rmdirSync, readdirSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, unlinkSync, readFileSync, rmdirSync, readdirSync } from "fs";
 import { join } from "path";
+import { writeFileAtomic } from "./lib/atomic-write";
 import { resolveDataDir, resolveStateDir } from "./lib/data-dir";
 
 /**
@@ -50,27 +51,15 @@ function topicFile(topicId: string): string {
   return join(topicDir(topicId), "storage.json");
 }
 
-/**
- * Atomic write: tmp file + renameSync. Cleanup tmp on error.
- * Mirrors server/utils.ts:377 atomicWriteJSON pattern (which is
- * closure-bound and not exported as a free function).
- */
+/** JSON, written tmp + rename (`lib/atomic-write.ts`). */
 function atomicWriteJSON(filepath: string, data: object): void {
-  const tempPath = `${filepath}.tmp.${process.pid}.${Date.now()}`;
-  try {
-    // 0600 come il file dei login sotto `_handles` (browser-login-state.ts:117):
-    // `storage.json` contiene cookie di sessione IN CHIARO, e da quando il
-    // passaggio nativa→condivisa esiste ci finiscono anche quelli della
-    // WKWebView del Mac. Il default di umask lo lasciava leggibile a chiunque
-    // abbia un account su questa macchina — due file con lo stesso contenuto e
-    // due permessi diversi non era una decisione, era una svista.
-    writeFileSync(tempPath, JSON.stringify(data, null, 2), { mode: 0o600 });
-    renameSync(tempPath, filepath);
-    try { chmodSync(filepath, 0o600); } catch { /* best effort */ }
-  } catch (err) {
-    try { unlinkSync(tempPath); } catch {}
-    throw err;
-  }
+  // 0600 come il file dei login sotto `_handles` (browser-login-state.ts:117):
+  // `storage.json` contiene cookie di sessione IN CHIARO, e da quando il
+  // passaggio nativa→condivisa esiste ci finiscono anche quelli della
+  // WKWebView del Mac. Il default di umask lo lasciava leggibile a chiunque
+  // abbia un account su questa macchina — due file con lo stesso contenuto e
+  // due permessi diversi non era una decisione, era una svista.
+  writeFileAtomic(filepath, JSON.stringify(data, null, 2), { mode: 0o600 });
 }
 
 export async function saveStorageState(

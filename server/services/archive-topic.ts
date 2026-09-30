@@ -40,7 +40,8 @@ export interface ArchiveTopicDeps {
   getTopicById: (id: string) => Topic | null;
   saveSingleTopic: (topic: Topic) => void;
   loadUnread: () => UnreadData;
-  saveUnread: (data: UnreadData) => void;
+  /** Upserts only the given rows (`AppContext.saveUnreadEntries`). */
+  saveUnreadEntries: (entries: UnreadData) => void;
   broadcastToAll: (message: OutboundMessage) => void;
   /** `purgeTopicFromUiState` (routes/topics.ts), passata dal chiamante. */
   purgeFromUiState: (topicId: string) => { ok: true } | { ok: false; error: string };
@@ -124,8 +125,7 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
   const unread = deps.loadUnread();
   const stale = (unread[topicId]?.unreadCount ?? 0) > 0;
   if (!alreadyArchived || stale) {
-    unread[topicId] = { lastReadAt: now, unreadCount: 0 };
-    deps.saveUnread(unread);
+    deps.saveUnreadEntries({ [topicId]: { lastReadAt: now, unreadCount: 0 } });
     deps.broadcastToAll({ type: "unread:updated", topicId, unreadCount: 0 });
   }
 

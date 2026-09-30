@@ -1493,7 +1493,7 @@ const retirementConsequences: ReconcileDeps = {
       getTopicById: ctx.getTopicById,
       saveSingleTopic: ctx.saveSingleTopic,
       loadUnread: ctx.loadUnread,
-      saveUnread: ctx.saveUnread,
+      saveUnreadEntries: ctx.saveUnreadEntries,
       broadcastToAll: ctx.broadcastToAll,
       purgeFromUiState: (id) =>
         purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),
@@ -4161,7 +4161,7 @@ const opzioniServer = {
       // sicuro e sbagliato — un ospite senza pallini non sa mai che è arrivato
       // qualcosa.
       {
-        const tutti = loadUnread() as Record<string, unknown>;
+        const tutti = ctx.loadUnreadForInit() as Record<string, unknown>;
         const suoi = ospiteWS
           ? Object.fromEntries(Object.entries(tutti).filter(([topicId]) =>
               hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)))

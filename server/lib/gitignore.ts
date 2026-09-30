@@ -34,6 +34,14 @@ export interface IgnoreRule {
   negated: boolean;
   /** `pattern/`: vale solo per le cartelle. */
   dirOnly: boolean;
+  /**
+   * Set only for root-level, unanchored patterns: the regex body between the
+   * "any depth" head and the "descendants" tail. Rules sharing that shape are
+   * merged into one regex by `IgnoreSet.ignores`.
+   */
+  body?: string;
+  /** Set when `body` is a plain name (no glob, no escape): a segment compare. */
+  literal?: string;
 }
 
 /** Un carattere che in regex ha un significato e qui non deve averlo. */
@@ -48,6 +56,19 @@ function esc(ch: string): string {
  * `src/**\/*.ts`), `**` sì, `?` è un carattere qualsiasi tranne `/`.
  */
 function patternToRegex(pattern: string, anchored: boolean): RegExp {
+  const out = patternBody(pattern);
+  // Non ancorato = «a qualunque profondità», che è la regola di git per i
+  // pattern senza `/` dentro.
+  const head = anchored ? "^" : ANY_DEPTH_HEAD;
+  // La coda copre anche i DISCENDENTI: escludere `dist` esclude `dist/a/b`.
+  return new RegExp(`${head}${out}${DESCENDANTS_TAIL}`);
+}
+
+const ANY_DEPTH_HEAD = "^(?:.*/)?";
+const DESCENDANTS_TAIL = "(?:/.*)?$";
+
+/** The regex body of a glob pattern, without head and tail. */
+function patternBody(pattern: string): string {
   let out = "";
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
@@ -70,11 +91,7 @@ function patternToRegex(pattern: string, anchored: boolean): RegExp {
       out += esc(c);
     }
   }
-  // Non ancorato = «a qualunque profondità», che è la regola di git per i
-  // pattern senza `/` dentro.
-  const head = anchored ? "^" : "^(?:.*/)?";
-  // La coda copre anche i DISCENDENTI: escludere `dist` esclude `dist/a/b`.
-  return new RegExp(`${head}${out}(?:/.*)?$`);
+  return out;
 }
 
 /** Una riga di `.gitignore` → regola, o `null` se è vuota/commento. */
@@ -107,8 +124,61 @@ export function parseIgnoreLine(raw: string, base = ""): IgnoreRule | null {
       // profondità, ma SOLO dentro la sua cartella.
       ? new RegExp(`^${prefix.replace(/[.+^${}()|[\]\\]/g, "\\$&")}(?:.*/)?${patternToRegex(line, true).source.slice(1)}`)
       : patternToRegex(line, false);
-  return { re, negated, dirOnly };
+  if (anchored || prefix) return { re, negated, dirOnly };
+  const body = patternBody(line);
+  const literal = /[*?[\\]/.test(line) ? undefined : line;
+  return { re, negated, dirOnly, body, literal };
 }
+
+/**
+ * A run of consecutive rules with the same polarity, merged. Inside a run the
+ * order does not matter (any hit gives the same answer), so the run is tested
+ * as one Set lookup plus at most two regexes instead of one regex per rule.
+ */
+interface CompiledRun {
+  negated: boolean;
+  /** Plain names, any depth, files and folders. */
+  names: Set<string>;
+  /** Plain names, any depth, folders only (`name/`). */
+  dirNames: Set<string>;
+  /** Every other rule of the run, OR-ed. */
+  re: RegExp | null;
+  /** Every other folder-only rule of the run, OR-ed. */
+  dirRe: RegExp | null;
+}
+
+function unionOf(rules: IgnoreRule[]): RegExp | null {
+  if (rules.length === 0) return null;
+  const parts: string[] = [];
+  const anyDepth = rules.filter(r => r.body !== undefined).map(r => r.body as string);
+  if (anyDepth.length) parts.push(`${ANY_DEPTH_HEAD}(?:${anyDepth.join("|")})${DESCENDANTS_TAIL}`);
+  for (const r of rules) if (r.body === undefined) parts.push(`(?:${r.re.source})`);
+  return new RegExp(parts.join("|"));
+}
+
+function compileRuns(rules: IgnoreRule[]): CompiledRun[] {
+  const runs: CompiledRun[] = [];
+  let i = 0;
+  while (i < rules.length) {
+    const negated = rules[i].negated;
+    let j = i;
+    while (j < rules.length && rules[j].negated === negated) j++;
+    const slice = rules.slice(i, j);
+    const names = new Set<string>(), dirNames = new Set<string>();
+    const rest: IgnoreRule[] = [], dirRest: IgnoreRule[] = [];
+    for (const r of slice) {
+      if (r.literal !== undefined) (r.dirOnly ? dirNames : names).add(r.literal);
+      else (r.dirOnly ? dirRest : rest).push(r);
+    }
+    runs.push({ negated, names, dirNames, re: unionOf(rest), dirRe: unionOf(dirRest) });
+    i = j;
+  }
+  return runs;
+}
+
+// `.` in the compiled regexes does not match these, so a Set lookup on the
+// path segments would disagree with the regex: such paths take the slow road.
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
 
 /**
  * L'insieme delle regole in vigore, con la radice a cui sono relative.
@@ -117,9 +187,12 @@ export function parseIgnoreLine(raw: string, base = ""): IgnoreRule | null {
  */
 export class IgnoreSet {
   private rules: IgnoreRule[] = [];
+  /** `rules` merged into runs, built on the first `ignores` after a change. */
+  private runs: CompiledRun[] | null = null;
 
   /** Le righe di un `.gitignore`; `base` è la sua cartella, relativa alla radice. */
   addFile(content: string, base = ""): this {
+    this.runs = null;
     for (const line of content.split("\n")) {
       const rule = parseIgnoreLine(line, base);
       if (rule) this.rules.push(rule);
@@ -138,15 +211,42 @@ export class IgnoreSet {
 
   /** `relPath` è relativo alla radice, con `/` come separatore e senza `./`. */
   ignores(relPath: string, isDir: boolean): boolean {
+    if (LINE_TERMINATOR.test(relPath)) return this.ignoresRuleByRule(relPath, isDir);
+    const runs = this.runs ??= compileRuns(this.rules);
+    if (runs.length === 0) return false;
+    const segments = relPath.split("/");
+    const last = segments.length - 1;
+    let ancestors: string[] | null = null;
+    // The last rule that matches wins, so the last run with a hit decides.
+    for (let k = runs.length - 1; k >= 0; k--) {
+      const run = runs[k];
+      let hit = false;
+      if (run.names.size) hit = segments.some(s => run.names.has(s));
+      if (!hit && run.dirNames.size) {
+        hit = (isDir && run.dirNames.has(segments[last])) || segments.some((s, idx) => idx < last && run.dirNames.has(s));
+      }
+      if (!hit && run.re) hit = run.re.test(relPath);
+      if (!hit && run.dirRe) {
+        if (isDir) hit = run.dirRe.test(relPath);
+        if (!hit && last > 0) {
+          ancestors ??= ancestorsOf(relPath);
+          const dirRe = run.dirRe;
+          hit = ancestors.some(a => dirRe.test(a));
+        }
+      }
+      if (hit) return !run.negated;
+    }
+    return false;
+  }
+
+  /** The reference semantics, one rule at a time: `ignores` must agree with it. */
+  ignoresRuleByRule(relPath: string, isDir: boolean): boolean {
     // Le cartelle antenate: una regola `solo-cartelle` che colpisce `data/`
     // esclude anche `data/topics.db`, che cartella non è. Nella camminata il
     // caso non si presenta (in una cartella esclusa non si scende), ma chi
     // chiama questa funzione su un path qualsiasi deve avere la stessa
     // risposta di git.
-    const ancestors: string[] = [];
-    for (let i = relPath.indexOf("/"); i !== -1; i = relPath.indexOf("/", i + 1)) {
-      ancestors.push(relPath.slice(0, i));
-    }
+    const ancestors = ancestorsOf(relPath);
     let ignored = false;
     for (const r of this.rules) {
       let hit = (isDir || !r.dirOnly) && r.re.test(relPath);
@@ -156,4 +256,12 @@ export class IgnoreSet {
     }
     return ignored;
   }
+}
+
+function ancestorsOf(relPath: string): string[] {
+  const ancestors: string[] = [];
+  for (let i = relPath.indexOf("/"); i !== -1; i = relPath.indexOf("/", i + 1)) {
+    ancestors.push(relPath.slice(0, i));
+  }
+  return ancestors;
 }

@@ -1,8 +1,10 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
+import { writeFileAtomic } from "../lib/atomic-write";
+import { readJsonStateFile } from "../lib/state-file";
 import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { AppContext, RouteHandler } from "../types";
 import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-cursor";
@@ -213,7 +215,10 @@ function saveState() {
     running: Array.from(runningScripts.values()).filter(sp => !sp.source || sp.source === "script" || sp.cmd).map(persisted),
     recent: recentScripts.map(persisted),
   };
-  try { writeFileSync(persistPath(), JSON.stringify(data)); } catch {}
+  // tmp + rename: in place, a kill between truncate and write emptied the file
+  // and the next boot lost every re-adoptable process and owed wake with it.
+  try { writeFileAtomic(persistPath(), JSON.stringify(data)); }
+  catch (err) { console.warn(`[processes] saving ${persistPath()} failed:`, err); }
 }
 
 function persisted(sp: ScriptProcess): PersistedScript {
@@ -250,9 +255,10 @@ function loadLogFile(sp: ScriptProcess): number | null {
 }
 
 function loadState() {
+  // A torn file is logged and kept aside, not dropped in silence (lib/state-file.ts).
+  const data = readJsonStateFile(persistPath(), "processes") as { running?: unknown; recent?: unknown } | null;
+  if (!data) return;
   try {
-    if (!existsSync(persistPath())) return;
-    const data = JSON.parse(readFileSync(persistPath(), "utf-8"));
 
     // Restore recent scripts (completed ones)
     if (Array.isArray(data.recent)) {
@@ -345,7 +351,9 @@ function loadState() {
         }
       }
     } catch {}
-  } catch {}
+  } catch (err) {
+    console.error(`[processes] restoring the registry from ${persistPath()} failed:`, err);
+  }
 }
 
 /**

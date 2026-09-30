@@ -89,3 +89,43 @@ test("il set si clona senza che il figlio sporchi il padre", () => {
   expect(child.ignores("b", false)).toBe(true);
   expect(parent.ignores("b", false)).toBe(false);
 });
+
+test("the merged rules answer exactly like the rules one at a time", () => {
+  // Deterministic fuzz: rule files drawn from a pool that mixes every shape
+  // the compiler treats differently (plain names, globs, folder-only,
+  // anchored, nested base, negation runs), checked against paths from a pool.
+  const patterns = [
+    "node_modules/", "dist", "*.log", "!keep.log", "/data/", "data", "build/", "!build/",
+    "tabbar-*.png", "src/*.ts", "src/**/*.ts", "**/cache", "a?c", "[ab]*.txt", "!a", "a/",
+    "deep/", "!deep/keep", "x/y/", ".env", "!.env.example", "*.gen.ts", "\\!bang", "sp\\ ace",
+  ];
+  const segs = ["a", "b", "abc", "data", "build", "src", "deep", "keep", "keep.log", "x.log",
+    "tabbar-1.png", "dist", "node_modules", "cache", "y", "x", "f.ts", "f.gen.ts", ".env",
+    ".env.example", "a.txt", "!bang", "sp ace", "line\nbreak"];
+  let seed = 42;
+  const nextRandom = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  let checked = 0;
+  for (let round = 0; round < 60; round++) {
+    const set = new IgnoreSet();
+    const files = 1 + nextRandom(3);
+    for (let f = 0; f < files; f++) {
+      const lines = Array.from({ length: 2 + nextRandom(10) }, () => patterns[nextRandom(patterns.length)]);
+      set.addFile(lines.join("\n"), f === 0 ? "" : ["src", "a/b", "deep"][nextRandom(3)]);
+    }
+    for (let p = 0; p < 200; p++) {
+      const path = Array.from({ length: 1 + nextRandom(4) }, () => segs[nextRandom(segs.length)]).join("/");
+      for (const isDir of [true, false]) {
+        expect([path, isDir, set.ignores(path, isDir)]).toEqual([path, isDir, set.ignoresRuleByRule(path, isDir)]);
+        checked++;
+      }
+    }
+  }
+  expect(checked).toBe(24_000);
+});
+
+test("adding rules after a lookup recompiles them", () => {
+  const ig = new IgnoreSet().addFile("a\n");
+  expect(ig.ignores("b", false)).toBe(false);
+  ig.addFile("b\n");
+  expect(ig.ignores("b", false)).toBe(true);
+});

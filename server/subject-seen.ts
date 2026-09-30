@@ -34,7 +34,8 @@ import {
 
 export interface SubjectSeenDeps {
   loadUnread: () => UnreadData;
-  saveUnread: (data: UnreadData) => void;
+  /** Upserts only the given rows (`AppContext.saveUnreadEntries`). */
+  saveUnreadEntries: (entries: UnreadData) => void;
   broadcastToAll: (message: OutboundMessage) => void;
 }
 
@@ -55,13 +56,14 @@ function resetUnread(deps: SubjectSeenDeps, pick: (unread: UnreadData) => Iterab
   const topicIds = pick(unread);
   const now = new Date().toISOString();
   const cleared: string[] = [];
+  const changed: UnreadData = {};
   for (const id of topicIds) {
     if ((unread[id]?.unreadCount ?? 0) <= 0) continue;
-    unread[id] = { lastReadAt: now, unreadCount: 0 };
+    changed[id] = { lastReadAt: now, unreadCount: 0 };
     cleared.push(id);
   }
   if (!cleared.length) return cleared;
-  deps.saveUnread(unread);
+  deps.saveUnreadEntries(changed);
   for (const topicId of cleared) {
     deps.broadcastToAll({ type: "unread:updated", topicId, unreadCount: 0 } as OutboundMessage);
   }
