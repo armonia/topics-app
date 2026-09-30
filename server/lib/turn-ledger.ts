@@ -1,0 +1,112 @@
+/**
+ * WHETHER A SESSION HAS A TURN OPEN, ANSWERED IN ONE PLACE.
+ *
+ * The queue of messages typed during a turn used to leave on a guess. The
+ * client drained it when it believed the turn was over (a `stream:end`, its own
+ * SSE closing, a history read that said "not streaming", a watchdog), and the
+ * server's 409 gate refused a second turn only while `activeStreams` had the
+ * session. Neither saw the CLI working on a turn it had opened by itself: a
+ * background task's notification, a cron fire, a Monitor. Topics adopts such a
+ * turn only at the model's first line, p50 4.7 s after the CLI began (291 of
+ * them in 14 days), and during that window a message went through the open gate
+ * and was written into the running turn's stdin: 4 messages seen by the model
+ * in the middle of a turn nobody had asked for (chat 33966f4e on 27/09, twice).
+ *
+ * The ledger is the single answer to "is a turn open on this session?". Several
+ * sources may hold a session open, and it is open while any of them does:
+ *
+ *   - `route`: the chat route registered a turn (`startStream`);
+ *   - `cli`: the claude-code child is between a `system/init` and its `result`,
+ *     whoever started it (`ClaudeCodeProvider.observeCliTurns`);
+ *   - `boot`: a session whose child may still be mid-turn after a restart, until
+ *     the boot reattach has decided about it.
+ *
+ * Every open/close transition bumps a revision and is broadcast as `turn:state`.
+ * The client keys its drain on these states instead of on its own streaming
+ * flag, which a reconnect, a history read or a 409 could reset.
+ *
+ * Pure: no clock, no I/O. `onChange` is the caller's broadcast.
+ */
+
+export type TurnSource = "route" | "cli" | "boot";
+
+/** What a window needs to know about one session's turn. */
+export interface TurnState {
+  sessionKey: string;
+  /** This server process: revisions restart at every boot. */
+  boot: string;
+  /** Global revision this statement is true as of. Frames with a lower one are stale. */
+  asOf: number;
+  /** The open turn, or the last one the session had (0 = none since boot). */
+  turnId: number;
+  open: boolean;
+}
+
+/** Every open turn, as of one revision: a session not listed has none. */
+export interface TurnSnapshot {
+  boot: string;
+  asOf: number;
+  open: TurnState[];
+}
+
+export interface TurnLedger {
+  /** Marks `source` as holding (or no longer holding) the session open. */
+  set(sessionKey: string, source: TurnSource, on: boolean): void;
+  isOpen(sessionKey: string, opts?: { ignore?: readonly TurnSource[] }): boolean;
+  stateOf(sessionKey: string): TurnState;
+  snapshot(): TurnSnapshot;
+  /** Which sources hold the session now (for logs and tests). */
+  sourcesOf(sessionKey: string): TurnSource[];
+}
+
+interface Entry { sources: Set<TurnSource>; turnId: number }
+
+export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnState) => void } = {}): TurnLedger {
+  const boot = opts.boot ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  let rev = 0;
+  const entries = new Map<string, Entry>();
+
+  function stateAt(sessionKey: string, asOf: number): TurnState {
+    const e = entries.get(sessionKey);
+    return { sessionKey, boot, asOf, turnId: e?.turnId ?? 0, open: !!e && e.sources.size > 0 };
+  }
+
+  return {
+    set(sessionKey, source, on) {
+      let e = entries.get(sessionKey);
+      const wasOpen = !!e && e.sources.size > 0;
+      if (on) {
+        if (!e) { e = { sources: new Set(), turnId: 0 }; entries.set(sessionKey, e); }
+        if (e.sources.has(source)) return;
+        e.sources.add(source);
+      } else {
+        if (!e || !e.sources.has(source)) return;
+        e.sources.delete(source);
+      }
+      const nowOpen = e.sources.size > 0;
+      if (nowOpen === wasOpen) return;
+      rev++;
+      // A turn is named by the revision that opened it: unique and increasing within a boot.
+      if (nowOpen) e.turnId = rev;
+      try { opts.onChange?.(stateAt(sessionKey, rev)); }
+      catch (err) { console.warn(`[turn-ledger] change listener failed for ${sessionKey}:`, err); }
+    },
+    isOpen(sessionKey, o) {
+      const e = entries.get(sessionKey);
+      if (!e) return false;
+      for (const s of e.sources) if (!o?.ignore?.includes(s)) return true;
+      return false;
+    },
+    stateOf(sessionKey) {
+      return stateAt(sessionKey, rev);
+    },
+    snapshot() {
+      const open: TurnState[] = [];
+      for (const [sessionKey, e] of entries) if (e.sources.size > 0) open.push(stateAt(sessionKey, rev));
+      return { boot, asOf: rev, open };
+    },
+    sourcesOf(sessionKey) {
+      return [...(entries.get(sessionKey)?.sources ?? [])];
+    },
+  };
+}

@@ -175,6 +175,8 @@ async function open(sk: string, body: Record<string, unknown>, live: (h: StreamH
 function reload(sk: string, child: "alive" | "dead" = "alive"): void {
   _resetTurnBodyFlushers();
   ctx.activeStreams.delete(sk);
+  // The turn ledger is in memory too, and a new process starts without it.
+  ctx.turnLedger?.set(sk, "route", false);
   runBootPartialSweep(ctx.db as unknown as PartialSweepDb, { listConfirmed: true, liveSessions: new Set(child === "alive" ? [sk] : []) });
 }
 

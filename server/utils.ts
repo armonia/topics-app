@@ -40,6 +40,7 @@ import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
 import { closeWatchesOfSession } from "./lib/process-wait";
+import { createTurnLedger } from "./lib/turn-ledger";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
@@ -210,6 +211,8 @@ export function createAppContext(baseDir: string): AppContext {
 
   // State
   const activeStreams = new Map<string, ActiveStream>();
+  // Whether a turn is open, from every source (`lib/turn-ledger.ts`); each change goes to every window.
+  const turnLedger = createTurnLedger({ onChange: (state) => broadcastToAll({ type: "turn:state", ...state }) });
   const wsClients = new Set<ServerWebSocket<WSData>>();
   // Revocation covers all transports; broadcast registries remain separate.
   const deviceSockets = new Set<ServerWebSocket<WSData>>();
@@ -2020,7 +2023,13 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Streams (in-memory, unchanged) ---
   function startStream(sessionKey: string, messageId: string, abortController?: AbortController, survivesRestart = false) {
-    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController, survivesRestart });
+    // A turn of another row still registered (a send parked behind the CLI's own
+    // turn, whose adoption registers now) is shadowed, not dropped: its entry
+    // comes back when this one ends (`endStream`).
+    const live = activeStreams.get(sessionKey);
+    const shadowed = live && live.messageId !== messageId ? live : undefined;
+    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController, survivesRestart, ...(shadowed ? { shadowed } : {}) });
+    turnLedger.set(sessionKey, "route", true);
   }
 
   function updateStreamActivity(sessionKey: string, isThinking?: boolean) {
@@ -2073,9 +2082,16 @@ export function createAppContext(baseDir: string): AppContext {
    * stopped on purpose (lib/abort-cause.ts): the boot's repair pass reads that
    * prefix as a turn to resume.
    */
-  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string }): ToolCall[] {
+  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string; rowId?: string }): ToolCall[] {
     const keepAwaiting = new Set(opts?.keepAwaiting ?? []);
-    const stream = activeStreams.get(sessionKey);
+    const top = activeStreams.get(sessionKey);
+    // Ending a turn by its row touches that turn only: the entry on top may be
+    // another turn's, and deleting it blind left the gate open for the rest of it.
+    if (opts?.rowId && top && top.messageId !== opts.rowId) {
+      if (top.shadowed?.messageId === opts.rowId) top.shadowed = undefined;
+      return [];
+    }
+    const stream = top;
     const interrupted: ToolCall[] = [];
     if (stream?.messageId) {
       try {
@@ -2159,7 +2175,9 @@ export function createAppContext(baseDir: string): AppContext {
         }
       } catch {}
     }
-    activeStreams.delete(sessionKey);
+    if (stream?.shadowed) activeStreams.set(sessionKey, stream.shadowed);
+    else activeStreams.delete(sessionKey);
+    turnLedger.set(sessionKey, "route", activeStreams.has(sessionKey));
     // A `wait_for_process` of this turn waits for nobody from here on, even if
     // its request is still open: the command's wake is owed again.
     closeWatchesOfSession(sessionKey);
@@ -2799,7 +2817,7 @@ export function createAppContext(baseDir: string): AppContext {
     refreshGatewayToken,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
-    activeStreams, wsClients, deviceSockets,
+    activeStreams, turnLedger, wsClients, deviceSockets,
     broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,

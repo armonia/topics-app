@@ -1316,6 +1316,29 @@ const notificationSeenSchema = z.looseObject({
   subjects: z.optional(z.array(z.string())),
 });
 
+/**
+ * Whether a session has a turn open, from the server's ledger
+ * (`server/lib/turn-ledger.ts`). Sent on every open/close transition, from
+ * every source: a turn the route registered, a turn the CLI opened by itself,
+ * a session held while a restart decides about it. The turn queue drains on
+ * these, not on `stream:end` or on a window's own streaming flag.
+ */
+const turnStateEntry = {
+  sessionKey: z.string(),
+  boot: z.string(),
+  asOf: z.number(),
+  turnId: z.number(),
+  open: z.boolean(),
+};
+const turnStateSchema = z.looseObject({ type: z.literal('turn:state'), ...turnStateEntry });
+/** Every open turn at the moment a socket opens: a session not listed has none. */
+const turnSnapshotSchema = z.looseObject({
+  type: z.literal('turn:snapshot'),
+  boot: z.string(),
+  asOf: z.number(),
+  open: z.array(z.looseObject(turnStateEntry)),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1326,6 +1349,9 @@ const OUTBOUND_SCHEMAS = {
   'dashboard:updated': dashboardUpdatedSchema,
   'unread:init': unreadInitSchema,
   'unread:updated': unreadUpdatedSchema,
+  // Turn ledger
+  'turn:state': turnStateSchema,
+  'turn:snapshot': turnSnapshotSchema,
   // Stream
   'stream:end': streamEndSchema,
   'stream:catchup': streamCatchupSchema,

@@ -532,12 +532,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * `reattach` è esente per costruzione — adottare il turno vivo È il suo
        * mestiere, e vale identico per `woken` (`adottaTurnoVivo`).
        */
+      //
+      // The gate asks the turn LEDGER (`lib/turn-ledger.ts`), not only
+      // `activeStreams`: a turn the CLI opened by itself (a notification, a
+      // cron fire) is registered in the map only at the model's first line,
+      // seconds later, and a message let through in between was written into
+      // that running turn (chat 33966f4e, 27/09). The resume sweep's own
+      // resend passes the boot hold: resuming the interrupted turn is what that
+      // hold waits for. The answer carries the turn's state, so the window that
+      // queues the message waits for THAT turn's end.
       if (!adottaTurnoVivo) {
         const live = isStreaming(sessionKey);
-        if (live) {
-          console.log(`[HTTP] POST /api/chat 409 — turno già in volo su ${sessionKey} (messageId ${live.messageId})`);
+        const ledgerOpen = ctx.turnLedger?.isOpen(sessionKey, { ignore: resumeAttempt > 0 ? ["boot"] : [] }) ?? false;
+        if (live || ledgerOpen) {
+          console.log(`[HTTP] POST /api/chat 409 — turno già in volo su ${sessionKey} (messageId ${live?.messageId ?? "-"}, ledger ${ctx.turnLedger?.sourcesOf(sessionKey).join("+") || "-"})`);
           return json(
-            { error: "a response is already streaming for this session", code: "stream_in_flight", messageId: live.messageId },
+            {
+              error: "a response is already streaming for this session", code: "stream_in_flight", messageId: live?.messageId,
+              ...(ctx.turnLedger ? { turn: ctx.turnLedger.stateOf(sessionKey) } : {}),
+            },
             409,
           );
         }
@@ -1002,7 +1015,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        */
       const closeTurnWithFailure = (err: unknown, rowId: string): string => {
         stopTurnBodyOf(rowId);
-        endStream(sessionKey);
+        endStream(sessionKey, { rowId });
         const row = readRowForNotice(rowId);
         const notice = sendFailureNotice(row, err);
         const verdetto = `Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
@@ -1464,7 +1477,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
            * question clickable on a turn that was over.
            */
           const endStreamAndAnnounce = (opts?: Parameters<typeof endStream>[1]): ToolCall[] => {
-            const interruptedTools = endStream(sessionKey, opts);
+            const interruptedTools = endStream(sessionKey, { rowId: partialMsg.id, ...opts });
             for (const tc of interruptedTools) {
               broadcastTurnFrame({
                 type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id,
@@ -3612,8 +3625,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (isWoken && err?.message === "WOKEN_TURN_GONE") {
                 console.log(`[StreamWS] ${sessionKey}: il turno spontaneo era già stato preso da qualcun altro — chiudo senza scrivere niente`);
                 undoInlineMark();
-                topicProvider.unregisterStreamHandler?.(sessionKey);
-                endStream(sessionKey);
+                topicProvider.unregisterStreamHandler?.(sessionKey, handler);
+                endStream(sessionKey, { rowId: partialMsg.id });
                 streamState = "finalized";
                 // `discardIfEmptyTurn` vuole la RIGA, non un id, e verifica in
                 // SQL che non ci siano blocchi o tool (una riga di soli tool non

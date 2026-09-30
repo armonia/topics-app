@@ -30,3 +30,18 @@ export function installSlowTurnCli(): () => void {
   chmodSync(ENTRY, 0o755);
   return () => rmSync(ENTRY, { force: true });
 }
+
+const QUEUE_TURNS_SCRIPT = resolve(__dirname, "fake-claude-queue-turns.ts");
+
+/**
+ * Installs `fake-claude-queue-turns.ts`, which writes down every message it is
+ * handed and whether a turn was running at that moment, to `logPath`.
+ * Returns its removal.
+ */
+export function installQueueTurnsCli(logPath: string): () => void {
+  const bun = execSync("command -v bun").toString().trim();
+  mkdirSync(VERSIONS_DIR, { recursive: true });
+  writeFileSync(ENTRY, `#!/usr/bin/env bash\nexport FAKE_CLI_LOG="${logPath}"\nexec "${bun}" "${QUEUE_TURNS_SCRIPT}" "$@"\n`);
+  chmodSync(ENTRY, 0o755);
+  return () => rmSync(ENTRY, { force: true });
+}

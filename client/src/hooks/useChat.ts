@@ -32,6 +32,7 @@ import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import { armPushAsk } from '../state/pushAsk';
 import {
   claimBatch as claimQueuedTurns,
+  decideDrain,
   decideSend,
   enqueueTurn,
   getQueue as getTurnQueue,
@@ -41,8 +42,10 @@ import {
   releaseClaim,
   releaseHold,
   requeueFront,
+  storedQueueSessions,
   unshiftTurn,
 } from '../state/chatQueue';
+import { noteServerTurn, noteTurnSnapshot, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
 import { registerFeatureWeight, roughBytes } from '../lib/featureWeight';
 import {
   evictSessions,
@@ -1709,6 +1712,14 @@ export function useChat() {
         // finalizzazione qui sopra (`partial:false`, durata, token, costo) deve
         // ancora trovare la bolla giusta, e senza il nome ricadrebbe sull'ultimo
         // messaggio — che a turno con sotto-agenti non è più lui.
+        // A Stop pressed on ANOTHER device (or a window of another profile)
+        // stops this queue too: the hold is local storage, and that window's
+        // hold never reached this one, which read the stop as a plain end and
+        // sent what was queued. This window's own Stop already held it.
+        if ((event.reason === 'user_abort' || event.stopCause === 'user')
+          && !stoppedByUserRef.current[sessionKey] && getTurnQueue(sessionKey).length > 0) {
+          holdQueue(sessionKey);
+        }
         settleTurn(sessionKey);
         break;
 
@@ -1763,7 +1774,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, stoppedByUserRef]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1776,6 +1787,17 @@ export function useChat() {
     // Handle gateway connection status
     if (event.type === 'gateway:status') {
       setGatewayConnected(!!event.connected);
+    }
+    // The server's word on which turns are open: the only signal the turn
+    // queue leaves on (`state/serverTurn.ts`, `decideDrain`).
+    if (event.type === 'turn:state') {
+      if (noteServerTurn(event.sessionKey, event) && !event.open) drainTurnQueueRef.current?.(event.sessionKey);
+    } else if (event.type === 'turn:snapshot') {
+      // A socket that (re)opens: every queue may have been waiting for a turn
+      // that ended while this window was not listening, including queues of
+      // chats not open here.
+      noteTurnSnapshot(event);
+      for (const sk of storedQueueSessions()) drainTurnQueueRef.current?.(sk);
     }
     // Handle stream events directly
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
@@ -1828,9 +1850,12 @@ export function useChat() {
    * chiamato SOLO quando il server non ha visto il messaggio: se lo stream era
    * partito, rimetterlo in coda vorrebbe dire spedirlo due volte.
    */
-  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: () => void): Promise<boolean> => {
+  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: (waitsFor?: TurnRef) => void): Promise<boolean> => {
     if (isSendLocked(sessionKey)) {
-      enqueueTurn(sessionKey, content, options);
+      // Back where it came from when it came from the queue (same ids, same
+      // attachments, same order); at the end of the queue when it did not.
+      if (restoreOnFailure) restoreOnFailure();
+      else enqueueTurn(sessionKey, content, options, openTurnRef(sessionKey));
       return true;
     }
     acquireSendLock(sessionKey);
@@ -2126,6 +2151,7 @@ export function useChat() {
         // reload was in flight, or somebody pressed Stop: the snapshot predates
         // both, and relighting on it kept a Stop up for ~25 s on a finished turn
         // and brought a stopped one back.
+        noteServerTurn(sessionKey, historyResponse.turn);
         const cutWhileLive = !sawDone && historyResponse.isStreaming === true;
         staleSnapshot = cutWhileLive && (endedDuringOwnSseRef.current.has(sessionKey) || isQueueHeld(sessionKey));
         liveAfterCut = cutWhileLive && !staleSnapshot;
@@ -2205,7 +2231,15 @@ export function useChat() {
           if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
           return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
         });
-        unshiftTurn(sessionKey, content, options);
+        // The refusal names the turn in flight: taken as the server's word, and
+        // the message waits for THAT turn's end, not for this window's flag.
+        const refusedBy = (err as { turn?: unknown }).turn;
+        noteServerTurn(sessionKey, refusedBy);
+        const waitsFor = openTurnRef(sessionKey);
+        // The batch goes back as it was (its ids, its attachments, its order),
+        // not merged into one new item under a new key.
+        if (restoreOnFailure) restoreOnFailure(waitsFor);
+        else unshiftTurn(sessionKey, content, options, waitsFor);
         return true; // Return true since we accepted the message
       }
 
@@ -2302,19 +2336,34 @@ export function useChat() {
    *      aperte sullo stesso topic.
    */
   const drainTurnQueue = useCallback((sessionKey: string, attempt = 0): void => {
-    if (isQueueHeld(sessionKey)) return;
-    if (getTurnQueue(sessionKey).length === 0) return;
-    if (isSendLocked(sessionKey) || streamingRef.current[sessionKey]) {
+    // The decision is `decideDrain`, pure and tested: the server's word on the
+    // turn, never this window's `streaming` flag (see its header for the paths
+    // that reset that flag in the middle of a turn).
+    const queue = getTurnQueue(sessionKey);
+    const verdict = decideDrain({
+      held: isQueueHeld(sessionKey),
+      queued: queue.length,
+      sendLocked: isSendLocked(sessionKey),
+      serverTurn: serverTurnOf(sessionKey),
+      head: queue[0],
+      pendingAsk: !!findPendingAsk(messagesRef.current[sessionKey]),
+    });
+    if (verdict === 'wait-own-send') {
       if (attempt >= TURN_DRAIN_MAX_ATTEMPTS) return;
       setTimeout(() => drainTurnQueueRef.current?.(sessionKey, attempt + 1), TURN_DRAIN_RETRY_MS);
       return;
     }
+    // `wait-turn`: the `turn:state` that closes it calls again. `hold`: the person decides.
+    if (verdict !== 'drain') return;
     const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
     if (batch.length === 0) return;
     const turn = mergeBatch(batch);
-    void performSend(sessionKey, turn.content, turn.options, () => requeueFront(sessionKey, batch))
+    // The head's id is the idempotency key: two windows that both won the claim
+    // send the same key, and the server takes the batch once (`duplicate_message`).
+    const options = { ...turn.options, clientMessageId: batch[0]!.id };
+    void performSend(sessionKey, turn.content, options, (waitsFor) => requeueFront(sessionKey, batch, waitsFor))
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
-  }, [performSend, streamingRef]); // `streamingRef` e' uno specchio (useRefMirror): stesso oggetto a ogni render, quindi elencarlo non ridichiara nulla — serve solo a non lasciare un avviso exhaustive-deps che coprirebbe quelli veri.
+  }, [performSend]);
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
   // sotto: scrivere un ref durante il render lo fa puntare alla closure di un
   // render che potrebbe non essere mai committato (StrictMode ne fa due, e uno
@@ -2362,11 +2411,15 @@ export function useChat() {
       }
     }
 
-    const busy = isSendLocked(sessionKey) || !!streamingRef.current[sessionKey];
+    // Busy = this window's own send still streaming, or the server's ledger has
+    // a turn open (a turn the CLI opened by itself included). The message then
+    // waits for THAT turn: `waitsFor`, shared with every window.
+    const waitsFor = openTurnRef(sessionKey);
+    const busy = isSendLocked(sessionKey) || !!waitsFor;
     const decision = decideSend({ busy, queued: getTurnQueue(sessionKey).length });
 
     if (decision === 'queue') {
-      enqueueTurn(sessionKey, content, options);
+      enqueueTurn(sessionKey, content, options, waitsFor);
       return true;
     }
 
@@ -2379,12 +2432,12 @@ export function useChat() {
       const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
       if (batch.length === 0) return true;
       const turn = mergeBatch(batch);
-      return performSend(sessionKey, turn.content, turn.options, () => requeueFront(sessionKey, batch))
+      return performSend(sessionKey, turn.content, { ...turn.options, clientMessageId: batch[0]!.id }, (waitsFor) => requeueFront(sessionKey, batch, waitsFor))
         .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
     }
 
     return performSend(sessionKey, content, options);
-  }, [performSend, streamingRef]); // `streamingRef` e' uno specchio (useRefMirror): stesso oggetto a ogni render, quindi elencarlo non ridichiara nulla — serve solo a non lasciare un avviso exhaustive-deps che coprirebbe quelli veri.
+  }, [performSend]);
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
@@ -2708,6 +2761,7 @@ export function useChat() {
         setPendingQueue(removeQueueSession(queueStorage, OUTBOUND_QUEUE_KEY, sessionKey));
       }
 
+      noteServerTurn(sessionKey, response.turn);
       // Restore streaming state from server (for cross-device sync)
       if (endedMeanwhile) {
         // Neither lit nor drained: the answer is older than the end.

@@ -54,6 +54,7 @@
 import { useSyncExternalStore } from 'react';
 import type { SendMessageOptions } from '../hooks/useChat';
 import type { QueueStorage } from '../hooks/outboundQueue';
+import type { ServerTurn, TurnRef } from './serverTurn';
 
 /** Un messaggio in attesa del suo turno, con le opzioni con cui è stato SCRITTO. */
 export interface QueuedTurn {
@@ -67,6 +68,13 @@ export interface QueuedTurn {
    */
   options?: SendMessageOptions;
   queuedAt: string;
+  /**
+   * The turn that was running when this was written (the server's word, see
+   * `state/serverTurn.ts`). The message may leave only once the server has
+   * said THAT turn is over: shared across windows, so a window that missed the
+   * end of it does not send on a stale "free".
+   */
+  waitsFor?: TurnRef;
 }
 
 export const QUEUE_PREFIX = 'msgQueue:v2:';
@@ -144,11 +152,13 @@ export function parseQueue(raw: string | null): QueuedTurn[] {
     if (!item || typeof item !== 'object') continue;
     const rec = item as Partial<QueuedTurn>;
     if (typeof rec.content !== 'string' || !rec.content.trim()) continue;
+    const w = rec.waitsFor;
     out.push({
       id: typeof rec.id === 'string' && rec.id ? rec.id : newId(),
       content: rec.content,
       options: rec.options,
       queuedAt: typeof rec.queuedAt === 'string' ? rec.queuedAt : new Date(0).toISOString(),
+      ...(w && typeof w.boot === 'string' && typeof w.turnId === 'number' ? { waitsFor: { boot: w.boot, turnId: w.turnId } } : {}),
     });
   }
   return out;
@@ -177,6 +187,25 @@ export function getQueue(sessionKey: string): QueuedTurn[] {
   const items = parseQueue(storage.getItem(queueKey(sessionKey)));
   cache.set(sessionKey, items.length ? items : EMPTY);
   return cache.get(sessionKey)!;
+}
+
+/**
+ * Every session with a queue on disk, hydrated here or not. A window that
+ * reloads with the chat closed has none of them in its cache, and its queue
+ * would wait for the pane to mount: the socket's snapshot tries them all.
+ */
+export function storedQueueSessions(): string[] {
+  const keys = new Set<string>();
+  for (const [sessionKey, items] of cache) if (items.length) keys.add(sessionKey);
+  try {
+    if (typeof localStorage !== 'undefined' && storage === browserStorage) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(QUEUE_PREFIX)) keys.add(k.slice(QUEUE_PREFIX.length));
+      }
+    }
+  } catch { /* storage unavailable: the cache is all there is */ }
+  return [...keys];
 }
 
 /** Rilegge dallo STORAGE ignorando la cache: usata dove un'altra finestra può aver scritto. */
@@ -212,10 +241,10 @@ function setQueue(sessionKey: string, items: QueuedTurn[]): void {
 }
 
 /** Accoda in FONDO. Ritorna l'item, o null se non c'era niente da accodare. */
-export function enqueueTurn(sessionKey: string, content: string, options?: SendMessageOptions): QueuedTurn | null {
+export function enqueueTurn(sessionKey: string, content: string, options?: SendMessageOptions, waitsFor?: TurnRef): QueuedTurn | null {
   const trimmed = content.trim();
   if (!trimmed) return null;
-  const item: QueuedTurn = { id: newId(), content: trimmed, options, queuedAt: new Date().toISOString() };
+  const item: QueuedTurn = { id: newId(), content: trimmed, options, queuedAt: new Date().toISOString(), ...(waitsFor ? { waitsFor } : {}) };
   setQueue(sessionKey, [...readFresh(sessionKey), item]);
   return item;
 }
@@ -228,19 +257,20 @@ export function enqueueTurn(sessionKey: string, content: string, options?: SendM
  * Prende una LISTA perché `claimBatch` estrae tutta la testa omogenea in un
  * colpo: se quel turno non parte, tornano indietro tutti, nel loro ordine.
  */
-export function requeueFront(sessionKey: string, batch: QueuedTurn[]): void {
+export function requeueFront(sessionKey: string, batch: QueuedTurn[], waitsFor?: TurnRef): void {
   const items = readFresh(sessionKey);
   const known = new Set(items.map(i => i.id));
-  const back = batch.filter(i => !known.has(i.id));
+  // Refused because a turn is in flight: the batch now waits for THAT turn.
+  const back = batch.filter(i => !known.has(i.id)).map(i => (waitsFor ? { ...i, waitsFor } : i));
   if (back.length === 0) return;
   setQueue(sessionKey, [...back, ...items]);
 }
 
 /** Come `requeueFront`, ma per chi ha in mano solo il testo (il ramo 409 dell'invio). */
-export function unshiftTurn(sessionKey: string, content: string, options?: SendMessageOptions): QueuedTurn | null {
+export function unshiftTurn(sessionKey: string, content: string, options?: SendMessageOptions, waitsFor?: TurnRef): QueuedTurn | null {
   const trimmed = content.trim();
   if (!trimmed) return null;
-  const item: QueuedTurn = { id: newId(), content: trimmed, options, queuedAt: new Date().toISOString() };
+  const item: QueuedTurn = { id: newId(), content: trimmed, options, queuedAt: new Date().toISOString(), ...(waitsFor ? { waitsFor } : {}) };
   setQueue(sessionKey, [item, ...readFresh(sessionKey)]);
   return item;
 }
@@ -410,6 +440,53 @@ export function decideSend(input: { busy: boolean; queued: number }): SendDecisi
   if (input.busy) return 'queue';
   if (input.queued > 0) return 'queue-then-drain';
   return 'send';
+}
+
+/**
+ * What the drain does now. `drain`: send the head batch. `wait-own-send`: this
+ * window's own send is still streaming, try again in a moment. `wait-turn`: the
+ * server has a turn open, or has not yet said that the turn the head waits for
+ * is over; a `turn:state` close tries again. `hold`: nothing leaves on its own
+ * (stopped by the person, nothing queued, or a question on screen that the
+ * person answers first).
+ */
+export type DrainVerdict = 'drain' | 'wait-own-send' | 'wait-turn' | 'hold';
+
+/**
+ * WHEN THE QUEUE LEAVES: after the server says the turn is over, and only then.
+ *
+ * The only condition used to be this window's own `streaming` flag, and every
+ * path that reset it drained the queue into a turn still running: a history
+ * read (which set it false before asking), a 409's `finally`, a reconnect, the
+ * silence watchdog, the orphan reconciler. The flag is not an input here on
+ * purpose: `serverTurn` is the server's ledger, which also sees the turn a CLI
+ * opened by itself before anyone adopted it. When the server has said nothing
+ * yet (no socket), the head leaves unless it waits for a known turn: the
+ * server's 409 is the last word, and it answers with the turn to wait for.
+ */
+export function decideDrain(input: {
+  held: boolean;
+  queued: number;
+  /** This window's own send is still streaming (its SSE is open). */
+  sendLocked: boolean;
+  serverTurn?: ServerTurn;
+  head?: Pick<QueuedTurn, 'waitsFor'>;
+  /** A question or a plan approval is on screen: the person answers it first. */
+  pendingAsk: boolean;
+}): DrainVerdict {
+  if (input.held || input.queued === 0 || input.pendingAsk) return 'hold';
+  if (input.sendLocked) return 'wait-own-send';
+  const t = input.serverTurn;
+  if (t?.open) return 'wait-turn';
+  const w = input.head?.waitsFor;
+  if (w) {
+    // Nothing heard since the message started waiting: no word that its turn ended.
+    if (!t) return 'wait-turn';
+    // Same server, and its "closed" is not newer than the opening of the turn
+    // waited for (a turn is named by the revision that opened it): stale.
+    if (t.boot === w.boot && t.asOf <= w.turnId) return 'wait-turn';
+  }
+  return 'drain';
 }
 
 // ---------------------------------------------------------------------------

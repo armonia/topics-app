@@ -264,7 +264,10 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.
       const compactionMarkers = getCompactionMarkersBySession(ctx.db, sessionKey);
-      return json({ messages: stripped, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
+      // `turn`: the ledger's word on this session (`lib/turn-ledger.ts`), which the
+      // turn queue drains on; `isStreaming` stays the row's own stream.
+      const turn = ctx.turnLedger?.stateOf(sessionKey);
+      return json({ messages: stripped, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers, ...(turn ? { turn } : {}) });
     }
 
     // A new coordinator has no local rows yet.  Return that truthful empty

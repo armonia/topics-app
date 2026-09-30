@@ -262,3 +262,32 @@ describe('decideSend', () => {
     expect(decideSend({ busy: false, queued: 2 })).toBe('queue-then-drain');
   });
 });
+
+describe('the turn a message waits for (CHAT-QUEUE-07)', () => {
+  test('survives a reload, and every window reads the same one', () => {
+    enqueueTurn(SK, 'typed during turn 7', undefined, { boot: 'b1', turnId: 7 });
+    __setQueueStorage(store);
+    expect(getQueue(SK)[0]?.waitsFor).toEqual({ boot: 'b1', turnId: 7 });
+  });
+
+  test('a batch refused with 409 goes back whole, in order, with its ids, waiting for the refusing turn', () => {
+    enqueueTurn(SK, 'one', { fastMode: false });
+    enqueueTurn(SK, 'two', { fastMode: false });
+    enqueueTurn(SK, 'three', { fastMode: true });
+    const batch = claimBatch(SK, 'w1');
+    expect(batch.map((i) => i.content)).toEqual(['one', 'two']);
+    requeueFront(SK, batch, { boot: 'b1', turnId: 9 });
+    const back = getQueue(SK);
+    expect(back.map((i) => i.content)).toEqual(['one', 'two', 'three']);
+    expect(back.slice(0, 2).map((i) => i.id)).toEqual(batch.map((i) => i.id));
+    expect(back[0]?.waitsFor).toEqual({ boot: 'b1', turnId: 9 });
+    // The one not taken keeps what it had.
+    expect(back[2]?.waitsFor).toBeUndefined();
+  });
+
+  test('a malformed mark is dropped, the message is kept', () => {
+    store.setItem(queueKey(SK), JSON.stringify([{ id: 'x', content: 'kept', queuedAt: 't', waitsFor: { boot: 1 } }]));
+    __setQueueStorage(store);
+    expect(getQueue(SK)).toEqual([{ id: 'x', content: 'kept', options: undefined, queuedAt: 't' }]);
+  });
+});

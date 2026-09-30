@@ -935,6 +935,38 @@ function turnInFlight(pp: PersistentProcess): boolean {
 }
 
 /**
+ * The CLI is busy with a turn that is not this send's: one it opened by itself
+ * (between its `system/init` and its `result`), one waiting for its adopter, or
+ * one declined and still running. A message written to stdin now is read by the
+ * CLI in the middle of that turn and answered in it, with one `result` for
+ * both (CLI 2.1.280): the send waits for the turn's end instead.
+ */
+function cliBusyForSend(pp: PersistentProcess, handler: StreamHandler, now = Date.now()): boolean {
+  if (pp.streamHandler === handler) return false;
+  return pp.cliTurnOpen === true || pp.wokenBuffer != null || pp.declinedTurn === true || wakeAboutToStart(pp, now);
+}
+
+/**
+ * The CLI has queued a turn of its own and its `system/init` has not come yet:
+ * a background task reported (init 0.3 to 1.1 s later, recorded) or a cron
+ * fired, which the CLI holds until the `result` of the turn before and then
+ * starts 11 ms after it (init 182 ms later). A queue drained on that `result`
+ * reached stdin in this gap, and the CLI took the message into the turn it was
+ * starting. Bounded: a report the CLI folded into a running turn opens no new
+ * one, and the send must not wait for it longer than the recorded gap.
+ */
+function wakeAboutToStart(pp: PersistentProcess, now: number): boolean {
+  const at = pp.background?.wakeQueuedAt;
+  return at != null && now - at < WAKE_START_GRACE_MS;
+}
+
+/** The longest recorded gap between a queued wake and its `system/init` (1.1 s), with margin. */
+const WAKE_START_GRACE_MS = 2_000;
+
+/** How often a send parked behind the CLI's own turn looks again, besides the wake at the turn's `result`. */
+const CLI_TURN_RECHECK_MS = 250;
+
+/**
  * A replay's background news, dated by the daemon's record of the child's last
  * write. A daemon older than that record (protocol 1, still holding the CLIs
  * of a server deployed before it) cannot date it: the replay's news then counts
@@ -1185,6 +1217,17 @@ interface PersistentProcess {
   /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
   replayTailInitOnly?: boolean;
   /**
+   * The CLI is in a turn: from its live `system/init` (or the first line of a
+   * turn it opened by itself) to that turn's `result`, or its exit. Whoever
+   * started the turn. Read by `cliBusyForSend` and reported to the turn ledger
+   * (`observeCliTurns`).
+   */
+  cliTurnOpen?: boolean;
+  /** Wakes the one send parked behind the CLI's own turn (`waitOutCliTurn`). */
+  cliIdleWake?: () => void;
+  /** The handler the route registered for a message not written yet (`registerStreamHandler`): it owns no turn until its send writes. */
+  preRegistered?: StreamHandler | null;
+  /**
    * Set when this process was spawned with `--session-id` because the prior
    * `claude_session_id` was either missing on disk or never existed, but the
    * topics-app DB *does* contain prior user/assistant turns for this
@@ -1281,7 +1324,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * the child already dying, the wait ended, and the stopped send was written
    * to a fresh child anyway (and stole the handler of the message after it).
    */
-  private waitingSends = new Map<string, { handler: StreamHandler; cancelled: boolean }>();
+  private waitingSends = new Map<string, { handler: StreamHandler; cancelled: boolean; wake?: () => void }>();
   /**
    * The sends parked on `await prev` in `sendChat`, behind another turn of the
    * same session. A send there has no child and no handler installed anywhere,
@@ -1347,6 +1390,40 @@ export class ClaudeCodeProvider implements AIProvider {
     ClaudeCodeProvider.onTurnReleased = fn;
   }
   private static onTurnReleased: ((sessionKey: string) => void) | null = null;
+
+  /**
+   * Who wants to know when the CLI starts and ends a turn, whoever asked for
+   * it: the turn ledger, so the 409 gate and every window's queue see a turn
+   * the CLI opened by itself before anyone has adopted it. Static for the same
+   * boot-order reason as `observeWokenTurns`.
+   */
+  static observeCliTurns(fn: (sessionKey: string, open: boolean) => void): void {
+    ClaudeCodeProvider.onCliTurn = fn;
+  }
+  private static onCliTurn: ((sessionKey: string, open: boolean) => void) | null = null;
+
+  /** The CLI of this session is in a turn (see `PersistentProcess.cliTurnOpen`). */
+  isCliTurnOpen(sessionKey: string): boolean {
+    return this.processes.get(sessionKey)?.cliTurnOpen === true;
+  }
+
+  /** Records the CLI entering or leaving a turn, tells the observer, and wakes a send parked behind it. */
+  private noteCliTurn(pp: PersistentProcess, open: boolean): void {
+    if (open) {
+      // Another turn begins: a send parked behind the one just ended must not take it.
+    } else {
+      const wake = pp.cliIdleWake;
+      pp.cliIdleWake = undefined;
+      wake?.();
+    }
+    if ((pp.cliTurnOpen === true) === open) return;
+    pp.cliTurnOpen = open;
+    // A replaced child's news is not the session's: its successor speaks for it.
+    const current = this.processes.get(pp.sessionKey);
+    if (current && current !== pp) return;
+    try { ClaudeCodeProvider.onCliTurn?.(pp.sessionKey, open); }
+    catch (err) { console.warn(`[claude-code] cli-turn observer failed for ${pp.sessionKey}:`, err); }
+  }
 
   /**
    * Who says in the chat that a clock closed a CLI whose background work was
@@ -1426,7 +1503,17 @@ export class ClaudeCodeProvider implements AIProvider {
     // went on to answer into a closed row (PR #134 review, round 2).
     // Nor while a reattach replays the store: its tail is nobody's, and the send installs itself after it.
     if (pp.stoppedExit || !pp.alive || pp.replaySilent) return;
+    // A TURN IN PROGRESS IS NOT TAKEN OVER. Another handler drives (the turn
+    // before this one), or the CLI is in a turn of its own: installing this
+    // handler here poured that turn's output, and its `result`, into the row of
+    // a message not even written yet, and the message then went into the
+    // running turn's stdin. The send installs its handler when it writes, after
+    // that turn's end (`waitOutCliTurn`); a turn the CLI opened by itself keeps
+    // its own row (`adoptWokenTurn`).
+    if (pp.streamHandler && pp.streamHandler !== handler) return;
+    if (cliBusyForSend(pp, handler)) return;
     pp.streamHandler = handler;
+    pp.preRegistered = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
     // Unless it already ended: its held `result` would close whatever turn is
     // registering now with an answer it never asked for. A finished turn goes
@@ -1567,6 +1654,7 @@ export class ClaudeCodeProvider implements AIProvider {
     for (const [key, waiting] of this.waitingSends) {
       if (waiting.cancelled) continue;
       waiting.cancelled = true;
+      waiting.wake?.();
       try { waiting.handler.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
       catch (err) { console.warn(`[claude-code] shutdown notice not delivered to the waiting send on ${key}:`, err); }
     }
@@ -1707,13 +1795,17 @@ export class ClaudeCodeProvider implements AIProvider {
     resetFallbackContent?: string,
     rowId?: string,
   ): Promise<{ runId?: string; notSent?: boolean }> {
-    const pp = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
+    const child = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
     // Stopped before it had a child (see `waitingSends`): `abort()` already
     // told the handler, and nothing was written anywhere.
+    if (!child) return { runId: undefined, notSent: true };
+    // The CLI may be in a turn of its own: the message waits for its end.
+    const pp = await this.waitOutCliTurn(sessionKey, child, handler);
     if (!pp) return { runId: undefined, notSent: true };
     const runId = crypto.randomUUID();
 
     pp.streamHandler = handler;
+    pp.preRegistered = null;
     pp.fullText = "";
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
@@ -2198,6 +2290,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const waiting = this.waitingSends.get(sessionKey);
     if (waiting && !waiting.cancelled) {
       waiting.cancelled = true;
+      waiting.wake?.();
       try { waiting.handler.onAborted?.({ turnEnd: cancelled(reason) }); }
       catch (err) { console.warn(`[claude-code] onAborted threw for the waiting send on ${sessionKey}:`, err); }
       return;
@@ -2387,6 +2480,43 @@ export class ClaudeCodeProvider implements AIProvider {
    * (topic d6158ec6, 22/09: two task updates lost, «no reply» in 5 and 38 ms).
    * Wait for the exit, kill at the cap, then spawn a fresh one.
    */
+  /**
+   * A MESSAGE IS NEVER WRITTEN INTO A TURN IT DID NOT START.
+   *
+   * The CLI opens turns by itself (a background task's notification, a cron
+   * fire, a Monitor), and a user line written to its stdin meanwhile is read at
+   * the next tool boundary of THAT turn: the model saw the message in the middle
+   * of work nobody had asked for, and one `result` closed both (chat 33966f4e,
+   * 27/09, twice; 4 cases in 14 days). Here the send waits for that turn's
+   * `result` (or the child's end), then writes. A Stop reaches it as a waiting
+   * send (`abort`), and a child that died meanwhile is replaced.
+   *
+   * `null` = stopped while it waited: nothing was written.
+   */
+  private async waitOutCliTurn(sessionKey: string, pp: PersistentProcess, handler: StreamHandler): Promise<PersistentProcess | null> {
+    if (!cliBusyForSend(pp, handler)) return pp;
+    const waiting: { handler: StreamHandler; cancelled: boolean; wake?: () => void } = { handler, cancelled: false };
+    this.waitingSends.set(sessionKey, waiting);
+    console.log(`[claude-code] ${sessionKey}: the CLI is in a turn of its own, the message waits for its end`);
+    try {
+      while (!waiting.cancelled && pp.alive && cliBusyForSend(pp, handler)) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(done, CLI_TURN_RECHECK_MS);
+          function done() { clearTimeout(timer); resolve(); }
+          waiting.wake = done;
+          pp.cliIdleWake = done;
+        });
+      }
+    } finally {
+      if (this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
+      if (pp.cliIdleWake === waiting.wake) pp.cliIdleWake = undefined;
+    }
+    if (waiting.cancelled) return null;
+    if (pp.alive && this.processes.get(sessionKey) === pp) return pp;
+    const next = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
+    return next ? this.waitOutCliTurn(sessionKey, next, handler) : null;
+  }
+
   private async processForTurn(
     sessionKey: string,
     waitMs = STOPPED_CHILD_EXIT_WAIT_MS,
@@ -3265,6 +3395,8 @@ export class ClaudeCodeProvider implements AIProvider {
     // keep driving until the live result.
     pp.streamHandler = handler;
     pp.replaySilent = true;
+    // The store's tail is an open turn: the CLI is in it until its `result`.
+    this.noteCliTurn(pp, true);
     const turnDone = new Promise<void>((resolve, reject) => {
       pp.pendingResolve = () => resolve();
       pp.pendingReject = (e) => reject(e);
@@ -3359,6 +3491,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private finalizeDeadReattach(pp: PersistentProcess, cause: StopCause = "process-died"): void {
     pp.alive = false;
+    this.noteCliTurn(pp, false);
     if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
     // Riattacco a un processo che nel frattempo è morto: il turno non l'ha
     // fermato nessuno, è finito il processo sotto.
@@ -3429,6 +3562,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
     pp.alive = false;
+    this.noteCliTurn(pp, false);
     pp.background = undefined; // the child took its background work with it
     pp.stoppedExit?.resolve();
     // Il CLI è morto: il suo pid non è più un'ancora valida (il sistema può
@@ -3503,6 +3637,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // Child failed to spawn / errored (direct: proc 'error'; broker: spawn ack rejection).
   private onSessionErrored(pp: PersistentProcess, err: Error): void {
     pp.alive = false;
+    this.noteCliTurn(pp, false);
     console.error(`[claude-code] Process error: ${err.message}`);
     if (pp.pendingReject) {
       const reject = pp.pendingReject;
@@ -3558,6 +3693,19 @@ export class ClaudeCodeProvider implements AIProvider {
     noteBackgroundLine(pp.background ??= newBackgroundWork(), event, Date.now(), { unattended: !pp.streamHandler });
     this.sayConfigOwed(pp);
 
+    // THE CLI ENTERS AND LEAVES A TURN, whoever started it. Read before anything
+    // can return: a held or dropped line is the CLI working all the same.
+    if (!pp.replayMute) {
+      if (line.kind === "result" && event.result !== "waiting for message") this.noteCliTurn(pp, false);
+      else if (line.label === "system/init" && !pp.replaySilent) {
+        // A handler registered for a message not written yet does not own a
+        // turn the CLI starts now: detached, so the turn is adopted into its
+        // own row and the message waits for its end (`waitOutCliTurn`).
+        if (pp.streamHandler && pp.streamHandler === pp.preRegistered && !pp.pendingReject) pp.streamHandler = null;
+        this.noteCliTurn(pp, true);
+      }
+    }
+
     // ── IL TURNO CHE NASCE DA SOLO ──
     // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.
     // First the lines of a turn already judged: a declined one is dropped to
@@ -3581,6 +3729,8 @@ export class ClaudeCodeProvider implements AIProvider {
       subagent: readParentToolUseId(event) !== null,
       wakeHeld: pp.wokenBuffer != null,
     })) {
+      // A turn the CLI opened with no `system/init` seen is still a turn.
+      this.noteCliTurn(pp, true);
       // Tenuto da parte finché qualcuno non adotta: `bufferWoken` apre il
       // buffer, chiama la sveglia e dice se fermarsi qui.
       if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn, pp.lineStartOffset)) return;
@@ -4418,6 +4568,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (cause === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", KILL_CAUSE_TEXT[cause]);
     const wasAlive = pp.alive;
     pp.alive = false;
+    this.noteCliTurn(pp, false);
     // Killed on purpose (e.g. `/clear` while a send waits for this stopped
     // child): nobody will hear its exit in broker mode, because `kill` drops
     // the handlers for the key, so the wait ends now instead of at its cap.
