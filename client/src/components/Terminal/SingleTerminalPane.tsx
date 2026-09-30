@@ -451,6 +451,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(el);
+    // Fit NOW, in the same task as `open`, before the browser paints: xterm
+    // opens at its default 80x24 and the first fit used to come 50 ms later, so
+    // every terminal painted one frame as a 626x360 block in the corner and then
+    // jumped to the pane's size (fluidity audit panes:F14). A hidden pane has no
+    // size and the fit throws or proposes nothing; the delayed fits below stay
+    // as the safety net for that and for fonts that finish loading late.
+    try { fitAddon.fit(); } catch { /* no layout yet: the delayed fits retry */ }
 
     // Ogni byte del PTY passa da qui, mai da `term.write` diretto: il coalescer
     // decide se ridisegnare subito o accumulare, e scavalcarlo romperebbe

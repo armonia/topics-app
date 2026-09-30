@@ -38,6 +38,9 @@ import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
+import { EASE, MOTION } from '../../lib/motion';
+import { COLUMN_FRAME, columnWidthClass } from './boardGeometry';
+import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
@@ -167,18 +170,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // stays at 44rem, the empty Review's: at 1280 the column sits on its basis
   // and the cap never binds, while a lower cap would make a Review with work
   // NARROWER than an empty one on a wide row.
-  // An empty Review is unaffected (nothing there to overflow). `transition-
-  // [flex-basis,max-width]` animates the claim/release instead of snapping.
+  // An empty Review is unaffected (nothing there to overflow). The claim and
+  // release are NOT a width transition: animating `flex-basis` re-ran layout on
+  // every frame for 200 ms while the card FLIP measured a target still moving.
+  // The width lands in one pass and the columns it shifts glide there with a
+  // transform (`slideLanes` in `useBoardMotion`).
   const reviewHasWork = isReview && (tasks.length > 0 || !!draft);
-  const widthCls = layout === 'list'
-    ? 'mx-auto w-full max-w-3xl'
-    : `min-w-0 grow transition-[flex-basis,max-width] duration-200 ease-out ${
-        reviewHasWork
-          ? 'basis-full sm:basis-[24rem] max-w-[36rem] lg:basis-[35rem] lg:max-w-[44rem]'
-          : isReview
-            ? 'basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
-            : 'basis-72 max-w-[26rem]'
-      }`;
+  const widthCls = columnWidthClass(layout, isReview, reviewHasWork);
   // A section with no tasks and no draft in flight carries nothing to read in
   // a vertical list (unlike the grid, where an empty column is still a visible
   // drop target): skip it, so when only one status is populated the list is
@@ -194,7 +192,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       // `index.css` (vedi DROP_ACTIVE_ATTR in `lib/dragPreview`): la board
       // diceva «qui» in un colore che nessun'altra superficie usava.
       data-drop-active={isOver ? 'into' : undefined}
-      className={`flex ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} flex-col rounded-lg border border-app-border bg-white/5 ${layout === 'list' ? '' : snapCls}`}
+      className={`${COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' ? '' : snapCls}`}
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
@@ -304,6 +302,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
  * (see `releaseTouchDrag`). Module-level on purpose: it closes over nothing,
  * so `useLongPress` keeps one callback for the life of the card.
  */
+/**
+ * The sortable reflow of a card's neighbours while another card is dragged.
+ * A module constant, like the sensor options (BOARDIDLE-01): an object written
+ * in the call would be a new identity on every render of every card.
+ */
+const SORTABLE_TRANSITION = { duration: MOTION.base, easing: EASE.standard } as const;
+
 function openCardMenuAt(target: LongPressTarget): void {
   releaseTouchDrag(target.touched);
   openContextMenuAt(target);
@@ -359,7 +364,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // card must NOT get its transform (that one follows the pointer): applied,
   // the dim source card flew across the board alongside the overlay and the
   // drop targeting went with it.
-  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
+    id: task.id,
+    // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
+    // `200ms ease`, and not at all when the person asked for less motion.
+    transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
+  });
 
   // Review context. The comment PAIR (`selectCardComments`) — the thread's last
   // word as a quick-reply with option buttons when it's a question block and
