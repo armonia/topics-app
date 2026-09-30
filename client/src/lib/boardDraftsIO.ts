@@ -27,20 +27,20 @@ const draftPending = new Map<string, unknown>();
  */
 const UNLOAD_BODY_MAX = 60_000;
 /** Bytes of this module's keepalive bodies whose request has not settled yet. */
-let keepaliveBytesInFlight = 0;
+let unloadBytesInFlight = 0;
 const encoder = new TextEncoder();
 
 function sendDraft(key: string, value: unknown, keepalive: boolean): void {
   const body = JSON.stringify(value);
   const bytes = keepalive ? encoder.encode(body).length : 0;
-  const useKeepalive = keepalive && keepaliveBytesInFlight + bytes <= UNLOAD_BODY_MAX;
-  if (useKeepalive) keepaliveBytesInFlight += bytes;
-  const settle = (): void => { if (useKeepalive) keepaliveBytesInFlight -= bytes; };
+  const fitsUnloadBudget = keepalive && unloadBytesInFlight + bytes <= UNLOAD_BODY_MAX;
+  if (fitsUnloadBudget) unloadBytesInFlight += bytes;
+  const settle = (): void => { if (fitsUnloadBudget) unloadBytesInFlight -= bytes; };
   try {
     // PANE-01-ALLOWED: draft keys, not pane state
     fetch(`/api/ui-state/${key}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
-      keepalive: useKeepalive,
+      keepalive: fitsUnloadBudget,
     }).then(settle, settle);
   } catch {
     settle();
