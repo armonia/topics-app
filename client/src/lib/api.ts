@@ -26,8 +26,6 @@ import type {
 } from '../types';
 import { serverHttpBase } from './shell/net';
 import { markUnpaired } from './auth/session';
-import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
-import { adoptWarmRead, warmRead } from './warmReads';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -261,20 +259,6 @@ export const orchestratorSessionsApi = {
 };
 
 // Chat API
-const historyReadKey = (sessionKey: string, data: HistoryRequest): string => `history\n${sessionKey}\n${JSON.stringify(data)}`;
-
-function readHistory(sessionKey: string, data: HistoryRequest): Promise<HistoryResponse> {
-  return request<HistoryResponse>(`/history/${encodeURIComponent(sessionKey)}`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-    // The visible chat's skeleton comes down when THIS answers. At boot it
-    // queued behind ~90 other /api requests on the six connections the browser
-    // allows per host (measured 2026-09-05: 1.2 s of skeleton): the priority
-    // hint tells Chromium to send it first. WebKit ignores it, harmlessly.
-    priority: 'high',
-  });
-}
-
 export const chatApi = {
   async sendMessage(data: ChatRequest, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
     const response = await fetch(`${API_BASE}/chat`, {
@@ -380,21 +364,16 @@ export const chatApi = {
     }
   },
 
-  /**
-   * Start the first-page history read NOW, ahead of the pane that will ask for
-   * it: the palette's Enter used to send it only from the pane's mount effect,
-   * after the whole synchronous render. The pane's `getHistory` adopts it.
-   */
-  warmHistory(sessionKey: string, data: HistoryRequest = { limit: HISTORY_FIRST_PAGE }): void {
-    warmRead(historyReadKey(sessionKey, data), () => readHistory(sessionKey, data));
-  },
-
   async getHistory(sessionKey: string, data: HistoryRequest = {}): Promise<HistoryResponse> {
-    const early = await adoptWarmRead<HistoryResponse>(historyReadKey(sessionKey, data));
-    // A read taken while a turn was running is not adopted: the caller orders
-    // the answer against the turn events it sees from the moment it asks.
-    if (early && !early.isStreaming) return early;
-    return readHistory(sessionKey, data);
+    return request<HistoryResponse>(`/history/${encodeURIComponent(sessionKey)}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      // The visible chat's skeleton comes down when THIS answers. At boot it
+      // queued behind ~90 other /api requests on the six connections the browser
+      // allows per host (measured 2026-09-05: 1.2 s of skeleton): the priority
+      // hint tells Chromium to send it first. WebKit ignores it, harmlessly.
+      priority: 'high',
+    });
   },
 
   async editMessage(messageId: string, content: string, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
