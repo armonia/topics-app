@@ -41,6 +41,7 @@ import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
+import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -1418,6 +1419,14 @@ export function MessageList({
     // and remounts it collapsed. See `gestureUntilRef`.
     if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
   }, [filteredMessages, _currentStreaming, pinToBottom]);
+  /** Until when a tool body animates its height (`transcriptRowResize.ts`):
+   *  its growth is pinned frame by frame even inside a gesture window, since a
+   *  pinned row growing at the bottom never leaves Virtuoso's overscan. */
+  const rowResizeUntilRef = useRef(0);
+  const onRowResize = useCallback((durationMs: number) => {
+    rowResizeUntilRef.current = Date.now() + durationMs + ROW_RESIZE_SLACK_MS;
+    pinToBottom({ now: true });
+  }, [pinToBottom]);
 
   // Detect a GENUINE user scroll-up so the streaming bottom-pin can yield to it.
   // A wheel-up is unambiguous; on touch (no wheel) a real DECREASE of scrollTop
@@ -1685,7 +1694,8 @@ export function MessageList({
       // — the tool-call collapse. Nothing is lost by waiting: once the
       // window ends, if the list is still at the bottom, this same observer
       // passes through here again.
-      if (Date.now() < gestureUntilRef.current) return;
+      // ...unless it is a tool body animating its height (`rowResizeUntilRef`).
+      if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
       // NOTA sull'anello, per chi passerà di qui a «ottimizzare».
       //
       // A riposo questo pin si autoalimenta: incollare al fondo fa smontare a
@@ -1921,6 +1931,7 @@ export function MessageList({
   // [data-testid='chat-scroll-container']). The Virtuoso internal scroller is
   // targeted via scrollerElRef without a separate testid.
   return (
+    <TranscriptRowResizeContext.Provider value={onRowResize}>
     <div
       data-testid="chat-scroll-container"
       ref={chatContainerRef}
@@ -2061,7 +2072,7 @@ export function MessageList({
             // unmounts and remounts it collapsed: the same collapse that
             // `markGesture` closes off for the opening window must be
             // respected here too. See `gestureUntilRef`.
-            if (Date.now() < gestureUntilRef.current) return;
+            if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
             const el = scrollerElRef.current;
             if (!el) return;
             const distanza = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -2226,5 +2237,6 @@ export function MessageList({
       <div ref={messagesEndRef} />
       <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} bottomOffset={inputAreaHeight} />
     </div>
+    </TranscriptRowResizeContext.Provider>
   );
 }

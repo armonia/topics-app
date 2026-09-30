@@ -1,4 +1,4 @@
-import { createElement, lazy, memo, Suspense, useEffect, useRef, useState } from 'react';
+import { createElement, lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
@@ -18,6 +18,9 @@ import { autoOpenSchedule, bodyIsOpen } from './toolRowDisclosure';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
 import { SpinnerFallback } from '../Shared/Spinner';
 import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFetchStatus';
+import { TranscriptRowResizeContext } from './transcriptRowResize';
+import { animateEl, EASE, MOTION } from '../../lib/motion';
+import { prefersReducedMotion } from '../../lib/reducedMotion';
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -166,7 +169,17 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // `detail` draws its command and path from there), the whole `detail`
   // overlays the typed one. Whatever the body shows, copies or opens from
   // here on is the full text, never the preview.
-  const wholeCall = fetched?.args ? { ...toolCall, args: fetched.args } : toolCall;
+  //
+  // Until the fetch lands, a row whose payload was trimmed while it was on
+  // screen goes on showing the whole call it already had. The history that
+  // closes a turn ships previews, and an open live body used to swap its
+  // output for the "loading the full output" line for one frame and back: a
+  // 12 px wobble at the end of every tool turn (UI audit 2026-09-29, core:F02).
+  const [lastWhole, setLastWhole] = useState<ToolCall | null>(null);
+  if (strippedBytes === 0 && lastWhole !== toolCall) setLastWhole(toolCall);
+  const bridging = strippedBytes > 0 && !fetched && lastWhole !== null && lastWhole.id === toolCall.id;
+  const shownCall = bridging ? { ...toolCall, args: lastWhole.args, detail: lastWhole.detail, result: lastWhole.result } : toolCall;
+  const wholeCall = fetched?.args ? { ...shownCall, args: fetched.args } : shownCall;
   const baseDetail = resolveToolDetail(wholeCall);
   const detail = fetched?.detail ? { ...baseDetail, ...fetched.detail } : baseDetail;
   const display = buildToolDisplayLabel(detail, toolCall.name);
@@ -229,6 +242,48 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     isHumanTurn,
     autoOpen,
   });
+  // The body opens and closes by animating its HEIGHT (a grid track from 0fr
+  // to 1fr, `MOTION.base`), and the transcript hears it in the layout phase of
+  // the change (`transcriptRowResize.ts`): a pinned chat follows the body frame
+  // by frame instead of jumping after it (core:F02, core:F09). Mounted and
+  // unmounted in one frame, the body moved a pinned conversation by its whole
+  // height at once, twice per tool call. Closing keeps the body in the tree
+  // for the length of its animation; under reduced motion it goes at once.
+  const onRowResize = useContext(TranscriptRowResizeContext);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [shownOpen, setShownOpen] = useState(effectiveOpen);
+  const [closing, setClosing] = useState(false);
+  if (shownOpen !== effectiveOpen) {
+    setShownOpen(effectiveOpen);
+    setClosing(!effectiveOpen && !prefersReducedMotion());
+  }
+  const bodyInTree = effectiveOpen || closing;
+  const animatedOpenRef = useRef(effectiveOpen);
+  useLayoutEffect(() => {
+    if (animatedOpenRef.current === effectiveOpen) return;
+    animatedOpenRef.current = effectiveOpen;
+    const el = bodyRef.current;
+    if (!el) return;
+    for (const a of el.getAnimations()) a.cancel();
+    const clip = el.firstElementChild as HTMLElement | null;
+    const animation = animateEl(
+      el,
+      effectiveOpen
+        ? [{ gridTemplateRows: '0fr', opacity: 0 }, { gridTemplateRows: '1fr', opacity: 1 }]
+        : [{ gridTemplateRows: '1fr', opacity: 1 }, { gridTemplateRows: '0fr', opacity: 0 }],
+      { duration: MOTION.base, easing: EASE.standard, fill: effectiveOpen ? 'none' : 'forwards' },
+    );
+    onRowResize?.(animation ? MOTION.base : 0);
+    if (animation && clip) {
+      clip.style.overflow = 'hidden';
+      const unclip = () => { clip.style.overflow = ''; };
+      animation.addEventListener('finish', unclip);
+      animation.addEventListener('cancel', unclip);
+    }
+    // `closing` is only set where motion is allowed (see above), which is
+    // where `animateEl` returns an animation to wait for.
+    if (!effectiveOpen && animation) animation.addEventListener('finish', () => setClosing(false));
+  }, [effectiveOpen, onRowResize]);
   useEffect(() => {
     if (!highlighted) return;
     // `?.` on the method too: old WebKit and layout-less test benches lack it.
@@ -264,7 +319,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const outcome = fetchOutcome?.forId === toolCall.id ? fetchOutcome : null;
   const fetchState: { state: ToolDetailFetchState; error?: string } = outcome
     ? outcome
-    : effectiveOpen && messageId && strippedBytes > 0 ? { state: 'loading' } : { state: 'idle' };
+    : effectiveOpen && messageId && strippedBytes > 0 && !bridging ? { state: 'loading' } : { state: 'idle' };
 
   // C'è davvero qualcosa da aprire? Una `Skill` senza istruzioni — cioè ogni
   // riga scritta prima che il provider imparasse a raccoglierle — apriva un
@@ -447,7 +502,13 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           </span>
         </div>
       )}
-      {effectiveOpen && (
+      {bodyInTree && (
+        // The grid track is what animates (0fr to 1fr). The inner box clips
+        // the body only while the track is shorter than it (set by the layout
+        // effect above for the length of the animation), so a form or a menu
+        // inside an open body is never cut.
+        <div ref={bodyRef} className="grid" style={{ gridTemplateRows: effectiveOpen ? '1fr' : '0fr' }}>
+        <div className="min-h-0">
         <div className="ml-5 pb-1.5">
           {/* Pending input form takes precedence: when the agent is asking
               the user, the regular ToolCardBody (args/result preview) is
@@ -528,6 +589,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               </pre>
             </div>
           )}
+        </div>
+        </div>
         </div>
       )}
     </div>
