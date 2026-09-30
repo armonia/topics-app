@@ -80,6 +80,7 @@ export { attemptHasWork } from '../../../shared/task-attempt';
 export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
 import { coalescedFetch } from './coalesceFetch';
+import { uiGet, uiPutDebounced } from './boardDraftsIO';
 import { serverHttpBase } from './shell/net';
 import type { DiffRevs } from '../../../shared/diff-revs';
 
@@ -1282,28 +1283,6 @@ export interface ComposerDraft {
    * vale Todo, cioè quello che il composer faceva sempre.
    */
   status?: TaskStatus;
-}
-
-async function uiGet<T>(key: string): Promise<T | null> {
-  try {
-    const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: draft keys, not pane state
-    if (!r.ok) return null;
-    const d = await r.json().catch(() => null);
-    return (d?.value ?? null) as T | null;
-  } catch { return null; }
-}
-
-const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
-function uiPutDebounced(key: string, value: unknown, ms = 800): void {
-  const t = draftTimers.get(key);
-  if (t) clearTimeout(t);
-  draftTimers.set(key, setTimeout(() => {
-    draftTimers.delete(key);
-    // PANE-01-ALLOWED: draft keys, not pane state
-    fetch(`/api/ui-state/${key}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
-    }).catch(() => {});
-  }, ms));
 }
 
 const TASK_DRAFTS_KEY = 'board-task-drafts';
