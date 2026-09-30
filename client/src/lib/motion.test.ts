@@ -39,6 +39,22 @@ describe('i token del movimento', () => {
     }
   });
 
+  // The two tests above read the FIRST declaration only. A later `:root` that
+  // redeclares a token wins the cascade by source order while they stay green:
+  // measured 2026-09-29, `--ease-standard` resolved at runtime to the Material
+  // curve of a second block 2,800 lines further down. So each token must be
+  // declared exactly once in the whole stylesheet.
+  test('every motion token is declared exactly once in index.css', () => {
+    const names = [
+      ...Object.keys(MOTION).map((k) => `motion-${k}`),
+      ...Object.keys(EASE).map((k) => `ease-${k}`),
+    ];
+    for (const name of names) {
+      const declarations = css.match(new RegExp(`--${name}\\s*:`, 'g')) ?? [];
+      expect({ name, count: declarations.length }).toEqual({ name, count: 1 });
+    }
+  });
+
   test('le durate sono in scala: un riscontro, una comparsa, uno spostamento, un viaggio', () => {
     expect(MOTION.instant).toBeLessThan(MOTION.fast);
     expect(MOTION.fast).toBeLessThan(MOTION.base);

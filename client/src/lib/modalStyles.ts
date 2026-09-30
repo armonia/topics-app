@@ -41,13 +41,20 @@ export const MODAL_LAYER: `z-[${typeof Z_MODAL}]` = 'z-[10000]';
  * dead-center.
  */
 export const MODAL_OVERLAY =
-  `fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm`;
+  `fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm modal-backdrop-enter`;
 
 /**
  * Standalone backdrop layer, for modals that render the dimming div separately
  * from the flex container (e.g. CommandPalette, NewTopicModal, TopicSettingsModal).
  */
-export const MODAL_BACKDROP = 'fixed inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm';
+export const MODAL_BACKDROP = 'fixed inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm modal-backdrop-enter';
+
+/*
+ * Both veils carry `modal-backdrop-enter` (index.css): they fade in over the
+ * panel's own 150ms instead of landing at full opacity on the first frame. The
+ * exit is `useExitGhost(ref, open, 'modal')` (lib/exitGhost) on the outermost
+ * element of the dialog.
+ */
 
 /**
  * The panel container (the actual card). Opaque surface, soft 12px radius, large

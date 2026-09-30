@@ -140,6 +140,10 @@ function recompute(): void {
     // that never thaws — a dead/frozen-looking browser. Structural, so any future
     // in-pane glass chrome is covered too.
     if (node.closest('[data-native-browser-slot]')) return;
+    // The fading copy of a surface that has already closed (lib/exitGhost).
+    // Counting it would freeze the native pane again for the 90ms of the fade,
+    // right after it thawed: a second snapshot for a card that is leaving.
+    if (node.closest('[data-exit-ghost]')) return;
     const cs = getComputedStyle(node);
     const animations = runningAnimations(node);
     if (!overlayPaints({

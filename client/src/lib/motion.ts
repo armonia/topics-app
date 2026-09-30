@@ -36,6 +36,11 @@
 
 import { prefersReducedMotion } from './reducedMotion';
 
+// A menu or popover that opens under the pointer uses `instant`, not `fast`:
+// it answers a click, and its entrance and exit stay under the 120ms past
+// which a menu starts to read as slow (`.popover-enter` and
+// `[data-exit-ghost]` in index.css, `lib/exitGhost.ts`). `fast` stays for
+// what appears on its own: a dialog, a fade, a skeleton giving way.
 /** Le quattro durate, in millisecondi. */
 export const MOTION = {
   instant: 90,

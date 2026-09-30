@@ -41,6 +41,7 @@ import { ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX, TAB_LABEL_TYPE, TIER_DONE_BG, T
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { computeMenuPosition, type MenuPosition } from '@/lib/popoverPosition';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import { bringPaneIntoSpace, firstOtherLiveSpace } from '../Layout/spaceHelpers';
@@ -80,6 +81,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   useDismissable({ open: menu !== null, onClose: () => setMenu(null), refs: [menuRef] });
+  useExitGhost(menuRef, menu !== null);
   // Il menu si ancora al CURSORE, quindi il suo «trigger» e' un punto: si
   // costruisce un rettangolo di larghezza zero li' e si lascia decidere al
   // posizionatore, che misura il pannello vero, ribalta, e da' il tetto del

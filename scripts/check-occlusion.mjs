@@ -58,7 +58,11 @@ const grabRule = (head) => {
   }
   throw new Error(`regola CSS non chiusa: ${head}`);
 };
-const ENTER_CSS = [grabRule('@keyframes commandPaletteIn'), grabRule('.command-palette-enter')].join('\n');
+// The entrance reads its duration and curve from the motion tokens, so the
+// scene declares them too: without them the `animation` shorthand is invalid,
+// the panel lands at opacity 1 and the check stops testing the zero it exists for.
+const MOTION_TOKENS = `:root { ${[...CSS_SRC.matchAll(/^\s*(--(?:motion|ease)-[a-z]+:\s*[^;]+;)/gm)].map((m) => m[1]).join(' ')} }`;
+const ENTER_CSS = [MOTION_TOKENS, grabRule('@keyframes commandPaletteIn'), grabRule('.command-palette-enter')].join('\n');
 
 // ── 3. La scena ──────────────────────────────────────────────────────────────
 // Uno slot di pane browser a destra (dove sta la WKWebView) e un modale che si

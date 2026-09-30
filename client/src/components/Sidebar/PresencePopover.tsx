@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 import { useDismissable } from '@/hooks/useDismissable';
 import { computeMenuPosition } from '@/lib/popoverPosition';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 
 /** The width of the panel. The default for all of them, and wider than the
  *  column: the list of people carries whole names, which the sidebar would
@@ -71,6 +72,7 @@ export function PresencePopover({
     },
     refs: [ancora, pannello],
   });
+  useExitGhost(pannello, anchorEl !== null);
 
   // Measure BEFORE the paint: with `useEffect` the panel would show up in the
   // top left corner for one frame and then jump into place.

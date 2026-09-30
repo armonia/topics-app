@@ -2,6 +2,7 @@ import { useRef, useState, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 
 /**
  * ContextMenuPortal — the cursor-positioned sibling of `Menu`, for right-click
@@ -54,6 +55,7 @@ export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 16
 
   // Cursor menu has no persistent trigger to restore focus to.
   useDismissable({ open, onClose, refs: [menuRef, ...(extraRefs ?? [])], restoreFocus: false, exclusive });
+  useExitGhost(menuRef, open);
 
   // Measure the real menu and clamp it inside the viewport BEFORE paint, so it
   // never spills off-screen and never flashes at the raw cursor point.

@@ -5,6 +5,7 @@ import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, L
 import { useTopicLoading } from '@/state/signals';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { useDismissable } from '@/hooks/useDismissable';
 import { useCopyTabLink } from '@/hooks/useCopyTabLink';
 
@@ -64,6 +65,8 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
   // anyway) can never dismiss. No persistent trigger for a cursor-positioned
   // menu → restoreFocus:false (an open rename input keeps its own focus).
   useDismissable({ open: true, onClose, refs: [menuRef, inputRef], restoreFocus: false });
+  // Mounted only while open: the unmount plays the shared exit.
+  useExitGhost(menuRef, true);
 
   useEffect(() => {
     if (subMenu === 'rename') {

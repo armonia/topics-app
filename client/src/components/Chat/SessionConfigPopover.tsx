@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import {
   EFFORT_TIERS,
@@ -61,6 +62,8 @@ export function SessionConfigPopover({
   const panelRef = useRef<HTMLDivElement>(null);
 
   useDismissable({ open, onClose: () => setOpen(false), refs: [panelRef, btnRef] });
+  // The panel exists once it is placed (`pos`), and that is when the exit arms.
+  useExitGhost(panelRef, open && pos !== null);
 
   // Stessa risoluzione del picker (lib/effortTiers.ts): il tier di default è
   // quello del provider attivo, ed è il riferimento contro cui si legge

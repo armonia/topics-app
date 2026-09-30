@@ -13,6 +13,7 @@ import { PlanSection } from './PlanSection';
 import { ProfilePage, OrganizationPage, FollowersPage } from './IdentityPages';
 import { SETTINGS_SECTIONS, type SectionId } from './sections';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 
 interface GlobalSettingsProps {
@@ -71,6 +72,11 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
   // interrompere il turno dell'AI nella chat sotto.
   useModalDialog({ open: isOpen, onClose, panelRef });
 
+  // The veil and the panel leave together, over the panel's own 150ms, instead
+  // of vanishing in one frame on Escape.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, isOpen, 'modal');
+
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
@@ -85,7 +91,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
   if (!isOpen) return null;
 
   return (
-    <div className={MODAL_OVERLAY} onClick={onClose}>
+    <div ref={overlayRef} className={MODAL_OVERLAY} onClick={onClose}>
       <div
         ref={panelRef}
         data-testid="settings-panel"

@@ -12,6 +12,7 @@ import { SheetGrabber } from './SheetGrabber';
 // una riga.
 import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 
 /**
  * Menu — the ONE anchored-popover primitive. Every custom menu / dropdown in the
@@ -175,6 +176,10 @@ export function Menu({
   }, [open, unmanagedFocus, isMobile, placed]);
 
   const onKeyDown = useMenuKeyboard({ panelRef, enabled: !unmanagedFocus });
+
+  // The anchored card fades out on close (lib/exitGhost). The phone sheet has
+  // its own slide and a scrim that leaves with it, so it closes as before.
+  useExitGhost(panelRef, open && !isMobile);
 
   if (!open) return null;
 
