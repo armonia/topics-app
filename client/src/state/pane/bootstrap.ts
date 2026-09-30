@@ -30,7 +30,8 @@ import {
   markServerHydrated,
 } from './middleware/serverHydrated';
 import { usePaneStore } from './store';
-import { paneTypesToWarm, panesOnFirstFrame, preloadPaneChunks } from './panePreload';
+import type { PaneState } from './types';
+import { paneTypesToWarm, paneTypesToWarmWhenIdle, panesOnFirstFrame, preloadPaneChunks } from './panePreload';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { initTombstoneSync } from './adapters/tombstoneSync';
 
@@ -242,6 +243,43 @@ let chunksWarm: Promise<void> = Promise.resolve();
  */
 export function paneChunksWarm(): Promise<void> {
   return chunksWarm;
+}
+
+/** Reads a project's local tab record; an unreadable storage warms nothing. */
+function readLocalRecord(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+/** The pane types and project folders in the store, as one comparable string. */
+function openPaneSignature(panes: PaneState['panes']): string {
+  const parts: string[] = [];
+  for (const p of Object.values(panes)) parts.push(p.type === 'project' ? `project:${p.projectPath ?? ''}` : p.type);
+  return [...new Set(parts)].sort().join('|');
+}
+
+/**
+ * Warm, at idle and after the first frame, the chunks of every open pane (see
+ * `paneTypesToWarmWhenIdle`), and again whenever a pane of a new type or a new
+ * project window appears in the store. Returns the unsubscribe.
+ *
+ * Idle is a timeout and not `requestIdleCallback`: WKWebView, the desktop
+ * shell, does not have it.
+ */
+export function warmOpenPaneChunksWhenIdle(delayMs = 300): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const run = () => {
+    timer = null;
+    void preloadPaneChunks(paneTypesToWarmWhenIdle(Object.values(usePaneStore.getState().panes), readLocalRecord));
+  };
+  const queue = () => {
+    if (timer === null) timer = setTimeout(run, delayMs);
+  };
+  queue();
+  const stopWatching = usePaneStore.subscribe((s) => openPaneSignature(s.panes), queue);
+  return () => {
+    stopWatching();
+    if (timer !== null) clearTimeout(timer);
+  };
 }
 
 /**

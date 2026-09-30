@@ -2601,10 +2601,22 @@ export function useChat() {
     if (inFlightHistoryRef.current.has(sessionKey)) return true;
     inFlightHistoryRef.current.add(sessionKey);
     let endedMeanwhile = false;
+    // A thread this page already read from the server, and whose rows the
+    // socket has kept current since (an open tab stays subscribed while its
+    // body is unmounted; a chat inside a project window still gets every
+    // `message:new` and `stream:end`), is refreshed in the background: the
+    // read does not raise `loading`.
+    // Raising it held the list's curtain (MessageList `listSettled`) until the
+    // answer came, so a chat pane remounted by a tab switch (a body evicted by
+    // the residency cap, a switch of Spazio) drew the skeleton for 10-12 frames
+    // over rows that were already in the store (tab-switch audit 2026-09-29,
+    // PERF-02). The first read of a session still raises it: there the rows on
+    // screen are at most the device's local copy.
+    const revalidate = hydratedSessionsRef.current.has(sessionKey) && (messagesRef.current[sessionKey]?.length ?? 0) > 0;
 
     try {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
-      setLoading(prev => ({ ...prev, [sessionKey]: true }));
+      if (!revalidate) setLoading(prev => ({ ...prev, [sessionKey]: true }));
       // Clear stale streaming/thinking state before server confirms the real state
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
@@ -2769,7 +2781,7 @@ export function useChat() {
       return false;
     } finally {
       inFlightHistoryRef.current.delete(sessionKey);
-      setLoading(prev => ({ ...prev, [sessionKey]: false }));
+      if (!revalidate) setLoading(prev => ({ ...prev, [sessionKey]: false }));
       if (rereadHistoryRef.current.delete(sessionKey)) void loadHistoryRef.current?.(sessionKey, { fresh: true });
       else if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
     }

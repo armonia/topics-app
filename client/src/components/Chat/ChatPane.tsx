@@ -69,6 +69,7 @@ import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAtt
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
 import { useClearChatFinishedWhileViewed } from '../../state/chatInView';
+import { hasNoBox } from '../../lib/hiddenBox';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -458,6 +459,12 @@ function ChatPaneComponent({
     // hand React a setState to bail out of (SPLITPERF-01).
     let last: number | null = null;
     const observer = new ResizeObserver(([entry]) => {
+      // A pane hidden behind another tab (`display: none`) reports a 0x0 box.
+      // That is not the composer's height, it is the absence of a box: taking
+      // it shrank the list's footer while hidden, re-rendered the whole hidden
+      // chat, and on the way back the first frame painted the list 107 px too
+      // low before the footer grew again (tab-switch audit 2026-09-29, PERF-01).
+      if (hasNoBox(entry.contentRect)) return;
       const h = entry.contentRect.height;
       if (h === last) return;
       last = h;
@@ -479,6 +486,8 @@ function ChatPaneComponent({
     // Height only, as above: a divider drag changes the width of the pane.
     let last: number | null = null;
     const observer = new ResizeObserver(([entry]) => {
+      // Same rule as the composer above: a hidden pane has no height to report.
+      if (hasNoBox(entry.contentRect)) return;
       const h = entry.contentRect.height;
       if (h === last) return;
       last = h;

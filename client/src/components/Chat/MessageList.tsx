@@ -31,6 +31,7 @@ import {
 import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
+import { MessageEntrance } from './messageEntrance';
 import { decideHistoryCompletion } from './historyCompletionDecision';
 import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
 import { resolvePromptNumbers } from './promptNumber';
@@ -1139,6 +1140,15 @@ export function MessageList({
     hadCacheAtOpenRef.current = filteredMessages.length > 0;
     setListSettled(false);
   }, [topic.id]); // eslint-disable-line react-hooks/exhaustive-deps -- filteredMessages.length letto in modo ref-safe
+  /** Which rows play the entrance: only messages that arrived after the list
+   *  settled (see `messageEntrance.ts`). Noted during render, before the rows
+   *  of this render are drawn. */
+  const entranceRef = useRef<MessageEntrance | null>(null);
+  if (entranceRef.current === null) entranceRef.current = new MessageEntrance();
+  const entrance = entranceRef.current;
+  useMemo(() => {
+    entrance.note(topic.id, filteredMessages.map((m) => m.id), listSettled, performance.now());
+  }, [entrance, topic.id, filteredMessages, listSettled]);
   /** Mirror of `currentLoading` for the frame loop below: the loop is one
    *  closure per opening, and re-creating it on every loading flip would reset
    *  the frame count it is in the middle of. */
@@ -1600,7 +1610,14 @@ export function MessageList({
             return;
           }
         }
-        pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: !userTouchedRef.current });
+        // Already at the bottom in the frame it comes back (the usual case of
+        // a tab switch): Virtuoso's `scrollToIndex('LAST')` would move it by
+        // one pixel and the pin below would move it back, a 1 px wobble on the
+        // second and fourth frame of every return (tab-switch e2e, TABSWITCH-01).
+        // The pin loop still runs: it is a no-op at the bottom and still
+        // catches a row that finishes measuring late.
+        const atBottomNow = el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
+        pinToBottom({ viaVirtuoso: !atBottomNow, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: !userTouchedRef.current });
         // Tornata visibile: la misura congelata mentre era nascosta non vale
         // più niente (viewport alta 0), si ricalcola.
         syncArrow(el);
@@ -2167,6 +2184,7 @@ export function MessageList({
                   onMessage={onMessage}
                   onRetry={isLastAssistant ? onRetry : undefined}
                   promptNumber={promptNumbers.get(msg.id)}
+                  entering={entrance.isEntering(msg.id, performance.now())}
                 />
               </div>
               </CompactionHoistContext.Provider>

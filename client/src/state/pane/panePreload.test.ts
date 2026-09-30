@@ -5,7 +5,7 @@
  * @covers PERF-02
  */
 import { describe, expect, test } from 'bun:test';
-import { paneTypesToWarm, panesOnFirstFrame } from './panePreload';
+import { paneTypesToWarm, paneTypesToWarmWhenIdle, panesOnFirstFrame } from './panePreload';
 import type { Pane, PaneState } from './types';
 import { DEFAULT_SPACE_ID } from './types';
 import { projectPanesKey } from '../../../../shared/project-keys';
@@ -108,5 +108,15 @@ describe('panesOnFirstFrame', () => {
   test('un id nella fila senza record non conta come pane del default', () => {
     const state = stateWith(panes, [...order, 'in-volo'], DEFAULT_SPACE_ID);
     expect(panesOnFirstFrame(state, null).map((p) => p.id)).toEqual(['board:1', 'chat:1']);
+  });
+});
+
+describe('paneTypesToWarmWhenIdle', () => {
+  test('a project window adds its git panel, one click away in its sidebar', () => {
+    const types = paneTypesToWarmWhenIdle([{ type: 'project', projectPath: PROJECT }, { type: 'chat' }], () => null);
+    expect(types.sort()).toEqual(['chat', 'git', 'project']);
+  });
+  test('without a project window nothing is added', () => {
+    expect(paneTypesToWarmWhenIdle([{ type: 'terminal' }], () => null)).toEqual(['terminal']);
   });
 });

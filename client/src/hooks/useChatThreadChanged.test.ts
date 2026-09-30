@@ -14,7 +14,11 @@
  * history route stubbed at `fetch`; the last block starts from the frame, on
  * the subscription an open pane installs (`subscribeThreadReconcile`).
  *
- * @covers INTERRUPT-01, RESUME-02
+ * The last block is the other side of the same read: a read of a thread this
+ * window already holds from the server does not raise `loading`, which is what
+ * held a remounted chat behind its skeleton on a tab switch.
+ *
+ * @covers INTERRUPT-01, RESUME-02, PERF-02
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
@@ -220,6 +224,43 @@ describe('from the frame on the socket, in a window that read the thread a momen
     expect(d.last()?.partial).toBe(true);
     expect(cutOf(d.last())).toBeUndefined();
     pane.stop();
+    d.unmount();
+  });
+});
+
+/**
+ * A READ OF A THREAD THE WINDOW ALREADY HOLDS IS A REFRESH, NOT A LOAD.
+ * `loading` holds the list's curtain; a chat pane remounted by a tab switch
+ * (evicted body, switch of Spazio) read again past the dedup and drew the
+ * skeleton over rows that were already in the store.
+ */
+describe('a read of a thread this window already read from the server', () => {
+  test('the first read raises loading, the next one refreshes in the background', async () => {
+    const d = drive();
+    let release!: () => void;
+    gate = new Promise<void>((r) => { release = r; });
+    const first = d.chat.loadHistory(d.sk);
+    await settle();
+    expect(d.chat.isSessionLoading(d.sk)).toBe(true);
+    gate = null;
+    release();
+    await first;
+    await settle();
+    expect(d.chat.isSessionLoading(d.sk)).toBe(false);
+
+    serverRows = CLOSED;
+    gate = new Promise<void>((r) => { release = r; });
+    // `fresh` stands for a read past the dedup window, as a remount after 5 s.
+    const again = d.chat.loadHistory(d.sk, { fresh: true });
+    await settle();
+    expect(d.chat.isSessionLoading(d.sk)).toBe(false);
+    expect(d.last()?.partial).toBe(true);
+    gate = null;
+    release();
+    await again;
+    await settle();
+    expect(d.chat.isSessionLoading(d.sk)).toBe(false);
+    expect(cutOf(d.last())).toMatchObject({ kind: 'error', text: CUT });
     d.unmount();
   });
 });
