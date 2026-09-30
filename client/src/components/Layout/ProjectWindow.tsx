@@ -523,7 +523,7 @@ export function ProjectWindowPane({
       }
       case 'file':
         return pane.filePath ? (
-          <LazyPane kind="file">
+          <LazyPane>
             <FilePane
               filePath={pane.filePath}
               projectPath={projectPath}
@@ -547,13 +547,13 @@ export function ProjectWindowPane({
         );
       case 'dashboard':
         return (
-          <LazyPane kind="dashboard">
+          <LazyPane>
             <DashboardPane onMessage={onWSMessage} />
           </LazyPane>
         );
       case 'kanban':
         return (
-          <LazyPane kind="board">
+          <LazyPane>
             <KanbanBoardPane
               projectPath={projectPath}
               onMessage={onWSMessage}

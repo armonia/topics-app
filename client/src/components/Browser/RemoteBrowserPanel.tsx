@@ -50,29 +50,6 @@ const DomCoBrowse = lazy(() => import('./DomCoBrowse'));
  *  salire mentre si trascina la pagina. */
 const VIDEO_TAP_SLOP = 8;
 
-/**
- * How long a pane that KNOWS its URL (a restored tab, a tab opened on a link)
- * waits for it before offering the New Tab page. The seed of a restored pane
- * leaves after 400 ms (`useSeedPaneUrl`); past this grace a URL that was never
- * going to be applied (a private address the seed refuses) gets the New Tab
- * page, as before, just not before the navigation had a chance.
- */
-const NEW_TAB_GRACE_MS = 700;
-
-/**
- * True while the pane has a destination it has not reached yet: a
- * `navigateUrl` not consumed, or a known URL within the grace. The New Tab page
- * waits while this is true (fluidity audit panes:F16).
- */
-function useUrlPending(knownUrl: string | undefined, navigateUrl: string | undefined): boolean {
-  const [graceOver, setGraceOver] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setGraceOver(true), NEW_TAB_GRACE_MS);
-    return () => clearTimeout(t);
-  }, []);
-  return !!navigateUrl || (!!knownUrl && !graceOver);
-}
-
 /** Report a browser pane's busy state (page loading or an agent driving it)
  *  into the unified signals store, so its tab spinner + the project rollup
  *  react. Shared by the web (useRemoteBrowser) and native (useTauriBrowser)
@@ -426,7 +403,6 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // knows: a navigation supersedes the seed.
   const storePaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
   const knownPaneUrl = storePaneUrl ?? (isRealUrl(initialUrl) ? initialUrl : undefined);
-  const urlPending = useUrlPending(knownPaneUrl, navigateUrl);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
@@ -705,10 +681,6 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           checking={browser.parkedChecking}
           onRetry={() => { void browser.retryParked?.(); }}
         />
-      ) : (!browser.url || browser.url === 'about:blank') && urlPending ? (
-        // A destination is about to be applied (see `useUrlPending`): no New
-        // Tab page for the frames before it.
-        <div className="h-full" />
       ) : (!browser.url || browser.url === 'about:blank') ? (
         // Scheda vuota: al posto del placeholder ci va la pagina Nuovo Tab, per
         // la stessa ragione del parcheggio qui sopra. La view nativa nasce fuori
@@ -809,7 +781,6 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // knows: a navigation supersedes the seed.
   const storePaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
   const knownPaneUrl = storePaneUrl ?? (isRealUrl(initialUrl) ? initialUrl : undefined);
-  const urlPending = useUrlPending(knownPaneUrl, navigateUrl);
   // T2 — native <iframe> path (CodePen-style), early-return with the full
   // toolbar. Used, in the WEB client only, when the server probed the current URL
   // as framable — AND no agent is driving the pane (agents can't reach into a
@@ -1316,11 +1287,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               </div>
             </div>
           </div>
-        ) : ((!browser.url || browser.url === 'about:blank') && (!urlPending || deadLoopback)) ? (
-          // A pane opened WITH a destination is not an empty tab: it used to
-          // show the New Tab page for one frame, sometimes ~90 ms, before the
-          // loader (fluidity audit panes:F16). While the URL is pending (see
-          // `useUrlPending`) it goes straight to the loader below.
+        ) : (!browser.url || browser.url === 'about:blank') ? (
           // Qui i fratelli sono tutti in posizione assoluta (il video, l'errore,
           // lo spinner): la scheda nuova prende lo stesso rettangolo, o dentro
           // un genitore senza flex non avrebbe altezza.

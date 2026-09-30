@@ -22,10 +22,6 @@ import { join } from 'node:path';
 const DIR = import.meta.dir;
 const PANE = readFileSync(join(DIR, 'KanbanBoardPane.tsx'), 'utf8');
 const CARD = readFileSync(join(DIR, 'Card.tsx'), 'utf8');
-// The column width classes moved to `boardGeometry.ts` so the loading
-// skeleton draws the same columns; the width assertions read them there.
-const GEOMETRY = readFileSync(join(DIR, 'boardGeometry.ts'), 'utf8');
-const WIDTH_BLOCK = GEOMETRY.slice(GEOMETRY.indexOf('export const COLUMN_WIDTH'), GEOMETRY.indexOf('/** The column frame'));
 
 describe('il tasto della vista lista, accanto alla ricerca', () => {
   test('esiste, ed è un aria-pressed booleano su boardLayout', () => {
@@ -49,7 +45,7 @@ describe('Column in modalità lista', () => {
   });
 
   test('piena larghezza fino a un tetto di lettura, non più la corsia fissa del carosello', () => {
-    const widthBlock = WIDTH_BLOCK;
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
     expect(widthBlock).toContain("layout === 'list'");
     expect(widthBlock).toContain('w-full max-w-3xl');
   });
@@ -61,28 +57,22 @@ describe('la colonna Review si allarga quando ha lavoro dentro', () => {
   });
 
   test('Review piena reclama più riga di Review vuota', () => {
-    const widthBlock = WIDTH_BLOCK;
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
     expect(widthBlock).toContain('reviewHasWork');
     expect(widthBlock).toContain("lg:basis-[35rem] lg:max-w-[44rem]");
     expect(widthBlock).toContain("lg:basis-[32rem] lg:max-w-[44rem]");
   });
 
   test('Review piena non ha mai un tetto più basso di Review vuota', () => {
-    const widthBlock = WIDTH_BLOCK;
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
     const caps = [...widthBlock.matchAll(/lg:max-w-\[(\d+)rem\]/g)].map((m) => Number(m[1]));
     // The first lg cap is the Review with work, the second the empty one.
     expect(caps.length).toBeGreaterThanOrEqual(2);
     expect(caps[0]).toBeGreaterThanOrEqual(caps[1]);
   });
 
-  // The claim and release still move, but by transform, not by layout: a
-  // `flex-basis` transition re-ran layout every frame while the card FLIP
-  // measured a moving target (fluidity audit panes:F8). The width lands in one
-  // pass and `slideLanes` glides the columns it shifted.
-  test('the width change is not a layout transition, and the shifted columns slide', () => {
-    const widthBlock = WIDTH_BLOCK;
-    expect(widthBlock).not.toMatch(/transition-\[[^\]]*(flex-basis|max-width)/);
-    const motion = readFileSync(join(DIR, 'useBoardMotion.ts'), 'utf8');
-    expect(motion).toContain('slideLanes(root, previous.lanes, now.lanes)');
+  test('la larghezza cambia con una transizione, non a scatto', () => {
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
+    expect(widthBlock).toContain('transition-[flex-basis,max-width]');
   });
 });

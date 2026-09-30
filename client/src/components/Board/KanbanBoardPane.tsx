@@ -16,6 +16,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Archive, ChevronDown, ChevronRight, Kanban, List, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
+import { Spinner } from '../Shared/Spinner';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskDeepLink } from './useTaskDeepLink';
@@ -38,10 +39,6 @@ import { MachineBusyLine } from '../Shared/MachineBusyLine';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
-import { useDrawerPresence } from './useDrawerPresence';
-import { BoardSkeleton } from './BoardSkeleton';
-import { DropNotice } from './DropNotice';
-import { BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST } from './boardGeometry';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
@@ -68,6 +65,8 @@ import { useDevInstall } from '../../hooks/useDevInstall';
 /** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
 const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
+
+const BOARD_LAYOUT_STORAGE_KEY = 'topics.board.layout';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -691,18 +690,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     setCardError((prev) => (message ? { taskId, message } : prev?.taskId === taskId ? null : prev));
   }, []);
   // A move that did NOT land where it was aimed says so here. Not an error
-  // (nothing failed) and not an app-wide toast (it belongs to the board it
-  // happened on): a pill over the bottom of this board's columns (`DropNotice`),
-  // which leaves by itself after a few seconds.
+  // (nothing failed) and not a toast (it belongs to the board it happened on):
+  // one line under the toolbar.
   //
-  // It is also cleared when the NEXT gesture starts, not when the next one ends: a
+  // It is cleared when the NEXT gesture starts, not when the next one ends: a
   // drag that gets cancelled, or lands on a card that vanished under the
   // fingers, used to leave the previous drop's blue line on screen explaining a
   // move that was no longer the last one. And it is cleared again if the write
   // fails, because by then the line claims a destination the card never
   // reached, right next to the red error saying so.
   const [dropNotice, setDropNotice] = useState<string | null>(null);
-  const clearDropNotice = useCallback(() => setDropNotice(null), []);
   // The drawer's task, and the deep-link target (from /task/<id> via
   // openTaskLink, or `topics:open-task`): the GLOBAL board owns it, that is
   // what the link opens. With it, the tab or diff file a targeted gesture
@@ -1638,11 +1635,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const [outsider, setOutsider] = useState<BoardTask | null>(null);
   const selected = tasks.find((t) => t.id === selectedId)
     || (outsider && outsider.id === selectedId ? outsider : null);
-  // The drawer's entrance and exit, and the carousel snap held across the width
-  // change it causes (see `useDrawerPresence`). `drawerTask` is `selected`, or
-  // the task still fading out after a close.
-  const drawerHostRef = useRef<HTMLDivElement>(null);
-  const { shown: drawerTask, snapHeld } = useDrawerPresence(selected, drawerHostRef, columnsScrollRef);
 
   // The drawer judges a card (its routing switch, the model the dispatcher
   // runs on Auto) with its own board's defaults. In the all-boards view that
@@ -1778,11 +1770,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   }, [tasks, filters, mode, unlandedTasks.length]);
 
   if (loading) {
-    // The same skeleton the lazy chunk shows (`LazyPane kind="board"`): the
-    // toolbar strip and the five columns at their real geometry, so the chunk
-    // wait and the first read are one continuous shape, not a ring in an empty
-    // pane followed by the whole board in one frame.
-    return <BoardSkeleton layout={boardLayout} />;
+    // L'anello dell'app, non la rotella lucide: qui sta caricando la BOARD
+    // intera, ed è l'attesa di un blocco (vedi `Spinner.tsx` per la divisione
+    // dei due). `Loader2` resta dove serve, cioè nelle righe e nei bottoni.
+    return <div className="flex h-full items-center justify-center"><Spinner size="md" /></div>;
   }
 
   return (
@@ -1937,6 +1928,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
+      {dropNotice && (
+        <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-compact leading-4 text-sky-300">{dropNotice}</div>
+      )}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
@@ -1991,7 +1985,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           reachable through the row's own horizontal scroll — nothing is ever
           "cut" behind the drawer. Wide mode opts back into absolute takeover
           (the drawer positions itself; out of flow, the board re-expands). */}
-      <div ref={drawerHostRef} className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
             {/* NO `scroll-smooth` ON A PHONE, and that is the fix for "the
@@ -2015,8 +2009,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 48rem reading width, centred), no
                 snap-carousel (there's nothing to peek at off to the side). */}
             <div ref={columnsScrollRef} className={boardLayout === 'list'
-              ? COLUMNS_ROW_LIST
-              : `${COLUMNS_ROW_GRID} ${snapHeld ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
+              ? 'flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3'
+              : 'flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:scroll-smooth sm:gap-3 sm:px-3'}>
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
@@ -2117,8 +2111,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onDraft={setDraft}
             paneSettings={settings}
           />
-          {/* Over the bottom of the columns area, above the composer: see `DropNotice`. */}
-          {dropNotice && <DropNotice text={dropNotice} onDone={clearDropNotice} />}
         </div>
         {orchestratorTopic && orchestrator && (
           <OrchestratorDrawer
@@ -2129,20 +2121,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             {orchestrator.render({ topic: orchestratorTopic })}
           </OrchestratorDrawer>
         )}
-        {drawerTask && (
+        {selected && (
           <TaskDetail
-            key={drawerTask.id} /* fresh edit/scroll state per task (drawer navigation) */
-            projectId={drawerTask.projectId}
-            taskId={drawerTask.id}
-            initialStatus={drawerTask.status}
-            bump={taskDetailBump(drawerTask)}
+            key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
+            projectId={selected.projectId}
+            taskId={selected.id}
+            bump={taskDetailBump(selected)}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
             onMessage={onMessage}
             loadHistory={loadHistory}
-            sessionState={resolveSession(drawerTask.assignedTopicId)}
+            sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
             boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}
             boardDispatchModel={cardSettings?.dispatchModel ?? null}

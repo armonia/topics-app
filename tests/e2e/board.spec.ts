@@ -907,7 +907,7 @@ test.describe("Kanban board", () => {
     // The black hole: the dispatcher lists ONLY `status: "todo"`, so a card left
     // in In Progress by hand is picked up by nobody, and leaving Todo also
     // cancels the dispatch already queued for it. The drop ends up where the
-    // gesture meant to go, and the blue notice over the columns says so.
+    // gesture meant to go, and the blue line under the toolbar says so.
     //
     // This proves the WIRE (dnd-kit -> redirect -> PATCH -> notice on screen) on
     // a card with no agent. WHICH cards get redirected and which do not is the

@@ -768,14 +768,8 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
+export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
-  /**
-   * The status the board already holds for this card. The chip draws it on the
-   * drawer's first frame instead of "Loading...", which was a different width:
-   * the header changed size 30 ms after mount (fluidity audit panes:F6).
-   */
-  initialStatus?: TaskStatus;
   /**
    * Change signal (`taskDetailBump` of the board's live row: its updatedAt and
    * its queue reason): any WS task:updated (a step flipping, a new comment, a
@@ -1054,9 +1048,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
     () => (loadFailed === null ? null : taskActionErrorMessage(loadFailed, tr, tr('board.task.loadFailedReason'))),
     [loadFailed, tr],
   );
-  // The chip's status: the loaded row, else the board's copy while it loads.
-  // A failed first read still says so, instead of a status nobody confirmed.
-  const chipStatus: TaskStatus | null = task?.status ?? (loadFailedMessage ? null : initialStatus ?? null);
   // fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
   /**
@@ -2719,8 +2710,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
-          {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
+          {task ? <StatusIcon status={task.status} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {task ? STATUS_LABEL[task.status] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
         {/* Condividere sta accanto allo STATO, non dentro un menù: è una
