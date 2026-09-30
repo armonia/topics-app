@@ -30,7 +30,7 @@ import { hasNoBox } from '../../lib/hiddenBox';
 import { beginDescent, cancelDescent, claimDescent } from '../../state/composerHandoff';
 
 /** The composer block's height, read by the list's bottom gutter (`MessageList` Footer). */
-export const COMPOSER_H_VAR = '--chat-composer-h';
+export const COMPOSER_HEIGHT_PROPERTY = '--chat-composer-h';
 
 /** Told by the composer observer, in the frame the block changed height. */
 export type ComposerResizeHandler = (grew: boolean) => void;
@@ -101,7 +101,7 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
       const grew = Math.round(h) > Math.round(last ?? 0);
       last = h;
       // Between layout and paint: the gutter and the pin land in this frame.
-      paneRootRef.current?.style.setProperty(COMPOSER_H_VAR, `${h}px`);
+      paneRootRef.current?.style.setProperty(COMPOSER_HEIGHT_PROPERTY, `${h}px`);
       composerResizeRef.current?.(grew);
       setInputAreaHeight(h);
     });
@@ -171,7 +171,7 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
     const block = inputAreaRef.current;
     if (block) {
       const h = block.getBoundingClientRect().height;
-      root.style.setProperty(COMPOSER_H_VAR, `${h}px`);
+      root.style.setProperty(COMPOSER_HEIGHT_PROPERTY, `${h}px`);
       setInputAreaHeight(h);
     }
     setGreetingHeight(greetingRef.current?.getBoundingClientRect().height ?? 0);
@@ -240,8 +240,8 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
   // empty chat has nothing else the user could have focused on purpose.
   useEffect(() => {
     if (!isFocused || !composerCentered) return;
-    const raf = requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
-    return () => cancelAnimationFrame(raf);
+    const frame = requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
   }, [isFocused, composerCentered, textareaRef]);
 
   return { inputAreaHeight, paneHeight, composerCentered, composerOffset, showGreeting, composerResizeRef, startDescent, settleDescent, bornFromDraft: claimed !== null };

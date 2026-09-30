@@ -42,7 +42,7 @@ import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
-import { COMPOSER_H_VAR, type ComposerResizeHandler } from './useComposerDock';
+import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -362,7 +362,7 @@ export function MessageList({
           busy={queueBusy}
         />
         {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
-        <div style={{ height: `calc(var(${COMPOSER_H_VAR}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
+        <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
       </>
     ),
     // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
