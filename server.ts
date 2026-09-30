@@ -28,7 +28,7 @@ import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
-import { closeDatabase } from "./server/db";
+import { closeDatabase, refreshPlannerStats } from "./server/db";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
@@ -6082,6 +6082,21 @@ setTimeout(() => {
   runOrphanCensus();
   setInterval(runOrphanCensus, ORPHAN_CENSUS_EVERY_MS).unref?.();
 }, ORPHAN_CENSUS_DELAY_MS).unref?.();
+
+// Planner statistics for `tasks` (see refreshPlannerStats): a minute after boot,
+// so the ~4 ms write is not on the path to the first 200, then once a day.
+function runPlannerStats(): void {
+  try {
+    refreshPlannerStats(ctx.db);
+  } catch (err) {
+    // Without fresh stats the queries stay correct, only slower: skip the round.
+    console.warn("[db] ANALYZE tasks skipped:", (err as Error).message);
+  }
+}
+setTimeout(() => {
+  runPlannerStats();
+  setInterval(runPlannerStats, 24 * 60 * 60_000).unref?.();
+}, 60_000).unref?.();
 
 // Quiescence gate: a PLANNED restart (approve self-restart, or an explicit
 // restart-when-idle request) must not cut an agent mid-turn. Poll the

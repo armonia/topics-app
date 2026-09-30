@@ -66,6 +66,30 @@ export function getDatabase(): Database {
 }
 
 /**
+ * Planner statistics for `tasks`, and only for `tasks`.
+ *
+ * Without `sqlite_stat1` SQLite takes every index as equally selective, and on
+ * `tasks` it picked `idx_tasks_archived` (97% of the rows share `archived = 0`)
+ * over `idx_tasks_parent` / `idx_tasks_blocked_by` / `idx_tasks_status`:
+ * children of a card, open-children count, subtask and blocker counts and the
+ * heavy-in-flight probe read ~1,120-1,320 pages each instead of 23-37.
+ *
+ * Why not `PRAGMA optimize` on the whole file: it also analyzes tables whose
+ * indexes are almost all NULL (`idx_topics_worktree`), and `sqlite_stat1`
+ * counts NULLs as one key, so `worktree_id = ?` looks like it matches every
+ * row and the planner switches to a full SCAN (21 -> 289 pages, and 22 plans
+ * with more SCANs overall on a copy of the live DB). `ANALYZE tasks` changes
+ * 15 plans, none to a SCAN; the two joins whose order it flipped are pinned
+ * with CROSS JOIN at their call sites.
+ *
+ * Takes ~4 ms on the live DB (4,196 tasks). Called off the boot path and then
+ * daily by server.ts, so the stats follow the table as it grows.
+ */
+export function refreshPlannerStats(db: Database): void {
+  db.run("ANALYZE tasks");
+}
+
+/**
  * Close the database connection (for graceful shutdown).
  */
 export function closeDatabase(): void {

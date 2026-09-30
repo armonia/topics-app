@@ -176,7 +176,10 @@ export function readDispatchBinding(db: Database, sessionKey: string): DispatchB
   // tiene anche `assigned_topic_id`.
   return (
     legatura(db, "tasks k", "k.assigned_topic_id = ?", topicId)
-    ?? legatura(db, "task_attempts a JOIN tasks k ON k.id = a.task_id", "a.topic_id = ?", topicId)
+    // CROSS JOIN keeps `task_attempts` (hundreds of rows) as the outer loop:
+    // with planner stats on `tasks` a plain JOIN scanned every task instead
+    // (26 -> 470 pages on a hit, 339 -> 1,459 on a miss).
+    ?? legatura(db, "task_attempts a CROSS JOIN tasks k ON k.id = a.task_id", "a.topic_id = ?", topicId)
     ?? spento
   );
 }

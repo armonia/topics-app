@@ -14,8 +14,11 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { TaskService } from "./tasks";
+import { createTaskService, type TaskService } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
+import { encodeCol } from "../../shared/message-blob";
+import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
+import { userRowMarks } from "../lib/user-row-marks";
 
 /**
  * The bench: the service's own tables PLUS the bridge to the chat.
@@ -71,6 +74,34 @@ describe("pendingHumanReopen", () => {
       [new Date(clock.t).toISOString(), JSON.stringify([{ kind: "dispatched-envelope", commentIds: [commentId] }])],
     );
     expect(s.pendingHumanReopen({ taskId: id })).toBeNull();
+  });
+
+  test("an envelope that carried 12 comments still silences them once written to disk", () => {
+    // The writer stores `blocks` through `encodeCol`, which compresses from 512
+    // characters up. Twelve ids push the envelope to 515: as a zstd blob the
+    // `LIKE` on the comment id found nothing, so every re-adoption of the card
+    // re-delivered words the agent had already read.
+    // Real uuids, as in production: the counter ids of the bench are too short
+    // to reach the threshold.
+    s = createTaskService(db, { now: () => new Date(clock.t).toISOString(), uuid: () => crypto.randomUUID() });
+    const { id, commentId } = rejected("Obiezione 1.");
+    const ids = [commentId];
+    for (let i = 2; i <= 12; i++) {
+      clock.t += 1000;
+      ids.push(s.addComment({ taskId: id, author: "user", content: `Obiezione ${i}.` }).id);
+    }
+    expect(s.pendingHumanReopen({ taskId: id })!.commentIds).toHaveLength(12);
+
+    const envelope = JSON.stringify(userRowMarks({ dispatched: true, commentIds: ids }));
+    expect(envelope.length).toBeGreaterThan(512);
+    const onDisk = encodeCol(envelope);
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, timestamp, blocks) VALUES ('m1', 'topic:tp1', 'user', 'Human update', ?, ?)",
+      [new Date(clock.t).toISOString(), onDisk as string],
+    );
+    expect(s.pendingHumanReopen({ taskId: id })).toBeNull();
+    // The same row must still read as written by the machine, not as a prompt.
+    expect((db.query(`SELECT COUNT(*) AS n FROM messages WHERE ${MACHINE_ROW_SQL}`).get() as { n: number }).n).toBe(1);
   });
 
   test("una busta che ha portato ALTRI commenti non zittisce questo", () => {

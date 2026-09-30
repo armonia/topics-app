@@ -1522,6 +1522,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     };
     if (!isUnattributedSubtask(task)) return null;
 
+    // CROSS JOIN pins the chain (a handful of ancestors) as the outer loop.
+    // With planner stats on `tasks` and none on a CTE, a plain JOIN let
+    // SQLite scan every task and probe the chain: 26 -> 1,133 pages.
     const rows = db.prepare(
       `WITH RECURSIVE chain(id, parent, depth) AS (
          SELECT id, parent_task_id, 0 FROM tasks WHERE id = ?
@@ -1531,7 +1534,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           WHERE c.depth < ?
        )
        SELECT t.id, t.text, t.status, t.dispatch_state, t.archived
-         FROM chain c JOIN tasks t ON t.id = c.id
+         FROM chain c CROSS JOIN tasks t ON t.id = c.id
         WHERE c.depth > 0
         ORDER BY c.depth ASC`,
     ).all(r.id, MAX_ANCESTOR_DEPTH) as any[];

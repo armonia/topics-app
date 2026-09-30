@@ -19,15 +19,31 @@
  * il DB non viene compresso.
  */
 
+import { MACHINE_ROW_KINDS } from "./prompt-number";
+
 const COMPRESS_THRESHOLD = 512;
+
+/**
+ * A machine mark exactly as `JSON.stringify` writes it into `blocks`: the same
+ * text `MACHINE_ROW_SQL` looks for with `LIKE`.
+ */
+const MACHINE_MARKS = MACHINE_ROW_KINDS.map((k) => `"kind":"${k}"`);
 
 /**
  * Comprime `s` se supera la soglia, altrimenti la restituisce invariata.
  * Accetta `null`/`undefined` e li lascia passare.
+ *
+ * A row that carries a machine mark stays plain text at any size. Two readers
+ * find those marks with `LIKE` on the raw column, which cannot see inside a
+ * zstd blob: `MACHINE_ROW_SQL` (history numbering, resume, sidebar previews)
+ * and the "already delivered" probe of `pendingHumanReopen`, which looks for
+ * comment ids inside the `dispatched-envelope` block. An envelope carrying 12
+ * comment ids is 515 bytes, got compressed, and disappeared from both.
  */
 export function encodeCol(s: string | null | undefined): string | Uint8Array | null | undefined {
   if (s == null) return s;
   if (s.length < COMPRESS_THRESHOLD) return s;
+  if (MACHINE_MARKS.some((m) => s.includes(m))) return s;
   return Bun.zstdCompressSync(Buffer.from(s, "utf8"), { level: 3 });
 }
 

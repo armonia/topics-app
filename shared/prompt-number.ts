@@ -21,11 +21,15 @@ export function hasMachineMark(blocks: readonly { kind?: unknown }[] | null | un
 
 /**
  * The same rule as SQL, for readers that do not load `blocks` (lean reads, the
- * sidebar previews). The marks are a few bytes of plain JSON, below the blob
- * compression threshold of `shared/message-blob.ts`, so a `LIKE` reads them; a
- * compressed blob is a real turn and never matches.
+ * sidebar previews). `encodeCol` (`shared/message-blob.ts`) never compresses a
+ * value that carries one of these marks, so a `LIKE` reads them and a
+ * compressed blob is a real turn.
+ *
+ * The `typeof` guard says that in SQL. Without it the six `LIKE`s scanned every
+ * zstd blob byte by byte (assistant rows up to 789 KB) for a match that cannot
+ * exist: the archived sidebar previews read 11,950 pages instead of 2,872.
  */
-export const MACHINE_ROW_SQL = `(blocks IS NOT NULL AND (${MACHINE_ROW_KINDS.map((k) => `blocks LIKE '%"kind":"${k}"%'`).join(" OR ")}))`;
+export const MACHINE_ROW_SQL = `(typeof(blocks) = 'text' AND (${MACHINE_ROW_KINDS.map((k) => `blocks LIKE '%"kind":"${k}"%'`).join(" OR ")}))`;
 
 const CONTEXT_PREFIX = "[Chat messages since your last reply";
 
