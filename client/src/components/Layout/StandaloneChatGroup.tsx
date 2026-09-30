@@ -844,7 +844,7 @@ export function StandaloneChatGroup({
     if (isUtilityPanelId(paneId)) {
       const utilityType = parseUtilityPanelType(paneId);
       return (
-        <LazyPane>
+        <LazyPane kind={utilityType === 'board' || utilityType === 'dashboard' || utilityType === 'profile' ? utilityType : 'spinner'}>
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
           {utilityType === 'board' && (
