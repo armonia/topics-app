@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import { waitForAnswer, beginAsk, endAsk, deliverAnswer, forgetBufferedAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
-import { answerRecordedOnRow } from "../lib/question-outlives-asker";
+import { answerRecordedOnRow, questionTexts } from "../lib/question-outlives-asker";
 import { createTaskService } from "../services/tasks";
 import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, ENDED_LINE } from "../services/board-ask-routing";
 import { outboundHoldOfSession } from "../lib/outbound-gate";
@@ -172,7 +172,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
             // The same answer may also sit in the buffer (given between two
             // legs, no restart): this leg is its delivery, so the buffer must
             // not hand it on again once its TTL runs out.
-            forgetBufferedAnswer(sk);
+            forgetBufferedAnswer(sk, { questions: questionTexts({ args: { questions: body.questions } }) });
             endAsk(sk);
             return json({ answers: recorded });
           }
@@ -245,7 +245,13 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           return json({ pending: true });
         }
         try {
-          const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
+          // The leg says WHAT it asked: it cannot name its row, and the texts
+          // are what binds an answer to it (a buffered answer to another
+          // question is not its result; see `bufferedAnswerFits`).
+          const answers = await waitForAnswer(sk, {
+            ...(legMs !== undefined ? { timeoutMs: legMs } : {}),
+            questions: questionTexts({ args: { questions: body.questions } }),
+          });
           // THIS QUESTION IS OVER, and this is where the registry is cleared.
           //
           // The `routeAskToTaskThread` registry is keyed by TASK and does not

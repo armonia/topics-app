@@ -21,7 +21,7 @@
  * (`POST /api/chat/tool-response`) does the writing and the sending.
  */
 import type { ToolUserResponse } from "../../shared/types";
-import type { AskHaystackRow } from "./ask-answer-routing";
+import { recentActiveRows, type ActiveRowsSource, type AskHaystackRow } from "./ask-answer-routing";
 
 /** The fields of a stored tool call this module reads. Loose: it is JSON off disk. */
 export interface StoredQuestionCall {
@@ -32,6 +32,7 @@ export interface StoredQuestionCall {
   userInputSchema?: unknown;
   userResponse?: unknown;
   askerGone?: unknown;
+  answerRelay?: unknown;
 }
 
 /**
@@ -67,7 +68,9 @@ function parseArray(json: string | null | undefined): unknown[] {
 }
 
 /**
- * May the asker still take the answer as its tool result?
+ * May the asker still take the answer as its tool result? Read by the chat
+ * route to leave such a question alone when a new message supersedes the
+ * others. Where a CLICK goes is `routeAnswer`, which binds it to its panel.
  *
  * Only a question marked `askerGone` has nobody: that mark is written by
  * whoever SAW the asker end (endStream, the boot sweep, the stale sweep on a
@@ -86,6 +89,93 @@ function parseArray(json: string | null | undefined): unknown[] {
 export function askerStillThere(opts: { pendingAsk: boolean; call: StoredQuestionCall | null }): boolean {
   if (opts.pendingAsk) return true;
   return opts.call?.askerGone !== true;
+}
+
+/**
+ * WHERE AN ANSWER GOES, decided for the panel that was clicked and nothing else.
+ *
+ *   - `asker`: the process that asked THIS question takes it as its tool
+ *     result (the waiting leg, or the buffer its next leg collects from).
+ *   - `message`: its asker is gone, so it reaches the model as the next user
+ *     message with the question quoted (`answerAsNextMessage`), queued behind
+ *     any turn in flight (`lib/answer-relay.ts`).
+ *   - `not-current`: the panel is closed, or another question of this session
+ *     is the one open and this one's asker may still be waiting behind it.
+ *
+ * WHY THE CLICKED ID DECIDES, NOT "SOME ASK IS OPEN". The rendez-vous is keyed
+ * by session, and until 30/09 an open ask anywhere on the session won: an
+ * answer given on an old panel whose asker was gone (question A) was handed to
+ * the leg of the question the relaunched turn had just asked (question B), and
+ * the model read the answer to A as the result of B. A live leg takes a click
+ * only when it is the leg of the clicked question: its wait named that panel,
+ * or the rows say the newest open question with the leg's texts is that panel
+ * (`legCallId`), or, with neither, the texts match and nothing marks the
+ * clicked one as orphaned.
+ */
+export type AnswerRoute = "asker" | "message" | "not-current";
+
+export function routeAnswer(opts: {
+  /** The panel the person answered. */
+  toolCallId: string;
+  /** Its stored call, when a row in the window carries it. */
+  clicked: StoredQuestionCall | null;
+  /** The open ask of the session (`openAskIdentity`), if any. */
+  open: { toolCallId?: string; questions?: readonly string[] } | undefined;
+  /** The panel of the open ask, read off the rows when its wait did not name one. */
+  legCallId?: string | null;
+}): AnswerRoute {
+  const { clicked, open } = opts;
+  const waiting = clicked === null || clicked.status === "waiting_for_input";
+  const orphaned = clicked?.askerGone === true;
+  const elsewhere = (): AnswerRoute => (orphaned && waiting ? "message" : "not-current");
+  if (open) {
+    const legId = open.toolCallId ?? opts.legCallId ?? undefined;
+    if (legId) return legId === opts.toolCallId ? "asker" : elsewhere();
+    if (open.questions && clicked) {
+      const same = sameQuestionTexts(open.questions, questionTexts(clicked));
+      return same && !orphaned ? "asker" : elsewhere();
+    }
+    // Nothing to compare (an ask opened without its questions, a panel out of
+    // the window): the behaviour every caller had, unless the row says the
+    // clicked question has nobody.
+    return orphaned ? elsewhere() : "asker";
+  }
+  if (!waiting) return "not-current";
+  return orphaned ? "message" : "asker";
+}
+
+/**
+ * The panel the open ask is about, read off the rows: the NEWEST question
+ * still waiting whose texts are the ones the leg asked. Newest because a turn
+ * that re-asks the same question paints a new panel, and the leg is its own.
+ */
+export function liveQuestionCallId(
+  rows: readonly AskHaystackRow[],
+  legQuestions: readonly string[] | undefined,
+  decode: (value: unknown) => string | null | undefined,
+): string | null {
+  if (!legQuestions || legQuestions.length === 0) return null;
+  for (const row of rows) {
+    const calls = questionCallsOfRow(row, decode);
+    for (let i = calls.length - 1; i >= 0; i--) {
+      const c = calls[i]!;
+      if (typeof c.id !== "string" || c.status !== "waiting_for_input") continue;
+      if (sameQuestionTexts(legQuestions, questionTexts(c))) return c.id;
+    }
+  }
+  return null;
+}
+
+function sameQuestionTexts(a: readonly string[], b: readonly string[]): boolean {
+  return a.length > 0 && a.length === b.length && a.every((q, i) => q.trim() === b[i]!.trim());
+}
+
+function questionCallsOfRow(row: AskHaystackRow, decode: (value: unknown) => string | null | undefined): StoredQuestionCall[] {
+  const fromBlocks = parseArray(decode(row?.blocks))
+    .map((b) => (b as { kind?: unknown; toolCall?: StoredQuestionCall } | null))
+    .flatMap((b) => (b?.kind === "tool" && b.toolCall ? [b.toolCall] : []));
+  const calls = fromBlocks.length > 0 ? fromBlocks : parseArray(decode(row?.tool_calls)) as StoredQuestionCall[];
+  return calls.filter((c) => isQuestionTool(c?.name));
 }
 
 /**
@@ -208,4 +298,22 @@ export function openQuestionsOnRows(
     }
   }
   return out;
+}
+
+/**
+ * Is a question of this session still waiting on its person, on the rows?
+ *
+ * The in-memory ask cannot say: a question outlives the turn that asked it,
+ * and after that turn nothing in memory remembers it. The goal loop reads this
+ * so it does not buy a turn of its own over a question the person has not
+ * answered yet: the model was waiting for that answer, and a nudge to carry on
+ * without it is a machine turn the answer would then have to queue behind.
+ */
+export function sessionHasOpenQuestion(
+  src: ActiveRowsSource,
+  sessionKey: string,
+  decode: (value: unknown) => string | null | undefined,
+): boolean {
+  try { return openQuestionsOnRows(recentActiveRows(src, sessionKey), decode).length > 0; }
+  catch { return false; }
 }

@@ -70,6 +70,17 @@ export function finalizeOrphanTool(tc: RawToolCall, opts: OrphanSweepOptions = {
   // L'unico ramo che gira anche su una sessione viva.
   if (tc.status === 'awaiting_permission') return close(ORPHAN_ERRORS.permission);
   if (alive) return false;
+  // AN ANSWER NOBODY COLLECTED IS STILL THE PERSON'S ANSWER. A question answered
+  // and still `running` (the answer sat in the in-memory buffer for a leg that
+  // never came) was closed here as "interrupted" and the answer was lost with
+  // the buffer. Its asker is gone, so it is owed to the model as the next
+  // message (`lib/answer-relay.ts`): the boot reads the mark and sends it.
+  if (tc.status === 'running' && isQuestionCall(tc) && answeredQuestions(tc.userResponse)) {
+    tc.status = 'success';
+    tc.answerRelay = 'queued';
+    if (tc.endedAt == null) tc.endedAt = now;
+    return true;
+  }
   if (tc.status === 'running' || tc.status === 'pending') return close(ORPHAN_ERRORS.running);
   if (tc.status === 'waiting_for_input') {
     if (tc.askerGone === true) return false;
@@ -77,4 +88,14 @@ export function finalizeOrphanTool(tc: RawToolCall, opts: OrphanSweepOptions = {
     return true;
   }
   return false;
+}
+
+function isQuestionCall(tc: Record<string, unknown>): boolean {
+  const name = tc.name;
+  return typeof name === 'string' && (name === 'ask_user_question' || name.endsWith('__ask_user_question'));
+}
+
+function answeredQuestions(response: unknown): boolean {
+  const r = response as { kind?: unknown; answers?: unknown } | null | undefined;
+  return r?.kind === 'questions' && !!r.answers && typeof r.answers === 'object';
 }

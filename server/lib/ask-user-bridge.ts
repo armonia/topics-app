@@ -54,6 +54,14 @@ export interface AskUserBridgeOptions {
    * `openAskToolCallId`.
    */
   toolCallId?: string;
+  /**
+   * The question texts this wait (or this answer) is about, in order. The
+   * generic leg cannot name its row, but it knows what it asked: that is what
+   * binds a buffered answer to the leg that may collect it
+   * (`bufferedAnswerFits`), and what lets the answer route tell the open
+   * question from an older panel still on screen.
+   */
+  questions?: readonly string[];
 }
 
 /**
@@ -124,6 +132,12 @@ interface Waiter {
 interface BufferedAnswer {
   answers: Record<string, string>;
   timer: ReturnType<typeof setTimeout>;
+  /** The panel this answer was given on, when the route knew it. */
+  toolCallId?: string;
+  /** The questions this answer answers, when the route knew them. */
+  questions?: readonly string[];
+  /** Where the answer goes if no leg of its question ever collects it. */
+  onUnclaimed?: (answers: Record<string, string>) => void;
 }
 
 
@@ -149,6 +163,8 @@ interface OpenAsk {
    * rendez-vous declared one. See `openAskToolCallId` for what reads it.
    */
   toolCallId?: string;
+  /** What the current wait asked, when it said so. See `AskUserBridgeOptions.questions`. */
+  questions?: readonly string[];
 }
 
 /**
@@ -192,9 +208,11 @@ export function waitForAnswer(
 ): Promise<Record<string, string>> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  // Answer already delivered before the waiter registered.
+  // Answer already delivered before the waiter registered, and given to THIS
+  // question. An answer bound to another question stays where it is: its TTL
+  // hands it on as a message, it never becomes this leg's result.
   const buf = buffered.get(sessionKey);
-  if (buf) {
+  if (buf && bufferedAnswerFits(buf, opts)) {
     clearTimeout(buf.timer);
     buffered.delete(sessionKey);
     return Promise.resolve(buf.answers);
@@ -225,6 +243,8 @@ export function waitForAnswer(
   if (open) {
     if (opts.toolCallId) open.toolCallId = opts.toolCallId;
     else delete open.toolCallId;
+    if (opts.questions && opts.questions.length > 0) open.questions = [...opts.questions];
+    else delete open.questions;
   }
 
   return new Promise<Record<string, string>>((resolve, reject) => {
@@ -260,6 +280,43 @@ export function waitForAnswer(
  */
 export function openAskToolCallId(sessionKey: string): string | undefined {
   return activeAsks.get(sessionKey)?.toolCallId;
+}
+
+/**
+ * What the open ask of this session is about: the panel its wait named and the
+ * questions it asked, or `undefined` when no ask is open. The answer route reads
+ * both to bind a click to ITS question (`routeAnswer` in
+ * `lib/question-outlives-asker.ts`).
+ */
+export function openAskIdentity(sessionKey: string): { toolCallId?: string; questions?: readonly string[] } | undefined {
+  const open = activeAsks.get(sessionKey);
+  return open ? { toolCallId: open.toolCallId, questions: open.questions } : undefined;
+}
+
+/** Same questions, same order, compared as the panel shows them (trimmed). */
+export function sameQuestions(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((q, i) => q.trim() === b[i]!.trim());
+}
+
+/**
+ * May a leg with this identity collect this buffered answer?
+ *
+ * An answer given with no identity (the board thread, an older caller) goes to
+ * whoever comes, as it always did. An answer bound to a panel goes only to the
+ * wait that names that panel or, for a wait that cannot name its row, to one
+ * that asked the same questions. Until 30/09 the buffer was per SESSION: an
+ * answer to an old question whose asker had gone became the tool result of the
+ * next question the same session asked within two minutes.
+ */
+export function bufferedAnswerFits(
+  buf: { toolCallId?: string; questions?: readonly string[] },
+  leg: { toolCallId?: string; questions?: readonly string[] },
+): boolean {
+  if (!buf.toolCallId && !buf.questions) return true;
+  if (leg.toolCallId && buf.toolCallId) return leg.toolCallId === buf.toolCallId;
+  if (leg.questions && buf.questions) return sameQuestions(leg.questions, buf.questions);
+  // One side cannot say: the legacy behaviour, a leg with no identity at all.
+  return !leg.toolCallId && !leg.questions;
 }
 
 /**
@@ -303,9 +360,19 @@ export function deliverAnswer(
   // disappears is the one failure a person cannot see and cannot repair.
   const ttl = opts.bufferTtlMs ?? ASK_BUFFER_TTL_MS;
   const prev = buffered.get(sessionKey);
-  if (prev) clearTimeout(prev.timer);
+  if (prev) {
+    clearTimeout(prev.timer);
+    // An answer to ANOTHER question waiting here is not overwritten into
+    // nothing: its asker never came for it, so it goes on its other way now.
+    const sameQuestion = bufferedAnswerFits(prev, { toolCallId: opts.toolCallId, questions: opts.questions })
+      && bufferedAnswerFits({ toolCallId: opts.toolCallId, questions: opts.questions }, prev);
+    if (!sameQuestion) prev.onUnclaimed?.(prev.answers);
+  }
   const entry: BufferedAnswer = {
     answers,
+    ...(opts.onUnclaimed ? { onUnclaimed: opts.onUnclaimed } : {}),
+    ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...(opts.questions && opts.questions.length > 0 ? { questions: [...opts.questions] } : {}),
     timer: setTimeout(() => {
       if (buffered.get(sessionKey) !== entry) return;
       buffered.delete(sessionKey);
@@ -322,9 +389,14 @@ export function deliverAnswer(
  * Left armed, the buffer outlived that leg and, two minutes later, sent the
  * answer to the model a second time as a message nobody typed.
  */
-export function forgetBufferedAnswer(sessionKey: string): void {
+export function forgetBufferedAnswer(
+  sessionKey: string,
+  leg: { toolCallId?: string; questions?: readonly string[] } = {},
+): void {
   const buf = buffered.get(sessionKey);
-  if (!buf) return;
+  // Only the copy of the answer that leg collected: an answer to another
+  // question of the session stays owed.
+  if (!buf || !bufferedAnswerFits(buf, leg)) return;
   clearTimeout(buf.timer);
   buffered.delete(sessionKey);
 }

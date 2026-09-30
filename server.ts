@@ -2,6 +2,7 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
+import type { AnswerRelay } from "./server/lib/answer-relay";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
@@ -842,7 +843,12 @@ const webrtcBridge = createWebrtcBridge();
 const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
 let goalLoop: ChatGoalLoop | null = null;
-const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks(), exposeGoalLoop: (l) => { goalLoop = l; } });
+let answerRelay: AnswerRelay | null = null;
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, {
+  hooks: defaultLifecycleHooks(),
+  exposeGoalLoop: (l) => { goalLoop = l; },
+  exposeAnswerRelay: (r) => { answerRelay = r; },
+});
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
@@ -4810,7 +4816,9 @@ if (serverTunnel) {
 }
 
 // Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
-finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
+// The answers it finds still owed to the model go out once the surviving turns
+// are adopted (below), so none is sent into a session that looks free mid-turn.
+const answersOwedAtBoot = finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
 
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
@@ -5603,6 +5611,9 @@ const survivingTurnsAdopted = reattachSurvivingChatTurns();
 // turns are adopted (before, a session could look free mid-turn), in a branch
 // of their own: a sweep below that throws skips the rest of its chain, and the
 // wakes would have waited for the next boot without a word in the log.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => { for (const owed of answersOwedAtBoot) answerRelay?.enqueue(owed); });
 void survivingTurnsAdopted
   .catch(() => { /* logged by the chain below */ })
   .then(() => startProcessExitWakes({

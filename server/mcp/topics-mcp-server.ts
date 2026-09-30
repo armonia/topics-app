@@ -1480,7 +1480,9 @@ async function postChatReadSSE(
     resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
+      // `fromAgent`: another agent's words in the person's role. They do not
+      // close the person's open questions as "you sent a new message instead".
+      body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }], fromAgent: true }),
       // A socket of its own. On a reused keep-alive socket that the server closes
       // mid-response, Bun's fetch sends the POST again by itself and glues the
       // second answer onto this body: the message reached the chat twice.

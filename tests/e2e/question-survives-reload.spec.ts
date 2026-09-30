@@ -53,7 +53,10 @@ test.describe.serial("a question survives a reload", () => {
   });
 
   /** The turn that asked: the row as the stream (or the boot) leaves it. */
-  async function seedQuestion(request: APIRequestContext, toolCallId: string, question: string, opts: { askerGone?: boolean } = {}) {
+  async function seedQuestion(
+    request: APIRequestContext, toolCallId: string, question: string,
+    opts: { askerGone?: boolean; answeredAndQueued?: string } = {},
+  ) {
     const questions = [{ question, header: "Choice", options: [{ label: "Alpha" }, { label: "Beta" }], multiSelect: false }];
     await seedMessage(request, { sessionKey, role: "user", content: "help me pick one" });
     await seedMessage(request, {
@@ -64,10 +67,14 @@ test.describe.serial("a question survives a reload", () => {
         id: toolCallId,
         name: "mcp__topics__ask_user_question",
         args: { questions },
-        status: "waiting_for_input",
+        status: opts.answeredAndQueued ? "success" : "waiting_for_input",
         startedAt: Date.now() - 5_000,
         userInputSchema: { kind: "questions", questions },
         ...(opts.askerGone ? { askerGone: true } : {}),
+        ...(opts.answeredAndQueued ? {
+          answerRelay: "queued",
+          userResponse: { kind: "questions", answers: { [question]: opts.answeredAndQueued }, submittedAt: new Date().toISOString() },
+        } : {}),
       }],
     });
     return questions;
@@ -155,5 +162,21 @@ test.describe.serial("a question survives a reload", () => {
       const at = messages.findIndex((m) => m.role === "user" && m.content.includes(`> ${question}`) && m.content.includes("Alpha"));
       return at >= 0 && messages.slice(at + 1).some((m) => m.role === "assistant" && m.content.trim().length > 0);
     }, { message: "the late answer reached the model and it replied", timeout: 30_000 }).toBe(true);
+  });
+
+  test("an answer queued behind a turn in flight says it is on its way, across a reload", async ({ page, chatPage, request }) => {
+    // The row as the answer route leaves it when a machine turn holds the
+    // session: answered, and queued for the model as the next message.
+    const toolCallId = "toolu_reload_queued";
+    await seedQuestion(request, toolCallId, "Which port do we open?", { askerGone: true, answeredAndQueued: "Beta" });
+
+    await openChat(page, chatPage);
+    const note = page.getByTestId(`question-answer-queued-${toolCallId}`);
+    await expect(note).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId(`tool-input-form-${toolCallId}`), "an answered panel takes no second click").toHaveCount(0);
+
+    await page.reload();
+    await openChat(page, chatPage);
+    await expect(note, "the note survives the reload").toBeVisible({ timeout: 15_000 });
   });
 });

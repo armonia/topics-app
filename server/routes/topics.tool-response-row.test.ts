@@ -65,6 +65,7 @@ function harness(rows: Row[]) {
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
     matchRoute: () => null,
     broadcastToAll: () => {},
+    isStreaming: () => undefined,
     getTopicBySessionKey: (key: string) => ({ id: `topic-of-${key}`, sessionKey: key, autonomyLevel: "auto-apply", provider: "openai" }),
     saveSingleTopic: () => {},
     updateToolCallFields: (_sk: string, toolCallId: string, fields: { status?: unknown }, opts?: { rowId?: string }) => {
@@ -73,7 +74,12 @@ function harness(rows: Row[]) {
   } as any;
   const sent: Array<{ sessionKey: string; content: string }> = [];
   const router = createTopicsRouter(ctx, undefined, undefined, {
-    sendAnswerAsMessage: async (sessionKey, content) => { sent.push({ sessionKey, content }); },
+    // The chat route the relay posts the answer to: recorded, and taken.
+    answerRelayRoute: async (req) => {
+      const body = await req.json() as { sessionKey: string; messages: Array<{ content: string }> };
+      sent.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
+      return new Response("{}", { status: 200 });
+    },
   });
   const answer = async (sessionKey: string, toolCallId: string, response: unknown) => {
     const url = new URL("http://topics.test/api/chat/tool-response");
@@ -99,7 +105,11 @@ describe("POST /api/chat/tool-response: the answer goes where the question is", 
     try {
       const resp = await h.answer(sk, "toolu_ask", NATIVE_ANSWER);
       expect(resp.status).toBe(200);
-      expect(h.writes).toEqual([{ toolCallId: "toolu_ask", status: "success", opts: { rowId: "turn-row" } }]);
+      expect(h.writes[0]).toEqual({ toolCallId: "toolu_ask", status: "success", opts: { rowId: "turn-row" } });
+      // The relay posts it on its own tick, then settles it on the same row.
+      const until = Date.now() + 2000;
+      while (h.writes.length < 2 && Date.now() < until) await new Promise((r) => setTimeout(r, 5));
+      expect(h.writes.slice(1)).toEqual([{ toolCallId: "toolu_ask", status: undefined, opts: { rowId: "turn-row" } }]);
       expect(h.sent.map((m) => m.sessionKey)).toEqual([sk]);
       expect(h.sent[0]!.content).toContain("sito");
     } finally {

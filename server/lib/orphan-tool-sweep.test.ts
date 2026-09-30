@@ -87,3 +87,32 @@ describe("una spiegazione già scritta vince sulla nostra", () => {
     expect(tc.endedAt).toBe(42);
   });
 });
+
+describe("an answer nobody collected is owed, not interrupted", () => {
+  const answered = () => ({
+    id: "toolu_q", name: "mcp__topics__ask_user_question", status: "running",
+    userResponse: { kind: "questions", answers: { "Which branch?": "next" } },
+  } as Record<string, unknown>);
+
+  it("a dead session: the answered question is queued for the model as a message", () => {
+    const tc = answered();
+    expect(finalizeOrphanTool(tc, { childAlive: false, now: 5 })).toBe(true);
+    expect(tc).toMatchObject({ status: "success", answerRelay: "queued", endedAt: 5 });
+    expect(tc.error).toBeUndefined();
+  });
+
+  it("a live session: left alone, its next leg collects the answer off the row", () => {
+    const tc = answered();
+    expect(finalizeOrphanTool(tc, { childAlive: true })).toBe(false);
+    expect(tc.status).toBe("running");
+  });
+
+  it("a running question with no answer, or another tool, is still interrupted", () => {
+    const bare: Record<string, unknown> = { ...answered(), userResponse: undefined };
+    finalizeOrphanTool(bare, { childAlive: false });
+    expect(bare.status).toBe("error");
+    const bash: Record<string, unknown> = { ...answered(), name: "Bash" };
+    finalizeOrphanTool(bash, { childAlive: false });
+    expect(bash.status).toBe("error");
+  });
+});

@@ -23,7 +23,7 @@ import { startSsePing } from "../lib/sse-ping";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
-import { askerStillThere, openQuestionsOnRows } from "../lib/question-outlives-asker";
+import { askerStillThere, openQuestionsOnRows, sessionHasOpenQuestion } from "../lib/question-outlives-asker";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
@@ -625,7 +625,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // for hours and still show its row from a day-old rename.
           bumpTopicActivity(matchedTopic);
         }
-        if (sentByPerson) supersedeOpenQuestions(sessionKey, matchedTopic?.id);
+        // The relayed answer to one question (`lib/answer-relay.ts`) is the
+        // person's words, but not a choice to skip their OTHER open questions;
+        // another agent's message (`send_chat_message`) is not the person's.
+        if (sentByPerson && !body.questionAnswer && !body.fromAgent) supersedeOpenQuestions(sessionKey, matchedTopic?.id);
 
         // THE AUTOMATIC CHECKPOINT, and this is the only moment it can be taken.
         //
@@ -2440,7 +2443,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // A turn parked on a question is not a turn that decided to
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
-                pendingAsk: askingPlanApproval || interrupted.length > 0,
+                // A question this turn (or an earlier one) left open outlives
+                // the turn and is not in `interrupted`: the rows say it.
+                pendingAsk: askingPlanApproval || interrupted.length > 0 || sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
                 ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
                 fromHuman: sentByPerson,
                 woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own

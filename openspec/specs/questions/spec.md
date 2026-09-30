@@ -730,9 +730,26 @@ riavvio e non ancora ritirata SHALL essere ritirata DALLA RIGA dal tratto
 successivo del processo sopravvissuto. Una risposta NON SHALL mai essere persa
 in silenzio.
 
+Una risposta SHALL essere legata alla SUA domanda, cioe' all'id del pannello
+cliccato, dal clic fino al modello. Il tratto vivo di un'altra domanda della
+stessa sessione (anche la stessa domanda rifatta da un turno rilanciato) NON
+SHALL mai riceverla come proprio risultato, e una risposta messa da parte per il
+tratto successivo SHALL andare solo al tratto della sua domanda.
+
+Una risposta a una domanda il cui processo non c'e' piu' SHALL essere messa in
+CODA sulla sua riga (`answerRelay: queued`) prima di partire, e SHALL raggiungere
+il modello come messaggio successivo appena la sessione e' libera: dietro un
+turno della macchina in volo aspetta, senza limite, e un riavvio la trova ancora
+dovuta e la manda. Il pannello SHALL dire «risposto» solo quando la risposta e'
+stata presa da chi ha chiesto o e' in quella coda, e SHALL dire che e' in
+arrivo finche' la coda non l'ha consegnata. Consegnata, NON SHALL chiudere le
+altre domande aperte della persona, e nemmeno un messaggio di un altro agente
+(`send_chat_message`) SHALL farlo.
+
 Un turno la cui domanda e' ancora aperta NON SHALL essere ripreso da solo al
 boot: rimandato, il modello rifarebbe la stessa domanda in un secondo pannello.
-Lo riprende la risposta.
+Lo riprende la risposta. Per la stessa ragione il ciclo dell'obiettivo NON SHALL
+comprare un turno suo mentre una domanda della sessione aspetta la persona.
 
 Un messaggio nuovo della persona SHALL chiudere come `superseded` ogni domanda
 aperta che nessun processo sta piu' aspettando. Una domanda chiusa senza
@@ -756,6 +773,18 @@ su Codex.
 - **GIVEN** una risposta data e non ancora ritirata, e un riavvio del server con il figlio CLI vivo
 - **WHEN** il figlio torna a chiedere
 - **THEN** SHALL ricevere la risposta dalla riga, come risultato del tool
+
+#### Scenario: la risposta mentre gira un turno della macchina
+- **GIVEN** una domanda il cui processo non c'e' piu', e un turno della macchina in volo sulla sessione
+- **WHEN** la persona risponde
+- **THEN** la riga SHALL passare a risposta con `answerRelay: queued`
+- **AND** il modello SHALL ricevere la domanda citata con la risposta appena il turno finisce, una volta sola
+
+#### Scenario: la vecchia domanda e quella nuova
+- **GIVEN** una domanda A il cui processo non c'e' piu', e un turno nuovo fermo sulla domanda B
+- **WHEN** la persona risponde ad A
+- **THEN** il tratto di B NON SHALL ricevere la risposta ad A
+- **AND** la risposta ad A SHALL arrivare al modello come messaggio, dopo il turno di B
 
 #### Scenario: un messaggio al posto della risposta
 - **GIVEN** una domanda aperta il cui turno e' finito

@@ -144,6 +144,7 @@ const CHAT_EN: Dict = {
   'chat.question.ended.superseded': 'This question was closed without an answer: you sent a new message instead.',
   'chat.question.ended.other': 'This question was closed without an answer.',
   'chat.question.askerGone': 'The turn that asked this has stopped. Your answer will reach it as a new message.',
+  'chat.question.answerQueued': 'Answer saved. It reaches the agent as a new message as soon as the chat is free.',
   'chat.tool.detailLoading': 'Loading the full output…',
   'chat.tool.detailFailed': 'Could not load the full output.',
   'toolgroup.jumpToFailure': 'Open the group on the first failed action',

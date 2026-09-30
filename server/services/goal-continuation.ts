@@ -526,6 +526,8 @@ export function goalContinuationForChatRoute(deps: {
   };
   /** The wakes the session's `run_command` processes owe it (`routes/processes.ts`). */
   commandWakeState?: (sessionKey: string) => CommandWake;
+  /** A question of the session still waits on its person (`sessionHasOpenQuestion`). */
+  hasOpenQuestion?: (sessionKey: string) => boolean;
   resolveProvider: (topic?: Topic | null) => {
     name: string;
     complete: (
@@ -617,7 +619,8 @@ export function goalContinuationForChatRoute(deps: {
           // A board card's turns are the dispatcher's, as they are at any turn end.
           const dispatched = !!ctx.db.query(`SELECT 1 FROM tasks WHERE status = 'in_progress' AND assigned_topic_id = ?`).get(topic.id);
           await onTurnEnd({
-            sessionKey, topicId: topic.id, dispatched, end: "end_turn", discarded: false, pendingAsk: false,
+            sessionKey, topicId: topic.id, dispatched, end: "end_turn", discarded: false,
+            pendingAsk: deps.hasOpenQuestion?.(sessionKey) ?? false,
             usedTools: true, backgroundWork: true, lastAssistantText: last?.content ?? "",
           });
         } catch (err) {

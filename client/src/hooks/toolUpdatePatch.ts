@@ -36,6 +36,8 @@ export interface ToolUpdatePatch {
   askEnded?: ToolCall['askEnded'];
   /** The process that asked is gone; the question stays open. */
   askerGone?: boolean;
+  /** An answer on its way to the model as a message, and whether it got there. */
+  answerRelay?: ToolCall['answerRelay'];
 }
 
 /** The shape read off the wire. Loose on purpose: the schema is loose too. */
@@ -46,6 +48,7 @@ export interface ToolUpdateEvent {
   userResponse?: unknown;
   askEnded?: unknown;
   askerGone?: unknown;
+  answerRelay?: unknown;
 }
 
 const KNOWN_STATUSES = ['pending', 'running', 'success', 'error', 'waiting_for_input', 'awaiting_permission'] as const;
@@ -68,6 +71,7 @@ export function toolUpdatePatch(event: ToolUpdateEvent): ToolUpdatePatch | null 
   if (event.userResponse !== undefined) patch.userResponse = event.userResponse as ToolUserResponse;
   if (event.askEnded === 'cancelled' || event.askEnded === 'superseded') patch.askEnded = event.askEnded;
   if (event.askerGone === true) patch.askerGone = true;
+  if (event.answerRelay === 'queued' || event.answerRelay === 'sent') patch.answerRelay = event.answerRelay;
   return Object.keys(patch).length > 0 ? patch : null;
 }
 

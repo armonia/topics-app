@@ -860,6 +860,13 @@ export interface ToolCall {
    * answering). The panel says so in plain words (`chat.question.ended.*`).
    */
   askEnded?: AskEndReason;
+  /**
+   * An answer whose asker was gone, on its way to the model as the next user
+   * message: `queued` from the moment the person answered (it waits behind any
+   * turn in flight, and a restart finds it owed), `sent` once the chat route
+   * took it (`server/lib/answer-relay.ts`).
+   */
+  answerRelay?: 'queued' | 'sent';
 }
 
 /** The two ways a person ends a question without answering it. */

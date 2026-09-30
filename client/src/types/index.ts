@@ -547,6 +547,8 @@ export interface WSStreamToolUpdateMessage {
   userResponse?: ToolUserResponse;
   /** A question a person ended without answering, and how (see `ToolCall.askEnded`). */
   askEnded?: ToolCall['askEnded'];
+  /** An answer on its way to the model as a message (see `ToolCall.answerRelay`). */
+  answerRelay?: ToolCall['answerRelay'];
 }
 export interface WSStreamToolDetailMessage {
   type: 'stream:tool_detail';

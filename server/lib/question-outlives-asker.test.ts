@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   answerRecordedOnRow, askerStillThere, answerAsNextMessage, openQuestionsOnRows, questionTexts, storedToolCall,
+  routeAnswer, liveQuestionCallId,
 } from "./question-outlives-asker";
 
 const identity = (v: unknown) => (typeof v === "string" ? v : null);
@@ -87,5 +88,50 @@ describe("answerRecordedOnRow: the answer a restart left behind", () => {
     // A newer question sits above the answered one: only the newest counts.
     const rows = [rowWith("r2", [ask({ id: "toolu_new" })]), rowWith("r1", [answered])];
     expect(answerRecordedOnRow(rows, [Q], identity)).toBeNull();
+  });
+});
+
+describe("routeAnswer: the click goes to its own question and nowhere else", () => {
+  const texts = ["Which branch?"];
+
+  test("with no live ask: an open question with nobody goes as a message, an unmarked one to its asker, a closed one nowhere", () => {
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask({ askerGone: true }), open: undefined })).toBe("message");
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask(), open: undefined })).toBe("asker");
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask({ status: "success" }), open: undefined })).toBe("not-current");
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask({ status: "success", askerGone: true }), open: undefined })).toBe("not-current");
+  });
+
+  test("a live leg of ANOTHER question never takes it: an orphaned panel goes as a message, a live one waits its turn", () => {
+    const other = { questions: ["Which database?"] };
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask({ askerGone: true }), open: other, legCallId: "toolu_2" })).toBe("message");
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask({ askerGone: true }), open: other })).toBe("message");
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask(), open: other })).toBe("not-current");
+    // A wait that named its panel (the outbound gate): only that panel.
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask(), open: { toolCallId: "send_1" } })).toBe("not-current");
+    expect(routeAnswer({ toolCallId: "send_1", clicked: null, open: { toolCallId: "send_1" } })).toBe("asker");
+  });
+
+  test("the same question asked again: the leg is the NEW panel's, the old one goes as a message", () => {
+    const open = { questions: texts };
+    expect(routeAnswer({ toolCallId: "toolu_old", clicked: ask({ id: "toolu_old", askerGone: true }), open, legCallId: "toolu_new" })).toBe("message");
+    expect(routeAnswer({ toolCallId: "toolu_new", clicked: ask({ id: "toolu_new" }), open, legCallId: "toolu_new" })).toBe("asker");
+    // Not painted yet: the texts decide, and an orphaned panel is not the leg's.
+    expect(routeAnswer({ toolCallId: "toolu_old", clicked: ask({ id: "toolu_old", askerGone: true }), open })).toBe("message");
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask(), open })).toBe("asker");
+  });
+
+  test("a marked panel whose own leg is polling is still answered by that leg", () => {
+    expect(routeAnswer({ toolCallId: "toolu_1", clicked: ask({ askerGone: true }), open: { questions: texts }, legCallId: "toolu_1" })).toBe("asker");
+  });
+
+  test("liveQuestionCallId: the newest waiting question with the leg's texts", () => {
+    const rows = [
+      rowWith("r2", [ask({ id: "toolu_new" }), ask({ id: "toolu_other", args: { questions: [{ question: "Other?" }] }, userInputSchema: undefined })]),
+      rowWith("r1", [ask({ id: "toolu_old", askerGone: true })]),
+    ];
+    expect(liveQuestionCallId(rows, texts, identity)).toBe("toolu_new");
+    expect(liveQuestionCallId(rows, ["Other?"], identity)).toBe("toolu_other");
+    expect(liveQuestionCallId(rows, ["Nobody asked this?"], identity)).toBeNull();
+    expect(liveQuestionCallId(rows, undefined, identity)).toBeNull();
   });
 });

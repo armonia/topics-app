@@ -14,7 +14,10 @@
  *   3. across a restart with the asker still alive (a CLI child in the broker)
  *      an answer given before the restart is collected from the row;
  *   4. every killer on the map skips a turn that is waiting on a question;
- *   5. a new message supersedes a question nobody is waiting on, and says so.
+ *   5. a new message supersedes a question nobody is waiting on, and says so;
+ *   6. an answer is bound to ITS question from the click to the model: never
+ *      the result of another question's leg, never dropped behind a machine
+ *      turn, never lost to a restart or to the window of recent rows.
  *
  * The restart is simulated at the boundary the design has: the in-memory
  * rendez-vous is dropped (`_dropAskStateLikeARestart`), the routers are built
@@ -41,6 +44,8 @@ import { armStallDetector } from "../../server/lib/stall-detector";
 import { decidePark } from "../../server/lib/terminal-idle-park";
 import { runWithDelegatedDeadline } from "../../server/services/task-dispatcher-delegated";
 import { armCodexTurnTimeout } from "../../server/providers/codex";
+import { sessionHasOpenQuestion } from "../../server/lib/question-outlives-asker";
+import type { AnswerRelay } from "../../server/lib/answer-relay";
 
 const TEST_DATA = testTmpDir("question-waits");
 let ctx: AppContext;
@@ -161,12 +166,22 @@ async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string,
 function bootServer() {
   const lateMessages: Array<{ sessionKey: string; content: string }> = [];
   const chat = chatRouter();
+  let relay: AnswerRelay | null = null;
   const topics = createTopicsRouter(ctx, undefined, undefined, {
-    // The answer goes through the REAL chat route to the model.
-    sendAnswerAsMessage: async (sessionKey, content) => {
-      lateMessages.push({ sessionKey, content });
-      await postChat(chat, sessionKey, content);
+    exposeAnswerRelay: (r) => { relay = r; },
+    // The answer goes through the REAL chat route to the model, and the model
+    // closes that turn at once, as `postChat` does for a typed message.
+    answerRelayRoute: async (req, url, pathname, method) => {
+      const body = await req.clone().json() as { sessionKey: string; messages: Array<{ content: string }> };
+      lateMessages.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
+      const resp = await chat(req, url, pathname, method);
+      if (resp?.ok) {
+        const h = handlers[handlers.length - 1];
+        setTimeout(() => { h?.onTextDelta("ok", "ok"); h?.onDone(); }, 0);
+      }
+      return resp;
     },
+    answerRelayPollMs: 20,
   });
   const permission = createPermissionRouter(ctx);
   const call = async (router: typeof topics, path: string, body: unknown) => {
@@ -178,8 +193,14 @@ function bootServer() {
   };
   return {
     lateMessages,
+    chat,
+    /** The queue that carries an answer whose asker is gone (`lib/answer-relay.ts`). */
+    relay: () => relay!,
     /** One poll leg of the bridge, as `callAskUserQuestion` sends it. */
     leg: (sessionKey: string) => call(permission, `/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, { questions: QUESTIONS, legMs: 100 }),
+    /** A leg of another question, held open for `legMs`. */
+    legFor: (sessionKey: string, questions: unknown[], legMs: number) =>
+      call(permission, `/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, { questions, legMs }),
     /** The panel's Send button. */
     answer: (sessionKey: string, toolCallId: string, choice: string) => call(topics, "/api/chat/tool-response", {
       sessionKey, toolCallId, response: { kind: "questions", answers: { [QUESTION]: choice } },
@@ -519,8 +540,211 @@ describe("a question ends only because of a person, and says why", () => {
     // restart: neither is the person choosing not to answer.
     expect(await server.send(sk, "Objective still open: carry on.", { goalNudge: 1 })).toBe(200);
     expect(await server.send(sk, "Resume the task.", { dispatched: true })).toBe(200);
+    // Another agent writing into this chat (`send_chat_message`) is not the person either.
+    expect(await server.send(sk, "From the other topic: done.", { fromAgent: true })).toBe(200);
     const kept = storedCall(rowId, toolCallId);
     expect(kept?.status).toBe("waiting_for_input");
     expect(kept?.askEnded).toBeUndefined();
+  });
+});
+
+describe("an answer is bound to its own question, from the click to the model", () => {
+  const Q_B = "Which database do we use?";
+  const QUESTIONS_B = [{ question: Q_B, header: "DB", options: [{ label: "sqlite" }, { label: "postgres" }], multiSelect: false }];
+
+  /** A new turn's row with a live question on it, as the detector paints it. */
+  function askOnNewRow(sessionKey: string, toolCallId: string, questions: unknown[]): string {
+    const msg = ctx.createPartialMessage(sessionKey, "assistant");
+    ctx.startStream(sessionKey, msg.id);
+    ctx.addToolCallToLastMessage(sessionKey, {
+      id: toolCallId, name: "mcp__topics__ask_user_question", args: { questions },
+      status: "waiting_for_input", startedAt: Date.now(), userInputSchema: { kind: "questions", questions },
+    } as ToolCall);
+    return msg.id;
+  }
+
+  /** A turn the machine starts and leaves in flight (the dispatcher relaunching a card). */
+  async function machineTurnInFlight(chat: ReturnType<typeof chatRouter>, sessionKey: string): Promise<StreamHandler> {
+    const url = new URL("http://topics.test/api/chat");
+    const resp = await chat(new Request(url.toString(), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "Your previous turn was interrupted: carry on." }], dispatched: true }),
+    }), url, "/api/chat", "POST");
+    expect(resp?.status).toBe(200);
+    resp?.body?.cancel().catch(() => {});
+    return handlers[handlers.length - 1]!;
+  }
+
+  async function until(cond: () => boolean, ms = 3000): Promise<void> {
+    const end = Date.now() + ms;
+    while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+  }
+
+  const receivedBy = (sk: string) => modelReceived.filter((m) => m.sessionKey === sk).map((m) => m.message);
+
+  test("an answer to a question whose asker is gone is never the result of the question a new turn asked", async () => {
+    const sk = "topic:q-cross";
+    const rowA = askOnRow(sk, "toolu_cross_A", { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    // The dispatcher relaunches the card; the relaunched turn asks B.
+    expect(await server.send(sk, "Resume the task.", { dispatched: true })).toBe(200);
+    const rowB = askOnNewRow(sk, "toolu_cross_B", QUESTIONS_B);
+    const legB = server.legFor(sk, QUESTIONS_B, 400);
+    await until(() => hasPendingAsk(sk));
+
+    // The person clicks the OLD panel A.
+    const clickA = await server.answer(sk, "toolu_cross_A", "next");
+    expect(clickA.status).toBe(200);
+    expect(clickA.body.deliveredAs).toBe("message");
+    // B's leg is not handed A's answer: the model would read it as B's result.
+    expect((await legB).body).toEqual({ pending: true });
+    expect(hasPendingAsk(sk)).toBe(true);
+    expect(storedCall(rowB, "toolu_cross_B")?.status).toBe("waiting_for_input");
+    // A is answered and queued behind B's turn, which is still in flight.
+    expect(storedCall(rowA, "toolu_cross_A")).toMatchObject({ status: "success", answerRelay: "queued" });
+    expect(server.lateMessages).toEqual([]);
+
+    // B's turn ends: A's answer reaches the model as a message, once.
+    ctx.endStream(sk);
+    await until(() => server.lateMessages.length > 0 && storedCall(rowA, "toolu_cross_A")?.answerRelay === "sent");
+    expect(server.lateMessages).toHaveLength(1);
+    expect(server.lateMessages[0]!.content).toContain(`> ${QUESTION}`);
+    expect(server.lateMessages[0]!.content).toContain("next");
+    expect(storedCall(rowA, "toolu_cross_A")?.answerRelay).toBe("sent");
+  });
+
+  test("the same question asked again by the relaunched turn: the old panel's answer does not feed the new leg", async () => {
+    const sk = "topic:q-reask";
+    const rowA = askOnRow(sk, "toolu_reask_A", { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    expect(await server.send(sk, "Resume the task.", { dispatched: true })).toBe(200);
+    askOnNewRow(sk, "toolu_reask_B", QUESTIONS);
+    const legB = server.legFor(sk, QUESTIONS, 400);
+    await until(() => hasPendingAsk(sk));
+
+    const clickA = await server.answer(sk, "toolu_reask_A", "next");
+    expect(clickA.body.deliveredAs).toBe("message");
+    expect((await legB).body).toEqual({ pending: true });
+    expect(storedCall(rowA, "toolu_reask_A")).toMatchObject({ status: "success", answerRelay: "queued" });
+    // The new panel answers the new leg, as its own result.
+    const clickB = await server.answer(sk, "toolu_reask_B", "main");
+    expect(clickB.body.deliveredAs).toBeUndefined();
+    expect((await server.legFor(sk, QUESTIONS, 100)).body).toEqual({ answers: { [QUESTION]: "main" } });
+    ctx.endStream(sk);
+    await until(() => server.lateMessages.length > 0);
+    expect(server.lateMessages).toHaveLength(1);
+    expect(server.lateMessages[0]!.content).toContain("next");
+  });
+
+  test("an answer given while a machine turn runs waits for it and then reaches the model, and the panel says it is queued", async () => {
+    const sk = "topic:q-busy";
+    const rowA = askOnRow(sk, "toolu_busy_A", { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    const machine = await machineTurnInFlight(server.chat, sk);
+
+    const clickA = await server.answer(sk, "toolu_busy_A", "main");
+    expect(clickA.status).toBe(200);
+    expect(clickA.body.deliveredAs).toBe("message");
+    expect(storedCall(rowA, "toolu_busy_A")).toMatchObject({ status: "success", answerRelay: "queued" });
+    // While the machine turn runs the answer is not sent into a 409 and dropped.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(server.lateMessages).toEqual([]);
+    expect(receivedBy(sk).some((m) => m.includes(`> ${QUESTION}`))).toBe(false);
+
+    machine.onTextDelta("done", "done");
+    machine.onDone();
+    await until(() => storedCall(rowA, "toolu_busy_A")?.answerRelay === "sent");
+    const answers = receivedBy(sk).filter((m) => m.includes(`> ${QUESTION}`));
+    expect(answers).toHaveLength(1);
+    expect(answers[0]).toContain("main");
+    expect(storedCall(rowA, "toolu_busy_A")?.answerRelay).toBe("sent");
+  });
+
+  test("an answer still queued when the server restarts is sent by the next boot, once", async () => {
+    const sk = "topic:q-owed-boot";
+    const rowA = askOnRow(sk, "toolu_owed_A", { finalize: true });
+    // What the route wrote before the restart cut the relay short.
+    ctx.updateToolCallFields(sk, "toolu_owed_A", {
+      status: "success", answerRelay: "queued",
+      userResponse: { kind: "questions", answers: { [QUESTION]: "next" }, submittedAt: new Date().toISOString() },
+    }, { rowId: rowA });
+
+    _dropAskStateLikeARestart();
+    const owed = finalizeOrphanedRunningTools(ctx.db, new Set());
+    expect(owed.filter((o) => o.sessionKey === sk).map((o) => o.toolCallId)).toEqual(["toolu_owed_A"]);
+    const server = bootServer();
+    for (const o of owed) if (o.sessionKey === sk) server.relay().enqueue(o);
+    await server.relay().idle();
+    expect(server.lateMessages).toHaveLength(1);
+    expect(server.lateMessages[0]!.content).toContain(`> ${QUESTION}`);
+    expect(storedCall(rowA, "toolu_owed_A")?.answerRelay).toBe("sent");
+    // The next boot owes nothing.
+    expect(finalizeOrphanedRunningTools(ctx.db, new Set()).filter((o) => o.sessionKey === sk)).toEqual([]);
+  });
+
+  test("an answer buffered for a leg that never came is not lost to a restart", async () => {
+    const sk = "topic:q-buffer-restart";
+    const rowA = askOnRow(sk, "toolu_buf_A", { finalize: true });
+    // The boot spares the session (the broker listed its child), so nothing
+    // marks the question: the answer goes to the buffer, the row to `running`.
+    finalizeOrphanedRunningTools(ctx.db, new Set([sk]));
+    const server = bootServer();
+    expect((await server.answer(sk, "toolu_buf_A", "main")).body.deliveredAs).toBeUndefined();
+    expect(storedCall(rowA, "toolu_buf_A")?.status).toBe("running");
+
+    // The restart empties the buffer, and this time the child is dead.
+    _dropAskStateLikeARestart();
+    const owed = finalizeOrphanedRunningTools(ctx.db, new Set());
+    expect(storedCall(rowA, "toolu_buf_A")).toMatchObject({ status: "success", answerRelay: "queued" });
+    const next = bootServer();
+    for (const o of owed) if (o.sessionKey === sk) next.relay().enqueue(o);
+    await next.relay().idle();
+    expect(next.lateMessages).toHaveLength(1);
+    expect(next.lateMessages[0]!.content).toContain("main");
+  });
+
+  test("a buffered answer to one question is not collected by the leg of another", async () => {
+    const sk = "topic:q-buffer-steal";
+    const rowA = askOnRow(sk, "toolu_steal_A", { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set([sk]));
+    const server = bootServer();
+    expect((await server.answer(sk, "toolu_steal_A", "main")).status).toBe(200);
+    expect(storedCall(rowA, "toolu_steal_A")?.status).toBe("running");
+    // A new turn asks B inside the buffer's two minutes.
+    askOnNewRow(sk, "toolu_steal_B", QUESTIONS_B);
+    expect((await server.legFor(sk, QUESTIONS_B, 100)).body).toEqual({ pending: true });
+    ctx.endStream(sk);
+  });
+
+  test("a question pushed out of the last twenty rows by machine turns still takes its answer", async () => {
+    const sk = "topic:q-window";
+    const rowA = askOnRow(sk, "toolu_window_A", { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    for (let i = 1; i <= 12; i++) expect(await server.send(sk, `Objective still open: carry on (${i}).`, { goalNudge: i })).toBe(200);
+    const clickA = await server.answer(sk, "toolu_window_A", "next");
+    expect(clickA.status).toBe(200);
+    expect(clickA.body.deliveredAs).toBe("message");
+    await until(() => storedCall(rowA, "toolu_window_A")?.answerRelay === "sent");
+    expect(server.lateMessages).toHaveLength(1);
+  });
+
+  test("the answer to one question does not supersede the person's other open question", async () => {
+    const sk = "topic:q-two-open";
+    const rowA = askOnRow(sk, "toolu_two_A", { finalize: true });
+    const rowB = askOnNewRow(sk, "toolu_two_B", QUESTIONS_B);
+    ctx.updateLastMessage(sk, { partial: undefined, streamedAt: undefined }, { rowId: rowB });
+    ctx.activeStreams.delete(sk);
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    expect(sessionHasOpenQuestion(ctx, sk, decodeCol)).toBe(true);
+    expect((await server.answer(sk, "toolu_two_A", "main")).body.deliveredAs).toBe("message");
+    await until(() => storedCall(rowA, "toolu_two_A")?.answerRelay === "sent");
+    expect(storedCall(rowB, "toolu_two_B")).toMatchObject({ status: "waiting_for_input", askerGone: true });
+    // B is still waiting on its person, and the goal loop reads it off the rows.
+    expect(sessionHasOpenQuestion(ctx, sk, decodeCol)).toBe(true);
   });
 });

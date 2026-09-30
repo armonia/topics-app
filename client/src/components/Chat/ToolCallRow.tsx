@@ -465,6 +465,13 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {questionEndedText}
         </div>
       )}
+      {/* An answer whose asker was gone, saved and waiting for the chat to be
+          free: the panel is closed, and it says the answer is on its way. */}
+      {isQuestionTool && toolCall.answerRelay === 'queued' && (
+        <div data-testid={`question-answer-queued-${toolCall.id}`} className="ml-5 mb-1 text-mini text-app-text-muted">
+          {tr('chat.question.answerQueued')}
+        </div>
+      )}
       {effectiveOpen && (
         <div className="ml-5 pb-1.5">
           {/* Pending input form takes precedence: when the agent is asking

@@ -12,6 +12,7 @@ import {
   pendingAskAgeMs,
   pendingAskVerdict,
   AskWaitError,
+  bufferedAnswerFits,
 } from "./ask-user-bridge";
 
 // Each test uses a UNIQUE sessionKey so the module-level maps don't bleed
@@ -221,5 +222,32 @@ describe("ask-user-bridge — il turno parcheggiato non è un turno morto", () =
     expect(pendingAskAgeMs(k, t0 + 120_000)).toBe(120_000);
     endAsk(k);
     expect(pendingAskAgeMs(k, t0 + 120_000)).toBeNull();
+  });
+});
+
+describe("ask-user-bridge — a buffered answer belongs to its question", () => {
+  test("bufferedAnswerFits: by panel when both name one, by texts otherwise, anything for an unbound answer", () => {
+    expect(bufferedAnswerFits({}, { questions: ["B?"] })).toBe(true);
+    expect(bufferedAnswerFits({ toolCallId: "a" }, { toolCallId: "a" })).toBe(true);
+    expect(bufferedAnswerFits({ toolCallId: "a" }, { toolCallId: "b" })).toBe(false);
+    expect(bufferedAnswerFits({ toolCallId: "a", questions: ["A?"] }, { questions: ["A?"] })).toBe(true);
+    expect(bufferedAnswerFits({ toolCallId: "a", questions: ["A?"] }, { questions: ["B?"] })).toBe(false);
+    expect(bufferedAnswerFits({ toolCallId: "a", questions: ["A?"] }, {})).toBe(true);
+  });
+
+  test("the leg of another question does not collect it; the leg of its own does", async () => {
+    const k = key();
+    deliverAnswer(k, { "A?": "yes" }, { toolCallId: "a", questions: ["A?"] });
+    await expect(waitForAnswer(k, { timeoutMs: 20, questions: ["B?"] })).rejects.toMatchObject({ code: "timeout" });
+    await expect(waitForAnswer(k, { timeoutMs: 20, questions: ["A?"] })).resolves.toEqual({ "A?": "yes" });
+  });
+
+  test("an answer displaced by an answer to another question is handed on, not overwritten", () => {
+    const k = key();
+    const handedOn: Array<Record<string, string>> = [];
+    deliverAnswer(k, { "A?": "yes" }, { toolCallId: "a", questions: ["A?"], onUnclaimed: (x) => handedOn.push(x) });
+    deliverAnswer(k, { "B?": "no" }, { toolCallId: "b", questions: ["B?"] });
+    expect(handedOn).toEqual([{ "A?": "yes" }]);
+    cancelAsk(k);
   });
 });
