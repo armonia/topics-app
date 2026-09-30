@@ -2,15 +2,34 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.417 — 2026-09-30
+
+### Sotto il cofano
+- An error echoing a request's rid rejects that request, and only a spawned that answered a waiter closes the spawn window
+- The spawn window closes only on the ack of the spawn in flight now, so an earlier spawn overtaken by a kill and a respawn cannot let its child's exit through
+- A Stop learned from a history answer holds the message queued before it, across a restart
+- An answer still owed at a restart is loaded again whatever the question's age, the row's state or the topic's archive flag
+- The personal-address scan types its matches as strings, so an incremental tsc no longer infers never for them
+- An owed answer is keyed by chat and tool call, so a question answered in a chat and in its fork keeps both answers, and an unreadable row cannot stop the boot
+- server/utils.ts records 2877 lines in the bloat baseline: the turn ledger (queue) and the turn-end signal with the owed answers (questions) land together
+- The question bench's restart forgets the turn ledger too, as a new process does, so the chat route no longer refuses the next message with a 409
+- A failed answer post waits before the next one, doubling up to a minute, and a disposed relay stops for good, so a failure that ends a turn no longer re-posts in a loop
+- The question bench closes every turn its tests opened, a disposed relay ignores a late first event, and the wiring test follows the reattach legs into reattachSurvivors
+
 ## 2.2.416 — 2026-09-30
 
 ### Sotto il cofano
 - A card held over In Progress at the row's edge must land there: the edge test now tells the snap hold apart
+- An answer given first reaches the model first: the chat route takes owed answers, and the relay moves on the turn end
 - The board and pane-loading lane comes back: the BOARD-18 red it was reverted for was the reduced-motion scroll override, fixed on main in d52d7a7aa
+- A Stop heard before a server restart no longer holds, in the new boot, a message queued after it
+- An ai-bridge reply answers the request whose rid it echoes, so a late attach ack or a write's error no longer settles another request
+- An answer the person gave first reaches the model first after a restart too, and stays owed until the turn that carries it has really started
 
 ## 2.2.415 — 2026-09-30
 
 ### Sotto il cofano
+- A Stop holds the queue in every window whenever it hears it, is lifted once for all, and ends a claude-code turn at once
 - One ai-bridge ack answers one request, so a resync after a kill no longer reads an earlier attach's "alive"
 
 ## 2.2.414 — 2026-09-30
@@ -19,9 +38,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A chat's sub-agent stays in its strip: the row opens its pane, and an ended one is marked instead of vanishing
 - The first-send spec judges the pane swap by mutation batch, not by the clock
 - chat-inline-command-run proposed — a shell block in a reply can be run where it stands, with its output readable in place
+- A question's answer reaches a surviving child after a restart, once, and only a person supersedes it
 - The first-send spec reads a moved pane as a move, on every engine
+- A queued message leaves only after the server says the turn is over, and nothing is written into a running turn
 - A tab switch is final on its first frame, and a group switch never shows an empty pane
 - Background work stays named in its chat while a new turn is open
+- A Stop and a plan approval travel with the close of the turn, and a Stop reaches the CLI turn a message is parked behind
 - A sub-agent's report is written at once again, and the outcome test passes the language gates
 - Closing a sub-agent's tab takes its row away, and a dismissal holds in every window
 - The sidebar and the phone drawer move instead of jumping, and boot stops claiming nothing is open
@@ -36,6 +58,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The client and the landing take the patched brace-expansion and fast-uri published on 29/09
 - A closing phone scrim stops catching taps at once, and the Add -> Chat test judges the first frame the drawer is gone
 - The sub-agent lifecycle test imports claude-bin by name, so the dead-code check still sees its exports
+- An answer is bound to its own question from the click to the model, and one whose asker is gone is queued until it gets there
 - A card in hand holds the carousel snap, so the edge auto-scroll no longer drops it two columns away
 - The bundle baseline records tornata 2l, with what each piece of the lane put in the entry
 - Reduced motion keeps the board carousel's smooth scroll, so a card dropped on In Progress no longer lands in Done
@@ -50,6 +73,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A chunk that threw is not an old build, and the reload prompt no longer sits on the composer
 - The build's generation record is never served, and LAND-11 keeps the generations a live window still runs
 - The first send in a new topic no longer blinks, jumps or hides the message
+- A question asked by a topic waits for its person, like it does in Claude Code
 - propose subagent-tool-standard, spawn_agent at the level of Claude Code's Agent tool
 - chat-browser-open-marker proposed — the browser the agent opens leaves a mark in the turn that jumps to the page
 - every child end reaches the chat with a status, in the project, prompt typed once
