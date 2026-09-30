@@ -30,15 +30,24 @@ const MIGRATION_SQL = readFileSync(join(PROJECT_ROOT, "server/db/migrations", NA
 const FEED = { scope: "all", rootsOnly: true, includeOrphanSubtasks: true, doneLimit: 120 } as const;
 
 let tmpRoot: string | null = null;
+let savedDataDir: string | undefined;
 
 afterEach(() => {
   try { closeDatabase(); } catch { /* already closed */ }
   if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
   tmpRoot = null;
+  if (savedDataDir !== undefined) process.env.DATA_DIR = savedDataDir;
+  savedDataDir = undefined;
 });
 
 /** The live shape on the real schema, without this migration: thousands of done cards, a few open ones. */
 function dbBefore(): Database {
+  // The DB is a process singleton: a handle left open by an earlier file in
+  // the same run would be handed back instead of this fresh schema, and a
+  // DATA_DIR an earlier file set would win over the folder below.
+  closeDatabase();
+  savedDataDir = process.env.DATA_DIR;
+  delete process.env.DATA_DIR;
   tmpRoot = mkdtempSync(join(tmpdir(), "done-recency-index-"));
   const migDir = join(tmpRoot, "server", "db", "migrations");
   mkdirSync(migDir, { recursive: true });
