@@ -59,6 +59,7 @@ import { archiveTopicFully } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
+import { resolveOutputLanguage } from "../services/app-settings";
 import { parkTopicSession } from "../lib/session-parking";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
@@ -582,6 +583,7 @@ export function createTopicsRouter(
     broadcastToAll,
     bumpUnread: updateUnreadCount,
     resolveProvider,
+    reportLanguage: () => (resolveOutputLanguage() === "en" ? "en" : "it"),
   });
   const watchSessionForSubagents = subagents.watch;
   // La registrazione della strada B resta QUI: così il modulo non importa

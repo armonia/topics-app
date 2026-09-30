@@ -42,7 +42,8 @@ import { renderScreen, screenToText } from "../lib/terminal-screen";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
-import { discoverClaudeSubAgentSessionId, normalizePromptSnippet } from "../lib/claude-subagent-transcript";
+import { classifySubAgentTranscript, discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt, type SubAgentEnding, type SubAgentOutcome } from "../lib/claude-subagent-transcript";
+import { composerHoldsPrompt } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
@@ -182,37 +183,31 @@ export function setTerminalMemPressure(fn: (() => { atCeiling: boolean }) | null
   terminalMemPressure = fn;
 }
 
-/** Read a just-exited sub-agent's final assistant message from its OWN on-disk
- *  transcript (which survives the PTY death). A short retry covers the transcript
- *  flush lag right at exit. Best-effort: returns '' when nothing is recoverable. */
-async function readSubAgentFinalResult(child: TerminalSession): Promise<string> {
+/** The lines of a sub-agent's own transcript (which survives the PTY death),
+ *  or null when none can be found. Adopts the real transcript id first, for a
+ *  child whose capture missed it. */
+async function readChildTranscriptLines(child: TerminalSession): Promise<string[] | null> {
+  resolveChildTranscriptSessionId(child);
+  if (!child.claudeSessionId) return null;
+  try {
+    const raw = await fs.promises.readFile(claudeTranscriptPath(child.cwd, child.claudeSessionId), 'utf-8');
+    return raw.split('\n').filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+/** How a just-ended sub-agent ended, from its transcript. A short retry covers
+ *  the flush lag right at exit; anything but `completed` is retried, because a
+ *  final record still in the CLI's buffer would otherwise read as a cut turn. */
+async function readSubAgentOutcome(child: TerminalSession, ending: SubAgentEnding, exitCode: number | null): Promise<SubAgentOutcome> {
+  let outcome = classifySubAgentTranscript(null, ending, exitCode);
   for (let attempt = 0; attempt < 3; attempt++) {
     await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 700));
-    try {
-      const out = await readAgentOutput(child, 0);
-      const texts = out.events
-        .filter((e) => e.type === 'assistant' && e.text)
-        .map((e) => (e.text as string).trim())
-        .filter(Boolean);
-      if (texts.length) return texts[texts.length - 1];
-      // No clean assistant text via the pre-assigned claudeSessionId — claude-code
-      // mints its own id for sub-agents, so the transcript lives under a DIFFERENT
-      // file. Self-heal by discovering the real id, then read once more. (The
-      // spawn-time capture usually already fixed this; this is the belt for a
-      // server restart or a missed capture.)
-      if (out.source === 'buffer' && resolveChildTranscriptSessionId(child)) {
-        const out2 = await readAgentOutput(child, 0);
-        const texts2 = out2.events
-          .filter((e) => e.type === 'assistant' && e.text)
-          .map((e) => (e.text as string).trim())
-          .filter(Boolean);
-        if (texts2.length) return texts2[texts2.length - 1];
-      }
-    } catch {
-      // transcript not ready / unreadable — retry
-    }
+    outcome = classifySubAgentTranscript(await readChildTranscriptLines(child), ending, exitCode);
+    if (outcome.status === 'completed') break;
   }
-  return '';
+  return outcome;
 }
 
 /** Discover a sub-agent's REAL transcript id (claude-code ignores the pre-assigned
@@ -276,14 +271,14 @@ function scheduleClaudeSubAgentIdCapture(childId: string): void {
  *  so the two reap paths that both call this — the bridge `exit` frame and the
  *  explicit `/stop` endpoint (which pre-deletes the session from the map, so the
  *  exit frame can't see it) — never double-deliver. */
-function wakeParentTopicOnChildExit(child: TerminalSession, exitCode: number | null): void {
+function wakeParentTopicOnChildExit(child: TerminalSession, exitCode: number | null, ending: SubAgentEnding): void {
   if (!child.parentSessionKey?.startsWith('topic:') || !subAgentExitHandler) return;
   const parentSessionKey = child.parentSessionKey;
   void (async () => {
-    const result = await readSubAgentFinalResult(child);
+    const outcome = await readSubAgentOutcome(child, ending, exitCode);
     try {
       subAgentExitHandler?.({
-        parentSessionKey, childId: child.id, name: child.name, result, exitCode,
+        parentSessionKey, childId: child.id, name: child.name, outcome, exitCode,
         // WORKTREE-14: a child that worked in a worktree of its own leaves the
         // parent nothing but a branch, so the report has to name it.
         branch: branchOfCwd(child.cwd),
@@ -1226,8 +1221,11 @@ function handleBridgeMessage(msg: any) {
       // cascade). The explicit /stop reap path can't reach here — it pre-deletes
       // the session so `exitedSession` would be null — so /stop calls the helper
       // itself. Guarded to topic-parented children inside the helper.
-      if (exitedSession) {
-        wakeParentTopicOnChildExit(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null);
+      // A Reload kills the PTY to relaunch it under the SAME id: that exit is
+      // not the child's end, and reporting it would also make the dedup (keyed
+      // by id) swallow the real report later.
+      if (exitedSession && !reloadingSessionIds.has(msg.id)) {
+        wakeParentTopicOnChildExit(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null, 'exited');
       }
       break;
     }
@@ -1606,6 +1604,20 @@ async function reconcileSessions(attempt = 0): Promise<void> {
         claudeSessionId: row.claude_session_id,
         hasTranscript,
       });
+      // A chat's sub-agent whose PTY did not survive: no `exit` frame will ever
+      // come for it, so its parent was never told and `read_agent` answers 404.
+      // Report it once, while the row is still `active` (it is parked or
+      // dropped right below, so the next boot does not report it again).
+      if (row.status !== 'dormant' && typeof row.parent_session_key === 'string' && row.parent_session_key.startsWith('topic:')) {
+        wakeParentTopicOnChildExit(sessions.get(row.id) ?? {
+          id: row.id, name: row.name, nameSource: row.name_source || 'default', cwd: row.cwd, command: row.command,
+          createdAt: row.created_at || new Date().toISOString(),
+          cols: row.cols || 120, rows: row.rows || 30, type: row.type,
+          skipPermissions: row.skip_permissions !== 0,
+          claudeSessionId: row.claude_session_id || undefined,
+          parentSessionKey: row.parent_session_key,
+        }, null, 'lost');
+      }
 
       if (decision.action === 'drop') {
         console.log(`[Terminal] Rimossa ${row.type} ${row.id}: transcript assente, non ripristinabile`);
@@ -2310,6 +2322,15 @@ function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
   return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
 }
 
+/** The 404 of the agent routes. An id shaped like the CLI's built-in Agent tool
+ *  (`a` + 16-17 hex) is said to be one: 11 `read_agent` calls passed such an
+ *  id and read a bare "not found" they could not act on. */
+function subAgentNotFound(agentId: string): string {
+  return /^a[0-9a-f]{16,17}$/.test(agentId)
+    ? `sub-agent not found: "${agentId}" is the id of a built-in Agent tool call, not a spawn_agent agentId`
+    : "sub-agent not found";
+}
+
 /** Resolve a child the caller is allowed to drive, or null. The caller MUST be
  *  the child's recorded parent — this is the orchestrator's whole auth model. */
 function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalSession | null {
@@ -2353,10 +2374,6 @@ function cascadeKillChildren(parentSessionKey: string) {
 async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];
-  // A distinctive fingerprint of the prompt AS IT RENDERS in the composer, robust
-  // to line-wrapping: strip ANSI/box-drawing/whitespace so a prompt reflowed
-  // across the input box's bordered lines still matches contiguously.
-  const echoProbe = stripForEcho(prompt).slice(0, 20);
 
   // --- Readiness: wait for the input box to be drawn (best-effort, ~8s cap). ---
   let lastLen = -1, stableCount = 0;
@@ -2382,15 +2399,16 @@ async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
   let echoed = false;
   for (let attempt = 0; attempt < 6 && !echoed; attempt++) {
     if (!sessions.has(childId)) return;
-    const seen = stripForEcho(await getTerminalBuffer(childId));
-    if (!seen.includes(echoProbe)) {
+    // The composer shows either the prompt's opening or, for a long one, a
+    // `[Pasted text]` placeholder: both mean it is there (lib/subagent-seed.ts).
+    if (!composerHoldsPrompt(await getTerminalBuffer(childId), prompt)) {
       noteTerminalInput(childId);
       sendToBridge({ type: "write", id: childId, data: prompt });
     }
     for (let i = 0; i < 6; i++) { // ~1.8s for the echo to render
       await sleep(300);
       if (!sessions.has(childId)) return;
-      if (stripForEcho(await getTerminalBuffer(childId)).includes(echoProbe)) { echoed = true; break; }
+      if (composerHoldsPrompt(await getTerminalBuffer(childId), prompt)) { echoed = true; break; }
     }
   }
   if (!echoed) {
@@ -2420,27 +2438,19 @@ async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
   console.warn(`[Terminal] seedAgentPrompt: ${childId} never acknowledged its prompt (echoed=${echoed})`);
 }
 
-/** Normalize terminal text for echo-matching: drop ANSI escape sequences,
- *  box-drawing glyphs and ALL whitespace, lowercased — so a prompt wrapped across
- *  the composer's bordered lines collapses back to a contiguous string we can
- *  substring-match against the prompt's own fingerprint. */
-function stripForEcho(s: string): string {
-  return s
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI sequences
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC sequences
-    .replace(/\x1b[()][0-9A-B]/g, "") // charset selects
-    .replace(/[─-╿▀-▟]/g, "") // box drawing + block elements
-    .replace(/\s+/g, "")
-    .toLowerCase();
-}
-
-/** True once a sub-agent has actually accepted its prompt — i.e. claude wrote the
- *  opening user turn, so a transcript for it now exists on disk. Runs discovery
- *  (which also adopts the real, claude-minted session id onto the session) so the
- *  check doubles as early id-capture. */
+/** True once a sub-agent has actually accepted its prompt: its transcript holds
+ *  the user record carrying it. The file alone proves nothing, the CLI writes
+ *  it at start-up (see `transcriptHasPrompt`). Runs discovery first, which also
+ *  adopts the real session id, so the check doubles as early id-capture. */
 function childPromptAccepted(child: TerminalSession): boolean {
-  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) return true;
-  return resolveChildTranscriptSessionId(child);
+  resolveChildTranscriptSessionId(child);
+  if (!child.claudeSessionId) return false;
+  try {
+    const lines = fs.readFileSync(claudeTranscriptPath(child.cwd, child.claudeSessionId), 'utf-8').split('\n');
+    return transcriptHasPrompt(lines, child.spawnPromptSnippet ?? '');
+  } catch {
+    return false;
+  }
 }
 
 interface AgentReadEvent { type: 'assistant' | 'tool_use'; text?: string; name?: string; input?: unknown; }
@@ -2580,7 +2590,7 @@ function broadcastTerminalSessions() {
  * id sconosciuto e' un no-op, che e' la proprieta' che rende sicuro rigirare il
  * riconcilio.
  */
-export function retireTerminalSession(id: string): boolean {
+export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = 'closed'): boolean {
   const session = sessions.get(id);
   const db = getDatabase();
   const dbRow = db.query("SELECT id, claude_session_id, type FROM terminal_sessions WHERE id = ?").get(id) as any;
@@ -2612,6 +2622,10 @@ export function retireTerminalSession(id: string): boolean {
   // I sotto-agenti che questa sessione ha generato: nessuna PTY orfana e
   // pilotabile resta dietro.
   cascadeKillChildren(id);
+  // A sub-agent retired here (its tab closed, the orphan sweep) is gone from
+  // the map before the bridge's `exit` frame arrives, so that frame cannot
+  // report it: the parent chat got nothing at all. Report it from here.
+  if (session) wakeParentTopicOnChildExit(session, null, ending);
   // Il browser che questo terminale puo' aver aperto (contextId `term-<id>`).
   // Best-effort: nessun contesto = no-op innocuo.
   terminalBrowserCloser?.(`term-${id}`);
@@ -3392,7 +3406,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // without the topic's cwd the project lookup would land on `$HOME`,
         // which is nobody's project.
         const topicCwd = ctx.resolveTopicCwd(ctx.getTopicBySessionKey(parentKey));
-        let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || process.env.HOME || "/");
+        // "It inherits this session's working directory", says the tool. For a
+        // chat parent `parent` is always undefined, so this fell through to
+        // `$HOME` for every chat: 55 children out of 55 spawned without `cwd`
+        // landed there, projects and card worktrees included.
+        let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || topicCwd || process.env.HOME || "/");
         let branch: string | null = null;
         if (isolation === "worktree") {
           const project = resolveAgentProject(
@@ -3423,10 +3441,15 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }
         }
         const id = crypto.randomUUID();
-        const name = typeof body.name === "string" && body.name ? body.name : `agent ${id.slice(0, 8)}`;
+        const chosenName = typeof body.name === "string" && body.name ? body.name : null;
+        const name = chosenName ?? `agent ${id.slice(0, 8)}`;
         try {
           await ensureBridge();
-          const session = await createSession(id, name, cwd, undefined, 120, 30, undefined, "claude-code", true, undefined, parentKey);
+          // A name the parent chose is owned like a user's rename: the
+          // auto-namer rewrote it from the transcript, and the parent then read
+          // its report under a title it had never given ("foglio-tab" arrived
+          // as the title the auto-namer derived from its first answer).
+          const session = await createSession(id, name, cwd, undefined, 120, 30, undefined, "claude-code", true, undefined, parentKey, chosenName ? "user" : "default");
           // Fingerprint the opening prompt so transcript-discovery can find the
           // .jsonl claude actually writes (it ignores our pre-assigned
           // --session-id for sub-agents — see resolveChildTranscriptSessionId).
@@ -3467,7 +3490,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(sendM.sessionKey);
         const child = resolveOwnedChild(parentKey, decodeURIComponent(sendM.agentId));
-        if (!child) return errorResponse(404, "sub-agent not found");
+        if (!child) return errorResponse(404, subAgentNotFound(decodeURIComponent(sendM.agentId)));
         const body = await readJSON(req).catch(() => ({}));
         const input = typeof body.input === "string" ? body.input : (typeof body.text === "string" ? body.text : "");
         if (!input) return errorResponse(400, "input (string) is required");
@@ -3484,7 +3507,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(readM.sessionKey);
         const child = resolveOwnedChild(parentKey, decodeURIComponent(readM.agentId));
-        if (!child) return errorResponse(404, "sub-agent not found");
+        if (!child) return errorResponse(404, subAgentNotFound(decodeURIComponent(readM.agentId)));
         const since = Number(url.searchParams.get("since") || "0");
         const result = await readAgentOutput(child, since);
         return json(result);
@@ -3494,7 +3517,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(stopM.sessionKey);
         const child = resolveOwnedChild(parentKey, decodeURIComponent(stopM.agentId));
-        if (!child) return errorResponse(404, "sub-agent not found");
+        if (!child) return errorResponse(404, subAgentNotFound(decodeURIComponent(stopM.agentId)));
         const childClaudeId = child.claudeSessionId;
         // Read BEFORE the kill: afterwards the session is gone and the branch
         // would be unrecoverable for whoever just asked for the stop. The
@@ -3514,7 +3537,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // Reaping a sub-agent via /stop is the primary way an orchestrator ends a
         // delegated task — wake its parent chat with the result here, because the
         // pre-delete above makes the bridge `exit` frame unable to (session gone).
-        wakeParentTopicOnChildExit(child, null);
+        wakeParentTopicOnChildExit(child, null, 'stopped');
         return json({ ok: true, branch: childBranch });
       }
     }

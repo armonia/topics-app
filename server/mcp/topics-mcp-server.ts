@@ -620,7 +620,7 @@ const TOOLS = [
   {
     name: "spawn_agent",
     description:
-      "Spawn a NEW interactive Claude sub-agent and give it a task. Returns an agentId; the sub-agent then runs asynchronously in its own terminal pane (visible to the user, nested under this session). It inherits this session's working directory unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, which is not immediate, and the answer names the branch). Poll its output with read_agent(agent_id) — do NOT wait. Use this to delegate independent work; you remain in control via send_to_agent / read_agent / stop_agent.",
+      "Spawn a NEW interactive Claude Code sub-agent and give it a task. Returns an agentId and the directory it runs in; the sub-agent then runs asynchronously in its own terminal pane (visible to the user, nested under this session), with a shell of its own. It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, which is not immediate, and the answer names the branch). It runs on the Claude Code CLI's default model, whatever model this session uses: this tool cannot choose the model (the built-in Agent tool can, where you have it). Poll its output with read_agent(agent_id) — do NOT wait. It does not exit when done: stop_agent it once you have its answer; for a chat, how it ended is then posted in this chat. Use this to delegate independent work; you remain in control via send_to_agent / read_agent / stop_agent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -658,7 +658,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        agent_id: { type: "string", description: "agentId returned by spawn_agent." },
+        agent_id: { type: "string", description: "agentId returned by spawn_agent (not the id of a built-in Agent tool call)." },
         since: { type: "number", description: "Byte offset returned by the previous read_agent call (omit/0 for the start)." },
       },
       required: ["agent_id"],

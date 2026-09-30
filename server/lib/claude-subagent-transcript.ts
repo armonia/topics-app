@@ -159,3 +159,154 @@ export function discoverClaudeSubAgentSessionId(opts: {
   if (freshBorn.length === 1) return freshBorn[0].id;
   return null;
 }
+
+// ── Did the child get its prompt, and how did it end? ───────────────────────
+
+/** A `type:"user"` record that is a PROMPT: typed text, not a tool result, not a
+ *  meta line the CLI injects, not the marker of an Escape. */
+function promptText(ev: any): string | null {
+  if (!ev || ev.type !== 'user' || ev.isMeta) return null;
+  const content = ev?.message?.content;
+  let text = '';
+  if (typeof content === 'string') text = content;
+  else if (Array.isArray(content)) {
+    if (content.some((c: any) => c?.type === 'tool_result')) return null;
+    text = content
+      .filter((c: any) => c && c.type === 'text' && typeof c.text === 'string')
+      .map((c: any) => c.text)
+      .join('');
+  }
+  if (!text.trim() || text.startsWith('[Request interrupted by user')) return null;
+  return text;
+}
+
+/**
+ * True when the transcript holds a user record carrying the spawn prompt.
+ *
+ * The seed used to call a prompt accepted as soon as the transcript FILE
+ * existed, and today's CLI creates it at start-up with nothing but its mode,
+ * permission-mode and system records. So a seed whose single Enter was lost
+ * reported success and nobody sent another one: the child sat idle until the
+ * parent stopped it, and the chat read "finished with no output"
+ * (d6158ec6 and c82359c1 on 22/09, both with zero user records).
+ */
+export function transcriptHasPrompt(lines: string[], promptSnippet: string): boolean {
+  const snippet = normalizeForMatch(promptSnippet);
+  for (const line of lines) {
+    let ev: any;
+    try { ev = JSON.parse(line); } catch { continue; }
+    const text = promptText(ev);
+    if (text !== null && (!snippet || normalizeForMatch(text).includes(snippet))) return true;
+  }
+  return false;
+}
+
+/** How the child's process came to an end, as the server saw it. */
+export type SubAgentEnding = 'exited' | 'stopped' | 'closed' | 'swept' | 'lost';
+
+/**
+ * The status vocabulary of the `subagent-tool-standard` proposal (SUBAGENT-11):
+ * `completed` is the only one whose text is an outcome.
+ */
+export type SubAgentStatus = 'completed' | 'failed' | 'stopped' | 'undelivered' | 'lost';
+
+export interface SubAgentOutcome {
+  status: SubAgentStatus;
+  /** The turn was cut before its end and `text` is the last line seen, not a result. */
+  partial: boolean;
+  /** The final text for `completed`; the last text seen otherwise (may be empty). */
+  text: string;
+  /** Why it is not `completed`, in words: an API error line, an exit code, a closed tab. */
+  reason?: SubAgentReason;
+}
+
+/** The reasons, as codes: the words are the formatter's (`routes/subagent-exit.ts`). */
+export type SubAgentReason =
+  | { code: 'api-error'; detail: string }
+  | { code: 'no-prompt' }
+  | { code: 'no-transcript' }
+  | { code: 'exit-code'; exitCode: number }
+  | { code: 'exited-mid-turn' }
+  | { code: 'stopped-by-parent' }
+  | { code: 'tab-closed' }
+  | { code: 'swept' }
+  | { code: 'terminal-lost' };
+
+/**
+ * Classify a finished child from its transcript lines and the way it ended.
+ *
+ * It used to be "the last assistant text, whatever it was". A child stopped in
+ * the middle of its work then reported a working sentence as its outcome (a
+ * line announcing what it was about to map, 26/09), and a child that never got its
+ * prompt, or died on a spend limit, reported "finished with no output". The
+ * transcript says which of these happened: the record that closed the turn
+ * carries `stop_reason: "end_turn"`, an API failure is a `<synthetic>` record
+ * flagged `isApiErrorMessage`, and a prompt is a user record.
+ *
+ * `lines` is null when no transcript could be found at all.
+ */
+export function classifySubAgentTranscript(
+  lines: string[] | null,
+  ending: SubAgentEnding,
+  exitCode: number | null = null,
+): SubAgentOutcome {
+  const cut = (text: string): SubAgentOutcome => {
+    const partial = text.length > 0;
+    if (ending === 'lost') return { status: 'lost', partial, text, reason: { code: 'terminal-lost' } };
+    if (ending === 'stopped') return { status: 'stopped', partial, text, reason: { code: 'stopped-by-parent' } };
+    if (ending === 'closed') return { status: 'stopped', partial, text, reason: { code: 'tab-closed' } };
+    if (ending === 'swept') return { status: 'stopped', partial, text, reason: { code: 'swept' } };
+    return {
+      status: 'failed', partial, text,
+      reason: exitCode != null && exitCode !== 0 ? { code: 'exit-code', exitCode } : { code: 'exited-mid-turn' },
+    };
+  };
+  if (!lines) return { ...cut(''), reason: { code: 'no-transcript' } };
+
+  let prompted = false;
+  // The state after the last record that moved the conversation.
+  let state: 'waiting' | 'working' | 'done' | 'api-error' = 'waiting';
+  let turnText = '';
+  let errorText = '';
+  for (const line of lines) {
+    let ev: any;
+    try { ev = JSON.parse(line); } catch { continue; }
+    if (ev?.type === 'user') {
+      if (promptText(ev) !== null) {
+        prompted = true;
+        state = 'waiting';
+        turnText = '';
+      } else if (prompted) {
+        // A tool result or an Escape marker: the turn is still open.
+        state = 'working';
+      }
+      continue;
+    }
+    if (ev?.type !== 'assistant') continue;
+    const text = assistantText(ev).trim();
+    if (ev.isApiErrorMessage) {
+      state = 'api-error';
+      errorText = text;
+      continue;
+    }
+    if (text) turnText = text;
+    state = ev?.message?.stop_reason === 'end_turn' ? 'done' : 'working';
+  }
+
+  if (!prompted) return { status: 'undelivered', partial: false, text: '', reason: { code: 'no-prompt' } };
+  if (state === 'done') return { status: 'completed', partial: false, text: turnText };
+  if (state === 'api-error') {
+    return { status: 'failed', partial: false, text: turnText, reason: { code: 'api-error', detail: errorText } };
+  }
+  return cut(turnText);
+}
+
+function assistantText(ev: any): string {
+  const content = ev?.message?.content;
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((c: any) => c && c.type === 'text' && typeof c.text === 'string')
+    .map((c: any) => c.text)
+    .join('');
+}

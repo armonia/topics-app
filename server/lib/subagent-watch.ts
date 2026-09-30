@@ -35,7 +35,7 @@ import { resolveAppDataDir } from "./data-dir";
 import type { Topic, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { formatSubAgentExitMessage, formatSubAgentExitBody, type SubAgentExitInfo } from "../routes/subagent-exit";
+import { formatSubAgentExitMessage, formatSubAgentExitBody, type ReportLanguage, type SubAgentExitInfo } from "../routes/subagent-exit";
 
 /** Una sessione padre sorvegliata, col cursore di lettura del suo transcript. */
 interface WatchedSession {
@@ -75,6 +75,8 @@ export interface SubagentWatchDeps {
   pollIntervalMs?: number;
   /** Dopo quanto si smette di sorvegliare una sessione. */
   watchTimeoutMs?: number;
+  /** The language of the report. Absent = Italian, the language it always had. */
+  reportLanguage?: () => ReportLanguage;
 }
 
 export interface SubagentWatcher {
@@ -349,10 +351,17 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     if (!info.parentSessionKey.startsWith("topic:")) return;
     if (deliveredExits.has(info.childId)) return;
     deliveredExits.add(info.childId);
+    // Written at once, even while the parent's turn is still open (the usual
+    // case: `stop_agent` is called from inside a turn). The turn writes its
+    // own row by id (`rowId`, de295bf01), so a row born after it is never the
+    // target of its body. Holding the report in memory until the turn closes
+    // lost it for good on a restart: `/stop` has already deleted the child's
+    // row, and no boot path reports it again (SUBAGENT-04, SUBAGENT-07).
     const topic = deps.getTopicBySessionKey(info.parentSessionKey);
     if (!topic) return;
-    const body = formatSubAgentExitBody(info);
-    const content = formatSubAgentExitMessage(info);
+    const language = deps.reportLanguage?.() ?? "it";
+    const body = formatSubAgentExitBody(info, language);
+    const content = formatSubAgentExitMessage(info, language);
     // NON si usa `deliverMessage` qui: l'ordine dei broadcast è quello
     // originale e va tenuto — `unread:updated` arriva DOPO `topic:updated`, non
     // prima. Sono due messaggi che il client applica in sequenza, e invertirli

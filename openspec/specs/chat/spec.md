@@ -1316,28 +1316,38 @@ Each sub-agent action used to trigger a deep copy, a database write and a broadc
 
 ### Requirement: SUBAGENT-04 — A sub-agent that exits reports its real result to the chat that delegated
 
-A sub-agent spawned from a topic chat reports its exit into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The body of that report SHALL prefer the child's own final text, and SHALL distinguish a failure from a clean but silent finish.
+A sub-agent spawned from a topic chat reports its end into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The end is classified from the child's own transcript into a status: `completed` (its turn closed with `end_turn`), `failed` (an API error record, or a PTY that died mid-turn), `stopped` (stopped by its parent, its tab closed, or swept), `undelivered` (its transcript holds no prompt) or `lost` (its terminal did not survive a restart). Only a `completed` body is the child's own words; every other status SHALL be named with its reason, and SHALL NOT read as a clean but silent finish. Every way a child ends SHALL be reported: the bridge's exit frame, `stop_agent`, a closed tab, the orphan sweep, and a restart that found no PTY; a Reload of the child's tab is not an end.
 
 #### Scenario: The child's own words are the body
-- **GIVEN** an exit carrying the child's final assistant text
+- **GIVEN** a `completed` outcome carrying the child's final assistant text
 - **WHEN** the body is formatted
 - **THEN** it SHALL be that text, trimmed
-- **AND** it SHALL be used even when the exit code is non-zero
 
-#### Scenario: No output, and the exit code says why
-- **GIVEN** an exit with empty or whitespace-only output and a non-zero exit code
+#### Scenario: A failure names its reason
+- **GIVEN** a `failed` outcome with a non-zero exit code, or an API error line such as a spend limit
 - **WHEN** the body is formatted
-- **THEN** it SHALL be an italic note naming that exit code and saying no output was recovered
+- **THEN** it SHALL be an italic note naming the failure and that reason
+
+#### Scenario: A prompt that never arrived is not called a silent finish
+- **GIVEN** a child whose transcript holds only its start-up records
+- **WHEN** it ends and the body is formatted
+- **THEN** it SHALL say that the task never reached the sub-agent
+
+#### Scenario: A stop mid-turn is marked partial
+- **GIVEN** a child stopped while its turn was open, its last text a working sentence
+- **WHEN** the body is formatted
+- **THEN** it SHALL say it was stopped before its turn ended, and why
+- **AND** it SHALL quote that text as the last line seen, not as the outcome
 
 #### Scenario: A clean but silent finish gets the neutral note
-- **GIVEN** an exit with no output and an exit code of zero, or an unknown exit code
+- **GIVEN** a `completed` outcome whose final message holds no text
 - **WHEN** the body is formatted
 - **THEN** it SHALL be the neutral "finished with no output" note, not a failure
 
 #### Scenario: The report names the sub-agent above its body
-- **GIVEN** a formatted exit for a named sub-agent
+- **GIVEN** a formatted exit for a sub-agent whose parent named it
 - **WHEN** the chat message is composed
-- **THEN** it SHALL open with a bold header naming that sub-agent, with the body below it
+- **THEN** it SHALL open with a bold header naming that sub-agent by that name, with the body below it and no emoji
 - **AND** with no result the status note SHALL be embedded in the same shape
 
 #### Scenario: The report names the branch when the child had one
@@ -1428,7 +1438,7 @@ Gateway-side sub-agents announce their completion inside the PARENT session's tr
 
 ### Requirement: SUBAGENT-07 — A sub-agent's exit report is its own row and does not swallow the live turn
 
-The exit report is persisted and broadcast as an ordinary new message while the PARENT's turn is still open. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
+The exit report is persisted and broadcast as an ordinary new message at once, while the PARENT's turn is still open: the parent usually stops its child from inside a turn, and a report held in memory until that turn closes is lost for good by a restart. The open turn writes its own row by id, so the report's row keeps its content when the turn ends. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
 
 #### Scenario: The report lands beside the live turn, which keeps filling
 - **GIVEN** a turn that announced its id and has already streamed part of its text
@@ -1446,6 +1456,12 @@ The exit report is persisted and broadcast as an ordinary new message while the 
 - **GIVEN** a bubble filled from the catch-up frame with the whole text of the turn
 - **WHEN** a persisted message for that same id arrives carrying a shorter preview
 - **THEN** the text already displayed SHALL NOT be shortened
+
+#### Scenario: A report delivered under the parent's open turn is written at once and outlives that turn
+- **GIVEN** a parent turn still streaming, from which the parent stops its child
+- **WHEN** the child's end is reported
+- **THEN** the report's row SHALL be in the database before the turn closes
+- **AND** when the turn ends, the report's row SHALL keep its content and the turn's row SHALL hold the turn's text
 
 ### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
 

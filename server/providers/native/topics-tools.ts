@@ -67,13 +67,22 @@ export function inlineScreenshot(text: string): ToolResult["images"] {
 }
 
 /**
+ * The Topics tools that start a process in the topic's project. A topic with no
+ * project gets a 400 from both routes ("This topic has no project directory",
+ * `routes/processes.ts#resolveSessionCwd`), so offering them there only buys a
+ * failed call: on topic:5a738995 (29/09) the chat tried `run_command`, got the
+ * 400 and told the user it had no shell.
+ */
+const PROJECT_BOUND_TOOLS = new Set(["run_script", "run_command"]);
+
+/**
  * Gli schemi dei tool di Topics, nella forma che l'API di Anthropic vuole.
  *
  * La tabella MCP usa `inputSchema`, l'API di Anthropic `input_schema`: è
  * l'unica differenza, e si traduce qui invece di duplicare le descrizioni.
  */
-export function topicsToolSpecs(profile?: string): ToolSpec[] {
-  return toolsForProfile(profile).map((t) => ({
+export function topicsToolSpecs(profile?: string, opts: { hasProject?: boolean } = {}): ToolSpec[] {
+  return toolsForProfile(profile).filter((t) => opts.hasProject !== false || !PROJECT_BOUND_TOOLS.has(t.name)).map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.inputSchema as ToolSpec["input_schema"],
