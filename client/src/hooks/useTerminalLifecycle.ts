@@ -17,7 +17,7 @@ import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { decideRosterTrust } from './rosterTrust';
 import { ROSTER_RECONCILED_HEADER } from '../../../shared/terminal-messages';
 import { useRefMirror } from './useRefMirror';
-import { dismissEndedSubAgent, noteTerminalRosterReplaced } from '../state/endedSubAgents';
+import { dismissSubAgent, noteTerminalRosterReplaced } from '../state/endedSubAgents';
 
 export interface UseTerminalLifecycleArgs {
   wsStatus: 'connecting' | 'connected' | 'reconnecting' | 'offline';
@@ -256,7 +256,7 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   const removeSession = useCallback((sessionId: string) => {
     // Closing the tab is the user's own dismissal: an ended sub-agent row for
     // it would only say something the user just did.
-    dismissEndedSubAgent(sessionId);
+    dismissSubAgent(sessionId);
     setSessions(prev => prev.filter(s => s.id !== sessionId));
   }, []);
 

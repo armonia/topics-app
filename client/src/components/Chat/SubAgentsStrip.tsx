@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import { Bot, CircleCheck, Loader2, X } from 'lucide-react';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
-import { dismissEndedSubAgent, subAgentRowsFor, useEndedSubAgents, type SubAgentRow as Row } from '../../state/endedSubAgents';
+import { dismissSubAgent, subAgentRowsFor, useEndedSubAgents, type SubAgentRow as Row } from '../../state/endedSubAgents';
 
 /**
  * In-chat strip listing the sub-agents this topic spawned (via the MCP
@@ -62,7 +62,7 @@ function SubAgentRow({ row }: { row: Row }) {
         <button
           type="button"
           data-testid="subagent-dismiss"
-          onClick={() => dismissEndedSubAgent(id)}
+          onClick={() => dismissSubAgent(id)}
           title={tr('subagent.dismiss', { name })}
           aria-label={tr('subagent.dismiss', { name })}
           className="flex-shrink-0 rounded-full p-1 mr-0.5 hover:bg-app-surface hover:text-app-text transition-colors"

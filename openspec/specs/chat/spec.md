@@ -1463,6 +1463,33 @@ A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is th
 - **AND** the sub-agent's terminal pane SHALL stay open
 - **AND** after a reload the ended row SHALL still be there, until the user dismisses it
 
+### Requirement: SUBSTRIP-01b — Closing an ended sub-agent's tab takes its row away
+
+Closing the terminal tab of an ended sub-agent SHALL remove its row from the chat's strip, by any close gesture (the tab's close button, the keyboard shortcut, the context menu, the sidebar, a tab inside a project), and the row SHALL NOT come back after a reload.
+
+#### Scenario: The tab bar's close button dismisses the ended row
+- **GIVEN** a chat whose sub-agent has ended and whose terminal pane is still open
+- **WHEN** the user closes that terminal tab from the tab bar
+- **THEN** the strip SHALL no longer show its row, also after a reload
+
+### Requirement: SUBSTRIP-01c — Closing a live sub-agent's tab does not leave an ended row
+
+Closing the terminal tab of a sub-agent that is still live SHALL remove its row, and the retirement of its session that follows SHALL NOT bring the row back marked ended. A dismissed sub-agent that is later resumed SHALL be listed again, and recorded as ended if it then ends.
+
+#### Scenario: The retired session is not recorded as ended
+- **GIVEN** a chat with a live sub-agent whose terminal pane is open
+- **WHEN** the user closes that terminal tab and the server retires the session
+- **THEN** the strip SHALL not show a row for it, also after a reload
+
+### Requirement: SUBSTRIP-01d — A dismissal holds in every window of the browser
+
+The ended rows and the dismissals SHALL be shared by every window of the same browser: a row dismissed in one window SHALL disappear from the others, and no window SHALL bring it back by writing its own older copy.
+
+#### Scenario: Two windows dismiss one row each
+- **GIVEN** two windows of the same browser showing the chat's ended sub-agents
+- **WHEN** one window dismisses a row and the other then dismisses another
+- **THEN** the first row SHALL disappear from the other window too, and neither row SHALL come back after a reload
+
 ### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
 
 The system SHALL keep the most recent todo list written by the agent
