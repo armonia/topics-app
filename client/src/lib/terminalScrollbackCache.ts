@@ -20,7 +20,15 @@ const MAX_SESSIONS = 8;
 /** Per session. A screen, not a history: the history is the server's. */
 const MAX_CHARS = 8 * 1024;
 
-type Entry = { text: string; at: number };
+/**
+ * `rowPx`: the height of one xterm row when the screen was written down. The
+ * seed draws its lines at that height; at a fixed 17 px they drifted from the
+ * rows drawn over them by the difference per line (15 px rows in WebKit's
+ * fallback font: the third line from the bottom 6 px off).
+ */
+type Entry = { text: string; at: number; rowPx?: number };
+/** What the seed draws: the text, and the row height it was written at. */
+export type TerminalScreenCopy = { text: string; rowPx: number | null };
 type Drawer = Record<string, Entry>;
 
 function readDrawer(): Drawer {
@@ -36,18 +44,20 @@ function readDrawer(): Drawer {
 }
 
 /** The last screen of `sessionId`, or null when there is none worth drawing. */
-export function readTerminalScrollback(sessionId: string): string | null {
+export function readTerminalScrollback(sessionId: string): TerminalScreenCopy | null {
   const entry = readDrawer()[sessionId];
   const text = entry && typeof entry.text === 'string' ? entry.text : '';
-  return text.trim().length ? text : null;
+  if (!text.trim().length) return null;
+  const rowPx = typeof entry.rowPx === 'number' && entry.rowPx > 0 ? entry.rowPx : null;
+  return { text, rowPx };
 }
 
-export function writeTerminalScrollback(sessionId: string, text: string): void {
+export function writeTerminalScrollback(sessionId: string, text: string, rowPx?: number): void {
   try {
     const trimmed = text.length > MAX_CHARS ? text.slice(text.length - MAX_CHARS) : text;
     const drawer = readDrawer();
     if (!trimmed.trim().length) delete drawer[sessionId];
-    else drawer[sessionId] = { text: trimmed, at: Date.now() };
+    else drawer[sessionId] = { text: trimmed, at: Date.now(), ...(rowPx && rowPx > 0 ? { rowPx } : {}) };
     const kept = Object.entries(drawer)
       .sort((a, b) => (b[1]?.at ?? 0) - (a[1]?.at ?? 0))
       .slice(0, MAX_SESSIONS);

@@ -1030,6 +1030,12 @@ skeleton and the content; and SHALL NOT move the content once it is there.
 - **WHEN** the user switches group and back
 - **THEN** each chat shows its skeleton or its content on the first frame, then its content with no empty frame in between and no jump
 
+#### Scenario: back to a terminal the residency cap evicted
+- **GIVEN** a terminal with a screen of output, pushed out of the page by the residency cap
+- **WHEN** the user comes back to its tab
+- **THEN** the first frame shows its last screen (the copy this device keeps) or, with no copy, the terminal skeleton
+- **AND** that stays until xterm has drawn the replay, with no empty frame in between, and the replayed rows land exactly where the copy's lines were (the copy is drawn at the row height it was written at, bottom-aligned to xterm's whole rows)
+
 ### Requirement: TABSWITCH-03 — A chat whose history was completed while hidden is final on the first frame of the return
 
 The rest of a chat's history is merged only while its pane is hidden. The

@@ -27,7 +27,7 @@
  */
 import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, seedPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
+import { createTerminalSession, createTopic, deleteTerminalSession, seedPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -69,7 +69,7 @@ interface FrameReport {
 /** The per-frame meter, armed before the input and started by it (capture phase). */
 async function installMeter(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const SPIN = '[data-testid="chat-skeleton"], .animate-spin';
+    const SPIN = '[data-testid="chat-skeleton"], [data-testid="terminal-skeleton"], .animate-spin';
     const shown = (el: Element): boolean => {
       for (let n: Element | null = el; n; n = n.parentElement) {
         if (n.getAttribute("data-pane-visible") === "0") return false;
@@ -78,7 +78,8 @@ async function installMeter(page: Page): Promise<void> {
       }
       return true;
     };
-    type Cfg = { key: string; needle: string; trigger: string; triggerKey?: string };
+    /** `content`: where the needle is looked for; a chat's rows unless given. */
+    type Cfg = { key: string; needle: string; content?: string; trigger: string; triggerKey?: string };
     const w = window as unknown as Record<string, unknown>;
     w.__tabSwitchArm = (cfg: Cfg) => {
       const escapedKey = CSS.escape(cfg.key);
@@ -103,7 +104,7 @@ async function installMeter(page: Page): Promise<void> {
         let content: Element | null = null;
         let spin = false;
         if (shell) {
-          for (const m of Array.from(shell.querySelectorAll('[data-testid="chat-message"]'))) {
+          for (const m of Array.from(shell.querySelectorAll(cfg.content ?? '[data-testid="chat-message"]'))) {
             if ((m.textContent ?? "").includes(cfg.needle) && shown(m)) content = m;
           }
           for (const s of Array.from(shell.querySelectorAll(SPIN))) {
@@ -205,7 +206,7 @@ interface Switch {
  */
 async function measureSwitch(
   page: Page,
-  target: { key: string; needle: string; topicId: string; sessionKey: string },
+  target: { key: string; needle: string; content?: string; topicId: string; sessionKey: string },
   trigger: { event: string; key?: string },
   act: () => Promise<void>,
 ): Promise<Switch> {
@@ -217,7 +218,7 @@ async function measureSwitch(
       w.__tabSwitchTail = tail as number;
       w.__tabSwitchArm(cfg);
     },
-    [{ key: target.key, needle: target.needle, trigger: trigger.event, triggerKey: trigger.key }, TAIL_FRAMES] as const,
+    [{ key: target.key, needle: target.needle, content: target.content, trigger: trigger.event, triggerKey: trigger.key }, TAIL_FRAMES] as const,
   );
   const requests: string[] = [];
   const onRequest = (r: { url: () => string; method: () => string }) => {
@@ -436,5 +437,61 @@ test.describe("a tab switch is instant", () => {
       expect(r.jumpPx, `${label}: no jump once the content is there. ${detail}`).toBe(0);
       expect(r.entrances, `${label}: no history row replays the entrance. ${detail}`).toBe(0);
     }
+  });
+
+  test("a terminal evicted by the residency cap shows its last screen or its skeleton from the first frame, never an empty pane", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-02" });
+    test.setTimeout(180_000);
+    const term = await createTerminalSession(request, { name: "tsi-term", cols: 100, rows: 24 });
+    const termPane = `terminal:${term.id}`;
+    // Twelve light panes stay mounted (RESIDENCY_BUDGET.light): thirteen more
+    // chats push the terminal out.
+    const fillers: string[] = [];
+    for (let i = 0; i < 13; i++) fillers.push((await seedChat(request, `TSI filler ${i}`, 2, `FILL${i}-END`)).topicId);
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        [termPane]: { id: termPane, type: "terminal", title: "Terminal", terminalSessionId: term.id, openedAt },
+        ...Object.fromEntries(fillers.map((id) => [id, { id, type: "chat", title: "", topicId: id, openedAt }])),
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [termPane, ...fillers], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await installProbe(page);
+    await installMeter(page);
+    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), termPane);
+    await goToApp(page);
+    const termShell = page.locator(`[data-pane-shell="${termPane}"]`);
+    await page.locator(tab(termPane)).first().click();
+    await termShell.locator(".xterm").first().click();
+    await page.keyboard.type("seq 1 3000\n");
+    await expect(termShell.locator(".xterm-rows")).toContainText("2999", { timeout: 20_000 });
+    const T = { key: termPane, needle: "2999", content: '.xterm-rows, [data-testid="terminal-text"]', topicId: term.id, sessionKey: term.id };
+    // Twice: back to it with the copy of its last screen this device keeps, and
+    // without one (another device, or a cleared cache), where the skeleton
+    // stands in for it.
+    for (const round of ["with its last screen", "without a copy of it"] as const) {
+      for (const id of fillers) {
+        await page.locator(tab(id)).first().click();
+        await expect(page.locator(`[data-pane-shell="${id}"]`)).toHaveAttribute("data-pane-visible", "1");
+      }
+      // Evicted: its shell leaves the page once the dwell and the delay are over.
+      await expect(termShell).toHaveCount(0, { timeout: 30_000 });
+      if (round === "without a copy of it") await page.evaluate(() => localStorage.removeItem("terminal-scrollback-cache"));
+      const s = await measureSwitch(page, T, { event: "click" }, () => page.locator(tab(termPane)).first().click());
+      const r = s.report;
+      const detail = `${round}: seq=${r.seq} trace=${r.trace.join(" ")}`;
+      // Before the fix: the last screen on the first frame, then four to six
+      // frames of an empty terminal until the replay was drawn (C.....C), and
+      // with no copy, empty frames from the first one.
+      expect(r.seq[0], `the first frame holds the last screen or the skeleton, never an empty pane. ${detail}`).not.toBe(".");
+      expect(r.seq, `skeleton or last screen, then the terminal, and nothing empty in between. ${detail}`).toMatch(/^[SC]*C+$/);
+      expect(r.seq, `no empty frame at all. ${detail}`).not.toContain(".");
+      expect(r.rawJumpPx, `the last screen and the terminal drawn over it line up. ${detail}`).toBeLessThan(1);
+    }
+    await deleteTerminalSession(request, term.id).catch(() => {});
   });
 });

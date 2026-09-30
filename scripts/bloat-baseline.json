@@ -194,7 +194,13 @@
     "",
     "29/09 (the chat's sub-agent strip keeps an ended sub-agent instead of losing it): i18n-it/en +3",
     "each are the ended row, its dismiss button and the strip label that was a hardcoded Italian string;",
-    "the rest of both deltas arrived with main since 17/09 and is recorded at main's size."
+    "the rest of both deltas arrived with main since 17/09 and is recorded at main's size.",
+    "",
+    "01/10 (a terminal evicted by the residency cap shows its last screen or a skeleton until xterm draws",
+    "the replay): SingleTerminalPane.tsx 1476 on main -> 1488. +12 are the replay-drawn state that replaces",
+    "the seed flag (the flush, the write callback and the frame that removes the cover), the row height kept",
+    "for the copy written while hidden, and the copy's box set to xterm's rows once it opens; the copy and",
+    "the skeleton themselves moved out to TerminalCover.tsx. Recorded by hand, this row only."
   ],
   "updated": "2026-09-17",
   "tolerance_pct": 5,
@@ -257,7 +263,7 @@
     "shared/types.ts": 1467,
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 1451,
     "client/src/components/MessageContent.tsx": 1417,
-    "client/src/components/Terminal/SingleTerminalPane.tsx": 1359,
+    "client/src/components/Terminal/SingleTerminalPane.tsx": 1488,
     "client/src/components/Project/ProjectSidebar.tsx": 1341,
     "server/services/relay-client.ts": 1271,
     "client/src/lib/board.ts": 1253,
