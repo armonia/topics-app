@@ -2782,6 +2782,14 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .message-appear {
   animation: messageSlideIn 0.2s ease-out both;
 }
+/* Motion off for whoever asked for less of it: the message is there, it does
+   not need to slide in (UI audit 2026-09-29, panes:F3: the entrance still ran
+   under prefers-reduced-motion). */
+@media (prefers-reduced-motion: reduce) {
+  .message-appear {
+    animation: none;
+  }
+}
 
 /* Subtle hover lift for interactive cards */
 .hover-lift {

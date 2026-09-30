@@ -985,3 +985,47 @@ reading only in a file where a healthy minute leaves no line at all.
 #### Scenario: a figure the platform cannot answer
 - **GIVEN** a process where `phys_footprint` is not readable
 - **THEN** the line SHALL say unknown, and SHALL NOT print zero megabytes
+
+### Requirement: TABSWITCH-01 — A switch to a resident pane is final on its first frame
+
+A pane kept alive behind another tab (mounted, `display: none`) SHALL show its
+final content on the first frame after the input that selects it, whatever the
+input: a click on the tab, Ctrl+Tab and Ctrl+Shift+Tab, Cmd+1..9, the sidebar
+row, the command palette. On that switch there SHALL be no spinner and no
+skeleton, the pane's shell SHALL be the same DOM node (nothing remounts), no
+request for the pane's own data SHALL leave, nothing in it SHALL move after the
+first frame, and the switch SHALL cost a bounded number of React commits.
+
+A hidden pane has no box, and what it measures while hidden is not a measure: a
+0x0 ResizeObserver entry SHALL NOT be stored as a height (it was stored as the
+composer's height, and every return to a chat painted its list 107 px too low
+and then jumped, tab-switch audit 2026-09-29). A read of a thread the window
+already holds from the server SHALL refresh it in the background without
+raising the list's loading curtain. The chunks of every open pane SHALL be
+warmed at idle after the first frame, so a first switch to a pane type does not
+draw the chunk spinner.
+
+A row of history SHALL NOT play the entrance of a message that just arrived:
+the entrance belongs to a message that came in while the list was on screen,
+and SHALL NOT run under `prefers-reduced-motion: reduce`.
+
+The budgets are frame and event counts, not milliseconds: they hold on a
+machine under load.
+
+#### Scenario: back to a chat kept alive behind another tab
+- **GIVEN** two chats open as tabs, one of them long enough that the rest of its history is merged while it is hidden
+- **WHEN** the user comes back to it by click, Ctrl+Tab, the sidebar row or the palette
+- **THEN** its last message is on screen on the first frame, with no skeleton, and does not move in the frames after
+- **AND** no pane remounts, no request names that chat, and no row replays the entrance animation
+
+### Requirement: TABSWITCH-02 — A switch that mounts a pane never shows an empty one
+
+A switch that has to mount the pane (a chat in another group, a pane evicted by
+the residency cap) SHALL show the skeleton or the content on the first frame
+after the input, never an empty pane; SHALL NOT show an empty frame between the
+skeleton and the content; and SHALL NOT move the content once it is there.
+
+#### Scenario: switching group
+- **GIVEN** a chat in the current group and a chat in another group
+- **WHEN** the user switches group and back
+- **THEN** each chat shows its skeleton or its content on the first frame, then its content with no empty frame in between and no jump

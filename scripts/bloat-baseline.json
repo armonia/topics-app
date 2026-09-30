@@ -209,7 +209,7 @@
     "client/src/components/Board/TaskDetail.tsx": 3598,
     "server/routes/terminal.ts": 3545,
     "client/src/components/Layout/PanelGrid.tsx": 3229,
-    "client/src/hooks/useChat.ts": 3148,
+    "client/src/hooks/useChat.ts": 3316,
     "server/routes/topics.ts": 3103,
     "client/src/components/Sidebar/TopicTree.tsx": 2895,
     "client/src/lib/i18n-it.ts": 2874,

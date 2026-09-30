@@ -127,6 +127,9 @@ interface MessageBubbleProps {
   /** Which prompt of the person this bubble is in the whole thread («#50»),
    *  or undefined when it is not a person prompt or is not known yet. */
   promptNumber?: number;
+  /** The message just came in while the list was on screen: its row plays the
+   *  entrance. False for every row of history (see `messageEntrance.ts`). */
+  entering?: boolean;
 }
 
 /**
@@ -163,6 +166,7 @@ export const MessageBubble = memo(function MessageBubble({
   onRetry,
   isLast,
   promptNumber,
+  entering,
 }: MessageBubbleProps) {
   const tr = useT();
   // Only inside the chat of a board task, and only on wordless machine work.
@@ -372,7 +376,7 @@ export const MessageBubble = memo(function MessageBubble({
       )}
 
       <div
-        className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${!grouped ? 'message-appear' : ''} ${grouped && isCompact ? 'mt-0.5' : ''}`}
+        className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${!grouped && entering ? 'message-appear' : ''} ${grouped && isCompact ? 'mt-0.5' : ''}`}
       >
         {/* «#50»: which prompt of the person this is, in the whole thread.
             Beside the bubble at its top, always on (not a hover detail): it is

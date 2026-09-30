@@ -6,7 +6,7 @@ import App from './App'
 // Phase 30 PANE-01: all pane-state bootstrap (legacy-storage hydration, the four
 // persistence transports, and the 500 ms GET fallback) lives inside
 // client/src/state/pane/. main.tsx is intentionally a thin shell.
-import { bootstrapPaneStore, paneChunksWarm } from './state/pane/bootstrap';
+import { bootstrapPaneStore, paneChunksWarm, warmOpenPaneChunksWhenIdle } from './state/pane/bootstrap';
 import { awaitWithCap, recordFirstFrameGate, FIRST_FRAME_WARM_CAP_MS } from './lib/firstFrameGate';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
@@ -107,6 +107,9 @@ void awaitWithCap(Promise.all([paneChunksWarm(), guestScreenWarm]), FIRST_FRAME_
   // to be thrown away, and from the outside a change to the warm set was
   // indistinguishable from noise in the rest of the boot. See `firstFrameGate`.
   recordFirstFrameGate(outcome, performance.now() - gateStartedAt);
+  // The first frame waited for the panes on screen; the ones a tab switch away
+  // are warmed right after, at idle (PERF-02, `paneTypesToWarmWhenIdle`).
+  warmOpenPaneChunksWhenIdle();
   root.render(
     <StrictMode>
       {/* THE NET UNDERNEATH, which was not there.

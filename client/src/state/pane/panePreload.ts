@@ -257,3 +257,27 @@ export function preloadPaneChunks(types: Iterable<PaneType>): Promise<void> {
   }
   return Promise.all(pending).then(() => {});
 }
+
+/**
+ * THE PANES ONE CLICK AWAY, warmed once the first frame is on screen.
+ *
+ * `panesOnFirstFrame` is narrow on purpose: every byte it names is waited for
+ * before the first pixel. Everything else used to load on its first mount, and
+ * a tab switch is exactly that mount: measured (tab-switch audit 2026-09-29, WebKit) a switch
+ * to a project's git tile drew the chunk spinner for 19 frames (332 ms), and a
+ * switch to a terminal, a browser or the board opened on another device, or in
+ * another Spazio, drew it for 16-18 frames.
+ *
+ * So after the first frame, at idle, the chunks of EVERY open pane are asked
+ * for: all Spazi, every project window's tiles, and the git panel of each
+ * project window, which is one click away in its sidebar. Nothing here gates a
+ * render; a chunk that is already warm costs a map lookup (`warm`).
+ */
+export function paneTypesToWarmWhenIdle(
+  panes: Iterable<Pick<Pane, 'type' | 'projectPath'>>,
+  readLocal: (key: string) => string | null,
+): PaneType[] {
+  const out = new Set(paneTypesToWarm(panes, readLocal));
+  if (out.has('project')) out.add('git');
+  return [...out];
+}
