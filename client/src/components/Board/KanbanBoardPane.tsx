@@ -2026,8 +2026,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 (`useRowSnapHold`, from `onDragStart`). */}
             {/* List: one column scrolling vertically (sections capped at a
                 48rem reading width, centred), no
-                snap-carousel (there's nothing to peek at off to the side). */}
-            <div ref={columnsScrollRef} className={boardLayout === 'list'
+                snap-carousel (there's nothing to peek at off to the side).
+                The test id is the row's handle for the e2e: its snap classes
+                come and go with `useRowSnapHold`, so they cannot name it. */}
+            <div ref={columnsScrollRef} data-testid="kanban-columns-row" className={boardLayout === 'list'
               ? COLUMNS_ROW_LIST
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
               {TASK_STATUSES.map((status) => (
