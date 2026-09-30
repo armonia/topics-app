@@ -707,9 +707,16 @@ export function MessageList({
    * requested from there is the NEXT frame: the bottom of a streamed reply
    * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
-  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean }) => {
+  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean; renderNow?: boolean }) => {
     if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
-    if (opts?.viaVirtuoso) virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+    if (opts?.viaVirtuoso) {
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+      // `renderNow`: the offset is written at once, but Virtuoso renders its
+      // rows only on a `scroll` event, which the browser sends next frame; its
+      // handler runs in `flushSync`, so sending one now renders them before this
+      // frame paints (else: one frame of the wrong rows, TABSWITCH-03).
+      if (opts.renderNow) scrollerElRef.current?.dispatchEvent(new Event('scroll'));
+    }
     // Il fondo si raggiunge PER DAVVERO, non "quasi".
     //
     // Un colpo solo di `scrollTop = scrollHeight` incolla all'altezza misurata
@@ -1632,6 +1639,8 @@ export function MessageList({
           const index = itemsRef.current.findIndex((m) => m.id === target);
           if (index >= 0) {
             virtuosoRef.current?.scrollToIndex({ index, align: 'start' });
+            // Rendered before this frame paints: see `renderNow` in `pinToBottom`.
+            el.dispatchEvent(new Event('scroll'));
             syncArrow(el);
             return;
           }
@@ -1643,7 +1652,10 @@ export function MessageList({
         // The pin loop still runs: it is a no-op at the bottom and still
         // catches a row that finishes measuring late.
         const atBottomNow = el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
-        pinToBottom({ viaVirtuoso: !atBottomNow, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: !userTouchedRef.current });
+        // Both moves land before the first frame paints: a frame later, it
+        // showed the rows at the pre-merge offset, or moved by the last pixel
+        // on the third frame (tab-switch audit 2026-09-30, TABSWITCH-01/03).
+        pinToBottom({ viaVirtuoso: !atBottomNow, renderNow: !atBottomNow, now: atBottomNow, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: !userTouchedRef.current });
         // Tornata visibile: la misura congelata mentre era nascosta non vale
         // più niente (viewport alta 0), si ricalcola.
         syncArrow(el);

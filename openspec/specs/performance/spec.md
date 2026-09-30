@@ -1029,3 +1029,22 @@ skeleton and the content; and SHALL NOT move the content once it is there.
 - **GIVEN** a chat in the current group and a chat in another group
 - **WHEN** the user switches group and back
 - **THEN** each chat shows its skeleton or its content on the first frame, then its content with no empty frame in between and no jump
+
+### Requirement: TABSWITCH-03 — A chat whose history was completed while hidden is final on the first frame of the return
+
+The rest of a chat's history is merged only while its pane is hidden. The
+merge re-indexes the list, so the scroll offset the pane had when it was hidden
+points, over the merged list, at rows from the top of the thread. When the pane
+is shown again it SHALL be placed (at the bottom, or on the row the reader had
+at the top) and the rows at that place SHALL be rendered before the first frame
+paints, never a frame later: the first frame of the return painted rows 29-43
+of 2000 and the last message one frame after (tab-switch audit 2026-09-30).
+Nothing SHALL move by a pixel or more after that frame. A frame is read after
+its layout, where a pane shown again is placed, not in its animation-frame
+callback, which runs before that.
+
+#### Scenario: back to a long chat right after its first look
+- **GIVEN** a chat of 2000 messages opened once on its last page and read to the bottom
+- **WHEN** the user switches to another tab, the rest of its history is merged, and the user comes back
+- **THEN** its last message is on screen on the first frame of the return, with no frame of other rows before it
+- **AND** it does not move by a pixel or more in the frames after
