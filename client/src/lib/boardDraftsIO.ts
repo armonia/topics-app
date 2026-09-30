@@ -18,19 +18,33 @@ const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** The value each armed timer is going to send: what a page-exit flush sends instead. */
 const draftPending = new Map<string, unknown>();
 /**
- * Browsers refuse a keepalive request whose body (summed over the ones still
- * in flight) passes 64 KiB. A bigger draft map goes out as a plain PUT: it
- * still lands when the page only went hidden, which is the common case.
+ * Browsers refuse a keepalive request whose body, summed over the keepalive
+ * requests still in flight, passes 64 KiB, and they count BYTES: WebKit rejects
+ * the fetch outright, so the draft is lost with the page. A draft that does not
+ * fit in what is left goes out as a plain PUT: it still lands when the page
+ * only went hidden, which is the common case. The margin under 65,536 leaves
+ * room for the keepalive writes of the other stores.
  */
 const UNLOAD_BODY_MAX = 60_000;
+/** Bytes of this module's keepalive bodies whose request has not settled yet. */
+let keepaliveBytesInFlight = 0;
+const encoder = new TextEncoder();
 
 function sendDraft(key: string, value: unknown, keepalive: boolean): void {
   const body = JSON.stringify(value);
-  // PANE-01-ALLOWED: draft keys, not pane state
-  fetch(`/api/ui-state/${key}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
-    keepalive: keepalive && body.length <= UNLOAD_BODY_MAX,
-  }).catch(() => {});
+  const bytes = keepalive ? encoder.encode(body).length : 0;
+  const useKeepalive = keepalive && keepaliveBytesInFlight + bytes <= UNLOAD_BODY_MAX;
+  if (useKeepalive) keepaliveBytesInFlight += bytes;
+  const settle = (): void => { if (useKeepalive) keepaliveBytesInFlight -= bytes; };
+  try {
+    // PANE-01-ALLOWED: draft keys, not pane state
+    fetch(`/api/ui-state/${key}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
+      keepalive: useKeepalive,
+    }).then(settle, settle);
+  } catch {
+    settle();
+  }
 }
 
 export function uiPutDebounced(key: string, value: unknown, ms = 800): void {
