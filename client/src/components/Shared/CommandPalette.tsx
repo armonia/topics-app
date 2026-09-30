@@ -11,7 +11,8 @@ import { basename } from '../../lib/path-utils';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
-import { searchApi } from '../../lib/api';
+import { chatApi, searchApi } from '../../lib/api';
+import { afterNextPaint } from '../../lib/afterNextPaint';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { PANE_CONFIG, tabTargetForPane } from '../../state/pane/adapters';
 import { usePaneStore } from '../../state/pane/store';
@@ -394,7 +395,16 @@ export function CommandPalette({
           icon: null,
           category: 'topic' as const,
           _ts: ts,
-          action: () => { onOpenTopic(topic.id); onClose(); },
+          // Enter used to render the whole new pane inside the keydown (a
+          // 150-190 ms frame with the palette frozen on screen), and the
+          // history request only left from the pane's mount effect after that
+          // render. Now the request leaves in this task, the palette closes in
+          // the input frame, and the pane renders in the task after the paint.
+          action: () => {
+            chatApi.warmHistory(topic.sessionKey);
+            onClose();
+            afterNextPaint(() => onOpenTopic(topic.id));
+          },
         };
       })
       .sort((a, b) => (b._ts || 0) - (a._ts || 0));

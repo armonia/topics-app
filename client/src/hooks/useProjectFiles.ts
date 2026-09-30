@@ -184,9 +184,14 @@ async function load(path: string, esplicita = false): Promise<void> {
   const controller = new AbortController();
   store.abort = controller;
   try {
-    const tree = await filesApi.list(path, ROOT_DEPTH, controller.signal);
+    const listed = await filesApi.list(path, ROOT_DEPTH, controller.signal);
     if (controller.signal.aborted) return;
     store.errorStreak = 0;
+    // Every answer is a brand-new object graph, even when nothing on disk
+    // changed: sharing the unchanged nodes with the tree on screen is what lets
+    // an identical refresh publish nothing and the memoized rows skip.
+    const tree = store.snapshot.tree ? shareTree(store.snapshot.tree, listed) : listed;
+    const unchanged = tree === store.snapshot.tree;
     // Al primo albero si aprono le cartelle di primo livello, come faceva il
     // pannello. Dopo NON si tocca più: le cartelle che l'utente ha aperto sono
     // sue, e riaprire il pannello non è un motivo per richiuderle.
@@ -194,7 +199,7 @@ async function load(path: string, esplicita = false): Promise<void> {
       ? store.snapshot.expandedDirs
       : tree.filter(f => f.type === 'dir').map(f => f.path);
     patch(store, { tree, expandedDirs, loading: false, error: null, stale: false });
-    filesCache.set(path, { tree, expandedDirs });
+    if (!unchanged) filesCache.set(path, { tree, expandedDirs });
   } catch (err: unknown) {
     if (controller.signal.aborted) return;
     store.errorStreak++;
@@ -234,6 +239,38 @@ function graftChildren(nodes: FileNode[], target: string, children: FileNode[]):
     return { ...n, children: figli };
   });
   return cambiato ? out : nodes;
+}
+
+/**
+ * `next` with every node that is equal to its counterpart in `prev` replaced
+ * by that counterpart, and `prev` itself when nothing differs at all.
+ *
+ * Equality is by value on every field, children included: a folder whose
+ * lazily grafted children are not in the new listing (below `ROOT_DEPTH`) is
+ * NOT equal and takes the new node, exactly as a plain replacement did.
+ */
+function shareTree(prev: FileNode[], next: FileNode[]): FileNode[] {
+  const byPath = new Map<string, FileNode>();
+  for (const n of prev) byPath.set(n.path, n);
+  let same = prev.length === next.length;
+  const out = next.map((n, i) => {
+    const old = byPath.get(n.path);
+    const kept = old ? shareNode(old, n) : n;
+    if (kept !== prev[i]) same = false;
+    return kept;
+  });
+  return same ? prev : out;
+}
+
+function shareNode(old: FileNode, n: FileNode): FileNode {
+  const children = n.children !== undefined && old.children !== undefined
+    ? shareTree(old.children, n.children)
+    : n.children;
+  const fieldsSame = old.name === n.name && old.type === n.type &&
+    old.size === n.size && old.modified === n.modified;
+  if (fieldsSame && children === old.children) return old;
+  // A changed folder still keeps the identity of its unchanged descendants.
+  return children === n.children ? n : { ...n, children };
 }
 
 /**
@@ -332,4 +369,4 @@ export function useProjectFiles({ projectPath, onMessage }: UseProjectFilesOptio
 }
 
 
-export { filesCache, graftChildren };
+export { filesCache, graftChildren, shareTree };

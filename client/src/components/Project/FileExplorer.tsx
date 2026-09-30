@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Suspense, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense, forwardRef, useImperativeHandle, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
 import type { FileNode, WSMessage } from '../../types';
@@ -146,7 +146,15 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
 // stesso pixel sei volte meno leggibile. Ora la classificazione e le coppie
 // stanno in `lib/gitStatusColors.ts`, misurate.)
 
-function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
+// Memoized: the tree re-rendered EVERY node on every render of the explorer
+// (a scripts poll, a tab switch, a WS frame), 1458 row renders for one tab
+// switch. Every prop is either a primitive, a memoized set/map or a stable
+// callback, and an unchanged listing keeps its node identities
+// (`shareTree` in useProjectFiles), so a row re-renders only when something
+// it shows changed. The inner function has its own name on purpose: the
+// recursive `<TreeNode>` below must reach the memoized component, not the bare
+// function a named function expression would bind.
+const TreeNode = memo(function TreeNodeRow({ node, depth, selectedPath, expandedDirs, loadingDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
   // Il menu dei file esisteva solo col tasto destro: da telefono rinomina,
   // duplica e cestina erano irraggiungibili. Stesso gesto del resto dell'app.
   const { isTouch } = useMobile();
@@ -443,7 +451,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
       )}
     </>
   );
-}
+});
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed, onWSMessage }, ref) {
   const tr = useT();
@@ -589,12 +597,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
    * server distingue già i due casi, mancava solo chi ne approfittasse.
    */
   //
-  // L'IDENTITÀ DI QUESTA FUNZIONE DEVE RESTARE STABILE. Finisce in
-  // `treeNodeProps`, che è sparso su OGNI `TreeNode`, e `TreeNode` è una
-  // funzione nuda senza memo: se la callback cambia a ogni variazione di
-  // `files`/`expandedDirs`, l'intero albero montato si ri-renderizza a ogni
-  // click e a ogni giro di git. Lo stato si legge dai ref, non dalle closure,
-  // così le dipendenze restano due funzioni a loro volta stabili.
+  // THIS FUNCTION'S IDENTITY MUST STAY STABLE. It ends up in `treeNodeProps`,
+  // spread on EVERY `TreeNode`, and TreeNode is memoized on its props: if the
+  // callback changed on every `files` / `expandedDirs` change, the whole
+  // mounted tree would re-render on every click and every git round. State is
+  // read from refs, not closures, so the deps stay two functions that are
+  // themselves stable.
   const filesRef = useRef<FileNode[]>(files);
   filesRef.current = files;
   /** L'insieme aperto per chi lo legge DENTRO una callback stabile. */

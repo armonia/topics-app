@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { desiredInterval, graftChildren, ROOT_DEPTH } from './useProjectFiles';
+import { desiredInterval, graftChildren, ROOT_DEPTH, shareTree } from './useProjectFiles';
 import type { FileNode } from '../types';
 
 /**
@@ -97,5 +97,64 @@ describe('profondità della radice', () => {
     // Cambiarla cambia quanti sottoalberi arrivano gratis e quanti si comprano
     // uno per uno: non è un numero da toccare distrattamente.
     expect(ROOT_DEPTH).toBe(3);
+  });
+});
+
+describe('shareTree', () => {
+  // Every /api/files answer is a brand-new object graph. Handing it to the
+  // store as is published a "new" tree on every refresh and re-rendered every
+  // row of the explorer even when nothing on disk had changed.
+  const listing = () => [
+    dir('/p/src', [file('/p/src/a.ts'), dir('/p/src/lib', [file('/p/src/lib/x.ts')])]),
+    dir('/p/deep', undefined),
+    { ...file('/p/README.md'), size: 10, modified: '2026-09-30T10:00:00.000Z' },
+  ];
+
+  test('an identical listing returns the tree on screen itself', () => {
+    const prev = listing();
+    expect(shareTree(prev, listing())).toBe(prev);
+  });
+
+  test('one changed file keeps the identity of every untouched branch', () => {
+    const prev = listing();
+    const next = listing();
+    next[0].children![0] = { ...next[0].children![0], size: 99 };
+    const out = shareTree(prev, next);
+    expect(out).not.toBe(prev);
+    expect(out[0]).not.toBe(prev[0]); // the folder on the path changes
+    expect(out[0].children![0].size).toBe(99);
+    expect(out[0].children![1]).toBe(prev[0].children![1]); // its untouched sibling does not
+    expect(out[1]).toBe(prev[1]);
+    expect(out[2]).toBe(prev[2]);
+  });
+
+  test('a modified time or size change is a change', () => {
+    const prev = listing();
+    const next = listing();
+    next[2] = { ...next[2], modified: '2026-09-30T11:00:00.000Z' };
+    const out = shareTree(prev, next);
+    expect(out[2]).not.toBe(prev[2]);
+    expect(out[2].modified).toBe('2026-09-30T11:00:00.000Z');
+  });
+
+  test('added, removed and reordered entries are taken from the new listing', () => {
+    const prev = listing();
+    const added = [...listing(), file('/p/new.ts')];
+    expect(shareTree(prev, added).map((n) => n.path)).toEqual(added.map((n) => n.path));
+    const removed = listing().slice(1);
+    const out = shareTree(prev, removed);
+    expect(out.map((n) => n.path)).toEqual(['/p/deep', '/p/README.md']);
+    expect(out[0]).toBe(prev[1]);
+    const reordered = [...listing()].reverse();
+    expect(shareTree(prev, reordered).map((n) => n.path)).toEqual(reordered.map((n) => n.path));
+  });
+
+  test('children grafted below the listing depth are NOT kept: same as a plain replace', () => {
+    // A folder at the edge of ROOT_DEPTH comes back without `children`; the
+    // children bought lazily for it are dropped, exactly as before sharing.
+    const prev = graftChildren(listing(), '/p/deep', [file('/p/deep/z.ts')]);
+    const out = shareTree(prev, listing());
+    expect(out[1].children).toBeUndefined();
+    expect(out[0]).toBe(prev[0]);
   });
 });
