@@ -30,7 +30,7 @@ Niente CLI vere contro modelli a pagamento nei test: provider finti / fixture de
 - [x] 4.1 `BrowserOpenMarker.tsx`: favicon (`BrowserFavicon`), titolo, dominio, stato, «N pagine» apribile; tutta la riga cliccabile, ≥ 44 px su touch, `aria-label` con l'URL. i18n `chat.browserMarker.*` in `i18n-chat-it.ts` e `i18n-chat-en.ts`.
 - [x] 4.2 `toolGrouping.ts` (segmento a sé), `turnFold.ts` (come i media), `MessageContent.tsx` (resa del segmento).
 - [x] 4.3 `taskWorkFold.ts` `summarizeTools` raccoglie i segni; `TaskWorkAccordion.tsx` li mostra come chip nella riga di riepilogo.
-- [ ] 4.4 Stato derivato (§5 del design) leggendo la finestra attraverso `topicBrowserWindowLazy`: nessun import diretto dello store nel chunk della chat (`check:bundle` verde).
+- [x] 4.4 Stato derivato (§5 del design) leggendo la finestra attraverso `topicBrowserWindowLazy`: nessun import diretto dello store nel chunk della chat (`check:bundle` verde).
 
 ## 5. Il clic (CHAT-BROWSER-02, BROWSER-CHAT-05)
 
@@ -39,6 +39,6 @@ Niente CLI vere contro modelli a pagamento nei test: provider finti / fixture de
 
 ## 6. Verifica
 
-- [ ] 6.1 I test del §1 verdi; typecheck; rails statiche; `check:bundle`.
-- [ ] 6.2 E2E su `:13334`, estendendo `tests/e2e/topic-browser-window.spec.ts` (o `tool-call-rendering.spec.ts` per iniettare i frame con `page.routeWebSocket`): segno visibile a turno finito; clic con finestra nascosta → finestra ridotta con la scheda attiva; scheda chiusa → «chiuso» → clic → riaperta. Mai contro `:3333`. Prima di ogni run Playwright: `memory_pressure | tail -1` con free ≥ 20%.
+- [x] 6.1 I test del §1 verdi; typecheck; rails statiche; `check:bundle`.
+- [x] 6.2 E2E (`tests/e2e/chat-browser-open-marker.spec.ts`, nuovo invece di estendere `topic-browser-window.spec.ts`, che sta già sul tetto di `check:bloat`) su un server isolato, estendendo `tests/e2e/topic-browser-window.spec.ts` (o `tool-call-rendering.spec.ts` per iniettare i frame con `page.routeWebSocket`): segno visibile a turno finito; clic con finestra nascosta → finestra ridotta con la scheda attiva; scheda chiusa → «chiuso» → clic → riaperta. Mai contro `:3333`. Prima di ogni run Playwright: `memory_pressure | tail -1` con free ≥ 20%.
 - [ ] 6.3 Prova: il `.webm` WebKit di 6.2 allegato alla card. È la prova del comportamento; uno screenshot non basta.
