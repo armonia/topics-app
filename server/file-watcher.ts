@@ -26,6 +26,7 @@
 import { existsSync, watch } from "fs";
 import type { AppContext } from "./types";
 import { refreshGitStatus } from "./git-watcher";
+import { reachesProtectedAppData } from "./lib/protected-app-data";
 
 const DEBOUNCE_MS = 300;
 /**
@@ -92,6 +93,11 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     watchers.set(projectPath, existing);
     return;
   }
+  // HOME, above it, or ~/Library: a recursive watch there would cover other
+  // apps' data (`lib/protected-app-data.ts`). The file routes already refuse
+  // HOME; this is the same rule for the one root they let through. No watcher
+  // means no live refresh, which is what the Refresh button is for.
+  if (reachesProtectedAppData(projectPath)) return;
   makeRoom();
 
   let timer: ReturnType<typeof setTimeout> | null = null;

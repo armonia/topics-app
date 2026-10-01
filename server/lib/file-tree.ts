@@ -3,6 +3,7 @@ import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join } from "path";
 import { IgnoreSet } from "./gitignore";
 import { isTopicsSecretPath } from "./topics-secret-path";
+import { isProtectedFromWalk } from "./protected-app-data";
 import type { FileNode } from "../../shared/file-tree";
 
 /**
@@ -75,7 +76,10 @@ export async function walkFileTree(root: string, depth: number): Promise<FileNod
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
           const node: FileNode = { name: entry.name, type: "dir", path: fullPath };
-          if (currentDepth < depth) {
+          // Other apps' data (`protected-app-data.ts`) is listed, never
+          // opened: the folder shows, its contents are not read, like a
+          // folder past the depth limit.
+          if (currentDepth < depth && !isProtectedFromWalk(fullPath, root)) {
             // This folder's .gitignore adds to the ones above and applies
             // from here down only, as in git.
             node.children = await readDirRecursive(fullPath, currentDepth + 1, rel, readIgnore(fullPath, rel, ignore));

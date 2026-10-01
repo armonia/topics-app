@@ -8,6 +8,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { walkFileTree, type FileNode } from "./file-tree";
+import { makeFakeHome } from "./protected-app-data.fixture";
 
 const root = mkdtempSync(join(tmpdir(), "file-tree-"));
 afterAll(() => {
@@ -74,5 +75,41 @@ describe("walkFileTree hands the event loop back while it walks", () => {
     rmSync(root, { recursive: true, force: true });
     expect(tree).toHaveLength(12);
     expect(turns).toBeGreaterThanOrEqual(120);
+  });
+});
+
+describe("walkFileTree never crosses into other apps' data", () => {
+  // A temporary tree laid out like a home: walking the real one from a test
+  // would pop the macOS permission prompt this guards against.
+  const names = (nodes: FileNode[] | undefined): string[] => (nodes ?? []).map(n => n.name);
+  const find = (nodes: FileNode[] | undefined, name: string): FileNode | undefined => (nodes ?? []).find(n => n.name === name);
+
+  test("from HOME: Library is listed but not opened, a photo library likewise", async () => {
+    const fake = makeFakeHome();
+    try {
+      const tree = await walkFileTree(fake.home, 4);
+      const library = find(tree, "Library");
+      expect(library?.type).toBe("dir");
+      expect(library?.children, "Library must not be walked from HOME").toBeUndefined();
+      const photos = find(find(tree, "Pictures")?.children, "Photos Library.photoslibrary");
+      expect(photos?.children, "a photo library must not be walked").toBeUndefined();
+      // The rest of the home is walked as before.
+      expect(names(find(find(tree, "Projects")?.children, "app")?.children)).toContain("src");
+    } finally {
+      fake.dispose();
+    }
+  });
+
+  test("from ~/Library: the per-app folders stay closed, Logs opens", async () => {
+    const fake = makeFakeHome();
+    try {
+      const tree = await walkFileTree(join(fake.home, "Library"), 3);
+      for (const d of ["Containers", "Group Containers", "Mail", "Messages", "Safari", "Calendars"]) {
+        expect(find(tree, d)?.children, `${d} must not be walked`).toBeUndefined();
+      }
+      expect(names(find(tree, "Logs")?.children)).toEqual(["app.log"]);
+    } finally {
+      fake.dispose();
+    }
   });
 });

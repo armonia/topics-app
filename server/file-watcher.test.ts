@@ -22,6 +22,7 @@ import { join } from "path";
 import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles, watchedProjectPaths } from "./file-watcher";
 import type { AppContext } from "./types";
 import { slackMs } from "../tests/helpers/time-slack";
+import { makeFakeHome } from "./lib/protected-app-data.fixture";
 
 type Frame = { type: string; projectPath?: string };
 
@@ -148,5 +149,27 @@ describe("file watcher cap", () => {
     expect(watching, "the deleted project gives its slot up").not.toContain(gone);
     expect(watching, "the oldest live project keeps its watcher").toContain(oldest);
     expect(watching, "the project past the cap got the freed slot").toContain(newest);
+  });
+});
+
+describe("file watcher and other apps' data", () => {
+  // A temporary tree laid out like a home, never the real one.
+  test("a root that reaches ~/Library is not watched recursively; a project is", () => {
+    const fake = makeFakeHome();
+    const ctx = { broadcastToAll: () => {} } as unknown as AppContext;
+    const library = join(fake.home, "Library");
+    const project = join(fake.home, "Projects", "app");
+    try {
+      watchProjectFiles(fake.home, ctx);
+      watchProjectFiles(library, ctx);
+      watchProjectFiles(project, ctx);
+      const watching = watchedProjectPaths();
+      expect(watching, "HOME must not be watched").not.toContain(fake.home);
+      expect(watching, "~/Library must not be watched").not.toContain(library);
+      expect(watching, "a project under HOME is watched as before").toContain(project);
+    } finally {
+      for (const p of [fake.home, library, project]) unwatchProjectFiles(p);
+      fake.dispose();
+    }
   });
 });
