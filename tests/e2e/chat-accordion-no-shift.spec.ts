@@ -552,12 +552,10 @@ test.describe("a fold opened by hand: at the true end of the chat", () => {
     const fold = `[data-testid="tool-call-row-${id}"]`;
     await expect(page.locator(header)).toBeVisible({ timeout: 30_000 });
     await waitAtBottom(page, header, fold);
+    // A real press: down, held 100 ms as a hand does, up.
     const press = async () => {
       const b = (await page.locator(header).boundingBox())!;
-      await page.mouse.move(b.x + 40, b.y + b.height / 2);
-      await page.mouse.down();
-      await page.waitForTimeout(100);
-      await page.mouse.up();
+      await page.mouse.click(b.x + 40, b.y + b.height / 2, { delay: 100 });
     };
     const open = await act(page, "tool-row", { header, fold, docked: false }, "open", press, 900);
     // Read the body down to the true end of the chat, then a quick double
@@ -566,7 +564,6 @@ test.describe("a fold opened by hand: at the true end of the chat", () => {
     await waitAtBottom(page, header, fold);
     const twice = await act(page, "tool-row", { header, fold, docked: false }, "close", async () => {
       await press();
-      await page.waitForTimeout(40);
       await press();
     }, 1500);
     console.log(`ACCORDION double open=${open.headerJump}px close+reopen=${twice.headerJump}px`);
@@ -631,9 +628,10 @@ test.describe("a fold opened by hand: at the true end of the chat", () => {
     await expect(page.getByText(`Step 8 ${tag}`)).toBeVisible();
     const messageId = `msg_${tag}`;
     ws.send({ type: "stream:start", sessionKey: chat.sessionKey, topicId: chat.topicId, messageId });
+    // One chunk at a time, each sent once the one before is on screen.
     for (let i = 0; i < 40; i++) {
       ws.send({ type: "stream:content_chunk", sessionKey: chat.sessionKey, topicId: chat.topicId, content: `fresh${i} ` + (i % 5 === 0 ? "\n\n" : "") });
-      await page.waitForTimeout(40);
+      await expect(page.getByText(`fresh${i}`).first()).toBeAttached();
     }
     await expect(page.getByText("fresh39")).toBeAttached();
     await expect.poll(() => page.evaluate(() => {

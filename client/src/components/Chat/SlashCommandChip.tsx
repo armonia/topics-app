@@ -50,7 +50,7 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'command' | 'skill' | null>(null);
   const [body, setBody] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [unreadable, setUnreadable] = useState(false);
 
   // Il registro è già in cache nel modulo dell'API: qui si legge il tipo per
   // scegliere l'icona, senza una richiesta in più.
@@ -66,19 +66,9 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
   // dal disco un file per ogni comando che contiene. One request per chip,
   // started by the press: a second ask gets the first promise.
   const requestRef = useRef<Promise<void> | null>(null);
-  const aliveRef = useRef(true);
-  useEffect(() => {
-    aliveRef.current = true;
-    return () => { aliveRef.current = false; };
-  }, []);
-  const loadBody = useCallback((): Promise<void> => {
-    if (!requestRef.current) {
-      requestRef.current = slashCommandsApi.source(command)
-        .then((src) => { if (aliveRef.current) setBody(src.body); })
-        .catch(() => { if (aliveRef.current) setError('Il file di questo comando non è più leggibile.'); });
-    }
-    return requestRef.current;
-  }, [command]);
+  const loadBody = useCallback((): Promise<void> => (
+    requestRef.current ??= slashCommandsApi.source(command).then((src) => setBody(src.body), () => setUnreadable(true))
+  ), [command]);
 
   const disclose = useDisclosureToggle();
   const [revealing, setRevealing] = useState(false);
@@ -86,21 +76,20 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
     if (revealing) return;
     const anchor = e.currentTarget;
     disclose(anchor);
-    if (open || body !== null || error) {
+    if (open || body !== null || unreadable) {
       setOpen(!open);
       return;
     }
     setRevealing(true);
     const bound = new Promise<void>((resolve) => { setTimeout(resolve, BODY_REVEAL_WAIT_MS); });
     void Promise.race([loadBody(), bound]).then(() => {
-      if (!aliveRef.current) return;
       setRevealing(false);
       // Held again from the moment the body really changes: the wait may have
       // outlasted the first hold.
       if (anchor.isConnected) disclose(anchor);
       setOpen(true);
     });
-  }, [revealing, disclose, open, body, error, loadBody]);
+  }, [revealing, disclose, open, body, unreadable, loadBody]);
 
   const Icon = kind === 'skill' ? Sparkles : Terminal;
 
@@ -135,8 +124,8 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
           che è il file com'è ADESSO — e non com'era quando è girato — sta nel
           titolo, dove chi se lo chiede la trova e chi no non la legge. */}
       <DisclosureBody open={open} className="pt-1">
-        {error ? (
-          <span className="block text-mini text-amber-600 dark:text-amber-400">{error}</span>
+        {unreadable ? (
+          <span className="block text-mini text-amber-600 dark:text-amber-400">{tr('chat.command.fileUnreadable')}</span>
         ) : body === null ? (
           <span className="block text-mini italic opacity-70">{tr('chat.command.readingFile')}</span>
         ) : (
