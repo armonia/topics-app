@@ -574,6 +574,11 @@ export function ChatInput({
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
   }, [contextPopoverOpen]);
+  // The context inspector leaves like every floating surface: the anchored
+  // card fades, the phone sheet slides back down with its scrim (lib/exitGhost).
+  const contextSheetOpen = showContextPopover && !!onUpdateTopic && isMobile && !isGlobalOrchestrator;
+  useExitGhost(contextPopoverRef, contextPopoverOpen || contextSheetOpen, isMobile ? 'sheet' : 'popover');
+  useExitGhost(contextScrimRef, contextSheetOpen, 'modal');
 
   const handleToggleContext = useCallback((path: string, currentlyExcluded: boolean) => {
     const sourceId = `file:${path}`;
@@ -1799,7 +1804,7 @@ export function ChatInput({
         <>
           <div
             ref={contextScrimRef}
-            className="fixed inset-0 bg-black/40"
+            className="fixed inset-0 bg-black/40 modal-backdrop-enter"
             style={{ zIndex: Z_POPOVER_SCRIM }}
             onClick={() => setShowContextPopover(false)}
           />

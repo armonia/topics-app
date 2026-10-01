@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, type
 import { useT } from '../../hooks/useT';
 import { boardIdForPath } from '../../lib/board';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
@@ -468,6 +469,10 @@ export function TopicTree({
   const shareProjectPanelRef = useRef<HTMLDivElement>(null);
   const closeShareProject = useCallback(() => setProgettoDaCondividere(null), []);
   useModalDialog({ open: !!progettoDaCondividere, onClose: closeShareProject, panelRef: shareProjectPanelRef });
+  // The veil and the card fade out as an inert copy on close (lib/exitGhost,
+  // MOTION-04), like every other dialog.
+  const shareProjectOverlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(shareProjectOverlayRef, !!progettoDaCondividere, 'modal');
   /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
    *  hanno un menu di riga proprio, e senza questo una volta fissati non si
    *  potrebbero più togliere dai Fissati da nessuna parte. */
@@ -2294,6 +2299,7 @@ export function TopicTree({
           un bottone assente. */}
       {progettoDaCondividere && (
         <div
+          ref={shareProjectOverlayRef}
           data-testid="project-share-panel"
           // `MODAL_OVERLAY` e non il numero a mano: il piano dei modali e'
           // legato per TIPO a `Z_MODAL` (lib/modalStyles.ts), cosi' cambiare la

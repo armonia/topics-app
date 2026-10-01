@@ -63,6 +63,7 @@ import { useDismissable } from './hooks/useDismissable';
 import { useSheetDrag } from './hooks/useSheetDrag';
 import { SheetGrabber } from './components/Shared/SheetGrabber';
 import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
+import { useExitGhost } from './lib/exitGhost';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
 import { TopicsMenuItems } from './components/Sidebar/TopicsMenuItems';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
@@ -517,6 +518,10 @@ function App() {
     refs: [topicsMenuRef, topicsDropdownRef],
     restoreFocus: false,
   });
+  // The sheet slides back down and its scrim fades with it (lib/exitGhost),
+  // as every `Menu` sheet does, instead of both vanishing in one frame.
+  useExitGhost(topicsDropdownRef, showTopicsMenu, isMobile ? 'sheet' : 'popover');
+  useExitGhost(topicsScrimRef, showTopicsMenu && isMobile, 'modal');
 
 
 
@@ -2230,7 +2235,7 @@ function App() {
             foglio senza velo resta in piedi sul solo bordo (misurato altrove:
             1,04:1 in tema chiaro). */}
         {isMobile && (
-          <div ref={topicsScrimRef} className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={() => setShowTopicsMenu(false)} />
+          <div ref={topicsScrimRef} className="fixed inset-0 bg-black/40 modal-backdrop-enter" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={() => setShowTopicsMenu(false)} />
         )}
         <div
           ref={topicsDropdownRef}

@@ -619,13 +619,20 @@
     "42 gz under its ceiling.",
     "Written below: entry raw 1.505.812 / gz 475.103, critical path raw 2.119.442 /",
     "gz 635.047 (the worse of CI and Mac), 5 files. Total assets baseline unchanged",
-    "(8.377.807); measured 8.424.467, inside 2%."
+    "(8.377.807); measured 8.424.467, inside 2%.",
+    "",
+    "2026-10-01: entry eager +277 raw / +139 gz, measured on the same tree with and",
+    "without the change. Bought by the exit copy of a floating surface",
+    "(lib/exitGhost) no longer cloning a media element: a cloned `<video autoPlay>`",
+    "refetched the clip and restarted it aloud when the board lightbox closed. The",
+    "copy now walks the tree and puts a canvas with the last frame in its place.",
+    "Written below: entry raw 1.506.089 / gz 475.242."
   ],
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1505812,
-    "gz": 475103
+    "raw": 1506089,
+    "gz": 475242
   },
   "critical_path": {
     "raw": 2119442,

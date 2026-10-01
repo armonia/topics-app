@@ -4,6 +4,7 @@ import type { CreateTopicRequest, TopicTemplate, Topic, Project, Worktree, WSMes
 import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useExitGhost } from '../../lib/exitGhost';
 import { projectsApi, worktreesApi } from '../../lib/api';
 import { useWorktrees } from '../../hooks/useWorktrees';
 import { Select } from '../Shared/Select';
@@ -210,6 +211,10 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
   // Escape chiude, il Tab resta dentro, il focus torna da dove è partito. Sta
   // PRIMA dell'uscita anticipata (regole degli hook) ed è gated su `isOpen`.
   useModalDialog({ open: isOpen, onClose, panelRef, initialFocusRef: inputRef });
+  // Closing unmounts the dialog at once; the veil and the card fade out as an
+  // inert copy (lib/exitGhost, MOTION-04), like settings and the palette.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, isOpen, 'modal');
 
   if (!isOpen) return null;
 
@@ -217,7 +222,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
   const hasReadyWorktrees = readyWorktrees.length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="presentation">
+    <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="presentation">
       <div className={`absolute ${MODAL_BACKDROP}`} aria-hidden="true" />
       <div
         ref={panelRef}

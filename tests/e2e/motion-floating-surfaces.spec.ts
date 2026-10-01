@@ -19,167 +19,31 @@
  * inserted: deterministic on a loaded machine, where a stopwatch on the frames
  * is not. Red on the tree before the fix, green after.
  *
+ * The recorder lives in `helpers/motion-surface.ts`; the surfaces of a
+ * project, the board and the phone are in `motion-floating-surfaces-project.spec.ts`.
+ *
  * @covers MOTION-01
  * @covers MOTION-04
  */
 import { expect, test, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { closeAllBrowserContexts, createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import {
+  COMPOSITOR_PROPS,
+  MODAL_MAX_MS,
+  POPOVER_MAX_MS,
+  expectEntrance,
+  expectExit,
+  EASE_STANDARD,
+  installRecorder,
+  watch,
+} from "./helpers/motion-surface";
+import { mockHistoryWithMedia } from "./helpers/sse-helpers";
+import { reachVersionChip } from "./helpers/open-version-chip";
+import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
-
-/** `--ease-standard` / `--ease-exit` of the token table (client/src/lib/motion.ts). */
-const EASE_STANDARD = "cubic-bezier(0.2, 0, 0, 1)";
-const EASE_EXIT = "cubic-bezier(0.4, 0, 1, 1)";
-/** A menu answers a click: its entrance and exit stay at or under this. */
-const POPOVER_MAX_MS = 120;
-/** A dialog's veil moves with its panel, `--motion-fast`. */
-const MODAL_MAX_MS = 150;
-/** What an entrance or exit may animate: the compositor-only properties. */
-const COMPOSITOR_PROPS = ["opacity", "scale", "transform"];
-
-type AnimationInfo = { name: string; duration: number; props: string[] };
-type SurfaceRecord = {
-  kind: "enter" | "ghost";
-  ghost: string | null;
-  testid: string | null;
-  ariaHidden: string | null;
-  pointerEvents: string;
-  timing: string;
-  animations: AnimationInfo[];
-  /** Painted box (`getBoundingClientRect`, transforms and `scale` included) against the layout box. */
-  box: { painted: [number, number]; layout: [number, number] } | null;
-  t: number;
-};
-
-/**
- * Installed before the app boots. Every element added to the document that
- * matches `window.__motionWatch`, and every exit copy (`[data-exit-ghost]`),
- * is described on the spot: the same task in which it was inserted, before
- * its first frame is painted.
- */
-function installRecorder(page: Page) {
-  return page.addInitScript(() => {
-    const w = window as unknown as { __motionWatch: string; __motionLog: unknown[]; __ghostsGone: number };
-    w.__motionWatch = "";
-    w.__motionLog = [];
-    w.__ghostsGone = 0;
-    const describe = (el: Element, kind: "enter" | "ghost") => {
-      const cs = getComputedStyle(el);
-      const animations = el.getAnimations().map((a) => {
-        const effect = a.effect as KeyframeEffect | null;
-        const frames = effect?.getKeyframes() ?? [];
-        const props = new Set<string>();
-        for (const f of frames) {
-          for (const k of Object.keys(f)) {
-            if (!["offset", "computedOffset", "easing", "composite"].includes(k)) props.add(k);
-          }
-        }
-        return {
-          name: (a as CSSAnimation).animationName ?? "",
-          duration: Number(effect?.getComputedTiming().duration ?? 0),
-          props: [...props],
-        };
-      });
-      w.__motionLog.push({
-        kind,
-        ghost: el.getAttribute("data-exit-ghost"),
-        testid: el.getAttribute("data-testid"),
-        ariaHidden: el.getAttribute("aria-hidden"),
-        pointerEvents: cs.pointerEvents,
-        timing: cs.animationTimingFunction,
-        animations,
-        box: el instanceof HTMLElement
-          ? {
-              painted: [el.getBoundingClientRect().width, el.getBoundingClientRect().height],
-              layout: [el.offsetWidth, el.offsetHeight],
-            }
-          : null,
-        t: performance.now(),
-      });
-    };
-    const start = () => {
-      new MutationObserver((muts) => {
-        for (const m of muts) {
-          for (const n of m.addedNodes) {
-            if (!(n instanceof Element)) continue;
-            if (n.hasAttribute("data-exit-ghost")) { describe(n, "ghost"); continue; }
-            const selector = w.__motionWatch;
-            if (!selector) continue;
-            for (const el of [n, ...n.querySelectorAll(selector)]) {
-              if (el.matches(selector)) describe(el, "enter");
-            }
-          }
-          for (const n of m.removedNodes) {
-            if (n instanceof Element && n.hasAttribute("data-exit-ghost")) w.__ghostsGone += 1;
-          }
-        }
-      }).observe(document.documentElement, { childList: true, subtree: true });
-    };
-    if (document.documentElement) start();
-    else document.addEventListener("DOMContentLoaded", start);
-  });
-}
-
-async function watch(page: Page, selector: string): Promise<void> {
-  await page.evaluate((selector) => {
-    const w = window as unknown as { __motionWatch: string; __motionLog: unknown[] };
-    w.__motionWatch = selector;
-    w.__motionLog = [];
-  }, selector);
-}
-
-async function log(page: Page): Promise<SurfaceRecord[]> {
-  return page.evaluate(() => (window as unknown as { __motionLog: SurfaceRecord[] }).__motionLog);
-}
-
-/** The entrance of the surface: one animation, on the compositor, short, on the token curve. */
-async function expectEntrance(page: Page, label: string, maxMs: number, props: string[]) {
-  await expect
-    .poll(async () => (await log(page)).filter((r) => r.kind === "enter").length, { message: `${label}: inserted` })
-    .toBeGreaterThan(0);
-  const enter = (await log(page)).find((r) => r.kind === "enter")!;
-  const moving = enter.animations.filter((a) => a.duration > 1);
-  expect(moving.length, `${label}: an entrance animation runs on the inserted surface (${JSON.stringify(enter.animations)})`).toBeGreaterThan(0);
-  for (const a of moving) {
-    expect(a.duration, `${label}: ${a.name} lasts at most ${maxMs}ms`).toBeLessThanOrEqual(maxMs);
-    for (const p of a.props) expect(props, `${label}: ${a.name} animates only ${props.join("/")}`).toContain(p);
-  }
-  expect(enter.timing, `${label}: entrance on --ease-standard`).toContain(EASE_STANDARD);
-  // The menus place themselves by measuring the panel on this very frame
-  // (Menu.tsx, DropdownPortal): a box scaled down by the entrance is placed
-  // over its anchor and clamped short of the viewport edge. Read in the same
-  // task the surface was inserted in, the painted box is the layout box.
-  expect(enter.box, `${label}: the inserted surface is an HTML element`).not.toBeNull();
-  const { painted, layout } = enter.box!;
-  for (const i of [0, 1]) {
-    expect(
-      Math.abs(painted[i] - layout[i]),
-      `${label}: on its first frame the surface measures at its final ${i ? "height" : "width"} (painted ${painted[i]}, layout ${layout[i]})`,
-    ).toBeLessThanOrEqual(1);
-  }
-}
-
-/** The exit: the surface is gone at once, and an inert copy of it fades. */
-async function expectExit(page: Page, label: string, kind: "popover" | "modal", maxMs: number) {
-  await expect
-    .poll(async () => (await log(page)).filter((r) => r.kind === "ghost").length, { message: `${label}: an exit copy plays` })
-    .toBeGreaterThan(0);
-  const ghost = (await log(page)).find((r) => r.kind === "ghost")!;
-  expect(ghost.ghost, `${label}: exit kind`).toBe(kind);
-  expect(ghost.testid, `${label}: the copy carries no test id`).toBeNull();
-  expect(ghost.ariaHidden, `${label}: the copy is hidden from assistive tech`).toBe("true");
-  expect(ghost.pointerEvents, `${label}: the copy never takes a click`).toBe("none");
-  const moving = ghost.animations.filter((a) => a.duration > 1);
-  expect(moving.length, `${label}: the copy animates`).toBeGreaterThan(0);
-  for (const a of moving) {
-    expect(a.duration, `${label}: ${a.name} lasts at most ${maxMs}ms`).toBeLessThanOrEqual(maxMs);
-    for (const p of a.props) expect(COMPOSITOR_PROPS, `${label}: ${a.name} animates only compositor properties`).toContain(p);
-  }
-  expect(ghost.timing, `${label}: exit on --ease-exit`).toContain(EASE_EXIT);
-  await expect(page.locator("[data-exit-ghost]"), `${label}: the copy removes itself`).toHaveCount(0);
-}
 
 test.describe("Floating surfaces enter and leave", () => {
   test.use({ contextOptions: { reducedMotion: "no-preference" } });
@@ -307,6 +171,237 @@ test.describe("Floating surfaces enter and leave", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("command-palette")).toHaveCount(0);
     await expectExit(page, "palette", "modal", MODAL_MAX_MS);
+  });
+});
+
+test.describe("Every other surface enters and leaves on the same mechanism", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
+  test.describe.configure({ timeout: 90_000 });
+
+  let topic: { id: string; name: string } | null = null;
+  test.beforeAll(async ({ request }) => {
+    topic = await createTopic(request, `E2E-Motion-All-${Date.now()}`);
+  });
+  test.afterAll(async ({ request }) => {
+    if (topic) await deleteTopic(request, topic.id);
+  });
+
+  async function ready(page: Page) {
+    await installRecorder(page);
+    await goToApp(page);
+    await waitForTopicVisible(page, topic!.id, { timeout: 15_000 });
+  }
+
+  async function openChat(page: Page) {
+    await page.getByRole("treeitem", { name: topic!.name }).first().click();
+    const composer = page.locator(`[data-pane-shell="${topic!.id}"] [data-testid="composer-card"] textarea`).first();
+    await expect(composer).toBeVisible({ timeout: 10_000 });
+    return composer;
+  }
+
+  test("MOTION-04m: the sidebar user menu (profile card)", async ({ page }) => {
+    await ready(page);
+    await watch(page, '[data-testid="profile-menu"]');
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+    await expectEntrance(page, "user menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
+    await expectExit(page, "user menu", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04n: a level of the user menu (the version row)", async ({ page }) => {
+    await ready(page);
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+    await watch(page, '[data-testid="menu-version-menu"]');
+    await page.getByTestId("menu-version").click();
+    await expect(page.getByTestId("menu-version-menu")).toBeVisible();
+    await expectEntrance(page, "user menu level", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("menu-version-menu")).toHaveCount(0);
+    await expectExit(page, "user menu level", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04o: the keyboard shortcuts dialog", async ({ page }) => {
+    await ready(page);
+    const dialog = '[role="dialog"][aria-label="Keyboard Shortcuts"]';
+    await watch(page, `${dialog} > :first-child`);
+    await page.keyboard.press("Meta+Slash");
+    await expect(page.locator(dialog)).toBeVisible();
+    await expectEntrance(page, "shortcuts veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(dialog)).toHaveCount(0);
+    await expectExit(page, "shortcuts", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04p: the new topic dialog", async ({ page }) => {
+    await ready(page);
+    const panel = '[aria-labelledby="new-topic-title"]';
+    await watch(page, `:has(> ${panel}) > :first-child`);
+    await page.keyboard.press("Meta+Shift+n");
+    await expect(page.locator(panel)).toBeVisible();
+    await expectEntrance(page, "new topic veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(panel)).toHaveCount(0);
+    await expectExit(page, "new topic", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04q: a chat's settings dialog", async ({ page }) => {
+    await ready(page);
+    await openChat(page);
+    const tab = page.locator(`[data-testid="panel-tab-bar"] [data-pane-id="${topic!.id}"]`).first();
+    await tab.click({ button: "right" });
+    await expect(page.getByRole("menu")).toBeVisible();
+    const dialog = `[role="dialog"][aria-label="${topic!.name} Settings"]`;
+    await watch(page, `${dialog} > :first-child`);
+    await page.getByRole("menu").getByRole("button", { name: "Impostazioni" }).click();
+    await expect(page.locator(dialog)).toBeVisible();
+    await expectEntrance(page, "chat settings veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(dialog)).toHaveCount(0);
+    await expectExit(page, "chat settings", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04r: the changelog dialog, and its fold", async ({ page, context }) => {
+    await page.route("**/api/version", (r) =>
+      r.fulfill({ json: { version: "9.9.9" }, headers: { "Cache-Control": "no-store" } }),
+    );
+    await context.route("**/changelog.json", (r) => r.fulfill({
+      json: [{
+        version: "9.9.9",
+        date: "2026-07-23",
+        sections: {
+          new: [{ it: "una novità", en: "", scope: "chat", breaking: false }],
+          fixes: [],
+          perf: [],
+          internal: [{ it: "pulizia interna", en: "", scope: "core", breaking: false }],
+        },
+      }],
+    }));
+    await ready(page);
+    await (await reachVersionChip(page)).click();
+    await watch(page, ':has(> [data-testid="changelog-modal"])');
+    await page.getByTestId("changelog-open").click();
+    const modal = page.getByTestId("changelog-modal");
+    await expect(modal).toBeVisible();
+    await expectEntrance(page, "changelog veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+    await expectExit(page, "changelog", "modal", MODAL_MAX_MS);
+
+    // The fold, read on the list the "under the hood" button reveals.
+    await (await reachVersionChip(page)).click();
+    await page.getByTestId("changelog-open").click();
+    await expect(modal).toBeVisible();
+    const fold = '[data-testid="changelog-modal"] button + ul';
+    await watch(page, fold);
+    await modal.getByText(/Sotto il cofano/).click();
+    await expect(page.locator(fold)).toBeVisible();
+    await expectEntrance(page, "changelog fold", MODAL_MAX_MS, ["opacity"]);
+  });
+
+  test("MOTION-04s: the app tooltip", async ({ page }) => {
+    await ready(page);
+    await watch(page, '[data-testid="app-tooltip"]');
+    await page.locator('[data-testid="pane-add-menu-trigger"][title="Add pane"]').first().hover();
+    await expect(page.getByTestId("app-tooltip")).toBeVisible();
+    await expectEntrance(page, "tooltip", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("app-tooltip")).toHaveCount(0);
+    await expectExit(page, "tooltip", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04u: the context inspector popover, and a fold inside it", async ({ page }) => {
+    await ready(page);
+    await openChat(page);
+    const popover = '[data-popover="context-inspector"]';
+    await watch(page, popover);
+    await page.locator(`[data-pane-shell="${topic!.id}"]`).getByTestId("chat-input-context-ring").first().click();
+    await expect(page.locator(popover)).toBeVisible();
+    await expectEntrance(page, "context inspector", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+
+    const details = page.getByTestId("envelope-details");
+    await expect(details).toBeVisible({ timeout: 20_000 });
+    await watch(page, '[data-testid="envelope-details"] > :not(summary)');
+    await details.locator("summary").click();
+    await expectEntrance(page, "a native fold", MODAL_MAX_MS, ["opacity"]);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(popover)).toHaveCount(0);
+    await expectExit(page, "context inspector", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04v: an image lightbox", async ({ page }) => {
+    await page.context().route(/\/uploads\//, (route) => route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRU5ErkJggg==", "base64"),
+    }));
+    await mockHistoryWithMedia(page, { mediaPaths: ["/uploads/motion.png"], content: "an image", userMessage: "show me" });
+    await ready(page);
+    await openChat(page);
+    const image = page.locator('[data-testid="media-image"]').first();
+    await expect(image).toBeVisible({ timeout: 15_000 });
+    await watch(page, '[data-testid="image-lightbox"]');
+    await image.click();
+    await expect(page.getByTestId("image-lightbox")).toBeVisible();
+    await expectEntrance(page, "lightbox", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("image-lightbox")).toHaveCount(0);
+    await expectExit(page, "lightbox", "modal", MODAL_MAX_MS);
+  });
+
+  test("the floating browser window's add menu", async ({ page, request }) => {
+    const ctx = `motion-tbw-${Date.now()}`;
+    const res = await request.put(`${E2E_BASE}/api/ui-state/topic-browser:${topic!.id}`, {
+      data: {
+        mode: "min",
+        minPos: { right: 24, bottom: 24 },
+        expandedWidth: null,
+        tabs: [{ contextId: ctx, url: "https://example.com", title: "Example", openedBy: "user" }],
+        activeContextId: ctx,
+        promoted: [],
+      },
+      ignoreHTTPSErrors: true,
+    });
+    expect(res.ok()).toBeTruthy();
+    try {
+      await ready(page);
+      await page.locator(`[data-pane-id="${topic!.id}"], [data-topic-id="${topic!.id}"]`).first().click();
+      await expect(page.getByTestId("topic-browser-window")).toBeVisible({ timeout: 10_000 });
+      await watch(page, '[data-testid="topic-browser-add-menu"]');
+      await page.getByTestId("topic-browser-add").click();
+      await expect(page.getByTestId("topic-browser-add-menu")).toBeVisible();
+      await expectEntrance(page, "window add menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+      await page.getByTestId("topic-browser-add-backdrop").click({ position: { x: 5, y: 5 } });
+      await expect(page.getByTestId("topic-browser-add-menu")).toHaveCount(0);
+      await expectExit(page, "window add menu", "popover", POPOVER_MAX_MS);
+    } finally {
+      await closeAllBrowserContexts(request);
+    }
+  });
+
+  test("an empty browser pane's address sheet", async ({ page, request }) => {
+    await resetPaneStore(request, [`browser:motion-${Date.now()}`]);
+    try {
+      await installRecorder(page);
+      // The sheet opens by itself as the empty pane is born, so the watch is
+      // armed before the app boots.
+      await page.addInitScript(() => {
+        (window as unknown as { __motionWatch: string }).__motionWatch = '[data-testid="browser-tab-sheet"]';
+      });
+      await goToApp(page);
+      const sheet = page.getByTestId("browser-tab-sheet");
+      await expect(sheet).toBeVisible({ timeout: 15_000 });
+      await expectEntrance(page, "tab sheet", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+      await page.keyboard.press("Escape");
+      await expect(sheet).toHaveCount(0);
+      await expectExit(page, "tab sheet", "popover", POPOVER_MAX_MS);
+    } finally {
+      await closeAllBrowserContexts(request);
+      await resetPaneStore(request, [topic!.id]);
+    }
   });
 });
 

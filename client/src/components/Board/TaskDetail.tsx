@@ -2436,11 +2436,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                 {descSummary(task.description) && <> · {descSummary(task.description)}</>}
               </p>
             )}
+            {/* `reveal-in` on each section body: the drawer's folds open with
+                the shared fade instead of landing in one frame. Opacity only:
+                the brief scrolls as one column, and a height animation would
+                drag every section below it for 150ms. */}
             {descOpen && (
               <div
+                data-testid="task-desc-body"
                 onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                 title={tr('board.task.editDescTitle')}
-                className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                className={`reveal-in mt-1.5 cursor-text rounded px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
               ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
             )}
           </>
@@ -2478,7 +2483,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
           testId="task-section-subtasks"
         />
         {subtasksOpen && (
-          <div className="mt-1.5">
+          <div className="reveal-in mt-1.5">
             {children.map((c) => (
               <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
             ))}
@@ -2576,7 +2581,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               testId="task-section-downloads"
             />
             {downloadsOpen && (
-            <ul className="mt-1.5 flex flex-col gap-1">
+            <ul className="reveal-in mt-1.5 flex flex-col gap-1">
               {mediaPaths.map((p) => {
                 const name = p.split('/').pop() || p;
                 return (

@@ -12,6 +12,7 @@ import { useT } from '../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Wrench, Zap, Cog, ChevronRight } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { useModalDialog } from '@/hooks/useModalDialog';
 
 // The public changelog page, opened as a pane of the app rather than outside it.
@@ -55,6 +56,10 @@ export function ChangelogModal({
   // entrambi.
   const panelRef = useRef<HTMLDivElement>(null);
   useModalDialog({ onClose, panelRef });
+  // The host unmounts the modal to close it; the veil and the card fade out as
+  // an inert copy (lib/exitGhost, MOTION-04), like settings and the palette.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, true, 'modal');
 
   // Lazy-load the generated changelog.
   useEffect(() => {
@@ -82,7 +87,7 @@ export function ChangelogModal({
   }, [selected]);
 
   return createPortal(
-    <div className={MODAL_OVERLAY} onClick={onClose}>
+    <div ref={overlayRef} className={MODAL_OVERLAY} onClick={onClose}>
       <div
         ref={panelRef}
         role="dialog"
@@ -199,8 +204,11 @@ export function ChangelogModal({
                         <Cog size={11} />
                         {tr('changelog.internal', { n: active.sections.internal.length })}
                       </button>
+                      {/* `reveal-in`: the fold opens with the shared fade instead
+                          of its rows landing in one frame. Opacity only, no
+                          height: nothing below it is measured mid-open. */}
                       {showInternal && (
-                        <ul className="space-y-1 mt-1.5">
+                        <ul data-testid="changelog-internal-list" className="space-y-1 mt-1.5 reveal-in">
                           {active.sections.internal.map((e, i) => (
                             <li key={i} className="text-mini text-app-text-muted leading-relaxed flex gap-1.5">
                               <span className="mt-[3px]">•</span>
