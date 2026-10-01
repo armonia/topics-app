@@ -20,7 +20,7 @@ const SESSION_ID = "00000000-0000-4000-8000-0000000000c8";
 const DIR = process.env.CMDWATCH_DIR ?? "";
 const CWD = process.env.CMDWATCH_CWD ?? process.cwd();
 const TOOL = "toolu_cmdwatch";
-const CMDWATCH_DESCRIPTION = "CMDWATCH-JOB";
+const JOB_DESCRIPTION = "CMDWATCH-JOB";
 let waitingRun = false;
 let holding = false;
 
@@ -61,7 +61,7 @@ async function runCommand(): Promise<void> {
   const input = {
     // It also stops once the test's folder is gone: a failed run must not leave it looping.
     command: `while [ -d '${DIR}' ] && [ ! -f '${join(DIR, "finish")}' ]; do sleep 0.2; done; echo CMDWATCH-OUT; echo CMDWATCH-LAST 42`,
-    description: CMDWATCH_DESCRIPTION,
+    description: JOB_DESCRIPTION,
   };
   out({ type: "assistant", session_id: SESSION_ID, message: { role: "assistant", content: [{ type: "tool_use", id: TOOL, name: "mcp__topics__run_command", input }], model: "claude-finto" } });
   const args = bridgeArgs();
@@ -115,7 +115,7 @@ process.stdin.on("data", (chunk: Buffer) => {
     if (text.includes("cmdwatch-start")) {
       say("HOLDING");
       waitingRun = true;
-    } else if (text.includes(`Command \`${CMDWATCH_DESCRIPTION}\` finished`)) {
+    } else if (text.includes(`Command \`${JOB_DESCRIPTION}\` finished`)) {
       finish("CMD-WOKEN");
     } else {
       finish(`got: ${text.slice(0, 200)}`);
