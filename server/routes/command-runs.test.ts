@@ -124,6 +124,28 @@ describe("POST /api/sessions/:sessionKey/command-runs: what may run", () => {
     expect(await runs(topic, messageId)).toEqual([]);
   });
 
+  test("a reply closed with its last fence still open (Stop, a restart, an error): 409 on the cut command, and nothing starts", async () => {
+    const topic = newTopic();
+    const cutByRestart = ctx.appendLocalMessage(topic.sessionKey, "assistant", "Pulisco:\n```bash\necho cut ./bui").id;
+    ctx.db.prepare("UPDATE messages SET partial = 0, end_reason = 'cut-by-restart' WHERE id = ?").run(cutByRestart);
+    // A timeline reply: the text a reply really keeps is in its blocks.
+    const stopped = ctx.appendLocalMessage(topic.sessionKey, "assistant", "").id;
+    ctx.db.prepare("UPDATE messages SET partial = 0, end_reason = 'stopped', blocks = ? WHERE id = ?")
+      .run(JSON.stringify([{ kind: "text", text: "Avvio:\n```console\n$ echo push origin fea" }]), stopped);
+    const before = await processCount();
+    const cut = await call("POST", runsPath(topic), { messageId: cutByRestart, blockKey: 0, command: "echo cut ./bui" });
+    expect(cut.status).toBe(409);
+    expect(((await cut.json()) as { code: string }).code).toBe("command_cut");
+    expect((await call("POST", runsPath(topic), { messageId: stopped, blockKey: 0, command: "echo push origin fea" })).status).toBe(409);
+    expect(await processCount()).toBe(before);
+    expect(await runs(topic, cutByRestart)).toEqual([]);
+    // What the reply closed before it was cut still runs.
+    const closedFirst = ctx.appendLocalMessage(topic.sessionKey, "assistant", "```bash\necho whole\n```\nPoi:\n```bash\necho cut ./bui").id;
+    ctx.db.prepare("UPDATE messages SET partial = 0, end_reason = 'stopped' WHERE id = ?").run(closedFirst);
+    const run = await start(topic, closedFirst, "echo whole");
+    expect((await ended(topic, closedFirst, run.runId)).output).toBe("whole");
+  });
+
   test("a person's own message: 404, and nothing starts", async () => {
     const topic = newTopic();
     const messageId = reply(topic, { role: "user" });

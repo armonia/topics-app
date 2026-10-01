@@ -6,8 +6,10 @@
  * a shell (the terminal) and the agent already has `run_command` on the same
  * road; this is that road with another origin. What it adds are the
  * conditions under which the chat offers it, checked again here: a reply of
- * the agent of THIS session, finished (a fence still streaming is drawn
- * closed, and `rm -rf ./build/cache` cut at `rm -rf ./` would run). The
+ * the agent of THIS session, finished, and not cut inside the fence the
+ * command is in (a fence still streaming, or left open by Stop, a restart or
+ * an error, is drawn closed, and `rm -rf ./build/cache` cut at `rm -rf ./`
+ * would run). The
  * command runs where the agent's Bash runs, wakes nobody, and its outcome is
  * kept in `command_runs`. Guests never reach it: the path is outside their
  * allowlist (`lib/grants.ts`), and the role is checked again here.
@@ -19,6 +21,8 @@ import type { AppContext } from "../types";
 import { hasCommandShell } from "../lib/command-process";
 import { agentWorkspaceForSession } from "../lib/agent-workspace";
 import { closeRun, insertRun, latestRuns } from "../lib/command-runs";
+import { isCommandCut } from "../../shared/cut-fence";
+import { decodeCol } from "../../shared/message-blob";
 
 export interface CommandRunRegistry {
   /** Start `command` as a person's run; null when there is no POSIX shell. */
@@ -27,6 +31,22 @@ export interface CommandRunRegistry {
   reconcile(runId: string): "running" | "ended" | "gone";
   /** Stop a run the registry has. */
   kill(runId: string): void;
+}
+
+/** The texts of a reply as the chat draws them: its content and the text blocks of its timeline. */
+function replyTexts(msg: { content: unknown; blocks: unknown }): string[] {
+  const texts = [decodeCol(msg.content) ?? ""];
+  try {
+    const blocks: unknown = JSON.parse(decodeCol(msg.blocks) ?? "null");
+    if (Array.isArray(blocks)) {
+      for (const b of blocks as Array<{ kind?: unknown; text?: unknown }>) {
+        if (b?.kind === "text" && typeof b.text === "string") texts.push(b.text);
+      }
+    }
+  } catch {
+    // Unreadable blocks: the content alone is read, as the chat would draw it.
+  }
+  return texts;
 }
 
 const NO_SHELL = { error: "Running a command needs a POSIX shell, and this system has none", code: "no_shell" };
@@ -61,10 +81,11 @@ export function createCommandRunsRoute(ctx: AppContext, registry: CommandRunRegi
     if (typeof blockKey !== "number" || !Number.isSafeInteger(blockKey) || blockKey < 0) return json({ error: "blockKey (non-negative integer) is required" }, 400);
     const messageId = typeof body?.messageId === "string" ? body.messageId : "";
     const msg = messageId
-      ? ctx.db.query("SELECT session_key, role, partial FROM messages WHERE id = ?").get(messageId) as { session_key: string; role: string; partial: number | null } | null
+      ? ctx.db.query("SELECT session_key, role, partial, content, blocks FROM messages WHERE id = ?").get(messageId) as { session_key: string; role: string; partial: number | null; content: unknown; blocks: unknown } | null
       : null;
     if (!msg || msg.session_key !== sessionKey || msg.role !== "assistant") return json({ error: "No reply of the agent with this id in this session", code: "message_not_found" }, 404);
     if (msg.partial) return json({ error: "The reply is still being written", code: "message_partial" }, 409);
+    if (isCommandCut(command, replyTexts(msg))) return json({ error: "The command was cut off inside its code block", code: "command_cut" }, 409);
 
     const cwd = agentWorkspaceForSession(sessionKey);
     try {
