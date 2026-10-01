@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { useT } from '../../hooks/useT';
 import { MODAL_LAYER } from '../../lib/modalStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 
 /**
  * ONE LIGHTBOX FOR EVERY IMAGE THE APP LETS YOU CLICK.
@@ -30,6 +31,9 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
   const panelRef = useRef<HTMLDivElement>(null);
   const tr = useT();
   useModalDialog({ onClose, panelRef });
+  // The veil fades in on `modal-backdrop-enter` and the whole lightbox fades
+  // out as an inert copy on close (lib/exitGhost, MOTION-04).
+  useExitGhost(panelRef, true, 'modal');
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const lastTouchDist = useRef<number | null>(null);
@@ -93,7 +97,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       // order decides, and both are portals on `<body>`: the lightbox sat on
       // top by luck, not by contract. The constant puts it at 10000, where
       // modals are by definition.
-      className={`fixed inset-0 bg-black/90 ${MODAL_LAYER} flex items-center justify-center overflow-hidden`}
+      className={`fixed inset-0 bg-black/90 ${MODAL_LAYER} flex items-center justify-center overflow-hidden modal-backdrop-enter`}
       style={{ touchAction: 'none' }}
       onClick={handleBackdropClick}
       onTouchStart={handleTouchStart}

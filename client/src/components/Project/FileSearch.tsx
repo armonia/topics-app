@@ -4,11 +4,12 @@ import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
 import { rankPaths } from '../../lib/fuzzyScore';
 import {
-  MODAL_PANEL, MODAL_LAYER,
+  MODAL_PANEL, MODAL_OVERLAY,
   MODAL_PAGE_CONTAINER, MODAL_PAGE_PANEL, MODAL_PAGE_INSET,
 } from '@/lib/modalStyles';
 import { useMobile } from '@/hooks/useMobile';
 import { useModalDialog } from '@/hooks/useModalDialog';
+import { useExitGhost } from '@/lib/exitGhost';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 import { useT } from '@/hooks/useT';
@@ -90,6 +91,10 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
   // Escape chiude, il Tab resta dentro, il focus torna da dove è partito.
   const panelRef = useRef<HTMLDivElement>(null);
   useModalDialog({ onClose, panelRef, initialFocusRef: inputRef });
+  // The host unmounts the search to close it; the veil and the card fade out
+  // as an inert copy (lib/exitGhost, MOTION-04), like the palette.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, true, 'modal');
 
   // Monotonic request token: a SLOWER earlier query (broad pattern, many
   // matches) resolving after a faster later one must not overwrite the newer
@@ -306,11 +311,14 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
 
   return (
     <div
+      ref={overlayRef}
       data-testid="file-search"
       data-page={isMobile ? 'true' : undefined}
+      // `MODAL_OVERLAY`, top-aligned: the veil was written by hand here and was
+      // the one dialog veil that landed at full opacity on its first frame.
       className={isMobile
         ? MODAL_PAGE_CONTAINER
-        : `fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[10vh] bg-black/30 dark:bg-black/50 backdrop-blur-sm`}
+        : `${MODAL_OVERLAY} !items-start pt-[10vh]`}
       onClick={isMobile ? undefined : onClose}
     >
       <div
