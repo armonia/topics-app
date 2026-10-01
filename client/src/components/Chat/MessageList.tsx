@@ -2090,8 +2090,13 @@ export function MessageList({
           restoreStateFrom={restoreFrom}
           // A list born from the empty state (a first send) draws its first row
           // in the commit that mounts it. Left to Virtuoso, the row waits for
-          // the viewport's measure and lands two frames after the key.
-          initialItemCount={grewFromEmpty ? 1 : undefined}
+          // the viewport's measure and lands two frames after the key. The key
+          // is left out otherwise, not set to undefined: Virtuoso builds its
+          // initial list on mount for any count that is not 0, undefined
+          // included, from `initialTopMostItemIndex`, which a restored state
+          // leaves undefined, and threw "undefined is not an object (evaluating
+          // 'e.index')" on every list mounted from `restoreStateFrom`.
+          {...(grewFromEmpty && !restoreFrom ? { initialItemCount: 1 } : {})}
           // Callback form so a pending palette jump can veto the auto-follow:
           // the load that the jump rides in replaces 0 → N messages, and with
           // zero items Virtuoso considers itself trivially "at bottom" — the
