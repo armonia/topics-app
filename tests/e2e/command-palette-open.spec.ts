@@ -193,10 +193,13 @@ test.describe("Command Palette, opening and typing", () => {
     }) => {
       test.info().annotations.push({ type: "spec", description: "CMD-01" });
       // A finger scroll sends no mouse event, so the selection stays on the
-      // first row while the list goes down. The selected row was scrolled back
-      // into view on every change of the result list, and the list changes on
-      // every topic:updated (the end of a turn in any chat, a rename, a new
-      // chat): the list jumped back to the top under the user's finger.
+      // first row while the list goes down. Two things moved the list on every
+      // topic:updated (the end of a turn in any chat, a rename, a new chat):
+      // the selected row scrolled back into view on every change of the result
+      // list, and the recency ranking moved the updated chat to the top, which
+      // on Chromium (WebView2 on Windows) threw the list back to 0 and under ↵
+      // put another chat on row 0. The rows now keep their order until the
+      // query changes.
       const prefix = `E2E-PalTouch-${TS}`;
       const ids: string[] = [];
       for (let i = 0; i < 30; i++) {
@@ -209,54 +212,35 @@ test.describe("Command Palette, opening and typing", () => {
       await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(`${prefix}-00`) })).toBeAttached();
       const selected = commandPalettePage.overlay.locator('[role="option"][aria-selected="true"]');
       await expect(selected).toHaveAttribute("data-cmd-idx", "0");
+      const chosen = (await selected.textContent()) ?? "";
       // The phone's list is one scroller holding both columns.
       const list = selected.locator("xpath=ancestor::*[contains(@class,'overflow-y-auto')][1]");
       const bottom = await list.evaluate((el) => { el.scrollTop = el.scrollHeight; return el.scrollTop; });
       expect(bottom, "the results are long enough to scroll").toBeGreaterThan(200);
-      // What moved the list, if it moves: each scroll with the heights at that
-      // moment, and whether the scroller read at the end is still this one.
+      // What moved the list, if it moves: the scrolls and the list's DOM changes, in order.
       await list.evaluate((el) => {
-        const w = window as unknown as { __palTrail: string[]; __palWrites: string[] };
+        const w = window as unknown as { __palTrail: string[] };
         w.__palTrail = [];
-        w.__palWrites = [];
-        el.setAttribute("data-e2e-scroller", "1");
         const t0 = performance.now();
         const at = () => `+${Math.round(performance.now() - t0)}`;
         el.addEventListener("scroll", () => w.__palTrail.push(`${at()}:${Math.round(el.scrollTop)}/${el.scrollHeight}/${el.clientHeight}`));
-        // What changed in the list, and when, next to the scroll events.
         new MutationObserver((ms) => {
-          let added = 0, removed = 0, text = 0, attrs = 0;
-          for (const m of ms) { added += m.addedNodes.length; removed += m.removedNodes.length; if (m.type === "characterData") text++; if (m.type === "attributes") attrs++; }
-          w.__palTrail.push(`${at()}:dom(+${added} -${removed} txt${text} attr${attrs} top=${Math.round(el.scrollTop)})`);
-        }).observe(el, { childList: true, subtree: true, characterData: true, attributes: true });
-        // Who writes the position: the first frames of each writer's stack.
-        const note = (what: string) => w.__palWrites.push(`${what} @ ${(new Error().stack ?? "").split("\n").slice(2, 6).map((s) => s.trim()).join(" < ")}`);
-        const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
-        Object.defineProperty(el, "scrollTop", { configurable: true, get() { return top.get!.call(this); }, set(v: number) { note(`scrollTop=${v}`); top.set!.call(this, v); } });
-        for (const m of ["scrollTo", "scroll", "scrollBy"] as const) {
-          const orig = (el as HTMLElement)[m].bind(el);
-          (el as unknown as Record<string, unknown>)[m] = (...a: unknown[]) => { note(`${m}(${JSON.stringify(a)})`); return (orig as (...x: unknown[]) => void)(...a); };
-        }
-        const intoView = Element.prototype.scrollIntoView;
-        Element.prototype.scrollIntoView = function (this: Element, ...a: unknown[]) { if (el.contains(this)) note(`scrollIntoView ${this.getAttribute("data-cmd-idx") ?? this.tagName}`); return intoView.apply(this, a as []); };
-        const focus = HTMLElement.prototype.focus;
-        HTMLElement.prototype.focus = function (this: HTMLElement, ...a: unknown[]) { note(`focus ${this.tagName}${this.getAttribute("data-cmd-idx") ? "#" + this.getAttribute("data-cmd-idx") : ""} in=${el.contains(this)}`); return focus.apply(this, a as []); };
+          let added = 0, removed = 0;
+          for (const m of ms) { added += m.addedNodes.length; removed += m.removedNodes.length; }
+          w.__palTrail.push(`${at()}:dom(+${added} -${removed} top=${Math.round(el.scrollTop)})`);
+        }).observe(el, { childList: true, subtree: true });
       });
 
       // One of the listed chats is renamed elsewhere: the rename reaching the
-      // list is the sync point, the scroll position is what is read.
+      // list is the sync point, the scroll position and the selected row are what is read.
       const renamed = `${prefix}-05-renamed`;
       await patchTopic(request, ids[5], { name: renamed });
       await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(renamed) })).toBeAttached();
       await expect(selected).toHaveAttribute("data-cmd-idx", "0");
+      expect(await selected.textContent(), "↵ still opens the chat that was selected").toBe(chosen);
       const after = await list.evaluate((el) => new Promise<number>((res) => requestAnimationFrame(() => res(el.scrollTop))));
-      const trail = await page.evaluate(() => {
-        const w = window as unknown as { __palTrail?: string[]; __palWrites?: string[] };
-        const same = !!document.querySelector('[data-e2e-scroller="1"]');
-        const active = document.activeElement;
-        return `scrolls=[${(w.__palTrail ?? []).join(" ")}] sameScroller=${same} writes=[${(w.__palWrites ?? []).join(" | ")}] active=${active?.tagName}${active?.getAttribute("data-cmd-idx") ? "#" + active.getAttribute("data-cmd-idx") : ""}`;
-      });
-      expect(after, `the list stays where the finger left it (${bottom} -> ${after}) ${trail}`).toBeGreaterThanOrEqual(bottom - 2);
+      const trail = await page.evaluate(() => ((window as unknown as { __palTrail?: string[] }).__palTrail ?? []).join(" "));
+      expect(after, `the list stays where the finger left it (${bottom} -> ${after}) [${trail}]`).toBeGreaterThanOrEqual(bottom - 2);
     });
   });
 });

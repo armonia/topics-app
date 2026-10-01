@@ -13,6 +13,7 @@ import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { searchApi } from '../../lib/api';
 import { openTopicFromPalette } from './paletteOpenTopic';
+import { keepOrder, rankOf } from './paletteStableOrder';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { PANE_CONFIG, tabTargetForPane } from '../../state/pane/adapters';
 import { usePaneStore } from '../../state/pane/store';
@@ -499,7 +500,15 @@ export function CommandPalette({
   }, [query]);
 
   const filteredProjects = useMemo(() => filterByQuery(projectItems), [projectItems, filterByQuery]);
-  const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
+  // Topic rows keep their order while the query stays the same; a new query
+  // ranks them afresh (paletteStableOrder.ts).
+  const topicOrderRef = useRef<{ query: string; rank: Map<string, number> } | null>(null);
+  const filteredMain = useMemo(() => {
+    const frozen = topicOrderRef.current?.query === query ? topicOrderRef.current.rank : null;
+    const ordered = keepOrder(filterByQuery(topicItems), frozen);
+    topicOrderRef.current = { query, rank: rankOf(ordered) };
+    return ordered;
+  }, [topicItems, filterByQuery, query]);
   const filteredActions = useMemo(() => filterByQuery(actionItems), [actionItems, filterByQuery]);
   const filteredCreate = useMemo(() => filterByQuery(createItems), [createItems, filterByQuery]);
 

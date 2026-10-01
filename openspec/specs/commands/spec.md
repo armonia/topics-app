@@ -215,6 +215,12 @@ Windows (`Ctrl+Shift+C`, perche' `CtrlShiftC` non si legge).
 - **THEN** category headers such as ACTIONS, TOPICS, FILES, and MESSAGES group the results
 - **AND** each result appears under its appropriate category
 
+#### Scenario: A chat updated in the background does not move the results
+- **GIVEN** the palette shows the results of a query, scrolled by finger with the first row selected
+- **WHEN** a listed chat is updated in the background (a rename, the end of a turn)
+- **THEN** the rows keep the order they had for that query, the updated row changing in place, and the list stays where the finger left it
+- **AND** the selected row is still the chat Enter opened before, and the message search is not sent again
+
 ### Requirement: CMD-06 — Every offered slash command has a destination
 
 The composer's slash-command menu SHALL only offer commands that resolve
