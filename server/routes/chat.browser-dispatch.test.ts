@@ -19,6 +19,8 @@ import { createChatRouter } from "./chat";
 import type { BrowserService } from "../browser-service";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { Topic } from "../types";
+import { nativeDelegateRegistry } from "../browser-native-delegate";
+import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 
 const ROOT = testTmpDir("chat-browser-dispatch");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -51,18 +53,24 @@ function recordingBrowserService(touches: string[]): BrowserService {
 
 interface Harness {
   touches: string[];
+  topic: Topic;
+  /** Every frame the route sent to the topic's subscribers. */
+  frames: Array<Record<string, unknown>>;
+  /** Opens a turn and hands back the route's StreamHandler. */
+  startTurn: () => Promise<StreamHandler>;
   announceBrowserTools: () => Promise<void>;
   toolRows: () => Array<{ name: string; status: string }>;
 }
 
-async function harness(providerName: string): Promise<Harness> {
-  // One session key per provider: the harnesses share the test database, and
+async function harness(providerName: string, label = providerName): Promise<Harness> {
+  // One session key per harness: they share the test database, and
   // `session_key` is unique on `topics`.
-  const sessionKey = `topic:browser-dispatch-${providerName}`;
+  const sessionKey = `topic:browser-dispatch-${label}`;
   const ctx = await createTestAppContext();
+  const frames: Array<Record<string, unknown>> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void })
-    .broadcastToTopicSubscribers = () => {};
+    .broadcastToTopicSubscribers = (_id, m) => { frames.push(m as Record<string, unknown>); };
 
   let captured: StreamHandler | undefined;
   const provider = {
@@ -95,14 +103,14 @@ async function harness(providerName: string): Promise<Harness> {
   } as never, recordingBrowserService(touches));
 
   const topic: Topic = {
-    id: `t-${providerName}`, name: "browser", slug: "browser", parentId: null, links: [],
+    id: `t-${label}`, name: "browser", slug: "browser", parentId: null, links: [],
     sessionKey, color: "#5865f2", icon: "MessageSquare",
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     archived: false, provider: providerName,
   } as Topic;
   ctx.saveSingleTopic(topic);
 
-  const announceBrowserTools = async () => {
+  const startTurn = async () => {
     const url = new URL("http://topics.test/api/chat");
     const req = new Request(url.toString(), {
       method: "POST",
@@ -113,6 +121,11 @@ async function harness(providerName: string): Promise<Harness> {
     expect(resp?.status).toBe(200);
     resp?.body?.cancel().catch(() => {});
     if (!captured) throw new Error("the route registered no StreamHandler");
+    return captured;
+  };
+
+  const announceBrowserTools = async () => {
+    const captured = await startTurn();
     // Exactly what `native/agent-loop.ts` emits at `content_block_start`: the
     // name, and no arguments yet.
     captured.onToolStart("call-1", "browser_open", {});
@@ -136,7 +149,7 @@ async function harness(providerName: string): Promise<Harness> {
       .flatMap((m) => m.toolCalls ?? [])
       .map((t) => ({ name: t.name, status: String(t.status) }));
 
-  return { touches, announceBrowserTools, toolRows };
+  return { touches, topic, frames, startTurn, announceBrowserTools, toolRows };
 }
 
 describe("server-side dispatch of browser_* in the chat route", () => {
@@ -157,5 +170,48 @@ describe("server-side dispatch of browser_* in the chat route", () => {
     await h.announceBrowserTools();
 
     expect(h.touches).toHaveLength(4);
+  });
+});
+
+/**
+ * The detail of a routed `browser_open` is read back from its RESULT
+ * (CHAT-BROWSER-01, BROWSER-CHAT-05). The start-time detail only knows the
+ * requested URL: the marker needs the final one, the title and the context, and
+ * a failed opening must not draw one at all. On a Tauri pane the failure comes
+ * back RESOLVED as `{error}` (the native delegate never throws), so the result
+ * is the only place that says it.
+ */
+describe("the routed browser_open re-derives its detail from the result", () => {
+  async function openThroughNativePane(label: string, reply: { result?: unknown; error?: string }) {
+    const h = await harness("claude", label);
+    const contextId = resolveContextIdForTopic(h.topic);
+    nativeDelegateRegistry.register(contextId, (m) => {
+      queueMicrotask(() => nativeDelegateRegistry.resolveOp({ opId: m.opId, ...reply }));
+    });
+    try {
+      const handler = await h.startTurn();
+      handler.onToolStart("call-open", "browser_open", { url: "https://example.com" });
+      await Bun.sleep(80);
+      handler.onDone();
+      await Bun.sleep(50);
+    } finally {
+      nativeDelegateRegistry.unregister(contextId);
+    }
+    const result = h.frames.find((f) => f.type === "stream:tool_result" && f.toolCallId === "call-open");
+    if (!result) throw new Error("the route sent no stream:tool_result for browser_open");
+    return { contextId, result };
+  }
+
+  test("a success carries the final URL, the title and the context", async () => {
+    const { contextId, result } = await openThroughNativePane("open-ok", {
+      result: { url: "https://example.com/final", title: "Example" },
+    });
+    expect(result.status).toBe("success");
+    expect(result.detail).toMatchObject({ type: "browser", url: "https://example.com/final", title: "Example", contextId });
+  });
+
+  test("an {error} that resolved instead of throwing is not an opening", async () => {
+    const { result } = await openThroughNativePane("open-fail", { error: "goto: net::ERR_CONNECTION_REFUSED" });
+    expect((result.detail as { type?: string } | undefined)?.type).toBe("mcp");
   });
 });
