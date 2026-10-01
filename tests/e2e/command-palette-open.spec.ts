@@ -216,10 +216,23 @@ test.describe("Command Palette, opening and typing", () => {
       // What moved the list, if it moves: each scroll with the heights at that
       // moment, and whether the scroller read at the end is still this one.
       await list.evaluate((el) => {
-        const w = window as unknown as { __palTrail: string[] };
+        const w = window as unknown as { __palTrail: string[]; __palWrites: string[] };
         w.__palTrail = [];
+        w.__palWrites = [];
         el.setAttribute("data-e2e-scroller", "1");
         el.addEventListener("scroll", () => w.__palTrail.push(`${Math.round(el.scrollTop)}/${el.scrollHeight}/${el.clientHeight}`));
+        // Who writes the position: the first frames of each writer's stack.
+        const note = (what: string) => w.__palWrites.push(`${what} @ ${(new Error().stack ?? "").split("\n").slice(2, 6).map((s) => s.trim()).join(" < ")}`);
+        const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+        Object.defineProperty(el, "scrollTop", { configurable: true, get() { return top.get!.call(this); }, set(v: number) { note(`scrollTop=${v}`); top.set!.call(this, v); } });
+        for (const m of ["scrollTo", "scroll", "scrollBy"] as const) {
+          const orig = (el as HTMLElement)[m].bind(el);
+          (el as unknown as Record<string, unknown>)[m] = (...a: unknown[]) => { note(`${m}(${JSON.stringify(a)})`); return (orig as (...x: unknown[]) => void)(...a); };
+        }
+        const intoView = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = function (this: Element, ...a: unknown[]) { if (el.contains(this)) note(`scrollIntoView ${this.getAttribute("data-cmd-idx") ?? this.tagName}`); return intoView.apply(this, a as []); };
+        const focus = HTMLElement.prototype.focus;
+        HTMLElement.prototype.focus = function (this: HTMLElement, ...a: unknown[]) { note(`focus ${this.tagName}${this.getAttribute("data-cmd-idx") ? "#" + this.getAttribute("data-cmd-idx") : ""} in=${el.contains(this)}`); return focus.apply(this, a as []); };
       });
 
       // One of the listed chats is renamed elsewhere: the rename reaching the
@@ -230,9 +243,10 @@ test.describe("Command Palette, opening and typing", () => {
       await expect(selected).toHaveAttribute("data-cmd-idx", "0");
       const after = await list.evaluate((el) => new Promise<number>((res) => requestAnimationFrame(() => res(el.scrollTop))));
       const trail = await page.evaluate(() => {
-        const w = window as unknown as { __palTrail?: string[] };
+        const w = window as unknown as { __palTrail?: string[]; __palWrites?: string[] };
         const same = !!document.querySelector('[data-e2e-scroller="1"]');
-        return `scrolls=[${(w.__palTrail ?? []).join(" ")}] sameScroller=${same}`;
+        const active = document.activeElement;
+        return `scrolls=[${(w.__palTrail ?? []).join(" ")}] sameScroller=${same} writes=[${(w.__palWrites ?? []).join(" | ")}] active=${active?.tagName}${active?.getAttribute("data-cmd-idx") ? "#" + active.getAttribute("data-cmd-idx") : ""}`;
       });
       expect(after, `the list stays where the finger left it (${bottom} -> ${after}) ${trail}`).toBeGreaterThanOrEqual(bottom - 2);
     });
