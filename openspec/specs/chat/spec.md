@@ -5077,7 +5077,9 @@ chat rispondeva `[]` mentre la chat nominava il processo.
   ascolto dell'albero del processo (`lsof`, `server/lib/command-services.ts`),
   guardate da un timer che gira solo mentre c'è un comando senza sveglia in
   corsa (2 s all'inizio, raddoppio fino a 30 s finché niente cambia, di nuovo
-  2 s a ogni avvio). La route di stato NON SHALL lanciare `lsof`.
+  2 s a ogni avvio). Finché un comando senza porta ha meno di 2 minuti, il
+  raddoppio SHALL fermarsi a 5 s: un server che compila a lungo si vede entro
+  5 s dal momento in cui apre la porta. La route di stato NON SHALL lanciare `lsof`.
 - Un server NON SHALL comparire fra i `tasks` di `/api/topics/streaming`: niente
   riga `background-work-line`, niente glifo `background` su riga, tab e
   progetto, niente riga fra gli agenti attivi, e lo Stop del composer non lo

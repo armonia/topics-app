@@ -46,6 +46,19 @@ export interface ServiceRowLike {
 export const SERVICE_END_SHOWN_MS = 8_000;
 export const SERVICE_WATCH_MIN_MS = 2_000;
 export const SERVICE_WATCH_MAX_MS = 30_000;
+/**
+ * A command that may still be binding (no port yet, started less than
+ * `SERVICE_BIND_WINDOW_MS` ago) caps the wait at this: a dev server that
+ * compiles for 31 s would otherwise be seen only at the 60 s pass.
+ */
+export const SERVICE_WATCH_BINDING_MAX_MS = 5_000;
+export const SERVICE_BIND_WINDOW_MS = 120_000;
+
+/** The wait before the next pass: back to the fast cadence on news, else doubling up to the ceiling. */
+export function nextWatchDelay(delay: number, news: boolean, binding: boolean): number {
+  if (news) return SERVICE_WATCH_MIN_MS;
+  return Math.min(delay * 2, binding ? SERVICE_WATCH_BINDING_MAX_MS : SERVICE_WATCH_MAX_MS);
+}
 
 /** Is this running row a server: no wake, and listening? */
 export function isServiceRow(row: { cmd?: { wake: boolean } }, listen: ReadonlyArray<ListenAddress> | undefined): boolean {
@@ -171,9 +184,12 @@ export function serviceWatch(deps: {
       let changed = false;
       kicked = false;
       try { changed = await tick(); } finally { running = false; }
+      const candidates = [...deps.rows()].filter(isServiceCandidate);
       // Nothing to watch any more: the timer stops until the next start.
-      if (![...deps.rows()].some(isServiceCandidate)) { delay = SERVICE_WATCH_MIN_MS; return; }
-      delay = changed || kicked ? SERVICE_WATCH_MIN_MS : Math.min(delay * 2, SERVICE_WATCH_MAX_MS);
+      if (candidates.length === 0) { delay = SERVICE_WATCH_MIN_MS; return; }
+      const now = Date.now();
+      const binding = candidates.some((r) => !listen.has(r.processId) && now - Date.parse(r.startedAt) < SERVICE_BIND_WINDOW_MS);
+      delay = nextWatchDelay(delay, changed || kicked, binding);
       arm();
     }, delay);
     if (typeof timer.unref === "function") timer.unref();

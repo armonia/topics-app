@@ -4,7 +4,10 @@
  * @covers BGVIS-08
  */
 import { describe, expect, test } from "bun:test";
-import { commandShort, isServiceRow, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, type ServiceRowLike } from "./command-services";
+import {
+  commandShort, isServiceRow, nextWatchDelay, serviceWatch, servicesOver,
+  SERVICE_END_SHOWN_MS, SERVICE_WATCH_BINDING_MAX_MS, SERVICE_WATCH_MAX_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike,
+} from "./command-services";
 import { commandWorkOver } from "./command-background";
 import { listenLabel, listenUrl, type ListenAddress } from "../../shared/background-work";
 
@@ -111,6 +114,18 @@ describe("command-services", () => {
     const ended = { ...rows[0]!, status: "error", completedAt: new Date(NOW).toISOString() };
     const out = servicesOver([], [ended], watch.listenOf, NOW);
     expect(out[0]!.services[0]!.ended).toEqual({ at: NOW, exitCode: null, stopped: false });
+  });
+
+  test("the wait doubles to 30 s, but to 5 s while a command may still be binding, and news resets it", () => {
+    const walk = (binding: boolean) => {
+      const seen: number[] = [];
+      let d = SERVICE_WATCH_MIN_MS;
+      for (let i = 0; i < 6; i++) { d = nextWatchDelay(d, false, binding); seen.push(d); }
+      return seen;
+    };
+    expect(walk(false)).toEqual([4_000, 8_000, 16_000, SERVICE_WATCH_MAX_MS, SERVICE_WATCH_MAX_MS, SERVICE_WATCH_MAX_MS]);
+    expect(walk(true)).toEqual([4_000, SERVICE_WATCH_BINDING_MAX_MS, 5_000, 5_000, 5_000, 5_000]);
+    expect(nextWatchDelay(SERVICE_WATCH_MAX_MS, true, false)).toBe(SERVICE_WATCH_MIN_MS);
   });
 
   test("an address reads as the row writes it and opens on the loopback when it listens everywhere", () => {
