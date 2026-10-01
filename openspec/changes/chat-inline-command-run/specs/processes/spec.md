@@ -24,6 +24,12 @@ SHALL lanciare `command` con `startCommandProcess`
   cambio di stato di un'esecuzione SHALL produrre un frame
   `command-run:updated { sessionKey, messageId, runId, status }`.
 - Su un sistema senza shell POSIX la route SHALL rispondere 501.
+- Un'esecuzione di una persona NON SHALL essere visibile agli strumenti di
+  processo dell'agente: `GET /api/sessions/:sessionKey/scripts` non la elenca, e
+  `…/scripts/:id/output`, `…/wait`, `…/stop` rispondono 404. Il pannello Processi
+  della persona (`GET /api/scripts`) la mostra. Senza questo l'output (anche una
+  password stampata) arriverebbe al modello da `read_process_output` senza
+  passare dalla bozza (CHAT-RUN-04).
 - La route e il frame SHALL restare chiusi agli ospiti: il percorso resta fuori
   da `isGuestAllowedPath` (`server/lib/grants.ts:101`) e il tipo di frame fuori
   da `GUEST_SAFE_FRAMES` (`grants.ts:203`).

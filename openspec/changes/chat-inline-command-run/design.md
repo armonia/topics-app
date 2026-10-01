@@ -38,7 +38,9 @@ rifarebbe il parse di ogni messaggio a ogni render. Quindi:
 
 - `CommandRunContext` (accanto a `MarkdownBaseDirContext`,
   `MessageContent.tsx:43`) con `{ sessionKey, messageId }` oppure `null`.
-- `MessageContent` lo fornisce solo se `role === 'assistant'`, `!partial`,
+- `MessageContent` lo fornisce solo se `runnable` (lo passa solo
+  `MessageBubble`: la scheda del task sulla board usa lo stesso componente e
+  resta senza), `role === 'assistant'`, `!partial`,
   `sessionKey` e `messageId` presenti, sessione di proprietario, e il server ha
   la shell (`hasCommandShell`, `server/lib/command-process.ts:20`: se nessuna
   risposta che il client legge già lo porta, `commandShell: boolean` si
@@ -46,7 +48,10 @@ rifarebbe il parse di ogni messaggio a ogni render. Quindi:
 - Il renderer `pre` (`MessageContent.tsx:628`) passa a `CodeBlock` la posizione
   del nodo (`node.position.start.offset`, che react-markdown dà a ogni
   componente): è la **chiave del blocco** dentro il messaggio, stabile finché
-  il testo non cambia.
+  il testo non cambia. Una risposta a timeline ha più segmenti di testo, ognuno
+  parsato a sé (offset da 0 in ciascuno): la chiave è
+  `segmento × 2^24 + offset` (`commandBlockKey`), il segmento lo dà un
+  `CommandRunSegment` attorno a ogni blocco di testo.
 
 `partial` è una guardia reale, non un caso di scuola: durante lo streaming
 `completePartialMarkdown` (`MessageContent.tsx:59-60`) chiude i fence aperti,
@@ -123,7 +128,7 @@ command_runs(
   ended_at TEXT,
   output TEXT,                    -- NULL finché gira: vive nel registro
   dropped_lines INTEGER NOT NULL DEFAULT 0,
-  author_device_id TEXT REFERENCES devices(id)
+  author_device_id TEXT REFERENCES devices(id) ON DELETE SET NULL  -- dimenticare un dispositivo non cancella né blocca le sue esecuzioni
 )
 INDEX (message_id, block_key, started_at)
 ```
@@ -190,8 +195,10 @@ occasione di vedere cosa parte.
 
 - **ANSI**: una funzione pura `ansiSpans(text)` rende SGR (16, 256 e
   truecolor, grassetto, corsivo, sottolineato, dim) come `<span>` con classi
-  e stile inline di solo colore; ogni altra sequenza CSI/OSC si toglie (stessa
-  regex di `ProcessLogPane.tsx:17-23`). Nessun `innerHTML`.
+  e stile inline di solo colore; ogni altra sequenza CSI/OSC si toglie, come
+  `ProcessLogPane.tsx:17-23` ma senza la sua regex dei frammenti orfani
+  (`[32m` senza ESC): qui il log è un file, l'ESC non si perde, e quella regex
+  mangerebbe testo vero come `[A` di `[ACME]`. Nessun `innerHTML`.
 - **`\r`**: di ogni riga resta il segmento dopo l'ultimo `\r`, come
   `liveShellTail` (`client/src/components/Chat/runningShellTail.ts`).
 - **Mentre gira**: riquadro alto 16 righe che segue il fondo; se scorri su,
