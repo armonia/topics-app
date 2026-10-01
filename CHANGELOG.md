@@ -5,6 +5,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.424 — 2026-10-01
 
 ### Sotto il cofano
+- Nella finestra che non carica le img dal server, una versione nuova arriva come blob prima di essere mostrata
+- Metti la spec delle icone dentro il confine ermetico
+- Leggi le porte in ascolto con ss dove lsof non c'è
+- Rimetti listenersOf in listening-ports, persa riscrivendo la coda del file
 - liste, chat e schermate sotto i tasti, cinque tasti uguali (#181)
 
 ## 2.2.423 — 2026-10-01
@@ -60,11 +64,22 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A sub-agent stopped while the app is closed keeps its project tab and its ended row at the next launch, now pinned by SUBSTRIP-01i
 - Selected text inside an app panel, like the task's diff or the browser console, keeps the system menu with Copy, while the panel's commands still turn it down.
 - La baseline dei nomi toglie cancelled da signals.ts, che non lo usa più
+- A run_command that listens on a port without waking its chat is a server of the chat, not background work it waits for
 - Il sito prende devalue 5.9.4, che chiude i sei avvisi nuovi di oggi
+- The chat shows a server it started as one row with its address, Open, Logs and Stop, live until it ends
 - Lo stato della sessione vive in sessionState.ts, così net.ts e session.ts non si importano a vicenda
 - Traduci in inglese i commenti spostati in sessionState
+- A server that is stopped or whose process is gone keeps its address until its row closes, so the chat says how it ended instead of waiting on it again
+- The command-service integration test waits for every server it stops to exit, and its port to go quiet, before it ends
 - Metti check:route-shadowing nella catena static-rails della board
+- Fai il glob nativo senza shell e controlla le radici di ricerca sul percorso reale
+- Ferma il raddoppio del watcher a 5 s finché un comando senza porta ha meno di 2 minuti
+- The server watches the icons clients draw and pushes project:icon when one changes
+- Project icons update live on every window: pushed versions, versioned URLs, one revalidation
 - Svuota le richieste di abbinamento pendenti nel reset ermetico dei test
+- Risolvi i collegamenti delle radici di ricerca senza aprirle
+- Confronta i nomi protetti come li confronta APFS e segui i .. dei link come il kernel
+- Icon watch follows folders a manifest names, and project:icon reaches only sockets that see the project
 
 ## 2.2.422 — 2026-10-01
 

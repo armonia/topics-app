@@ -8,6 +8,26 @@
       "perf": [],
       "internal": [
         {
+          "it": "Nella finestra che non carica le img dal server, una versione nuova arriva come blob prima di essere mostrata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Metti la spec delle icone dentro il confine ermetico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi le porte in ascolto con ss dove lsof non c'è",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimetti listenersOf in listening-ports, persa riscrivendo la coda del file",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "liste, chat e schermate sotto i tasti, cinque tasti uguali (#181)",
           "en": "",
           "scope": null,
@@ -276,7 +296,17 @@
           "scope": null
         },
         {
+          "it": "A run_command that listens on a port without waking its chat is a server of the chat, not background work it waits for",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il sito prende devalue 5.9.4, che chiude i sei avvisi nuovi di oggi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The chat shows a server it started as one row with its address, Open, Logs and Stop, live until it ends",
           "en": "",
           "scope": null
         },
@@ -291,12 +321,57 @@
           "scope": null
         },
         {
+          "it": "A server that is stopped or whose process is gone keeps its address until its row closes, so the chat says how it ended instead of waiting on it again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The command-service integration test waits for every server it stops to exit, and its port to go quiet, before it ends",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Metti check:route-shadowing nella catena static-rails della board",
           "en": "",
           "scope": null
         },
         {
+          "it": "Fai il glob nativo senza shell e controlla le radici di ricerca sul percorso reale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ferma il raddoppio del watcher a 5 s finché un comando senza porta ha meno di 2 minuti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The server watches the icons clients draw and pushes project:icon when one changes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Project icons update live on every window: pushed versions, versioned URLs, one revalidation",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Svuota le richieste di abbinamento pendenti nel reset ermetico dei test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Risolvi i collegamenti delle radici di ricerca senza aprirle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Confronta i nomi protetti come li confronta APFS e segui i .. dei link come il kernel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Icon watch follows folders a manifest names, and project:icon reaches only sockets that see the project",
           "en": "",
           "scope": null
         }
