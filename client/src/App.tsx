@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType, type ComponentProps } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, lazy, Suspense, type ComponentType, type ComponentProps } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Search } from 'lucide-react';
@@ -955,6 +955,15 @@ function App() {
     window.addEventListener('topics:tray-navigate', handler);
     return () => window.removeEventListener('topics:tray-navigate', handler);
   }, [handleTopicClick]);
+
+  // The palette's two callbacks that feed its effects and memos: as inline
+  // arrows they changed on every App render (every topic:updated), and the
+  // palette sent its message search again and rebuilt its topic rows each time.
+  // `handleTopicClick` itself changes with `topics`, hence the ref.
+  const handleTopicClickRef = useRef(handleTopicClick);
+  useLayoutEffect(() => { handleTopicClickRef.current = handleTopicClick; });
+  const openTopicFromSearch = useCallback((id: string) => handleTopicClickRef.current(id), []);
+  const closePalette = useCallback(() => setShowSearch(false), []);
 
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -2384,10 +2393,10 @@ function App() {
           <CommandPaletteHost
             isOpen={showSearch}
             scope={searchScope}
-            onClose={() => setShowSearch(false)}
+            onClose={closePalette}
             topics={topics}
             workspaceProjects={workspaceProjects}
-            onOpenTopic={(id) => handleTopicClick(id)}
+            onOpenTopic={openTopicFromSearch}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
             onAddPane={handleStandaloneAddPane}

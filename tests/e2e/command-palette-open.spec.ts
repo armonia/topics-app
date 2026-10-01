@@ -154,6 +154,35 @@ test.describe("Command Palette, opening and typing", () => {
     await expect.poll(inView, { message: "after a keystroke the selected first row is in view" }).toBe(true);
   });
 
+  test("PALETTE-20: a chat updated in the background does not send the message search again", async ({
+    commandPalettePage,
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
+    // App handed the palette its open and close callbacks as inline arrows, and
+    // the debounced message search depends on both: every App render (every
+    // topic:updated, the end of a turn in any chat) sent the same query again
+    // and flashed the Messages spinner under the results.
+    const prefix = `E2E-PalSearch-${TS}`;
+    const listed = await createTopic(request, `${prefix}-a`);
+    topicIds.push(listed.id);
+    const searches: string[] = [];
+    page.on("request", (r) => { if (r.url().includes("/api/search")) searches.push(r.url()); });
+    await goToApp(page);
+    await commandPalettePage.search(prefix);
+    await expect.poll(() => searches.length, { message: "the typed query is searched once" }).toBeGreaterThan(0);
+    await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(`${prefix}-a`) })).toBeAttached();
+    const before = searches.length;
+
+    await patchTopic(request, listed.id, { name: `${prefix}-a-renamed` });
+    await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(`${prefix}-a-renamed`) })).toBeAttached();
+    // An absence needs a window: the search leaves 300 ms after the effect runs,
+    // so a request past that window is one the rename sent.
+    const sentAgain = await page.waitForRequest((r) => r.url().includes("/api/search"), { timeout: 1_500 }).then(() => true, () => false);
+    expect(sentAgain, `the rename sent the search again (${before} -> ${searches.length})`).toBe(false);
+  });
+
   test.describe("on a phone", () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -184,6 +213,14 @@ test.describe("Command Palette, opening and typing", () => {
       const list = selected.locator("xpath=ancestor::*[contains(@class,'overflow-y-auto')][1]");
       const bottom = await list.evaluate((el) => { el.scrollTop = el.scrollHeight; return el.scrollTop; });
       expect(bottom, "the results are long enough to scroll").toBeGreaterThan(200);
+      // What moved the list, if it moves: each scroll with the heights at that
+      // moment, and whether the scroller read at the end is still this one.
+      await list.evaluate((el) => {
+        const w = window as unknown as { __palTrail: string[] };
+        w.__palTrail = [];
+        el.setAttribute("data-e2e-scroller", "1");
+        el.addEventListener("scroll", () => w.__palTrail.push(`${Math.round(el.scrollTop)}/${el.scrollHeight}/${el.clientHeight}`));
+      });
 
       // One of the listed chats is renamed elsewhere: the rename reaching the
       // list is the sync point, the scroll position is what is read.
@@ -192,7 +229,12 @@ test.describe("Command Palette, opening and typing", () => {
       await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(renamed) })).toBeAttached();
       await expect(selected).toHaveAttribute("data-cmd-idx", "0");
       const after = await list.evaluate((el) => new Promise<number>((res) => requestAnimationFrame(() => res(el.scrollTop))));
-      expect(after, `the list stays where the finger left it (${bottom} -> ${after})`).toBeGreaterThanOrEqual(bottom - 2);
+      const trail = await page.evaluate(() => {
+        const w = window as unknown as { __palTrail?: string[] };
+        const same = !!document.querySelector('[data-e2e-scroller="1"]');
+        return `scrolls=[${(w.__palTrail ?? []).join(" ")}] sameScroller=${same}`;
+      });
+      expect(after, `the list stays where the finger left it (${bottom} -> ${after}) ${trail}`).toBeGreaterThanOrEqual(bottom - 2);
     });
   });
 });
