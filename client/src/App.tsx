@@ -1627,7 +1627,7 @@ function App() {
           // scrolling underneath, or the column would carry 56px of glass at
           // the top that stop a scroll without saying why.
           className={`sidebar-header flex items-center justify-between flex-shrink-0 app-drag-region ${
-            isMobile ? 'pointer-events-none absolute inset-x-0 z-10 h-14 [&>*]:pointer-events-auto' : 'h-10'
+            isMobile ? 'mobile-top-veil pointer-events-none absolute inset-x-0 z-10 h-14 [&>*]:pointer-events-auto' : 'h-10'
           }`} {...DRAG_REGION}
           style={{
             paddingRight: ROW_INSET,

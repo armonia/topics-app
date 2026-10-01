@@ -659,7 +659,7 @@ test.describe.serial("La chrome del telefono", () => {
     await expect(page.locator('[data-testid="sidebar-system-menu"]')).toHaveCount(0);
   });
 
-  test("MOBILE-CHROME-09 — le tab scorrono SOTTO la riga in alto, che non ha fondo", async ({ page, request }) => {
+  test("MOBILE-CHROME-09 — le tab scorrono SOTTO la riga in alto, che ha un velo sfocato", async ({ page, request }) => {
     // THE COLUMN LISTS THE OPEN TABS, so a list long enough to scroll is a
     // handful of open tabs, not a handful of topics. Last case of the file on
     // purpose: it leaves the column crowded, and the ones before it want it
@@ -679,6 +679,9 @@ test.describe.serial("La chrome del telefono", () => {
       return {
         posizione: s.position,
         fondo: s.backgroundColor,
+        // The veil is the `::before` (it climbs over the safe-area band), not the row.
+        velo: getComputedStyle(header, "::before").backgroundColor,
+        sfocatura: getComputedStyle(header, "::before").backdropFilter,
         headerBottom: header.getBoundingClientRect().bottom,
         scrollerTop: scroller.getBoundingClientRect().top,
         padding: parseFloat(getComputedStyle(scroller).paddingTop),
@@ -687,8 +690,11 @@ test.describe.serial("La chrome del telefono", () => {
     });
     // 1. out of the flow, or whatever is under it would never reach it;
     expect(riga.posizione).toBe("absolute");
-    // 2. no ground of its own;
+    // 2. no ground on the row itself, but a translucent veil + blur behind it
+    //    (02/10: the title used to overlap the text scrolling under the bar);
     expect(haCampitura(riga.fondo)).toBe(false);
+    expect(haCampitura(riga.velo), `il velo c'e' (${riga.velo})`).toBe(true);
+    expect(riga.sfocatura, "e sfoca cio' che passa sotto").toContain("blur");
     // 3. the room it needs is INSIDE the scroll, as padding: the scroller
     //    starts above the row and the list starts below it, which is the whole
     //    difference between "it scrolls under" and "it starts after".
