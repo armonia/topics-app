@@ -4,8 +4,8 @@ Nessun passo tocca il DB vivo: i test costruiscono DB sintetici in cartelle
 temporanee.
 
 ## 1. Un DB nuovo nasce INCREMENTAL (DBMAINT-01)
-- [ ] Test: `initDatabase` su cartella vuota dà `auto_vacuum = 2` (rosso sulla base)
-- [ ] `server/db.ts`: `PRAGMA auto_vacuum = INCREMENTAL` prima di ogni tabella, solo su DB nuovo
+- [x] Test: `initDatabase` su cartella vuota dà `auto_vacuum = 2` (rosso sulla base)
+- [x] `server/db.ts`: `PRAGMA auto_vacuum = INCREMENTAL` prima di ogni tabella, solo su DB nuovo
 
 ## 2. Conversione una tantum in `start-prod.sh` (DBMAINT-02)
 - [ ] Test sul passo vero di `start-prod.sh` contro una cartella dati temporanea: converte, salta con DB aperto, salta con disco stretto, salta con marcatore, già convertito = niente
