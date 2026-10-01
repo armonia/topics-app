@@ -17,6 +17,10 @@
 export interface TranscriptEvent {
   type?: unknown;
   isMeta?: unknown;
+  /** The summary a compaction writes as a `user` record: the turn goes on through it. */
+  isCompactSummary?: unknown;
+  /** Who wrote a `user` record: `task-notification` is the CLI reporting background work. */
+  origin?: { kind?: unknown };
   isApiErrorMessage?: unknown;
   cwd?: unknown;
   timestamp?: unknown;
@@ -43,10 +47,14 @@ export function contentText(content: unknown): string {
     .join('');
 }
 
+/** The CLI telling the child that background work it launched has reported back. */
+const isTaskNotification = (ev: TranscriptEvent) => ev.type === 'user' && ev.origin?.kind === 'task-notification';
+
 /** A `type:"user"` record that is a PROMPT: typed text, not a tool result, not a
- *  meta line the CLI injects, not the marker of an Escape. */
+ *  meta line the CLI injects, not the marker of an Escape, not a compaction's
+ *  summary nor a task notification (both carry on the turn that was open). */
 export function promptText(ev: TranscriptEvent | null): string | null {
-  if (!ev || ev.type !== 'user' || ev.isMeta) return null;
+  if (!ev || ev.type !== 'user' || ev.isMeta || ev.isCompactSummary || isTaskNotification(ev)) return null;
   const content = ev.message?.content;
   if (Array.isArray(content) && content.some((c) => !!c && typeof c === 'object' && c.type === 'tool_result')) return null;
   const text = contentText(content);
@@ -136,6 +144,22 @@ const cutOutcome = (text: string, ending: SubAgentEnding, exitCode: number | nul
   };
 };
 
+/** The ids of the tool calls in this content that started work in the background. */
+function noteBackground(into: Set<string>, content: unknown): void {
+  if (!Array.isArray(content)) return;
+  for (const c of content) {
+    if (c && typeof c === 'object' && c.type === 'tool_use' && typeof c.id === 'string' && c.input?.run_in_background === true) into.add(c.id);
+  }
+}
+
+/** A notification names the tool call it reports on; one that does not settles the oldest. */
+function settleBackground(pending: Set<string>, text: string): void {
+  const id = text.match(/<tool-use-id>([^<]+)<\/tool-use-id>/)?.[1];
+  if (id && pending.delete(id)) return;
+  const oldest = pending.values().next();
+  if (!oldest.done) pending.delete(oldest.value);
+}
+
 /**
  * One turn's verdict. `null` when the turn is still open and nothing ended it:
  * the child is working, and there is nothing to report yet.
@@ -162,13 +186,18 @@ export function classifyChildTurn(
   let state: 'waiting' | 'working' | 'done' | 'api-error' = 'waiting';
   let turnText = '';
   let errorText = '';
+  // Background work the turn launched and the CLI has not reported back yet:
+  // an `end_turn` before its notification is a promise to report, not the end.
+  const background = new Set<string>();
   for (const ev of records.slice(1)) {
     if (ev.type === 'user') {
-      // A tool result or an Escape marker: the turn is still open.
+      // A tool result, an Escape marker or a notification: the turn is still open.
+      if (isTaskNotification(ev)) settleBackground(background, contentText(ev.message?.content));
       state = 'working';
       continue;
     }
     if (ev.type !== 'assistant') continue;
+    noteBackground(background, ev.message?.content);
     const text = contentText(ev.message?.content).trim();
     if (ev.isApiErrorMessage) {
       state = 'api-error';
@@ -181,7 +210,7 @@ export function classifyChildTurn(
     if (text) turnText = text;
     state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
   }
-  if (state === 'done') return { status: 'completed', partial: false, text: turnText };
+  if (state === 'done' && !background.size) return { status: 'completed', partial: false, text: turnText };
   if (state === 'api-error') {
     return { status: 'failed', partial: false, text: turnText, reason: { code: 'api-error', detail: errorText } };
   }

@@ -256,6 +256,25 @@ describe("one result per turn, without waiting for the process to exit (SUBAGENT
   }, 60_000);
 });
 
+describe("a child that ends its turn on background work reports once, when that work is done (SUBAGENT-11)", () => {
+  test("the promise to report is not a result, and the task notification opens no turn", async () => {
+    const { body, child } = await spawn(SONNET_CHAT, { name: "bg-child", prompt: "Run the suite and report." });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Run the suite"));
+    bridge.append(child!, { type: "assistant", message: { model: "claude-sonnet-5-5", role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "toolu_b1", name: "Bash", input: { command: "bun test", run_in_background: true } }] } });
+    bridge.append(child!, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_b1", content: "Command running in background with ID: bx1" }] } });
+    endTurn(child!, "The suite is running in the background; I will report when it finishes.");
+    await new Promise((r) => setTimeout(r, 4_500));
+    expect(reportsFor(agentId)).toEqual([]);
+    bridge.append(child!, { type: "user", origin: { kind: "task-notification" }, message: { role: "user", content: "<task-notification>\n<task-id>bx1</task-id>\n<tool-use-id>toolu_b1</tool-use-id>\n<status>completed</status>\n</task-notification>" } });
+    endTurn(child!, "Suite: 412 pass, 0 fail.");
+    await until("the result", () => reportsFor(agentId).length > 0, 15_000);
+    await new Promise((r) => setTimeout(r, 2_500));
+    expect(reportsFor(agentId).map((r) => ({ turn: r.turn, status: r.outcome.status, text: r.outcome.text })))
+      .toEqual([{ turn: 1, status: "completed", text: "Suite: 412 pass, 0 fail." }]);
+  }, 60_000);
+});
+
 describe("a foreground spawn waits for the result (SUBAGENT-13)", () => {
   test("the wait returns the report, and the same turn is not delivered to the chat as well", async () => {
     const { body, child } = await spawn(SONNET_CHAT, { run_in_background: false });

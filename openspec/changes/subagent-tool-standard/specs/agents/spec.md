@@ -122,7 +122,8 @@ Today the third step is skipped, because the child is created with no topic.
 The end of a child turn SHALL be recognised from the child's transcript:
 
 - the first assistant record with `stop_reason: "end_turn"` after the turn's
-  `user` record;
+  `user` record, once every background task the turn launched has been
+  reported back by its `task-notification`;
 - or, when it arrives first, the `Stop` hook for the child's session.
 
 It SHALL NOT wait for the PTY to exit: a Claude TUI never exits on its own.
@@ -172,6 +173,13 @@ rename of the child's tab SHALL NOT change it.
 - **WHEN** its tab is reloaded, and the resumed CLI appends only a meta line and a `<synthetic>` "No response requested."
 - **THEN** the turn SHALL be reported as `status: "stopped"`, `partial: true`, with that text and the reason that the tab was reloaded
 - **AND** the child's row SHALL stay `running`, its phase SHALL become finished, and it SHALL be retired like any finished child
+
+#### Scenario: a turn that waits for its background work reports once, at the real end
+- **GIVEN** a child that launched a Bash with `run_in_background: true` and ended its turn with "I will report when it finishes"
+- **WHEN** the CLI appends the `task-notification` of that work, and the child then ends with "Suite: 412 pass, 0 fail."
+- **THEN** no result SHALL be reported for the first `end_turn`, the notification SHALL NOT open a turn
+- **AND** one result SHALL be reported, `turn: 1`, `completed`, with "Suite: 412 pass, 0 fail."
+- **AND** a compaction's summary record SHALL NOT open a turn either
 
 #### Scenario: a spend limit is a failure with its reason
 - **GIVEN** a child transcript whose last assistant record is `<synthetic>` with "You've hit your monthly spend limit"

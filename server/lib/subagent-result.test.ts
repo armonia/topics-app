@@ -14,6 +14,7 @@ import {
   classifyChildTurn,
   endingChildTurn,
   pendingChildTurns,
+  promptCount,
   resultKey,
   turnDurationMs,
 } from "./subagent-result";
@@ -51,6 +52,38 @@ describe("classifyChildTurn", () => {
 
   test("a lost terminal with no transcript at all", () => {
     expect(classifyChildTurn(null, 1, { ending: "lost" })).toEqual({ status: "lost", partial: false, text: "", reason: { code: "no-transcript" } });
+  });
+});
+
+describe("what is not a prompt, and a turn that waits for its background work", () => {
+  const bg = fixture("background-task");
+  // Up to the first end_turn: the suite still runs in the background.
+  const beforeNotification = bg.slice(0, 5);
+
+  test("a task notification continues the turn instead of opening one", () => {
+    expect(promptCount(bg)).toBe(1);
+  });
+
+  test("an end_turn with background work not yet reported is not the turn's end", () => {
+    expect(classifyChildTurn(beforeNotification, 1)).toBeNull();
+    expect(pendingChildTurns(beforeNotification, idle)).toEqual([]);
+  });
+
+  test("once the work reported and the child answered it, one result with the real outcome", () => {
+    expect(classifyChildTurn(bg, 1)).toEqual({ status: "completed", partial: false, text: "Suite: 412 pass, 0 fail." });
+    expect(pendingChildTurns(bg, idle)).toEqual([{ turn: 1, outcome: { status: "completed", partial: false, text: "Suite: 412 pass, 0 fail." } }]);
+  });
+
+  test("stopped while it waited, the promise is the last line seen, not a result", () => {
+    expect(classifyChildTurn(beforeNotification, 1, { ending: "stopped" })).toEqual({
+      status: "stopped", partial: true, text: "The suite is running in the background; I will report when it finishes.", reason: { code: "stopped-by-parent" },
+    });
+  });
+
+  test("a compact summary is not a prompt: the turn goes on through it", () => {
+    const lines = fixture("compact-midturn");
+    expect(promptCount(lines)).toBe(1);
+    expect(classifyChildTurn(lines, 1)).toEqual({ status: "completed", partial: false, text: "Callers: 3 files." });
   });
 });
 
