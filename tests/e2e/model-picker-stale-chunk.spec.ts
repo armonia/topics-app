@@ -123,6 +123,55 @@ test.describe("model chip: a menu chunk that fails to load is never silent", () 
     expect(pageErrors).toEqual([]);
   });
 
+  test("a retry that opens the menu takes the prompt down and raises no new one", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "BUNDLE-TOAST-02" });
+    const menuRequests = await failMenuChunk(page);
+    const chip = await openChat(page);
+    await chip.click();
+    await expect.poll(menuRequests).toBeGreaterThan(0);
+    const prompt = page.getByTestId("bundle-stale-toast");
+    await expect(prompt).toBeVisible();
+
+    // Every stale signal from here on, whatever raises it.
+    await page.evaluate(() => {
+      const w = window as unknown as { __staleSignals: number };
+      w.__staleSignals = 0;
+      window.addEventListener("topics:bundle-stale", () => { w.__staleSignals += 1; });
+    });
+
+    // The chunk is back: the next click opens the menu. The plain import
+    // rejected again from WebKit's memory before the fresh URL loaded, and
+    // Vite announced that rejection: the prompt came back on the click that
+    // worked, and stayed up saying a part of the app did not load.
+    await page.unroute(MENU_CHUNK);
+    await chip.click();
+    await expect(page.getByTestId("provider-model-popover")).toBeVisible();
+    await expect(prompt).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { __staleSignals: number }).__staleSignals)).toBe(0);
+  });
+
+  test("the update panel's warm-up that fails is reported, not swallowed", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "BUNDLE-TOAST-02" });
+    const logged: string[] = [];
+    page.on("console", (message) => { if (message.type() === "error") logged.push(message.text()); });
+    let hits = 0;
+    await page.route(/\/assets\/VersionPanel-[^/]+\.js(\?.*)?$/, (route) => {
+      hits += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: "text/javascript",
+        body: "throw new Error('version-panel-eval-bug');\nexport const VersionPanel = null;\n",
+      });
+    });
+    await goToApp(page);
+    // The system menu warms the panel as soon as it mounts, i.e. when the
+    // card's menu opens.
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => hits).toBeGreaterThan(0);
+    await expect.poll(() => logged.some((line) => line.includes("failed to evaluate"))).toBe(true);
+  });
+
   test("with the sidebar collapsed the prompt is still in view", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "BUNDLE-TOAST-02" });
     const menuRequests = await failMenuChunk(page);

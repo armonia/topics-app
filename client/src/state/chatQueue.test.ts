@@ -244,6 +244,23 @@ describe('a Stop lifted once stays lifted, for every window of the profile', () 
     expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 6 });
   });
 
+  // The Stop this window just pressed is written into the hold at once
+  // (stopSession), before the server has said it. A late word about an OLDER
+  // Stop (a snapshot, a close heard out of order) used to rewrite the hold with
+  // it: the lift then covered only the older one, and when the word of the
+  // newer Stop arrived it held the queue again after the person had sent.
+  test('a late word about an older Stop does not replace the newer one in the hold', () => {
+    enqueueTurn(SK, 'written before the Stop');
+    holdQueue(SK, { boot: 'b1', turnId: 7 });
+    noteServerTurn(SK, { boot: 'b1', asOf: 6, turnId: 5, open: false, stopped: true });
+    expect(isHeld(SK)).toBe(true);
+    releaseHold(SK);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 7 });
+    // The server's word of the Stop the person already lifted holds nothing.
+    noteServerTurn(SK, { boot: 'b1', asOf: 8, turnId: 7, open: false, stopped: true });
+    expect(isHeld(SK)).toBe(false);
+  });
+
   test('nothing heard, nothing held: no key is written', () => {
     releaseHold(SK);
     expect([...store.map.keys()]).toEqual([]);

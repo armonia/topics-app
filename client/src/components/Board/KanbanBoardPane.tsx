@@ -754,9 +754,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // will land in; the others see nothing.
   const [draft, setDraft] = useState<DraftPreview | null>(null);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
+  // The card in hand, if any. Declared here because the snap hold below reads
+  // it: the finger that carries a card is not a finger scrolling the row.
+  const [activeId, setActiveId] = useState<string | null>(null);
   // The carousel snap, held while the drawer resizes the row or a card is in
   // hand (see `useRowSnapHold`).
-  const columnsSnap = useRowSnapHold(columnsScrollRef);
+  const columnsSnap = useRowSnapHold(columnsScrollRef, activeId !== null);
   const holdColumnsSnap = columnsSnap.hold;
   // Mobile-only affordance: the toolbar strip below scrolls horizontally with
   // a hidden scrollbar, so without a visible cue the actions past the right
@@ -1486,7 +1489,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     }
   }, [patchTask, refetch, onCardError, flushDeferredRead, tr]);
 
-  const [activeId, setActiveId] = useState<string | null>(null);
   // Il movimento della board si aggancia qui: misura le colonne quando la firma
   // cambia e anima chi si e' spostato. Mentre una card e' IN MANO non anima
   // niente (comanda dnd-kit, che sta gia' muovendo gli stessi nodi), e la card

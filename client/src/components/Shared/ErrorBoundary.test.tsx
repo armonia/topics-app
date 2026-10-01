@@ -22,6 +22,8 @@ import { describe, test, expect, afterEach } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement, type ReactElement } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
+import { BUNDLE_STALE_EVENT } from '../../lib/devBundleReload';
+import { CHUNK_FAILURE_REASON } from '../../lib/chunkReloadGuard';
 import IT from '../../lib/i18n-it';
 import EN from '../../lib/i18n-en';
 
@@ -36,11 +38,14 @@ import EN from '../../lib/i18n-en';
  * what it would draw is drawn: the real `render()` branch, `currentLocale()`
  * included, which is what this file is looking at.
  */
-function crashScreen(fallbackMessageKey?: string): string {
+function crashScreen(fallbackMessageKey?: string, error: Error = new Error('a device with no id')): string {
   const boundary = new ErrorBoundary({ fallbackMessageKey, children: null });
-  boundary.state = ErrorBoundary.getDerivedStateFromError(new Error('a device with no id'));
+  boundary.state = ErrorBoundary.getDerivedStateFromError(error);
   return renderToStaticMarkup(boundary.render() as ReactElement);
 }
+
+/** The text a person reads: the markup without its tags and attributes. */
+const visibleText = (html: string): string => html.replace(/<[^>]*>/g, ' ');
 
 const realLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
@@ -107,5 +112,69 @@ describe('ErrorBoundary: the crash screen does not crash', () => {
     const child = createElement('span', null, 'the app');
     const html = renderToStaticMarkup(createElement(ErrorBoundary, { children: child }));
     expect(html).toContain('the app');
+  });
+});
+
+/**
+ * The reason, for a chunk too, and never the stack on screen.
+ *
+ * A menu or panel whose chunk did not load used to land on a screen that said
+ * "a new version is available" and nothing else: no word of which part, or
+ * why, so a server that was down read exactly like a stale build. And a
+ * multi-line message printed whole. The screen now draws the first line of
+ * the reason, cut, and a button copies the whole detail, stack included.
+ */
+describe('ErrorBoundary: the reason and the copyable detail', () => {
+  test('a chunk that did not load shows its reason and the copy button', () => {
+    withLocalStorage({ getItem: () => null });
+    const html = crashScreen('crash.panel', new TypeError('Importing a module script failed.'));
+    expect(html).toContain(IT['crash.staleBundle.title']);
+    expect(html).toContain('data-testid="crash-reason"');
+    expect(visibleText(html)).toContain('Importing a module script failed.');
+    expect(html).toContain('data-testid="crash-copy-details"');
+  });
+
+  test('the screen shows the first line of the reason, cut; the stack stays off screen', () => {
+    withLocalStorage({ getItem: () => null });
+    const error = new Error(`first line of the reason ${'x'.repeat(400)}\nsecond line`);
+    error.stack = 'at render (Panel.tsx:12:5)\nat renderWithHooks (react-dom.js:1:1)';
+    const text = visibleText(crashScreen('crash.panel', error));
+    expect(text).toContain('first line of the reason');
+    expect(text).not.toContain('x'.repeat(400));
+    expect(text).not.toContain('second line');
+    expect(text).not.toContain('Panel.tsx:12:5');
+  });
+
+  test('the copied detail carries the whole message, the stack and where in the tree', () => {
+    const boundary = new ErrorBoundary({ children: null });
+    const error = new Error('first line\nsecond line');
+    error.stack = 'at render (Panel.tsx:12:5)';
+    boundary.state = { ...ErrorBoundary.getDerivedStateFromError(error), componentStack: '\n    at Panel\n    at Pane' };
+    const detail = boundary.detail();
+    expect(detail).toContain('Error: first line\nsecond line');
+    expect(detail).toContain('Panel.tsx:12:5');
+    expect(detail).toContain('at Pane');
+  });
+
+  test('a chunk failure caught here raises the prompt marked as a failed chunk', () => {
+    const saved = (globalThis as { window?: unknown }).window;
+    const reasons: (string | undefined)[] = [];
+    const target = new EventTarget();
+    target.addEventListener(BUNDLE_STALE_EVENT, (event) => {
+      reasons.push((event as CustomEvent<{ reason?: string } | null>).detail?.reason);
+    });
+    (globalThis as { window?: unknown }).window = target;
+    const realConsoleError = console.error;
+    console.error = () => {};
+    try {
+      const boundary = new ErrorBoundary({ children: null });
+      boundary.setState = () => {};
+      boundary.componentDidCatch(new TypeError('Importing a module script failed.'), { componentStack: '' });
+      boundary.componentDidCatch(new Error('a render bug'), { componentStack: '' });
+    } finally {
+      console.error = realConsoleError;
+      (globalThis as { window?: unknown }).window = saved;
+    }
+    expect(reasons).toEqual([CHUNK_FAILURE_REASON]);
   });
 });

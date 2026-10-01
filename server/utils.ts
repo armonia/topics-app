@@ -1478,9 +1478,31 @@ export function createAppContext(baseDir: string): AppContext {
    * back untouched.
    */
   function hydrateMessageBodies(msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">): StoredMessage[] {
+    const hydrate = messageBodyHydrator(msgs, opts);
+    for (const m of msgs) hydrate(m);
+    return msgs;
+  }
+
+  /**
+   * The same second pass split in two: ONE query reads the stored columns of
+   * every message in `msgs`, and the returned function decodes them for one
+   * message at a time, when the caller gets to it.
+   *
+   * The byte-budgeted first page of `/api/history` walks its rows from the tail
+   * and stops at the first one that breaks the budget, so decoding has to stay
+   * per row (zstd + JSON.parse is where the cost is). Reading does not: it used
+   * to be one SELECT per row, 40 statements for a light page. Measured on a
+   * copy of this machine's DB, last 40 rows of the 60 most recent sessions:
+   * 0.25 ms p50 / 0.48-0.83 ms p90 for the 40 SELECTs against 0.10 / 0.29 ms
+   * for one IN, and the raw columns of those 40 rows are 160 KB p50, 835 KB at
+   * most, still compressed.
+   */
+  function messageBodyHydrator(
+    msgs: StoredMessage[],
+    opts?: Pick<ThreadLoadOpts, "withToolOutputs">,
+  ): (m: StoredMessage) => StoredMessage {
     /** The three columns the second pass reads back, and nothing else. */
     interface BodyRow { id: string; blocks: unknown; tool_calls: unknown }
-    if (msgs.length === 0) return msgs;
     const byId = new Map<string, BodyRow>();
     // Chunked: SQLite refuses a statement with more than 999 bound parameters.
     const CHUNK = 500;
@@ -1491,9 +1513,11 @@ export function createAppContext(baseDir: string): AppContext {
         .all(...chunk.map((m) => m.id)) as BodyRow[];
       for (const row of rows) byId.set(row.id, row);
     }
-    for (const m of msgs) {
+    return (m) => {
       const row = byId.get(m.id);
-      if (!row) continue;
+      if (!row) return m;
+      // Decoded once: a second call for the same message finds nothing to do.
+      byId.delete(m.id);
       if (row.tool_calls) {
         const parsed = parseToolCallsCol(row.tool_calls, m.id);
         if (parsed !== undefined) m.toolCalls = parsed;
@@ -1509,8 +1533,8 @@ export function createAppContext(baseDir: string): AppContext {
       // shipped it: the wire keeps it whole, and a rebuilt copy would double
       // the in-flight turn on the first page.
       if (!m.partial) restoreToolCallsFromBlocks(m);
-    }
-    return msgs;
+      return m;
+    };
   }
 
   /**
@@ -2914,7 +2938,7 @@ export function createAppContext(baseDir: string): AppContext {
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, loadUnreadForInit, saveUnread, bumpUnread, saveUnreadEntries,
-    loadLocalMessages, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
+    loadLocalMessages, hydrateMessageBodies, messageBodyHydrator, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,

@@ -81,6 +81,7 @@ import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from 
 import { stripWrapperPaneId } from './projectPersistence';
 import {
   detachPaneFromGroups,
+  fallbackFocusedGroupId,
   movePaneBetweenGroups,
   paneTypeToGroupType,
 } from './groupOps';
@@ -624,11 +625,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   // --- Default focused group ---
   useEffect(() => {
-    const focusedExists = focusedGroupId && groups.some(g => g.id === focusedGroupId);
-    if (!focusedExists && groups.length > 0) {
-      const chatGroup = groups.find(g => g.type === 'chat');
-      setFocusedGroupId((chatGroup || groups[0]).id);
-    }
+    const next = fallbackFocusedGroupId(focusedGroupId, groups);
+    if (next !== focusedGroupId) setFocusedGroupId(next);
   }, [focusedGroupId, groups]);
 
   // --- Handlers ---
@@ -843,6 +841,24 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setPanes(prev => prev.filter(p => p.id !== paneId));
 
       setGroups(prev => detachPaneFromGroups(prev, groupId, paneId));
+      // ONE change for one close. A group the close dissolves used to leave the
+      // grid in the commit AFTER (the rows-sync effect), and a focus on it moved
+      // in that same second pass: the layout committed twice for one gesture.
+      // The same pure rules, applied here to the groups this close produces,
+      // land in the close's own batch; the effects then find nothing to do.
+      // The groups are read from the ref, not from this closure: a countdown
+      // close runs this callback as it was captured 3 s earlier, and a group
+      // made in the meantime (a split during the countdown) is not in the
+      // closure's `groups`. Rows reconciled against those would drop it from
+      // the grid and move the focus off it.
+      const nextGroups = detachPaneFromGroups(groupsRef.current, groupId, paneId);
+      const nextRows = reconcileRowsWithGroups(rowsRef.current, rowHeightsRef.current, nextGroups);
+      if (nextRows) {
+        setRows(nextRows.rows);
+        if (nextRows.rowHeights) setRowHeights(nextRows.rowHeights);
+      }
+      const nextFocus = fallbackFocusedGroupId(focusedGroupIdRef.current, nextGroups);
+      if (nextFocus !== focusedGroupIdRef.current) setFocusedGroupId(nextFocus);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClosePane is declared AFTER this callback (forward const, TDZ); it is only invoked inside the redo handler at undo-stack-replay time, where it re-enters the full deferred-close pipeline and re-reads live state, so a stale closure is benign
     [panes, groups, projectPath, pushClosedTab, removeClosedTab],

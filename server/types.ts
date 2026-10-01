@@ -554,6 +554,8 @@ export interface AppContext {
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
   /** Fills `blocks`/`tool_calls` back into messages loaded lean. `withToolOutputs`: see ThreadLoadOpts. */
   hydrateMessageBodies: (msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">) => StoredMessage[];
+  /** One read for all of `msgs`, then decodes one message per call (see utils.ts). */
+  messageBodyHydrator: (msgs: StoredMessage[], opts?: Pick<ThreadLoadOpts, "withToolOutputs">) => (m: StoredMessage) => StoredMessage;
   /** Rows of the WHOLE session (dead branches included) - what a deletion
    *  actually hits. */
   countMessagesBySession: (sessionKey: string) => number;

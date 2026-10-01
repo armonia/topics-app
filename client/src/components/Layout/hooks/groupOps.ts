@@ -24,6 +24,16 @@ export function paneTypeToGroupType(type: PaneType): PaneGroupType {
 }
 
 /**
+ * The group that holds the focus once `groups` is what is left: the focused one
+ * while it still exists, otherwise the first chat group, otherwise the first
+ * group. With no group left the focus is not moved.
+ */
+export function fallbackFocusedGroupId(focused: string | null, groups: readonly PaneGroup[]): string | null {
+  if (groups.length === 0 || (focused && groups.some(g => g.id === focused))) return focused;
+  return (groups.find(g => g.type === 'chat') ?? groups[0]!).id;
+}
+
+/**
  * Which pane becomes active in `group` once `paneId` leaves it: the tab that
  * takes its INDEX, clamped to the last one — i.e. focus lands where the eye
  * already is. Returns the current active pane unchanged when the leaving pane

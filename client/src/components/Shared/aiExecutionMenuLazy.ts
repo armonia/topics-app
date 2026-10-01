@@ -33,14 +33,24 @@ type MenuModule = typeof import('./AiExecutionMenuOptions');
 // The second import is what makes "the next click tries again" true on WebKit,
 // which otherwise keeps answering a failed chunk from memory: see
 // `reimportChunk`. It must name the chunk file, i.e. this module's file name.
+//
+// Once the plain import has failed, every later call goes straight to the fresh
+// URL. The plain one would only reject again from WebKit's memory, and Vite's
+// preload helper announces that rejection (`vite:preloadError`) as a missing
+// chunk: the reload prompt came back on the very click that then opened the
+// menu, even after it had been dismissed.
+let firstFailure: { error: unknown } | null = null;
 const loadAiExecutionMenuOptions = async () => {
-  try {
-    const { AiExecutionMenuOptions: Component } = await import('./AiExecutionMenuOptions');
-    return { AiExecutionMenuOptions: Component };
-  } catch (error) {
-    const { AiExecutionMenuOptions: Component } = await reimportChunk<MenuModule>('AiExecutionMenuOptions', error);
-    return { AiExecutionMenuOptions: Component };
+  if (!firstFailure) {
+    try {
+      const { AiExecutionMenuOptions: Component } = await import('./AiExecutionMenuOptions');
+      return { AiExecutionMenuOptions: Component };
+    } catch (error) {
+      firstFailure = { error };
+    }
   }
+  const { AiExecutionMenuOptions: Component } = await reimportChunk<MenuModule>('AiExecutionMenuOptions', firstFailure.error);
+  return { AiExecutionMenuOptions: Component };
 };
 
 export const AiExecutionMenuOptions: ComponentType<ComponentProps<typeof Body>> = lazyWarm(

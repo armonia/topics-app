@@ -265,7 +265,10 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         }
         return leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
       };
-      const hydrateOne = (m: StoredMessage) => (cappedRead ? hydrateMessageBodies([m], { withToolOutputs: false })[0]! : m);
+      // One read for the whole page, one decode per row the budget reaches.
+      const hydrateOne = cappedRead && !wantsAll
+        ? ctx.messageBodyHydrator(capped, { withToolOutputs: false })
+        : (m: StoredMessage) => m;
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';

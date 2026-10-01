@@ -19,6 +19,7 @@ import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
 import { bundleDrift } from './bundleDrift';
+import { reportLoadFailure } from '@/lib/chunkReloadGuard';
 import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import type { UsageRange } from '@/hooks/useProjectUsage';
@@ -156,7 +157,9 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   const tr = useT();
   // Warm the optional update panel when its parent menu opens, keeping it off
   // the app's initial download without waiting for the submenu gesture.
-  useEffect(() => { void importVersionPanel().catch(() => {}); }, []);
+  // A failed warm-up is reported, not swallowed: a missing chunk raises the
+  // reload prompt, a chunk that threw is logged.
+  useEffect(() => { void importVersionPanel().catch(reportLoadFailure); }, []);
   const [mostraStato, setMostraStato] = useState(false);
   // The window the usage level is reading. It lives HERE and not in the panel
   // so that closing the level and reopening it does not silently snap back to
