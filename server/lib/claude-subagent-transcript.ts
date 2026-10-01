@@ -31,6 +31,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, openSync, readSync, closeSync, readdirSync, statSync } from 'fs';
 import { claudeProjectDirName } from './claude-transcript-path';
+import { contentText, parseEvent, promptText } from './subagent-result';
 
 /** ~/.claude/projects — where claude-code writes per-session transcripts. */
 export function claudeProjectsRoot(): string {
@@ -78,35 +79,6 @@ function readEarlyLines(file: string, maxBytes = 131072): string[] {
       try { closeSync(fd); } catch { /* ignore */ }
     }
   }
-}
-
-/** One JSONL record of a claude transcript, as far as this module reads it. */
-interface TranscriptEvent {
-  type?: unknown;
-  isMeta?: unknown;
-  isApiErrorMessage?: unknown;
-  cwd?: unknown;
-  message?: { content?: unknown; stop_reason?: unknown };
-}
-
-/** The record on this line, or null when the line is not a JSON object. */
-function parseEvent(line: string): TranscriptEvent | null {
-  try {
-    const ev: unknown = JSON.parse(line);
-    return ev && typeof ev === 'object' ? (ev as TranscriptEvent) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The text blocks of a message's content, joined; a string content as is. */
-function contentText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((c): c is { type: 'text'; text: string } => !!c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string')
-    .map((c) => c.text)
-    .join('');
 }
 
 /** cwd + text of the FIRST `type:"user"` record in a claude transcript, or null.
@@ -179,18 +151,7 @@ export function discoverClaudeSubAgentSessionId(opts: {
   return null;
 }
 
-// ── Did the child get its prompt, and how did it end? ───────────────────────
-
-/** A `type:"user"` record that is a PROMPT: typed text, not a tool result, not a
- *  meta line the CLI injects, not the marker of an Escape. */
-function promptText(ev: TranscriptEvent | null): string | null {
-  if (!ev || ev.type !== 'user' || ev.isMeta) return null;
-  const content = ev.message?.content;
-  if (Array.isArray(content) && content.some((c) => !!c && typeof c === 'object' && c.type === 'tool_result')) return null;
-  const text = contentText(content);
-  if (!text.trim() || text.startsWith('[Request interrupted by user')) return null;
-  return text;
-}
+// ── Did the child get its prompt? ────────────────────────────────────────────
 
 /**
  * True when the transcript holds a user record carrying the spawn prompt.
@@ -211,103 +172,12 @@ export function transcriptHasPrompt(lines: string[], promptSnippet: string): boo
   return false;
 }
 
-/** How the child's process came to an end, as the server saw it. */
-export type SubAgentEnding = 'exited' | 'stopped' | 'closed' | 'swept' | 'lost';
-
-/**
- * The status vocabulary of the `subagent-tool-standard` proposal (SUBAGENT-11):
- * `completed` is the only one whose text is an outcome.
- */
-export type SubAgentStatus = 'completed' | 'failed' | 'stopped' | 'undelivered' | 'lost';
-
-export interface SubAgentOutcome {
-  status: SubAgentStatus;
-  /** The turn was cut before its end and `text` is the last line seen, not a result. */
-  partial: boolean;
-  /** The final text for `completed`; the last text seen otherwise (may be empty). */
-  text: string;
-  /** Why it is not `completed`, in words: an API error line, an exit code, a closed tab. */
-  reason?: SubAgentReason;
-}
-
-/** The reasons, as codes: the words are the formatter's (`routes/subagent-exit.ts`). */
-export type SubAgentReason =
-  | { code: 'api-error'; detail: string }
-  | { code: 'no-prompt' }
-  | { code: 'no-transcript' }
-  | { code: 'exit-code'; exitCode: number }
-  | { code: 'exited-mid-turn' }
-  | { code: 'stopped-by-parent' }
-  | { code: 'tab-closed' }
-  | { code: 'swept' }
-  | { code: 'terminal-lost' };
-
-/**
- * Classify a finished child from its transcript lines and the way it ended.
- *
- * It used to be "the last assistant text, whatever it was". A child stopped in
- * the middle of its work then reported a working sentence as its outcome (a
- * line announcing what it was about to map, 26/09), and a child that never got its
- * prompt, or died on a spend limit, reported "finished with no output". The
- * transcript says which of these happened: the record that closed the turn
- * carries `stop_reason: "end_turn"`, an API failure is a `<synthetic>` record
- * flagged `isApiErrorMessage`, and a prompt is a user record.
- *
- * `lines` is null when no transcript could be found at all.
- */
-export function classifySubAgentTranscript(
-  lines: string[] | null,
-  ending: SubAgentEnding,
-  exitCode: number | null = null,
-): SubAgentOutcome {
-  const cut = (text: string): SubAgentOutcome => {
-    const partial = text.length > 0;
-    if (ending === 'lost') return { status: 'lost', partial, text, reason: { code: 'terminal-lost' } };
-    if (ending === 'stopped') return { status: 'stopped', partial, text, reason: { code: 'stopped-by-parent' } };
-    if (ending === 'closed') return { status: 'stopped', partial, text, reason: { code: 'tab-closed' } };
-    if (ending === 'swept') return { status: 'stopped', partial, text, reason: { code: 'swept' } };
-    return {
-      status: 'failed', partial, text,
-      reason: exitCode != null && exitCode !== 0 ? { code: 'exit-code', exitCode } : { code: 'exited-mid-turn' },
-    };
-  };
-  if (!lines) return { ...cut(''), reason: { code: 'no-transcript' } };
-
-  let prompted = false;
-  // The state after the last record that moved the conversation.
-  let state: 'waiting' | 'working' | 'done' | 'api-error' = 'waiting';
-  let turnText = '';
-  let errorText = '';
-  for (const line of lines) {
-    const ev = parseEvent(line);
-    if (!ev) continue;
-    if (ev.type === 'user') {
-      if (promptText(ev) !== null) {
-        prompted = true;
-        state = 'waiting';
-        turnText = '';
-      } else if (prompted) {
-        // A tool result or an Escape marker: the turn is still open.
-        state = 'working';
-      }
-      continue;
-    }
-    if (ev.type !== 'assistant') continue;
-    const text = contentText(ev.message?.content).trim();
-    if (ev.isApiErrorMessage) {
-      state = 'api-error';
-      errorText = text;
-      continue;
-    }
-    if (text) turnText = text;
-    state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
-  }
-
-  if (!prompted) return { status: 'undelivered', partial: false, text: '', reason: { code: 'no-prompt' } };
-  if (state === 'done') return { status: 'completed', partial: false, text: turnText };
-  if (state === 'api-error') {
-    return { status: 'failed', partial: false, text: turnText, reason: { code: 'api-error', detail: errorText } };
-  }
-  return cut(turnText);
-}
-
+// The classification of a child's turns lives in `subagent-result.ts`; it is
+// re-exported here for the callers that read it with the transcript.
+export {
+  classifySubAgentTranscript,
+  type SubAgentEnding,
+  type SubAgentOutcome,
+  type SubAgentReason,
+  type SubAgentStatus,
+} from './subagent-result';

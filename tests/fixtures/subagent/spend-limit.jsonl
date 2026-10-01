@@ -1,0 +1,5 @@
+{"type": "mode", "mode": "default"}
+{"type": "permission-mode", "permissionMode": "bypassPermissions"}
+{"type": "system", "subtype": "informational", "content": "AGENTS.md loaded"}
+{"type": "user", "cwd": "/p/app", "timestamp": "2026-09-29T10:00:00.000Z", "message": {"role": "user", "content": "Find every call site of deliverExit and report the files."}}
+{"type": "assistant", "isApiErrorMessage": true, "timestamp": "2026-09-29T10:00:01.000Z", "message": {"model": "<synthetic>", "role": "assistant", "stop_reason": "stop_sequence", "content": [{"type": "text", "text": "You've hit your monthly spend limit"}]}}
