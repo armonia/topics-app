@@ -22,13 +22,20 @@
  * finished mark (its phase drives attention), so its banner's row is the only
  * thing it leaves on the bell, and the seen event has to clear it too.
  *
+ * A pane can be in front with no focus to name it: with `focusedPanelId` null
+ * (a new device, after a drop) the group draws its active tab as focused, so
+ * the group holds that pane in front itself (`StandaloneChatGroup`). The board's
+ * coordinator chat lives in a drawer inside the board pane, which has no
+ * subject of its own: the drawer holds the coordinator (`SubjectInFront`).
+ *
  * The unread count stays on its own door (the WS `focus` ping in
- * `useWebSocket`), armed by the same focused chat with the same dwell.
+ * `useWebSocket`), armed by the focused chat with the same dwell and re-armed,
+ * like this one, when the window comes back.
  */
 import { useEffect } from 'react';
 import { SEEN_DWELL_MS, signalsActions, useSignalsStore } from './signals';
 import { holdSubjectInFront, seeChatFinished } from './chatInView';
-import { isWindowAwake } from './windowAwake';
+import { isWindowAwake, onWindowAwakeChange } from './windowAwake';
 import { useProjectFocusStore } from './projectFocus';
 import { createPaneId, getTerminalSessionFromPaneId } from './pane/adapters/paneConfig';
 import { isUtilityPanelId } from './pane/adapters/utilityPanelId';
@@ -105,14 +112,13 @@ export function seeSubject(id: string): void {
 }
 
 /**
- * Arms the seen dwell on the window's focused pane. Mounted once per window
- * (App). The dwell re-arms whenever the subject in front gets a new mark, so a
+ * Arms the seen dwell on `subject` while it is in front: declared in front for
+ * the mark decisions, and seen after SEEN_DWELL_MS of continuous look with the
+ * window awake. The dwell re-arms whenever the subject gets a new mark, so a
  * turn that ends on the pane you are looking at clears after the dwell instead
  * of staying until you click somewhere else and back.
  */
-export function useSeenFocusedPane(focusedPanelId: string | null): void {
-  const activePaneByProject = useProjectFocusStore((s) => s.activePaneByProject);
-  const subject = focusedSubjectOf(focusedPanelId, activePaneByProject);
+function useSeenSubjectInFront(subject: string | null): void {
   // Declared in front for the mark decisions (`isSubjectInFront`): a turn that
   // ends on it while the window is awake raises no mark at all.
   useEffect(() => (subject ? holdSubjectInFront(subject) : undefined), [subject]);
@@ -135,16 +141,29 @@ export function useSeenFocusedPane(focusedPanelId: string | null): void {
     };
     // Only a continuous look counts: a window that goes behind restarts the wait.
     const onAwakeChange = () => { if (isWindowAwake()) arm(); else disarm(); };
-    if (isWindowAwake()) arm();
-    document.addEventListener('visibilitychange', onAwakeChange);
-    window.addEventListener('focus', onAwakeChange);
-    window.addEventListener('blur', onAwakeChange);
+    onAwakeChange();
+    const stopListening = onWindowAwakeChange(onAwakeChange);
     return () => {
       disposed = true;
       disarm();
-      document.removeEventListener('visibilitychange', onAwakeChange);
-      window.removeEventListener('focus', onAwakeChange);
-      window.removeEventListener('blur', onAwakeChange);
+      stopListening();
     };
   }, [subject, unseen]);
+}
+
+/**
+ * The seen dwell on a pane in front: the window's focused pane (App), or the
+ * pane a group draws as focused while no pane is (StandaloneChatGroup). A
+ * project window stands for its focused inner pane.
+ */
+export function useSeenFocusedPane(paneId: string | null): void {
+  const activePaneByProject = useProjectFocusStore((s) => s.activePaneByProject);
+  useSeenSubjectInFront(focusedSubjectOf(paneId, activePaneByProject));
+}
+
+/** The seen dwell as an element, for a subject drawn in front inside a pane
+ *  that has none of its own (the board's coordinator drawer). */
+export function SubjectInFront({ subjectId }: { subjectId: string | null }): null {
+  useSeenSubjectInFront(subjectId);
+  return null;
 }

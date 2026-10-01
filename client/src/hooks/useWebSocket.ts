@@ -9,7 +9,7 @@ import { applyUnreadUpdate, clearUnreadFor } from '../state/unread';
 import { setWsClientId } from '../state/wsIdentity';
 import { SEEN_DWELL_MS } from '../state/signals';
 import { takeChatDoneSeen } from '../state/chatInView';
-import { isWindowAwake } from '../state/windowAwake';
+import { isWindowAwake, onWindowAwakeChange } from '../state/windowAwake';
 import { openingChatClearsSomething, useUnseenNotificationsStore } from '../state/notificationUnseen';
 import { defaultNotificationGroupKey } from '../../../shared/notification-log';
 
@@ -506,6 +506,37 @@ export function useWebSocket(): UseWebSocketReturn {
     };
   }, [connect, clearOfflineTimer]);
 
+  // The dwell on the topic in front, armed by a `focus` ping and by the window
+  // waking up (the listener below `sendWS`).
+  const armSeen = useCallback((tid: string) => {
+    seenTimerRef.current = setTimeout(() => {
+      seenTimerRef.current = null;
+      // Guardie al momento dello scatto: la topic deve essere ANCORA quella
+      // davanti (il focus può essersi spostato senza un nuovo frame) e la
+      // finestra sveglia (può essere finita dietro durante l'attesa).
+      if (lastFocusTopicRef.current !== tid) return;
+      if (!isWindowAwake()) return;
+      // Soglia raggiunta: da ora i messaggi che arrivano su questa topic vanno
+      // ri-marcati letti al volo (vedi onmessage `unread:updated`), non lasciati
+      // come badge.
+      seenTopicRef.current = tid;
+      // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
+      // sempre 0 e la POST non partirebbe mai.
+      // Unread OR an unseen notification: a chat's notification can be born
+      // after its unread was cleared (another window, a push), and reading
+      // the unread alone skipped the POST that clears it.
+      // A 'done' mark cleared here goes through the same door, so every
+      // other window drops it too (CHAT-DONE-01).
+      const doneMark = takeChatDoneSeen(tid);
+      const toReset = openingChatClearsSomething(unreadRef.current, useUnseenNotificationsStore.getState().keys, tid, doneMark);
+      applyUnread(prev => clearUnreadFor(prev, tid));
+      // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
+      // caro: la POST fa riscrivere al server l'intera tabella unread e poi
+      // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
+      if (toReset) topicsApi.markRead(tid, { doneMark }).catch(() => {});
+    }, SEEN_DWELL_MS);
+  }, [applyUnread]);
+
   const sendWS = useCallback((message: WSMessage) => {
     // Il ping di focus è l'UNICO segnale che l'utente sta guardando una topic,
     // quindi è qui che vive tutta la logica di "letto": azzeramento locale
@@ -525,7 +556,7 @@ export function useWebSocket(): UseWebSocketReturn {
     // Il frame `focus` parte subito — al server serve per il routing — ma
     // l'azzeramento scatta solo se quella topic e' ancora davanti dopo
     // SEEN_DWELL_MS, e con la finestra sveglia. E' la stessa soglia che tiene il
-    // fill blu sulla tab (`useSeenDwell` in state/signals.ts): due politiche di
+    // fill blu sulla tab (`useSeenSubjectInFront` in state/paneSeen.ts): due politiche di
     // "visto" in disaccordo darebbero un badge che sfarfalla, quindi e' UNA.
     const m = message as unknown as { type?: string; topicId?: string | null };
     if (m.type === 'focus') {
@@ -540,40 +571,28 @@ export function useWebSocket(): UseWebSocketReturn {
         clearTimeout(seenTimerRef.current);
         seenTimerRef.current = null;
       }
-      if (m.topicId) {
-        const tid = m.topicId;
-        seenTimerRef.current = setTimeout(() => {
-          seenTimerRef.current = null;
-          // Guardie al momento dello scatto: la topic deve essere ANCORA quella
-          // davanti (il focus può essersi spostato senza un nuovo frame) e la
-          // finestra sveglia (può essere finita dietro durante l'attesa).
-          if (lastFocusTopicRef.current !== tid) return;
-          if (!isWindowAwake()) return;
-          // Soglia raggiunta: da ora i messaggi che arrivano su questa topic vanno
-          // ri-marcati letti al volo (vedi onmessage `unread:updated`), non lasciati
-          // come badge.
-          seenTopicRef.current = tid;
-          // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
-          // sempre 0 e la POST non partirebbe mai.
-          // Unread OR an unseen notification: a chat's notification can be born
-          // after its unread was cleared (another window, a push), and reading
-          // the unread alone skipped the POST that clears it.
-          // A 'done' mark cleared here goes through the same door, so every
-          // other window drops it too (CHAT-DONE-01).
-          const doneMark = takeChatDoneSeen(tid);
-          const toReset = openingChatClearsSomething(unreadRef.current, useUnseenNotificationsStore.getState().keys, tid, doneMark);
-          applyUnread(prev => clearUnreadFor(prev, tid));
-          // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
-          // caro: la POST fa riscrivere al server l'intera tabella unread e poi
-          // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
-          if (toReset) topicsApi.markRead(tid, { doneMark }).catch(() => {});
-        }, SEEN_DWELL_MS);
-      }
+      if (m.topicId) armSeen(m.topicId);
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
-  }, [applyUnread]);
+  }, [armSeen]);
+
+  // A window that comes back is a new look at the focused topic, as for the
+  // fill (`useSeenSubjectInFront` in state/paneSeen.ts): the dwell re-arms.
+  // It used to arm on the `focus` ping only, so a message that landed while
+  // the window was behind stayed unread on the bell and the Dock after the
+  // return, until the focus moved away and back. Only a continuous look
+  // counts: a window that goes behind cancels the dwell in flight.
+  useEffect(() => onWindowAwakeChange(() => {
+    const tid = lastFocusTopicRef.current;
+    if (seenTimerRef.current === null) {
+      if (tid && isWindowAwake()) armSeen(tid);
+    } else if (!isWindowAwake()) {
+      clearTimeout(seenTimerRef.current);
+      seenTimerRef.current = null;
+    }
+  }), [armSeen]);
 
   const onMessage = useCallback((handler: (msg: WSMessage) => void) => {
     handlersRef.current.add(handler);

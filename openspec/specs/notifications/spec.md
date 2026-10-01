@@ -927,9 +927,18 @@ il terminale solo al proprio clic, la pane terminale che lo spegneva appena
 visibile). Fa eccezione la riga di una chat tenuta da UN'ALTRA finestra: qui
 nessuna pane la mostra, e il clic che porta avanti quella finestra è lo sguardo.
 
+Una pane è davanti anche senza un fuoco che la nomini: con nessuna pane a
+fuoco (un dispositivo nuovo, dopo un trascinamento) il gruppo disegna la sua
+tab attiva come a fuoco, e quella pane SHALL contare come la pane a fuoco. La
+chat del coordinatore aperta nel cassetto della board SHALL contare come la
+pane a fuoco quando lo è la board.
+
 Le richieste di risposta (`awaiting-approval`, una domanda aperta) e il
-non-letto restano fuori: la prima si spegne rispondendo, il secondo ha la sua
-porta (il ping `focus`), armata dalla stessa chat a fuoco con la stessa soglia.
+non-letto restano fuori: la prima si spegne rispondendo, e SHALL restare ambra
+su OGNI superficie (tab, riga, card del gruppo, rollup di progetto) anche
+quando la pane è stata vista; il secondo ha la sua porta (il ping `focus`),
+armata dalla stessa chat a fuoco con la stessa soglia e riarmata, come il
+visto, quando la finestra torna davanti.
 
 #### Scenario: una pane visibile ma non a fuoco tiene il suo segno
 - **GIVEN** una chat e un terminale finiti, ognuno visibile nella sua cella di
@@ -944,6 +953,18 @@ porta (il ping `focus`), armata dalla stessa chat a fuoco con la stessa soglia.
 - **WHEN** si clicca dentro il terminale
 - **THEN** il suo segno SHALL sparire dalla riga, dalla campanella e, lasciato
   il fuoco, dalla tab
+
+#### Scenario: un permesso in attesa sulla chat a fuoco
+- **GIVEN** la chat a fuoco passa in `awaiting-approval`
+- **WHEN** passa più di una soglia di visto con la finestra sveglia
+- **THEN** la tab, la riga e la card del gruppo SHALL mostrare tutte l'ambra
+
+#### Scenario: la finestra torna davanti alla chat a fuoco
+- **GIVEN** la chat a fuoco riceve un messaggio e finisce un turno mentre la
+  finestra è dietro
+- **WHEN** la finestra torna davanti e resta sulla chat per la soglia
+- **THEN** la campanella e il Dock SHALL non contarla più, e lasciata la chat
+  né la sua riga né la sua tab SHALL avere un badge
 
 #### Scenario: la riga di banner di un terminale senza segno «finito»
 - **GIVEN** un terminale claude-code guidato dagli hook, che non riceve mai il
@@ -972,3 +993,14 @@ soglia e SHALL spegnersi da sola dopo, senza bisogno di un altro gesto.
 - **AND** la riga di registro del suo banner (che parte comunque con «notifica
   anche a fuoco») SHALL nascere vista, come quella di una chat a fuoco, e la
   campanella e il Dock SHALL non contarla
+
+#### Scenario: nessuna pane a fuoco, la pane disegnata davanti finisce un turno
+- **GIVEN** nessuna pane a fuoco, e il gruppo disegna la sua tab attiva (un
+  terminale o una chat) come a fuoco
+- **WHEN** quella pane finisce un turno
+- **THEN** né la sua riga, né la sua tab, né la campanella SHALL contarla
+
+#### Scenario: il coordinatore nel cassetto della board finisce un turno
+- **GIVEN** la board a fuoco con il cassetto del coordinatore aperto
+- **WHEN** il coordinatore finisce un turno pulito, rumoroso o silenziato
+- **THEN** la campanella SHALL non contarlo e il Dock SHALL non lampeggiare

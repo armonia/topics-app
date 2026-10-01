@@ -160,12 +160,19 @@ export function resetSeenOnNewAttention(
  * selezionata è focused ma non ancora vista, quindi tiene il suo fill finché la
  * soglia non scatta — che è esattamente ciò che "resta blu finché non la
  * visualizzi" chiede.
+ *
+ * The amber ('input', a permission or a question waiting) is NOT cleared by a
+ * look: it is not news to read but a request still open, and only the answer
+ * takes it away. Same rule as the group card (`spaceAttentionTier`) and the
+ * project rollup (`projectAttentionTier`): the tab and the row used to drop it
+ * after the dwell, and on the pane in front the amber stayed on the card only.
  */
 export function attentionFillFor(
   tier: AttentionTier | null | undefined,
   seen: boolean,
 ): AttentionTier | null {
   if (!tier) return null;
+  if (tier === 'input') return tier;
   return seen ? null : tier;
 }
 
@@ -1044,15 +1051,16 @@ export function projectAttentionTier(
   let hasDone = false;
   for (const t of liveTopicsOfProject(topics, projectPath)) {
     if (t.standalone) continue; // resa fuori dal progetto — vedi rollupProjectAttention
-    if (seenSubjects?.has(t.id)) continue;
+    // A pending permission is not cleared by a look (`attentionFillFor`).
     if (inputTopics.has(t.id)) return 'input';
+    if (seenSubjects?.has(t.id)) continue;
     if (awaitingTopics.has(t.id)) hasDone = true;
   }
   for (const ts of terminalSessions) {
     if (ts.type === 'shell') continue;
     if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-    if (seenSubjects?.has(ts.id)) continue;
     if (inputTerms.has(ts.id)) return 'input';
+    if (seenSubjects?.has(ts.id)) continue;
     if (awaitingTerms.has(ts.id)) hasDone = true;
   }
   return hasDone ? 'done' : null;
