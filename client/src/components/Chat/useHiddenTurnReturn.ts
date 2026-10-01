@@ -104,19 +104,19 @@ function holdScrollUntilMeasured(el: HTMLElement): () => void {
   if (!host) return () => {};
   const hold = (e: Event) => { if (e.target === el) e.stopPropagation(); };
   let frames = 0;
-  let raf = 0;
+  let frameId = 0;
   const lift = () => {
     host.removeEventListener('scroll', hold, true);
     for (const type of USER_INPUT) el.removeEventListener(type, release, true);
-    cancelAnimationFrame(raf);
+    cancelAnimationFrame(frameId);
   };
   const release = () => { lift(); el.dispatchEvent(new Event('scroll')); };
   const tick = () => {
     if (++frames >= MEASURE_WAIT_FRAMES || unmeasuredGrowth(el) <= 1) release();
-    else raf = requestAnimationFrame(tick);
+    else frameId = requestAnimationFrame(tick);
   };
   host.addEventListener('scroll', hold, true);
   for (const type of USER_INPUT) el.addEventListener(type, release, true);
-  raf = requestAnimationFrame(tick);
+  frameId = requestAnimationFrame(tick);
   return lift;
 }
