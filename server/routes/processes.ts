@@ -26,7 +26,9 @@ import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
-import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
+import { commandArgv, confineCommandCwd, hasCommandShell, readExitCode } from "../lib/command-process";
+import { closeRun, insertRun, latestRuns, runOwner, tailForStorage, type RunStatus } from "../lib/command-runs";
+import { agentWorkspaceForSession } from "../lib/agent-workspace";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
@@ -123,7 +125,16 @@ interface CommandMeta {
   wake: boolean;
   /** Stopped from the panel or with `stop_process`: «stopped», no wake. */
   stopped?: boolean;
+  /**
+   * `person`: run by a person from the chat (Run under a code block), never
+   * by the agent. It wakes nobody, the agent's process tools do not see it,
+   * and its end closes its row in `command_runs` (CMDRUN-05, CMDRUN-06).
+   */
+  origin?: "person";
 }
+
+/** A run a person started from the chat: kept out of everything the agent reads. */
+const isPersonRun = (sp: ScriptProcess) => sp.cmd?.origin === "person";
 
 // Serializable subset for persistence
 interface PersistedScript {
@@ -661,6 +672,34 @@ function finishCommand(sp: ScriptProcess): void {
   // An ended server keeps its addresses while the chat says how it ended, then they go.
   if (commandServiceWatch.listenOf(sp.processId)) setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
   if (cmd.wake) requestWakeFor(sp);
+  if (cmd.origin === "person") settlePersonRun(sp);
+}
+
+/**
+ * The row of a person's run closes with the registry row: how it ended, when,
+ * and the end of its output. Needs the database, which the registry reaches
+ * through the router's context: a run that ended while the server was down is
+ * closed at boot before the router exists, and the router closes it when it
+ * is created (`createProcessesRouter`). Closing twice changes nothing.
+ */
+function settlePersonRun(sp: ScriptProcess): void {
+  const ctx = _broadcastCtx;
+  if (!ctx || sp.status === "running" || !sp.cmd) return;
+  const status: Exclude<RunStatus, "running"> = sp.cmd.stopped ? "stopped"
+    : sp.exitCode === undefined ? "unknown"
+    : sp.exitCode === 0 ? "done" : "error";
+  const { output, droppedLines } = tailForStorage(sp.output, sp.droppedLines ?? 0);
+  try {
+    const closed = closeRun(ctx.db, sp.processId, {
+      status, exitCode: status === "done" || status === "error" ? sp.exitCode ?? null : null,
+      endedAt: sp.completedAt ?? new Date().toISOString(), output, droppedLines,
+    });
+    if (!closed) return;
+    const owner = runOwner(ctx.db, sp.processId);
+    if (owner) ctx.broadcastToAll({ type: "command-run:updated", ...owner, runId: sp.processId, status });
+  } catch (err) {
+    console.warn(`[processes] closing the run ${sp.processId} failed:`, err);
+  }
 }
 /** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
 const commandServiceWatch = serviceWatch({
@@ -749,13 +788,19 @@ function settleWakeReadInTurn(sp: ScriptProcess, sessionKey: string, db: AppCont
 function startCommandProcess(o: {
   projectPath: string; cwd: string; command: string; description?: unknown;
   sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"];
+  origin?: "person";
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
   const processId = crypto.randomUUID();
   const argv = commandArgv(o.command, exitPathOf(processId));
   if (!argv) return null; // no POSIX shell here (Windows)
   // The environment of the agent's own Bash, not the server's: its secrets
   // would reach the log, the panel and the wake row (`lib/agent-env.ts`).
-  const env = augmentEnv(agentBaseEnv(), { FORCE_COLOR: "0", NO_COLOR: "1" });
+  // Colours off for the agent, whose output goes to a model; on for a person,
+  // whose output is drawn under the block with its colours.
+  const env = augmentEnv(agentBaseEnv(), o.origin === "person"
+    ? { FORCE_COLOR: "1", CLICOLOR_FORCE: "1" }
+    : { FORCE_COLOR: "0", NO_COLOR: "1" });
+  if (o.origin === "person") delete env.NO_COLOR;
   // And the core quota that Bash gets when the session is a board card's
   // (`providers/claude-code.ts`): the board sends its builds, tests and
   // installs here. A chat's session gets none, and `env` stays as it is.
@@ -772,7 +817,7 @@ function startCommandProcess(o: {
     processId, scriptName: commandLabel(o.command, o.description), command: o.command, projectPath: o.projectPath,
     status: "running", pid: proc.pid, pidLstart: pidStartTime(proc.pid), startedAt: new Date().toISOString(),
     output: [], outputBytes: 0, proc, source: "command",
-    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId },
+    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId, ...(o.origin ? { origin: o.origin } : {}) },
   };
   runningScripts.set(processId, sp);
   followLog(sp, logPath, 0);
@@ -1625,6 +1670,8 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
   _broadcastCtx = ctx; // store for pollPidExit callbacks
+  // The people's runs that ended before there was a database to close their row in (boot).
+  for (const sp of recentScripts) if (isPersonRun(sp)) settlePersonRun(sp);
 
   async function readJSON(req: Request): Promise<any> {
     try { return await req.json(); } catch { return null; }
@@ -1772,7 +1819,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
   /** Build the `{ scripts }` payload, optionally filtered to one project path. */
   async function serializeScripts(filterCwd?: string): Promise<{ scripts: any[] }> {
-    const match = (sp: ScriptProcess) => !filterCwd || sp.projectPath === filterCwd;
+    // Scoped to a session = the agent asking (`list_processes`): a person's run is not its to see.
+    const match = (sp: ScriptProcess) => !filterCwd || (sp.projectPath === filterCwd && !isPersonRun(sp));
     const running = Array.from(runningScripts.values()).filter(match);
     // One batched port lookup for all running pids (shared lsof + ps snapshot,
     // single pass over the cached port list) instead of per-process.
@@ -2003,6 +2051,75 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/sessions/:sessionKey/command-runs — Run under a code block of a reply (CMDRUN-05)
+    //
+    // A PERSON runs a command the agent wrote. No new power: an owner already
+    // has a shell (the terminal) and the agent already has `run_command` on the
+    // same road; this is that road with another origin. What it adds are the
+    // conditions under which the chat offers it, checked again here: a reply
+    // of the agent of THIS session, finished (a fence still streaming is drawn
+    // closed, and `rm -rf ./build/cache` cut at `rm -rf ./` would run). The
+    // command runs where the agent's Bash runs, wakes nobody, and its outcome
+    // is kept in `command_runs`. Guests never reach it: the path is outside
+    // their allowlist (`lib/grants.ts`), and the role is checked again here.
+    {
+      const m = (method === "POST" || method === "GET") && pathname.match(/^\/api\/sessions\/([^/]+)\/command-runs$/);
+      if (m) {
+        if (ctx.requestIdentity?.(req)?.role === "guest") return json({ error: "guest_forbidden", code: "guest_forbidden" }, 403);
+        const sessionKey = decodeURIComponent(m[1]);
+        if (method === "GET") {
+          const messageId = url.searchParams.get("messageId") ?? "";
+          if (!messageId) return json({ error: "messageId is required" }, 400);
+          // A run still `running` whose process the registry no longer has
+          // (killed with the server, never re-adopted): unknown, not running forever.
+          for (const run of latestRuns(ctx.db, sessionKey, messageId)) {
+            if (run.status !== "running") continue;
+            const sp = getScript(run.runId);
+            if (sp && sp.status !== "running") settlePersonRun(sp);
+            else if (!sp) closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt: new Date().toISOString(), output: "", droppedLines: 0 });
+          }
+          return json({ runs: latestRuns(ctx.db, sessionKey, messageId) });
+        }
+        if (!hasCommandShell()) return json({ error: "Running a command needs a POSIX shell, and this system has none", code: "no_shell" }, 501);
+        const body = await readJSON(req);
+        const command = typeof body?.command === "string" ? body.command : "";
+        if (!command.trim()) return json({ error: "command (non-empty string) is required" }, 400);
+        const blockKey = body?.blockKey;
+        if (typeof blockKey !== "number" || !Number.isSafeInteger(blockKey) || blockKey < 0) return json({ error: "blockKey (non-negative integer) is required" }, 400);
+        const messageId = typeof body?.messageId === "string" ? body.messageId : "";
+        const msg = messageId
+          ? ctx.db.query("SELECT session_key, role, partial FROM messages WHERE id = ?").get(messageId) as { session_key: string; role: string; partial: number | null } | null
+          : null;
+        if (!msg || msg.session_key !== sessionKey || msg.role !== "assistant") return json({ error: "No reply of the agent with this id in this session", code: "message_not_found" }, 404);
+        if (msg.partial) return json({ error: "The reply is still being written", code: "message_partial" }, 409);
+        const cwd = agentWorkspaceForSession(sessionKey);
+        try {
+          const started = startCommandProcess({
+            projectPath: cwd, cwd, command, sessionKey,
+            topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null,
+            wake: false, origin: "person", db: ctx.db,
+          });
+          if (!started) return json({ error: "Running a command needs a POSIX shell, and this system has none", code: "no_shell" }, 501);
+          // Synchronously after the spawn: the process cannot have closed its row before the row exists.
+          try {
+            insertRun(ctx.db, {
+              id: started.processId, sessionKey, messageId, blockKey, command, cwd, startedAt: started.startedAt,
+              authorDeviceId: ctx.requestIdentity?.(req)?.deviceId ?? null,
+            });
+          } catch (err) {
+            // No row, no run: a command nobody can see under its block is not left running.
+            const sp = runningScripts.get(started.processId);
+            if (sp) killRunningScript(sp);
+            throw err;
+          }
+          ctx.broadcastToAll({ type: "command-run:updated", sessionKey, messageId, runId: started.processId, status: "running" });
+          return json({ runId: started.processId, processId: started.processId, cwd, startedAt: started.startedAt });
+        } catch (err) {
+          return json({ error: `Failed to spawn: ${err instanceof Error ? err.message : String(err)}` }, 500);
+        }
+      }
+    }
+
     // GET /api/scripts — list running + recent, with per-process ports
     if (method === "GET" && pathname === "/api/scripts") {
       // Qualcuno sta guardando: la rilevazione torna alla cadenza piena, cosi'
@@ -2064,7 +2181,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const r = resolveSessionCwd(sessionKey);
         if ("error" in r) return r.error;
         const sp = getScript(m[2]);
-        if (!sp || sp.projectPath !== r.path) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
           return json({ error: "Process not found in this project" }, 404);
         }
         const offset = parseInt(url.searchParams.get("offset") || "0", 10);
@@ -2093,7 +2210,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if ("error" in r) return r.error;
         const id = decodeURIComponent(m[2]);
         const sp = getScript(id) ?? getScript(shellProcessKey(sessionKey, id));
-        if (!sp || sp.projectPath !== r.path) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
           return json({ error: "Process not found in this project" }, 404);
         }
 
@@ -2150,7 +2267,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const r = resolveSessionCwd(decodeURIComponent(m[1]));
         if ("error" in r) return r.error;
         const sp = runningScripts.get(m[2]);
-        if (!sp || sp.projectPath !== r.path) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
           return json({ error: "Process not found in this project or already stopped" }, 404);
         }
         if (!killRunningScript(sp)) {

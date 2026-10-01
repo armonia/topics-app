@@ -28,6 +28,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
+import { agentWorkspaceForSession } from "../lib/agent-workspace";
 import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
@@ -569,51 +570,6 @@ export function getTopicSpawnOverridesForSession(sessionKey: string): { effort: 
     return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null, autonomy: row.autonomy_level ?? null, dispatched };
   } catch {
     return { effort: null, model: null, mcpPolicy: null, autonomy: null, dispatched: false };
-  }
-}
-
-/**
- * Resolve the OS working directory for a session's spawn, mirroring the
- * `ctx.resolveTopicCwd` precedence (a ready worktree's absPath, else the
- * topic's projectPath) directly from the DB — the provider module can't reach
- * the ctx closure. Returns null when the topic has no bound dir or the
- * resolved path is missing, so the caller falls back to defaultWorkspace/HOME.
- *
- * WHY this matters (2026-07-18): the CLI child spawns with THIS cwd, and the
- * agent's relative-path tools (Bash/Glob/Grep) resolve against it. We used to
- * spawn EVERY session in HOME and rely on the "You are working in <path>"
- * awareness block alone. For a plain interactive project chat that diverges:
- * asked to "analizza tutta la repository", the agent — sitting in HOME — ran
- * `find ~/Projects`, wandered into the WRONG repo, and piled up 60s no-data
- * timeouts (the "chat keeps freezing" report). Aligning the OS cwd with
- * resolveTopicCwd removes the divergence; for worktree-bound board agents the
- * cwd now equals the isolated worktree the awareness block already names.
- */
-export function getTopicWorkspaceForSession(sessionKey: string): string | null {
-  try {
-    const row = getDatabase()
-      .prepare(
-        `SELECT t.project_path AS projectPath, w.abs_path AS wtAbs, w.status AS wtStatus
-         FROM topics t LEFT JOIN worktrees w ON w.id = t.worktree_id
-         WHERE t.session_key = ? LIMIT 1`,
-      )
-      .get(sessionKey) as { projectPath?: string | null; wtAbs?: string | null; wtStatus?: string | null } | undefined;
-    if (!row) return null;
-    // A ready worktree wins — same precedence as resolveTopicCwd, and it matches
-    // the path the awareness block already tells the agent to work in.
-    if (row.wtAbs && row.wtStatus === "ready" && existsSync(row.wtAbs)) return row.wtAbs;
-    // Otherwise the project checkout. Expand a leading ~ like resolveProjectPath.
-    let p = row.projectPath ?? "";
-    if (!p) return null;
-    if (p.startsWith("~")) {
-      const home = process.env.HOME;
-      if (!home) return null;
-      p = p.replace(/^~/, home);
-    }
-    // Guard existence: spawning with a stale/missing cwd throws → fall back.
-    return existsSync(p) ? p : null;
-  } catch {
-    return null;
   }
 }
 
@@ -2258,7 +2214,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   /** The cwd the CLI of this session runs in: its worktree or project, else the configured workspace. */
   private workspaceFor(sessionKey: string): string {
-    return getTopicWorkspaceForSession(sessionKey) || this.config.defaultWorkspace || process.env.HOME || "/tmp";
+    return agentWorkspaceForSession(sessionKey, this.config.defaultWorkspace);
   }
 
   /**

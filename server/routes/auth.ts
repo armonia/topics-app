@@ -38,6 +38,7 @@ import {
   createProjectIdentityResolver,
   projectAliasPlaceholders,
 } from "../lib/project-identity";
+import { hasCommandShell } from "../lib/command-process";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -405,6 +406,9 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         return json({
           paired: true, as: "loopback", name: "Questo computer", role: "owner",
           installationName: installazione,
+          // Whether this server can run a command for its owner (Run under a
+          // code block of a reply, CHAT-RUN-01): not on Windows.
+          commandShell: hasCommandShell(),
         });
       }
       if (!io.device) return json({ paired: false, as: null, name: null, installationName: installazione });
@@ -418,6 +422,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         paired: true, as: "device", name: io.device.name, deviceId: io.device.id,
         role: io.confined ? "guest" : "owner",
         installationName: installazione,
+        commandShell: hasCommandShell(),
         // La persona, quando c'è: è ciò che il client mostrerà al posto del nome
         // del ferro appena l'interfaccia saprà parlarne.
         personId: io.personId,

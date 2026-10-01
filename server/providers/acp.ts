@@ -50,7 +50,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { classifyTurnError, isAcpStopReason, type TurnEndInfo } from "./stop-reason";
-import { getTopicWorkspaceForSession } from "./claude-code";
+import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
 import { JsonRpcPeer } from "./acp/jsonrpc";
 import {
   newTranslateState,
