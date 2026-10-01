@@ -846,7 +846,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // in that same second pass: the layout committed twice for one gesture.
       // The same pure rules, applied here to the groups this close produces,
       // land in the close's own batch; the effects then find nothing to do.
-      const nextGroups = detachPaneFromGroups(groups, groupId, paneId);
+      // The groups are read from the ref, not from this closure: a countdown
+      // close runs this callback as it was captured 3 s earlier, and a group
+      // made in the meantime (a split during the countdown) is not in the
+      // closure's `groups`. Rows reconciled against those would drop it from
+      // the grid and move the focus off it.
+      const nextGroups = detachPaneFromGroups(groupsRef.current, groupId, paneId);
       const nextRows = reconcileRowsWithGroups(rowsRef.current, rowHeightsRef.current, nextGroups);
       if (nextRows) {
         setRows(nextRows.rows);

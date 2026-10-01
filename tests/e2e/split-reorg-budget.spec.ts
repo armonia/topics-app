@@ -48,6 +48,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir } from "./helpers/file-project";
+import { nextFrames } from "./helpers/frame-probe";
 import { projectPanesKey } from "../../shared/project-keys";
 import {
   beginGesture,
@@ -507,6 +508,83 @@ test.describe("split reorganisation budget", () => {
         expect.soft(r.frames, `${r.gesture}: the new tree shows by frame ${MAX_DROP_FRAMES}`).toBeLessThanOrEqual(MAX_DROP_FRAMES);
       }
     }
+  });
+
+  test("a countdown close that lands after a split made during the countdown leaves that split and its focus alone", async ({
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "SPLITPERF-01" });
+    test.setTimeout(120_000);
+    // A countdown close runs the close as it was captured when the countdown
+    // began. Its rows and focus were reconciled against the groups of THAT
+    // moment, so a group made during the 3 s (here: files split under the
+    // chat) was missing from them: the close dropped it from the grid, the
+    // rows sync appended it again as a column on the right, and the focus
+    // fell back to the chat.
+    const chatPane = `chat:${chatId}`;
+    const filesPane = "files:split-reorg-countdown";
+    const gitPane = "git:split-reorg-countdown";
+    await resetPaneStore(request, []);
+    await request
+      .put(`${E2E_BASE}/api/ui-state/grid-layout`, { data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] } })
+      .catch(() => {});
+    await resetProjectPanes(request, dir);
+    await seedProjectPane(request, dir);
+    await request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(dir)}`, {
+      data: {
+        nonChatPanes: [
+          { id: filesPane, type: "files", title: "Files" },
+          { id: gitPane, type: "git", title: "Git" },
+        ],
+        openChatTopicIds: [chatId],
+        activeChatTopicId: chatId,
+      },
+    });
+    await goToApp(page);
+    for (const id of [filesPane, gitPane, chatPane]) {
+      await page.locator(tab(id)).first().waitFor({ state: "visible", timeout: 20000 });
+    }
+    for (const id of [filesPane, gitPane, chatPane]) {
+      await page.locator(tab(id)).first().click();
+      await expect(page.locator(`[data-pane-shell="${id}"]`)).toHaveAttribute("data-pane-visible", "1");
+    }
+
+    // 1. Close git WITH the countdown.
+    await page.locator(tab(gitPane)).first().click({ button: "right" });
+    await page.getByRole("button", { name: /^(Chiudi \(con conto alla rovescia\)|Close \(with countdown\))$/ }).click();
+    const closeClickedAt = Date.now();
+
+    // 2. Inside the countdown: files goes to a split of its own, under the chat, and takes the focus.
+    const before = await treeSignature(page);
+    await startDrag(page, tab(filesPane), dir, "application/x-pane-tab");
+    const target = edgePoint(await bodyOf(page, chatPane), "bottom");
+    expect(await dragOverPoint(page, target), "the bottom edge must accept the drop").toBe(true);
+    expect(await dropAndCountFrames(page, target, before), "the split did not land").toBeGreaterThan(0);
+    await page.locator(tab(filesPane)).first().click();
+    await expect(page.locator(`[data-pane-shell="${filesPane}"]`)).toHaveAttribute("data-pane-visible", "1");
+    const placeOfFiles = async () => {
+      // The pane shells, not the leaves: a leaf id can also name the stack
+      // that holds it, whose box covers the whole column.
+      const f = await box(page, `[data-pane-shell="${filesPane}"]`);
+      const c = await box(page, `[data-pane-shell="${chatPane}"]`);
+      if (f.y >= c.y + c.height - 2) return "below the chat";
+      if (f.x >= c.x + c.width - 2) return "right of the chat";
+      return `elsewhere (${Math.round(f.x)},${Math.round(f.y)})`;
+    };
+    const placeBefore = await placeOfFiles();
+    expect(placeBefore, "the split made during the countdown").toBe("below the chat");
+    const focusedClass = await page.locator(tab(filesPane)).first().getAttribute("class");
+    expect(Date.now() - closeClickedAt, "the split must land inside the 3 s countdown").toBeLessThan(3000);
+
+    // 3. The countdown ends and the close lands.
+    await expect(page.locator(tab(gitPane))).toHaveCount(0, { timeout: 10_000 });
+    await nextFrames(page, 20);
+    expect(await placeOfFiles(), "the close moved the split made during its countdown").toBe(placeBefore);
+    expect(
+      await page.locator(tab(filesPane)).first().getAttribute("class"),
+      "the close moved the focus off the split made during its countdown",
+    ).toBe(focusedClass);
   });
 
   test("the standalone grid: moving tabs between cells keeps every open pane mounted", async ({ page, request }) => {
