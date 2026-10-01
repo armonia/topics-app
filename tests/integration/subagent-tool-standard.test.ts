@@ -167,7 +167,7 @@ describe("the child starts with the model, profile and effort it was given (SUBA
     expect(body.modelNote).toBe("default (parent model gpt-5.6-sol is not a Claude model)");
   }, 30_000);
 
-  test("an unknown model is refused before any process starts", async () => {
+  test("an unknown model is refused before a process starts", async () => {
     const { status, body } = await spawn(SONNET_CHAT, { model: "gpt-5" });
     expect(status).toBe(400);
     expect(body.error).toContain("inherit, sonnet, opus, fable, haiku");

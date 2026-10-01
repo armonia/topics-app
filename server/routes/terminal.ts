@@ -3527,8 +3527,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             seedAgentPrompt(row.id, input, normalizePromptSnippet(input))
               .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for resumed ${row.id}:`, err));
             return json({ ok: true, sent: input.length, resumed: true });
-          } catch (err: any) {
-            return errorResponse(502, `Failed to resume sub-agent: ${err.message}`);
+          } catch (err) {
+            return errorResponse(502, `Failed to resume sub-agent: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         if (!input) return errorResponse(400, "input (string) is required");
