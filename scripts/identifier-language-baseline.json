@@ -3409,15 +3409,6 @@
       "righe",
       "tutte"
     ],
-    "server/lib/ripresa-automatica.test.ts": [
-      "StatoRipresa",
-      "sano"
-    ],
-    "server/lib/ripresa-automatica.ts": [
-      "CAUSE_DA_RIPRENDERE",
-      "StatoRipresa",
-      "meritaRipresaAutomatica"
-    ],
     "server/lib/ripresa-boot.test.ts": [
       "RigaDaValutare",
       "guasto",

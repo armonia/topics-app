@@ -4,7 +4,7 @@
  * A marker records that the CLI compacted the context after a given message,
  * so the client can render a "context compacted" divider that survives reload.
  * Deliberately its own table — never joined into `messages`, never fed to
- * `build-provider-history`.
+ * the provider history (`server/context/assemble.ts`).
  */
 
 import type { Database } from "bun:sqlite";

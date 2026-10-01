@@ -47,7 +47,7 @@ import type {
 // Constants
 // ────────────────────────────────────────────────────────────────────────────
 
-/** Default upper bound on history turns. Mirrors `buildProviderHistory`. */
+/** Default upper bound on history turns. */
 const DEFAULT_HISTORY_LIMIT = 100;
 
 /**
@@ -125,7 +125,7 @@ export interface AssembleArgs {
    */
   userMessageOverride?: { content: string; messageId?: string };
 
-  /** Default 100. Mirrors `buildProviderHistory`. */
+  /** Default 100. */
   historyLimit?: number;
 
   /**
@@ -1209,9 +1209,8 @@ Brief summary of the approach and any considerations.
 Wait for the user to approve the plan before executing any changes.`;
 }
 
-// Nessuna ri-esportazione di `loadMemoryForTopic` / `buildProviderHistory`: chi
-// li usa (routes, `regression.test.ts`) li importa dal loro modulo — `routes/
-// memory` e `utils/build-provider-history` — non da qui. Ri-esportarli "per
-// restare dentro server/context/" dava due nomi alla stessa funzione senza che
-// nessuno passasse dal secondo. Il codice di produzione usa
+// Nessuna ri-esportazione di `loadMemoryForTopic`: chi lo usa (routes,
+// `regression.test.ts`) lo importa dal suo modulo, `routes/memory`, non da qui.
+// Ri-esportarlo "per restare dentro server/context/" dava due nomi alla stessa
+// funzione senza che nessuno passasse dal secondo. Il codice di produzione usa
 // `assembleTopicContext`.

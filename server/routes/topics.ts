@@ -400,8 +400,8 @@ const PREVIEW_CACHE_TTL_MS = 5_000;
  *  perché il client ripassa sul testo che arriva di qui (l'operazione è
  *  idempotente, quindi su un testo già pulito non fa niente). */
 const PREVIEW_MAX_CHARS = 120;
-/** Il prefisso delle buste di contesto di OpenClaw — vedi `isContextMessage` in
- *  `server/utils/build-provider-history.ts`. Qui serve come pattern SQL, quindi
+/** Il prefisso delle buste di contesto di OpenClaw — vedi `CHAT_CONTEXT_PREFIX`
+ *  in `server/context/assemble.ts`. Qui serve come pattern SQL, quindi
  *  niente apici né `%` dentro: entra in un `LIKE` per concatenazione. */
 const CONTEXT_ENVELOPE_PREFIX = "[Chat messages since your last reply";
 /** A row the MACHINE wrote (goal continuation, goal stop, board envelope) is not

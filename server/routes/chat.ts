@@ -2376,7 +2376,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // l'utente vede «Riprova» e spende un turno di troppo (spreco
               // VISIBILE), con la promessa vedrebbe «non serve che tu faccia
               // niente» e il turno resterebbe perso in SILENZIO. Vale la regola
-              // che `meritaRipresaAutomatica` gia' dichiara: nel dubbio si
+              // che `isResumableCause` gia' dichiara: nel dubbio si
               // lascia il cartello, che e' reversibile.
               //
               // Senza questa riga il campo non veniva passato da nessuno: la

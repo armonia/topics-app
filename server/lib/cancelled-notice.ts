@@ -223,8 +223,8 @@ export function avvisoPerTurno(
  *
  * I testi sono quelli di `cancelledNotice` qui sopra e stanno nello stesso
  * file APPOSTA: chi cambia una frase vede subito chi la legge. La regola
- * autorevole resta `meritaRipresaAutomatica` (`ripresa-automatica.ts`), che
- * gira sulla `StopCause`; questa è la lettura di ripiego per le righe già
+ * autorevole resta `isResumableCause` (qui sotto), che legge il campo `cause`
+ * del blocco; questa è la lettura di ripiego per le righe già
  * scritte, ed è volutamente STRETTA — un falso negativo lascia un cartello con
  * il bottone «Riprova», che è reversibile; un falso positivo brucia un turno.
  */
@@ -251,10 +251,9 @@ const RESTART_OPENINGS = [
 ] as const;
 
 /**
- * The causes that come from an interruption of OURS, i.e. the same three
- * `CAUSE_DA_RIPRENDERE` admits. `cancelledNotice`'s `default` branch (cancelled
- * with no declared cause) stays OUT, for the same reason
- * `meritaRipresaAutomatica` excludes it: you do not guess who cancelled.
+ * The causes that come from an interruption of OURS: the shutdown, the
+ * watchdog and the silence cap. `cancelledNotice`'s `default` branch (cancelled
+ * with no declared cause) stays OUT: you do not guess who cancelled.
  */
 export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
 

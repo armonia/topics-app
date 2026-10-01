@@ -15,7 +15,7 @@ import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { loadActiveBranchForReplay } from "../providers/claude-code";
 import { nativeHistorySource } from "../providers/native/history-source";
-import { buildProviderHistory } from "../utils/build-provider-history";
+import { assembleTopicContext } from "../context/assemble";
 
 const ROOT = testTmpDir("background-notice");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -33,7 +33,7 @@ describe("the background notice", () => {
     const said = (xs: Array<{ content: string }>) => xs.some((m) => m.content.includes("Background work"));
     expect(said(loadActiveBranchForReplay(sk))).toBe(false);
     expect(said(nativeHistorySource(ctx as never, sk))).toBe(false);
-    expect(said(buildProviderHistory(ctx.loadActiveThread(sk)))).toBe(false);
+    expect(said(assembleTopicContext(ctx, { sessionKey: sk, providerName: "claude" }).history)).toBe(false);
     // The row is still there, as a block the client draws.
     const row = ctx.db.query(`SELECT content, blocks FROM messages WHERE session_key = ? AND blocks LIKE '%background-notice%'`).get(sk) as { content: string; blocks: string };
     expect(row.content).toBe("");
