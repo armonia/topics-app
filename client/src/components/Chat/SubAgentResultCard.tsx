@@ -8,13 +8,13 @@
  * row when it woke the chat, an `assistant` row when it could not. Either way
  * it is drawn as cards, never as the person's bubble.
  */
-import type { ComponentType } from 'react';
+import { useMemo, type ComponentType } from 'react';
 import { Bot, CircleCheck, CircleStop, CircleX, Hourglass, Loader2, MailX, SquareTerminal, Unplug } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import type { SubagentResultCard, ToolCallDetail } from '../../types';
 import type { SubagentResultBlock } from './machineRow';
-import { reasonText, spawnCardState, useSubagentResult, type SpawnCardState } from './subagentResult';
+import { foregroundSpawnResult, reasonText, spawnCardState, useSubagentResult, type SpawnCardState } from './subagentResult';
 
 const STATUS_ICON: Record<SubagentResultCard['status'], { icon: ComponentType<{ size?: number; className?: string }>; tone: string }> = {
   completed: { icon: CircleCheck, tone: 'text-emerald-500' },
@@ -101,7 +101,10 @@ export function SpawnAgentCard({ detail, sessionKey, isRunning }: {
 }) {
   const tr = useT();
   const terminals = useTerminalSessions();
-  const result = useSubagentResult(sessionKey, detail.agentId);
+  // A later turn's row wins; a foreground call's first result is only in its own answer.
+  const rowResult = useSubagentResult(sessionKey, detail.agentId);
+  const answered = useMemo(() => foregroundSpawnResult(detail.result, detail.agentId), [detail.result, detail.agentId]);
+  const result = rowResult ?? answered;
   const live = detail.agentId ? terminals.find((s) => s.id === detail.agentId) ?? null : null;
   const state = spawnCardState({ live, result, isRunning: !!isRunning });
   const { icon: Icon, className } = PHASE_ICON[state];

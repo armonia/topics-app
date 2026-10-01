@@ -359,6 +359,11 @@ come from lucide.
 - **THEN** the call SHALL render as the sub-agent card, showing the child's name and the undelivered state
 - **AND** it SHALL NOT render the generic MCP card
 
+#### Scenario: a foreground call shows the result it returned
+- **GIVEN** a `spawn_agent` call with `run_in_background: false` whose answer carries a `completed` `<subagent-result>` envelope, and no `subagent-result` row for that child
+- **WHEN** the chat renders
+- **THEN** the card SHALL read finished and show the status and the text of that result
+
 ### Requirement: SUBAGENT-17 — Without a `cwd`, the child stands where the parent stands
 
 A child spawned without `cwd` and without worktree isolation SHALL start in the

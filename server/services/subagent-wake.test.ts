@@ -114,4 +114,14 @@ describe("the wake's text", () => {
     expect(text).toContain("stopped before its turn ended: stopped with stop_agent");
     expect(text).toContain("Last line seen, not a result:");
   });
+
+  test("the envelope carries what the card of a foreground spawn draws: partial and the reason, with its detail", () => {
+    expect(subagentWakeText([result({ status: "stopped", partial: true, text: "x", reason: { code: "stopped-by-parent" } })]))
+      .toContain('status="stopped" partial="true" reason="stopped-by-parent">');
+    expect(subagentWakeText([result({ status: "failed", text: "", reason: { code: "exit-code", exitCode: 2 } })]))
+      .toContain('status="failed" reason="exit-code" exit_code="2">');
+    expect(subagentWakeText([result({ status: "failed", text: "", reason: { code: "api-error", detail: 'Overloaded "529" <x>' } })]))
+      .toContain(`reason="api-error" reason_detail="Overloaded '529' <\\x>">`);
+    expect(subagentWakeText([result()])).toMatch(/status="completed">\n/);
+  });
 });
