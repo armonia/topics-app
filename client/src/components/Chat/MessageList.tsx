@@ -42,6 +42,7 @@ import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
+import { RunningServiceRows } from './RunningServiceRows';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
@@ -360,9 +361,11 @@ export function MessageList({
     // The background work line (`BackgroundWorkLine`) is the first row here,
     // right under the last message: it is the tail of the turn that left the
     // work running, and here its coming and going cannot move the composer.
+    // The chat's servers (`RunningServiceRows`, BGVIS-08) sit right under it.
     Footer: () => (
       <>
         <BackgroundWorkLine topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
+        <RunningServiceRows topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
         <QueuedTurns
           turns={queued}
           isMobile={isMobile}

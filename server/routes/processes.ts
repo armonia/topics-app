@@ -32,6 +32,8 @@ import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
+import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS } from "../lib/command-services";
+import { getListeningPorts, listenersOf, readProcessProbe } from "../lib/listening-ports";
 
 interface ScriptProcess {
   processId: string;
@@ -304,6 +306,7 @@ function loadState() {
           // A command's log is written by the command itself, so what it printed
           // while the server was down is in the file: follow it from there on.
           if (sp.cmd) followLog(sp, logPathOf(sp.processId), logBytes ?? 0);
+          if (sp.cmd && !sp.cmd.wake) commandServiceWatch.kick();
 
           // Poll for exit in background
           pollPidExit(sp);
@@ -441,70 +444,8 @@ function pollPidExit(sp: ScriptProcess) {
 
 // ── Port detection per process ───────────────────────────────────────────────
 
-// Cache lsof results for a short time to avoid running it on every request
-let cachedPorts: { port: number; pid: number; command: string }[] = [];
-let cachedPortsAt = 0;
-let pendingPorts: Promise<typeof cachedPorts> | null = null;
-const PORT_CACHE_TTL = 5000;
-
-/** A shared probe must settle even if the operating-system command stalls. */
-async function readProcessProbe(command: string[]): Promise<string> {
-  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "ignore" });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      try { proc.kill("SIGKILL"); } catch { /* The owned probe may already have exited. */ }
-      reject(new Error(`Process probe timed out: ${command[0]}`));
-    }, 5000);
-    if (typeof timer.unref === "function") timer.unref();
-  });
-  try {
-    const output = (async () => {
-      const text = await new Response(proc.stdout).text();
-      await proc.exited;
-      return text;
-    })();
-    return await Promise.race([output, deadline]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-export async function getListeningPorts(): Promise<{ port: number; pid: number; command: string }[]> {
-  const now = Date.now();
-  if (now - cachedPortsAt < PORT_CACHE_TTL) return cachedPorts;
-  if (pendingPorts) return pendingPorts;
-  pendingPorts = readListeningPorts(now).finally(() => { pendingPorts = null; });
-  return pendingPorts;
-}
-
-async function readListeningPorts(now: number): Promise<typeof cachedPorts> {
-  try {
-    const output = await readProcessProbe(["/usr/sbin/lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"]);
-
-    const ports: { port: number; pid: number; command: string }[] = [];
-    const seen = new Set<number>();
-    for (const line of output.split("\n").slice(1)) {
-      const parts = line.trim().split(/\s+/);
-      if (parts.length < 9) continue;
-      const cmd = parts[0];
-      const pid = parseInt(parts[1], 10);
-      const nameField = parts[8] || "";
-      const portMatch = nameField.match(/:(\d+)$/);
-      if (!portMatch) continue;
-      const port = parseInt(portMatch[1], 10);
-      if (seen.has(port)) continue;
-      seen.add(port);
-      ports.push({ port, pid, command: cmd });
-    }
-    ports.sort((a, b) => a.port - b.port);
-    cachedPorts = ports;
-    cachedPortsAt = now;
-    return ports;
-  } catch {
-    return cachedPorts;
-  }
-}
+// The listening ports, one cached `lsof` shared by every reader: `lib/listening-ports.ts`.
+export { getListeningPorts };
 
 // Top CPU consumers, system-wide — so the status dropdown can answer "why is my
 // PC load high?" with the actual culprits instead of a vague verdict. One cached
@@ -717,9 +658,22 @@ function finishCommand(sp: ScriptProcess): void {
   });
   saveState();
   if (_broadcastCtx) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, cmd); }
+  // An ended server keeps its addresses while the chat says how it ended, then they go.
+  if (commandServiceWatch.listenOf(sp.processId)) setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
   if (cmd.wake) requestWakeFor(sp);
 }
-export const commandBackgroundWork = commandWorkOver(() => runningScripts.values()); // the chat's background line (BGVIS-07)
+/** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
+const commandServiceWatch = serviceWatch({
+  rows: () => runningScripts.values(),
+  listenersOf: async (pids) => listenersOf(pids, await getListeningPorts(SERVICE_WATCH_MIN_MS / 2), getDescendantPids),
+  alive: isPidAlive,
+  onChange: (row) => { if (_broadcastCtx && row.cmd) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, row.cmd); } },
+});
+export const commandBackgroundWork = commandWorkOver(() => runningScripts.values(), commandServiceWatch.listenOf); // the chat's background line (BGVIS-07)
+/** Every chat's servers, running or just ended: the `services` of `GET /api/topics/streaming`. */
+export const commandServices = () => servicesOver(runningScripts.values(), recentScripts, commandServiceWatch.listenOf, Date.now());
+/** A chat's `run_command` processes, for `GET /api/processes`. */
+export const topicCommandProcesses = (topicId: string) => commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf);
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
@@ -824,6 +778,7 @@ function startCommandProcess(o: {
   followLog(sp, logPath, 0);
   saveState();
   if (_broadcastCtx) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, sp.cmd!); }
+  if (!sp.cmd!.wake) commandServiceWatch.kick(); // it may be a server: its port comes a moment later
   void proc.exited.then(() => finishCommand(sp));
   // `wake` as it will be honoured: a terminal's session has no topic to wake.
   return { processId, scriptName: sp.scriptName, pid: proc.pid, startedAt: sp.startedAt, wake: sp.cmd!.wake };

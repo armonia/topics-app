@@ -637,7 +637,15 @@
     "cursor menu taking the focus and walking it with the arrows; net of the four",
     "hand-written menus it replaced (topic, group, tab, file tree). No dependency,",
     "no lazy import turned static. Critical path and total assets unchanged,",
-    "inside 2%."
+    "inside 2%.",
+    "",
+    "2026-10-01 (BGVIS-08): entry eager +1.636 raw / +537 gz, measured on the same",
+    "tree with and without the change (base 1.535.760 / 484.648, already 99 gz under",
+    "its ceiling). Bought by the chat's server row: its store (state/runningServices),",
+    "the subscription in the transcript footer (RunningServiceRows) and the it/en",
+    "strings. The row itself is a lazy chunk (RunningServiceRow), loaded the first",
+    "time a chat has a server; eager it cost +4.340 raw / +1.077 gz.",
+    "On the tree of main with the right-click lane, remeasured at integration."
   ],
   "updated": "2026-10-01",
   "tolerance_pct": 2,

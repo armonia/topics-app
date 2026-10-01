@@ -8,6 +8,8 @@ import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '
 import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, setsEqual, useSignalsStore, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
+import { setRunningServices } from './runningServices';
+import type { TopicServices } from '../../../shared/background-work';
 import { chatFinishedEdge } from '../lib/notify/chatFinished';
 import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
 import { isSubjectInFront } from './chatInView';
@@ -134,7 +136,7 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
       try {
         const res = await apiFetch('/api/topics/streaming');
         if (!res.ok) return;
-        const body = (await res.json()) as { sessions?: StreamingRowInput[] };
+        const body = (await res.json()) as { sessions?: StreamingRowInput[]; services?: TopicServices[] };
         if (cancelled) return;
         // Work a closed turn left running is not a turn: the reading rule keeps
         // it out of the streaming sets (and of the self-heal), in a state of its
@@ -142,6 +144,8 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
         const snap = readStreamingSnapshot(body.sessions ?? []);
         signalsActions.setHydratedStreamTopics(snap.streamingTopics);
         signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+        // A chat's servers are not work it waits for: a store of their own (BGVIS-08).
+        setRunningServices(body.services);
         setAskWaiting(snap.waitingTopics);
         // Self-heal: this server snapshot is authoritative, so any chat we still
         // show as streaming but the server doesn't is an orphaned flag (lost

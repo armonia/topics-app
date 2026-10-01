@@ -18,7 +18,8 @@
  */
 import type { AppContext } from "../types";
 import type { CommandWork } from "../providers/background-probes";
-import type { BackgroundTaskSummary } from "../../shared/background-work";
+import type { BackgroundTaskSummary, ListenAddress } from "../../shared/background-work";
+import { isServiceRow } from "./command-services";
 
 /** The part of a registry row this reads. */
 interface CommandRowLike {
@@ -29,10 +30,19 @@ interface CommandRowLike {
   cmd?: { sessionKey: string; wake: boolean };
 }
 
-/** The registry's rows read as the background work of their sessions. */
-export function commandWorkOver(rows: () => Iterable<CommandRowLike>): CommandWork {
+/**
+ * The registry's rows read as the background work of their sessions. A server
+ * (`isServiceRow`: no wake, a listening port, `listenOf`) is not work the chat
+ * waits for: it is left out here, and the chat shows it as a server (BGVIS-08).
+ */
+export function commandWorkOver(
+  rows: () => Iterable<CommandRowLike>,
+  listenOf: (processId: string) => ReadonlyArray<ListenAddress> | undefined = () => undefined,
+): CommandWork {
   const running = function* (): Generator<CommandRowLike & { cmd: { sessionKey: string; wake: boolean } }> {
-    for (const r of rows()) if (r.cmd && r.status === "running") yield r as CommandRowLike & { cmd: { sessionKey: string; wake: boolean } };
+    for (const r of rows()) {
+      if (r.cmd && r.status === "running" && !isServiceRow(r, listenOf(r.processId))) yield r as CommandRowLike & { cmd: { sessionKey: string; wake: boolean } };
+    }
   };
   return {
     sessions: () => [...new Set([...running()].map((r) => r.cmd.sessionKey))],
