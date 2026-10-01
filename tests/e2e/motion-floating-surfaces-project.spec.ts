@@ -289,9 +289,11 @@ test.describe("The board's lightbox and the task drawer's folds", () => {
     // The section remembers its last state: start from closed.
     if ((await header.getAttribute("data-open")) === "1") await header.click();
     await expect(header).toHaveAttribute("data-open", "0");
-    await watch(page, '[data-testid="task-desc-body"]');
+    // The body is the block right after the header once it is open.
+    const body = '[data-testid="task-section-desc"] + div';
+    await watch(page, body);
     await header.click();
-    await expect(drawer.getByTestId("task-desc-body")).toBeVisible();
+    await expect(page.locator(body)).toBeVisible();
     await expectEntrance(page, "drawer section", MODAL_MAX_MS, ["opacity"]);
   });
 });

@@ -286,15 +286,19 @@ test.describe("Every other surface enters and leaves on the same mechanism", () 
     const modal = page.getByTestId("changelog-modal");
     await expect(modal).toBeVisible();
     await expectEntrance(page, "changelog veil", MODAL_MAX_MS, ["opacity"]);
-
-    await watch(page, '[data-testid="changelog-internal-list"]');
-    await modal.getByText(/Sotto il cofano/).click();
-    await expect(page.getByTestId("changelog-internal-list")).toBeVisible();
-    await expectEntrance(page, "changelog fold", MODAL_MAX_MS, ["opacity"]);
-
     await page.keyboard.press("Escape");
     await expect(modal).toHaveCount(0);
     await expectExit(page, "changelog", "modal", MODAL_MAX_MS);
+
+    // The fold, read on the list the "under the hood" button reveals.
+    await (await reachVersionChip(page)).click();
+    await page.getByTestId("changelog-open").click();
+    await expect(modal).toBeVisible();
+    const fold = '[data-testid="changelog-modal"] button + ul';
+    await watch(page, fold);
+    await modal.getByText(/Sotto il cofano/).click();
+    await expect(page.locator(fold)).toBeVisible();
+    await expectEntrance(page, "changelog fold", MODAL_MAX_MS, ["opacity"]);
   });
 
   test("MOTION-04s: the app tooltip", async ({ page }) => {
