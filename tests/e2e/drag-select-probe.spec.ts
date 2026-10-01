@@ -78,7 +78,12 @@ async function armLog(page: Page) {
       }, true);
     }
     let changes = 0;
-    document.addEventListener("selectionchange", () => { changes++; w.__probe.push(`selectionchange#${changes} len=${window.getSelection()?.toString().length ?? -1}`); });
+    document.addEventListener("selectionchange", () => {
+      changes++;
+      const sel = window.getSelection();
+      const nm = (n: Node | null | undefined) => (n ? `${n.nodeName}${n.nodeType === 3 ? `"${(n.textContent ?? "").slice(0, 12)}"` : ""}` : "null");
+      w.__probe.push(`selectionchange#${changes} len=${sel?.toString().length ?? -1} type=${sel?.type} a=${nm(sel?.anchorNode)}:${sel?.anchorOffset} f=${nm(sel?.focusNode)}:${sel?.focusOffset}`);
+    });
   });
 }
 
@@ -99,7 +104,15 @@ async function stroke(page: Page, label: string, steps: number) {
           const cs = getComputedStyle(n);
           chain.push(`${n.tagName.toLowerCase()}:${cs.userSelect || (cs as unknown as { webkitUserSelect?: string }).webkitUserSelect}`);
         }
-        return { x0, x1, y, chain: chain.slice(0, 12).join(" < "), htmlClass: document.documentElement.className };
+        const caret = (x: number) => {
+          const d = document as unknown as { caretRangeFromPoint?: (x: number, y: number) => Range | null; caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+          const r1 = d.caretRangeFromPoint?.(x, y);
+          if (r1) return `${r1.startContainer.nodeName}:${r1.startOffset}`;
+          const p = d.caretPositionFromPoint?.(x, y);
+          return p ? `${p.offsetNode.nodeName}:${p.offset}` : "none";
+        };
+        const cs = getComputedStyle(el);
+        return { x0, x1, y, chain: chain.slice(0, 12).join(" < "), htmlClass: document.documentElement.className, caret0: caret(x0), caret1: caret(x1), rect: `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`, lh: cs.lineHeight, transform: cs.transform, contain: `${cs.contain}/${(cs as unknown as { contentVisibility?: string }).contentVisibility}`, tabindexAncestor: el.closest("[tabindex]")?.getAttribute("data-testid") ?? null, draggableAncestor: !!el.closest("[draggable=true]") };
       }
     }
     return null;
@@ -118,7 +131,7 @@ async function stroke(page: Page, label: string, steps: number) {
     active: `${document.activeElement?.tagName.toLowerCase()}[${document.activeElement?.getAttribute("data-testid") ?? ""}]`,
     log: (window as unknown as { __probe: string[] }).__probe,
   }));
-  const out = { label, steps, beforeUp: beforeUp.length, afterUp: afterUp.length, afterSettle: report.afterSettle.length, active: report.active, chain: s!.chain, htmlClass: s!.htmlClass, log: report.log };
+  const out = { label, steps, beforeUp: beforeUp.length, afterUp: afterUp.length, afterSettle: report.afterSettle.length, active: report.active, ...s, log: report.log };
   console.log(`PROBE ${JSON.stringify(out)}`);
   return out;
 }
@@ -131,12 +144,54 @@ async function dblclickWord(page: Page, label: string) {
   return len;
 }
 
+/** A stroke of 60 px over the first line of `selector`, read like the chat one. */
+async function controlStroke(page: Page, label: string, selector: string) {
+  const box = (await page.locator(selector).first().boundingBox())!;
+  const y = box.y + 8;
+  await armLog(page);
+  await page.mouse.move(box.x + 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 62, y, { steps: 5 });
+  const beforeUp = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+  await page.mouse.up();
+  const afterUp = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+  const log = await page.evaluate(() => (window as unknown as { __probe: string[] }).__probe);
+  const out = { label, beforeUp: beforeUp.length, afterUp: afterUp.length, log };
+  console.log(`PROBE ${JSON.stringify(out)}`);
+  return out;
+}
+
 test.afterAll(async ({ request }) => { await closeAllBrowserContexts(request); });
 
+test.describe("probe: controls", () => {
+  test.describe.configure({ retries: 0 });
+  test("a plain page with no app: a stroke selects", async ({ page, browserName }) => {
+    await page.setContent(`<p id="p" style="font: 16px sans-serif; margin: 40px">${LINE} ${LINE}</p>`);
+    const r = await controlStroke(page, `${browserName} plain-page`, "#p");
+    expect(r.afterUp, JSON.stringify(r)).toBeGreaterThan(0);
+  });
+
+  test("a plain element injected into the app: a stroke selects", async ({ page, request, browserName }) => {
+    const topic = await scene(page, request);
+    try {
+      await page.evaluate((t) => {
+        const p = document.createElement("p");
+        p.id = "probe-p";
+        p.textContent = t;
+        p.style.cssText = "position:fixed;left:400px;top:60px;z-index:2147483647;background:#fff;color:#000;font:16px sans-serif;width:600px;margin:0";
+        document.body.appendChild(p);
+      }, `${LINE} ${LINE}`);
+      const r = await controlStroke(page, `${browserName} injected-in-app`, "#probe-p");
+      expect(r.afterUp, JSON.stringify(r)).toBeGreaterThan(0);
+    } finally { await deleteTopic(request, topic.id).catch(() => {}); }
+  });
+});
+
 test.describe("probe: mouse selection in the chat", () => {
+  test.describe.configure({ retries: 0 });
   test.beforeEach(async ({ request }) => { await resetPaneStore(request, []); });
 
-  for (const steps of [5, 20]) {
+  for (const steps of [5]) {
     test(`no drag first, stroke in ${steps} steps`, async ({ page, request, browserName }) => {
       const topic = await scene(page, request);
       try {
