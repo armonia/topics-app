@@ -347,3 +347,37 @@ describe('shell label: the model-written description beats the command', () => {
     if (d.type === 'shell') expect(d.description).toBe('List files');
   });
 });
+
+describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
+  const row = (over: Partial<ToolCall>): ToolCall => ({ id: 'b1', name: 'mcp__topics__open_browser_pane', args: {}, status: 'success', ...over });
+
+  test('a row stored as a generic MCP call is re-derived into a browser detail', () => {
+    // History trims the top-level args: the url survives inside `detail.args`.
+    const tc = row({
+      detail: { type: 'mcp', server: 'topics', tool: 'open_browser_pane', args: { url: 'http://127.0.0.1:3535/p/profilo' } },
+    });
+    expect(resolveToolDetail(tc)).toEqual({ type: 'browser', url: 'http://127.0.0.1:3535/p/profilo' });
+  });
+
+  test('the title in an old result is kept, the context is absent', () => {
+    const result = 'Opened browser pane at https://example.com/ (title: Example Domain)';
+    const tc = row({ args: { url: 'https://example.com/' }, result, detail: { type: 'mcp', server: 'topics', tool: 'open_browser_pane', result } });
+    expect(resolveToolDetail(tc)).toMatchObject({ type: 'browser', title: 'Example Domain', url: 'https://example.com/' });
+    expect(resolveToolDetail(tc)).not.toHaveProperty('contextId');
+  });
+
+  test('a failed call is never a browser detail, whatever was stored', () => {
+    const tc = row({
+      status: 'error',
+      args: { url: 'http://localhost:1/' },
+      detail: { type: 'browser', url: 'http://localhost:1/' },
+    });
+    expect(resolveToolDetail(tc).type).toBe('mcp');
+  });
+
+  test('the label is the page, not the tool name', () => {
+    const d = { type: 'browser', url: 'http://localhost:5173/x', title: 'Vite App' } as const;
+    expect(buildToolDisplayLabel(d)).toEqual({ name: 'Browser', summary: 'Vite App', tooltip: 'http://localhost:5173/x' });
+    expect(buildToolDisplayLabel({ type: 'browser', url: 'http://localhost:5173/x' }).summary).toBe('localhost:5173');
+  });
+});

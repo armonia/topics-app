@@ -140,6 +140,9 @@ const validDetails: ToolCallDetail[] = [
   { type: 'artifact', action: 'publish' },
   { type: 'artifact', action: 'publish', title: 'Report', url: 'https://x/r', filePath: '/tmp/r.html', result: 'ok' },
 
+  { type: 'browser', url: 'http://localhost:5173/' },
+  { type: 'browser', url: 'https://app.test/', contextId: 'task-12345678-napp', title: 'App', name: 'App', visible: false, result: 'Browser context ready at https://app.test/' },
+
   { type: 'ask_user', questions: [] },
   {
     type: 'ask_user',
@@ -268,8 +271,8 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('exactly 23 variants in the union', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(23);
+  test('exactly 24 variants in the union', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(24);
   });
 
   test('all variant discriminators are unique', () => {
@@ -306,6 +309,7 @@ describe('schema completeness', () => {
         'agent_control',
         'artifact',
         'ask_user',
+        'browser',
         'unknown',
       ]),
     );

@@ -3092,7 +3092,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               for (let i = blocks.length - 1; i >= 0; i--) {
                 const b = blocks[i];
                 if (b.kind === "tool" && b.toolCall.id === toolCallId) {
-                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result);
+                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result, { failed: !!isError });
                   break;
                 }
               }

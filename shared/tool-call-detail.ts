@@ -209,6 +209,16 @@ const askUserSchema = z.object({
   result: z.optional(z.string()),
 });
 
+const browserSchema = z.object({
+  type: z.literal('browser'),
+  url: z.string(),
+  contextId: z.optional(z.string()),
+  title: z.optional(z.string()),
+  name: z.optional(z.string()),
+  visible: z.optional(z.boolean()),
+  result: z.optional(z.string()),
+});
+
 const unknownSchema = z.object({
   type: z.literal('unknown'),
   raw: z.object({
@@ -240,6 +250,7 @@ export const toolCallDetailSchema = z.discriminatedUnion('type', [
   agentControlSchema,
   artifactSchema,
   askUserSchema,
+  browserSchema,
   unknownSchema,
 ]);
 

@@ -8,7 +8,7 @@ Niente CLI vere contro modelli a pagamento nei test: provider finti / fixture de
 
 - [x] 1.1 `server/routes/browser-open-pane-flow.test.ts`: la risposta di `openPaneFlow` contiene `contextId` (BROWSER-CHAT-05, rami chat e task). Rosso oggi: `browser-open-pane-flow.ts:165-170` non lo mette.
 - [x] 1.2 `server/mcp/topics-mcp-server.test.ts`: il testo di `open_browser_pane` comincia come oggi e termina con `[contextId: …]`, in entrambi i rami `visible`.
-- [ ] 1.3 `client/src/components/Chat/toolDetail.test.ts` + `server/providers/claude/tool-detail.test.ts`: `open_browser_pane` / `mcp__topics__open_browser_pane` / `browser_open` riusciti → `{type:'browser'}` con url, titolo e contextId parsati; in errore → `mcp`; una riga salvata con `detail.type === 'mcp'` si rideriva (CHAT-BROWSER-03, i due scenari).
+- [x] 1.3 `client/src/components/Chat/toolDetail.test.ts` + `server/providers/claude/tool-detail.test.ts`: `open_browser_pane` / `mcp__topics__open_browser_pane` / `browser_open` riusciti → `{type:'browser'}` con url, titolo e contextId parsati; in errore → `mcp`; una riga salvata con `detail.type === 'mcp'` si rideriva (CHAT-BROWSER-03, i due scenari).
 - [ ] 1.4 `client/src/components/Chat/browserOpenMarker.test.ts` (nuovo, puro): coalescenza per `contextId` dentro un messaggio (tre aperture → un segno «3 pagine» sull'ultima; due contesti → due segni).
 - [ ] 1.5 `toolGrouping.test.ts`: `partitionToolGroup` spezza il gruppo attorno a un dettaglio `browser` e non lo conta. `turnFold.test.ts`: il segno esce dal `work` e va in `shown` prima della risposta (scenario «12 tool → 11 azioni»).
 - [ ] 1.6 `client/src/lib/focusBrowserContext.test.ts` (nuovo, effetti iniettati): ordine layout › task › finestra › tab; `reopen:false` (il gestore di `browser:focus-pane`) non apre niente su un contesto chiuso.
@@ -18,12 +18,12 @@ Niente CLI vere contro modelli a pagamento nei test: provider finti / fixture de
 - [x] 2.1 `openPaneFlow` restituisce `contextId` (già in `opts`).
 - [x] 2.2 `callOpenBrowserPane` legge `contextId` dalla risposta; il testo lo riporta in coda (`topics-mcp-server.ts:2693-2706`). Controlla i lettori del prefisso: `server/lib/pane-nav-outcome.ts`, `server/routes/browser-bridge.test.ts`, `tests/e2e/browser-open-pane-orphan.spec.ts`.
 - [x] 2.3 Percorso SDK: il risultato di `browser_open` porta `contextId = resolveContextIdForTopic(topic)` (`server/routes/chat.ts:2690-2704`).
-- [ ] 2.4 `server/providers/claude/tool-detail.ts`: variante `browser`, con parser puro del risultato.
+- [x] 2.4 `server/providers/claude/tool-detail.ts`: variante `browser`, con parser puro del risultato.
 
 ## 3. Shared + dettaglio client (CHAT-BROWSER-03)
 
-- [ ] 3.1 `shared/tool-call-detail.ts`: variante `browser` nello schema Zod e nel tipo; aggiorna i test di contratto dello schema se contano le varianti.
-- [ ] 3.2 `toolDetail.ts`: derivazione speculare + riderivazione in `resolveToolDetail` per le righe `mcp` di quei nomi; `buildToolDisplayLabel` e `toolIcons.ts` (`Globe`) per il caso `browser`; `toolCardBody.ts` / `ToolCards.tsx` per il corpo (URL intero, pagine del segno).
+- [x] 3.1 `shared/tool-call-detail.ts`: variante `browser` nello schema Zod e nel tipo; aggiorna i test di contratto dello schema se contano le varianti.
+- [x] 3.2 `toolDetail.ts`: derivazione speculare + riderivazione in `resolveToolDetail` per le righe `mcp` di quei nomi; `buildToolDisplayLabel` e `toolIcons.ts` (`Globe`) per il caso `browser`; `toolCardBody.ts` / `ToolCards.tsx` per il corpo (URL intero, pagine del segno).
 
 ## 4. Il segno (CHAT-BROWSER-01)
 
