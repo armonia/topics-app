@@ -107,14 +107,85 @@ interface Options {
 interface Baseline {
   $schema: string;
   _comment: string[];
-  updated: string;
+  /** v1 only. v2 reads the date from git, see `recordedOn`. */
+  updated?: string;
   tolerance_pct: number;
   max_lines: number;
   min_clone_lines: number;
-  /** path -> line count, for every file over `max_lines` on the day recorded. */
-  files: Record<string, number>;
   duplicated_lines: number;
   clone_groups: number;
+  /** path -> line count, for every file over `max_lines` on the day recorded. */
+  files: Record<string, number>;
+  /**
+   * path -> why its size was recorded. Free text, never read by the gate. On
+   * disk it lives INSIDE the file's entry (`{ "lines": n, "why": [...] }`), not
+   * in a map of its own: two branches writing their first note into an empty
+   * map insert at the same spot, which is a conflict.
+   */
+  notes: Record<string, string[]>;
+}
+
+/** A `files` entry on disk: the bare count, or the count with its reason. */
+type BaselineEntry = number | { lines: number; why: string[] };
+
+/**
+ * The baseline is written so that two branches recording DIFFERENT files merge
+ * without a conflict, because they used not to: over 30 days 22 of the 114
+ * conflicting merges of this repo touched only `*-baseline.json` files, 17 of
+ * them this one alone. Three things in the v1 writer made every update collide:
+ *
+ *   - `files` was sorted by size, so a file that grew changed place in the list,
+ *     and two branches bumping files of similar size edited adjacent lines;
+ *   - an `updated` date that every update rewrote, on the same line;
+ *   - dated paragraphs appended at the end of `_comment`, so two branches both
+ *     inserted at the same spot.
+ *
+ * v2 sorts `files` by path (an entry never moves), separates entries with a
+ * blank line (git conflicts on ADJACENT changes; one untouched line between
+ * two hunks lets both through, so even neighbouring paths merge), drops
+ * `updated`, and keeps the prose about a recorded file inside that file's entry.
+ * The aggregate numbers come before `files` because two branches that both
+ * change the duplication total SHOULD conflict: the merged tree needs a new
+ * measurement, not either side's number.
+ */
+function serializeBaseline(b: Baseline): string {
+  const head = {
+    $schema: b.$schema,
+    _comment: b._comment,
+    tolerance_pct: b.tolerance_pct,
+    max_lines: b.max_lines,
+    min_clone_lines: b.min_clone_lines,
+    duplicated_lines: b.duplicated_lines,
+    clone_groups: b.clone_groups,
+  };
+  const headText = JSON.stringify(head, null, 2).replace(/\n}$/, "");
+  const files: Record<string, BaselineEntry> = {};
+  for (const [path, lines] of Object.entries(b.files)) {
+    const why = b.notes[path];
+    files[path] = why && why.length > 0 ? { lines, why } : lines;
+  }
+  return `${headText},\n${paragraphs("files", files)}\n}\n`;
+}
+
+/** One key per paragraph, keys in code-unit order (not locale: same on every machine). */
+function paragraphs(name: string, obj: Record<string, unknown>): string {
+  const keys = Object.keys(obj).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (keys.length === 0) return `  ${JSON.stringify(name)}: {}`;
+  const body = keys
+    .map((k) => `    ${JSON.stringify(k)}: ${JSON.stringify(obj[k], null, 2).replace(/\n/g, "\n    ")}`)
+    .join(",\n\n");
+  return `  ${JSON.stringify(name)}: {\n${body}\n  }`;
+}
+
+/**
+ * The date the messages quote as "the baseline of". v1 stored it in the file,
+ * which made it the one line every update rewrote; the last commit that touched
+ * the file says the same thing without being a line anybody edits.
+ */
+function recordedOn(root: string, baselinePath: string, baseline: Baseline): string {
+  const res = spawnSync("git", ["-C", root, "log", "-1", "--format=%cs", "--", baselinePath], { encoding: "utf8" });
+  const date = res.status === 0 ? res.stdout.trim() : "";
+  return date || baseline.updated || "the working tree";
 }
 
 interface CloneGroup {
@@ -471,7 +542,20 @@ function parseOptions(argv: string[]): { opts: Options; baseline: Baseline | nul
 function loadBaseline(path: string): Baseline | null {
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Baseline;
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Omit<Baseline, "files" | "notes"> & {
+      files: Record<string, BaselineEntry>;
+    };
+    const files: Record<string, number> = {};
+    const notes: Record<string, string[]> = {};
+    for (const [file, entry] of Object.entries(raw.files ?? {})) {
+      if (typeof entry === "number") {
+        files[file] = entry;
+      } else {
+        files[file] = entry.lines;
+        notes[file] = entry.why;
+      }
+    }
+    return { ...raw, files, notes };
   } catch (err) {
     console.error(`[check-bloat] baseline unreadable at ${path} (${String(err)})`);
     process.exit(2);
@@ -566,17 +650,20 @@ function main(): void {
 
   if (opts.updateBaseline) {
     const next: Baseline = {
-      $schema: "bloat-baseline-v1",
+      $schema: "bloat-baseline-v2",
       _comment: baseline?._comment ?? [],
-      updated: new Date().toISOString().slice(0, 10),
       tolerance_pct: baseline?.tolerance_pct ?? 2,
       max_lines: opts.maxLines,
       min_clone_lines: opts.minCloneLines,
-      files: Object.fromEntries(over.map((f) => [f.file, f.lines])),
       duplicated_lines: duplicatedLines,
       clone_groups: clones.length,
+      files: Object.fromEntries(over.map((f) => [f.file, f.lines])),
+      // A note outlives a size change of its file, not the file leaving the list.
+      notes: Object.fromEntries(
+        Object.entries(baseline?.notes ?? {}).filter(([path]) => over.some((f) => f.file === path)),
+      ),
     };
-    writeFileSync(opts.baselinePath, `${JSON.stringify(next, null, 2)}\n`);
+    writeFileSync(opts.baselinePath, serializeBaseline(next));
     console.log(`[check-bloat] baseline rewritten: ${opts.baselinePath}`);
     process.exit(0);
   }
@@ -646,12 +733,12 @@ function main(): void {
   if (problems.length === 0) {
     console.log(
       `[check-bloat] OK - ${over.length} file(s) over ${opts.maxLines} lines and ${duplicatedLines} ` +
-        `duplicated lines, all within the baseline of ${baseline.updated}.`,
+        `duplicated lines, all within the baseline of ${recordedOn(opts.root, opts.baselinePath, baseline)}.`,
     );
     process.exit(0);
   }
 
-  console.error(`[check-bloat] FAIL - ${problems.length} regression(s) against the baseline of ${baseline.updated}:`);
+  console.error(`[check-bloat] FAIL - ${problems.length} regression(s) against the baseline of ${recordedOn(opts.root, opts.baselinePath, baseline)}:`);
   for (const p of problems) console.error(`  ${p}`);
   process.exit(1);
 }
