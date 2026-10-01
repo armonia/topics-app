@@ -739,7 +739,7 @@ di una frase come parte dell'id. Il percorso dopo `Output is being written to:`
 viaggia con l'azione `start` e il registro segue quel file in coda finché la
 shell è viva, con lo stesso meccanismo di CMDRUN-03: il log non dipende più da un
 `BashOutput` che il CLI non chiama (`TaskOutput` è mappato come controllo di
-sotto-agente, `server/providers/claude/tool-detail.ts:275`).
+sotto-agente, `shared/tool-detail.ts`).
 
 Sola lettura: nessuna sveglia per le shell, che restano del CLI.
 

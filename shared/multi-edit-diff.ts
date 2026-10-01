@@ -9,8 +9,8 @@
  * which the card already draws. Not a real `git diff` (there are no line
  * numbers to give), only its shape.
  *
- * Shared because the server boundary and the client fallback both derive the
- * detail (`server/providers/claude/tool-detail.ts`, `Chat/toolDetail.ts`).
+ * Used by the one detail derivation, `shared/tool-detail.ts`, which both the
+ * server boundary and the client fallback run.
  */
 export function batchEditUnifiedDiff(edits: ReadonlyArray<Record<string, unknown>>): string {
   const str = (v: unknown): string => (typeof v === "string" ? v : "");

@@ -26,7 +26,7 @@ import { recentActiveRows } from "../lib/ask-answer-routing";
 import { askerStillThere, openQuestionsOnRows, sessionHasOpenQuestion } from "../lib/question-outlives-asker";
 import { onFirstModelEvent, type AnswerRelay, type Carry } from "../lib/answer-relay";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
-import { deriveToolDetail } from "../providers/claude/tool-detail";
+import { deriveToolDetail } from "../../shared/tool-detail";
 import { cartelloRisveglio, commandWakeBanner } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
 import { getSessionCliPid } from "../providers/session-pids";
@@ -2761,7 +2761,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // have to JSON-grovel `args`. Bash → shell, Read → read, Task →
               // sub_agent (empty actions, populated later by SidechainTracker
               // updates), `mcp__*` → mcp with namespace stripped, etc. See
-              // `providers/claude/tool-detail.ts`. Unknown names fall through
+              // `shared/tool-detail.ts`. Unknown names fall through
               // to `{ type: 'unknown' }` so the legacy generic row still works.
               const detail = deriveToolDetail(name, args);
               const toolCall: ToolCall = {

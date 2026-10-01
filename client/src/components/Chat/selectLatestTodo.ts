@@ -9,7 +9,8 @@
  */
 
 import type { ChatMessage, ToolCall } from '../../types';
-import { TODO_TOOL_NAMES, resolveToolDetail } from './toolDetail';
+import { resolveToolDetail } from './toolDetail';
+import { TODO_TOOL_NAMES } from '../../../../shared/tool-detail';
 
 export interface TodoItem {
   content: string;
