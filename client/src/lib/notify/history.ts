@@ -10,7 +10,8 @@ import type {
   NotificationRecordInput,
   NotificationRow,
 } from '../../../../shared/notification-log';
-import { NOTIFICATION_MAX_ROWS } from '../../../../shared/notification-log';
+import { NOTIFICATION_MAX_ROWS, terminalSessionOfGroupKey } from '../../../../shared/notification-log';
+import { apiFetch } from '../shell/net';
 
 export interface NotificationHistoryPage {
   rows: NotificationRow[];
@@ -25,7 +26,7 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
   if (opts.limit) q.set('limit', String(opts.limit));
   if (opts.before) q.set('before', opts.before);
   const qs = q.toString();
-  const r = await fetch(`/api/notifications${qs ? `?${qs}` : ''}`);
+  const r = await apiFetch(`/api/notifications${qs ? `?${qs}` : ''}`);
   if (!r.ok) throw new Error(`GET /api/notifications ${r.status}`);
   const data = (await r.json()) as Partial<NotificationHistoryPage>;
   return {
@@ -44,7 +45,7 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
  */
 export function recordNotificationSent(input: NotificationRecordInput): void {
   try {
-    void fetch('/api/notifications', {
+    void apiFetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -63,7 +64,7 @@ export function recordNotificationSent(input: NotificationRecordInput): void {
  */
 export function markTargetSeen(targetKind: string, targetId: string): void {
   try {
-    void fetch('/api/notifications/seen', {
+    void apiFetch('/api/notifications/seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetKind, targetId }),
@@ -78,7 +79,7 @@ export function markTargetSeen(targetKind: string, targetId: string): void {
 export async function markNotificationsSeen(
   body: { ids?: string[]; upTo?: string; subjects?: string[] },
 ): Promise<{ unseen: number; unseenKeys?: string[] }> {
-  const r = await fetch('/api/notifications/seen', {
+  const r = await apiFetch('/api/notifications/seen', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -89,6 +90,24 @@ export async function markNotificationsSeen(
 }
 
 // ── Decisioni pure ──────────────────────────────────────────────────────────
+
+/**
+ * Is a row about the pane the person is looking at, so it is recorded already
+ * seen? Its subject is the chat it leads to, or the terminal it is grouped
+ * under (a terminal is never a target, its row carries the session only in
+ * the group key). Born unseen, a turn that ended on the focused terminal put
+ * +1 on the bell and the Dock that no gesture took back: the terminal raises
+ * no finished mark in front of you, so the seen event had nothing to clear.
+ */
+export function notificationBornSeen(
+  target: { kind: string; id: string } | null | undefined,
+  groupKey: string | null | undefined,
+  isInFront: (subjectId: string) => boolean,
+): boolean {
+  if (target?.kind === 'topic' && isInFront(target.id)) return true;
+  const terminal = terminalSessionOfGroupKey(groupKey);
+  return terminal !== null && isInFront(terminal);
+}
 
 /**
  * Inserisci in testa la riga arrivata dal fronte `notification:new`, senza

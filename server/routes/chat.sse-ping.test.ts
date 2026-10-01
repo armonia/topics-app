@@ -168,7 +168,7 @@ describe("the chat's SSE response during a silent tool, behind Bun's idle timeou
 describe("send_chat_message across a stream Bun cut, on the real routes", () => {
   test("the idle close lands mid-tool, before any text: the tool still returns the final answer", async () => {
     const ctx = await createTestAppContext();
-    const sessionKey = saveTopic(ctx, "sse-cut-send");
+    saveTopic(ctx, "sse-cut-send");
     // No ping inside the 14 s: the response is cut at 8 to 12 s, the turn goes on.
     const chat = chatRouterFor(ctx, silentToolProvider(14_000).provider, 60_000);
     const topics = createTopicsRouter(ctx);

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
@@ -35,7 +35,6 @@ beforeAll(() => {
   mkdirSync(migDir, { recursive: true });
   // Copy real migrations so the activity_log schema (migration 001) exists.
   const realMigDir = join(import.meta.dir, "migrations");
-  const { readdirSync } = require("fs");
   for (const f of readdirSync(realMigDir)) {
     if (!f.endsWith(".sql")) continue;
     writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));

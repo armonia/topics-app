@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { BrowserContextInfo } from '@/lib/buildSidebarItems';
 import type { WSMessage } from '../types';
+import { apiFetch } from '../lib/shell/net';
 
 const POLL_INTERVAL_FALLBACK = 30_000; // 30s fallback
 
@@ -17,7 +18,7 @@ export function useBrowserContexts(
   const loadContexts = useCallback(async () => {
     try {
       const fetchTime = Date.now();
-      const resp = await fetch('/api/browser/status');
+      const resp = await apiFetch('/api/browser/status');
       if (resp.ok) {
         if (lastUpdateRef.current > fetchTime) return;
         lastUpdateRef.current = fetchTime;
@@ -56,7 +57,7 @@ export function useBrowserContexts(
 
   const closeContext = useCallback(async (id: string) => {
     try {
-      await fetch(`/api/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await apiFetch(`/api/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
       setContexts(prev => prev.filter(c => c.id !== id));
     } catch (err) {
       console.error('[BrowserContexts] Close failed:', err);

@@ -1,6 +1,6 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from "fs";
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry, shouldForgetLastUrl, clearLastUrl, type BrowserStorageState } from "./browser-state-store";
 import { seedSharedFromNative } from "./browser-session-handoff";
@@ -676,7 +676,6 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // requiring user to reinstall browsers.
       const cacheRoot = `${process.env.HOME}/Library/Caches/ms-playwright`;
       try {
-        const { readdirSync } = require("node:fs") as typeof import("node:fs");
         const dirs = readdirSync(cacheRoot, { withFileTypes: true })
           .filter(d => d.isDirectory() && /^chromium-\d+$/.test(d.name))
           .map(d => ({ name: d.name, rev: parseInt(d.name.split("-")[1] || "0", 10) }))
@@ -872,7 +871,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // rifiutare è la scelta prudente per un agente che non ha chiesto niente.
       const handled: "accept" | "dismiss" = type === "beforeunload" ? "accept" : "dismiss";
       entry.lastDialog = { type, message, at: Date.now(), handled };
-      try { handled === "accept" ? await d.accept() : await d.dismiss(); } catch { /* già chiuso */ }
+      try { if (handled === "accept") await d.accept(); else await d.dismiss(); } catch { /* già chiuso */ }
       console.log(`[BrowserService] dialogo ${type} su ${id}: "${message.slice(0, 120)}" → ${handled}`);
     });
 
@@ -918,8 +917,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // dir and surface a user-clickable link — no silent loss, no auto-open.
     page.on("download", (download) => {
       const rawName = download.suggestedFilename() || "download";
-      const safeName = rawName.replace(/[^\w.\-]+/g, "_").slice(-120);
-      const safeCtx = id.replace(/[^\w.\-]+/g, "_");
+      const safeName = rawName.replace(/[^\w.-]+/g, "_").slice(-120);
+      const safeCtx = id.replace(/[^\w.-]+/g, "_");
       const stamped = `${safeCtx}__${Date.now()}__${safeName}`;
       const dest = join(browserDownloadDir, stamped);
       const href = `/media/browser/downloads/${encodeURIComponent(stamped)}`;

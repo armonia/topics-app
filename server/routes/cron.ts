@@ -21,7 +21,7 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
     } catch { /* non-fatal */ }
   }
 
-  return async function cronRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  return async function cronRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
     if (method === "GET" && pathname === "/api/cron/jobs") {
       try {

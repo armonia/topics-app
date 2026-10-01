@@ -4,6 +4,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
 import { reloadMachines } from '../../state/machinesStore';
 import { RemoteNodeRequests } from './RemoteNodeRequests';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * I dispositivi autorizzati, e il gesto per toglierne uno.
@@ -132,7 +133,7 @@ export function DevicesSection() {
     setPairBusy(true);
     setPairError(null);
     try {
-      const r = await fetch('/api/machines/pair', {
+      const r = await apiFetch('/api/machines/pair', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -167,7 +168,7 @@ export function DevicesSection() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/machines/pair/${encodeURIComponent(pairing.id)}`, { credentials: 'same-origin' });
+        const r = await apiFetch(`/api/machines/pair/${encodeURIComponent(pairing.id)}`, { credentials: 'same-origin' });
         const body = await r.json().catch(() => null) as {
           state?: string; machine?: { name?: string }; code?: string;
         } | null;
@@ -208,7 +209,7 @@ export function DevicesSection() {
 
   const carica = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/auth/devices', { credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
       const b = await r.json() as {
         devices: Device[]; thisComputer?: { name: string; current: boolean }; people?: Persona[];
@@ -272,7 +273,7 @@ export function DevicesSection() {
   const ask = async (id: string, init: RequestInit): Promise<boolean> => {
     let refused: string | null = null;
     try {
-      const r = await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, { credentials: 'same-origin', ...init });
+      const r = await apiFetch(`/api/auth/devices/${encodeURIComponent(id)}`, { credentials: 'same-origin', ...init });
       // The server sends a CODE (`shared/auth-codes.ts`) and the sentence is
       // picked here: these handlers used to print its prose verbatim, in the
       // wrong language, when they printed anything at all.

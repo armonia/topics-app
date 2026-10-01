@@ -236,7 +236,10 @@ jobs:
       # so dropping `working-directory` was the whole fix.
       # `relay/gate-coverage.test.ts` then asserts the wiring by MEASURING the
       # file list eslint actually opens, so this cannot be silently unpicked.
-      - name: Lint client + relay worker (eslint)
+      # Since 2026-10-01 the same root script also lints server/, shared/ and
+      # server.ts (`lint:server`); `no-explicit-any` is off there because
+      # check:any and check:any-budget own that rule.
+      - name: Lint client + relay worker + server (eslint)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run lint
 
@@ -314,11 +317,18 @@ jobs:
           # spec — dipende dal carico — ma la sua CAUSA si legge nel JSX.
           bun run check:ref-callbacks
           bun run check:nul
+          # Every `/api` request of the client goes through `apiFetch`
+          # (client/src/lib/shell/net.ts), which owns the server origin and the
+          # identity refusal. This rejects a literal `fetch('/api...')` outside
+          # it: the form 173 calls had, and the reason a 401 met by any of them
+          # never reached the pairing screen.
+          bun run check:api-door
           bun run check:deadcode
           bun run check:eslint-disable
           bun run check:test-skips
           bun run check:emdash
           bun run check:bloat
+          bun run check:route-shadowing
           # La scala tipografica e' UNA, e sta nel blocco `@theme` di
           # index.css. Questo rifiuta le due strade per uscirne: una misura
           # assoluta scritta a mano nel componente (`text-[12.5px]`, cioe' il

@@ -123,7 +123,7 @@ export async function scanCopiedPrefix(
   let unknownRun = 0;
   let cursor = 0;
   while (cursor < text.length) {
-    let nl = text.indexOf('\n', cursor);
+    const nl = text.indexOf('\n', cursor);
     if (nl === -1) break; // riga parziale in coda: non la si conta
     const line = text.slice(cursor, nl);
     cursor = nl + 1;

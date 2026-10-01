@@ -95,7 +95,8 @@ export { MAX_CHECKS };
  * all eleven and turn main red on any of the eight, which is the same failure
  * the paragraph above describes and the same reason it is not a choice.
  *
- * SO ALL EIGHT ARE IN, and the chain is nineteen links. The two the CI step runs
+ * SO ALL EIGHT ARE IN, and the chain is nineteen links (twenty-one since
+ * `check:api-door` and `check:route-shadowing`, 2026-10-01). The two the CI step runs
  * and this chain will NOT repeat are named here so nobody adds them back
  * thinking they were forgotten:
  *  · `check:deadcode` is already a slot of its own on the board. Inside the
@@ -136,6 +137,12 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     // here comes back in under a second instead of after the slow tail.
     "bun run check:tmp-canonical",
     "bun run check:module-mock-restore",
+    // A literal `fetch('/api...')` outside the client's door (2026-10-01),
+    // a pure scan of client/src.
+    "bun run check:api-door",
+    // Two routers claiming one method + path (2026-10-01): an AST scan of the
+    // router sources, 0.8s at load 40.
+    "bun run check:route-shadowing",
     "bun run check:any",
     "bun run check:ref-callbacks",
     "bun run check:any-budget",
@@ -265,6 +272,7 @@ const TEST_NOISE = /^\s*\((?:pass|skip)\)/;
  * before printing it.
  */
 const COLOR_WARNING_NOISE =
+  // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
   /^(?:\x1b\[[0-9;]*[A-Za-z])*\s*(?:\(node:\d+\) Warning: The 'NO_COLOR' env is ignored|\(Use `node --trace-warnings)/;
 const isCheckNoise = (row: string): boolean => TEST_NOISE.test(row) || COLOR_WARNING_NOISE.test(row);
 

@@ -43,7 +43,7 @@
  * @covers KANBAN-11
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";

@@ -3,6 +3,7 @@ import { refreshSession, type SessionState } from '@/lib/auth/session';
 import { attesaRiprova, chiaveFrase, chiaveStato, motivoDaRisposta, type MotivoPairing } from './pairingErrore';
 import { MODAL_LAYER } from '@/lib/modalStyles';
 import { useT } from '@/hooks/useT';
+import { apiFetch } from '../../lib/shell/net';
 
 /** The bundle version, baked in by Vite (`client/vite.config.ts`). */
 declare const __APP_VERSION__: string;
@@ -85,7 +86,7 @@ export function PairingGate({ session }: { session: SessionState }) {
       // screen stays still while the retry happens.
       setDenied(false);
       try {
-        const r = await fetch('/api/auth/pair/request', { method: 'POST', credentials: 'same-origin' });
+        const r = await apiFetch('/api/auth/pair/request', { method: 'POST', credentials: 'same-origin' });
         if (!r.ok) {
           // A reply exists: the server is reachable and states the reason.
           // Read the code and RETRY on our own. Almost every refusal on this
@@ -139,7 +140,7 @@ export function PairingGate({ session }: { session: SessionState }) {
     async function attendi() {
       if (!vivo || !requestIdRef.current) return;
       try {
-        const r = await fetch(
+        const r = await apiFetch(
           `/api/auth/pair/status?requestId=${encodeURIComponent(requestIdRef.current)}`
           + `&claim=${encodeURIComponent(claimRef.current)}`,
           { credentials: 'same-origin' },

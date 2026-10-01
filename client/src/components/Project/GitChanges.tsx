@@ -23,6 +23,7 @@ import { diffEndpoints, endLabel, type DiffEnd, type DiffSource } from './diffEn
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { useDismissable } from '../../hooks/useDismissable';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -218,6 +219,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     onClose: () => setShowBranches(false),
     refs: [branchBtnRef, branchDropdownRef],
   });
+  // The branch and history popovers leave like every floating surface: the
+  // DOM drops them at once and an inert copy fades out (lib/exitGhost).
+  useExitGhost(branchDropdownRef, showBranches);
+  useExitGhost(historyPopRef, showStoria);
 
   // Detect dark mode
   const [darkMode, setDarkMode] = useState(false);
@@ -1190,6 +1195,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {showBranches && createPortal(
           <div
             ref={branchDropdownRef}
+            data-testid="git-branch-popover"
             className={`fixed w-52 overflow-y-auto overscroll-contain ${POPOVER_PANEL}`}
             style={{
               // Misurato e ribaltabile. Prima il tetto veniva dallo spazio
@@ -1632,6 +1638,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && createPortal(
         <div
           ref={branchDropdownRef}
+          data-testid="git-branch-popover"
           className={`fixed w-56 overflow-y-auto overscroll-contain ${POPOVER_PANEL}`}
           style={{
             // Stesso posizionatore della variante compatta: misura, ribalta,

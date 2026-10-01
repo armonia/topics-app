@@ -688,7 +688,7 @@ export interface ReplayTurn {
  * the turns (excluding the very last one, which is the user's brand-new
  * message that the caller is about to send fresh).
  *
- * Why a duplicate-ish helper rather than reusing buildProviderHistory: the
+ * Why its own query rather than the history `assembleTopicContext` builds: the
  * provider has no access to the AppContext closure where loadActiveThread
  * lives — and adding a constructor-time DI parameter just for this would
  * ripple through provider/index/createProvider. A direct query against the
@@ -725,7 +725,7 @@ export function loadActiveBranchForReplay(sessionKey: string): ReplayTurn[] {
     childrenOf.set(key, list);
   }
 
-  let activeRows: Row[] = [];
+  const activeRows: Row[] = [];
   let cursor: string | null = null;
   while (true) {
     // Both annotated on purpose: `cursor` is reassigned from `chosen.id` at the

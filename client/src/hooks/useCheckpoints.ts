@@ -5,6 +5,7 @@ export type { Checkpoint } from '../../../shared/types';
 import type { Checkpoint } from '../../../shared/types';
 import type { RestoreBlockerCode, RestorePlan, RestoreVerdict } from '../../../shared/checkpoint-plan';
 import type { CheckpointPreflight } from '../components/Chat/checkpointPlan';
+import { apiFetch } from '../lib/shell/net';
 
 const API_BASE = '/api';
 
@@ -21,7 +22,7 @@ export class RestoreRefusedError extends Error {
 }
 
 async function checkpointRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const response = await apiFetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',

@@ -2625,8 +2625,13 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   }
 }
 
+/* The sheet rises on the tokens: `--motion-base` because it crosses a third
+ * of the screen (`fast` reads as a jump over that distance), on
+ * `--ease-standard` like every other entrance (MOTION-04). It was
+ * `0.3s ease-out`, the one floating surface still off the token table. Its
+ * exit is `[data-exit-ghost="sheet"]` below. */
 .bottom-sheet {
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp var(--motion-base) var(--ease-standard);
 }
 
 .animate-slide-up {
@@ -2872,6 +2877,16 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 [data-exit-ghost="modal"] .command-palette-enter {
   animation: commandPaletteOut var(--motion-fast) var(--ease-exit) both !important;
+}
+/* The phone's bottom sheet goes back the way it came. `transform` and not
+ * `translate`: the sheet carries no centring translate to compose with, and
+ * a sheet dragged halfway down by the finger (useSheetDrag writes an inline
+ * `transform`) leaves from where the finger let go. */
+@keyframes sheetOut {
+  to { transform: translateY(100%); }
+}
+[data-exit-ghost="sheet"] {
+  animation: sheetOut var(--motion-fast) var(--ease-exit) both !important;
 }
 
 /* REDUCED MOTION, ONCE FOR THE WHOLE APP.
@@ -4810,6 +4825,17 @@ html.windows-acrylic .floating-splits [data-split-card] [data-split-card] {
 }
 
 .reveal-in { animation: revealIn var(--motion-fast) var(--ease-standard) both; }
+
+/* A native fold (`<details>`) opens with the same fade as `.reveal-in`, on
+ * what it reveals. Opacity only: a height animation would move everything
+ * under the fold for 150ms, and none of these folds is measured mid-open.
+ * Under `.anims-paused` it is switched off like the class it mirrors. */
+details[open] > :not(summary) {
+  animation: revealIn var(--motion-fast) var(--ease-standard) both;
+}
+.anims-paused details[open] > :not(summary) {
+  animation: none !important;
+}
 
 /* IL FANTASMA CHE VIAGGIA fra due colonne della board.
    È una copia della card, `fixed` sul body: dentro la colonna non poteva

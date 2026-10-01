@@ -31,6 +31,7 @@ import {
   facceOnline, presentiOra, gentePresenza,
   type PresenceFace, type MembroPresenza, type PresenceRow,
 } from '@/components/Sidebar/orgPresence';
+import { apiFetch } from '../lib/shell/net';
 
 /** One organisation, with whoever is present inside it right now. */
 export interface OrgWithPresence {
@@ -109,7 +110,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
     const withMembers = await Promise.all(ordinate.map(async (o): Promise<OrgWithPresence> => {
       let membri: MembroPresenza[] = [];
       try {
-        const r = await fetch(`/api/auth/orgs/${encodeURIComponent(o.id)}/members`, { credentials: 'same-origin' });
+        const r = await apiFetch(`/api/auth/orgs/${encodeURIComponent(o.id)}/members`, { credentials: 'same-origin' });
         if (r.ok) membri = ((await r.json()) as { members?: MembroPresenza[] }).members ?? [];
       } catch { /* an org that does not answer keeps no presence, it does not vanish */ }
       return {

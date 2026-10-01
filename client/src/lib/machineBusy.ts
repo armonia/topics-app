@@ -9,8 +9,7 @@
  *
  * WHY THE LARGER OF THE TWO AND NOT AN AVERAGE. CPU and memory do not
  * compensate: a Mac at 95% CPU and 20% memory is a busy Mac, and an average
- * would call it half idle. The same rule `loadTint.ts` already applies to the
- * status dot.
+ * would call it half idle.
  *
  * NOT MEASURED IS NOT ZERO. One axis missing (memory off macOS, CPU before the
  * first reading) leaves the other as the answer; both missing is `null`, drawn

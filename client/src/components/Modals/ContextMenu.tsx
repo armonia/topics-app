@@ -1,13 +1,11 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { createPortal } from 'react-dom';
 import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, Square, type LucideIcon } from 'lucide-react';
 import { useTopicLoading } from '@/state/signals';
 import type { Topic, UpdateTopicRequest } from '@/types';
-import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
-import { useExitGhost } from '@/lib/exitGhost';
-import { useDismissable } from '@/hooks/useDismissable';
+import { POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 import { useCopyTabLink } from '@/hooks/useCopyTabLink';
+import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 
 interface ContextMenuProps {
   x: number;
@@ -54,45 +52,16 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
   const streaming = useTopicLoading(topic.id);
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
-  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Stesso gesto, stesse parole della tab e della palette ⌘K: due superfici che
   // dicono cose diverse sullo stesso soggetto, qui, sono un bug.
   const { copyTabLink } = useCopyTabLink();
-
-  // ONE dismissal contract: capture-phase outside-pointer + Escape close. The
-  // rename input's ref is included so clicking into it (it lives inside menuRef
-  // anyway) can never dismiss. No persistent trigger for a cursor-positioned
-  // menu → restoreFocus:false (an open rename input keeps its own focus).
-  useDismissable({ open: true, onClose, refs: [menuRef, inputRef], restoreFocus: false });
-  // Mounted only while open: the unmount plays the shared exit.
-  useExitGhost(menuRef, true);
 
   useEffect(() => {
     if (subMenu === 'rename') {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [subMenu]);
-
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-
-  // Measure the REAL menu and clamp it inside the viewport (same MARGIN=8
-  // technique as ContextMenuPortal), replacing the old hardcoded 220×260
-  // guess — the subMenus differ wildly in height (rename ~80px vs the icon
-  // grid ~200px), so a single fixed size over/under-shot depending on which
-  // one was open. Re-measures whenever the subMenu changes.
-  useLayoutEffect(() => {
-    const el = menuRef.current;
-    const w = el?.offsetWidth ?? 220;
-    const h = el?.offsetHeight ?? 260;
-    const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
-    const top = Math.max(8, Math.min(y, window.innerHeight - h - 8));
-    // Position depends on the MOUNTED menu's measured size (offsetWidth/Height),
-    // unknowable during render — this is the canonical measure-then-place, which
-    // legitimately commits state from a layout effect.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPos({ left, top });
-  }, [x, y, subMenu]);
 
   const handleRename = async () => {
     if (renameValue.trim() && renameValue.trim() !== topic.name) {
@@ -105,23 +74,12 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
 
   const handleDelete = async () => { await onDelete(topic.id); onClose(); };
 
-  // Portaled to <body> so position:fixed escapes any transformed / overflow /
-  // stacking-context ancestor, and Z_CONTEXT_MENU keeps it on the shared
-  // popover plane (above portaled dropdowns / the project menu).
-  return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={`Azioni per ${topic.name}`}
-      className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
-      style={{
-        left: pos?.left ?? x,
-        top: pos?.top ?? y,
-        zIndex: Z_CONTEXT_MENU,
-        // Hidden for the one pre-measure pass so it never flashes unclamped.
-        visibility: pos ? 'visible' : 'hidden',
-      }}
-    >
+  // The shared cursor menu (CTXMENU-01): portal, placement flipped at the
+  // edges and redone when a sub-view changes its height, one popover at a
+  // time, Esc and outside close, focus back on the right-clicked row. This
+  // file used to carry its own copy of each, minus the focus.
+  return (
+    <ContextMenuPortal open x={x} y={y} onClose={onClose} minWidth={200} ariaLabel={`Azioni per ${topic.name}`}>
       {subMenu === 'none' && (
         <>
           {/* STOP FIRST, ARCHIVE AFTER: the trailing rail's order
@@ -242,8 +200,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
         </div>
       )}
 
-    </div>,
-    document.body
+    </ContextMenuPortal>
   );
 }
 

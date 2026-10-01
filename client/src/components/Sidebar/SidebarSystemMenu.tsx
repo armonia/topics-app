@@ -23,6 +23,7 @@ import { reportLoadFailure } from '@/lib/chunkReloadGuard';
 import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import type { UsageRange } from '@/hooks/useProjectUsage';
+import { apiFetch } from '../../lib/shell/net';
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_TIME__: string;
@@ -246,7 +247,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
     // `/api/version` re-reads package.json, so it is the truth right after a
     // bump, while the baked constant is frozen at build time. The chip follows
     // the CLIENT, which is what a deploy moves.
-    void fetch('/api/version', { cache: 'no-store' })
+    void apiFetch('/api/version', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { version?: string } | null) => { if (alive && d?.version) setVersioneServer(d.version); })
       .catch(() => {});

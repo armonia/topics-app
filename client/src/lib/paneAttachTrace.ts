@@ -21,6 +21,8 @@
  * a flag nobody turned on logs nothing.
  */
 
+import { apiFetch } from './shell/net';
+
 export interface TraceEvent {
   at: number;
   event: string;
@@ -117,7 +119,7 @@ export function tracePaneAttach(event: string, fields: Record<string, unknown> =
 export function installPaneAttachTraceSink(clientId: () => string): void {
   if (send || typeof fetch !== 'function') return;
   send = async (events) => {
-    const res = await fetch('/api/client-trace', {
+    const res = await apiFetch('/api/client-trace', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientId() },
       body: JSON.stringify({ events }),

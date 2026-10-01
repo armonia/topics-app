@@ -23,8 +23,6 @@ const ROOT = testTmpDir("chat-cut-turn-notice");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
 afterAll(() => cleanupTestDataDir(ROOT));
 
-/** The route's soft inactivity timeout, as armed in `routes/chat.ts`. */
-const STREAM_TIMEOUT_MS = 60_000;
 
 interface Harness {
   ctx: AppContext;

@@ -13,6 +13,7 @@ import { SheetGrabber } from './SheetGrabber';
 import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 import { useExitGhost } from '../../lib/exitGhost';
+import { keepSystemMenuOffPanel } from '../../lib/contextMenuOrigin';
 
 /**
  * Menu — the ONE anchored-popover primitive. Every custom menu / dropdown in the
@@ -177,9 +178,11 @@ export function Menu({
 
   const onKeyDown = useMenuKeyboard({ panelRef, enabled: !unmanagedFocus });
 
-  // The anchored card fades out on close (lib/exitGhost). The phone sheet has
-  // its own slide and a scrim that leaves with it, so it closes as before.
-  useExitGhost(panelRef, open && !isMobile);
+  // On close the anchored card fades out (lib/exitGhost); the phone sheet
+  // slides back down and its scrim fades with it, instead of both vanishing in
+  // one frame.
+  useExitGhost(panelRef, open, isMobile ? 'sheet' : 'popover');
+  useExitGhost(scrimRef, open && isMobile, 'modal');
 
   if (!open) return null;
 
@@ -192,13 +195,15 @@ export function Menu({
           chiaro; in scuro l'ombra è nero su quasi-nero e non aiuta). Il gemello
           in `ChatInput` usa `bg-black/40` da sempre: qui mancava e basta. */}
       {isMobile && (
-        <div ref={scrimRef} className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
+        <div ref={scrimRef} className="fixed inset-0 bg-black/40 modal-backdrop-enter" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
       )}
       <div
         ref={panelRef}
         role={role}
         tabIndex={-1}
         onKeyDown={onKeyDown}
+        // No system menu over (or under) ours: see `lib/contextMenuOrigin`.
+        onContextMenu={keepSystemMenuOffPanel}
         data-testid={testId}
         // Marchio STABILE «questo è un menu fluttuante», per chi deve
         // distinguere il fuoco dentro un popover dal fuoco su un campo della

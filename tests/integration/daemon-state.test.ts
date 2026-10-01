@@ -42,14 +42,13 @@ describe("daemon-state — lock lifecycle (DAEMON-01)", () => {
     expect(stateOnDisk.token).toBe(state.token);
   });
 
-  test("state file is mode 0600 (token is sensitive)", async () => {
+  test("state and lock files are mode 0600 (token is sensitive)", async () => {
     const { acquireLock, writeState } = await import("../../server/services/daemon-state");
     acquireLock();
     writeState(3333);
-    const stat = fs.statSync(join(TEST_HOME, "daemon-state.json"));
-    // Mask off file-type bits; only check the user-perm triplet.
-    const mode = stat.mode & 0o777;
-    expect(mode).toBe(0o600);
+    // Mask off file-type bits; only check the permission bits.
+    expect(fs.statSync(join(TEST_HOME, "daemon-state.json")).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(join(TEST_HOME, "daemon-process.lock")).mode & 0o777).toBe(0o600);
   });
 
   test("rejects a second acquire while a live lock is held (LiveLockError)", async () => {
@@ -140,8 +139,10 @@ describe("daemon-state — lock lifecycle (DAEMON-01)", () => {
     const { acquireLock, writeState } = await import("../../server/services/daemon-state");
     acquireLock();
     writeState(3333);
+    // The temp is `<file>.tmp.<pid>.<epochMs>.<seq>` (lib/atomic-write.ts):
+    // matching only a `.tmp` suffix could never see one.
     const dir = fs.readdirSync(TEST_HOME);
-    expect(dir.some((f) => f.endsWith(".tmp"))).toBe(false);
+    expect(dir.filter((f) => f.includes(".tmp"))).toEqual([]);
   });
 
   test("uptimeMsSince computes a non-negative duration", async () => {

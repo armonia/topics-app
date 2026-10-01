@@ -53,7 +53,7 @@ export interface NodeBranchPlantDeps {
 
 /** A ref that starts with "-" would be read by git as an option, on our own subprocess. */
 function refIsSafe(ref: string): boolean {
-  return /^[A-Za-z0-9._\/-]+$/.test(ref) && !ref.startsWith("-") && !ref.includes("..");
+  return /^[A-Za-z0-9._/-]+$/.test(ref) && !ref.startsWith("-") && !ref.includes("..");
 }
 
 /** A sha we are about to hand to `cat-file`: hex only, nothing that can be a flag. */

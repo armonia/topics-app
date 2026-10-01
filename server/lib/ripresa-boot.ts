@@ -54,7 +54,7 @@
  *     in mente.
  */
 import type { ContentBlock } from "../types";
-import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
+import { cancelled } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
   eCartelloDiInterruzione, isOutage, isOutsideCause, isRestartNotice, isResumableCause, outageCutNotResent,

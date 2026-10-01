@@ -2,7 +2,7 @@
  * @covers GESTURE-05
  */
 import { describe, test, expect } from 'bun:test';
-import { computeMenuPosition } from './popoverPosition';
+import { computeMenuPosition, placeAtPoint } from './popoverPosition';
 
 // Fixed viewport so the math is deterministic without a DOM.
 const vp = { viewportWidth: 1000, viewportHeight: 800 };
@@ -147,5 +147,30 @@ describe('side=right, the submenu placement', () => {
     const a = computeMenuPosition(row, { width: 180, height: 200 }, { ...vp, side: 'right', align: 'left' });
     const b = computeMenuPosition(row, { width: 180, height: 200 }, { ...vp, side: 'right', align: 'right' });
     expect(a).toEqual(b);
+  });
+});
+
+describe('placeAtPoint (context menu at the pointer)', () => {
+  const size = { width: 200, height: 300 };
+  test('opens right of and below the point when it fits', () => {
+    expect(placeAtPoint({ x: 100, y: 100 }, size, vp)).toEqual({ left: 100, top: 100 });
+  });
+  test('flips to the left of the point near the right edge instead of sliding under it', () => {
+    // 900 + 200 + 8 > 1000: the menu ends at the pointer, it does not cover it.
+    expect(placeAtPoint({ x: 900, y: 100 }, size, vp).left).toBe(700);
+  });
+  test('flips above the point near the bottom edge', () => {
+    expect(placeAtPoint({ x: 100, y: 700 }, size, vp).top).toBe(400);
+  });
+  test('flips on both axes in the bottom-right corner', () => {
+    expect(placeAtPoint({ x: 990, y: 790 }, size, vp)).toEqual({ left: 790, top: 490 });
+  });
+  test('clamps inside the margin when the flipped side does not fit either', () => {
+    // 150px from the top, 300px tall, 400px of window: neither side fits, the
+    // flipped top (-150) is clamped onto the margin and the menu stays whole.
+    expect(placeAtPoint({ x: 100, y: 150 }, size, { ...vp, viewportHeight: 400 }).top).toBe(8);
+  });
+  test('a menu taller than the viewport sits on the margin', () => {
+    expect(placeAtPoint({ x: 100, y: 50 }, { width: 200, height: 900 }, vp).top).toBe(8);
   });
 });

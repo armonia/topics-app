@@ -51,7 +51,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a clean 'alive' verdict rearms the SAME watch, never calls onStuck", async () => {
     const t = fakeTimers();
     let stuck = 0;
-    let rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
+    const rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => false,
@@ -112,7 +112,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a human on screen rearms without ever asking the judge", async () => {
     const t = fakeTimers();
     let judged = 0;
-    let rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
+    const rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => true,
@@ -166,7 +166,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     const t = fakeTimers();
     let judged = 0;
     let stuck = 0;
-    let rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
+    const rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     let checksRunning = true;
     armStallDetector({
       idleMs: 5_000,

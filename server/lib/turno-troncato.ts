@@ -42,9 +42,9 @@ interface DbLike {
   // generici che obbligano il chiamante a dichiarare la forma della riga, e
   // riscriverli qui vorrebbe dire copiare il driver dentro questo modulo. La
   // stessa scelta, con la stessa motivazione, sta in `verdetto-turno-interrotto.ts`.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- il driver tipizza con generici che legherebbero questo modulo alla sua superficie
+  // `any`: il driver tipizza con generici che legherebbero questo modulo alla sua superficie
   prepare(sql: string): any; // allow-any: stessa ragione, il driver tipizza con generici che legherebbero questo modulo alla sua superficie
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- stessa ragione di `prepare` qui sopra: la forma della riga la dicono i chiamanti
+  // `any`: stessa ragione di `prepare` qui sopra, la forma della riga la dicono i chiamanti
   query(sql: string): any; // allow-any: come `prepare` qui sopra, la forma della riga la dicono i chiamanti
 }
 

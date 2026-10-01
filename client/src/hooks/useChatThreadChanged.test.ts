@@ -18,6 +18,9 @@
  * window already holds from the server does not raise `loading`, which is what
  * held a remounted chat behind its skeleton on a tab switch.
  *
+ * The `keepLit` block is the read a live turn asks for: queued behind a read in
+ * flight, it is read again with the options it asked for.
+ *
  * @covers INTERRUPT-01, RESUME-02, PERF-02
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -106,11 +109,14 @@ const REAL_FETCH = globalThis.fetch;
 let serverRows: unknown[] = OPEN;
 /** While set, a history read holds its answer until the test releases it. */
 let gate: Promise<void> | null = null;
+/** Whether the route reports a turn in flight. */
+let serverStreaming = false;
 
 beforeEach(() => {
   __setQueueStorage(null);
   serverRows = OPEN;
   gate = null;
+  serverStreaming = false;
   g.fetch = async (input: unknown) => {
     const url = typeof input === 'string' ? input : (input as { url: string }).url;
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -119,7 +125,7 @@ beforeEach(() => {
       // a read in flight describes the rows as they were when it started.
       const rows = serverRows;
       if (gate) await gate;
-      return json({ messages: rows, total: rows.length, isStreaming: false });
+      return json({ messages: rows, total: rows.length, isStreaming: serverStreaming });
     }
     return json({ ok: true });
   };
@@ -261,6 +267,65 @@ describe('a read of a thread this window already read from the server', () => {
     await settle();
     expect(d.chat.isSessionLoading(d.sk)).toBe(false);
     expect(cutOf(d.last())).toMatchObject({ kind: 'error', text: CUT });
+    d.unmount();
+  });
+});
+
+/**
+ * A READ OF A LIVE TURN, QUEUED BEHIND ANOTHER, KEEPS THE TURN LIT.
+ * `keepLit` spares the Stop button the blink a read gives a session (streaming
+ * cleared until the answer). A `fresh` read that meets one in flight is read
+ * again after it, and that read again used to go out as `{ fresh: true }`
+ * only: the turn went dark for the length of the request.
+ */
+describe('a keepLit read queued behind a read in flight', () => {
+  test('the read again keeps the turn lit while it is in flight', async () => {
+    const d = drive();
+    serverStreaming = true;
+    await d.chat.loadHistory(d.sk);
+    await settle();
+    expect(d.chat.isSessionStreaming(d.sk)).toBe(true);
+
+    let releaseFirst!: () => void;
+    gate = new Promise<void>((r) => { releaseFirst = r; });
+    const first = d.chat.loadHistory(d.sk, { fresh: true, keepLit: true });
+    await settle();
+    // Queued: it meets the read in flight.
+    await d.chat.loadHistory(d.sk, { fresh: true, keepLit: true });
+    expect(d.chat.isSessionStreaming(d.sk)).toBe(true);
+
+    // The read again is held at the route, so its interim state can be seen.
+    let releaseAgain!: () => void;
+    gate = new Promise<void>((r) => { releaseAgain = r; });
+    releaseFirst();
+    await first;
+    await settle();
+    expect(d.chat.isSessionStreaming(d.sk)).toBe(true);
+
+    gate = null;
+    releaseAgain();
+    await settle();
+    expect(d.chat.isSessionStreaming(d.sk)).toBe(true);
+    d.unmount();
+  });
+
+  test('a turn that ended still goes dark once the read again answers', async () => {
+    const d = drive();
+    serverStreaming = true;
+    await d.chat.loadHistory(d.sk);
+    await settle();
+
+    let releaseFirst!: () => void;
+    gate = new Promise<void>((r) => { releaseFirst = r; });
+    const first = d.chat.loadHistory(d.sk, { fresh: true, keepLit: true });
+    await settle();
+    await d.chat.loadHistory(d.sk, { fresh: true, keepLit: true });
+    serverStreaming = false;
+    gate = null;
+    releaseFirst();
+    await first;
+    await settle();
+    expect(d.chat.isSessionStreaming(d.sk)).toBe(false);
     d.unmount();
   });
 });

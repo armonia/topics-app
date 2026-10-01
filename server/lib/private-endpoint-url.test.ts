@@ -123,7 +123,7 @@ describe("fetchCheckedEndpoint", () => {
 
   test("a redirect to another origin does not carry the token with it", async () => {
     const sent: (string | null)[] = [];
-    const doFetch = (async (url: string, init: RequestInit) => {
+    const doFetch = (async (_url: string, init: RequestInit) => {
       sent.push(new Headers(init?.headers).get("authorization"));
       return sent.length === 1
         ? new Response(null, { status: 302, headers: { location: "https://api.example.com/steal" } })
@@ -145,7 +145,7 @@ describe("fetchCheckedEndpoint", () => {
 
   test("a redirect that stays on the same origin keeps the token", async () => {
     const sent: (string | null)[] = [];
-    const doFetch = (async (url: string, init: RequestInit) => {
+    const doFetch = (async (_url: string, init: RequestInit) => {
       sent.push(new Headers(init?.headers).get("authorization"));
       return sent.length === 1
         ? new Response(null, { status: 307, headers: { location: "/v1/models/" } })

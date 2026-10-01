@@ -6,6 +6,7 @@ import { MODAL_LAYER } from '../../lib/modalStyles';
 import { GuestCard, type SharedTask } from './GuestCard';
 import { guestMeets, type GuestLevel } from './guestLevel';
 import { subscribeFrames } from '../../lib/wsFrameBus';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * Cosa vede un OSPITE quando apre Topics.
@@ -44,7 +45,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
 
   const carica = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/shared', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/auth/shared', { credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
       const b = await r.json() as { tasks: SharedTask[]; topics: SharedChat[] };
       setTasks(b.tasks ?? []);

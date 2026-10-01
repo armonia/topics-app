@@ -18,7 +18,6 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { setDispatchBlock, setHeldResumeBlock } from "./dispatch-block-signal";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { freshDb as schemaDb } from "./tasks-test-db";
 
 /**

@@ -78,7 +78,7 @@ const REGOLE_CHE_PARLANO_ALL_AGENTE: Array<{ n: string; nel_doc: string; nell_en
   { n: "3", nel_doc: "Ogni claim con EVIDENZA verificabile", nell_envelope: /evidence/i },
   { n: "4", nel_doc: "Anteprima = evidenza DUREVOLE", nell_envelope: /PREVIEW/ },
   { n: "5", nel_doc: "Azioni sull'ambiente dell'umano: mai senza ok esplicito", nell_envelope: /HUMAN'S ENVIRONMENT/i },
-  { n: "5-bis", nel_doc: "Quando chiedi una decisione, la TUA scelta va per prima", nell_envelope: /`  \$\{RECOMMENDED_OPTION_RULE\}`/, in_constant: "first element of `options`", in_mcp: { tools: ["comment_task", "comment_global_task"], nella_descrizione: /\$\{RECOMMENDED_OPTION_RULE\}/ } },
+  { n: "5-bis", nel_doc: "Quando chiedi una decisione, la TUA scelta va per prima", nell_envelope: /` {2}\$\{RECOMMENDED_OPTION_RULE\}`/, in_constant: "first element of `options`", in_mcp: { tools: ["comment_task", "comment_global_task"], nella_descrizione: /\$\{RECOMMENDED_OPTION_RULE\}/ } },
   // 5-ter speaks to the agent like the preview rule does, and like it the
   // envelope IMPORTS the string instead of rewriting it: two copies of a rule
   // become two rules the moment somebody edits one.

@@ -34,10 +34,11 @@ import { unwatchProjectFiles } from "../file-watcher";
 const ALLOWED_MODES = new Set(["branch", "reuse", "detached"]);
 const ALLOWED_STATUSES = new Set(["pending", "ready", "error"]);
 const BASE_REF_MAX = 200;
-const BASE_REF_REGEX = /^[A-Za-z0-9_./\-]+$/;
+const BASE_REF_REGEX = /^[A-Za-z0-9_./-]+$/;
 
 function stripCtrl(input: unknown): string | null {
   if (typeof input !== "string") return null;
+  // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
   return input.replace(/[\x00-\x1f\x7f]/g, "").trim();
 }
 

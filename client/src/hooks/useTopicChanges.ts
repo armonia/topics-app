@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useWSSubscription } from './useWSSubscription';
 import type { WSMessage } from '../types';
 import type { TopicChanges } from '../../../shared/topic-changes';
+import { apiFetch } from '../lib/shell/net';
 
 export function useTopicChanges(
   topicId: string,
@@ -26,7 +27,7 @@ export function useTopicChanges(
   // "state arriving from outside" rather than a cascading render.
   const load = useCallback(
     () =>
-      fetch(`/api/topics/${topicId}/changes`)
+      apiFetch(`/api/topics/${topicId}/changes`)
         .then((res) => (res.ok ? (res.json() as Promise<TopicChanges>) : null))
         .then((body) => { if (body) setChanges(body); })
         .catch(() => {

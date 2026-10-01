@@ -1,0 +1,115 @@
+import { basename, join, resolve, sep } from "node:path";
+import { homeDir } from "./broad-cwd";
+import { isInsideDir } from "./path-containment";
+
+/**
+ * Other apps' private data: the folders no walk, search or watch of this server
+ * may enter on its own.
+ *
+ * WHY. The production server runs under the signed launcher "Topics Host", and
+ * macOS attributes the whole job tree to it. Since macOS 14 the data of other
+ * apps is protected (TCC service `SystemPolicyAppData`): the first read inside
+ * `~/Library/Containers/<another app>` or `~/Library/Group Containers/...` pops
+ * "Topics Host would like to access data from other apps", and the answer does
+ * not stick across launches (auth_value 5 in TCC.db, measured 2026-10-01), so a
+ * server that restarts often asks again and again. Mail, Messages, Safari and
+ * Calendars are guarded the same way, by their own TCC services, and a photo or
+ * music library is a package that can sit anywhere (`~/Pictures` by default).
+ *
+ * THE RULE, one for every walker: a walk never crosses INTO a protected area it
+ * did not start in. `~/Library` as a whole is an area for a walk rooted at HOME
+ * or above it, so the explorer of a project opened ON `~/Library/Logs` still
+ * works, while a walk from HOME stops at `Library`; inside `~/Library` the
+ * per-app folders are areas of their own. A root the user opened explicitly
+ * inside an area is theirs to browse: only the crossing is refused.
+ *
+ * Paths are compared as given (resolved, not realpath'd): a walker builds every
+ * child from its root plus `readdir` names, so both sides share one spelling.
+ * The comparison ignores case where the file system usually does (macOS,
+ * Windows), or `~/library/containers` would be a way around it.
+ *
+ * What this cannot guard: commands an AGENT runs in its own shell (`find ~`,
+ * `rg` from HOME). Those are the agent's, not the server's.
+ */
+
+/** Folders under `~/Library` that hold another app's private data. */
+export const PROTECTED_LIBRARY_DIRS = [
+  "Containers", "Group Containers", "Mail", "Messages", "Safari", "Calendars",
+] as const;
+
+/** Media library packages: protected wherever they sit. */
+const MEDIA_LIBRARY_SUFFIXES = [
+  ".photoslibrary", ".photolibrary", ".migratedphotolibrary", ".aplibrary", ".musiclibrary", ".tvlibrary",
+];
+const MEDIA_LIBRARY_NAMES = ["Photo Booth Library"];
+
+const FOLD_CASE = process.platform === "darwin" || process.platform === "win32";
+const key = (p: string): string => (FOLD_CASE ? resolve(p).toLowerCase() : resolve(p));
+
+function isMediaLibraryName(name: string): boolean {
+  const n = FOLD_CASE ? name.toLowerCase() : name;
+  return MEDIA_LIBRARY_SUFFIXES.some((s) => n.endsWith(s))
+    || MEDIA_LIBRARY_NAMES.some((m) => (FOLD_CASE ? m.toLowerCase() : m) === n);
+}
+
+/** Every protected area `abs` lies in (the area's own root, case-folded). */
+function areasOf(abs: string, home: string): string[] {
+  const p = key(abs);
+  const out: string[] = [];
+  if (home) {
+    const lib = key(join(home, "Library"));
+    if (isInsideDir(p, lib)) {
+      out.push(lib);
+      for (const d of PROTECTED_LIBRARY_DIRS) {
+        const area = key(join(home, "Library", d));
+        if (isInsideDir(p, area)) out.push(area);
+      }
+    }
+  }
+  const parts = resolve(abs).split(sep);
+  for (let i = 1; i <= parts.length; i++) {
+    if (isMediaLibraryName(parts[i - 1] ?? "")) out.push(key(parts.slice(0, i).join(sep) || sep));
+  }
+  return out;
+}
+
+/**
+ * May a walk rooted at `root` enter `dir`? `true` = it must not: `dir` is in a
+ * protected area that `root` is not already in.
+ */
+export function isProtectedFromWalk(dir: string, root: string, home: string = homeDir()): boolean {
+  const rootAreas = new Set(areasOf(root, home));
+  return areasOf(dir, home).some((a) => !rootAreas.has(a));
+}
+
+/**
+ * Does a RECURSIVE walk or watch of `root` reach other apps' data? True for
+ * HOME, anything above it, and `~/Library` itself. Media libraries nested in a
+ * project are not counted here: they can only be found by walking, which is
+ * what `isProtectedFromWalk` and `protectedDirExcludes` are for.
+ */
+export function reachesProtectedAppData(root: string, home: string = homeDir()): boolean {
+  if (!home) return false;
+  return isInsideDir(key(join(home, "Library")), key(root));
+}
+
+/**
+ * Directory names to hand a spawned `grep -r` as `--exclude-dir`, for a search
+ * rooted at `root`. grep matches these against the BASE NAME at any depth, so
+ * from HOME the whole `Library` name is excluded (a nested `Library` folder of a
+ * project under HOME goes with it: a search from HOME is already the broadest
+ * there is). A name that matches the root's own base name is left out, because
+ * BSD grep applies `--exclude-dir` to the root too and would answer nothing.
+ */
+export function protectedDirExcludes(root: string, home: string = homeDir()): string[] {
+  const names: string[] = [];
+  if (home) {
+    const lib = key(join(home, "Library"));
+    const r = key(root);
+    if (r === lib) names.push(...PROTECTED_LIBRARY_DIRS);
+    else if (isInsideDir(lib, r)) names.push("Library");
+  }
+  names.push(...MEDIA_LIBRARY_SUFFIXES.map((s) => `*${s}`), ...MEDIA_LIBRARY_NAMES);
+  const own = basename(resolve(root));
+  return names.filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : (FOLD_CASE ? n.toLowerCase() === own.toLowerCase() : n === own)));
+}

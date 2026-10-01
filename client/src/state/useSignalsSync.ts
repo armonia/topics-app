@@ -10,8 +10,9 @@ import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInpu
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
 import { chatFinishedEdge } from '../lib/notify/chatFinished';
 import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
-import { isChatInFront } from './chatInView';
+import { isSubjectInFront } from './chatInView';
 import { subscribeAllSessionFlags } from './sessionFlags';
+import { apiFetch } from '../lib/shell/net';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -131,7 +132,7 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     let cancelled = false;
     const refresh = async () => {
       try {
-        const res = await fetch('/api/topics/streaming');
+        const res = await apiFetch('/api/topics/streaming');
         if (!res.ok) return;
         const body = (await res.json()) as { sessions?: StreamingRowInput[] };
         if (cancelled) return;
@@ -166,9 +167,9 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
       if (msg.type === 'stream:start' || msg.type === 'stream:end') {
         // The chat "finished" mark, the twin of `terminal:activity` below: a
         // clean end raises it, a new turn drops it. Opening the chat drops it
-        // too (`useClearChatFinishedWhileViewed`, in the chat pane), and a chat
-        // already in front of the person is never marked (`isChatInFront`).
-        const edge = chatFinishedEdge(msg, isChatInFront);
+        // too (the seen event, `useSeenFocusedPane`), and a chat already in
+        // front of the person is never marked (`isSubjectInFront`).
+        const edge = chatFinishedEdge(msg, isSubjectInFront);
         if (edge?.op === 'mark') signalsActions.markChatFinished(edge.topicId);
         else if (edge?.op === 'clear') signalsActions.clearChatFinished(edge.topicId);
         // Turno finito ⇒ nessuna domanda può essergli sopravvissuta. Si spegne
@@ -241,8 +242,10 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
         // or phase-resting (awaiting-user/paused/completed/…) — those drive
         // attention via the phase path. Only genuinely phase-less sessions
         // (hook-less / stuck-at-starting) fall through to the pty heuristic.
+        // And a terminal in front of the person is never marked, like a chat:
+        // the turn ended under their eyes (`isSubjectInFront`).
         const sig = useSignalsStore.getState();
-        if (!sig.claudePhaseActiveTermIds.has(msg.id) && !sig.claudePhaseRestingTermIds.has(msg.id)) {
+        if (!sig.claudePhaseActiveTermIds.has(msg.id) && !sig.claudePhaseRestingTermIds.has(msg.id) && !isSubjectInFront(msg.id)) {
           signalsActions.markTerminalFinished(msg.id);
         }
       }

@@ -50,6 +50,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useExitGhost } from '../../lib/exitGhost';
 
 /** Uguale a `Tooltip.tsx`: due superfici che compaiono con tempi diversi si
  *  leggono come due componenti diversi. */
@@ -99,6 +100,9 @@ export function TooltipDelegate() {
   const [stato, setStato] = useState<Stato | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const tipRef = useRef<HTMLDivElement | null>(null);
+  // It settles in on the shared `popover-enter` and fades out as an inert copy
+  // (lib/exitGhost), like every floating surface, instead of popping.
+  useExitGhost(tipRef, stato !== null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** L'elemento a cui abbiamo tolto il `title`, per poterglielo rimettere. */
   const sospeso = useRef<{ el: Element; testo: string } | null>(null);
@@ -262,7 +266,7 @@ export function TooltipDelegate() {
       //
       // `--bg-elevated` follows the theme (light in light, dark in dark), which is
       // what a surface carrying app text needs.
-      className="pointer-events-none fixed z-[100] max-w-sm whitespace-pre-line rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg"
+      className="pointer-events-none fixed z-[100] max-w-sm whitespace-pre-line rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg popover-enter"
       style={{
         top: pos?.top ?? -9999,
         left: pos?.left ?? -9999,

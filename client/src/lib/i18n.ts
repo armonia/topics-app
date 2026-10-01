@@ -31,6 +31,7 @@ export type LocalePreference = Locale | 'auto';
 import type { Dict } from './i18n-types';
 
 import IT from './i18n-it';
+import { apiFetch } from './shell/net';
 
 /**
  * Only Italian is here. English is fetched on demand by `ensureLocaleLoaded`
@@ -231,7 +232,7 @@ export type ServerLanguage =
 
 export async function fetchOutputLanguage(): Promise<ServerLanguage> {
   try {
-    const res = await fetch('/api/app-settings');
+    const res = await apiFetch('/api/app-settings');
     if (!res.ok) return { known: false };
     const body = (await res.json()) as { settings?: { outputLanguage?: string | null } };
     const raw = body.settings?.outputLanguage;
@@ -249,7 +250,7 @@ export async function fetchOutputLanguage(): Promise<ServerLanguage> {
  *  deve poter bloccare il selettore, che ha già aggiornato la UI. */
 export async function pushOutputLanguage(pref: LocalePreference): Promise<void> {
   try {
-    await fetch('/api/app-settings', {
+    await apiFetch('/api/app-settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ outputLanguage: pref }),

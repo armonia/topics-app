@@ -1,5 +1,5 @@
 /**
- * @covers MP-TASK-01
+ * @covers MP-TASK-01, KANBAN-80
  *
  * ONE MODEL LIST, AND IT NEVER CHOOSES FOR YOU.
  *
@@ -105,6 +105,14 @@ describe('the task model rows', () => {
     const markup = renderToStaticMarkup(<TaskModelMenuOptions snapshot={unavailable} models={[]} value="topics:claude-opus-5" onSelect={() => {}} autoLabel="Auto" />);
     expect(rows(markup).filter((row) => row.selected).map((row) => row.label)).toEqual(['Opus 5Non disponibile']);
     expect(markup).toContain('Apri impostazioni');
+  });
+
+  test('the catalog lists a stored model once, keeps it when its provider is gone, and adds nothing when none is stored', () => {
+    // KANBAN-80's three cases, on the list the board settings picker renders.
+    expect(taskModelCatalog(SNAPSHOT, 'codex:o4-mini')).toEqual(CATALOG);
+    expect(taskModelCatalog(SNAPSHOT, 'claude-sonnet-4')).toEqual(['claude-sonnet-4', ...CATALOG]);
+    expect(taskModelCatalog(SNAPSHOT, null)).toEqual(CATALOG);
+    expect(taskModelCatalog(SNAPSHOT, 'auto')).toEqual(CATALOG);
   });
 
   test('a removed saved model stays as a selected unavailable row with recovery', () => {

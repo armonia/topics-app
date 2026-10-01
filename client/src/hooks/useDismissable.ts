@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { descendantPopoverNodes, registerOpenPopover, subSurfaceNodes, type PopoverEntry } from '../lib/popoverRegistry';
 import { swallowNextClick } from '../lib/outsidePress';
+import { takeContextMenuOrigin } from '../lib/contextMenuOrigin';
 
 /**
  * useDismissable — ONE dismissal contract for every custom menu / dropdown /
@@ -72,9 +73,18 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     // `<body>` is not a target: WebKit (Safari, and the Tauri app) does not
     // focus a button on click, so after a mouse open `activeElement` is the
     // body, and "restoring" to it left the focus nowhere (DROP-02 on WebKit).
+    //
+    // A popover opened by a right-click (or a long press, or Shift+F10) has a
+    // truer target still: the element the gesture hit. A right-click does not
+    // move the focus, so `activeElement` there is whatever had it before (the
+    // composer, the body), and the menus at the cursor had no trigger at all.
+    // See `lib/contextMenuOrigin`.
     const active = document.activeElement as HTMLElement | null;
     triggerRef.current =
-      (active && active !== document.body ? active : null) ?? refsRef.current[0]?.current ?? null;
+      takeContextMenuOrigin()
+      ?? (active && active !== document.body ? active : null)
+      ?? refsRef.current[0]?.current
+      ?? null;
 
     const inside = (t: Node): boolean => refsRef.current.some((r) => !!r.current?.contains(t));
 
@@ -135,21 +145,33 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     };
   }, [open]);
 
-  // Focus-restore on the open→closed transition.
-  useEffect(() => {
-    if (wasOpen.current && !open) {
-      const trigger = triggerRef.current;
-      if (restoreFocus && trigger) {
-        const active = document.activeElement as HTMLElement | null;
-        const focusStillInMenu = refsRef.current.some((r) => !!(active && r.current?.contains(active)));
-        // Only reclaim focus if the close itself is what orphaned it (focus was
-        // still in the menu, or on <body>/null). If the user moved focus out, honour it.
-        if (!active || active === document.body || focusStillInMenu) {
-          trigger.focus();
-        }
-      }
-      triggerRef.current = null;
+  // Focus-restore on the open→closed transition, AND on an unmount while open.
+  //
+  // The second is how most cursor menus close: they are mounted as
+  // `{menu && <ContextMenuPortal open … />}` and the close sets `menu` to null,
+  // so `open` never goes false — the component just goes away, and the
+  // transition below never ran. The focus stayed on <body>.
+  const restoreFocusRef = useRef(restoreFocus);
+  useEffect(() => { restoreFocusRef.current = restoreFocus; }, [restoreFocus]);
+  const giveFocusBack = useCallback(() => {
+    const trigger = triggerRef.current;
+    triggerRef.current = null;
+    if (!restoreFocusRef.current || !trigger) return;
+    const active = document.activeElement as HTMLElement | null;
+    const focusStillInMenu = refsRef.current.some((r) => !!(active && r.current?.contains(active)));
+    // Only reclaim focus if the close itself is what orphaned it (focus was
+    // still in the menu, or on <body>/null). If the user moved focus out, honour it.
+    if (!active || active === document.body || focusStillInMenu) {
+      trigger.focus();
     }
+  }, []);
+
+  useEffect(() => {
+    if (wasOpen.current && !open) giveFocusBack();
     wasOpen.current = open;
-  }, [open, restoreFocus]);
+  }, [open, giveFocusBack]);
+
+  useEffect(() => () => {
+    if (wasOpen.current) giveFocusBack();
+  }, [giveFocusBack]);
 }

@@ -44,6 +44,7 @@ type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Prom
  *  sola, e sta in `shared/` perché il server la produce e il client la legge. */
 export type { SiteDataRecord } from '../../../shared/browser-site-record';
 import type { SiteDataRecord } from '../../../shared/browser-site-record';
+import { apiFetch } from './shell/net';
 
 /**
  * Da dove arrivano i silo e chi li cancella. Le due implementazioni sono
@@ -219,13 +220,13 @@ export function sharedSiteData(): SiteDataBackend {
   const base = (contextId: string) => `/api/browsers/${encodeURIComponent(contextId)}`;
   return {
     async records(contextId) {
-      const res = await fetch(`${base(contextId)}/site-data`);
+      const res = await apiFetch(`${base(contextId)}/site-data`);
       if (!res.ok) throw new Error(`site-data ${res.status}`);
       const body = (await res.json()) as { supported?: unknown; records?: unknown };
       return { supported: body?.supported !== false, records: parseRecords(body?.records) };
     },
     async forget(contextId, displayNames) {
-      const res = await fetch(`${base(contextId)}/forget-site`, {
+      const res = await apiFetch(`${base(contextId)}/forget-site`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayNames }),

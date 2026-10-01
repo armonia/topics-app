@@ -16,6 +16,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Machine, WSMachineMessage } from '../types';
 import { subscribeFrames } from '../lib/wsFrameBus';
+import { apiFetch } from '../lib/shell/net';
 
 let machines: Machine[] | null = null;
 let inflight: Promise<void> | null = null;
@@ -32,7 +33,7 @@ async function load(): Promise<void> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const r = await fetch('/api/machines', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/machines', { credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
       const body = await r.json() as { machines?: Machine[] };
       machines = (body.machines ?? []).slice().sort(byName);

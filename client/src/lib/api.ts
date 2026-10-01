@@ -24,8 +24,7 @@ import type {
   TopicGoal,
   GoalStepStatus,
 } from '../types';
-import { serverHttpBase } from './shell/net';
-import { markUnpaired } from './auth/session';
+import { serverHttpBase, apiFetch } from './shell/net';
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import { adoptWarmRead, warmRead } from './warmReads';
 
@@ -92,7 +91,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     'Content-Type': 'application/json',
     ...options.headers,
   };
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const response = await apiFetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
     // Il cookie di sessione viaggia da solo, ma solo se lo si chiede
@@ -104,15 +103,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     const { message, extra } = readErrorBody(await response.text(), response.statusText);
-    // Il server rifiuta per IDENTITÀ: questo dispositivo non è appaiato, o
-    // è stato revocato, o la sessione è scaduta. Va detto una volta e a voce
-    // alta — senza, l'unico sintomo sarebbe un «Reconnecting…» eterno,
-    // perché il WebSocket non può leggere lo stato HTTP del proprio upgrade
-    // e nessun altro guarda il 401. È il difetto per cui il pairing
-    // precedente non è mai servito a nessuno.
-    if (response.status === 401 && typeof extra?.code === 'string' && extra.code !== 'forbidden') {
-      markUnpaired(extra.code);
-    }
+    // An identity refusal (401 with a code) has already flipped the pairing
+    // screen: `apiFetch` noticed it, for this call and for every other `/api`
+    // call that meets it (lib/shell/net.ts).
     throw new ApiError(response.status, message, extra);
   }
 
@@ -277,7 +270,7 @@ function readHistory(sessionKey: string, data: HistoryRequest): Promise<HistoryR
 
 export const chatApi = {
   async sendMessage(data: ChatRequest, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
-    const response = await fetch(`${API_BASE}/chat`, {
+    const response = await apiFetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -398,7 +391,7 @@ export const chatApi = {
   },
 
   async editMessage(messageId: string, content: string, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
-    const response = await fetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/edit`, {
+    const response = await apiFetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/edit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
@@ -413,7 +406,7 @@ export const chatApi = {
 
   /** Regenerate an assistant reply — same SSE contract as editMessage. */
   async regenerateMessage(messageId: string, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
-    const response = await fetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/regenerate`, {
+    const response = await apiFetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/regenerate`, {
       method: 'POST',
       signal,
     });
@@ -472,7 +465,7 @@ export const uploadApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE}/upload`, {
+    const response = await apiFetch(`${API_BASE}/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -490,7 +483,7 @@ export const uploadApi = {
     formData.append('file', file);
     formData.append('topicId', topicId);
 
-    const response = await fetch(`${API_BASE}/context-upload`, {
+    const response = await apiFetch(`${API_BASE}/context-upload`, {
       method: 'POST',
       body: formData,
     });
@@ -553,7 +546,7 @@ export const filesApi = {
   },
 
   async content(path: string): Promise<string> {
-    const response = await fetch(`${API_BASE}/files/content?path=${encodeURIComponent(path)}`);
+    const response = await apiFetch(`${API_BASE}/files/content?path=${encodeURIComponent(path)}`);
     if (!response.ok) {
       const text = await response.text();
       throw new ApiError(response.status, text || response.statusText);
@@ -658,7 +651,7 @@ export const filesApi = {
     files.forEach(f => formData.append('files', f));
     if (relativePaths) formData.append('relativePaths', JSON.stringify(relativePaths));
     if (emptyDirs && emptyDirs.length > 0) formData.append('emptyDirs', JSON.stringify(emptyDirs));
-    const response = await fetch(`${API_BASE}/files/upload`, { method: 'POST', body: formData });
+    const response = await apiFetch(`${API_BASE}/files/upload`, { method: 'POST', body: formData });
     if (!response.ok) {
       const text = await response.text();
       throw new ApiError(response.status, text || response.statusText);
@@ -674,7 +667,7 @@ export const gitApi = {
   },
 
   async diff(path: string, file: string): Promise<string> {
-    const response = await fetch(
+    const response = await apiFetch(
       `${API_BASE}/git/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}`
     );
     if (!response.ok) {
@@ -752,7 +745,7 @@ export const gitApi = {
     // li vuole, e allargare quel cancello significherebbe smontarlo su una
     // rotta che interpola anche `file`.
     const q = (rev ? `&rev=${encodeURIComponent(rev)}` : '') + (side ? `&side=${side}` : '');
-    const response = await fetch(
+    const response = await apiFetch(
       `${API_BASE}/git/show?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}${q}`
     );
     if (!response.ok) {

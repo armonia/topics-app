@@ -26,6 +26,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { chiaveErrore as errorKey, type AccountState } from '@/components/Settings/accountState';
+import { apiFetch } from '../lib/shell/net';
 
 /** Fired after a link or an unlink: every open surface reloads its state. */
 export const ACCOUNT_CHANGED = 'topics:account-changed';
@@ -82,7 +83,7 @@ export function useAccountLink(): AccountLink {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/account', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/auth/account', { credentials: 'same-origin' });
       setState(r.ok ? ((await r.json()) as AccountState) : null);
     } catch {
       // The route is local: if it does not answer the server is down, and the
@@ -110,7 +111,7 @@ export function useAccountLink(): AccountLink {
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch(path, {
+      const r = await apiFetch(path, {
         method,
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },

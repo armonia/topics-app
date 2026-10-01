@@ -32,7 +32,6 @@ import {
   showsLandingDebt,
   statusEventEnters,
   type BlockerRef,
-  type QueueReason,
 } from "./board";
 import { queueReasonText } from "./queue-reason-text";
 import { queueReasonKeys } from "./board";

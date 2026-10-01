@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { isDesktop } from '../../lib/shell';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 // The ONE source of truth. The same registry generates the native shell's
 // chord-forwarding allowlist (shortcuts_generated.rs) — add a chord once and
@@ -21,11 +22,15 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
   // Escape lo chiudeva già (useKeyboardShortcuts lo conosce per nome); qui si
   // aggiungono la trappola del focus e il ritorno del focus a chi l'ha aperto.
   useModalDialog({ open: isOpen, onClose, panelRef });
+  // Closing unmounts the dialog at once; the veil and the card fade out as an
+  // inert copy (lib/exitGhost, MOTION-04), like settings and the palette.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, isOpen, 'modal');
 
   if (!isOpen) return null;
 
   return (
-    <div className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center`} onClick={onClose} role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
+    <div ref={overlayRef} className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center`} onClick={onClose} role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
       <div className={MODAL_BACKDROP} />
       <div
         ref={panelRef}

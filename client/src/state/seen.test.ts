@@ -235,7 +235,11 @@ describe('attentionFillFor — FOCUS WINS in un posto solo', () => {
 
   test('tier presente e visto ⇒ niente fill: non pulsa ciò che stai guardando', () => {
     expect(attentionFillFor('done', true)).toBe(null);
-    expect(attentionFillFor('input', true)).toBe(null);
+  });
+
+  test("l'ambra visto resta: un permesso in attesa si spegne con la risposta, non con lo sguardo", () => {
+    // The group card does not gate it on seen: the tab and the row say the same.
+    expect(attentionFillFor('input', true)).toBe('input');
   });
 
   test('il tier non viene mai riscritto: input resta input, done resta done', () => {

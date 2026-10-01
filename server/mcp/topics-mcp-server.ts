@@ -2633,7 +2633,7 @@ export async function callApprovalPrompt(
       body = await httpJson<PermissionLegResponse>(args, "POST", path, payload, fetchImpl);
       transportFailures = 0;
       firstFailureAt = null;
-    } catch (err) {
+    } catch {
       transportFailures++;
       if (firstFailureAt === null) firstFailureAt = now();
       const downMs = now() - firstFailureAt;

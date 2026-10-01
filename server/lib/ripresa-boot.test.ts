@@ -186,7 +186,7 @@ describe("i guasti che NON sono un'interruzione", () => {
   /**
    * L'annullamento SENZA causa dichiarata prende un cartello ma non si
    * riprende: non si indovina chi ha annullato. Stessa regola di
-   * `meritaRipresaAutomatica`.
+   * `isResumableCause`.
    */
   test("il cartello generico non basta", () => {
     expect(chatDaRiprendere(withError("Turno interrotto prima della fine."), ORA)).toBe(false);

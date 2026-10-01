@@ -7,6 +7,7 @@
 
 export type { VoiceIntent } from '../../../../shared/voice-intent';
 import type { VoiceIntent } from '../../../../shared/voice-intent';
+import { apiFetch } from '../shell/net';
 
 export interface VoiceIntentResult {
   intent: VoiceIntent;
@@ -23,7 +24,7 @@ export interface VoiceIntentResult {
  */
 export async function classifyVoiceIntent(text: string): Promise<VoiceIntentResult> {
   try {
-    const resp = await fetch('/api/voice/intent', {
+    const resp = await apiFetch('/api/voice/intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',

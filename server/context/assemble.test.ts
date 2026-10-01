@@ -8,7 +8,7 @@
  * - Build a minimal `AppContext` mock exposing only the methods/properties
  *   `assembleTopicContext` actually consumes.
  * - Each test owns its own tmpdir; cleanup in `afterAll`.
- * @covers CTX-GOAL-01, GLOBAL-ORCHESTRATOR-CONTEXT-01
+ * @covers CTX-GOAL-01, GLOBAL-ORCHESTRATOR-CONTEXT-01, HISTBUILD-01
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -535,6 +535,41 @@ describe("assembleTopicContext — context-message prefix excluded", () => {
     const e = env.diagnostics.historyEntries.find((x) => x.storedMessageId === "a1")!;
     expect(e.excluded).toBe(true);
     expect(e.excludeReason).toBe("context-message");
+  });
+});
+
+describe("assembleTopicContext — the last user turn leaves BEFORE the limit applies", () => {
+  // HISTBUILD-01: exclude the last first, then keep the most recent; the
+  // reverse order would spend one slot of the limit on the dropped turn.
+  const baseDir = join(ROOT, "exclude-then-limit", "base");
+  const openclawDir = join(ROOT, "exclude-then-limit", "openclaw");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+
+  const topic = makeTopic();
+  const messages: StoredMessage[] = [
+    makeMessage("u1", "user", "one"),
+    makeMessage("a1", "assistant", "   "),
+    makeMessage("u2", "user", "two"),
+    makeMessage("a2", "assistant", "three"),
+    makeMessage("u3", "user", "four (sent fresh)"),
+  ];
+
+  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
+  const env = assembleTopicContext(ctx, {
+    sessionKey: topic.sessionKey,
+    providerName: "claude",
+    historyLimit: 2,
+    includeLastUserInHistory: false,
+  });
+
+  it("keeps the two most recent turns before the fresh one, in order", () => {
+    expect(env.history.map((h) => h.content)).toEqual(["two", "three"]);
+  });
+
+  it("a turn empty after trimming is excluded, not counted against the limit", () => {
+    const e = env.diagnostics.historyEntries.find((x) => x.storedMessageId === "a1")!;
+    expect(e.excludeReason).toBe("empty-after-strip");
   });
 });
 

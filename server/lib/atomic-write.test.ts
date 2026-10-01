@@ -54,3 +54,21 @@ test("the temp name carries pid and time the way the usage cleanup reads them", 
   expect(isOrphanTmp(a, process.pid, Date.now())).toBe(true);
   expect(isOrphanTmp(a, process.pid + 1, Date.now())).toBe(false);
 });
+
+test("a kill between the temp write and the rename leaves the old content whole", () => {
+  const f = join(dir, "state.json");
+  writeFileSync(f, '{"old":true}');
+  const preload = join(import.meta.dir, "..", "..", "tests", "integration", "helpers", "kill-on-rename.ts");
+  const child = Bun.spawnSync(
+    ["bun", "--preload", preload, "-e",
+      `const { writeFileAtomic } = await import(${JSON.stringify(join(import.meta.dir, "atomic-write.ts"))});
+       writeFileAtomic(${JSON.stringify(f)}, '{"new":true}');`],
+    { env: { ...process.env, KILL_ON_RENAME_OF: "state.json" }, stderr: "pipe" },
+  );
+  // Died at the rename, not before: the temp holds the whole new content.
+  expect(child.signalCode).toBe("SIGKILL");
+  expect(readFileSync(f, "utf8")).toBe('{"old":true}');
+  const temps = readdirSync(dir).filter(n => n.startsWith("state.json.tmp."));
+  expect(temps).toHaveLength(1);
+  expect(readFileSync(join(dir, temps[0]!), "utf8")).toBe('{"new":true}');
+});

@@ -87,6 +87,7 @@
  */
 
 import { getTabId } from './pane/middleware/syncCrossTab';
+import { apiFetch } from '../lib/shell/net';
 
 /**
  * A PUT with no answer would hold a key's frames hostage forever (every frame
@@ -260,7 +261,7 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
     generation.set(key, (generation.get(key) ?? 0) + 1);
     const done = (seq: number | null): void => { flight.clear(); settle(key, seq); };
     try {
-      void fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: per-record browser keys, not pane state
+      void apiFetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: per-record browser keys, not pane state
       method: 'PUT',
       // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
       // WS bridge can drop THIS client's own echo (else applyRemote would re-apply

@@ -452,8 +452,12 @@ export function useProjectChatSync(
   // browser) to the projectFocus store, so the sidebar can light the child row
   // you're actually in, not just the project folder. activeTopicId above is
   // chat-only; this covers terminals/browsers too.
+  // No focused group yet means the FIRST group, the convention GroupLayout
+  // already paints (its active tab is drawn as the one in front). Without it
+  // the window's seen event (`useSeenFocusedPane`) found no pane in front of a
+  // project opened and never clicked into, while its tab looked focused.
   const focusedInnerPaneId = useMemo(() => {
-    const g = groups.find(gr => gr.id === focusedGroupId);
+    const g = focusedGroupId ? groups.find(gr => gr.id === focusedGroupId) : groups[0];
     return g?.activePaneId ?? null;
   }, [groups, focusedGroupId]);
   useEffect(() => {

@@ -89,6 +89,7 @@ import {
   type QueuedMessage,
 } from './outboundQueue';
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
+import { apiFetch } from '../lib/shell/net';
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -696,7 +697,9 @@ export function useChat() {
   // can fire two concurrent fetches for the same session in one tick. This
   // collapses those onto one request.
   const inFlightHistoryRef = useRef<Set<string>>(new Set());
-  const rereadHistoryRef = useRef<Set<string>>(new Set()); // a `fresh` read that met one in flight
+  // A `fresh` read that met one in flight, with the options it asked for: the
+  // read again keeps them, or a `keepLit` one blinks the Stop off meanwhile.
+  const rereadHistoryRef = useRef<Map<string, LoadHistoryOptions>>(new Map());
   // How many turns of each session this window lit and ended (`stream:end`).
   // A history answer that a start or an end overtook in flight no longer
   // describes the current turn: `loadHistory` compares the counts.
@@ -786,7 +789,7 @@ export function useChat() {
       void (async () => {
         let serverSaysLive = false;
         try {
-          const res = await fetch('/api/topics/streaming');
+          const res = await apiFetch('/api/topics/streaming');
           if (res.ok) {
             const body = (await res.json()) as { sessions?: { sessionKey?: string; state?: string }[] };
             // `waiting` è vivo quanto `streaming`: il turno è aperto, ferma solo
@@ -2717,7 +2720,10 @@ export function useChat() {
 
     // Collapse concurrent callers onto the in-flight request; a `fresh` one is
     // read again after it, since that read may predate the change.
-    if (opts?.fresh && inFlightHistoryRef.current.has(sessionKey)) rereadHistoryRef.current.add(sessionKey);
+    if (opts?.fresh && inFlightHistoryRef.current.has(sessionKey)) {
+      const queued = rereadHistoryRef.current.get(sessionKey);
+      rereadHistoryRef.current.set(sessionKey, { fresh: true, keepLit: !!(queued?.keepLit || opts.keepLit) });
+    }
     if (inFlightHistoryRef.current.has(sessionKey)) return true;
     inFlightHistoryRef.current.add(sessionKey);
     let endedMeanwhile = false;
@@ -2911,8 +2917,11 @@ export function useChat() {
     } finally {
       inFlightHistoryRef.current.delete(sessionKey);
       if (!revalidate) setLoading(prev => ({ ...prev, [sessionKey]: false }));
-      if (rereadHistoryRef.current.delete(sessionKey)) void loadHistoryRef.current?.(sessionKey, { fresh: true });
-      else if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
+      const reread = rereadHistoryRef.current.get(sessionKey);
+      if (reread) {
+        rereadHistoryRef.current.delete(sessionKey);
+        void loadHistoryRef.current?.(sessionKey, reread);
+      } else if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
     }
   }, [resetStreamTimeout, beginStreaming, flushLiveDeltas]);
 

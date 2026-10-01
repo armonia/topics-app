@@ -6,6 +6,7 @@ import {
   markSettingsHydrated,
   msSinceLocalSettingsChange,
 } from '../lib/settings';
+import { apiFetch } from '../lib/shell/net';
 
 /** Quanto una modifica appena fatta qui ha la precedenza su un frame in volo.
  *  Stessa finestra di `useSidebarState`. */
@@ -41,7 +42,7 @@ export function useSettingsSync(
   // client muto per sempre sarebbe peggio di un PUT che fallisce.
   useEffect(() => {
     let alive = true;
-    fetch(`/api/ui-state/${SETTINGS_SERVER_KEY}`) // PANE-01-ALLOWED: settings key, not pane state
+    apiFetch(`/api/ui-state/${SETTINGS_SERVER_KEY}`) // PANE-01-ALLOWED: settings key, not pane state
       .then((r): Promise<unknown> | null => (r.ok ? r.json() : null))
       .then((envelope: unknown) => {
         if (!alive) return;

@@ -1,5 +1,5 @@
 /**
- * Which chat the person is looking at, for the chat 'done' mark.
+ * Which pane the person is looking at, for the chat and terminal marks.
  *
  * A clean turn end raises the mark (`chatFinishedEdge`), and viewing the chat
  * clears it. When the chat that finished was already in front, the mark used
@@ -7,10 +7,10 @@
  * short enough to be invisible on the tab, long enough for the provider's
  * effects to paint +1 on the Dock and the PWA badge and take it back, at every
  * turn end (setAppBadge history 0,1,0,1,...; in Tauri two `set_app_status`
- * calls per turn). So the chat pane declares its chat here, and the turn end
- * reads it synchronously and raises no mark at all.
+ * calls per turn). So the window declares its focused pane here
+ * (`useSeenFocusedPane`), and the turn end reads it synchronously and raises
+ * no mark at all.
  */
-import { useEffect } from 'react';
 import { signalsActions, useSignalsStore } from './signals';
 import { isWindowAwake } from './windowAwake';
 
@@ -24,7 +24,8 @@ import { isWindowAwake } from './windowAwake';
 const chatDoneSeenHere = new Set<string>();
 
 /**
- * The person LOOKED at the chat (its row clicked, its pane in front): the mark
+ * The person LOOKED at the chat (its pane in front for the dwell, or the row of
+ * a chat held by another window clicked): the mark
  * goes here now, and the seen door tells every other window after the dwell
  * (`takeChatDoneSeen`). A new turn is not a look, and keeps the plain
  * `signalsActions.clearChatFinished`. Before, the clear stayed in this window,
@@ -44,51 +45,28 @@ export function takeChatDoneSeen(topicId: string): boolean {
   return seen || useSignalsStore.getState().chatFinishedTopics.has(topicId);
 }
 
-/** Topic id → how many mounted panes show it as their focused chat (two
- *  windows of one page, a remount overlapping). */
-const chatsInView = new Map<string, number>();
+/** Subject id (topic or terminal session) → how many holders declare it the
+ *  pane in front of this window (a remount can overlap the release). */
+const subjectsInFront = new Map<string, number>();
 
-/** Declare `topicId` shown as a focused chat until the returned release runs. */
-export function holdChatInView(topicId: string): () => void {
-  chatsInView.set(topicId, (chatsInView.get(topicId) ?? 0) + 1);
+/** Declare `subjectId` the pane in front of this window until the returned
+ *  release runs. The one holder is `useSeenFocusedPane` (paneSeen.ts). */
+export function holdSubjectInFront(subjectId: string): () => void {
+  subjectsInFront.set(subjectId, (subjectsInFront.get(subjectId) ?? 0) + 1);
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    const n = (chatsInView.get(topicId) ?? 1) - 1;
-    if (n > 0) chatsInView.set(topicId, n);
-    else chatsInView.delete(topicId);
+    const n = (subjectsInFront.get(subjectId) ?? 1) - 1;
+    if (n > 0) subjectsInFront.set(subjectId, n);
+    else subjectsInFront.delete(subjectId);
   };
 }
 
-/** Is the person looking at this chat now: a pane shows it focused AND the
- *  window is awake (`isWindowAwake`, the predicate the seen dwell reads). A
- *  chat focused in a window behind another app is not in front of anyone. */
-export function isChatInFront(topicId: string): boolean {
-  return (chatsInView.get(topicId) ?? 0) > 0 && isWindowAwake();
-}
-
-/**
- * Viewing a chat clears its "finished" mark, the twin of the effect in
- * `SingleTerminalPane`. While it is viewed the chat is declared in view, so a
- * turn that ends while the person looks at it raises no mark at all. The clear
- * waits for an awake window, the same rule: a chat that finished in a window
- * behind another app keeps its mark, and it goes when the window comes back.
- */
-export function useClearChatFinishedWhileViewed(topicId: string, viewing: boolean): void {
-  const finished = useSignalsStore((s) => s.chatFinishedTopics.has(topicId));
-  useEffect(() => (viewing ? holdChatInView(topicId) : undefined), [viewing, topicId]);
-  useEffect(() => {
-    if (!viewing || !finished) return;
-    const clearIfAwake = () => { if (isWindowAwake()) seeChatFinished(topicId); };
-    clearIfAwake();
-    // `isWindowAwake` reads visibility and focus: either can bring the window
-    // back (the same events `useSeenDwell` listens to).
-    document.addEventListener('visibilitychange', clearIfAwake);
-    window.addEventListener('focus', clearIfAwake);
-    return () => {
-      document.removeEventListener('visibilitychange', clearIfAwake);
-      window.removeEventListener('focus', clearIfAwake);
-    };
-  }, [viewing, finished, topicId]);
+/** Is the person looking at this chat or terminal now: it is the window's
+ *  focused pane AND the window is awake (`isWindowAwake`, the predicate the
+ *  seen dwell reads). A pane focused in a window behind another app is not in
+ *  front of anyone. A turn that ends on it raises no mark. */
+export function isSubjectInFront(subjectId: string): boolean {
+  return (subjectsInFront.get(subjectId) ?? 0) > 0 && isWindowAwake();
 }

@@ -59,6 +59,7 @@ import {
 import { callRunCommand } from "./command-tools";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { ASK_TRANSPORT_CEILING_MS, ASK_BUFFER_TTL_MS } from "../lib/ask-user-bridge";
+import { mcpBrowserTools } from "../browser-tool-spec";
 
 // ---------------------------------------------------------------------------
 // parseArgs
@@ -790,7 +791,6 @@ describe("handleMessage", () => {
   test("every bridged browser_* tool advertises an optional contextId arg", () => {
     // The "manage any tab" seam: contextId is injected into every MCP browser
     // tool by mcpBrowserTools(), and must never be required (own-pane is default).
-    const { mcpBrowserTools } = require("../browser-tool-spec");
     const bridged = mcpBrowserTools() as Array<{ name: string; inputSchema: any }>;
     for (const t of bridged) {
       expect(t.inputSchema.properties.contextId?.type).toBe("string");

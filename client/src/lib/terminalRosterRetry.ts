@@ -27,6 +27,7 @@
  * to the caller untouched, so the pane can prune itself as before.
  */
 import { TERMINAL_ROSTER_WARMING_CODE } from '../../../shared/terminal-messages';
+import { apiFetch } from './shell/net';
 
 /**
  * The ladder, sized against the window it has to cover.
@@ -94,12 +95,12 @@ export async function fetchWhileRosterWarms(
   wait: (ms: number) => Promise<void> = sleep,
 ): Promise<Response> {
   let delay = FIRST_DELAY_MS;
-  let res = await fetch(input, init);
+  let res = await apiFetch(input, init);
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (!(await isRosterWarming(res))) return res;
     await wait(delay);
     delay = Math.min(delay * 2, MAX_DELAY_MS);
-    res = await fetch(input, init);
+    res = await apiFetch(input, init);
   }
   return res;
 }

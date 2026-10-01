@@ -7,6 +7,7 @@
 // origin. These helpers are the single place that knows the difference.
 
 import { isTauri } from './index';
+import { markUnpaired } from '../auth/sessionState';
 
 // The data server (Bun) serves HTTPS/WSS with a local-CA ("Armonia Local CA")
 // certificate. WKWebView (the Tauri shell's engine) refuses that cert, so the
@@ -65,6 +66,57 @@ export function serverWsBase(): string {
   return `${proto}//${window.location.host}`;
 }
 
+/**
+ * What the door does with the answer: notice a refusal for IDENTITY.
+ *
+ * The server's identity gate refuses with 401 and a `code` (`device_not_paired`,
+ * `device_revoked`, `session_expired`; `forbidden` is a permission, not an
+ * identity). Until this lived here only `api.ts::request` looked, so on a LAN
+ * device whose session had expired the pane-store sync, the tombstones and
+ * every other raw `/api` call failed in silence and the pairing screen waited
+ * for the next `api.ts` call to say it.
+ *
+ * It reads a CLONE, and only on a 401: the caller gets the response untouched
+ * and reads its body exactly as before. A body that is not JSON, or a stub with
+ * no `clone`, is not the identity gate and is left alone.
+ */
+async function noticeIdentityRefusal(res: Response): Promise<Response> {
+  if (!res || res.status !== 401 || typeof res.clone !== 'function') return res;
+  try {
+    const parsed: unknown = JSON.parse(await res.clone().text());
+    const code = parsed && typeof parsed === 'object' ? (parsed as { code?: unknown }).code : undefined;
+    if (typeof code === 'string' && code !== 'forbidden') markUnpaired(code);
+  } catch {
+    // Not JSON: a proxy's page, not the gate.
+  }
+  return res;
+}
+
+/**
+ * THE door for a request to the data server's `/api`.
+ *
+ * Same signature and same `Response` as `fetch`: what the callsite sends —
+ * method, body, `keepalive`, `X-Client-Id`, `signal` — goes out as written, and
+ * the callsite reads the answer as it always did. What the door owns is what
+ * no single callsite should: the origin of the data server (absolute under
+ * Tauri, same-origin elsewhere) and the identity refusal above. A base header
+ * or a timeout, if one is ever needed, goes here; none is added today, because
+ * a default timeout would cut the chat stream and the uploads.
+ *
+ * It sends through the CURRENT global `fetch`, not a copy taken at boot, so
+ * whatever wraps `fetch` (the Tauri shim below, a test's spy, an e2e probe)
+ * sees the call exactly as it saw the raw one.
+ *
+ * Every `/api` call of the client goes through here, the ones with a URL built
+ * at runtime included; `bun run check:api-door` rejects a literal
+ * `fetch('/api…')` outside this file, so new code comes through here too.
+ * Not covered, by nature: `navigator.sendBeacon` (no response to read) and
+ * `EventSource` (no status to read).
+ */
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(serverHttpBase() + path, init).then(noticeIdentityRefusal);
+}
+
 let shimInstalled = false;
 
 /** Test-only: dimentica che lo shim è stato installato, così un test può provare
@@ -83,15 +135,11 @@ export function __resetNetShimForTests(): void {
  * riscrittura sarebbe un no-op per costruzione e lo shim non si installa affatto:
  * il browser sull'origine del server resta senza monkey-patch.
  *
- * Ha portato per un periodo anche il token di pairing, che è stata la ragione per
- * cui si installava pure fuori da Tauri: nel client ci sono ~80 chiamate `/api`,
- * 46 mutanti, sparse in oltre 20 file, e le più calde — sync del pane-store,
- * tombstone, layout di progetto, tab del browser del task — usano `fetch` NUDO
- * con header propri (`X-Client-Id`, `keepalive`) e non passano da
- * `api.ts::request`. Il token non esiste più (change `lan-open-same-origin`), ma
- * quel fatto resta vero: **questo è l'unico choke point** che le vede tutte. Se
- * l'autenticazione centralizzata dovrà attaccare un header di sessione, si
- * attacca qui — non nei 46 callsite.
+ * It is NOT the door for `/api`: that is `apiFetch` above, called explicitly
+ * by every `/api` callsite on every platform. This shim only rewrites origins
+ * under Tauri, which is why it stays off the web (NETSHIM-01). It once carried
+ * the pairing token and for that reason was installed off Tauri too; the token
+ * is gone (change `lan-open-same-origin`).
  *
  * Va chiamata una volta all'avvio. I callsite WebSocket usano `serverWsBase()`
  * esplicito: un WebSocket non è shimmabile con la stessa pulizia.

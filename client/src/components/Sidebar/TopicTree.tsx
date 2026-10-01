@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, type
 import { useT } from '../../hooks/useT';
 import { boardIdForPath } from '../../lib/board';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
@@ -31,7 +32,7 @@ import { CodexIcon } from '@/components/Shared/CodexIcon';
 import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
-import { useAttentionSignals, signalsActions, useTerminalAttentionFill, useSeenDwell, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
+import { useAttentionSignals, useTerminalAttentionFill, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
 import { seeChatFinished } from '@/state/chatInView';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
@@ -468,6 +469,10 @@ export function TopicTree({
   const shareProjectPanelRef = useRef<HTMLDivElement>(null);
   const closeShareProject = useCallback(() => setProgettoDaCondividere(null), []);
   useModalDialog({ open: !!progettoDaCondividere, onClose: closeShareProject, panelRef: shareProjectPanelRef });
+  // The veil and the card fade out as an inert copy on close (lib/exitGhost,
+  // MOTION-04), like every other dialog.
+  const shareProjectOverlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(shareProjectOverlayRef, !!progettoDaCondividere, 'modal');
   /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
    *  hanno un menu di riga proprio, e senza questo una volta fissati non si
    *  potrebbero più togliere dai Fissati da nessuna parte. */
@@ -911,11 +916,12 @@ export function TopicTree({
   // resolves the remaining space/active/closed steps (b–d) inside usePanelLifecycle.
   const handleChatRowClick = useCallback(
     (topicId: string, detachedWindowLabel: string | undefined, e?: React.MouseEvent) => {
-      // The click is having seen it, as for a terminal row. It must happen
-      // here: a chat held by another window never mounts a pane in this one,
-      // so the pane-focus clear would never switch this window's mark off.
-      seeChatFinished(topicId);
       if (detachedWindowLabel) {
+        // A chat held by another window never mounts a pane in this one, so
+        // this window's seen event (its focused pane) can never reach it: the
+        // click that brings that window forward is the look, here. Any other
+        // row click focuses the chat's pane and the seen event clears it.
+        seeChatFinished(topicId);
         void tauriInvoke<boolean>('window_focus_label', { label: detachedWindowLabel })
           .then((focused) => {
             if (!focused) onTopicClick(topicId, e);
@@ -928,11 +934,11 @@ export function TopicTree({
     [onTopicClick],
   );
 
-  /** A terminal row's click: switch off its «finished» mark, then open it.
-   *  One handler for the row and for ⌘J, so the chord cannot drift from the
-   *  click (CHAT-WAIT-03). */
+  /** A terminal row's click opens (focuses) it; its «finished» mark goes with
+   *  the seen event of the focused pane, like any other way in. One handler
+   *  for the row and for ⌘J, so the chord cannot drift from the click
+   *  (CHAT-WAIT-03). */
   const handleTerminalRowClick = useCallback((sessionId: string, sessionName: string) => {
-    signalsActions.clearTerminalFinished(sessionId);
     onTerminalClick?.(sessionId, sessionName);
   }, [onTerminalClick]);
 
@@ -2300,6 +2306,7 @@ export function TopicTree({
           un bottone assente. */}
       {progettoDaCondividere && (
         <div
+          ref={shareProjectOverlayRef}
           data-testid="project-share-panel"
           // `MODAL_OVERLAY` e non il numero a mano: il piano dei modali e'
           // legato per TIPO a `Z_MODAL` (lib/modalStyles.ts), cosi' cambiare la
@@ -2422,10 +2429,9 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // the sidebar terminal row too.
   const pendingClose = useTerminalPendingStatus(s.id);
   // Attention TIER — amber 'input' (permission gate) vs blue 'done' (turn
-  // finished), o null. Il fill cade quando la riga è stata VISTA (soglia di
-  // SEEN_DWELL_MS a finestra sveglia), non appena viene selezionata: stessa
-  // regola della riga chat, in un posto solo (`attentionFillFor`).
-  useSeenDwell(s.id, isFocused);
+  // finished), or null. The fill goes when the terminal has been SEEN (the
+  // window's focused pane for the dwell, `useSeenFocusedPane`), not when the
+  // row is selected: the same rule as the chat row (`attentionFillFor`).
   const attentionTier = useTerminalAttentionFill(s.id);
   const onFill = attentionTier !== null;
 
@@ -2448,6 +2454,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
       data-pinned={pinned ? 'true' : undefined}
+      data-terminal-row={s.id}
+      data-attention-fill={attentionTier ?? undefined}
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}

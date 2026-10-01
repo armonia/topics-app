@@ -317,6 +317,35 @@ function aheadOfTheKey(frames: Frame[], restAt: number, enterAt: number, sendT: 
   return out;
 }
 
+/** The most opacity the greeting's fade (`EASE.exit` over `MOTION.fast`) can lose in `ms`: the curve only accelerates, so its last stretch. */
+function fadeReach(ms: number): number {
+  return 1 - easeAt(EASE.exit, 1 - ms / MOTION.fast);
+}
+
+/**
+ * The greeting leaves by fading, never in one jump: no frame loses more than
+ * half its opacity (or unmounts it from above half) unless the time between
+ * the two frames lets the fade itself go that far. A long frame is load, not a
+ * jump: CI Chromium (01/10, send path 50 ms slower) painted one frame 189 ms
+ * after the previous one and read 0.977 -> 0.332 as "gone in one frame", while
+ * the 150 ms fade had had time to finish. The time is the widest the two
+ * resolved opacities can be apart: from the earlier frame's timeline time to
+ * the later one's sample (see `aheadOfTheKey`), plus {@link CLOCK_SLACK_MS}.
+ * Below ~52 ms the fade cannot lose half, so on a frame of normal length the
+ * rule is the frame-count one it replaces.
+ */
+function greetingJumps(frames: Frame[], at: (i: number) => string): string[] {
+  const out: string[] = [];
+  for (let i = 1; i < frames.length; i++) {
+    const prev = frames[i - 1]!, a = prev.empty, b = frames[i]!.empty;
+    const drop = a ? a.o - (b ? b.o : 0) : 0;
+    if (!a || a.o <= 0.5 || drop <= 0.5) continue;
+    const ms = frames[i]!.t - (prev.ft ?? prev.t) + CLOCK_SLACK_MS;
+    if (drop > fadeReach(ms) + 0.02) out.push(`${at(i)} empty state: gone in one frame (opacity ${a.o} -> ${b ? b.o : "unmounted"} in ${Math.round(ms)}ms, a fade loses at most ${fadeReach(ms).toFixed(2)})`);
+  }
+  return out;
+}
+
 /** Every departure from the rules in the header, one line each, with its frame. */
 function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0: number): string[] {
   const out: string[] = [];
@@ -365,7 +394,7 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
   if (seenSkeleton >= 0) out.push(`${at(seenSkeleton)} skeleton: shown after the send (${frames.filter((f) => f.skeleton).length} frames)`);
   // The greeting leaves by FADING: never replaced by a new node outside the
   // callback that mounts the promoted pane, never more than half its opacity
-  // in one frame.
+  // in one frame of normal length (`greetingJumps`).
   const paneChanges = netChanges(mutations, "chat-scroll-container");
   const paneMounts = paneChanges.flatMap((c) => c.mounted.map((id) => ({ id, batch: c.batch, t: c.t })));
   const paneUnmounts = paneChanges.flatMap((c) => c.unmounted.map((id) => ({ id, batch: c.batch, t: c.t })));
@@ -373,10 +402,7 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
   for (const c of netChanges(mutations, "chat-empty-state")) {
     for (const id of c.mounted) if (!mountBatches.has(c.batch)) out.push(`+${Math.round(c.t - t0)}ms empty state: replaced by a new node #${id}`);
   }
-  for (let i = 1; i < frames.length; i++) {
-    const a = frames[i - 1]!.empty, b = frames[i]!.empty;
-    if (a && a.o > 0.5 && (!b || a.o - b.o > 0.5)) out.push(`${at(i)} empty state: gone in one frame (opacity ${a.o} -> ${b ? b.o : "unmounted"})`);
-  }
+  out.push(...greetingJumps(frames, at));
   const emptyGoneAt = frames.findIndex((f, i) => i > 0 && !f.empty && frames[i - 1]!.empty);
   if (emptyGoneAt >= 0) {
     const back = frames.findIndex((f, i) => i > emptyGoneAt && f.empty);
@@ -617,6 +643,25 @@ test("the descent may not run ahead of the first frame after the key", () => {
   ]);
   // Started on that frame: at rest on it, then on the easing.
   expect(aheadOfTheKey([frame(1002, 1000, 378, 1), frame(1130, 1128, 378, 1), frame(1147, 1145, 400, 0.99), ...settled], 0, enterAt, 1000)).toEqual([]);
+});
+
+// The greeting's fade, judged on time: the CI Chromium frames of 01/10 (one
+// frame 189 ms after the one before it, the fade read as a jump), and the same
+// drop, or a greeting cut with no fade, on frames of normal length.
+test("the greeting's fade is judged on the time between frames, not on their count", () => {
+  const frame = (t: number, ft: number, o: number | null): Frame => ({
+    t, ft, batch: 1, panes: 1, card: null, empty: o === null ? null : { x: 0, y: 194, w: 600, h: 172, o, v: true, id: 1 },
+    bubble: null, bubbleContentY: null, indicator: null, bg: null, skeleton: null, assistant: null, assistantHasText: false, scroller: null, tabs: [],
+  });
+  const jumps = (frames: Frame[]) => greetingJumps(frames, (i) => `f${i}`);
+  expect(jumps([frame(1002, 1000, 0.977), frame(1191, 1189, 0.332)]), "a 189 ms frame is load").toEqual([]);
+  expect(jumps([frame(1002, 1000, 0.977), frame(1019, 1017, 0.332)])).toEqual([
+    "f1 empty state: gone in one frame (opacity 0.977 -> 0.332 in 24ms, a fade loses at most 0.24)",
+  ]);
+  expect(jumps([frame(1002, 1000, 1), frame(1019, 1017, null)]), "no fade at all").toEqual([
+    "f1 empty state: gone in one frame (opacity 1 -> unmounted in 24ms, a fade loses at most 0.24)",
+  ]);
+  expect(jumps([1, 0.98, 0.9, 0.75, 0.5, 0.2, 0].map((o, i) => frame(1002 + i * 16.7, 1000 + i * 16.7, o))), "a fade at 60 fps").toEqual([]);
 });
 
 test.describe("First send in a new topic", () => {

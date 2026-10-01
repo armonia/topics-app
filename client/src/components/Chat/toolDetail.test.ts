@@ -12,7 +12,8 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { deriveToolDetail, buildToolDisplayLabel, resolveToolDetail } from './toolDetail';
+import { buildToolDisplayLabel, resolveToolDetail } from './toolDetail';
+import { deriveToolDetail } from '../../../../shared/tool-detail';
 import type { ToolCall } from '../../types';
 
 describe('deriveToolDetail — background / harness tools', () => {

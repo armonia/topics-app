@@ -58,15 +58,15 @@ function tierOracle(
     if (t.projectPath !== projectPath) continue;
     if (t.archived) continue;
     if (t.standalone) continue;
-    if (seenSubjects?.has(t.id)) continue;
     if (inputTopics.has(t.id)) return "input";
+    if (seenSubjects?.has(t.id)) continue;
     if (awaitingTopics.has(t.id)) hasDone = true;
   }
   for (const ts of terminalSessions) {
     if (ts.type === "shell") continue;
     if (!ts.cwd || !belongs(ts.cwd, projectPath)) continue;
-    if (seenSubjects?.has(ts.id)) continue;
     if (inputTerms.has(ts.id)) return "input";
+    if (seenSubjects?.has(ts.id)) continue;
     if (awaitingTerms.has(ts.id)) hasDone = true;
   }
   return hasDone ? "done" : null;

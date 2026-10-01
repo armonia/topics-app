@@ -22,6 +22,7 @@
 import { useSyncExternalStore, useEffect } from 'react';
 import { requestTaskTabNavigate } from './taskTabNavigate';
 import { createUiStatePersister } from './uiStatePersist';
+import { apiFetch } from '../lib/shell/net';
 
 /**
  * Chi ha deciso l'etichetta di una tab, in ordine di autorità crescente:
@@ -279,7 +280,7 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
  */
 async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null }> {
   try {
-    const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
+    const r = await apiFetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
     if (!r.ok) return { value: null, seq: null };
     const d = await r.json().catch(() => null);
     return { value: (d?.value ?? null) as T | null, seq: typeof d?.server_seq === 'number' ? d.server_seq : null };
@@ -292,7 +293,7 @@ async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | n
  *  missing context (never server-created, native-only) 404s harmlessly. */
 function releaseBrowserContext(contextId: string): void {
   if (!contextId) return;
-  void fetch(`/api/browsers/${encodeURIComponent(contextId)}`, { method: 'DELETE' }).catch(() => {});
+  void apiFetch(`/api/browsers/${encodeURIComponent(contextId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
 // Writes stay PENDING until the server answers, and a frame that arrives while

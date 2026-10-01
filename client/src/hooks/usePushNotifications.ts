@@ -3,6 +3,7 @@ import { requestWebNotificationPermissionFromTap } from "../lib/shell/app";
 import { describePushState, type PushStatusView } from "../lib/push/pushStatus";
 import { ensurePushRegistration, pushDeviceId, pushCapable, readPushEnvironment } from "../lib/push/environment";
 import { usePushDeviceStore, type PushWhenOpen } from "../state/pushDevice";
+import { apiFetch } from '../lib/shell/net';
 
 const API_BASE = import.meta.env.DEV ? "http://localhost:3333" : "";
 
@@ -59,7 +60,7 @@ export function usePushNotifications() {
   const refreshDevices = useCallback(async () => {
     const seq = ++listSeqRef.current;
     try {
-      const res = await fetch(`${API_BASE}/api/push/devices?deviceId=${encodeURIComponent(pushDeviceId())}`);
+      const res = await apiFetch(`${API_BASE}/api/push/devices?deviceId=${encodeURIComponent(pushDeviceId())}`);
       if (!res.ok) return;
       const data = await res.json();
       if (seq !== listSeqRef.current) return;
@@ -119,7 +120,7 @@ export function usePushNotifications() {
         return false;
       }
 
-      const res = await fetch(`${API_BASE}/api/push/vapid-public-key`);
+      const res = await apiFetch(`${API_BASE}/api/push/vapid-public-key`);
       const { publicKey } = await res.json();
 
       let reg: ServiceWorkerRegistration;
@@ -135,7 +136,7 @@ export function usePushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
       });
 
-      const saved = await fetch(`${API_BASE}/api/push/subscribe`, {
+      const saved = await apiFetch(`${API_BASE}/api/push/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...sub.toJSON(), deviceId: pushDeviceId() }),
@@ -162,7 +163,7 @@ export function usePushNotifications() {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
       if (sub) {
-        await fetch(`${API_BASE}/api/push/unsubscribe`, {
+        await apiFetch(`${API_BASE}/api/push/unsubscribe`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ endpoint: sub.endpoint }),
@@ -192,7 +193,7 @@ export function usePushNotifications() {
       setPushDevice({ subscribed: true, whenOpen: prefs.whenOpen });
     }
     try {
-      const res = await fetch(`${API_BASE}/api/push/devices/prefs`, {
+      const res = await apiFetch(`${API_BASE}/api/push/devices/prefs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deviceId, ...prefs }),

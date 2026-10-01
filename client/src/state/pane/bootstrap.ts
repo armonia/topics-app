@@ -34,6 +34,7 @@ import type { PaneState } from './types';
 import { paneTypesToWarm, paneTypesToWarmWhenIdle, panesOnFirstFrame, preloadPaneChunks } from './panePreload';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { initTombstoneSync } from './adapters/tombstoneSync';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * Thin adapter: conform `subscribeFrames` (untyped frame) to the
@@ -123,7 +124,7 @@ async function readServerSnapshot(): Promise<FallbackOutcome> {
     // 2026-09-05, a third of it a heap-probe result), and it was queued at boot
     // next to the chat history on the same six connections. The single-key
     // route answers with `{ value, payload_version, server_seq }`.
-    res = await fetch('/api/ui-state/pane-store-v2');
+    res = await apiFetch('/api/ui-state/pane-store-v2');
   } catch {
     // No answer at all: nothing is known, so nothing is hydrated.
     return 'unknown';

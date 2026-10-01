@@ -22,6 +22,7 @@ import {
   projectPanesKey,
   projectLayoutKey,
 } from '../../../../../shared/project-keys';
+import { apiFetch } from '../../../lib/shell/net';
 
 // Derivazione delle chiavi (hash di projectPath) delegata a
 // shared/project-keys.ts — la stessa funzione djb2 viveva qui, in
@@ -231,7 +232,7 @@ async function putWithRetry(
       : `/api/ui-state/${encodeURIComponent(key)}?base=${baseSeq}`;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
         body: json,
@@ -468,7 +469,7 @@ export function loadProjectLayout(
   if (onUpdate && isSyncedProjectKey(localKey)) {
     ensureWsWired();
     onUpdateByKey.set(localKey, onUpdate);
-    void fetch(`/api/ui-state/${encodeURIComponent(localKey)}`)
+    void apiFetch(`/api/ui-state/${encodeURIComponent(localKey)}`)
       .then((res) => (res.ok ? res.json().catch(() => null) : null))
       .then((body: { value?: unknown; server_seq?: number } | null) => {
         // Single-key GET envelope: { value, payload_version, server_seq } | null.

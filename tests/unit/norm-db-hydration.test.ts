@@ -15,7 +15,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { sanitizeToolCallDetail } from '../../server/utils';
-import { deriveToolDetail } from '../../server/providers/claude/tool-detail';
+import { deriveToolDetail } from '../../shared/tool-detail';
 
 describe('sanitizeToolCallDetail — pass-through', () => {
   test('null / undefined / non-object passes through', () => {

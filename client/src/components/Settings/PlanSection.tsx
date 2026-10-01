@@ -8,6 +8,7 @@ import {
   mostraMotivo, POSTI_MAX_ACQUISTO, POSTI_MIN_ACQUISTO, postiValidi, scadenzaVicina,
   siPuoComprare, type StatoPagamento, type StatoPiano,
 } from './pianoState';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * IL PIANO: cosa questa installazione può fare, e come si cambia.
@@ -53,8 +54,8 @@ export function PlanSection() {
   const carica = useCallback(async () => {
     try {
       const [l, b] = await Promise.all([
-        fetch('/api/license', { credentials: 'same-origin' }).then((r) => r.json()),
-        fetch('/api/billing', { credentials: 'same-origin' }).then((r) => r.json()),
+        apiFetch('/api/license', { credentials: 'same-origin' }).then((r) => r.json()),
+        apiFetch('/api/billing', { credentials: 'same-origin' }).then((r) => r.json()),
       ]) as [StatoPiano, StatoPagamento];
       setPiano(l);
       setPagamento(b);
@@ -73,7 +74,7 @@ export function PlanSection() {
     setInCorso(true);
     setErrore(null);
     try {
-      const r = await fetch('/api/billing/checkout', {
+      const r = await apiFetch('/api/billing/checkout', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -99,7 +100,7 @@ export function PlanSection() {
     setInCorso(true);
     setErrore(null);
     try {
-      const r = await fetch('/api/license', {
+      const r = await apiFetch('/api/license', {
         method: 'PUT',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -126,7 +127,7 @@ export function PlanSection() {
     if (!await conferma({ title: t('plan.remove'), body: t('plan.removeConfirm') })) return;
     setInCorso(true);
     try {
-      await fetch('/api/license', { method: 'DELETE', credentials: 'same-origin' });
+      await apiFetch('/api/license', { method: 'DELETE', credentials: 'same-origin' });
       await carica();
     } finally {
       setInCorso(false);

@@ -323,6 +323,7 @@ export class NativeProvider implements AIProvider {
    */
   private topicEffort(sessionKey: string): string | null {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
       const { getDatabase } = require("../../db");
       const row = getDatabase()
         .prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1")
@@ -335,6 +336,7 @@ export class NativeProvider implements AIProvider {
 
   private topicsContext(sessionKey: string): TopicsToolContext | null {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
       const { getDatabase } = require("../../db");
       const db = getDatabase();
       const row = db
@@ -374,6 +376,7 @@ export class NativeProvider implements AIProvider {
    */
   private hasGlobalCoordinatorRole(sessionKey: string): boolean {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
       const { getDatabase } = require("../../db");
       const db = getDatabase();
       return isGlobalOrchestratorSession(db, sessionKey);
@@ -880,6 +883,7 @@ export class NativeProvider implements AIProvider {
  */
 function readMcpPolicy(sessionKey: string): string | null {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
     const { getDatabase } = require("../../db");
     const row = getDatabase()
       .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
@@ -892,6 +896,7 @@ function readMcpPolicy(sessionKey: string): string | null {
 
 function readTopicAutonomy(sessionKey: string): string | null {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the database module is loaded at the first call, not when the provider registers
     const { getDatabase } = require("../../db");
     const row = getDatabase()
       .prepare("SELECT autonomy_level FROM topics WHERE session_key = ? LIMIT 1")

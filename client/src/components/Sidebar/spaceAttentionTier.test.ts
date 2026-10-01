@@ -21,6 +21,7 @@
  *
  * @covers SEEN-01
  * @covers SEEN-02
+ * @covers SEEN-ANY-FOCUS-01
  */
 import { describe, it, expect } from 'bun:test';
 import { spaceAttentionTier } from './useSpaceCards';
@@ -130,7 +131,7 @@ describe('spaceAttentionTier: the chat branch', () => {
   });
 });
 
-describe('spaceAttentionTier: the terminal branch is untouched', () => {
+describe('spaceAttentionTier: the terminal branch', () => {
   it('keeps lighting a finished hook-less terminal even when marked seen', () => {
     // The twin note in the source: `terminalFinishedIds` covers sessions with
     // no known phase and the seen reset rides on `claudePhaseAwaitingTermIds`,
@@ -141,6 +142,17 @@ describe('spaceAttentionTier: the terminal branch is untouched', () => {
       sets({ terminalFinishedIds: new Set(['s1']), seenSubjects: new Set(['s1']) }),
     );
     expect(tier).toBe('done');
+  });
+
+  it('goes quiet on a SEEN claude-code terminal parked on a phase, like its tab and row', () => {
+    // The tab (`attentionFillFor`), the row (`useTerminalAttentionFill`) and
+    // the project rollup all skip a seen phase-parked terminal: the card read
+    // the raw set and stayed blue over a terminal you had already looked at.
+    const pane = { id: 'term:s2', type: 'terminal', terminalSessionId: 's2', spaceId: SPACE } as Pane;
+    expect(tierOf([pane], sets({ claudePhaseAwaitingTermIds: new Set(['s2']) }))).toBe('done');
+    expect(tierOf([pane], sets({ claudePhaseAwaitingTermIds: new Set(['s2']), seenSubjects: new Set(['s2']) }))).toBeNull();
+    // A permission gate is not silenced by a look, as for a chat.
+    expect(tierOf([pane], sets({ claudePhaseAwaitingInputTermIds: new Set(['s2']), seenSubjects: new Set(['s2']) }))).toBe('input');
   });
 });
 

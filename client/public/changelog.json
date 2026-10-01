@@ -1,5 +1,292 @@
 [
   {
+    "version": "2.2.423",
+    "date": "2026-10-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A failed write to terminal_sessions is reported through warnThrottled with what failed and on which session; the routes answer as before.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The daemon-state tests check the lock file's 0600 mode and see a temp left behind under its current name.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A kill between the temp write and the rename is tested to leave the old scripts.json, and the corrupt-file path of readJsonStateFile is tested to log once and keep the bytes aside.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-01 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Everyday preferences are proposed as inline controls in the user menu, and Settings keeps only the forms",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A pane is seen when it is the window's focused pane for the dwell, whatever input focused it, and that one event clears its marks on every surface",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A group card goes quiet on a claude-code terminal parked on a phase once it has been seen, like its tab and row",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The terminal pane no longer has a hook of its own for the finished mark, and the seen dwell's flag has an English name",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The phone's bottom sheets rise on the motion tokens and slide back down with their scrim when they close.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The context inspector fades out as a popover and slides down as a phone sheet when it closes.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every dialog fades its veil in and leaves through the shared exit copy.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The remaining menus and popovers enter and leave through the shared surface.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The app tooltip settles in and fades out instead of popping.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A toast closed by hand fades out like one that times out.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Folds open with a short fade: native details and the task drawer's sections.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every floating surface has an enter and exit test, and a rail refuses a new one built outside the shared pieces.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every setting that lives only in the removed Settings entries gets a named home, and the phone gets the user menu's identity block",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The floating-surface motion tests share one recorder and split the project, board and phone surfaces into a sibling spec.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The changelog and task drawer motion tests read surfaces that exist on both trees, so they fail on the motion and not on a missing test id.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Server walks, searches and watches no longer enter other apps' data under ~/Library",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baselines lose their date line and bloat entries are sorted by path; replayed, 19 of the last 29 bloat-baseline conflicts remain",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Four product modules that only tests reached are gone, and their requirements are proven on the code that ships",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bun run lint now lints server/, shared/ and server.ts, and they are clean",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The baseline merge tests and comment state what the v2 layout does not merge: an entry added or removed next to a changed one, and two new files in the same gap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quick open's flat file list no longer walks into other apps' data under ~/Library or media libraries",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every /api request of the client goes through apiFetch, which turns an identity refusal met by any call into the pairing screen",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tool-call detail is derived by one module, shared/tool-detail.ts, which the server runs at the boundary and the client only as a fallback",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A terminal's banner row is born seen when the terminal is the pane in front, and the seen event of a focused terminal clears its unseen rows even with no finished mark",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The /api routers are walked from one ordered table, and a gate reports two routers that claim the same route",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The human board routes live in server/routes/tasks-board.ts, and createTasksRouter is 1,056 lines shorter",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The no-seats test anchors the member-add call on apiFetch, the door every client /api request now goes through",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The board-settings passthrough guard reads the PATCH call in server/routes/tasks-board.ts, where the route now lives",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A fresh history read queued behind one in flight is read again with the options it asked for, so a keepLit read keeps the Stop button lit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Closing the board lightbox on a video fades out the frame it showed, without fetching or playing the clip again.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The pane drawn in front is seen with no focus set and in the board's coordinator drawer, a permission wait stays amber on every surface, and the unread of the chat in front is read when the window comes back",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le quattro proposte in attesa sono approvate con le scelte consigliate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A menu opened by a right-click flips away from the window edge, takes the focus, gives it back to the element on close, and Shift+F10 opens it from the keyboard.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The sidebar topic menu is the shared cursor menu, so it flips at the edges, follows its sub-views' height and gives the focus back to the row.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The sidebar group header opens the shared cursor menu, with a menu role and the focus back on the header.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The tab menu is the shared cursor menu anchored under the tab, so it takes the focus, walks with the arrows and no longer lets the system menu open on top of it.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The file tree menu is the shared cursor menu, measured instead of guessed, and Shift+F10 on the tree opens the current row's menu.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A file tab in the full file explorer opens its own menu on right-click or long press: close, keep open, copy path.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A rail fails when a file takes the right-click away from the system without opening the shared cursor menu.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An e2e right-clicks every surface of the lane and checks the whole right-click contract on each.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A terminal tab's re-read of the parked list asks the server again, also within 2 s of boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The drag spec runs its real re-selection stroke on Chromium too, inside a line instead of on the boundary between two",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The first-send spec judges the greeting's fade on the time between frames, so a long frame under load is not read as a jump",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A sub-agent stopped while the app is closed keeps its project tab and its ended row at the next launch, now pinned by SUBSTRIP-01i",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Selected text inside an app panel, like the task's diff or the browser console, keeps the system menu with Copy, while the panel's commands still turn it down.",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La baseline dei nomi toglie cancelled da signals.ts, che non lo usa più",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sito prende devalue 5.9.4, che chiude i sei avvisi nuovi di oggi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stato della sessione vive in sessionState.ts, così net.ts e session.ts non si importano a vicenda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci in inglese i commenti spostati in sessionState",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Metti check:route-shadowing nella catena static-rails della board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Svuota le richieste di abbinamento pendenti nel reset ermetico dei test",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.422",
     "date": "2026-10-01",
     "sections": {

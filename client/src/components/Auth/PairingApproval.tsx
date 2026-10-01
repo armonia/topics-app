@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Smartphone } from 'lucide-react';
 import { guestPairingPeople, pairingApprovalBody, type PairingIdentity, type PairingPerson } from './pairingPerson';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * Il cartello che compare sulla macchina GIÀ fidata quando un dispositivo nuovo
@@ -45,11 +46,11 @@ export function PairingApproval() {
   useEffect(() => {
     // Stato iniziale: una richiesta può essere arrivata mentre questa finestra
     // era chiusa o ricaricata.
-    void fetch('/api/auth/pair/pending', { credentials: 'same-origin' })
+    void apiFetch('/api/auth/pair/pending', { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : { requests: [] }))
       .then((b: { requests?: Richiesta[] }) => setRichieste(b.requests ?? []))
       .catch(() => { /* nessuna identità o rete giù: niente da mostrare */ });
-    void fetch('/api/auth/devices', { credentials: 'same-origin' })
+    void apiFetch('/api/auth/devices', { credentials: 'same-origin' })
       .then((response) => (response.ok ? response.json() : { people: [] }))
       .then((body: { people?: PairingPerson[] }) => setPeople(guestPairingPeople(body.people ?? [])))
       .catch(() => setPeople([]));
@@ -99,7 +100,7 @@ export function PairingApproval() {
       // dispositivo attribuito a un estraneo, e allora quale delle due frasi
       // sarebbe quella vera?
       const corpo = !approva || !chi ? { requestId: id } : pairingApprovalBody(id, chi);
-      await fetch(`/api/auth/pair/${approva ? 'approve' : 'deny'}`, {
+      await apiFetch(`/api/auth/pair/${approva ? 'approve' : 'deny'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',

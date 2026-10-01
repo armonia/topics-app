@@ -1,4 +1,6 @@
 name: chat-inline-command-run
-status: proposed
+status: approved
 creato: 2026-09-29
 richiesta: "a volte Topix potrebbe dare dei comandi in bash. In quel caso [...] la possibilità di eseguirlo direttamente in line e che la gente poi possa effettivamente leggerli secondo gli standard, ovviamente al top."
+approvato: 2026-10-01 17:11
+risposta: "vai con tutte le migliori soluzione solide usabili comprensibili facili leggibili scalabili pulite complete ma sintetiche"

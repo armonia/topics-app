@@ -146,7 +146,7 @@ function toCdpCookie(row: Row, key: Buffer): CdpCookieParam | null {
 }
 
 function sanitizeInputs(domains: string[], profile: string, browser?: string) {
-  const cleanDomains = (domains || []).map((d) => String(d).replace(/[^a-zA-Z0-9.\-]/g, "")).filter(Boolean);
+  const cleanDomains = (domains || []).map((d) => String(d).replace(/[^a-zA-Z0-9.-]/g, "")).filter(Boolean);
   const cleanProfile = String(profile || "Default").replace(/[^a-zA-Z0-9 _-]/g, "") || "Default";
   // Unknown ids fall back to chrome rather than throwing: an unsupported browser
   // must not become a way to probe the filesystem through the error message.

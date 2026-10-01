@@ -30,7 +30,7 @@ import { parsePorcelainZ } from "./git-porcelain";
 import { parseNumstatZ, type Numstat } from "./git-numstat";
 import { gitDiffStat, runGitRead as git, type DiffStatEntry } from "./git-diff-stat";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
-import { deriveToolDetail } from "../providers/claude/tool-detail";
+import { deriveToolDetail } from "../../shared/tool-detail";
 import type { ToolCall } from "../../shared/types";
 import type { TopicChangeKind, TopicChangedFile, TopicChanges } from "../../shared/topic-changes";
 

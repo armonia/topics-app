@@ -26,6 +26,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { PresenceCounts } from '../../../shared/presence-phrase';
+import { apiFetch } from '../lib/shell/net';
 
 const INTERVALLO_MS = 8000;
 
@@ -64,7 +65,7 @@ export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): 
     const leggi = async () => {
       if (!vivo || document.hidden) return;
       try {
-        const res = await fetch('/api/system/presence');
+        const res = await apiFetch('/api/system/presence');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as PresenceCounts;
         rememberCounts(data);

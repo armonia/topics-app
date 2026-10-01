@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS, executeTool, type ToolContext } from "./tools";
-import { deriveToolDetail } from "../claude/tool-detail";
+import { deriveToolDetail } from "../../../shared/tool-detail";
 
 const ctx: ToolContext = { workspace: process.cwd() };
 

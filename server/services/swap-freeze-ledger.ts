@@ -84,7 +84,7 @@ export interface SwapFreezeLedger {
 const sameRef = (a: LedgerPidRef, b: LedgerPidRef): boolean => a.pid === b.pid && a.lstart === b.lstart;
 
 export function createSwapFreezeLedger(io: LedgerIo): SwapFreezeLedger {
-  let state: LedgerFile = readLedger(io);
+  const state: LedgerFile = readLedger(io);
   const flush = (): void => {
     try { io.write(JSON.stringify(state)); }
     catch (err) { io.log(`[freeze] ledger write failed: ${String(err)}`); }
