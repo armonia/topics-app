@@ -25,7 +25,7 @@
  * first frame and then jumped (the hidden pane had stored its 0x0 box as the
  * composer's height), and history rows replayed the entrance animation.
  */
-import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
+import { expect, test, type Locator, type Page, type APIRequestContext } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTerminalSession, createTopic, deleteTerminalSession, seedPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
@@ -268,6 +268,40 @@ async function seedChat(request: APIRequestContext, name: string, count: number,
   return { topicId: t.id, sessionKey };
 }
 
+/**
+ * Holds the rows before a chat's first page until `release()`: then they are
+ * merged once the chat has been seen and hidden again, which is the case under
+ * test. Unheld, the merge can land before the first look (the pane is mounted
+ * behind the focused one at boot), and there is nothing to see.
+ */
+async function holdOlderPages(page: Page, sessionKey: string): Promise<() => void> {
+  let release: () => void = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/history/${encodeURIComponent(sessionKey)}*`, async (route) => {
+    let body: { before?: string } = {};
+    try {
+      body = JSON.parse(route.request().postData() || "{}") as { before?: string };
+    } catch {
+      // No body: the tail request.
+    }
+    if (body.before) await released;
+    await route.continue();
+  });
+  return release;
+}
+
+/** The first message whose bottom is below the top of the list, and how far its top is from it. */
+async function topRow(list: Locator): Promise<{ text: string; offset: number }> {
+  return list.evaluate((el) => {
+    const top = el.getBoundingClientRect().top;
+    for (const m of Array.from(el.querySelectorAll('[data-testid="chat-message"]'))) {
+      const r = m.getBoundingClientRect();
+      if (r.bottom > top + 2) return { text: ((m.textContent ?? "").match(/Row \d+\. /) ?? [""])[0], offset: r.top - top };
+    }
+    return { text: "", offset: 0 };
+  });
+}
+
 function expectResident(label: string, s: Switch): void {
   const r = s.report;
   const detail = `${label}: seq=${r.seq} trace=${r.trace.join(" ")} commits=${s.commits} requests=${s.requests.join(",")}`;
@@ -351,22 +385,7 @@ test.describe("a tab switch is instant", () => {
     await installMeter(page);
     await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
-    // The rows before the first page are held until the chat has been seen and
-    // hidden again: then they are merged while it is hidden, which is the case
-    // under test. Unheld, the merge can land before the first look (the pane is
-    // mounted behind the focused one at boot), and there is nothing to see.
-    let release: () => void = () => {};
-    const released = new Promise<void>((resolve) => (release = resolve));
-    await page.route(`**/api/history/${encodeURIComponent(long.sessionKey)}*`, async (route) => {
-      let body: { before?: string } = {};
-      try {
-        body = JSON.parse(route.request().postData() || "{}") as { before?: string };
-      } catch {
-        // No body: the tail request.
-      }
-      if (body.before) await released;
-      await route.continue();
-    });
+    const release = await holdOlderPages(page, long.sessionKey);
     await goToApp(page);
     const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "PLAIN-END" });
     const longRow = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "MERGED-END" });
@@ -404,6 +423,79 @@ test.describe("a tab switch is instant", () => {
     expect([...s.reactRemounts, ...s.domRemounts], `no pane remounted. ${detail}`).toEqual([]);
     expect(s.requests, `nothing asked to the server. ${detail}`).toEqual([]);
     expect(s.commits, `React commits under the cap. ${detail}`).toBeLessThanOrEqual(RESIDENT_COMMIT_CAP);
+    expect(r.entrances, `no history row replays the entrance. ${detail}`).toBe(0);
+  });
+
+  test("a reader scrolled up in a chat whose history was completed while hidden finds the row they were reading, still, on the first frame", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-03" });
+    test.setTimeout(180_000);
+    const long = await seedChat(request, "TSI read-up chat", LONG_COUNT, "READUP-END", true);
+    const short = await seedChat(request, "TSI side chat", SHORT_COUNT, "SIDE-END");
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        [long.topicId]: { id: long.topicId, type: "chat", title: "", topicId: long.topicId, openedAt },
+        [short.topicId]: { id: short.topicId, type: "chat", title: "", topicId: short.topicId, openedAt },
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [long.topicId, short.topicId], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await installProbe(page);
+    await installMeter(page);
+    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
+    const release = await holdOlderPages(page, long.sessionKey);
+    await goToApp(page);
+    const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "SIDE-END" });
+    const longRow = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "READUP-END" });
+    const longList = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message-list"]`);
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible({ timeout: 20_000 });
+    await page.locator(tab(long.topicId)).first().click();
+    await expect(longRow).toBeVisible({ timeout: 20_000 });
+    await expect(longList).toHaveAttribute("data-history", "partial");
+    await expect.poll(() => longList.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(1);
+    await settlePanes(page);
+    // The reader goes up some 2000 px with the wheel, inside the first page.
+    const box = (await longList.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 4; i++) {
+      const before = await longList.evaluate((el) => el.scrollTop);
+      await page.mouse.wheel(0, -500);
+      await expect.poll(() => longList.evaluate((el) => el.scrollTop)).toBeLessThan(before);
+    }
+    let last = -1;
+    await expect.poll(async () => {
+      const st = await longList.evaluate((el) => el.scrollTop);
+      const still = st === last;
+      last = st;
+      return still;
+    }, { intervals: [250] }).toBe(true);
+    await settlePanes(page);
+    const reading = await topRow(longList);
+    expect(reading.text, "a numbered row at the top of the list").not.toBe("");
+    // Away, and the rest of the thread (1960 rows) is merged above that row.
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible();
+    release();
+    await expect(longList).toHaveAttribute("data-history", "complete", { timeout: 20_000 });
+
+    const R = { key: long.topicId, needle: reading.text, ...long };
+    const s = await measureSwitch(page, R, { event: "click" }, () => page.locator(tab(long.topicId)).first().click());
+    const back = await topRow(longList);
+    const r = s.report;
+    const detail = `reading=${JSON.stringify(reading)} back=${JSON.stringify(back)} seq=${r.seq} trace=${r.trace.join(" ")}`;
+    expect(r.firstContent, `the row they were reading on the first frame after the input. ${detail}`).toBe(1);
+    expect(r.seq, `no frame without it after that. ${detail}`).toMatch(/^C+$/);
+    // Before the fix the rows were rendered at estimated heights on the first
+    // frame and moved by 72-99 px once measured, sometimes back and forth.
+    expect(r.rawJumpPx, `nothing moves by a pixel or more after the first frame. ${detail}`).toBeLessThan(1);
+    // And at the place they left it, not some 440 px lower: the anchor was the
+    // first row Virtuoso rendered, 400 px of overscan above the viewport.
+    expect(back.text, `the same row at the top. ${detail}`).toBe(reading.text);
+    expect(Math.abs(back.offset - reading.offset), `at the same offset from the top. ${detail}`).toBeLessThan(1);
     expect(r.entrances, `no history row replays the entrance. ${detail}`).toBe(0);
   });
 

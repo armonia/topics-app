@@ -1060,3 +1060,9 @@ callback, which runs before that.
 - **WHEN** the user switches to another tab, the rest of its history is merged, and the user comes back
 - **THEN** its last message is on screen on the first frame of the return, with no frame of other rows before it
 - **AND** it does not move by a pixel or more in the frames after
+
+#### Scenario: back to a long chat the reader had scrolled up in
+- **GIVEN** a chat of 2000 messages opened on its last page, where the reader went up some 2000 px with the wheel
+- **WHEN** the user switches to another tab, the rest of its history is merged above the row they were reading, and the user comes back
+- **THEN** that row is on the first frame of the return at the place it had (the same row at the top, less than a pixel from its old offset), not the first row of the 400 px overscan above it
+- **AND** it does not move by a pixel or more in the frames after: before, the rows were placed from sizes kept by index (stale after the merge) and moved by 72-99 px once measured, sometimes back and forth
