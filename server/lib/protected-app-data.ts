@@ -44,22 +44,34 @@ const MEDIA_LIBRARY_SUFFIXES = [
 const MEDIA_LIBRARY_NAMES = ["Photo Booth Library"];
 
 const FOLD_CASE = process.platform === "darwin" || process.platform === "win32";
-const key = (p: string): string => (FOLD_CASE ? resolve(p).toLowerCase() : resolve(p));
+/**
+ * A name as the file system compares it. `toLowerCase()` alone is not that:
+ * APFS folds `ſ` (long s) to `s`, so `Containerſ` IS `Containers` on disk and
+ * would walk past a lowercase comparison. NFKC then upper-then-lower folds it,
+ * and the Kelvin sign with it. It folds a little MORE than APFS (fullwidth
+ * letters), which only ever refuses a name, never lets one through.
+ */
+const fold = (s: string): string => (FOLD_CASE ? s.normalize("NFKC").toUpperCase().toLowerCase() : s);
+const key = (p: string): string => fold(resolve(p));
 
 function isMediaLibraryName(name: string): boolean {
-  const n = FOLD_CASE ? name.toLowerCase() : name;
+  const n = fold(name);
   return MEDIA_LIBRARY_SUFFIXES.some((s) => n.endsWith(s))
-    || MEDIA_LIBRARY_NAMES.some((m) => (FOLD_CASE ? m.toLowerCase() : m) === n);
+    || MEDIA_LIBRARY_NAMES.some((m) => fold(m) === n);
 }
 
-/** Every protected area `abs` lies in (the area's own root, case-folded). */
-function areasOf(abs: string, home: string): string[] {
+/**
+ * Every protected area `abs` lies in (the area's own root, case-folded).
+ * `wholeLibrary: false` leaves out `~/Library` itself and keeps the per-app
+ * folders and media libraries.
+ */
+function areasOf(abs: string, home: string, wholeLibrary = true): string[] {
   const p = key(abs);
   const out: string[] = [];
   if (home) {
     const lib = key(join(home, "Library"));
     if (isInsideDir(p, lib)) {
-      out.push(lib);
+      if (wholeLibrary) out.push(lib);
       for (const d of PROTECTED_LIBRARY_DIRS) {
         const area = key(join(home, "Library", d));
         if (isInsideDir(p, area)) out.push(area);
@@ -80,6 +92,18 @@ function areasOf(abs: string, home: string): string[] {
 export function isProtectedFromWalk(dir: string, root: string, home: string = homeDir()): boolean {
   const rootAreas = new Set(areasOf(root, home));
   return areasOf(dir, home).some((a) => !rootAreas.has(a));
+}
+
+/**
+ * May a search start at `root`, chosen by an agent whose workspace is
+ * `workspace`? `true` = it must not: `root` is inside another app's folder or a
+ * media library that the workspace is not in. `~/Library` itself and
+ * `~/Library/Logs` are fine as roots: naming them is a choice, and the walk
+ * from there still stops at the per-app folders (`isProtectedFromWalk`).
+ */
+export function isProtectedRoot(root: string, workspace: string, home: string = homeDir()): boolean {
+  const own = new Set(areasOf(workspace, home, false));
+  return areasOf(root, home, false).some((a) => !own.has(a));
 }
 
 /**
@@ -109,7 +133,18 @@ export function protectedDirExcludes(root: string, home: string = homeDir()): st
     if (r === lib) names.push(...PROTECTED_LIBRARY_DIRS);
     else if (isInsideDir(lib, r)) names.push("Library");
   }
-  names.push(...MEDIA_LIBRARY_SUFFIXES.map((s) => `*${s}`), ...MEDIA_LIBRARY_NAMES);
+  const media = new Set<string>([...MEDIA_LIBRARY_SUFFIXES.map((s) => `*${s}`), ...MEDIA_LIBRARY_NAMES]);
+  names.push(...media);
   const own = basename(resolve(root));
-  return names.filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : (FOLD_CASE ? n.toLowerCase() === own.toLowerCase() : n === own)));
+  return names
+    .filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : fold(n) === fold(own)))
+    // grep compares `--exclude-dir` with case: on a file system that ignores it,
+    // `Old.PHOTOSLIBRARY` is the same package and must be excluded too. The
+    // Library folders keep their spelling: macOS creates them, a person does not.
+    .map((n) => (FOLD_CASE && media.has(n) ? caseless(n) : n));
+}
+
+/** `*.photoslibrary` as a glob that matches it in any case: `*.[pP][hH]…`. */
+function caseless(pattern: string): string {
+  return pattern.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
 }
