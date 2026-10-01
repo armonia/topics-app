@@ -26,8 +26,12 @@
 
 import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
 
-/** Answers with the ids the server currently lists as parked. */
-export type DormantIdsFetcher = () => Promise<readonly string[]>;
+/**
+ * Answers with the ids the server currently lists as parked. `fresh` is set
+ * for a re-read after a disappearance: its answer must come from a request
+ * sent after it, never from one shared with or kept from an earlier read.
+ */
+export type DormantIdsFetcher = (fresh: boolean) => Promise<readonly string[]>;
 
 export interface DormantTerminalGuard {
   /** Has a dormant list answered (or failed) at least once? A prune that runs
@@ -43,9 +47,13 @@ export interface DormantTerminalGuard {
   recheck(ids: Iterable<string>): void;
 }
 
-async function fetchDormantIds(): Promise<readonly string[]> {
+async function fetchDormantIds(fresh: boolean): Promise<readonly string[]> {
   // One guard per project window, all loading at boot: coalesced into one GET.
-  const res = await coalescedFetch('/api/terminal/sessions/dormant', undefined, { ttlMs: BOOT_READ_TTL_MS });
+  // Not a re-read: the boot answer is kept 2 s, and a session that left the
+  // roster inside that window was ruled on the list read before it left (a
+  // parked tab pruned as gone).
+  const url = '/api/terminal/sessions/dormant';
+  const res = fresh ? await fetch(url) : await coalescedFetch(url, undefined, { ttlMs: BOOT_READ_TTL_MS });
   if (!res.ok) throw new Error(`dormant list: HTTP ${res.status}`);
   const body: unknown = await res.json();
   if (!Array.isArray(body)) throw new Error('dormant list: not an array');
@@ -83,7 +91,7 @@ export function createDormantTerminalGuard(options: DormantTerminalGuardOptions)
     inFlight = true;
     const asked = pending;
     pending = new Set<string>();
-    void fetcher()
+    void fetcher(asked.size > 0)
       .then(ids => {
         dormantIds = new Set(ids);
         // Asked about, and the FRESH answer does not park it: really gone. This
