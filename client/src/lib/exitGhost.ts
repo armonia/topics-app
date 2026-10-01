@@ -21,13 +21,18 @@ import { useLayoutEffect, type RefObject } from 'react';
 import { MOTION } from './motion';
 import { prefersReducedMotion } from './reducedMotion';
 
-/** `popover`: 90ms opacity + scale. `modal`: 150ms veil fade + the panel's own exit. */
-export type ExitKind = 'popover' | 'modal';
+/**
+ * `popover`: 90ms opacity + scale. `modal`: 150ms veil fade + the panel's own exit.
+ * `sheet`: the phone's bottom sheet slides back down in 150ms; its scrim leaves
+ * as a `modal` copy next to it.
+ */
+export type ExitKind = 'popover' | 'modal' | 'sheet';
 
 /** Exit length per kind. Must match `[data-exit-ghost]` in index.css. */
 export const EXIT_MS: Record<ExitKind, number> = {
   popover: MOTION.instant,
   modal: MOTION.fast,
+  sheet: MOTION.fast,
 };
 
 /**
