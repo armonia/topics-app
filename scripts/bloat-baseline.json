@@ -265,7 +265,7 @@
     "client/src/types/index.ts": 1534,
     "server/services/task-automerge.ts": 1517,
     "shared/ws-outbound.ts": 1481,
-    "shared/types.ts": 1467,
+    "shared/types.ts": 1594,
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 1451,
     "client/src/components/MessageContent.tsx": 1417,
     "client/src/components/Terminal/SingleTerminalPane.tsx": 1488,
