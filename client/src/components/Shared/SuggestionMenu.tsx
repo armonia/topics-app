@@ -4,6 +4,7 @@ import { Search } from 'lucide-react';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { computeMenuPosition } from '@/lib/popoverPosition';
 import { useDismissable } from '@/hooks/useDismissable';
+import { useExitGhost } from '@/lib/exitGhost';
 import { Spinner } from './Spinner';
 
 /**
@@ -93,6 +94,9 @@ export function SuggestionMenu<T>({
     refs: inputRef ? [inputRef, menuRef] : [menuRef],
     restoreFocus: false,
   });
+  // Closing leaves the DOM at once; an inert copy fades out (lib/exitGhost,
+  // MOTION-04), the same exit as the composer's slash menu next to it.
+  useExitGhost(menuRef, visible);
 
   useEffect(() => {
     itemRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' });

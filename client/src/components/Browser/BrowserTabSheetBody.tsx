@@ -46,6 +46,7 @@ import {
   POPOVER_DIVIDER,
 } from '../../lib/popoverStyles';
 import { copyText } from '../../lib/clipboard';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 import { shortcut } from '../../lib/shortcutLabel';
 import type { DeviceMode } from './browserDevTypes';
@@ -155,6 +156,9 @@ export function BrowserTabSheetBody({
   const inputRef = useRef<HTMLInputElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  // The host unmounts the sheet to close it; an inert copy fades out
+  // (lib/exitGhost, MOTION-04) like the tab menu it sits next to.
+  useExitGhost(panelRef, true);
 
   // THE SHEET IS MEASURED, NOT GUESSED, and placed by the same function as the
   // tab context menu: it clamps to the viewport and flips above the tab when
