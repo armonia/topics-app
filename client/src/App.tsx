@@ -27,6 +27,8 @@ import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
+import { useStandaloneScreenFloor } from './hooks/useStandaloneScreenFloor';
+import { ViewportProbe } from './components/Layout/ViewportProbe';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
@@ -387,6 +389,8 @@ function App() {
     viewportTop,
     windowId,
   } = layout.state;
+  // TEST BUILD: the screen as the root's floor under black-translucent (see the hook).
+  const screenFloor = useStandaloneScreenFloor(viewportHeight !== null);
   // «Un comando compare dove ha effetto»: sotto i 768px PanelGrid non disegna
   // affatto gli split, quindi i comandi che li governano non si mostrano.
   // La regola — e la misura che la giustifica — sta nell'hook, non qui.
@@ -1432,6 +1436,7 @@ function App() {
       // dynamic here and the demo chapter goes quietly dead — nothing breaks,
       // it just stops showing what it claims to show.
       className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isDesktop ? 'floating-splits' : ''}`}
+      data-app-root=""
       style={{
         fontSize: `${appSettings.fontSize}px`,
         // La misura di lettura della chat viaggia come variabile, non come
@@ -1459,8 +1464,8 @@ function App() {
         [BAND_OWN_PROPERTY]: bandOwned ? 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))' : '0px',
         position: 'fixed',
         top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
-        bottom: viewportHeight != null ? undefined : 0,
-        height: viewportHeight != null ? `${viewportHeight}px` : undefined,
+        bottom: viewportHeight != null || screenFloor != null ? undefined : 0,
+        height: viewportHeight != null ? `${viewportHeight}px` : screenFloor != null ? `${screenFloor}px` : undefined,
       } as React.CSSProperties}
     >
       {/* Skip to main content link for keyboard users */}
@@ -2027,6 +2032,7 @@ function App() {
       {isMobile && (
         <ErrorBoundary fallbackMessageKey="crash.transportBand">
           <MobileTransportBand wsStatus={wsStatus} dataNotice={topicsError} keyboardVisible={viewportHeight !== null} />
+          <ViewportProbe floor={screenFloor} />
         </ErrorBoundary>
       )}
 

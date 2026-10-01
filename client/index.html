@@ -41,7 +41,14 @@
          the scrollers' trailing spacer, the button row); the top one belongs to
          the status bar. Flip it only after reading `innerHeight` against
          `screen.height` in standalone on a device. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- TEST BUILD (branch test/safe-area-translucent-1001, never merge as is):
+         `black-translucent` to try, on the phone, content under the status
+         bar. The two known costs of the comment above are answered here, not
+         assumed away: the short viewport by the root's screen floor
+         (useStandaloneScreenFloor) and the forced WHITE clock by a dark
+         translucent scrim under the status bar (`html::before` below), in both
+         themes. The numbers to read off the phone are in ViewportProbe. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
     <title>Topics</title>
@@ -62,6 +69,21 @@
          transparent pre-paint so the native backdrop isn't masked. `native-frost`
          is added by /boot.js above, before this style can paint. */
       html.native-frost, html.native-frost body, html.native-frost #root { background-color: transparent; }
+      /* TEST BUILD: under `black-translucent` iOS paints the clock and battery
+         WHITE whatever the theme, and the light chrome (#eaecf0) makes them
+         unreadable. A dark veil exactly as tall as the status bar keeps them
+         legible; translucent + blurred, so what scrolls under it (the sidebar
+         list) still shows through. In the dark theme it sits on #080a0e and
+         barely shows. Standalone only: in a browser tab the inset is 0. */
+      @media (display-mode: standalone) {
+        html::before {
+          content: ""; position: fixed; top: 0; left: 0; right: 0;
+          height: env(safe-area-inset-top, 0px);
+          background: rgba(8, 10, 14, 0.55);
+          -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+          z-index: 2147483647; pointer-events: none;
+        }
+      }
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>

@@ -214,8 +214,8 @@ test("MOBILE-GEOM-05 — sotto status bar e home indicator, senza fasce vuote", 
   });
   console.log("PWA", JSON.stringify(r));
   expect(r.viewport).toContain("viewport-fit=cover");
-  // `black` and not `black-translucent`: see the comment in index.html.
-  expect(r.statusBar).toBe("black");
+  // TEST BUILD: `black-translucent` on purpose, see the comment in index.html.
+  expect(r.statusBar).toBe("black-translucent");
   expect(r.capable).toBe("yes");
   // the container covers the whole screen, from the top edge to the bottom one
   expect(r.rootTop).toBeLessThanOrEqual(0.5);
