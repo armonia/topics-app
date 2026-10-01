@@ -171,6 +171,15 @@ describe("two windows of one browser", () => {
 });
 
 describe("subAgentRowsFor", () => {
+  test("a live child's state comes from its transcript phase, not from PTY bytes (SUBAGENT-16)", () => {
+    const rows = subAgentRowsFor(CHAT, [
+      { ...child("w", { busy: false }), subAgentPhase: "waiting-prompt" as const },
+      { ...child("b", { busy: false }), subAgentPhase: "working" as const },
+      { ...child("f", { busy: true }), subAgentPhase: "finished" as const },
+    ], []);
+    expect(rows.map((r) => [r.id, r.state])).toEqual([["w", "waiting"], ["b", "busy"], ["f", "idle"]]);
+  });
+
   test("live children of this chat, with their busy state; other chats' children excluded", () => {
     const rows = subAgentRowsFor(CHAT, [child("a", { busy: true }), child("b"), child("x", { parentSessionKey: OTHER })], []);
     expect(rows).toEqual([

@@ -709,6 +709,18 @@ export type ToolCallDetail =
       actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
       /** Final result text (set when sub-agent completes). */
       result?: string;
+      /**
+       * Set when the call is Topics' `spawn_agent` (SUBAGENT-16): the child
+       * is a pane of its own, so the card reads its live state from the
+       * roster and its result from the chat's `subagent-result` rows.
+       */
+      via?: 'spawn_agent';
+      /** The name the parent chose. */
+      name?: string;
+      /** The model asked for, or the one the answer says started. */
+      model?: string;
+      /** The child's id, read from the answer: what joins the card to its roster entry and results. */
+      agentId?: string;
     }
   | { type: 'plan'; text: string }
   | { type: 'mcp'; server: string; tool: string; args?: Record<string, unknown>; result?: string }

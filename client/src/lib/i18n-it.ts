@@ -97,6 +97,7 @@ const IT: Dict = {
   'msg.resend': 'Rimanda il messaggio rimasto senza risposta',
   'plan.awaiting': 'Un piano aspetta la tua approvazione',
   'plan.approveAndRun': 'Approva ed esegui',
+  'subagent.waiting': '{name} · in attesa del prompt (apri)',
   'subagent.busy': '{name} · al lavoro (apri)',
   'subagent.open': '{name} · apri',
   'subagent.ended': '{name} · terminato (apri)',

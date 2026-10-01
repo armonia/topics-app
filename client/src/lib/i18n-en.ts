@@ -96,6 +96,7 @@ const EN = {
   'msg.resend': 'Resend the message that got no answer',
   'plan.awaiting': 'A plan is waiting for your approval',
   'plan.approveAndRun': 'Approve and run',
+  'subagent.waiting': '{name} · waiting for its prompt (open)',
   'subagent.busy': '{name} · working (open)',
   'subagent.open': '{name} · open',
   'subagent.ended': '{name} · ended (open)',

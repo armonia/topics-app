@@ -135,6 +135,7 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       };
     }
     case 'sub_agent':
+      if (detail.via === 'spawn_agent') return { name: 'Sub-agent', summary: detail.name ?? detail.description };
       return {
         name: detail.subAgentType ?? 'Task',
         summary: detail.description,

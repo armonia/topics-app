@@ -99,6 +99,10 @@ const subAgentSchema = z.object({
   description: z.optional(z.string()),
   actions: z.array(subAgentActionSchema),
   result: z.optional(z.string()),
+  via: z.optional(z.literal('spawn_agent')),
+  name: z.optional(z.string()),
+  model: z.optional(z.string()),
+  agentId: z.optional(z.string()),
 });
 
 const planSchema = z.object({

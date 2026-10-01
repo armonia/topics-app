@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
-import { Bot, CircleCheck, Loader2, X } from 'lucide-react';
+import { Bot, CircleCheck, Hourglass, Loader2, X } from 'lucide-react';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import { dismissSubAgent, subAgentRowsFor, useEndedSubAgents, type SubAgentRow as Row } from '../../state/endedSubAgents';
 
@@ -28,6 +28,7 @@ function SubAgentRow({ row }: { row: Row }) {
   const tr = useT();
   const { id, name, state } = row;
   const title = state === 'busy' ? tr('subagent.busy', { name })
+    : state === 'waiting' ? tr('subagent.waiting', { name })
     : state === 'ended' ? tr('subagent.ended', { name })
     : tr('subagent.open', { name });
   return (
@@ -53,6 +54,8 @@ function SubAgentRow({ row }: { row: Row }) {
       >
         {state === 'busy'
           ? <Loader2 size={11} className="animate-spin text-blue-500 flex-shrink-0" />
+          : state === 'waiting'
+            ? <Hourglass size={11} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
           : state === 'ended'
             ? <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />
             : <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/80 flex-shrink-0" />}

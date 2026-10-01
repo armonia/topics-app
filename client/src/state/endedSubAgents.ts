@@ -46,7 +46,24 @@ export interface EndedSubAgent {
   endedAt: number;
 }
 
-export type SubAgentState = 'busy' | 'idle' | 'ended';
+/**
+ * `waiting`: the prompt has not reached it yet. `busy`: it is working its turn.
+ * `idle`: its turn is over. `ended`: its process is gone.
+ */
+export type SubAgentState = 'waiting' | 'busy' | 'idle' | 'ended';
+
+/**
+ * A live child's state. The server reads it from the child's transcript
+ * (`subAgentPhase`, SUBAGENT-16): a child whose prompt never arrived is not
+ * "idle", which is what the PTY bytes said of it. An older server sends no
+ * phase, and then the busy flag is all there is.
+ */
+function liveState(s: Pick<TerminalSessionInfo, 'busy' | 'subAgentPhase'>): SubAgentState {
+  if (s.subAgentPhase === 'waiting-prompt') return 'waiting';
+  if (s.subAgentPhase === 'working') return 'busy';
+  if (s.subAgentPhase === 'finished') return 'idle';
+  return s.busy ? 'busy' : 'idle';
+}
 
 export interface SubAgentRow {
   id: string;
@@ -127,12 +144,12 @@ export function dismissInMemory(memory: SubAgentMemory, id: string): SubAgentMem
 }
 
 /**
- * The strip's rows for one chat: the live children first (busy or idle, in
+ * The strip's rows for one chat: the live children first (waiting, busy or idle, in
  * roster order), then the ended ones that are not live again, oldest first.
  */
 export function subAgentRowsFor(
   parentSessionKey: string,
-  live: readonly Pick<TerminalSessionInfo, 'id' | 'name' | 'parentSessionKey' | 'busy'>[],
+  live: readonly Pick<TerminalSessionInfo, 'id' | 'name' | 'parentSessionKey' | 'busy' | 'subAgentPhase'>[],
   ended: readonly EndedSubAgent[],
 ): SubAgentRow[] {
   const rows: SubAgentRow[] = [];
@@ -140,7 +157,7 @@ export function subAgentRowsFor(
   for (const s of live) {
     if (s.parentSessionKey !== parentSessionKey) continue;
     liveIds.add(s.id);
-    rows.push({ id: s.id, name: s.name, state: s.busy ? 'busy' : 'idle' });
+    rows.push({ id: s.id, name: s.name, state: liveState(s) });
   }
   for (const e of ended) {
     if (e.parentSessionKey !== parentSessionKey || liveIds.has(e.id)) continue;
