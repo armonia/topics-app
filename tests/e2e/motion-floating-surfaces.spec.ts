@@ -24,8 +24,16 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { closeAllBrowserContexts, createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { FileExplorerPage } from "./fixtures/file-explorer.fixture";
+import { canonicalTmpRoot, cleanupFileProject, removeTmpDir, seedFileProject, type FileProject } from "./helpers/file-project";
+import { mockHistoryWithMedia } from "./helpers/sse-helpers";
+import { reachVersionChip } from "./helpers/open-version-chip";
+import { projectRow } from "./helpers/project-row";
+import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
+import { projectIdForPath } from "../../shared/board";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 hermetic(test);
 
@@ -44,6 +52,8 @@ type SurfaceRecord = {
   kind: "enter" | "ghost";
   ghost: string | null;
   testid: string | null;
+  /** The element's class list, to tell two surfaces inserted together apart (a sheet and its scrim). */
+  cls: string;
   ariaHidden: string | null;
   pointerEvents: string;
   timing: string;
@@ -86,6 +96,7 @@ function installRecorder(page: Page) {
         kind,
         ghost: el.getAttribute("data-exit-ghost"),
         testid: el.getAttribute("data-testid"),
+        cls: el.getAttribute("class") ?? "",
         ariaHidden: el.getAttribute("aria-hidden"),
         pointerEvents: cs.pointerEvents,
         timing: cs.animationTimingFunction,
@@ -134,12 +145,14 @@ async function log(page: Page): Promise<SurfaceRecord[]> {
   return page.evaluate(() => (window as unknown as { __motionLog: SurfaceRecord[] }).__motionLog);
 }
 
-/** The entrance of the surface: one animation, on the compositor, short, on the token curve. */
-async function expectEntrance(page: Page, label: string, maxMs: number, props: string[]) {
+/** The entrance of the surface: one animation, on the compositor, short, on the token curve.
+ *  `withClass` picks one of several surfaces inserted together (a sheet and its scrim). */
+async function expectEntrance(page: Page, label: string, maxMs: number, props: string[], withClass?: string) {
+  const picked = (r: SurfaceRecord) => r.kind === "enter" && (!withClass || r.cls.split(/\s+/).includes(withClass));
   await expect
-    .poll(async () => (await log(page)).filter((r) => r.kind === "enter").length, { message: `${label}: inserted` })
+    .poll(async () => (await log(page)).filter(picked).length, { message: `${label}: inserted` })
     .toBeGreaterThan(0);
-  const enter = (await log(page)).find((r) => r.kind === "enter")!;
+  const enter = (await log(page)).find(picked)!;
   const moving = enter.animations.filter((a) => a.duration > 1);
   expect(moving.length, `${label}: an entrance animation runs on the inserted surface (${JSON.stringify(enter.animations)})`).toBeGreaterThan(0);
   for (const a of moving) {
@@ -161,12 +174,13 @@ async function expectEntrance(page: Page, label: string, maxMs: number, props: s
   }
 }
 
-/** The exit: the surface is gone at once, and an inert copy of it fades. */
-async function expectExit(page: Page, label: string, kind: "popover" | "modal", maxMs: number) {
+/** The exit: the surface is gone at once, and an inert copy of it fades.
+ *  The copy is looked up by its kind: a sheet leaves with a `modal` copy of its scrim next to it. */
+async function expectExit(page: Page, label: string, kind: "popover" | "modal" | "sheet", maxMs: number) {
   await expect
-    .poll(async () => (await log(page)).filter((r) => r.kind === "ghost").length, { message: `${label}: an exit copy plays` })
-    .toBeGreaterThan(0);
-  const ghost = (await log(page)).find((r) => r.kind === "ghost")!;
+    .poll(async () => (await log(page)).filter((r) => r.kind === "ghost").map((r) => r.ghost), { message: `${label}: a ${kind} exit copy plays` })
+    .toContain(kind);
+  const ghost = (await log(page)).find((r) => r.kind === "ghost" && r.ghost === kind)!;
   expect(ghost.ghost, `${label}: exit kind`).toBe(kind);
   expect(ghost.testid, `${label}: the copy carries no test id`).toBeNull();
   expect(ghost.ariaHidden, `${label}: the copy is hidden from assistive tech`).toBe("true");
@@ -307,6 +321,521 @@ test.describe("Floating surfaces enter and leave", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("command-palette")).toHaveCount(0);
     await expectExit(page, "palette", "modal", MODAL_MAX_MS);
+  });
+});
+
+/** A sheet crosses a third of the screen: `--motion-base`, still on the entrance curve. */
+const SHEET_MAX_MS = 240;
+/** The phone's scrim, the one element carrying both `fixed` and `bg-black/40`. */
+const SCRIM = 'div[class~="fixed"][class~="bg-black/40"]';
+
+test.describe("Every other surface enters and leaves on the same mechanism", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
+  test.describe.configure({ timeout: 90_000 });
+
+  let topic: { id: string; name: string } | null = null;
+  test.beforeAll(async ({ request }) => {
+    topic = await createTopic(request, `E2E-Motion-All-${Date.now()}`);
+  });
+  test.afterAll(async ({ request }) => {
+    if (topic) await deleteTopic(request, topic.id);
+  });
+
+  async function ready(page: Page) {
+    await installRecorder(page);
+    await goToApp(page);
+    await waitForTopicVisible(page, topic!.id, { timeout: 15_000 });
+  }
+
+  async function openChat(page: Page) {
+    await page.getByRole("treeitem", { name: topic!.name }).first().click();
+    const composer = page.locator(`[data-pane-shell="${topic!.id}"] [data-testid="composer-card"] textarea`).first();
+    await expect(composer).toBeVisible({ timeout: 10_000 });
+    return composer;
+  }
+
+  test("MOTION-04m: the sidebar user menu (profile card)", async ({ page }) => {
+    await ready(page);
+    await watch(page, '[data-testid="profile-menu"]');
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+    await expectEntrance(page, "user menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
+    await expectExit(page, "user menu", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04n: a level of the user menu (the version row)", async ({ page }) => {
+    await ready(page);
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+    await watch(page, '[data-testid="menu-version-menu"]');
+    await page.getByTestId("menu-version").click();
+    await expect(page.getByTestId("menu-version-menu")).toBeVisible();
+    await expectEntrance(page, "user menu level", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("menu-version-menu")).toHaveCount(0);
+    await expectExit(page, "user menu level", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04o: the keyboard shortcuts dialog", async ({ page }) => {
+    await ready(page);
+    const dialog = '[role="dialog"][aria-label="Keyboard Shortcuts"]';
+    await watch(page, `${dialog} > :first-child`);
+    await page.keyboard.press("Meta+Slash");
+    await expect(page.locator(dialog)).toBeVisible();
+    await expectEntrance(page, "shortcuts veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(dialog)).toHaveCount(0);
+    await expectExit(page, "shortcuts", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04p: the new topic dialog", async ({ page }) => {
+    await ready(page);
+    const panel = '[aria-labelledby="new-topic-title"]';
+    await watch(page, `:has(> ${panel}) > :first-child`);
+    await page.keyboard.press("Meta+Shift+n");
+    await expect(page.locator(panel)).toBeVisible();
+    await expectEntrance(page, "new topic veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(panel)).toHaveCount(0);
+    await expectExit(page, "new topic", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04q: a chat's settings dialog", async ({ page }) => {
+    await ready(page);
+    await openChat(page);
+    const tab = page.locator(`[data-testid="panel-tab-bar"] [data-pane-id="${topic!.id}"]`).first();
+    await tab.click({ button: "right" });
+    await expect(page.getByRole("menu")).toBeVisible();
+    const dialog = `[role="dialog"][aria-label="${topic!.name} Settings"]`;
+    await watch(page, `${dialog} > :first-child`);
+    await page.getByRole("menu").getByRole("button", { name: "Impostazioni" }).click();
+    await expect(page.locator(dialog)).toBeVisible();
+    await expectEntrance(page, "chat settings veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(dialog)).toHaveCount(0);
+    await expectExit(page, "chat settings", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04r: the changelog dialog, and its fold", async ({ page, context }) => {
+    await page.route("**/api/version", (r) =>
+      r.fulfill({ json: { version: "9.9.9" }, headers: { "Cache-Control": "no-store" } }),
+    );
+    await context.route("**/changelog.json", (r) => r.fulfill({
+      json: [{
+        version: "9.9.9",
+        date: "2026-07-23",
+        sections: {
+          new: [{ it: "una novità", en: "", scope: "chat", breaking: false }],
+          fixes: [],
+          perf: [],
+          internal: [{ it: "pulizia interna", en: "", scope: "core", breaking: false }],
+        },
+      }],
+    }));
+    await ready(page);
+    await (await reachVersionChip(page)).click();
+    await watch(page, ':has(> [data-testid="changelog-modal"])');
+    await page.getByTestId("changelog-open").click();
+    const modal = page.getByTestId("changelog-modal");
+    await expect(modal).toBeVisible();
+    await expectEntrance(page, "changelog veil", MODAL_MAX_MS, ["opacity"]);
+
+    await watch(page, '[data-testid="changelog-internal-list"]');
+    await modal.getByText(/Sotto il cofano/).click();
+    await expect(page.getByTestId("changelog-internal-list")).toBeVisible();
+    await expectEntrance(page, "changelog fold", MODAL_MAX_MS, ["opacity"]);
+
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+    await expectExit(page, "changelog", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04s: the app tooltip", async ({ page }) => {
+    await ready(page);
+    await watch(page, '[data-testid="app-tooltip"]');
+    await page.locator('[data-testid="pane-add-menu-trigger"][title="Add pane"]').first().hover();
+    await expect(page.getByTestId("app-tooltip")).toBeVisible();
+    await expectEntrance(page, "tooltip", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("app-tooltip")).toHaveCount(0);
+    await expectExit(page, "tooltip", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04u: the context inspector popover, and a fold inside it", async ({ page }) => {
+    await ready(page);
+    await openChat(page);
+    const popover = '[data-popover="context-inspector"]';
+    await watch(page, popover);
+    await page.locator(`[data-pane-shell="${topic!.id}"]`).getByTestId("chat-input-context-ring").first().click();
+    await expect(page.locator(popover)).toBeVisible();
+    await expectEntrance(page, "context inspector", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+
+    const details = page.getByTestId("envelope-details");
+    await expect(details).toBeVisible({ timeout: 20_000 });
+    await watch(page, '[data-testid="envelope-details"] > :not(summary)');
+    await details.locator("summary").click();
+    await expectEntrance(page, "a native fold", MODAL_MAX_MS, ["opacity"]);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(popover)).toHaveCount(0);
+    await expectExit(page, "context inspector", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04v: an image lightbox", async ({ page }) => {
+    await page.context().route(/\/uploads\//, (route) => route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRU5ErkJggg==", "base64"),
+    }));
+    await mockHistoryWithMedia(page, { mediaPaths: ["/uploads/motion.png"], content: "an image", userMessage: "show me" });
+    await ready(page);
+    await openChat(page);
+    const image = page.locator('[data-testid="media-image"]').first();
+    await expect(image).toBeVisible({ timeout: 15_000 });
+    await watch(page, '[data-testid="image-lightbox"]');
+    await image.click();
+    await expect(page.getByTestId("image-lightbox")).toBeVisible();
+    await expectEntrance(page, "lightbox", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("image-lightbox")).toHaveCount(0);
+    await expectExit(page, "lightbox", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04-tbwmenu: the floating browser window's add menu", async ({ page, request }) => {
+    const ctx = `motion-tbw-${Date.now()}`;
+    const res = await request.put(`${E2E_BASE}/api/ui-state/topic-browser:${topic!.id}`, {
+      data: {
+        mode: "min",
+        minPos: { right: 24, bottom: 24 },
+        expandedWidth: null,
+        tabs: [{ contextId: ctx, url: "https://example.com", title: "Example", openedBy: "user" }],
+        activeContextId: ctx,
+        promoted: [],
+      },
+      ignoreHTTPSErrors: true,
+    });
+    expect(res.ok()).toBeTruthy();
+    try {
+      await ready(page);
+      await page.locator(`[data-pane-id="${topic!.id}"], [data-topic-id="${topic!.id}"]`).first().click();
+      await expect(page.getByTestId("topic-browser-window")).toBeVisible({ timeout: 10_000 });
+      await watch(page, '[data-testid="topic-browser-add-menu"]');
+      await page.getByTestId("topic-browser-add").click();
+      await expect(page.getByTestId("topic-browser-add-menu")).toBeVisible();
+      await expectEntrance(page, "window add menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+      await page.getByTestId("topic-browser-add-backdrop").click({ position: { x: 5, y: 5 } });
+      await expect(page.getByTestId("topic-browser-add-menu")).toHaveCount(0);
+      await expectExit(page, "window add menu", "popover", POPOVER_MAX_MS);
+    } finally {
+      await closeAllBrowserContexts(request);
+    }
+  });
+
+  test("MOTION-04-tabsheet: an empty browser pane's address sheet", async ({ page, request }) => {
+    await resetPaneStore(request, [`browser:motion-${Date.now()}`]);
+    try {
+      await installRecorder(page);
+      // The sheet opens by itself as the empty pane is born, so the watch is
+      // armed before the app boots.
+      await page.addInitScript(() => {
+        (window as unknown as { __motionWatch: string }).__motionWatch = '[data-testid="browser-tab-sheet"]';
+      });
+      await goToApp(page);
+      const sheet = page.getByTestId("browser-tab-sheet");
+      await expect(sheet).toBeVisible({ timeout: 15_000 });
+      await expectEntrance(page, "tab sheet", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+      await page.keyboard.press("Escape");
+      await expect(sheet).toHaveCount(0);
+      await expectExit(page, "tab sheet", "popover", POPOVER_MAX_MS);
+    } finally {
+      await closeAllBrowserContexts(request);
+      await resetPaneStore(request, [topic!.id]);
+    }
+  });
+});
+
+test.describe("The surfaces of a project enter and leave on the same mechanism", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
+  test.describe.configure({ timeout: 90_000 });
+
+  let project: FileProject | undefined;
+  test.beforeAll(async ({ request }) => {
+    project = await seedFileProject(request, "motion");
+  });
+  test.beforeEach(async ({ request }) => {
+    if (project) await resetPaneStore(request, [project.topicId]);
+  });
+  test.afterAll(async ({ request }) => {
+    await cleanupFileProject(request, project);
+  });
+
+  async function ready(page: Page, explorer: FileExplorerPage) {
+    await installRecorder(page);
+    await explorer.gotoProject(project!.tmpDir, project!.topicName);
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+  }
+
+  async function openFileMenu(explorer: FileExplorerPage, page: Page) {
+    const row = explorer.fileTree.getByRole("treeitem", { name: /package\.json/ });
+    await expect(row).toBeVisible();
+    await row.click({ button: "right" });
+    await expect(page.getByRole("menu")).toBeVisible();
+  }
+
+  test("MOTION-04t: the composer's @ mention menu", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    // A new chat of the project: the composer whose mentions list the project's files.
+    await page.getByRole("button", { name: "New Chat" }).first().click();
+    const composer = page.locator('[data-testid="project-window"] [data-testid="composer-card"] textarea').first();
+    await expect(composer).toBeVisible({ timeout: 10_000 });
+    await composer.click();
+    const menu = "[data-mention-menu]";
+    await watch(page, menu);
+    await page.keyboard.type("@");
+    await expect(page.locator(menu)).toBeVisible();
+    await expectEntrance(page, "mention menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(menu)).toHaveCount(0);
+    await expectExit(page, "mention menu", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04w: the file tree's context menu", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    await watch(page, '[role="menu"]');
+    await openFileMenu(explorer, page);
+    await expectEntrance(page, "file menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expectExit(page, "file menu", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04x: a confirmation dialog", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    await openFileMenu(explorer, page);
+    const dialog = '[role="dialog"][aria-label="Sposta nel cestino"]';
+    await watch(page, `:has(> ${dialog})`);
+    await page.getByRole("menu").getByRole("menuitem", { name: /Delete|Sposta nel cestino|Elimina/ }).first().click();
+    await expect(page.locator(dialog)).toBeVisible();
+    await expectEntrance(page, "confirm veil", MODAL_MAX_MS, ["opacity"]);
+    await page.locator(dialog).getByRole("button", { name: "Annulla" }).click();
+    await expect(page.locator(dialog)).toHaveCount(0);
+    await expectExit(page, "confirm", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04y: file search, its veil and its exit", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    await watch(page, '[data-testid="file-search"]');
+    await explorer.openFileSearch();
+    await expect(explorer.fileSearch).toBeVisible();
+    await expectEntrance(page, "file search veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(explorer.fileSearch).toHaveCount(0);
+    await expectExit(page, "file search", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04z: the git branch and history popovers", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    const git = explorer.gitChanges.first();
+    await expect(git).toBeVisible({ timeout: 15_000 });
+    // The section is born closed; its label (not the branch in the middle of
+    // the row) opens it, and the history and branch buttons live inside.
+    const head = git.getByTestId("project-sidebar-git");
+    if ((await head.getAttribute("aria-expanded")) !== "true") await head.getByText("Git", { exact: true }).click();
+    await expect(git.getByTestId("git-history-button")).toBeVisible({ timeout: 10_000 });
+
+    await watch(page, '[data-testid="git-history-popover"]');
+    await git.getByTestId("git-history-button").click();
+    await expect(page.getByTestId("git-history-popover")).toBeVisible();
+    await expectEntrance(page, "history popover", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("git-history-popover")).toHaveCount(0);
+    await expectExit(page, "history popover", "popover", POPOVER_MAX_MS);
+
+    await watch(page, '[data-testid="git-branch-popover"]');
+    await git.getByTestId("git-branch-button").click();
+    await expect(page.getByTestId("git-branch-popover")).toBeVisible();
+    await expectEntrance(page, "branch popover", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("git-branch-popover")).toHaveCount(0);
+    await expectExit(page, "branch popover", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04z3: the project's share dialog", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    const row = projectRow(page, new RegExp(project!.tmpDir.split("/").pop()!));
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click({ button: "right" });
+    await watch(page, '[data-testid="project-share-panel"]');
+    await page.getByTestId("project-share").click();
+    await expect(page.getByTestId("project-share-panel")).toBeVisible();
+    await expectEntrance(page, "share veil", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("project-share-panel")).toHaveCount(0);
+    await expectExit(page, "share", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04z2: a toast closed by hand fades like a timed one", async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await ready(page, explorer);
+    await openFileMenu(explorer, page);
+    await page.getByRole("menu").getByRole("menuitem", { name: "Copy Path" }).click();
+    const toast = page.getByTestId("toast").first();
+    await expect(toast).toBeVisible();
+    // The toast's own exit (a token transition on `opacity`), read on the
+    // frame after the click: the close button used to drop it in one frame.
+    await expect(toast.getByRole("button", { name: "Chiudi la notifica" })).toBeVisible();
+    // Settled first: closed while its own entrance is still at opacity 0 there
+    // is no fade to see, on either tree.
+    await expect.poll(() => toast.evaluate((el) => getComputedStyle(el).opacity), { message: "the toast has settled in" }).toBe("1");
+    const after = await toast.evaluate(async (el) => {
+      const button = el.querySelector('button[aria-label="Chiudi la notifica"]') as HTMLButtonElement;
+      button.click();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const cs = getComputedStyle(el);
+      return {
+        connected: el.isConnected,
+        transitions: el.getAnimations().map((a) => ({
+          prop: (a as CSSTransition).transitionProperty ?? "",
+          duration: Number(a.effect?.getComputedTiming().duration ?? 0),
+        })),
+        opacityTarget: cs.opacity,
+      };
+    });
+    expect(after.connected, "the closed toast is still on screen for its fade").toBe(true);
+    const fade = after.transitions.find((t) => t.prop === "opacity");
+    expect(fade, `an opacity fade runs on the closed toast (${JSON.stringify(after.transitions)})`).toBeTruthy();
+    expect(fade!.duration, "the fade is `--motion-fast`").toBeLessThanOrEqual(MODAL_MAX_MS);
+    await expect(page.getByTestId("toast")).toHaveCount(0);
+  });
+});
+
+test.describe("The board's lightbox and the task drawer's folds", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
+  test.describe.configure({ timeout: 120_000 });
+
+  const projectPath = `${canonicalTmpRoot()}/e2e-motion-board-${Date.now()}`;
+  const boardId = projectIdForPath(projectPath);
+  // `/api/media` serves the server's own media root only (preview-slide.spec.ts).
+  const mediaDir = `${testServerEnv(E2E_PORT).TOPICS_HOME}/media/e2e-motion-${Date.now()}`;
+  const taskText = "motion card with a cover";
+  let topicId: string | null = null;
+  let taskId = "";
+
+  test.beforeAll(async ({ request }) => {
+    mkdirSync(mediaDir, { recursive: true });
+    mkdirSync(projectPath, { recursive: true });
+    writeFileSync(`${projectPath}/package.json`, JSON.stringify({ name: "e2e-motion-board" }));
+    writeFileSync(`${mediaDir}/cover.png`, Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAFElEQVR4nGP8//8/AzJgYkAD5AsAAP//B5wBiOtZQOgAAAAASUVORK5CYII=",
+      "base64",
+    ));
+    topicId = (await createTopic(request, "E2E-Motion-Board", { projectPath })).id;
+    const res = await request.post(`${E2E_BASE}/api/boards/${boardId}/tasks`, {
+      data: { text: taskText, status: "review", description: "A description to fold and unfold." },
+    });
+    expect(res.ok(), `task refused: ${res.status()}`).toBe(true);
+    taskId = ((await res.json()) as { id: string }).id;
+    const cover = await request.patch(`${E2E_BASE}/api/boards/${boardId}/tasks/${taskId}`, {
+      data: { previewImage: `${mediaDir}/cover.png` },
+    });
+    expect(cover.ok(), `cover refused: ${cover.status()}`).toBe(true);
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (taskId) await request.delete(`${E2E_BASE}/api/boards/${boardId}/tasks/${taskId}`).catch(() => undefined);
+    if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
+    removeTmpDir(projectPath);
+    removeTmpDir(mediaDir);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    if (topicId) await resetPaneStore(request, [topicId]);
+  });
+
+  async function openBoard(page: Page) {
+    await installRecorder(page);
+    await goToApp(page);
+    const section = page.getByRole("button", { name: /sezione Progetti/ });
+    if ((await section.count()) > 0 && (await section.getAttribute("aria-expanded")) === "false") await section.click();
+    const row = projectRow(page, /e2e-motion-board/);
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await row.click();
+    const win = page.locator('[data-testid="project-window"][data-project-path*="e2e-motion-board"]');
+    await expect(win).toBeVisible({ timeout: 20_000 });
+    const triggers = win.getByTestId("pane-add-menu-trigger");
+    const kanban = page.getByTestId("pane-add-menu-kanban");
+    for (let i = (await triggers.count()) - 1; i >= 0; i--) {
+      const t = triggers.nth(i);
+      if (!(await t.isVisible().catch(() => false))) continue;
+      if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
+      if (await kanban.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) {
+        await kanban.click();
+        break;
+      }
+      await page.keyboard.press("Escape");
+    }
+    await expect(page.locator(`[data-task-card="${taskId}"]`)).toBeVisible({ timeout: 20_000 });
+  }
+
+  test("MOTION-04-preview: a card's preview lightbox", async ({ page }) => {
+    await openBoard(page);
+    const image = page.locator(`[data-task-card="${taskId}"] [data-testid="preview-card"] img`).first();
+    await expect(image).toBeVisible({ timeout: 20_000 });
+    await watch(page, '[data-testid="preview-lightbox"]');
+    await image.click();
+    await expect(page.getByTestId("preview-lightbox")).toBeVisible();
+    await expectEntrance(page, "preview lightbox", MODAL_MAX_MS, ["opacity"]);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("preview-lightbox")).toHaveCount(0);
+    await expectExit(page, "preview lightbox", "modal", MODAL_MAX_MS);
+  });
+
+  test("MOTION-04-drawer: a section of the task drawer opens with a fade", async ({ page }) => {
+    await openBoard(page);
+    await page.locator(`[data-task-card="${taskId}"]`).getByText(taskText).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10_000 });
+    const toggle = drawer.getByTestId("task-details-toggle");
+    if (await toggle.isVisible().catch(() => false)) await toggle.click();
+    const header = drawer.getByTestId("task-section-desc");
+    await expect(header).toBeVisible({ timeout: 10_000 });
+    // The section remembers its last state: start from closed.
+    if ((await header.getAttribute("data-open")) === "1") await header.click();
+    await expect(header).toHaveAttribute("data-open", "0");
+    await watch(page, '[data-testid="task-desc-body"]');
+    await header.click();
+    await expect(drawer.getByTestId("task-desc-body")).toBeVisible();
+    await expectEntrance(page, "drawer section", MODAL_MAX_MS, ["opacity"]);
+  });
+});
+
+test.describe("The phone's sheets rise and go back down", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" }, viewport: { width: 390, height: 844 } });
+  test.describe.configure({ timeout: 90_000 });
+
+  test("MOTION-04-sheet: the Topics sheet and its scrim", async ({ page }) => {
+    await installRecorder(page);
+    await page.addInitScript(() => localStorage.setItem("topics-mobile-drawer-collapsed", "0"));
+    await goToApp(page);
+    const trigger = page.getByTestId("sidebar-topics-menu");
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await watch(page, `[data-testid="sidebar-topics-menu-panel"], ${SCRIM}`);
+    await trigger.click();
+    await expect(page.getByTestId("sidebar-topics-menu-panel")).toBeVisible();
+    await expectEntrance(page, "Topics sheet", SHEET_MAX_MS, ["transform"], "bottom-sheet");
+    await expectEntrance(page, "sheet scrim", MODAL_MAX_MS, ["opacity"], "bg-black/40");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("sidebar-topics-menu-panel")).toHaveCount(0);
+    await expectExit(page, "Topics sheet", "sheet", MODAL_MAX_MS);
+    await expectExit(page, "sheet scrim", "modal", MODAL_MAX_MS);
   });
 });
 
