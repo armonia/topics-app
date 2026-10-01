@@ -107,7 +107,7 @@ describe("sweepWorktrees — a live session inside the folder", () => {
     // ordinary rules (WORKTREE-09/10) decide, and an orphan clean worktree
     // whose branch is on main is still reaped.
     const reaped: string[] = [];
-    const s = await sweepWorktrees(makeDeps({
+    await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("kid")],
       resolveTask: () => ({ taskId: null }),
       liveInside: () => false,

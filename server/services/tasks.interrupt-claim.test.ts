@@ -20,9 +20,7 @@
  * @covers THREAD-01
  */
 import { test, expect, describe, beforeEach } from "bun:test";
-import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { groupServiceRuns, foldsAway, isServiceComment } from "../../shared/task-comment-service";
 import { freshDb } from "./tasks-test-db";
 

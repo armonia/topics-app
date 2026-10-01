@@ -75,7 +75,7 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
     }
   }
 
-  return async function openclawContextRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  return async function openclawContextRouter(_req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // GET /api/openclaw/context — all OpenClaw workspace context files
     if (method === "GET" && pathname === "/api/openclaw/context") {

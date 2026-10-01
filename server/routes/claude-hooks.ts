@@ -101,7 +101,7 @@ export function createClaudeHooksRouter(
   const { json, errorResponse, matchRoute, readJSON } = ctx;
   const token = getOrCreateHookToken();
 
-  return async function claudeHooksRouter(req: Request, url: URL, pathname: string, method: string) {
+  return async function claudeHooksRouter(req: Request, _url: URL, pathname: string, method: string) {
     // POST /api/claude-hooks/:event — receives Claude Code hook payloads.
     {
       const params = matchRoute(pathname, "/api/claude-hooks/:event");

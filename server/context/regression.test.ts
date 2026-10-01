@@ -25,9 +25,32 @@ import { join } from "path";
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic, TopicsData } from "../types";
 import { loadMemoryForTopic } from "../routes/memory";
-import { buildProviderHistory } from "../utils/build-provider-history";
 import { adaptEnvelope } from "./adapt";
 import { assembleTopicContext } from "./assemble";
+
+/**
+ * The legacy history builder, replicated verbatim like the rest of the legacy
+ * algorithm below: it was `server/utils/build-provider-history.ts`, which no
+ * production path called any more once the canonical pipeline replaced it, so
+ * it lives here as the reference the pipeline is compared against.
+ */
+function buildProviderHistory(
+  storedMessages: StoredMessage[],
+  options: { limit?: number; excludeLast?: boolean } = {},
+): ChatMessage[] {
+  const { limit = 100, excludeLast = false } = options;
+  let normalized: ChatMessage[] = storedMessages
+    .filter((m) => !m.partial)
+    .filter((m) => !(m.content || "").startsWith("[Chat messages since your last reply"))
+    .map((m) => ({
+      role: (m.role === "assistant" ? "assistant" : "user") as ChatMessage["role"],
+      content: (m.content || "").trim(),
+    }))
+    .filter((m) => m.content.length > 0);
+  if (excludeLast && normalized.length > 0) normalized = normalized.slice(0, -1);
+  if (normalized.length > limit) normalized = normalized.slice(-limit);
+  return normalized;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Fixture

@@ -185,6 +185,7 @@ export function realProbeDeps(pidNostro: number): ProbePortDeps {
         // `-F` dà righe `p<pid>` e `c<comando>`: si legge senza spezzare a
         // colonne, che con un comando pieno di spazi sarebbe fragile.
         // Absolute path: under launchd PATH has no /usr/sbin, where lsof lives.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- this module has no imports; child_process is loaded only when the default probe runs
         const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
         const out = spawnSync("/usr/sbin/lsof", ["-nP", `-iTCP@127.0.0.1:${porta}`, "-sTCP:LISTEN", "-Fpc"], {
           encoding: "utf-8", timeout: 3000,

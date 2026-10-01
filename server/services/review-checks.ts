@@ -265,6 +265,7 @@ const TEST_NOISE = /^\s*\((?:pass|skip)\)/;
  * before printing it.
  */
 const COLOR_WARNING_NOISE =
+  // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
   /^(?:\x1b\[[0-9;]*[A-Za-z])*\s*(?:\(node:\d+\) Warning: The 'NO_COLOR' env is ignored|\(Use `node --trace-warnings)/;
 const isCheckNoise = (row: string): boolean => TEST_NOISE.test(row) || COLOR_WARNING_NOISE.test(row);
 

@@ -26,7 +26,8 @@ export interface SystemLoad {
   totalMB: number | null;
   /** Percent of the machine, or null where it cannot be measured. */
   totalCpu: number | null;
-  /** Frames per second in this window. Not part of the level, see `loadTint`. */
+  /** Frames per second in this window. Not part of the level: it measures this
+   *  window, not the machine, and drops for reasons unrelated to load. */
   fps: number;
   /** True when one of the two halves of the figure is missing, which is what
    *  the leading "~" says on screen. */

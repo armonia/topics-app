@@ -4634,7 +4634,7 @@ function accendiDispatch(db: Database): void {
 describe("il pavimento delle risorse si spiega", () => {
   it("dice il motivo UNA volta, non a ogni tick", async () => {
     const righe: string[] = [];
-    let bloccato = true;
+    const bloccato = true;
     // I GB CAMBIANO A OGNI LETTURA, ed è il motivo per cui la prima versione
     // di questo fix non deduplicava niente: confrontava il testo intero, e il
     // testo intero è sempre diverso. Provato sul server vero — tre righe in

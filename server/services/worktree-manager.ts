@@ -41,7 +41,6 @@ import { makeSerialQueue } from "../lib/serial-queue";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
 import { topicsHome } from "./daemon-state";
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";

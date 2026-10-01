@@ -111,7 +111,7 @@ export function htmlToMarkdown(html: string, baseUrl?: string): ExtractedPage {
     // The label carries the address with it: a link the model cannot follow is
     // a link it might as well not have been told about.
     .replace(/<a\b[^>]*\shref=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi,
-      (whole, dq: string | undefined, sq: string | undefined, bare: string | undefined, inner: string) => {
+      (_whole, dq: string | undefined, sq: string | undefined, bare: string | undefined, inner: string) => {
         const href = (dq ?? sq ?? bare ?? "").trim();
         const text = plain(inner);
         if (!text) return " ";

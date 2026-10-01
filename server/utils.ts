@@ -69,7 +69,6 @@ function devValidateOutbound(message: object): void {
     // broadcast malformato mentre lo scrive. Passarlo al logger strutturato lo
     // seppellirebbe dove nessuno lo guarda durante lo sviluppo, che è l'unico
     // momento in cui serve.
-    // eslint-disable-next-line no-console
     console.warn(`[WS:outbound] Malformed broadcast — ${result.error}`, message);
   }
 }
@@ -117,7 +116,6 @@ export function sanitizeToolCallDetail(tc: any): any {
   );
   // `_drop` non si usa PER COSTRUZIONE: destrutturare-e-scartare è il modo di
   // togliere una chiave da un oggetto senza mutarlo. Il valore che conta è `rest`.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { detail: _drop, ...rest } = tc;
   return rest;
 }

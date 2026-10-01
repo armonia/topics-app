@@ -281,7 +281,7 @@ describe("eCartelloDiInterruzione — cosa si riprende e cosa no", () => {
   /**
    * Un annullamento SENZA causa dichiarata prende un cartello (lo dice
    * `cancelledNotice`) ma NON si riprende: è la stessa regola di
-   * `meritaRipresaAutomatica`, e per la stessa ragione — non si indovina chi ha
+   * `isResumableCause`, e per la stessa ragione — non si indovina chi ha
    * annullato.
    */
   test("il cartello generico non è un lasciapassare per la ripresa", () => {

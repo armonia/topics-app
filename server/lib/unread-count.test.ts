@@ -13,7 +13,7 @@ import { bumpUnreadCount, type UnreadDeps } from "./unread-count";
 import type { UnreadData } from "../../shared/types";
 
 function harness(initial: UnreadData = {}, archived: string[] = []) {
-  let store: UnreadData = structuredClone(initial);
+  const store: UnreadData = structuredClone(initial);
   const broadcasts: Array<Record<string, unknown>> = [];
   const deps: UnreadDeps = {
     bumpUnread: (id) => {

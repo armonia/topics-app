@@ -236,7 +236,10 @@ jobs:
       # so dropping `working-directory` was the whole fix.
       # `relay/gate-coverage.test.ts` then asserts the wiring by MEASURING the
       # file list eslint actually opens, so this cannot be silently unpicked.
-      - name: Lint client + relay worker (eslint)
+      # Since 2026-10-01 the same root script also lints server/, shared/ and
+      # server.ts (`lint:server`); `no-explicit-any` is off there because
+      # check:any and check:any-budget own that rule.
+      - name: Lint client + relay worker + server (eslint)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run lint
 

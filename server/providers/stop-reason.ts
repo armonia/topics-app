@@ -409,7 +409,7 @@ export function describeTurnEnd(info: TurnEndInfo): string {
         // No longer "it took too long": since 2026-08-21 the cap counts
         // SILENCE (see server/lib/turn-deadline.ts). The id stays `wall-clock`
         // because that value is already written across thousands of history rows
-        // and recognised by `ripresa-automatica`; it was the SENTENCE that had
+        // and recognised by `isResumableCause`; it was the SENTENCE that had
         // become false, and the sentence is what a person reads.
         case "wall-clock": return "Turno fermo: nessun segno di vita fino allo scadere";
         case "server-shutdown": return "Il server si è riavviato mentre il turno era in corso";

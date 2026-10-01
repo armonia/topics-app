@@ -4229,16 +4229,16 @@ l'agente ne fa un'altra — ed è esattamente la riconciliazione che
 `TaskModelMenuOptions` è stato scritto per non fare, per il cassetto e il
 composer.
 
-**Costruzione delle opzioni.** L'elenco `["auto", ...models, valore salvato se
-mancante]` SHALL essere costruito da una funzione pura
-(`buildDispatchModelOptions`), non inline nel JSX: il caso «provider giù» non è
-raggiungibile da un test che monta il pannello intero, ma è provabile in tre
-righe contro l'helper.
+**Costruzione delle opzioni.** L'elenco dei modelli, con il valore salvato
+aggiunto se mancante, SHALL essere costruito da una funzione pura
+(`taskModelCatalog`, `client/src/hooks/useTaskModelCatalog.ts`), non inline nel
+JSX: il caso «provider giù» non è raggiungibile da un test che monta il
+pannello intero, ma è provabile in tre righe contro l'helper.
 
-MISURA: `client/src/components/Board/dispatchModelOptions.test.ts` — valore
+MISURA: `client/src/components/Board/TaskModelMenuOptions.test.tsx` — valore
 presente nel catalogo (nessun doppione), valore presente ma il provider è
-sparito (compare comunque, con l'etichetta amichevole), nessun valore salvato
-(solo «auto»).
+sparito (compare comunque, selezionato, con l'etichetta amichevole), nessun
+valore salvato (nessuna voce in più).
 
 #### Scenario: il provider del modello salvato è scollegato
 - **GIVEN** `dispatchModel` è `claude-sonnet-5` e `models` non lo contiene più

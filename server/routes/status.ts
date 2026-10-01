@@ -172,7 +172,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       lastGatewayCheck = { ...health, checkedAt: new Date().toISOString() };
       lastCronStatus = cron;
       lastSessionsStatus = sessions;
-    } catch (err) {
+    } catch {
       // Update checkedAt even on failure so the status bar shows freshness
       lastGatewayCheck = { status: "offline", online: false, latencyMs: 0, checkedAt: new Date().toISOString() };
     }
@@ -185,7 +185,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   if (typeof backgroundCheckTimer.unref === "function") backgroundCheckTimer.unref();
   runBackgroundChecks();
 
-  return async function statusRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  return async function statusRouter(_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // Restart OpenClaw gateway (only supported for openclaw provider)
     if (method === "POST" && pathname === "/api/openclaw/restart") {

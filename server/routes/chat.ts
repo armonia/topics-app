@@ -253,7 +253,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   }
   const {
     resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
-    getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
+    getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
     ssePingMs,
   } = deps;
@@ -368,7 +368,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   }
   return chatRouter;
 
-  async function routeChat(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  async function routeChat(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // The goal loop resends through this very route: see `goalLoop`.
     goalLoop.useRoute(chatRouter);
     if (method === "POST" && pathname === "/api/chat") {
@@ -2376,7 +2376,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // l'utente vede «Riprova» e spende un turno di troppo (spreco
               // VISIBILE), con la promessa vedrebbe «non serve che tu faccia
               // niente» e il turno resterebbe perso in SILENZIO. Vale la regola
-              // che `meritaRipresaAutomatica` gia' dichiara: nel dubbio si
+              // che `isResumableCause` gia' dichiara: nel dubbio si
               // lascia il cartello, che e' reversibile.
               //
               // Senza questa riga il campo non veniva passato da nessuno: la

@@ -11,9 +11,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { declaredNames, isKnown, words, PROJECT_WORDS } from "./check-identifier-language";
+import { declaredNames, isKnown, serializeBaseline, words, PROJECT_WORDS } from "./check-identifier-language";
 
 const DICT = "/usr/share/dict/words";
 const dict = new Set<string>(
@@ -119,5 +120,43 @@ describe("CI installa il dizionario prima di far girare il cancello", () => {
     expect(install).toBeGreaterThan(-1);
     expect(gate).toBeGreaterThan(-1);
     expect(install).toBeLessThan(gate);
+  });
+});
+
+describe("the baseline merges when two branches change the names of different files it lists", () => {
+  /** `git merge-file` exit code = number of conflicts. */
+  function conflicts(base: string, ours: string, theirs: string): number {
+    const dir = mkdtempSync(join(tmpdir(), "idl-merge-"));
+    try {
+      writeFileSync(join(dir, "base"), base);
+      writeFileSync(join(dir, "ours"), ours);
+      writeFileSync(join(dir, "theirs"), theirs);
+      return spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")]).status ?? -1;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const BASE = new Map([["src/a.ts", ["alfa"]], ["src/b.ts", ["beta"]]]);
+  const OURS = new Map([["src/a.ts", ["alfa", "alfaDue"]], ["src/b.ts", ["beta"]]]);
+  const THEIRS = new Map([["src/a.ts", ["alfa"]], ["src/b.ts", ["beta", "betaDue"]]]);
+  /** The writer before 01/10/2026: the same JSON plus the date of the run. */
+  const dated = (m: Map<string, string[]>, generated: string) =>
+    `${JSON.stringify({ $schema: "identifier-language-baseline-v1", generated, files: Object.fromEntries(m) }, null, 2)}\n`;
+
+  test("with the date, two updates on different days conflict", () => {
+    expect(conflicts(dated(BASE, "2026-09-01"), dated(OURS, "2026-09-02"), dated(THEIRS, "2026-09-03"))).toBeGreaterThan(0);
+  });
+
+  test("without it, the same two updates merge cleanly", () => {
+    expect(conflicts(serializeBaseline(BASE), serializeBaseline(OURS), serializeBaseline(THEIRS))).toBe(0);
+  });
+
+  test("limit: two branches that each add a NEW file in the same gap still conflict", () => {
+    // Both insert at the same line; a line merge cannot order them. Replaying the
+    // 5 merges of the 30 days before 01/10/2026 that conflicted on this file: 3
+    // merge cleanly without the date, the other 2 changed the same file.
+    const ours = new Map([...BASE, ["src/aa.ts", ["alfaBis"]]]);
+    const theirs = new Map([...BASE, ["src/ab.ts", ["alfaTer"]]]);
+    expect(conflicts(serializeBaseline(BASE), serializeBaseline(ours), serializeBaseline(theirs))).toBeGreaterThan(0);
   });
 });

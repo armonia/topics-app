@@ -148,6 +148,7 @@ const rusageReader: (offset: number) => (pid: number) => number | null = (() => 
   try {
     // rusage_info_v2: 16 byte di uuid, poi `uint64_t`; `ri_phys_footprint` è il
     // settimo dopo l'uuid → offset 16 + 7*8 = 72, `ri_resident_size` il sesto → 64.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- bun:ffi loaded inside the try, so a runtime without it reads null instead of failing the module load
     const { dlopen, FFIType } = require("bun:ffi") as typeof import("bun:ffi");
     const lib = dlopen("/usr/lib/libSystem.dylib", {
       proc_pid_rusage: { args: [FFIType.i32, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
@@ -196,6 +197,7 @@ const { responsiblePidFn, responsiblePidAvailable } = (() => {
     return { responsiblePidFn: (_: number): number | null => null, responsiblePidAvailable: false };
   }
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- bun:ffi loaded inside the try, so a runtime without it reads null instead of failing the module load
     const { dlopen, FFIType } = require("bun:ffi") as typeof import("bun:ffi");
     const lib = dlopen("/usr/lib/libSystem.dylib", {
       responsibility_get_pid_responsible_for_pid: { args: [FFIType.i32], returns: FFIType.i32 },

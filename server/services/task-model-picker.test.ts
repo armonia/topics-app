@@ -3,7 +3,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import {
-  parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort, medianTier, medianEffort, JUDGE_VOTES, parseWeight, medianWeight,
+  parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort, medianTier, medianEffort, JUDGE_VOTES, parseWeight,
 } from './task-model-picker';
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e

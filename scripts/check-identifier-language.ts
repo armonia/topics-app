@@ -663,7 +663,23 @@ export function isKnown(word: string, dict: Set<string>): boolean {
  * name while adding another kept the total identical, which is a green on a
  * change that fixed nothing. Names cost a bigger file and buy an exact answer.
  */
-type Baseline = { $schema: string; generated: string; files: Record<string, string[]> };
+type Baseline = { $schema: string; files: Record<string, string[]> };
+
+/**
+ * The baseline as written to disk: files and names sorted, and NO date.
+ *
+ * It carried a `generated` date until 01/10/2026, on line 3, rewritten by every
+ * `--update-baseline`: two branches that recorded names in different files on
+ * different days conflicted on that line and nowhere else (the file was in 5 of
+ * the 114 conflicting merges of the 30 days before). The date said nothing that
+ * git log does not.
+ */
+export function serializeBaseline(perFile: Map<string, string[]>): string {
+  const files: Record<string, string[]> = {};
+  for (const f of [...perFile.keys()].sort()) files[f] = perFile.get(f)!;
+  const payload: Baseline = { $schema: "identifier-language-baseline-v1", files };
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
 
 function readBaseline(): Record<string, string[]> {
   if (!existsSync(BASELINE)) return {};
@@ -718,15 +734,8 @@ if (import.meta.main) {
   }
 
   if (process.argv.includes("--update-baseline")) {
-    const files: Record<string, string[]> = {};
-    for (const f of [...perFile.keys()].sort()) files[f] = perFile.get(f)!;
-    const payload: Baseline = {
-      $schema: "identifier-language-baseline-v1",
-      generated: new Date().toISOString().slice(0, 10),
-      files,
-    };
-    writeFileSync(BASELINE, `${JSON.stringify(payload, null, 2)}\n`);
-    console.log(`[identifier-language] baseline scritta: ${Object.keys(files).length} file, ${[...perFile.values()].reduce((a, b) => a + b.length, 0)} nomi.`);
+    writeFileSync(BASELINE, serializeBaseline(perFile));
+    console.log(`[identifier-language] baseline scritta: ${perFile.size} file, ${[...perFile.values()].reduce((a, b) => a + b.length, 0)} nomi.`);
     process.exit(0);
   }
 

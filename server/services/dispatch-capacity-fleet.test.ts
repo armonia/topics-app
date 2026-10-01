@@ -6,7 +6,7 @@
  * @covers KANBAN-07
  */
 import { test, expect, describe } from "bun:test";
-import { smoothedOther, newOtherLoadState, availableMemGB, fleetSlotBudget } from "./dispatch-capacity";
+import { smoothedOther, newOtherLoadState, fleetSlotBudget } from "./dispatch-capacity";
 import { machineBudget } from "../../shared/board";
 
 describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", () => {

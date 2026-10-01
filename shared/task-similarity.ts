@@ -120,7 +120,7 @@ export function normalizeTaskText(raw: string): string {
     .replace(/[\u0300-\u036f]/g, '') // accenti via: priorità = priorita
     .toLowerCase()
     .replace(/^[\s\p{Emoji_Presentation}\p{Extended_Pictographic}]*/u, '')
-    .replace(/^(?:[(\[]?\d+[a-z]?[.)\]]\s*)+/, '') // «4b. », «1) », «(2) »
+    .replace(/^(?:[([]?\d+[a-z]?[.)\]]\s*)+/, '') // «4b. », «1) », «(2) »
     .replace(/^[-*•+]\s+/, '')
     .replace(/[«»"'`´“”‘’]/g, ' ')
     .replace(/\s+/g, ' ')

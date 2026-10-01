@@ -21,8 +21,11 @@
  *  we can substring-match against the prompt's own fingerprint. */
 export function stripForEcho(s: string): string {
   return s
+    // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI sequences
+    // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC sequences
+    // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
     .replace(/\x1b[()][0-9A-B]/g, "") // charset selects
     .replace(/[─-╿▀-▟]/g, "") // box drawing + block elements
     .replace(/\s+/g, "")

@@ -8,7 +8,6 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AppContext } from "../types";
 import { pendingQuestionComment } from "../../shared/board";
 import { createTasksRouter } from "./tasks";
 import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread, DEAD_QUESTION_LINE } from "../services/board-ask-routing";
@@ -16,15 +15,8 @@ import { cancelAsk } from "../lib/ask-user-bridge";
 import { topicSessionKey } from "../services/agent-census";
 import { imageShape } from "../services/image-shape";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
-import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
-import { parseStatusEvent } from "../../shared/board";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
-// The skipped-merge note quotes two controls by the words printed on them. It
-// reads those words from the dictionary the interface reads, so renaming a
-// label cannot leave the note pointing at something the user cannot find.
-// Aliased: `t` is already a local name for a task in half this file.
-import { t as label } from "../../client/src/lib/i18n";
-import { freshDb, makeCtx, call, SESSIONS, matchRoute } from "./tasks-test-support";
+import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
+import { freshDb, makeCtx, call } from "./tasks-test-support";
 
 describe("tasks router (session-scoped)", () => {
   let db: Database; let broadcasts: any[]; let router: any;
@@ -1225,7 +1217,7 @@ describe("board settings route", () => {
   });
 
   test("all-boards/settings: GET default off, PATCH flips globally + broadcasts board:dispatch", async () => {
-    let g = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    const g = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
     expect(g.autoDispatch).toBe(false);
 
     const resp = (await call(router, "PATCH", "/api/all-boards/settings", { autoDispatch: true }))!;

@@ -4,7 +4,7 @@
  * @covers BROWSER-CHAT-01
  */
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, rmSync, readFileSync } from "fs";
+import { existsSync, rmSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import {
   saveStorageState,
@@ -166,7 +166,6 @@ test("saveLastUrl ignores about:blank and non-http schemes", () => {
 test("loadLastUrl returns null when nothing persisted or file corrupt", () => {
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
   saveLastUrl(TEST_TOPIC, "https://example.com");
-  const { writeFileSync } = require("fs");
   writeFileSync(join(TEST_DIR(), "last-url.json"), "not-json");
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
 });

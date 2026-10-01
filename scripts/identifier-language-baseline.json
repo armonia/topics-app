@@ -1,6 +1,5 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-10-01",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -3410,15 +3409,6 @@
       "righe",
       "tutte"
     ],
-    "server/lib/ripresa-automatica.test.ts": [
-      "StatoRipresa",
-      "sano"
-    ],
-    "server/lib/ripresa-automatica.ts": [
-      "CAUSE_DA_RIPRENDERE",
-      "StatoRipresa",
-      "meritaRipresaAutomatica"
-    ],
     "server/lib/ripresa-boot.test.ts": [
       "RigaDaValutare",
       "guasto",
@@ -4406,7 +4396,6 @@
       "righe"
     ],
     "server/services/delivery-sheet.ts": [
-      "ins",
       "larghezza",
       "passi",
       "righe",

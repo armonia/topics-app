@@ -36,8 +36,7 @@ function bench(statuses: number[] = []) {
   const sent: string[] = [];
   const settled: string[] = [];
   const logs: string[] = [];
-  let relay!: AnswerRelay;
-  relay = createAnswerRelay({
+  const relay: AnswerRelay = createAnswerRelay({
     isBusy: () => busy,
     route: async (req) => {
       const body = await req.json() as { questionAnswer: { toolCallId: string } };
