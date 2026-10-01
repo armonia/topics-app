@@ -9,10 +9,11 @@
  * block shows only its first ten lines.
  *
  * The scan is word by word over each simple command (split on `;`, `&&`,
- * `||`, `|`, `&`, parentheses, braces, backticks and newlines), after the
- * wrappers that run another command (`sudo`, `env`, `xargs`...). Quotes are
- * not parsed: an `rm -rf` inside an `echo "..."` asks too, which is the cheap
- * side to be wrong on.
+ * `||`, `|`, `&`, parentheses, braces, backticks and newlines, with backslash
+ * line continuations joined first), after the reserved words that lead into
+ * one (`then`, `do`, `!`...) and the wrappers that run another command
+ * (`sudo`, `env`, `xargs`...). Quotes are not parsed, and only a command's
+ * own name is looked at: `echo "rm -rf x"` asks nothing.
  */
 
 export type RiskKind =
@@ -46,6 +47,10 @@ function hasHiddenChars(text: string): boolean {
 
 const SEPARATORS = /\n|;|&&|\|\||\||&|\$\(|[(){}`]/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+/** Words that lead into a command without being one: `then rm -rf x`, `! git push -f`. */
+const LEADING_RESERVED = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
+/** A backslash at the end of a line: the command goes on on the next one. */
+const LINE_CONTINUATION = /\\\r?\n/g;
 /** Options of a wrapper that take the next word as their value. */
 const WRAPPER_VALUE_OPTS: Record<string, Set<string>> = {
   sudo: new Set(['-u', '-g', '-h', '-p', '-C', '-D', '-U']),
@@ -72,9 +77,9 @@ const shortHas = (w: string, letters: string) => isShortFlag(w) && [...letters].
 /** The reasons found in one simple command, already split into words. */
 function scanWords(words: string[], add: (kind: RiskKind, text: string) => void): void {
   let i = 0;
-  // Leading assignments and wrappers: what runs is the command after them.
+  // Leading reserved words, assignments and wrappers: what runs is the command after them.
   for (;;) {
-    while (i < words.length && ASSIGNMENT.test(words[i]!)) i++;
+    while (i < words.length && (ASSIGNMENT.test(words[i]!) || LEADING_RESERVED.has(words[i]!))) i++;
     const name = commandName(words[i] ?? '');
     if (!WRAPPERS.has(name)) break;
     if (name === 'sudo' || name === 'doas') add('sudo', name);
@@ -172,16 +177,17 @@ export function commandRisk(command: string): CommandRisk {
     seen.add(key);
     confirm.push({ kind, text });
   };
-  for (const segment of command.split(SEPARATORS)) {
+  const joined = command.replace(LINE_CONTINUATION, ' ');
+  for (const segment of joined.split(SEPARATORS)) {
     const words = segment.trim().split(/\s+/).filter(Boolean);
     if (words.length) scanWords(words, add);
   }
   for (const re of PIPE_TO_SHELL) {
-    for (const m of command.matchAll(re)) {
+    for (const m of joined.matchAll(re)) {
       const [tool, shell] = /curl|wget/.test(m[1]!) ? [m[1]!, m[2]!] : [m[2]!, m[1]!];
       add('pipe-to-shell', `${tool} | ${shell}`);
     }
   }
-  for (const m of command.matchAll(PLACEHOLDER)) add('placeholder', m[0]);
+  for (const m of joined.matchAll(PLACEHOLDER)) add('placeholder', m[0]);
   return { block: hasHiddenChars(command) ? 'hidden-chars' : null, confirm };
 }
