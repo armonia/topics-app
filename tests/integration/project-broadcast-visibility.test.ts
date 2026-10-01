@@ -266,6 +266,61 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     expect(chiusa.grezzi).toEqual([]);
   });
 
+  /**
+   * `project:icon` carries the project's PATH, so it goes only to the sockets
+   * that see the project: a frame that reached every socket would hand an
+   * incognito project's path to an org mate, which is the leak the three
+   * frames above were closed against.
+   */
+  async function iconChange(dir: string, sockets: SocketFinta[]): Promise<void> {
+    const r = await chiama(router, `/api/projects/icon?path=${encodeURIComponent(dir)}`);
+    expect(r!.status).toBe(204);
+    const icon = `${dir}/favicon.svg`;
+    let w = 16;
+    const write = () => fs.writeFileSync(icon, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${w++}"/>`);
+    write();
+    // The machine sees every project, so its frame marks the end of the fan-out.
+    // Matched on THIS folder: the previous test's folder is still watched, and
+    // its late frame must not end the wait.
+    const mine = (g: string) => g.includes('"project:icon"') && g.includes(JSON.stringify(dir));
+    const gotIt = () => sockets.some((s) => s.grezzi.some(mine));
+    const deadline = Date.now() + 20_000;
+    let poke = Date.now() + 400;
+    // A macOS folder watch is armed asynchronously: repeat the write until it is seen.
+    while (!gotIt() && Date.now() < deadline) {
+      if (Date.now() >= poke) { write(); poke = Date.now() + 400; }
+      await Bun.sleep(20);
+    }
+    expect(gotIt()).toBe(true);
+  }
+
+  test("project:icon of an incognito project reaches the machine, not the org mate", async () => {
+    const p = await crea("Segreto", DIR_SECRET);
+    await chiama(router, `/api/projects/${p.id}`, "PATCH", { incognito: true });
+    const { macchina, mircea, estraneo } = collega3();
+
+    await iconChange(DIR_SECRET, [macchina]);
+
+    expect(tipi(macchina)).toContain("project:icon");
+    for (const s of [mircea, estraneo]) {
+      expect(tipi(s)).not.toContain("project:icon");
+      expect(tutto(s)).not.toContain(DIR_SECRET);
+    }
+    fs.rmSync(`${DIR_SECRET}/favicon.svg`, { force: true });
+  });
+
+  test("project:icon of an org project reaches the org mate, not a stranger", async () => {
+    await crea("Condiviso", SHARED_DIR);
+    const { macchina, mircea, estraneo } = collega3();
+
+    await iconChange(SHARED_DIR, [macchina]);
+    // The org mate's frame leaves in the same synchronous fan-out as the machine's.
+    expect(tutto(mircea)).toContain(JSON.stringify(SHARED_DIR));
+    expect(tipi(estraneo)).not.toContain("project:icon");
+    expect(tutto(estraneo)).not.toContain(SHARED_DIR);
+    fs.rmSync(`${SHARED_DIR}/favicon.svg`, { force: true });
+  });
+
   test("la cancellazione porta solo l'id, e va a tutti", async () => {
     // `project:deleted` resta su `broadcastToAll`: è già la forma ridotta, e la
     // riga non c'è più — non ci sarebbe niente da valutare.

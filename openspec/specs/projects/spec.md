@@ -610,3 +610,54 @@ com'erano.
 - **WHEN** a `PATCH` names an `orgId` that is not `null` and not the caller's own installation organisation
 - **THEN** the request SHALL fail with HTTP 400
 - **AND** no row SHALL be persisted
+
+### Requirement: PROJECT-14 — A project's icon follows its folder live, on every window, without a reload
+
+When the file that gives a project its icon appears, changes or goes away (a favicon, an icon under `public/`, an apple-touch icon, a web manifest, an `index.html` link, a logo the resolver accepts), every surface that draws that project's icon (sidebar row, pinned tile, palette, project tabs, board, phone, every open window and device) SHALL show the new state within a couple of seconds, with no reload.
+
+The server SHALL own an icon identity per project (`version`: the served file's path, inode, size and change times, or the bytes of an inline icon; `null` when there is none). It SHALL send it as the ETag of `GET /api/projects/icon`, and SHALL let the browser keep the URL that names the current version (`&v=<version>`) for good, while any other URL of the icon, and the "no icon" answer, SHALL be revalidated at every use.
+
+The server SHALL watch the folders the resolver reads, non-recursively, for every project a client has asked the icon of (by `GET /api/projects/icon` or `POST /api/projects/icon-versions`), whether or not any pane of that project is open, and SHALL send ONE `project:icon` frame (`path`, `version`) when the version changes. Changes to files that cannot define an icon SHALL NOT trigger a frame. The watched folders SHALL include those a web manifest or an `index.html` names for its icon, whether or not the icon exists there now (for a named folder that does not exist yet, its nearest existing ancestor inside the project).
+
+The `project:icon` frame SHALL reach only the sockets that see the project (PROJECT-07's rule); a folder with no project row of its own SHALL follow the rule of a project without an organisation.
+
+The client SHALL apply a `project:icon` frame to every surface without probing, and SHALL draw the icon from the versioned URL, so the old bytes cannot be shown again. A probe that started before the frame SHALL NOT overwrite it.
+
+An answer the client took from its persisted cache SHALL be revalidated in ONE request per page for all such projects (`POST /api/projects/icon-versions`), again after every reconnection of the socket (which also re-arms the server's watches after a restart), and when the window comes back to the front, at most every 30 seconds.
+
+The existing invariants SHALL hold: one probe per path at a time, an UNVERIFIED "no icon" never persisted, and no synthetic placeholder for a project without an icon.
+
+#### Scenario: A favicon is added to a project shown in two windows
+- **GIVEN** a project without an icon, shown in the sidebar of two windows
+- **WHEN** a `favicon.svg` is written into its folder
+- **THEN** both windows SHALL show the icon without a reload
+
+#### Scenario: The icon changes
+- **GIVEN** a project whose icon is shown
+- **WHEN** its icon file is rewritten with different content
+- **THEN** both windows SHALL show the new image, not the one already decoded
+
+#### Scenario: The icon is removed
+- **GIVEN** a project whose icon is shown
+- **WHEN** its icon file is deleted
+- **THEN** the icon SHALL disappear from both windows, leaving no placeholder
+
+#### Scenario: The icon lives in a folder only the manifest names
+- **GIVEN** a project whose manifest names `/icons/icon.svg` and whose `public/icons/` has no icon yet
+- **WHEN** the icon is written there, later removed, and later written back
+- **THEN** both windows SHALL show it, then drop it, then show the new one, without a reload
+
+#### Scenario: An incognito project's icon changes
+- **GIVEN** an incognito project and a connected org mate who does not see it
+- **WHEN** its icon changes
+- **THEN** the org mate's sockets SHALL NOT receive the `project:icon` frame
+
+#### Scenario: The server restarted while the window stayed open
+- **GIVEN** a window drawing icons and a server that restarted
+- **WHEN** the socket reconnects
+- **THEN** the window SHALL revalidate every icon it draws in one request, and the server SHALL watch them again
+
+#### Scenario: A stale probe loses to the push
+- **GIVEN** a probe for a project still in flight
+- **WHEN** a `project:icon` frame for that project arrives first
+- **THEN** the probe's answer SHALL be dropped

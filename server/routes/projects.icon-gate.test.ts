@@ -92,7 +92,7 @@ beforeEach(() => {
     OPENCLAW_DIR: openclawDir,
     loadTopics: () => ({ topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
     worktreeStore: { list: () => [] },
-    projectStore: { list: () => [] },
+    projectStore: { list: () => [], getByPath: () => null },
     json: (data: any, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
     readJSON: (req: Request) => req.json(),
@@ -100,6 +100,7 @@ beforeEach(() => {
     errorResponse: (status: number, error: string) =>
       new Response(JSON.stringify({ error }), { status, headers: { "Content-Type": "application/json" } }),
     broadcastToAll: () => {},
+    broadcastToProjectViewers: () => {},
   } as unknown as AppContext;
   router = createProjectsRouter(ctx) as typeof router;
 });
@@ -131,7 +132,9 @@ describe("GET /api/projects/icon — il cancello", () => {
     const dir = makeWorkspaceProject("open-carousel", { icon: false });
     const res = (await icon(dir))!;
     expect(res.status).toBe(204);
-    expect(res.headers.get("cache-control")).toBe("max-age=120");
+    // `no-cache`, not `max-age=120`: a 204 kept by the browser answered «no
+    // icon» to a project that had just gained one (PROJECT-14).
+    expect(res.headers.get("cache-control")).toBe("no-cache");
   });
 
   test("noto anche per le altre sorgenti: il progetto di un topic, la cwd di un terminale", async () => {

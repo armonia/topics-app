@@ -1,11 +1,15 @@
 /**
  * @covers PROJECT-09
+ * @covers PROJECT-14
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveProjectIcon, scanDirForIcon, extractIconHref, parseDataUriIcon, type ResolvedProjectIcon } from "./project-icon";
+import {
+  resolveProjectIcon, scanDirForIcon, extractIconHref, parseDataUriIcon, type ResolvedProjectIcon,
+  projectIconVersion, projectIconWatchDirs, iconRelevantEntry,
+} from "./project-icon";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "proj-icon-")); });
@@ -185,5 +189,97 @@ describe("resolveProjectIcon (nested-app layouts)", () => {
     put("src/main.ts");
     put("client/src/app.tsx");
     expect(resolveProjectIcon(dir)).toBeNull();
+  });
+});
+
+describe("projectIconVersion — the identity of what is served", () => {
+  test("null when there is no icon", () => {
+    expect(projectIconVersion(null)).toBeNull();
+  });
+
+  test("stable while the file is untouched, different once it is rewritten, even with the same size", () => {
+    const p = put("favicon.svg", "<svg>aa</svg>");
+    const v1 = projectIconVersion(resolveProjectIcon(dir));
+    expect(v1).toMatch(/^[0-9a-f]{16}$/);
+    expect(projectIconVersion(resolveProjectIcon(dir))).toBe(v1);
+    writeFileSync(p, "<svg>bb</svg>");
+    const v2 = projectIconVersion(resolveProjectIcon(dir));
+    expect(v2).not.toBeNull();
+    expect(v2).not.toBe(v1);
+  });
+
+  test("a different file winning the resolution is a different version", () => {
+    put("public/logo.png");
+    const before = projectIconVersion(resolveProjectIcon(dir));
+    put("favicon.png");
+    expect(projectIconVersion(resolveProjectIcon(dir))).not.toBe(before);
+  });
+
+  test("an inline icon is identified by its bytes", () => {
+    const a = projectIconVersion({ kind: "inline", contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg/>") });
+    const b = projectIconVersion({ kind: "inline", contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg/>") });
+    const c = projectIconVersion({ kind: "inline", contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg />") });
+    expect(a).toBe(b);
+    expect(c).not.toBe(a);
+  });
+});
+
+describe("projectIconWatchDirs — the folders whose entries can change the answer", () => {
+  test("only folders that exist: the root, and the asset folders present", () => {
+    mkdirSync(join(dir, "public"));
+    mkdirSync(join(dir, "node_modules"));
+    mkdirSync(join(dir, "docs"));
+    expect(projectIconWatchDirs(dir).sort()).toEqual([dir, join(dir, "public")].sort());
+  });
+
+  test("nested apps and apps/<name> are scanned roots too", () => {
+    mkdirSync(join(dir, "site", "public"), { recursive: true });
+    mkdirSync(join(dir, "apps", "web", "static"), { recursive: true });
+    const dirs = projectIconWatchDirs(dir);
+    for (const d of [dir, join(dir, "site"), join(dir, "site", "public"), join(dir, "apps"), join(dir, "apps", "web"), join(dir, "apps", "web", "static")]) {
+      expect(dirs).toContain(d);
+    }
+  });
+
+  test("the folder of a file a manifest points to is watched even off the usual places", () => {
+    const icon = put("public/brand/mark.png");
+    put("public/manifest.json", JSON.stringify({ icons: [{ src: "brand/mark.png", sizes: "512x512" }] }));
+    expect(resolveProjectIcon(dir)).toEqual(file(icon));
+    expect(projectIconWatchDirs(dir)).toContain(join(dir, "public", "brand"));
+  });
+
+  test("the folder a manifest names is watched while the icon is missing, so the icon is seen when it lands", () => {
+    // `public/icons/` is not one of the usual places: only the manifest says
+    // the icon lives there. It must be watched before the file exists (an icon
+    // added later) and after it is gone (an icon regenerated: removed, then
+    // written back).
+    mkdirSync(join(dir, "public", "icons"), { recursive: true });
+    put("public/manifest.json", JSON.stringify({ icons: [{ src: "/icons/icon.svg", sizes: "192x192" }] }));
+    expect(resolveProjectIcon(dir)).toBeNull();
+    expect(projectIconWatchDirs(dir)).toContain(join(dir, "public", "icons"));
+  });
+
+  test("for a named folder that does not exist yet, its nearest existing ancestor is watched", () => {
+    mkdirSync(join(dir, "media"));
+    put("index.html", '<link rel="icon" href="/media/brand/mark.svg">');
+    const dirs = projectIconWatchDirs(dir);
+    expect(dirs).toContain(join(dir, "media"));
+    expect(dirs).not.toContain(join(dir, "media", "brand"));
+  });
+
+  test("a manifest pointing outside the project adds no folder outside it", () => {
+    put("manifest.json", JSON.stringify({ icons: [{ src: "../../elsewhere/icon.png" }] }));
+    for (const d of projectIconWatchDirs(dir)) expect(d === dir || d.startsWith(dir + "/")).toBe(true);
+  });
+});
+
+describe("iconRelevantEntry — which events are worth a look", () => {
+  test("images, manifests, pages, folders and unnamed events are; source files are not", () => {
+    for (const n of ["favicon.svg", "logo-acme.PNG", "site.webmanifest", "manifest.json", "index.html", "public", "icons", null]) {
+      expect(iconRelevantEntry(n)).toBe(true);
+    }
+    for (const n of ["App.tsx", "server.ts", "bun.lock", "styles.css", "README.md"]) {
+      expect(iconRelevantEntry(n)).toBe(false);
+    }
   });
 });

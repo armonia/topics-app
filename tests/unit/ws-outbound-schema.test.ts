@@ -212,6 +212,7 @@ describe('outbound registry contract', () => {
       'presence:windows',
       'project:archived',
       'project:deleted',
+      'project:icon',
       'project:new',
       'project:updated',
       'provider:hold',
@@ -386,8 +387,11 @@ describe('outbound registry contract', () => {
   // turns (server/lib/turn-ledger.ts): the turn queue drains on these.
   // 102 → 103: `background:changed`, a session's named background work changed
   // and every window refetches the status route instead of waiting its poll.
-  test('all 103 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(103);
+  // 103 -> 104: `project:icon`, a project's icon changed on disk (appeared,
+  // changed, went away): every window swaps it without a reload. Sender
+  // `server/services/project-icon-watch.ts`, listener `projectIconStore`.
+  test('all 104 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(104);
   });
 });
 
@@ -686,6 +690,12 @@ describe('validateOutbound — ui-state cluster', () => {
 });
 
 describe('validateOutbound — project + provider + error', () => {
+  test('project:icon carries the path and the new version, null when the icon went away', () => {
+    expect(validateOutbound({ type: 'project:icon', path: '/p', version: 'abc123' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'project:icon', path: '/p', version: null }).ok).toBe(true);
+    expect(validateOutbound({ type: 'project:icon', version: 'abc123' }).ok).toBe(false);
+  });
+
   test('project:new with payload_version', () => {
     expect(validateOutbound({
       type: 'project:new',
