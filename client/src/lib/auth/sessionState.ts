@@ -6,9 +6,9 @@
 // signal is at the top of ./session.ts.
 
 export type SessionState =
-  /** Non lo sappiamo ancora: la prima interrogazione non è tornata. */
+  /** Not known yet: the first question has not come back. */
   | { status: 'loading' }
-  /** Dentro. `name` è ciò che si mostra sopra la status bar. */
+  /** In. `name` is what shows above the status bar. */
   | {
       status: 'paired';
       as: 'loopback' | 'device';
@@ -17,13 +17,13 @@ export type SessionState =
       role: 'owner' | 'guest';
       /** WHICH Topics: see `installationName` on `unpaired`. */
       installationName?: string | null;
-      /** La persona a cui il dispositivo appartiene, quando il server la
-       *  conosce. È ciò che un giorno prenderà il posto del nome del ferro:
-       *  «Attilio» dice più di «iPhone», e con due telefoni dice l'unica cosa
-       *  che li accomuna. */
+      /** The person the device belongs to, when the server knows it. It is
+       *  what will one day replace the hardware's name: a person's name says
+       *  more than "iPhone", and with two phones it says the one thing they
+       *  share. */
       personId?: string | null;
     }
-  /** Fuori, e si può rimediare: `reason` decide cosa dice la schermata. */
+  /** Out, and it can be fixed: `reason` decides what the screen says. */
   | {
       status: 'unpaired';
       reason: 'not_paired' | 'revoked' | 'expired';
@@ -82,20 +82,19 @@ let state: SessionState = readLastPaired() ?? { status: 'loading' };
 const listeners = new Set<(s: SessionState) => void>();
 
 /**
- * Uguali vuol dire uguali in TUTTO ciò che qualcuno guarda, non solo nel nome.
+ * Equal means equal in EVERYTHING somebody looks at, not just the name.
  *
- * La versione di prima confrontava `status` e, per `paired`, il solo `name`. Un
- * cambio di RUOLO a parità di nome non raggiungeva nessuno — e il ruolo è ciò
- * su cui `SessionRoot` decide se montare l'app o la vista dell'ospite. Finché il
- * ruolo si fissava all'approvazione e non cambiava più, il difetto restava
- * dormiente; con persone e organizzazioni un cambio di appartenenza È un cambio
- * di ruolo, quindi diventa la norma. Stessa storia per `reason`: passare da
- * «mai entrato» a «revocato» lascia `status` fermo su `unpaired`, e il cartello
- * avrebbe continuato a dire la frase sbagliata.
+ * The earlier version compared `status` and, for `paired`, only `name`. A ROLE
+ * change under the same name reached nobody, and the role is what
+ * `SessionRoot` uses to mount the app or the guest view. While the role was set
+ * at approval and never changed, the defect slept; with people and
+ * organisations a change of membership IS a change of role, so it becomes the
+ * norm. Same story for `reason`: going from "never in" to "revoked" leaves
+ * `status` on `unpaired`, and the screen would have kept saying the wrong
+ * sentence.
  *
- * Il confronto resta esplicito campo per campo invece di serializzare: una
- * uguaglianza che dipende dall'ordine delle chiavi è una uguaglianza che prima o
- * poi mente.
+ * The comparison stays explicit field by field instead of serialising: an
+ * equality that depends on key order is an equality that sooner or later lies.
  */
 function sameState(a: SessionState, b: SessionState): boolean {
   if (a.status !== b.status) return false;
@@ -148,7 +147,7 @@ export function markUnpaired(code: string | undefined, installationName?: string
   });
 }
 
-/** Test-only: riporta lo stato a zero fra un caso e l'altro. */
+/** Test-only: reset the state between cases. */
 export function __resetSessionForTests(): void {
   state = { status: 'loading' };
   listeners.clear();
