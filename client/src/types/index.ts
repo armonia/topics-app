@@ -955,6 +955,12 @@ export interface WSFilesChangedMessage {
   type: 'files:changed';
   projectPath: string;
 }
+/** A project's icon changed on disk; `version` is null when it has none now. */
+export interface WSProjectIconMessage {
+  type: 'project:icon';
+  path: string;
+  version: string | null;
+}
 /** Scripts list (package.json scripts etc.) changed. */
 export interface WSScriptsUpdatedMessage {
   type: 'scripts:updated';
@@ -1275,6 +1281,7 @@ export type WSMessage =
   | WSMemoryUpdatedMessage
   | WSGitStatusMessage
   | WSFilesChangedMessage
+  | WSProjectIconMessage
   | WSScriptsUpdatedMessage
   | WSBrowserNavigateMessage
   | WSBrowserOpenNearPaneMessage

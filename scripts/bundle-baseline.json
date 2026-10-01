@@ -619,13 +619,21 @@
     "42 gz under its ceiling.",
     "Written below: entry raw 1.505.812 / gz 475.103, critical path raw 2.119.442 /",
     "gz 635.047 (the worse of CI and Mac), 5 files. Total assets baseline unchanged",
-    "(8.377.807); measured 8.424.467, inside 2%."
+    "(8.377.807); measured 8.424.467, inside 2%.",
+    "",
+    "2026-10-01: entry eager +1.937 raw / +748 gz, measured against a build of",
+    "the parent commit (1.535.075 / 484.240, already 853 raw under the ceiling).",
+    "Bought by live project icons (PROJECT-14): projectIconStore is on the first",
+    "paint of the sidebar and now applies project:icon frames, revalidates in one",
+    "request on boot, reconnect and focus, and versions the icon URL. No import",
+    "moved: it uses wsFrameBus, already in the entry. Written below: raw 1.507.749,",
+    "gz 475.851. Critical path and total assets unchanged, both inside 2%."
   ],
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1505812,
-    "gz": 475103
+    "raw": 1507749,
+    "gz": 475851
   },
   "critical_path": {
     "raw": 2119442,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { subscribeFrames, subscribeReconnect } from '../../lib/wsFrameBus';
 
 /**
  * Lo STORE dell'icona di progetto: cache persistita, sonda single-flight per
@@ -16,6 +17,16 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
  * later recovered — same project, icon on one surface and not the other.
  * Here every instance subscribes to the same per-path status, a probe runs
  * once (single-flight) per path, and a recovery flips ALL surfaces at once.
+ *
+ * LIVE (PROJECT-14). The answer follows the folder: the server watches the
+ * icons clients ask about and pushes `project:icon` with the new version when
+ * one appears, changes or goes away, and the store applies it to every surface
+ * of every window, without a probe. The `<img>` URL carries that version, so
+ * a changed icon is a new URL and the old bytes cannot come back from any
+ * cache. Answers drawn from the persisted cache are revalidated in ONE request
+ * per page (`/api/projects/icon-versions`), again on every reconnect and when
+ * the window comes back to the front: a push missed while the socket was down,
+ * or a restart that lost the server's watches, heals there.
  */
 
 // ── Persisted cache (localStorage) ──────────────────────────────────────
@@ -45,7 +56,8 @@ const CACHE_KEY = 'topics-project-icon-cache-v4';
 const NONE_VERIFIED_TTL_MS = 12 * 60 * 60 * 1000;
 const NONE_UNVERIFIED_TTL_MS = 5 * 60 * 1000;
 type IconStatus = 'has' | 'none';
-interface CacheEntry { s: IconStatus; t: number; v?: boolean }
+/** `version` = the server's version of a 'has' (see `projectIconVersion`), when known. */
+interface CacheEntry { s: IconStatus; t: number; v?: boolean; version?: string }
 
 let memCache: Record<string, CacheEntry> | null = null;
 function cache(): Record<string, CacheEntry> {
@@ -80,7 +92,7 @@ function cachedStatus(path: string): IconStatus | 'unknown' {
   if (e.s === 'none' && Date.now() - e.t > (e.v ? NONE_VERIFIED_TTL_MS : NONE_UNVERIFIED_TTL_MS)) return 'unknown';
   return e.s;
 }
-function remember(path: string, s: IconStatus, verified = true): void {
+function remember(path: string, s: IconStatus, verified = true, version?: string): void {
   const c = cache();
   // A 'has' is timeless (it never expires), so re-confirming it is a no-op. A
   // 'none' is NOT: its date is what the TTL reads, and the re-probe that lands
@@ -89,8 +101,11 @@ function remember(path: string, s: IconStatus, verified = true): void {
   // hours every reload re-probed every project without an icon (22 requests
   // measured, two per project — the <img> lane and then the fetch lane), and
   // the entry stayed expired no matter how many times the answer came back.
-  if (s === 'has' && c[path]?.s === 'has') return;
-  c[path] = { s, t: Date.now(), v: verified };
+  // A 'has' learns its version later than its existence (the <img> probe
+  // cannot read headers), so a 'has' without one is not the same entry as a
+  // 'has' with one, and a NEW version is not the same entry either.
+  if (s === 'has' && c[path]?.s === 'has' && (version === undefined || c[path].version === version)) return;
+  c[path] = s === 'has' && version ? { s, t: Date.now(), v: verified, version } : { s, t: Date.now(), v: verified };
   persist();
 }
 /**
@@ -112,7 +127,7 @@ function rememberTransientNone(path: string): void {
 // ── Shared reactive resolver (module store) ─────────────────────────────
 type Resolved =
   | { s: 'probing' }
-  | { s: 'has'; src: string }
+  | { s: 'has'; src: string; version?: string }
   | { s: 'none' };
 const PROBING: Resolved = { s: 'probing' };
 /** One object for every 'none', so a re-probe that lands on the same answer
@@ -125,7 +140,25 @@ const state = new Map<string, Resolved>();
 const listeners = new Map<string, Set<() => void>>();
 const inflight = new Set<string>();
 
-const endpointUrl = (path: string) => `/api/projects/icon?path=${encodeURIComponent(path)}`;
+/**
+ * The URL of a project's icon. With a version it is the URL of THOSE bytes: a
+ * changed icon is a new URL, so neither the page's decoded-image cache nor the
+ * HTTP cache can hand back the old picture, and the server lets the browser
+ * keep it for good. Without one (the first probe) the server revalidates it
+ * against its ETag at every use.
+ */
+const endpointUrl = (path: string, version?: string) =>
+  `/api/projects/icon?path=${encodeURIComponent(path)}${version ? `&v=${encodeURIComponent(version)}` : ''}`;
+
+/**
+ * A per-path GENERATION, bumped whenever the server states the icon (a push, a
+ * revalidation). A probe or a revalidation remembers the generation it started
+ * in and drops its answer if it moved meanwhile: a 204 that left the server
+ * before the favicon was written must not overwrite the push that announced
+ * it.
+ */
+const generation = new Map<string, number>();
+const genOf = (path: string) => generation.get(path) ?? 0;
 
 /**
  * Un contatore di VERSIONE dello store intero, per chi guarda PIÙ path insieme.
@@ -175,7 +208,8 @@ function getSnapshot(path: string): Resolved {
   // intermedio da cui saltare. Nessun `notify`: si scrive lo stato, non lo si
   // annuncia — siamo dentro il render di chi lo sta leggendo.
   if (cachedStatus(path) === 'has') {
-    const known: Resolved = { s: 'has', src: endpointUrl(path) };
+    const version = cache()[path]?.version;
+    const known: Resolved = { s: 'has', src: endpointUrl(path, version), version };
     state.set(path, known);
     return known;
   }
@@ -194,11 +228,14 @@ function getSnapshot(path: string): Resolved {
  *  split varies per window — so a 200 here is served to every surface from a
  *  blob URL, bypassing the broken transport for the rest of the session. */
 function settleViaFetch(path: string): void {
+  const startedIn = genOf(path);
+  const superseded = () => genOf(path) !== startedIn;
   // Low priority: an icon never decides a layout (the slot is reserved before
   // it lands, a 'none' draws nothing), so it must not take one of the six
   // connections from the chat history at boot.
   fetch(endpointUrl(path), { priority: 'low' })
     .then(async (r) => {
+      if (superseded()) return;
       // 204 = "il progetto non ha un'icona", ed è una risposta RIUSCITA (prima
       // era un 404, il 4xx più rumoroso a ogni load). Va intercettata PRIMA di
       // `r.ok`, che per un 204 è true: altrimenti si costruirebbe un blob VUOTO,
@@ -209,9 +246,11 @@ function settleViaFetch(path: string): void {
         remember(path, 'none', true);
         setResolved(path, NONE);
       } else if (r.ok) {
-        const src = URL.createObjectURL(await r.blob());
-        remember(path, 'has');
-        setResolved(path, { s: 'has', src });
+        const blob = await r.blob();
+        if (superseded()) return;
+        const version = r.headers.get('etag')?.replace(/^W\//, '').replace(/"/g, '') || undefined;
+        remember(path, 'has', true, version);
+        setResolved(path, { s: 'has', src: URL.createObjectURL(blob), version });
       } else if (r.status === 404) {
         // La directory non esiste più (progetto spostato/cancellato).
         remember(path, 'none', true);
@@ -223,6 +262,7 @@ function settleViaFetch(path: string): void {
       }
     })
     .catch(() => {
+      if (superseded()) return;
       // The common transient: a probe still in flight when the page reloads.
       rememberTransientNone(path);
       setResolved(path, NONE);
@@ -232,7 +272,14 @@ function settleViaFetch(path: string): void {
 
 /** Ensure a (single-flight) probe for this path is running or settled. */
 function ensureProbe(path: string): void {
+  armLiveUpdates();
   const cur = state.get(path);
+  // An answer drawn from the persisted cache was not asked of the server in
+  // this page: it may be days old. It stays on screen, and the batch
+  // revalidation confirms or corrects it, one request for all of them. That
+  // is also what re-asks an EXPIRED verified 'none' at load, so the fetch
+  // further down is left to a window that has been open for twelve hours.
+  if ((cur?.s === 'has' || cur?.s === 'none') && queueRevalidation(path)) return;
   if (cur?.s === 'has') return;
   if (cur?.s === 'none' && cachedStatus(path) === 'none') return; // TTL still valid
   if (inflight.has(path)) return;
@@ -240,10 +287,14 @@ function ensureProbe(path: string): void {
   // browser HTTP cache makes this instant); a broken window falls into
   // reportImgError → blob recovery below.
   if (cachedStatus(path) === 'has') {
-    setResolved(path, { s: 'has', src: endpointUrl(path) });
+    const version = cache()[path]?.version;
+    setResolved(path, { s: 'has', src: endpointUrl(path, version), version });
+    queueRevalidation(path);
     return;
   }
+  askedThisPage.add(path);
   inflight.add(path);
+  const startedIn = genOf(path);
   // SILENT when re-asking past a verified 'none': the surfaces keep drawing
   // «no icon» and only a real icon changes anything. Announcing 'probing' here
   // would reopen the 18 px slot every 12 hours for the sake of a question
@@ -280,16 +331,158 @@ function ensureProbe(path: string): void {
   img.onload = () => {
     if (settled) return;
     settled = true; clearTimeout(deadline);
+    inflight.delete(path);
+    // The server stated the icon while this probe was out: its answer wins.
+    if (genOf(path) !== startedIn) return;
     remember(path, 'has');
     setResolved(path, { s: 'has', src: endpointUrl(path) });
-    inflight.delete(path);
   };
   img.onerror = () => {
     if (settled) return;
     settled = true; clearTimeout(deadline);
+    if (genOf(path) !== startedIn) { inflight.delete(path); return; }
     settleViaFetch(path);
   };
   img.src = endpointUrl(path);
+}
+
+// ── Live updates: the server's push, and the cheap revalidation ──────────
+
+/**
+ * Paths whose answer this page got from the server (a probe, a revalidation,
+ * a push). The others were drawn from the persisted cache and get revalidated.
+ */
+const askedThisPage = new Set<string>();
+
+/**
+ * The server stated this path's icon: `null` = it has none, a string = the
+ * version now served. Authoritative (a push or a revalidation), so it bumps
+ * the generation and the probes still out lose their vote. Only paths this
+ * window knows about are touched: a frame about a project drawn nowhere here
+ * changes nothing.
+ */
+function applyIconVersion(path: string, version: string | null): void {
+  if (!state.has(path) && !cache()[path]) return;
+  generation.set(path, genOf(path) + 1);
+  askedThisPage.add(path);
+  if (version === null) {
+    remember(path, 'none', true);
+    if (state.get(path) !== NONE) setResolved(path, NONE);
+    return;
+  }
+  remember(path, 'has', true, version);
+  const cur = state.get(path);
+  if (cur?.s === 'has' && cur.version === version) return;
+  setResolved(path, { s: 'has', src: endpointUrl(path, version), version });
+}
+
+/** A short window to gather every surface that mounts together into ONE request. */
+const REVALIDATE_GATHER_MS = 250;
+/** A window coming back to the front revalidates at most this often. */
+const REVALIDATE_ON_FOCUS_EVERY_MS = 30_000;
+const revalidationQueue = new Set<string>();
+let revalidationTimer: ReturnType<typeof setTimeout> | null = null;
+let lastFullRevalidation = 0;
+
+/** Queue `path` for the next batch revalidation; false when this page already asked about it. */
+function queueRevalidation(path: string): boolean {
+  if (askedThisPage.has(path)) return false;
+  askedThisPage.add(path);
+  revalidationQueue.add(path);
+  if (revalidationTimer) return true;
+  revalidationTimer = setTimeout(() => {
+    revalidationTimer = null;
+    const paths = [...revalidationQueue];
+    revalidationQueue.clear();
+    void revalidate(paths);
+  }, REVALIDATE_GATHER_MS);
+  return true;
+}
+
+/**
+ * ONE request for the current version of many icons
+ * (`POST /api/projects/icon-versions`), applied where nothing newer arrived
+ * meanwhile. It also tells the server which icons this window draws, so they
+ * are watched: after a server restart that set is empty, and this is what
+ * fills it again. A path left out of the answer (not a known project right
+ * now) keeps what it has.
+ */
+async function revalidate(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const startedIn = new Map(paths.map((p) => [p, genOf(p)]));
+  try {
+    const r = await fetch('/api/projects/icon-versions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths }),
+      credentials: 'same-origin',
+      priority: 'low',
+    });
+    if (!r.ok) return;
+    const body = (await r.json()) as { versions?: Record<string, string | null> };
+    for (const [path, version] of Object.entries(body.versions ?? {})) {
+      if (!startedIn.has(path) || genOf(path) !== startedIn.get(path)) continue;
+      if (inflight.has(path)) continue; // a probe is out and will answer
+      applyIconVersion(path, version);
+    }
+  } catch {
+    // Offline or the server is restarting: the reconnect revalidates again.
+  }
+}
+
+/** Every icon this window draws, in one request. */
+function revalidateAll(): void {
+  lastFullRevalidation = Date.now();
+  const paths = [...state.keys()].filter((p) => !inflight.has(p));
+  for (const p of paths) askedThisPage.add(p);
+  void revalidate(paths);
+}
+
+let liveArmed = false;
+/**
+ * Armed on the first icon asked, for the life of the page, and independent of
+ * any pane: the sidebar alone is enough to receive a project's new icon.
+ *  - `project:icon` frames apply directly (no probe: the version is in the frame);
+ *  - a RE-connection revalidates everything (a restart lost the server's watches
+ *    and any frame sent while the socket was down);
+ *  - a window back to the front revalidates, at most every 30 s (a phone that
+ *    slept, a laptop lid).
+ */
+function armLiveUpdates(): void {
+  if (liveArmed) return;
+  liveArmed = true;
+  subscribeFrames(
+    (frame) => {
+      const f = frame as { path?: unknown; version?: unknown };
+      if (typeof f.path !== 'string') return;
+      if (f.version !== null && typeof f.version !== 'string') return;
+      applyIconVersion(f.path, f.version);
+    },
+    { types: ['project:icon'] },
+  );
+  subscribeReconnect(revalidateAll);
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const onFront = () => {
+    if (document.visibilityState === 'hidden') return;
+    if (Date.now() - lastFullRevalidation < REVALIDATE_ON_FOCUS_EVERY_MS) return;
+    revalidateAll();
+  };
+  window.addEventListener('focus', onFront);
+  document.addEventListener('visibilitychange', onFront);
+}
+
+/**
+ * The same store without React: what a surface would read for `path`, and the
+ * call a surface makes when it mounts. The hooks below are these two plus a
+ * subscription; the unit tests drive the store through them.
+ *  @knipignore used from the child process of projectIconStore.test.ts, which knip does not see
+ */
+export function projectIconSnapshot(path: string): Readonly<Resolved> {
+  return getSnapshot(path);
+}
+/** @knipignore used from the child process of projectIconStore.test.ts, which knip does not see */
+export function ensureProjectIcon(path: string): void {
+  ensureProbe(path);
 }
 
 /** A mounted <img> failed on a src the store believed in. Endpoint src →
