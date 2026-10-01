@@ -693,7 +693,11 @@ test.describe.serial("La chrome del telefono", () => {
     // 2. no ground on the row itself, but a translucent veil + blur behind it
     //    (02/10: the title used to overlap the text scrolling under the bar);
     expect(haCampitura(riga.fondo)).toBe(false);
-    expect(haCampitura(riga.velo), `il velo c'e' (${riga.velo})`).toBe(true);
+    // `color-mix` is computed as `color(srgb r g b / a)` on Chromium, which
+    // `haCampitura` (rgb/rgba only) cannot read: take the alpha out by hand.
+    const alfaVelo = Number(riga.velo.match(/\/\s*([\d.]+)\)/)?.[1] ?? (haCampitura(riga.velo) ? 1 : 0));
+    expect(alfaVelo, `il velo c'e' (${riga.velo})`).toBeGreaterThan(0.5);
+    expect(alfaVelo, `ed e' semitrasparente (${riga.velo})`).toBeLessThan(1);
     expect(riga.sfocatura, "e sfoca cio' che passa sotto").toContain("blur");
     // 3. the room it needs is INSIDE the scroll, as padding: the scroller
     //    starts above the row and the list starts below it, which is the whole
