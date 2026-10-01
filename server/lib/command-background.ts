@@ -69,7 +69,8 @@ export function pushBackgroundChanged(ctx: Pick<AppContext, "broadcastToAll">, c
  * is what the agent wrote first.
  */
 export function commandLabel(command: string, description?: unknown): string {
-  const given = typeof description === "string" ? description.replace(/\s+/g, " ").trim() : "";
+  // A backtick would end the code span the wake writes the name in (`processExitText`).
+  const given = typeof description === "string" ? description.replace(/`/g, "'").replace(/\s+/g, " ").trim() : "";
   if (given) return given.length > 80 ? `${given.slice(0, 79)}…` : given;
   const first = (command.split("\n").find((l) => l.trim()) ?? command).replace(/\s+/g, " ").trim();
   return first.length > 48 ? `${first.slice(0, 47)}…` : first || "shell";
