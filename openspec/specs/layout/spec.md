@@ -3337,3 +3337,51 @@ puntatore, non l'assenza di un nome.
   senza `relatedTarget`
 - **THEN** l'anteprima SHALL restare accesa finche' il puntatore e' dentro il
   riquadro del corpo
+
+#### Scenario: la lista del telefono passa sotto la riga in alto e sotto i tasti
+- **GIVEN** un telefono con piu' tab di quante ne stiano sullo schermo
+- **WHEN** si guarda la colonna a riposo e poi scorsa fino in fondo
+- **THEN** lo scroller SHALL arrivare al bordo basso dello schermo, la prima riga
+  SHALL partire sotto la riga in alto e l'ultima SHALL finire sopra i tasti
+- **AND** scorrendo, le righe SHALL passare sotto la riga in alto e sotto i tasti
+  invece di restare tagliate sul bordo della fila (`mobile-list-under-chrome.spec.ts`)
+
+#### Scenario: board, profilo e dashboard del telefono passano sotto la fila dei tasti
+- **GIVEN** un telefono con la board (o il profilo, o la dashboard) a schermo intero
+- **WHEN** si guarda la lista a riposo e poi scorsa fino in fondo
+- **THEN** la radice dell'app NON SHALL riservare la banda dei tasti (`--mobile-band-own-h`
+  la rende alla pane), lo scroller SHALL arrivare al bordo basso dello schermo e l'ultimo
+  elemento SHALL finire sopra i tasti, con una scatola in coda allo scroller e non un padding
+- **AND** il composer della board e quello di un task aperto SHALL stare tutti sopra i tasti
+- **AND** la chat (un topic a schermo intero, non una finestra progetto) SHALL fare lo stesso: il
+  trascritto arriva al bordo basso, la banda entra in coda al blocco del composer come scatola
+  (non padding), quindi il composer resta intero sopra i tasti e l'ultimo messaggio sopra il
+  composer; con la tastiera aperta la banda vale 0 e il composer sta sul bordo della tastiera
+  (`mobile-screens-under-chrome.spec.ts`, MOBILE-SCREEN-01/01b)
+
+#### Scenario: la banda «Utilizzo Claude» e' vetro, e le liste le passano sotto
+- **GIVEN** un telefono con l'avviso «Utilizzo Claude» (o limite raggiunto) in vista sopra la fila
+- **WHEN** si scorre la lista delle tab, o la board, il profilo, la dashboard
+- **THEN** la banda SHALL avere un fondo traslucido (tinta del chrome al 72%) con sfocatura, e
+  NON un fondo pieno; lo scroller SHALL arrivare al bordo basso dello schermo e a fine corsa l'ultima
+  riga SHALL stare intera sopra la banda (`--mobile-transport-h` entra nello spaziatore dello scroller
+  insieme a `--mobile-chrome-h`) (`mobile-bottom-bar-geometry.spec.ts`, MOBILE-GEOM-04)
+
+#### Scenario: la fila in basso ha cinque tasti uguali con l'icona al centro
+- **GIVEN** un iPhone con home indicator (fascia 34) e angoli tondi (raggio 55)
+- **WHEN** si misurano i cinque tasti della fila
+- **THEN** tutti SHALL avere la stessa altezza e il bordo basso sul vetro (nessuno alzato dall'arco);
+  il centro del glifo SHALL coincidere col centro del tasto su entrambi gli assi (±1px), primo e
+  ultimo compresi; l'angolo basso esterno del primo e dell'ultimo SHALL avere il raggio dello
+  schermo, quelli in mezzo il raggio standard; la parola SHALL pendere sotto il glifo senza spostarlo
+  (`mobile-bottom-bar-geometry.spec.ts`, MOBILE-GEOM-01/02/03)
+
+#### Scenario: la PWA va sotto l'home indicator, la barra di stato resta opaca
+- **GIVEN** la app aperta da iPhone in modalita' standalone
+- **THEN** la pagina SHALL dichiarare `viewport-fit=cover` e `apple-mobile-web-app-status-bar-style:
+  black` (NON `black-translucent`: in standalone accorcia il viewport in basso della fascia in alto,
+  visto su iPhone l'08/06); le liste, la banda in basso e la fila dei tasti SHALL estendersi sotto la
+  safe area in basso con `env(safe-area-inset-bottom)` e il fondo SHALL essere la tinta del chrome
+  senza fasce vuote (MOBILE-GEOM-05)
+- **AND** passare anche sotto la barra di stato richiede `black-translucent`, e SHALL essere deciso
+  solo dopo aver misurato `innerHeight` contro `screen.height` in standalone su un iPhone vero

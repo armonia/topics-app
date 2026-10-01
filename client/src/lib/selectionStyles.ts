@@ -453,7 +453,33 @@ export const ROW_INSET = 6;
  * commands plus {@link ROW_INSET} above and below.
  */
 export const SIDEBAR_SCROLL_TOP_PROPERTY = '--sidebar-scroll-top';
+/**
+ * The same arrangement at the other end. The phone's button row has no ground
+ * either (`MobileChromeBar`), so a column that stops where the row begins shows
+ * a row sliced in half and nothing ever travels behind the buttons. The room the
+ * row needs is therefore a spacer INSIDE the scroller: the last tab clears the
+ * buttons at rest, and everything above it passes underneath. `0px` on a
+ * desktop, where there is no row.
+ */
+export const SIDEBAR_SCROLL_BOTTOM_PROPERTY = '--sidebar-scroll-bottom';
+/**
+ * The same arrangement for the screens that fill the phone's main area. The app
+ * root normally reserves the button row's band as padding, so a scroller stops
+ * where the row begins. A screen that lists the pane ids in `BAND_OWNER_PANES`
+ * (App) hands the band back: the root keeps none of it and publishes its height
+ * here instead, and the screen spends it itself: a trailing spacer in its
+ * scroller (`.scroll-under-chrome`), a lift on whatever floats above the bottom.
+ * `0px` everywhere else, so every reader is a no-op off the phone and on the
+ * screens that still let the root reserve the band.
+ */
+export const BAND_OWN_PROPERTY = '--mobile-band-own-h';
 export const MOBILE_SIDEBAR_HEADER_H = 56;
+/**
+ * Where the word of a bottom-row button starts: under the glyph, which is CENTRED
+ * in the button. Half a 22px glyph (11) plus 2 of air. The word is out of flow so
+ * it never moves the glyph off the centre of the button (MOBILE-GEOM-02).
+ */
+export const BAR_LABEL_TOP = 'calc(50% + 13px)';
 
 /**
  * THE GLYPH BOX OF THE IDENTITY BAND, one measure for all three subjects.

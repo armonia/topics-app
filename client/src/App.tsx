@@ -82,7 +82,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
 import { seedBrowserPaneInitialUrl } from './state/pane/browserPaneUrl';
-import { isUtilityPanelType } from './state/pane/adapters/utilityPanelId';
+import { isUtilityPanelType, utilityPanelId } from './state/pane/adapters/utilityPanelId';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
@@ -112,7 +112,7 @@ import { useSeenFocusedPane } from './state/paneSeen';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
 import { initEdgeSwipeGuard } from './lib/edgeSwipeGuard';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
@@ -247,6 +247,9 @@ const BOOT_DEEP_LINK = bootDeepLinkTarget();
  * declarations (CRITIQUE C10), DOM refs for App-local dropdowns, two
  * outside-click effects, and the JSX tree.
  */
+/** The panes that scroll under the button row instead of stopping at its edge. */
+const BAND_OWNER_PANES: ReadonlySet<string> = new Set([utilityPanelId('board'), utilityPanelId('profile'), utilityPanelId('dashboard')]);
+
 function App() {
   // DEV-only overlay — lazy-loaded via dynamic import() so the module stays
   // out of the production graph entirely (PANE-05 strip contract). The static
@@ -1332,6 +1335,14 @@ function App() {
   // mentre a schermo c'è già la lista, cioè il tasto direbbe di portare dove
   // sei — e il click successivo non avrebbe niente da fare.
   const boardInFront = isMobile && sidebarCollapsed && focusedPanelId === '__board__';
+  // Does the focused screen spend the button row's band itself? The utility
+  // panes with a scrolling list, and a chat: its transcript already reserves the
+  // composer's height as a trailing spacer, and the band goes into the composer
+  // block as one more box at its foot (ChatPane), so the transcript reaches the
+  // glass and the composer stays whole above the row. A project window does not:
+  // its active pane can be a terminal, which has no spacer to give. The others
+  // stay as they were, with the band reserved by the root.
+  const bandOwned = isMobile && !!focusedPanelId && (BAND_OWNER_PANES.has(focusedPanelId) || !!topics[focusedPanelId]);
   const handleMobileBoardToggle = useCallback(() => {
     if (boardInFront) setSidebarCollapsed(false);
     else { handleOpenBoard(); setSidebarCollapsed(true); }
@@ -1445,7 +1456,17 @@ function App() {
         // c'è — desktop, o tastiera aperta — quindi non c'è nessun ramo, e
         // niente cambia fuori dal telefono. Senza questa riga la fila
         // coprirebbe l'ultimo messaggio della chat e il composer.
-        paddingBottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
+        //
+        // The screens that can spend it themselves (`BAND_OWNER_PANES` and a
+        // chat, see `bandOwned`) get
+        // it back: the root keeps none of it and publishes it as
+        // `--mobile-band-own-h`, so their list scrolls under the buttons
+        // instead of stopping at their edge. The same goes for the notice
+        // band (`--mobile-transport-h`, «Utilizzo Claude»): its ground is
+        // translucent and blurred, not solid, so what scrolls passes behind
+        // it as it does behind the buttons (01/10).
+        paddingBottom: bandOwned ? 0 : 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
+        [BAND_OWN_PROPERTY]: bandOwned ? 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))' : '0px',
         position: 'fixed',
         top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
         bottom: viewportHeight != null ? undefined : 0,
@@ -1555,10 +1576,16 @@ function App() {
           [SIDEBAR_SCROLL_TOP_PROPERTY as string]: isMobile
             ? `calc(env(safe-area-inset-top, 0px) + ${MOBILE_SIDEBAR_HEADER_H}px)`
             : '0px',
-          // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
-          // quindi la banda della fila in basso se la riserva da sé. Stessa
-          // variabile, stesso valore, un posto solo a deciderlo.
-          paddingBottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
+          // The column is `fixed inset-y-0`: it escapes the root's padding, so
+          // it reserves the bottom band itself. And it reserves it INSIDE the
+          // scroller, not as the column's padding: the button row has no
+          // ground and the notice band («Utilizzo Claude») a translucent one,
+          // so their height becomes a spacer OF THE SCROLLER, as at the top:
+          // at rest the last tab sits above the band and the buttons, and
+          // scrolling the tabs pass under them instead of being cut in half
+          // on the edge.
+          paddingBottom: 0,
+          [SIDEBAR_SCROLL_BOTTOM_PROPERTY as string]: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
         }}
       >
 
@@ -2130,8 +2157,13 @@ function App() {
           // utile e sotto restava una fascia morta.
           //
           // La cima e il fondo non sono simmetrici, e la differenza è cosa ci
-          // sta contro. In cima c'è la barra di stato di iOS, OPACA: ogni pixel
-          // sotto di lei è perso, quindi il contenuto deve cominciare dopo. In
+          // sta contro.
+          // At the top sits the iOS status bar, OPAQUE (`black`, see index.html):
+          // in a standalone PWA the viewport starts below it and this inset is 0;
+          // where it is not (a notch in landscape, a browser tab) the main column
+          // starts below the inset, on a strip of the same chrome, because the
+          // tab row (`--chrome-bar-h`, read by every pane) is up there.
+          // In
           // fondo c'è l'home indicator, un trattino su fondo TRASPARENTE: il
           // contenuto può scorrerci sotto, deve solo non finirci sotto qualcosa
           // da TOCCARE. Quindi la spinta la prende il solo composer — vedi

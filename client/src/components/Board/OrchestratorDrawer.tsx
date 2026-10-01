@@ -60,7 +60,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
       // overlay above the board's own topbar (z-40), from lg up an in-flow
       // SIBLING that shrinks the columns instead of covering them — so every
       // column stays reachable through the row's own horizontal scroll.
-      className={`pane-frost flex min-h-0 flex-col border-app-border absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`pane-frost flex min-h-0 flex-col border-app-border absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
