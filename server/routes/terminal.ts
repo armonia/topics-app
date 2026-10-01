@@ -41,7 +41,14 @@ import { renderScreen, screenToText } from "../lib/terminal-screen";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
-import { classifySubAgentTranscript, discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt, type SubAgentEnding, type SubAgentOutcome } from "../lib/claude-subagent-transcript";
+import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
+import { childModel, endingChildTurn, pendingChildTurns, promptCount, resultKey, turnDurationMs, type SubAgentEnding, type SubAgentOutcome, type SubAgentResult } from "../lib/subagent-result";
+import { readAgentProfiles } from "../lib/agent-profiles";
+import { launchArgs, resolveSubagentLaunch } from "../lib/subagent-launch";
+import {
+  SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, endedSubagents, getSubagent,
+  insertSubagent, markTurnReported, resumeVerdict, runningSubagents, setSubagentSessionId, setSubagentState, type SubagentRow,
+} from "../lib/subagent-store";
 import { composerHoldsPrompt } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -122,6 +129,9 @@ export function resumeIdForNewSession(
   return id;
 }
 
+/** The CLI flags a sub-agent is launched with (`lib/subagent-launch.ts`). */
+interface SubagentLaunchFlags { model: string | null; agent: string | null; effort: string | null }
+
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
 // Ids with an in-flight POST /reload, to reject a concurrent second reload of the
@@ -157,6 +167,21 @@ const revivingSessions = new Map<string, Promise<TerminalSession>>();
 let subAgentExitHandler: ((info: SubAgentExitInfo) => void) | null = null;
 export function setSubAgentExitHandler(fn: ((info: SubAgentExitInfo) => void) | null): void {
   subAgentExitHandler = fn;
+  if (fn && rosterReconciled) bootChildSweep();
+}
+
+/**
+ * Once per process, after the roster is reconciled and a result handler is
+ * wired: children the restart lost are reported, old dormant child rows go,
+ * and results that were owed to their parent chats are sent again.
+ */
+let bootChildSweepDone = false;
+function bootChildSweep(): void {
+  if (bootChildSweepDone || !subAgentExitHandler) return;
+  bootChildSweepDone = true;
+  reportLostChildren();
+  sweepDormantChildRows();
+  redeliverPendingResults();
 }
 
 // A terminal can open a browser pane (contextId `term-<id>`). Deleting the
@@ -196,26 +221,13 @@ async function readChildTranscriptLines(child: TerminalSession): Promise<string[
   }
 }
 
-/** How a just-ended sub-agent ended, from its transcript. A short retry covers
- *  the flush lag right at exit; anything but `completed` is retried, because a
- *  final record still in the CLI's buffer would otherwise read as a cut turn. */
-async function readSubAgentOutcome(child: TerminalSession, ending: SubAgentEnding, exitCode: number | null): Promise<SubAgentOutcome> {
-  let outcome = classifySubAgentTranscript(null, ending, exitCode);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 700));
-    outcome = classifySubAgentTranscript(await readChildTranscriptLines(child), ending, exitCode);
-    if (outcome.status === 'completed') break;
-  }
-  return outcome;
-}
-
 /** Discover a sub-agent's REAL transcript id (claude-code ignores the pre-assigned
  *  `--session-id` for children) and adopt it onto the session + DB row so every
  *  subsequent transcript read hits the right .jsonl. No-op unless this is a
  *  sub-agent with a recorded prompt fingerprint. Returns true when it adopted a
  *  new id. Cheap and idempotent — safe to call from the read/wake paths. */
 function resolveChildTranscriptSessionId(child: TerminalSession): boolean {
-  if (!child.parentSessionKey?.startsWith('topic:') || !child.spawnPromptSnippet) return false;
+  if (!child.parentSessionKey || !child.spawnPromptSnippet) return false;
   // If the currently-recorded id already resolves to a real transcript, keep it.
   if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) {
     return false;
@@ -233,6 +245,8 @@ function resolveChildTranscriptSessionId(child: TerminalSession): boolean {
   } catch (e) {
     console.warn(`[Terminal] sub-agent session-id adopt failed for ${child.id}:`, e);
   }
+  // The row is what a resume reads once the terminal row is gone.
+  setSubagentSessionId(getDatabase(), child.id, found);
   // Re-key the phase tracker onto the id claude actually uses (its hooks carry
   // the minted id, so the pre-assigned registration never matched).
   if (prev) _tracker?.dropTerminalSession(prev);
@@ -262,30 +276,330 @@ function scheduleClaudeSubAgentIdCapture(childId: string): void {
   t.unref?.();
 }
 
-/** Wake the parent CHAT when a sub-agent it spawned finishes, so a chat that
- *  delegated work ("Monitoro X e ti aggiorno quando consegna") reaches its end
- *  instead of sitting frozen: the launching turn already completed and no
- *  background loop watches a Path-B (MCP spawn_agent) PTY child. Best-effort +
- *  async (transcript read has retry lag); `deliverSubAgentExit` dedups on childId
- *  so the two reap paths that both call this — the bridge `exit` frame and the
- *  explicit `/stop` endpoint (which pre-deletes the session from the map, so the
- *  exit frame can't see it) — never double-deliver. */
-function wakeParentTopicOnChildExit(child: TerminalSession, exitCode: number | null, ending: SubAgentEnding): void {
-  if (!child.parentSessionKey?.startsWith('topic:') || !subAgentExitHandler) return;
-  const parentSessionKey = child.parentSessionKey;
-  void (async () => {
-    const outcome = await readSubAgentOutcome(child, ending, exitCode);
-    try {
-      subAgentExitHandler?.({
-        parentSessionKey, childId: child.id, name: child.name, outcome, exitCode,
-        // WORKTREE-14: a child that worked in a worktree of its own leaves the
-        // parent nothing but a branch, so the report has to name it.
-        branch: branchOfCwd(child.cwd),
-      });
-    } catch (err) {
-      console.warn(`[Terminal] subAgentExitHandler failed for ${child.id}:`, err);
+// ── Sub-agent turns, results and endings (SUBAGENT-11 to 15) ─────────────────
+
+/**
+ * What the server tracks of a live child between two looks at its transcript.
+ * In memory on purpose: everything a restart must not forget is on the
+ * child's `subagents` row (`lib/subagent-store.ts`).
+ */
+interface ChildRuntime {
+  /** When the prompt (or a resumed input) was seeded: the 60 s of `undelivered` count from here. */
+  seededAt: number | null;
+  undeliveredReported: boolean;
+  /** Transcript size at the last look: an unchanged file is not read again. */
+  lastSize: number;
+  phase: SubAgentPhase;
+}
+/** The live state of a child as its strip and card show it (SUBAGENT-16). */
+export type SubAgentPhase = 'waiting-prompt' | 'working' | 'finished';
+const childRuntime = new Map<string, ChildRuntime>();
+/** Delivered results, per `resultKey`: the per-turn dedup of this process. */
+const deliveredResultKeys = new Set<string>();
+
+function runtimeOf(id: string): ChildRuntime {
+  let rt = childRuntime.get(id);
+  if (!rt) {
+    rt = { seededAt: null, undeliveredReported: false, lastSize: -1, phase: 'waiting-prompt' };
+    childRuntime.set(id, rt);
+  }
+  return rt;
+}
+
+/**
+ * A foreground `spawn_agent` (SUBAGENT-13) holds its child's results until the
+ * call collects them, so the same turn does not ALSO wake the parent. The hold
+ * ends when the call says so (`release`) or at its deadline; whatever it still
+ * holds then goes the ordinary way, so a caller that died mid-wait loses
+ * nothing.
+ */
+interface ForegroundHold {
+  until: number;
+  held: SubAgentResult[];
+  waiters: Set<(r: SubAgentResult) => void>;
+  timer: ReturnType<typeof setTimeout>;
+}
+const foregroundHolds = new Map<string, ForegroundHold>();
+/** How long a foreground call waits for its child's first result. */
+export const FOREGROUND_WAIT_MS = 10 * 60_000;
+
+function holdForeground(id: string, ms: number): void {
+  const prev = foregroundHolds.get(id);
+  if (prev) clearTimeout(prev.timer);
+  const timer = setTimeout(() => releaseForeground(id), ms);
+  timer.unref?.();
+  foregroundHolds.set(id, { until: Date.now() + ms, held: prev?.held ?? [], waiters: prev?.waiters ?? new Set(), timer });
+}
+
+function releaseForeground(id: string): void {
+  const hold = foregroundHolds.get(id);
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  foregroundHolds.delete(id);
+  for (const r of hold.held) deliverChildResult(r, null);
+}
+
+/** The parent's chosen name, the launch and the branch of a child, from its row first. */
+function resultOf(child: Pick<TerminalSession, 'id' | 'name' | 'cwd'>, row: SubagentRow | null, turn: number, outcome: SubAgentOutcome, lines: string[] | null): SubAgentResult {
+  return {
+    ...outcome,
+    agentId: child.id,
+    name: row?.name ?? child.name,
+    turn,
+    model: (lines ? childModel(lines) : null) ?? row?.model ?? null,
+    agentType: row?.agentType ?? null,
+    durationMs: lines ? turnDurationMs(lines, turn) : null,
+    cwd: child.cwd,
+    branch: branchOfCwd(child.cwd) ?? row?.branch ?? null,
+  };
+}
+
+/**
+ * One result of one turn, recorded once: the dedup advances (in memory and on
+ * the row), then a foreground call collects it or it goes to the parent.
+ */
+function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitCode: number | null): void {
+  const key = resultKey(result);
+  if (deliveredResultKeys.has(key)) return;
+  deliveredResultKeys.add(key);
+  const db = getDatabase();
+  if (result.status === 'undelivered') runtimeOf(result.agentId).undeliveredReported = true;
+  else markTurnReported(db, result.agentId, result.turn);
+  const rt = childRuntime.get(result.agentId);
+  if (rt && result.status !== 'undelivered') rt.phase = 'finished';
+  broadcastTerminalSessions();
+  const hold = foregroundHolds.get(result.agentId);
+  if (hold) {
+    if (hold.waiters.size) {
+      for (const w of hold.waiters) w(result);
+      hold.waiters.clear();
+    } else {
+      hold.held.push(result);
     }
-  })();
+    return;
+  }
+  deliverChildResult(result, exitCode, parentSessionKey);
+}
+
+/**
+ * The result goes to the chat that spawned the child: written on the child's
+ * row at once (so a restart cannot lose it while the parent's turn runs), then
+ * handed to the topics router, which wakes the parent (SUBAGENT-12). A PTY
+ * parent gets no push: it reads with `read_agent`, as the spawn answer says.
+ */
+function deliverChildResult(clean: SubAgentResult, exitCode: number | null, parentKey?: string): void {
+  const db = getDatabase();
+  const parentSessionKey = parentKey ?? getSubagent(db, clean.agentId)?.parentSessionKey;
+  if (!parentSessionKey?.startsWith('topic:') || !subAgentExitHandler) return;
+  addPendingResult(db, clean.agentId, clean);
+  try {
+    subAgentExitHandler({
+      parentSessionKey, childId: clean.agentId, name: clean.name,
+      outcome: { status: clean.status, partial: clean.partial, text: clean.text, ...(clean.reason ? { reason: clean.reason } : {}) },
+      exitCode,
+      // WORKTREE-14: a child that worked in a worktree of its own leaves the
+      // parent nothing but a branch, so the report has to name it.
+      branch: clean.branch,
+      turn: clean.turn, model: clean.model, agentType: clean.agentType, durationMs: clean.durationMs, cwd: clean.cwd,
+      settle: () => clearPendingResult(getDatabase(), clean.agentId, clean.turn, clean.status),
+    });
+  } catch (err) {
+    console.warn(`[Terminal] subAgentExitHandler failed for ${clean.agentId}:`, err);
+  }
+}
+
+/** The results a restart found still owed to their parent chats, sent again. */
+function redeliverPendingResults(): void {
+  for (const { row, results } of allPendingResults(getDatabase())) {
+    for (const r of results) {
+      // Already delivered by this process: the handler has it, and settles it.
+      if (deliveredResultKeys.has(resultKey(r))) continue;
+      deliveredResultKeys.add(resultKey(r));
+      deliverChildResult(r, null, row.parentSessionKey);
+    }
+  }
+}
+
+/**
+ * Look at a live child's transcript and report the turns it has finished
+ * (SUBAGENT-11). The process does not exit at the end of a turn, so this is
+ * the only way the end is seen; the `Stop` hook only makes the look earlier.
+ */
+async function checkChildTurns(child: TerminalSession): Promise<void> {
+  const db = getDatabase();
+  const row = getSubagent(db, child.id);
+  if (!row || row.state !== 'running') return;
+  const rt = runtimeOf(child.id);
+  resolveChildTranscriptSessionId(child);
+  if (!child.claudeSessionId) return;
+  const path = claudeTranscriptPath(child.cwd, child.claudeSessionId);
+  let size = -1;
+  try { size = (await fs.promises.stat(path)).size; } catch { /* not written yet */ }
+  // An unchanged file has nothing new, unless the `undelivered` clock is running.
+  const undeliveredDue = rt.seededAt != null && !rt.undeliveredReported;
+  if (size === rt.lastSize && !(undeliveredDue && rt.phase === 'waiting-prompt')) return;
+  rt.lastSize = size;
+  let lines: string[] = [];
+  try { lines = (await fs.promises.readFile(path, 'utf-8')).split('\n').filter(Boolean); } catch { /* not written yet */ }
+  const prompts = promptCount(lines);
+  const before = rt.phase;
+  rt.phase = prompts === 0 ? 'waiting-prompt' : prompts <= row.turnsReported ? 'finished' : 'working';
+  for (const { turn, outcome } of pendingChildTurns(lines, {
+    turnsReported: row.turnsReported, seededAt: rt.seededAt, now: Date.now(), undeliveredReported: rt.undeliveredReported,
+  })) {
+    emitChildResult(row.parentSessionKey, resultOf(child, row, turn, outcome, lines), null);
+  }
+  if (rt.phase !== before) broadcastTerminalSessions();
+}
+
+/**
+ * A finished child idle for 15 minutes after its report is retired (choice
+ * 5): its PTY closed through the same gates as the idle park, its row kept as
+ * `retired` with everything `send_to_agent` needs to bring it back.
+ */
+function retireIdleChild(child: TerminalSession, now = Date.now(), idleMs = SUBAGENT_RETIRE_IDLE_MS): boolean {
+  const row = getSubagent(getDatabase(), child.id);
+  if (!row || row.state !== 'running' || row.turnsReported === 0 || !row.reportedAt) return false;
+  if (runtimeOf(child.id).phase !== 'finished') return false;
+  if (now - Date.parse(row.reportedAt) < idleMs) return false;
+  if (foregroundHolds.has(child.id)) return false;
+  // Marked BEFORE the kill: the exit frame then reads a retirement, not an end.
+  setSubagentState(getDatabase(), child.id, 'retired');
+  const r = tryParkSession(child.id, child, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true });
+  if (!r.parked) setSubagentState(getDatabase(), child.id, 'running');
+  return r.parked;
+}
+
+/** How often the live children's transcripts are looked at. */
+const CHILD_WATCH_MS = 2_000;
+let childWatchTimer: ReturnType<typeof setInterval> | null = null;
+
+/** One pass over the live children: their turns, then the ones due for retirement. */
+let childWatchRunning = false;
+async function watchChildren(): Promise<void> {
+  if (childWatchRunning) return;
+  childWatchRunning = true;
+  try {
+    for (const child of [...sessions.values()]) {
+      if (!child.parentSessionKey) continue;
+      try {
+        await checkChildTurns(child);
+        retireIdleChild(child);
+      } catch (err) {
+        warnThrottled('subagent:watch', `[Terminal] sub-agent watch failed for ${child.id}:`, err);
+      }
+    }
+  } finally {
+    childWatchRunning = false;
+  }
+}
+
+/**
+ * Retire every live child due for it, now. The watch does it on its tick; a
+ * test calls it with a clock moved forward instead of waiting 15 minutes.
+ */
+export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}): string[] {
+  const retired: string[] = [];
+  for (const child of [...sessions.values()]) {
+    if (child.parentSessionKey && retireIdleChild(child, opts.now, opts.idleMs)) retired.push(child.id);
+  }
+  return retired;
+}
+
+/** Test seam: forget what this process remembers of its children, as a restart does. */
+export function _forgetSubAgentMemory(): void {
+  childRuntime.clear();
+  deliveredResultKeys.clear();
+  for (const id of [...foregroundHolds.keys()]) {
+    clearTimeout(foregroundHolds.get(id)!.timer);
+    foregroundHolds.delete(id);
+  }
+}
+
+/** The `Stop` hook of a child's session: look at its transcript now, not at the next tick. */
+export function noteSubAgentStopHook(claudeSessionId: string): void {
+  for (const child of sessions.values()) {
+    if (!child.parentSessionKey || child.claudeSessionId !== claudeSessionId) continue;
+    const t = setTimeout(() => { void checkChildTurns(child).catch(() => {}); }, 300);
+    t.unref?.();
+  }
+}
+
+/** The lines of a just-ended child's transcript, re-read briefly for the flush lag at exit. */
+async function settledChildLines(child: TerminalSession, done: (lines: string[] | null) => boolean): Promise<string[] | null> {
+  let lines: string[] | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 700));
+    lines = await readChildTranscriptLines(child);
+    if (done(lines)) break;
+  }
+  return lines;
+}
+
+/**
+ * A child's process ended: stopped by its parent, its tab closed, swept, exited
+ * by itself, or lost with its terminal. Its row records the end, and the turn
+ * it was in is reported, unless it was already: an idle child stopped after
+ * its report produces no second result (SUBAGENT-11). A retirement is not an
+ * end, and neither is a Reload (the caller skips that one).
+ */
+function reportChildEnd(child: TerminalSession, exitCode: number | null, ending: SubAgentEnding): void {
+  if (!child.parentSessionKey) return;
+  const parentSessionKey = child.parentSessionKey;
+  const db = getDatabase();
+  const row = getSubagent(db, child.id);
+  if (row?.state === 'retired') return;
+  if (row) setSubagentState(db, child.id, ending === 'lost' ? 'lost' : 'stopped');
+  const rt = childRuntime.get(child.id);
+  childRuntime.delete(child.id);
+  void (async () => {
+    const verdictOf = (lines: string[] | null) => endingChildTurn(lines, {
+      turnsReported: getSubagent(getDatabase(), child.id)?.turnsReported ?? 0,
+      undeliveredReported: rt?.undeliveredReported ?? false,
+      ending, exitCode,
+    });
+    // Anything but `completed` is read again: a final record still in the
+    // CLI's buffer would otherwise read as a cut turn.
+    const lines = await settledChildLines(child, (l) => { const v = verdictOf(l); return !v || v.outcome.status === 'completed'; });
+    const verdict = verdictOf(lines);
+    if (!verdict) return;
+    emitChildResult(parentSessionKey, resultOf(child, getSubagent(getDatabase(), child.id), verdict.turn, verdict.outcome, lines), exitCode);
+  })().catch((err) => console.warn(`[Terminal] reporting the end of ${child.id} failed:`, err));
+}
+
+/**
+ * Children the database still calls `running` with no terminal behind them
+ * after a restart: they were lost with it, and are reported so.
+ */
+function reportLostChildren(): void {
+  for (const row of runningSubagents(getDatabase())) {
+    if (sessions.has(row.id)) continue;
+    reportChildEnd({
+      id: row.id, name: row.name, nameSource: 'user', createdAt: row.createdAt, cwd: row.cwd, command: 'claude',
+      cols: 120, rows: 30, type: 'claude-code', skipPermissions: true,
+      claudeSessionId: row.claudeSessionId ?? undefined, parentSessionKey: row.parentSessionKey,
+      spawnPromptSnippet: row.promptSnippet ?? undefined,
+    }, null, 'lost');
+  }
+}
+
+/**
+ * The dormant terminal rows of children that ended more than 24 hours ago:
+ * nothing reaches them otherwise (one sat dormant for three weeks).
+ */
+function sweepDormantChildRows(now = Date.now()): void {
+  try {
+    const db = getDatabase();
+    const rows = db.query("SELECT id, created_at FROM terminal_sessions WHERE parent_session_key IS NOT NULL AND status = 'dormant'").all() as Array<{ id: string; created_at: string | null }>;
+    for (const r of rows) {
+      const sub = getSubagent(db, r.id);
+      const endedAt = sub?.endedAt ? Date.parse(sub.endedAt) : sub ? NaN : Date.parse(r.created_at ?? '');
+      if (!Number.isFinite(endedAt) || now - endedAt <= SUBAGENT_RESUME_WINDOW_MS) continue;
+      db.run("DELETE FROM terminal_sessions WHERE id = ?", [r.id]);
+    }
+  } catch (e) {
+    warnThrottled('subagent:dormant-sweep', '[Terminal] sweeping old dormant sub-agent rows failed:', e);
+  }
 }
 
 /**
@@ -1224,7 +1538,7 @@ function handleBridgeMessage(msg: any) {
       // not the child's end, and reporting it would also make the dedup (keyed
       // by id) swallow the real report later.
       if (exitedSession && !reloadingSessionIds.has(msg.id)) {
-        wakeParentTopicOnChildExit(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null, 'exited');
+        reportChildEnd(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null, 'exited');
       }
       break;
     }
@@ -1607,8 +1921,8 @@ async function reconcileSessions(attempt = 0): Promise<void> {
       // come for it, so its parent was never told and `read_agent` answers 404.
       // Report it once, while the row is still `active` (it is parked or
       // dropped right below, so the next boot does not report it again).
-      if (row.status !== 'dormant' && typeof row.parent_session_key === 'string' && row.parent_session_key.startsWith('topic:')) {
-        wakeParentTopicOnChildExit(sessions.get(row.id) ?? {
+      if (row.status !== 'dormant' && typeof row.parent_session_key === 'string' && row.parent_session_key) {
+        reportChildEnd(sessions.get(row.id) ?? {
           id: row.id, name: row.name, nameSource: row.name_source || 'default', cwd: row.cwd, command: row.command,
           createdAt: row.created_at || new Date().toISOString(),
           cols: row.cols || 120, rows: row.rows || 30, type: row.type,
@@ -1756,10 +2070,17 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: TerminalSessionType = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default'): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: TerminalSessionType = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default', launch?: SubagentLaunchFlags | null): Promise<TerminalSession> {
   let file: string;
   let args: string[];
   const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
+  // A sub-agent keeps the model, profile and effort it was spawned with across
+  // every relaunch (Reload, revive from its pane, the restart's recreate, a
+  // resume from `send_to_agent`): they are read back from its row.
+  const subagentRow = parentSessionKey && isClaudeKind ? getSubagent(getDatabase(), id) : null;
+  if (launch === undefined && subagentRow) {
+    launch = { model: subagentRow.model, agent: subagentRow.agentType, effort: subagentRow.effort };
+  }
 
   let resolvedClaudeSessionId = claudeSessionId;
   if (isClaudeKind && !resolvedClaudeSessionId) {
@@ -1798,8 +2119,14 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // interattivo: un topic messo a "medium" apriva comunque un PTY a xhigh, e
     // sul percorso chat (claude-code.ts, che l'override lo passa) lo stesso topic
     // si comportava diversamente. Due superfici, due effort, un solo selettore.
-    const claudeEffort = resolveClaudeEffort(topicEffortFor(getDatabase(), topicId));
-    if (claudeEffort) args.push('--effort', claudeEffort);
+    if (launch) {
+      // A sub-agent's effort was resolved at spawn (call, profile, parent topic):
+      // `launchArgs` carries it with the model and the profile.
+      args.push(...launchArgs(launch));
+    } else {
+      const claudeEffort = resolveClaudeEffort(topicEffortFor(getDatabase(), topicId));
+      if (claudeEffort) args.push('--effort', claudeEffort);
+    }
     // Bridge the Topics MCP server into the interactive CLI so a terminal
     // Claude Code can surface a browser pane next to itself (the chat path
     // does the same in providers/claude-code.ts). We key the config by the
@@ -2022,6 +2349,8 @@ async function createSession(id: string, name: string, cwd: string, command?: st
 
   sessions.set(id, session);
   sessionSockets.set(id, new Set());
+  // A child relaunched under its id is running again, whoever relaunched it.
+  if (subagentRow && subagentRow.state !== 'running') setSubagentState(getDatabase(), id, 'running');
 
   try {
     getDatabase().run(
@@ -2322,6 +2651,78 @@ function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
   return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
 }
 
+/** Max live sub-agents on the whole machine (choice 4): every child is one more Claude CLI in RAM. */
+const MAX_LIVE_SUBAGENTS = 6;
+
+/**
+ * Why a new child of `parentKey` cannot start, or null (SUBAGENT-15). Counted
+ * from the `running` rows, which a restart does not reset, together with the
+ * live map for children born before the table; a retired child holds no slot.
+ */
+function subagentLimitRefusal(parentKey: string): string | null {
+  const db = getDatabase();
+  // Depth: the in-memory walk, or the persisted one when the map was reset.
+  let rowDepth = 0;
+  const seen = new Set<string>();
+  for (let key: string | undefined = parentKey; key && !seen.has(key); ) {
+    seen.add(key);
+    const row = getSubagent(db, key);
+    if (!row) break;
+    rowDepth++;
+    key = row.parentSessionKey;
+  }
+  if (Math.max(spawnedAgentDepth(parentKey), rowDepth) + 1 > MAX_AGENT_DEPTH) {
+    return `sub-agent depth limit (${MAX_AGENT_DEPTH}) reached`;
+  }
+  const mine = new Set([...runningSubagents(db, parentKey).map((r) => r.id), ...liveChildrenOf(parentKey).map((s) => s.id)]);
+  if (mine.size >= MAX_CHILDREN_PER_PARENT) return `max ${MAX_CHILDREN_PER_PARENT} live sub-agents per session`;
+  const all = runningSubagents(db);
+  if (all.length >= MAX_LIVE_SUBAGENTS) {
+    const holders = all.map((r) => `"${r.name}" (${r.parentSessionKey})`).join(", ");
+    return `machine-wide limit of ${MAX_LIVE_SUBAGENTS} live sub-agents reached; holding the slots: ${holders}. Stop one with stop_agent, or wait for one to finish.`;
+  }
+  return null;
+}
+
+/**
+ * The home whose `.claude/agents` the profiles are read from. The real home in
+ * production; a test points it at a fake one, as it does the bridge socket.
+ */
+let agentProfilesHome: string | null = null;
+export function _setAgentProfilesHome(home: string | null): void {
+  agentProfilesHome = home;
+}
+function agentProfilesFor(cwd: string) {
+  return readAgentProfiles({ home: agentProfilesHome ?? realHome(), cwd });
+}
+
+/** The model of a Claude PTY parent: `message.model` of the last assistant record of its transcript. */
+function parentTranscriptModel(parent: TerminalSession | undefined): string | null {
+  if (!parent?.claudeSessionId) return null;
+  try {
+    const lines = fs.readFileSync(claudeTranscriptPath(parent.cwd, parent.claudeSessionId), "utf-8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]!.includes('"assistant"')) continue;
+      try {
+        const ev = JSON.parse(lines[i]!) as { type?: string; message?: { model?: unknown } };
+        if (ev.type === "assistant" && typeof ev.message?.model === "string" && ev.message.model !== "<synthetic>") return ev.message.model;
+      } catch { /* a partial line */ }
+    }
+  } catch { /* no transcript */ }
+  return null;
+}
+
+/** An ended child of this parent, shaped as a session so `read_agent` reads its transcript. */
+function endedChildForRead(parentKey: string, agentId: string): TerminalSession | null {
+  const row = getSubagent(getDatabase(), agentId);
+  if (!row || row.parentSessionKey !== parentKey) return null;
+  return {
+    id: row.id, name: row.name, nameSource: "user", createdAt: row.createdAt, cwd: row.cwd, command: "claude",
+    cols: 120, rows: 30, type: "claude-code", skipPermissions: true,
+    claudeSessionId: row.claudeSessionId ?? undefined, parentSessionKey: row.parentSessionKey,
+  };
+}
+
 /** The 404 of the agent routes. An id shaped like the CLI's built-in Agent tool
  *  (`a` + 16-17 hex) is said to be one: 11 `read_agent` calls passed such an
  *  id and read a bare "not found" they could not act on. */
@@ -2371,7 +2772,7 @@ function cascadeKillChildren(parentSessionKey: string) {
  *  separate frame to submit — so we bounded-poll the scrollback for a readiness
  *  signal, then write the prompt and (after a beat) a lone CR. Fire-and-forget:
  *  the child runs async; the parent reads its output via read_agent. */
-async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
+async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: string): Promise<void> {
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];
 
@@ -2432,7 +2833,7 @@ async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
       await sleep(500);
       const child = sessions.get(childId);
       if (!child) return;
-      if (childPromptAccepted(child)) return; // ✅ landed
+      if (childPromptAccepted(child, acceptSnippet)) return; // ✅ landed
     }
   }
   console.warn(`[Terminal] seedAgentPrompt: ${childId} never acknowledged its prompt (echoed=${echoed})`);
@@ -2442,12 +2843,14 @@ async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
  *  the user record carrying it. The file alone proves nothing, the CLI writes
  *  it at start-up (see `transcriptHasPrompt`). Runs discovery first, which also
  *  adopts the real session id, so the check doubles as early id-capture. */
-function childPromptAccepted(child: TerminalSession): boolean {
+function childPromptAccepted(child: TerminalSession, acceptSnippet?: string): boolean {
   resolveChildTranscriptSessionId(child);
   if (!child.claudeSessionId) return false;
   try {
     const lines = fs.readFileSync(claudeTranscriptPath(child.cwd, child.claudeSessionId), 'utf-8').split('\n');
-    return transcriptHasPrompt(lines, child.spawnPromptSnippet ?? '');
+    // A resumed child's transcript already holds its first prompt: the input
+    // that resumed it is the one to look for.
+    return transcriptHasPrompt(lines, acceptSnippet ?? child.spawnPromptSnippet ?? '');
   } catch {
     return false;
   }
@@ -2561,6 +2964,9 @@ function broadcastTerminalSessions() {
     // Sub-agent parentage: lets the roster nest children under the orchestrator
     // that spawned them. null for human-/chat-created sessions.
     parentSessionKey: s.parentSessionKey || null,
+    // A sub-agent's state from its transcript, not from PTY bytes (SUBAGENT-16):
+    // waiting for its prompt, working, or finished its turn.
+    ...(s.parentSessionKey ? { subAgentPhase: childRuntime.get(s.id)?.phase ?? null } : {}),
     // Authoritative busy snapshot. Lets clients reconcile loading state from
     // the roster instead of relying solely on incremental terminal:activity
     // deltas (which are lost on server restart, WS reconnect, or a dropped
@@ -2626,7 +3032,7 @@ export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = '
   // A sub-agent retired here (its tab closed, the orphan sweep) is gone from
   // the map before the bridge's `exit` frame arrives, so that frame cannot
   // report it: the parent chat got nothing at all. Report it from here.
-  if (session) wakeParentTopicOnChildExit(session, null, ending);
+  if (session) reportChildEnd(session, null, ending);
   // Il browser che questo terminale puo' aver aperto (contextId `term-<id>`).
   // Best-effort: nessun contesto = no-op innocuo.
   terminalBrowserCloser?.(`term-${id}`);
@@ -2672,6 +3078,8 @@ function tryParkSession(
   s: TerminalSession,
   thresholdMs: number,
   motivo: string,
+  /** The retirement of a finished sub-agent (`retireIdleChild`) is the one park a child admits. */
+  opts: { allowSubAgent?: boolean } = {},
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
   const activity = terminalActivity.get(id);
   const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
@@ -2704,7 +3112,10 @@ function tryParkSession(
   // Un sotto-agente non si parcheggia da solo: lo governa il suo orchestratore
   // (cascadeKillChildren), e farlo sparire da sotto cambierebbe il conteggio
   // dei figli vivi senza che nessuno l'abbia chiesto.
-  if (s.parentSessionKey) return { parked: false, reason: "sub-agent" };
+  // The exception is a child whose turn was reported and which has sat idle
+  // since (choice 5 of subagent-tool-standard): its orchestrator has its
+  // result, and the row keeps what `send_to_agent` needs to resume it.
+  if (s.parentSessionKey && !opts.allowSubAgent) return { parked: false, reason: "sub-agent" };
 
   console.log(
     `[Terminal] Parcheggio ${id} (${s.type}) — ${motivo}, ferma da ` +
@@ -2871,7 +3282,16 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     .catch((err) => console.error("[Terminal] Bridge init failed:", err.message))
     .then(() => reconcileSessions())
     .then(() => broadcastTerminalSessions())
+    .then(() => bootChildSweep())
     .catch((err) => console.error("[Terminal] boot reconcile failed:", err instanceof Error ? err.message : String(err)));
+
+  // The turns of the live sub-agents, and their retirement (SUBAGENT-11, 14):
+  // a Claude TUI never exits at the end of a turn, so the end is read from the
+  // transcript on this tick. One timer for the module, however many routers.
+  if (!childWatchTimer) {
+    childWatchTimer = setInterval(() => { void watchChildren(); }, CHILD_WATCH_MS);
+    childWatchTimer.unref?.();
+  }
 
   // Parcheggio delle sessioni ferme. SPENTO se `TOPICS_TERMINAL_IDLE_PARK_MS`
   // non c'è, che è il default: vedi `idleParkThresholdMs` per il perché (una
@@ -2975,6 +3395,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         topicId: s.topicId, type: s.type,
         claudeSessionId: s.claudeSessionId || null,
         parentSessionKey: s.parentSessionKey || null,
+        ...(s.parentSessionKey ? { subAgentPhase: childRuntime.get(s.id)?.phase ?? null } : {}),
         // Authoritative busy snapshot — see broadcastTerminalSessions.
         busy: terminalActivity.get(s.id)?.busy ?? false,
       }));
@@ -3363,8 +3784,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const sendM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/send");
       const readM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/read");
       const stopM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/stop");
+      const waitM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/wait");
 
-      const agentRoute = spawnM ?? listM ?? sendM ?? readM ?? stopM;
+      const agentRoute = spawnM ?? listM ?? sendM ?? readM ?? stopM ?? waitM;
       if (agentRoute) {
         const parentKey = decodeURIComponent(agentRoute.sessionKey);
         // Profile filtering keeps these tools out of the model context; this
@@ -3385,40 +3807,51 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const body = await readJSON(req).catch(() => ({}));
         const prompt = typeof body.prompt === "string" ? body.prompt : "";
         if (!prompt) return errorResponse(400, "prompt (string) is required");
-        if (spawnedAgentDepth(parentKey) + 1 > MAX_AGENT_DEPTH) {
-          return errorResponse(429, `sub-agent depth limit (${MAX_AGENT_DEPTH}) reached`);
-        }
-        if (liveChildrenOf(parentKey).length >= MAX_CHILDREN_PER_PARENT) {
-          return errorResponse(429, `max ${MAX_CHILDREN_PER_PARENT} live sub-agents per session`);
-        }
+        const parent = sessions.get(parentKey);
+        // A chat parent is not in `sessions` (its sessionKey is `topic:<id>`):
+        // without the topic's cwd the project lookup would land on `$HOME`,
+        // which is nobody's project.
+        const parentTopic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
+        const topicCwd = ctx.resolveTopicCwd(parentTopic);
+        // "It inherits this session's working directory", says the tool. For a
+        // chat parent `parent` is always undefined, so this fell through to
+        // `$HOME` for every chat: 55 children out of 55 spawned without `cwd`
+        // landed there, projects and card worktrees included.
+        let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || topicCwd || process.env.HOME || "/");
+        // Model, profile and effort (SUBAGENT-08/09/10), refused BEFORE any
+        // process or worktree exists. The profiles are those of the directory
+        // the child is asked to start from; an isolated child's worktree is a
+        // checkout of the same project, with the same `.claude/agents`.
+        const resolved = resolveSubagentLaunch({
+          call: { model: body.model, agentType: body.agent_type ?? body.agentType, effort: body.effort },
+          profiles: agentProfilesFor(cwd),
+          parent: {
+            model: parentTopic ? (parentTopic.model ?? null) : parentTranscriptModel(parent),
+            effort: resolveClaudeEffort(topicEffortFor(getDatabase(), parentTopic?.id ?? parent?.topicId)),
+          },
+        });
+        if (!resolved.ok) return errorResponse(400, resolved.error);
+        const launch = resolved.launch;
+        const refusal = subagentLimitRefusal(parentKey);
+        if (refusal) return errorResponse(429, refusal);
         // Il governo della board, e vale SOLO per chi appartiene a un task: una
         // chat dell'umano passa di qui senza che questo blocco la veda. Chi
         // invece è la sessione di un task dispatchato spende il tetto di
         // concorrenza della board come chiunque altro, e una figlia non apre
         // nipoti. Vedi `agent-census.ts` per il perché di entrambi.
         {
-          const refusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap() });
-          if (!refusal.ok) {
-            return refusal.code === "depth"
+          const boardRefusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap() });
+          if (!boardRefusal.ok) {
+            return boardRefusal.code === "depth"
               ? errorResponse(429, "sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own")
-              : errorResponse(429, `board concurrency cap reached (${refusal.live}/${refusal.cap} live agents)`);
+              : errorResponse(429, `board concurrency cap reached (${boardRefusal.live}/${boardRefusal.cap} live agents)`);
           }
         }
-        const parent = sessions.get(parentKey);
         // WORKTREE-14, and the opt-in IS the point: without `isolation` the
         // child inherits the parent's directory exactly as it always has. A
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // A chat parent is not in `sessions` (its sessionKey is `topic:<id>`):
-        // without the topic's cwd the project lookup would land on `$HOME`,
-        // which is nobody's project.
-        const topicCwd = ctx.resolveTopicCwd(ctx.getTopicBySessionKey(parentKey));
-        // "It inherits this session's working directory", says the tool. For a
-        // chat parent `parent` is always undefined, so this fell through to
-        // `$HOME` for every chat: 55 children out of 55 spawned without `cwd`
-        // landed there, projects and card worktrees included.
-        let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || topicCwd || process.env.HOME || "/");
         let branch: string | null = null;
         if (isolation === "worktree") {
           const project = resolveAgentProject(
@@ -3451,17 +3884,26 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const id = crypto.randomUUID();
         const chosenName = typeof body.name === "string" && body.name ? body.name : null;
         const name = chosenName ?? `agent ${id.slice(0, 8)}`;
+        const foreground = body.run_in_background === false || body.runInBackground === false;
         try {
           await ensureBridge();
           // A name the parent chose is owned like a user's rename: the
           // auto-namer rewrote it from the transcript, and the parent then read
           // its report under a title it had never given ("foglio-tab" arrived
           // as the title the auto-namer derived from its first answer).
-          const session = await createSession(id, name, cwd, undefined, 120, 30, undefined, "claude-code", true, undefined, parentKey, chosenName ? "user" : "default");
+          const session = await createSession(id, name, cwd, undefined, 120, 30, undefined, "claude-code", true, undefined, parentKey, chosenName ? "user" : "default", launch);
           // Fingerprint the opening prompt so transcript-discovery can find the
           // .jsonl claude actually writes (it ignores our pre-assigned
           // --session-id for sub-agents — see resolveChildTranscriptSessionId).
           session.spawnPromptSnippet = normalizePromptSnippet(prompt);
+          // The row that outlives the terminal: launch, name, limits, resume.
+          insertSubagent(getDatabase(), {
+            id, parentSessionKey: parentKey, name, model: launch.model, agentType: launch.agent, effort: launch.effort,
+            promptSnippet: session.spawnPromptSnippet, cwd: session.cwd, branch,
+            claudeSessionId: session.claudeSessionId ?? null, createdAt: session.createdAt,
+          });
+          runtimeOf(id).seededAt = Date.now();
+          if (foreground) holdForeground(id, FOREGROUND_WAIT_MS + 60_000);
           // The roster broadcast carries parentSessionKey, so the sub-agent
           // immediately appears nested under its parent in the sidebar tree.
           broadcastTerminalSessions();
@@ -3472,7 +3914,14 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           // so the wake/read paths deliver its actual final result (not "senza
           // output") even when the orchestrator never polls it.
           scheduleClaudeSubAgentIdCapture(id);
-          return json({ agentId: id, name: session.name, cwd: session.cwd, branch });
+          return json({
+            agentId: id, name: session.name, cwd: session.cwd, branch,
+            model: launch.model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
+            agentType: launch.agent, effort: launch.effort,
+            // How the parent hears of the result: a chat is woken, a terminal reads.
+            notify: parentKey.startsWith("topic:") ? "chat" : "read_agent",
+            runInBackground: !foreground,
+          });
         } catch (err: any) {
           return errorResponse(502, `Failed to spawn sub-agent: ${err.message}`);
         }
@@ -3481,26 +3930,59 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (listM && method === "GET") {
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(listM.sessionKey);
-        const agents = liveChildrenOf(parentKey).map(s => ({
+        const live = liveChildrenOf(parentKey).map(s => ({
           agentId: s.id,
-          name: s.name,
+          name: getSubagent(getDatabase(), s.id)?.name ?? s.name,
           cwd: s.cwd,
           // An isolated child's branch, re-read from its directory: the parent
           // must be able to name it in a list asked for after a restart too.
           branch: branchOfCwd(s.cwd),
           claudeSessionId: s.claudeSessionId || null,
           busy: terminalActivity.get(s.id)?.busy ?? false,
+          state: "running",
+          phase: childRuntime.get(s.id)?.phase ?? null,
         }));
-        return json({ agents });
+        // Ended children stay listed for 24 hours: `send_to_agent` brings them back.
+        const liveIds = new Set(live.map((a) => a.agentId));
+        const ended = endedSubagents(getDatabase(), parentKey)
+          .filter((r) => !liveIds.has(r.id))
+          .map((r) => ({ agentId: r.id, name: r.name, cwd: r.cwd, branch: r.branch, claudeSessionId: r.claudeSessionId, busy: false, state: r.state, phase: null }));
+        return json({ agents: [...live, ...ended] });
       }
 
       if (sendM && method === "POST") {
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(sendM.sessionKey);
-        const child = resolveOwnedChild(parentKey, decodeURIComponent(sendM.agentId));
-        if (!child) return errorResponse(404, subAgentNotFound(decodeURIComponent(sendM.agentId)));
+        const agentId = decodeURIComponent(sendM.agentId);
         const body = await readJSON(req).catch(() => ({}));
         const input = typeof body.input === "string" ? body.input : (typeof body.text === "string" ? body.text : "");
+        const child = resolveOwnedChild(parentKey, agentId);
+        if (!child) {
+          // Not running: a retired, stopped or lost child of this parent comes
+          // back with `--resume`, from its row (SUBAGENT-14).
+          const row = getSubagent(getDatabase(), agentId);
+          if (!row || row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+          if (!input) return errorResponse(400, "input (string) is required");
+          const verdict = resumeVerdict(row);
+          if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
+          const refusal = subagentLimitRefusal(parentKey);
+          if (refusal) return errorResponse(429, refusal);
+          try {
+            await ensureBridge();
+            const session = await createSession(row.id, row.name, row.cwd, undefined, 120, 30, undefined, "claude-code", true, row.claudeSessionId!, parentKey, "user");
+            session.spawnPromptSnippet = row.promptSnippet ?? undefined;
+            try { getDatabase().run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch { /* the row was just written */ }
+            const rt = runtimeOf(row.id);
+            rt.seededAt = Date.now();
+            rt.phase = "working";
+            broadcastTerminalSessions();
+            seedAgentPrompt(row.id, input, normalizePromptSnippet(input))
+              .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for resumed ${row.id}:`, err));
+            return json({ ok: true, sent: input.length, resumed: true });
+          } catch (err: any) {
+            return errorResponse(502, `Failed to resume sub-agent: ${err.message}`);
+          }
+        }
         if (!input) return errorResponse(400, "input (string) is required");
         noteTerminalInput(child.id);
         sendToBridge({ type: "write", id: child.id, data: input });
@@ -3508,24 +3990,66 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         await new Promise(r => setTimeout(r, 120));
         noteTerminalInput(child.id);
         sendToBridge({ type: "write", id: child.id, data: "\r" });
+        const rt = childRuntime.get(child.id);
+        if (rt) rt.phase = "working";
         return json({ ok: true, sent: input.length });
       }
 
       if (readM && method === "GET") {
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(readM.sessionKey);
-        const child = resolveOwnedChild(parentKey, decodeURIComponent(readM.agentId));
-        if (!child) return errorResponse(404, subAgentNotFound(decodeURIComponent(readM.agentId)));
+        const agentId = decodeURIComponent(readM.agentId);
+        const child = resolveOwnedChild(parentKey, agentId) ?? endedChildForRead(parentKey, agentId);
+        if (!child) return errorResponse(404, subAgentNotFound(agentId));
         const since = Number(url.searchParams.get("since") || "0");
         const result = await readAgentOutput(child, since);
         return json(result);
       }
 
+      if (waitM && method === "GET") {
+        if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+        const parentKey = decodeURIComponent(waitM.sessionKey);
+        const agentId = decodeURIComponent(waitM.agentId);
+        const row = getSubagent(getDatabase(), agentId);
+        if (!resolveOwnedChild(parentKey, agentId) && row?.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+        if (url.searchParams.get("release") === "1") {
+          releaseForeground(agentId);
+          return json({ status: "running", agentId });
+        }
+        const hold = foregroundHolds.get(agentId);
+        if (!hold) return json({ status: "released", agentId });
+        const held = hold.held.shift();
+        if (held) {
+          if (!hold.held.length) releaseForeground(agentId);
+          return json({ status: "done", agentId, result: held });
+        }
+        const legMs = Math.min(Math.max(Number(url.searchParams.get("legMs") || "25000"), 100), 60_000);
+        const got = await new Promise<SubAgentResult | null>((resolve) => {
+          const w = (r: SubAgentResult) => { clearTimeout(t); resolve(r); };
+          const t = setTimeout(() => { hold.waiters.delete(w); resolve(null); }, legMs);
+          hold.waiters.add(w);
+        });
+        if (got) {
+          releaseForeground(agentId);
+          return json({ status: "done", agentId, result: got });
+        }
+        return json({ status: "running", agentId });
+      }
+
       if (stopM && method === "POST") {
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(stopM.sessionKey);
-        const child = resolveOwnedChild(parentKey, decodeURIComponent(stopM.agentId));
-        if (!child) return errorResponse(404, subAgentNotFound(decodeURIComponent(stopM.agentId)));
+        const agentId = decodeURIComponent(stopM.agentId);
+        const child = resolveOwnedChild(parentKey, agentId);
+        if (!child) {
+          // A retired child has no process: stopping it only closes its row.
+          const row = getSubagent(getDatabase(), agentId);
+          if (row?.parentSessionKey === parentKey && row.state === "retired") {
+            setSubagentState(getDatabase(), agentId, "stopped");
+            return json({ ok: true, branch: row.branch });
+          }
+          return errorResponse(404, subAgentNotFound(agentId));
+        }
         const childClaudeId = child.claudeSessionId;
         // Read BEFORE the kill: afterwards the session is gone and the branch
         // would be unrecoverable for whoever just asked for the stop. The
@@ -3544,9 +4068,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         clearTerminalActivity(child.id);
         broadcastTerminalSessions();
         // Reaping a sub-agent via /stop is the primary way an orchestrator ends a
-        // delegated task — wake its parent chat with the result here, because the
-        // pre-delete above makes the bridge `exit` frame unable to (session gone).
-        wakeParentTopicOnChildExit(child, null, 'stopped');
+        // delegated task — report its turn here, because the pre-delete above
+        // makes the bridge `exit` frame unable to (session gone).
+        reportChildEnd(child, null, 'stopped');
         return json({ ok: true, branch: childBranch });
       }
     }

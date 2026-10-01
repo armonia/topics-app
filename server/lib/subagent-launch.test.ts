@@ -8,7 +8,7 @@ const oracle: AgentProfile = { name: "oracle", description: "Hard question.", mo
 const profiles = new Map([["scout", scout], ["oracle", oracle]]);
 const sonnetParent = { model: "claude-sonnet-5-5[1m]", effort: "xhigh" };
 
-function launch(call: Record<string, unknown>, parent = sonnetParent) {
+function launch(call: Record<string, unknown>, parent: { model: string | null; effort: string | null } = sonnetParent) {
   const r = resolveSubagentLaunch({ call, profiles, parent });
   if (!r.ok) throw new Error(r.error);
   return r.launch;

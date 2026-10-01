@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { agentTypeDescription, parseFrontmatter, profileSummary, readAgentProfiles } from "./agent-profiles";
+import { agentTypeDescription, parseFrontMatter, profileSummary, readAgentProfiles } from "./agent-profiles";
 
 const root = mkdtempSync(join(tmpdir(), "agent-profiles-"));
 const home = join(root, "home");
@@ -38,7 +38,7 @@ describe("agent profiles", () => {
   test("a file without frontmatter is skipped without an error", () => {
     const names = [...readAgentProfiles({ home }).keys()].sort();
     expect(names).toEqual(["long", "scout", "verifier"]);
-    expect(parseFrontmatter("no block here")).toBeNull();
+    expect(parseFrontMatter("no block here")).toBeNull();
   });
 
   test("missing directories read as no profiles", () => {

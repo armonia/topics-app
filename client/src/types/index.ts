@@ -1406,6 +1406,10 @@ export interface TerminalSessionInfo {
    *  (server restart / WS reconnect / dropped message) can't leave a session
    *  spinning forever. Absent on optimistic/cached entries → treated idle. */
   busy?: boolean;
+  /** A sub-agent's state, read by the server from its transcript and not from
+   *  PTY bytes: waiting for its prompt, working, or finished its turn. Absent
+   *  for a session that is no sub-agent, null when the server has not looked yet. */
+  subAgentPhase?: 'waiting-prompt' | 'working' | 'finished' | null;
 }
 
 // ── Pane types — single source of truth lives in state/pane/types.ts ─────────

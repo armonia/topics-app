@@ -34,7 +34,7 @@ export const PROFILE_SUMMARY_MAX = 120;
  * none. A profile without frontmatter is not a profile the CLI can load by
  * name, so it is skipped, not reported.
  */
-export function parseFrontmatter(text: string): Record<string, string> | null {
+export function parseFrontMatter(text: string): Record<string, string> | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (!m) return null;
   const out: Record<string, string> = {};
@@ -58,7 +58,7 @@ function profilesIn(dir: string, source: AgentProfile["source"]): AgentProfile[]
     const path = join(dir, file);
     let fm: Record<string, string> | null;
     try {
-      fm = parseFrontmatter(readFileSync(path, "utf-8"));
+      fm = parseFrontMatter(readFileSync(path, "utf-8"));
     } catch {
       continue;
     }
