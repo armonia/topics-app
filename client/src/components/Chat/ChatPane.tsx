@@ -21,6 +21,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag } from './chatFileDrop';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
+import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
@@ -1795,6 +1796,16 @@ function ChatPaneComponent({
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
         }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        {/* The phone's button row, when this chat owns its band (`bandOwned` in
+            App): a box at the foot of the block and not a padding, because the
+            block's height is read from `contentRect`, which leaves padding out.
+            Counted there, the band reaches every reader of that height at once:
+            the transcript's trailing spacer (so it scrolls down to the glass
+            and its last message still ends above the composer), the ink mask,
+            the centred composer of an empty chat and the jump-to-bottom
+            button. 0px off the phone, in a project window and with the
+            keyboard open (the row is gone, and so is its height). */}
+        <div aria-hidden="true" data-testid="chat-band-spacer" style={{ height: `var(${BAND_OWN_PROPERTY}, 0px)` }} />
       </div>
     </div>
   );

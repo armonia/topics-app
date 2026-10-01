@@ -469,10 +469,9 @@
    * arretra, le pane di contenuto (`--bg-surface`) avanzano. È la stessa
    * gerarchia del Finder — barra laterale grigia, contenuto bianco — ed è
    * l'unica che regge su iPhone, dove sopra la sidebar c'è la barra di stato
-   * di iOS (`apple-mobile-web-app-status-bar-style: black-translucent`,
-   * index.html: dal 01/10 traslucida, il contenuto le passa dietro; era `black`
-   * opaca): una sidebar più CHIARA della pagina lasciava un gradino verso il
-   * nero della barra, e la fascia sopra cambiava colore aprendo e chiudendo la
+   * OPACA di iOS (`apple-mobile-web-app-status-bar-style: black`, index.html):
+   * una sidebar più CHIARA della pagina lasciava un gradino verso il nero
+   * della barra, e la fascia sopra cambiava colore aprendo e chiudendo la
    * sidebar (--bg-surface a sidebar aperta, --bg a sidebar chiusa).
    * Sotto Tauri/mac lo stesso token diventa translucido (vedi §vibrancy in
    * fondo): la tinta è la stessa, cambia solo l'alpha che lascia passare il

@@ -100,9 +100,9 @@ describe('curvaturaEsterna', () => {
   });
 
   test('il lato corto fa il tetto: un tasto da 44 non porta 46 di raggio', () => {
-    // 44 − 12 di angolo adiacente = 32: oltre, il browser riduce comunque.
+    // 44 − 12 of adjacent corner = 32: past that the browser shrinks it anyway.
     expect(curvaturaEsterna(8, 54, ALTEZZA, STANDARD)).toBe(32);
-    // E uno da 73 di lato corto porta tutto l'arco concentrico.
+    // And one with a 73 short side carries the whole concentric arc.
     expect(curvaturaEsterna(0, 55, 73, STANDARD)).toBe(55);
   });
 
@@ -151,8 +151,8 @@ describe('formaFila', () => {
   test('iPhone: sinistra curva a SINISTRA, destra a DESTRA, il centro resta standard', () => {
     const forme = fila(390, 34);
     expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, 'destra']);
-    // Il raggio degli estremi è quello che l'arco impone (qui il tetto del
-    // lato corto), MAI un numero scelto a mano.
+    // The ends' radius is the one the arc imposes (here the short-side cap),
+    // NEVER a number picked by hand.
     expect(forme[0].curvatura).toBe(curvaturaEsterna(0, raggioSchermo(34), ALTEZZA, STANDARD));
     expect(forme[0].curvatura).toBe(32);
     expect(forme[0].curvatura).toBe(forme[2].curvatura);
@@ -166,7 +166,7 @@ describe('formaFila', () => {
     const stretta = formaFila({ ...comune, scatole: [{ x: 0, larghezza: 44 }] });
     const larga = formaFila({ ...comune, scatole: [{ x: 0, larghezza: 120 }] });
     expect(larga[0].alzata).toBe(stretta[0].alzata);
-    // A filo del bordo vale l'arco (22, col suo angolo da 32), non il pavimento.
+    // Flush with the edge the arc wins (22, with its 32 corner), not the floor.
     expect(stretta[0].alzata).toBeCloseTo(22, 2);
   });
 
@@ -181,11 +181,11 @@ describe('formaFila', () => {
   });
 
   test('la fila VERA dell’iPhone (78 × 73, raggio 55): nessuno sale, gli estremi sono concentrici', () => {
-    // Cinque tasti da 73 con 6 di passo su 390, alti 44 + la fascia da 34. L'angolo
-    // esterno prende tutto il raggio dello schermo e non c'è niente da alzare:
-    // e' la forma che chiede «tutti i tasti alla stessa altezza».
-    const scatole = [0, 1, 2, 3, 4].map((i) => ({ x: i * 79.2, larghezza: 73.2 }));
-    const forme = formaFila({ larghezza: 390, scatole, raggio: 55, pavimento: 0, altezza: 78, standard: STANDARD });
+    // Five 73 buttons 6 apart on 390, 44 tall plus the 34 band. The outer
+    // corner takes the whole screen radius and there is nothing to lift:
+    // the shape asked for by «tutti i tasti alla stessa altezza».
+    const boxes = [0, 1, 2, 3, 4].map((i) => ({ x: i * 79.2, larghezza: 73.2 }));
+    const forme = formaFila({ larghezza: 390, scatole: boxes, raggio: 55, pavimento: 0, altezza: 78, standard: STANDARD });
     expect(forme.map((f) => f.alzata)).toEqual([0, 0, 0, 0, 0]);
     expect(forme.map((f) => f.curvatura)).toEqual([55, STANDARD, STANDARD, STANDARD, 55]);
     expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, null, null, 'destra']);

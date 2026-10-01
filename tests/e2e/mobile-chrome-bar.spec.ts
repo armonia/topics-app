@@ -255,11 +255,11 @@ test.describe.serial("La chrome del telefono", () => {
     expect(new Set(quote).size).toBe(1);
     for (const p of dritta) expect(Math.round(p.daFondo)).toBe(FLOOR);
 
-    // ── Angoli tondi: gli estremi NON SALGONO, l'angolo segue il vetro.
-    // Dal 01/10 («il primo e l'ultimo non hanno l'altezza corretta») la scatola
-    // da 78 porta per intero il raggio concentrico, quindi l'arco non le mangia
-    // niente: tutti e cinque alti uguale, tutti sul vetro. La curva sta nel
-    // raggio dell'angolo (MOBILE-CHROME-07 e MOBILE-GEOM-03), non in uno scalino.
+    // ── Round corners: the ends DO NOT RISE, the corner follows the glass.
+    // Since 01/10 («il primo e l'ultimo non hanno l'altezza corretta») the 78
+    // slab carries the whole concentric radius, so the arc eats nothing of it:
+    // all five equally tall, all on the glass. The curve lives in the corner
+    // radius (MOBILE-CHROME-07 and MOBILE-GEOM-03), not in a step.
     await fascia(page, FASCIA_IPHONE);
     const curva = await porte(page);
     expect(curva.length).toBe(5);
@@ -272,7 +272,7 @@ test.describe.serial("La chrome del telefono", () => {
     // The ones in the middle reach the EDGE of the screen: they fill the bottom
     // band instead of floating above it, and the arc does not reach them.
     for (const centro of centrali) expect(Math.round(centro.daFondo)).toBe(FLOOR);
-    // I due estremi stanno sul vetro come gli altri e hanno la stessa altezza.
+    // The two ends sit on the glass like the others and are as tall.
     expect(Math.round(sx.daFondo)).toBe(FLOOR);
     expect(Math.round(dx.daFondo)).toBe(FLOOR);
     expect(new Set(curva.map((p) => Math.round(p.altezza))).size).toBe(1);

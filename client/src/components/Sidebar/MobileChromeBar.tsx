@@ -59,29 +59,28 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * there is glass, and the only thing that lives there is the home indicator,
  * which draws itself over whatever is below.
  *
- * ── IL GLIFO STA AL CENTRO DEL TASTO, LA PAROLA GLI PENDE SOTTO ────────────
- * Prima glifo e parola stavano nei 44 in cima alla scatola e sotto restava
- * superficie vuota: con l'indicatore di casa la scatola e' alta 78 e il glifo
- * stava 23px sopra il suo centro (misurato 01/10, e per i due estremi, che
- * salivano per l'arco, 15). Adesso il CENTRO DEL GLIFO e' il centro del tasto
- * su entrambi gli assi, uguale per tutti e cinque; la parola e' fuori flusso
- * (`position: absolute`, `BAR_LABEL_TOP`) e pende sotto il glifo senza
- * spostarlo, perche' una parola in flusso lo alzerebbe di mezza parola. Per
- * lasciarle posto anche senza fascia (schermo squadrato) la scatola non scende
- * sotto `ALTEZZA_MIN`.
+ * ── THE GLYPH SITS IN THE CENTRE OF THE BUTTON, THE WORD HANGS UNDER IT ───
+ * Glyph and word used to sit in the top 44 of the slab with empty surface
+ * below: with the home indicator the slab is 78 tall and the glyph sat 23px
+ * above its centre (measured 01/10; 15 for the two ends, which the arc lifted).
+ * Now the CENTRE OF THE GLYPH is the centre of the button on both axes, the
+ * same for all five; the word is out of flow (`position: absolute`,
+ * `BAR_LABEL_TOP`) and hangs under the glyph without moving it, because a word
+ * in flow would lift it by half a word. To leave it room without a band too
+ * (square screen) the slab never goes below `MIN_HEIGHT`.
  *
  * ── LA FILA ARRIVA AL BORDO DEL TELEFONO, E NE SEGUE LA CURVA ──────────────
  * Il primo e l'ultimo tasto hanno il bordo esterno SUL bordo dello schermo:
  * niente rientro, solo la fascia di sicurezza quando c'è (in orizzontale, il
  * notch). Ci arrivano perché il loro angolo basso esterno è tondo e concentrico
- * a quello del vetro. Su un iPhone in verticale (scatola 78×73, raggio 55) il
- * raggio concentrico ci sta per intero e nessun tasto deve salire: tutti e
- * cinque hanno la STESSA altezza e lo stesso bordo basso, e la curva sta nel
- * raggio dell'angolo, non in uno scalino (richiesta 01/10: «il primo e l'ultimo
- * non hanno l'altezza corretta»). Dove la scatola e' troppo bassa per portare
- * il raggio intero (schermo con fascia ma tasto da 44) l'alzata residua c'e'
- * ancora ed e' la sola eccezione. Il calcolo — e il perché del raggio stimato
- * dalla fascia — sta tutto in `lib/safeAreaArc.ts`.
+ * a quello del vetro.
+ * On a portrait iPhone (slab 78×73, radius 55) the concentric radius fits
+ * whole and no button has to rise: all five have the SAME height and the same
+ * bottom edge, and the curve lives in the corner radius, not in a step (asked
+ * 01/10: «il primo e l'ultimo non hanno l'altezza corretta»). Where a slab is
+ * too short to carry the whole radius the residual lift is still there, and it
+ * is the only exception. The maths, and why the radius is estimated from the
+ * band, all live in `lib/safeAreaArc.ts`.
  * Su uno schermo squadrato il raggio è zero e la fila torna dritta da sé:
  * nessun ramo dedicato.
  *
@@ -116,7 +115,7 @@ const SOPRA = 6;
 const ALTEZZA = 44;
 /** The slab never goes below this: the glyph is CENTRED, and the word hangs
  *  under it, so a square screen (no band) needs room below the middle for it. */
-const ALTEZZA_MIN = 58;
+const MIN_HEIGHT = 58;
 /** Il raggio che ha un tasto quando l'arco non lo tocca — `rounded-xl`. */
 const RADIUS_STANDARD = 12;
 
@@ -181,7 +180,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
   // now covers instead of floating above. It is also what the arc is given as
   // the box height, so the outer corner can be as round as the glass is: half
   // of 78 leaves room for the concentric radius, half of 44 did not.
-  const buttonHeight = Math.max(ALTEZZA_MIN, ALTEZZA + Math.max(0, safeAreaInsets.bottom));
+  const buttonHeight = Math.max(MIN_HEIGHT, ALTEZZA + Math.max(0, safeAreaInsets.bottom));
 
   // Le alzate si ricalcolano quando cambia la LARGHEZZA (rotazione, finestra
   // ridimensionata) o la fascia inferiore. Si leggono i rettangoli veri e non

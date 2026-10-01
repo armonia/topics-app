@@ -3329,8 +3329,11 @@ puntatore, non l'assenza di un nome.
   la rende alla pane), lo scroller SHALL arrivare al bordo basso dello schermo e l'ultimo
   elemento SHALL finire sopra i tasti, con una scatola in coda allo scroller e non un padding
 - **AND** il composer della board e quello di un task aperto SHALL stare tutti sopra i tasti
-- **AND** la chat non cambia: il composer e' un overlay sul trascritto e sta sopra la fila
-  (`mobile-screens-under-chrome.spec.ts`)
+- **AND** la chat (un topic a schermo intero, non una finestra progetto) SHALL fare lo stesso: il
+  trascritto arriva al bordo basso, la banda entra in coda al blocco del composer come scatola
+  (non padding), quindi il composer resta intero sopra i tasti e l'ultimo messaggio sopra il
+  composer; con la tastiera aperta la banda vale 0 e il composer sta sul bordo della tastiera
+  (`mobile-screens-under-chrome.spec.ts`, MOBILE-SCREEN-01/01b)
 
 #### Scenario: la banda «Utilizzo Claude» e' vetro, e le liste le passano sotto
 - **GIVEN** un telefono con l'avviso «Utilizzo Claude» (o limite raggiunto) in vista sopra la fila
@@ -3349,9 +3352,12 @@ puntatore, non l'assenza di un nome.
   schermo, quelli in mezzo il raggio standard; la parola SHALL pendere sotto il glifo senza spostarlo
   (`mobile-bottom-bar-geometry.spec.ts`, MOBILE-GEOM-01/02/03)
 
-#### Scenario: la PWA va sotto la barra di stato e l'home indicator
+#### Scenario: la PWA va sotto l'home indicator, la barra di stato resta opaca
 - **GIVEN** la app aperta da iPhone in modalita' standalone
 - **THEN** la pagina SHALL dichiarare `viewport-fit=cover` e `apple-mobile-web-app-status-bar-style:
-  black-translucent`; l'header e la lista della sidebar, la banda in basso e la fila dei tasti SHALL
-  estendersi sotto le due safe area con `env(safe-area-inset-top/bottom)` e il fondo SHALL essere la
-  tinta del chrome senza fasce vuote (MOBILE-GEOM-05)
+  black` (NON `black-translucent`: in standalone accorcia il viewport in basso della fascia in alto,
+  visto su iPhone l'08/06); le liste, la banda in basso e la fila dei tasti SHALL estendersi sotto la
+  safe area in basso con `env(safe-area-inset-bottom)` e il fondo SHALL essere la tinta del chrome
+  senza fasce vuote (MOBILE-GEOM-05)
+- **AND** passare anche sotto la barra di stato richiede `black-translucent`, e SHALL essere deciso
+  solo dopo aver misurato `innerHeight` contro `screen.height` in standalone su un iPhone vero

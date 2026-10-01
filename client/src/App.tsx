@@ -245,7 +245,7 @@ const BOOT_DEEP_LINK = bootDeepLinkTarget();
  * declarations (CRITIQUE C10), DOM refs for App-local dropdowns, two
  * outside-click effects, and the JSX tree.
  */
-/** Le pane che scorrono sotto la fila dei tasti invece di fermarsi al suo bordo. */
+/** The panes that scroll under the button row instead of stopping at its edge. */
 const BAND_OWNER_PANES: ReadonlySet<string> = new Set([utilityPanelId('board'), utilityPanelId('profile'), utilityPanelId('dashboard')]);
 
 function App() {
@@ -1325,11 +1325,14 @@ function App() {
   // mentre a schermo c'è già la lista, cioè il tasto direbbe di portare dove
   // sei — e il click successivo non avrebbe niente da fare.
   const boardInFront = isMobile && sidebarCollapsed && focusedPanelId === '__board__';
-  // La schermata a fuoco si spende da sola la banda dei tasti? Solo le pane
-  // utility con una lista che scorre; la chat no (il suo composer e' gia'
-  // un overlay sul trascritto e sta sopra la fila), e le altre restano come
-  // erano, con la banda riservata dalla radice.
-  const bandOwned = isMobile && !!focusedPanelId && BAND_OWNER_PANES.has(focusedPanelId);
+  // Does the focused screen spend the button row's band itself? The utility
+  // panes with a scrolling list, and a chat: its transcript already reserves the
+  // composer's height as a trailing spacer, and the band goes into the composer
+  // block as one more box at its foot (ChatPane), so the transcript reaches the
+  // glass and the composer stays whole above the row. A project window does not:
+  // its active pane can be a terminal, which has no spacer to give. The others
+  // stay as they were, with the band reserved by the root.
+  const bandOwned = isMobile && !!focusedPanelId && (BAND_OWNER_PANES.has(focusedPanelId) || !!topics[focusedPanelId]);
   const handleMobileBoardToggle = useCallback(() => {
     if (boardInFront) setSidebarCollapsed(false);
     else { handleOpenBoard(); setSidebarCollapsed(true); }
@@ -1444,13 +1447,14 @@ function App() {
         // niente cambia fuori dal telefono. Senza questa riga la fila
         // coprirebbe l'ultimo messaggio della chat e il composer.
         //
-        // Le schermate che sanno spenderla da sole (`BAND_OWNER_PANES`) la
-        // restituiscono: la radice non ne tiene niente e la pubblica come
-        // `--mobile-band-own-h`, cosi' la loro lista scorre sotto i tasti
-        // invece di fermarsi al loro bordo. Vale anche per la banda degli
-        // avvisi (`--mobile-transport-h`, «Utilizzo Claude»): ha un fondo
-        // traslucido e sfocato, non pieno, quindi ciò che scorre le passa
-        // dietro come dietro ai tasti (01/10).
+        // The screens that can spend it themselves (`BAND_OWNER_PANES` and a
+        // chat, see `bandOwned`) get
+        // it back: the root keeps none of it and publishes it as
+        // `--mobile-band-own-h`, so their list scrolls under the buttons
+        // instead of stopping at their edge. The same goes for the notice
+        // band (`--mobile-transport-h`, «Utilizzo Claude»): its ground is
+        // translucent and blurred, not solid, so what scrolls passes behind
+        // it as it does behind the buttons (01/10).
         paddingBottom: bandOwned ? 0 : 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
         [BAND_OWN_PROPERTY]: bandOwned ? 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))' : '0px',
         position: 'fixed',
@@ -1562,14 +1566,14 @@ function App() {
           [SIDEBAR_SCROLL_TOP_PROPERTY as string]: isMobile
             ? `calc(env(safe-area-inset-top, 0px) + ${MOBILE_SIDEBAR_HEADER_H}px)`
             : '0px',
-          // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
-          // quindi la banda in basso se la riserva da sé. E se la riserva
-          // DENTRO lo scroller, non come padding della colonna: la fila dei
-          // tasti non ha fondo e la banda degli avvisi («Utilizzo Claude») ne
-          // ha uno traslucido, quindi la loro altezza diventa spaziatore DELLO
-          // SCROLLER, come in alto: a riposo l'ultima tab sta sopra la banda e
-          // i tasti, e scorrendo le tab passano sotto, invece di restare
-          // tagliate a metà sul bordo.
+          // The column is `fixed inset-y-0`: it escapes the root's padding, so
+          // it reserves the bottom band itself. And it reserves it INSIDE the
+          // scroller, not as the column's padding: the button row has no
+          // ground and the notice band («Utilizzo Claude») a translucent one,
+          // so their height becomes a spacer OF THE SCROLLER, as at the top:
+          // at rest the last tab sits above the band and the buttons, and
+          // scrolling the tabs pass under them instead of being cut in half
+          // on the edge.
           paddingBottom: 0,
           [SIDEBAR_SCROLL_BOTTOM_PROPERTY as string]: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
         }}
@@ -2143,12 +2147,13 @@ function App() {
           // utile e sotto restava una fascia morta.
           //
           // La cima e il fondo non sono simmetrici, e la differenza è cosa ci
-          // sta contro. In cima c'è la barra di stato di iOS, traslucida dal
-          // 01/10 (`black-translucent`): la colonna principale comincia dopo di
-          // lei, su una fascia dello stesso chrome, perché sopra c'è la riga
-          // delle tab (`--chrome-bar-h`, letta da ogni pane) e non si sposta
-          // per un'altezza che solo il telefono ha; la sidebar e le liste
-          // invece le passano dietro. In
+          // sta contro.
+          // At the top sits the iOS status bar, OPAQUE (`black`, see index.html):
+          // in a standalone PWA the viewport starts below it and this inset is 0;
+          // where it is not (a notch in landscape, a browser tab) the main column
+          // starts below the inset, on a strip of the same chrome, because the
+          // tab row (`--chrome-bar-h`, read by every pane) is up there.
+          // In
           // fondo c'è l'home indicator, un trattino su fondo TRASPARENTE: il
           // contenuto può scorrerci sotto, deve solo non finirci sotto qualcosa
           // da TOCCARE. Quindi la spinta la prende il solo composer — vedi
