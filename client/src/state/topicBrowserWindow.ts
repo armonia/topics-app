@@ -695,6 +695,19 @@ export function findTopicOwningPromoted(contextId: string): string | null {
   return null;
 }
 
+/**
+ * Which topic's window holds THIS page as a sheet, if any. `preferTopicId` is
+ * asked first: a chat marker knows the topic it is drawn in.
+ */
+export function findTopicHoldingSheet(contextId: string, preferTopicId?: string): string | null {
+  if (!contextId) return null;
+  if (preferTopicId && hasSheet(getTopicWindow(preferTopicId), contextId)) return preferTopicId;
+  for (const [topicId, state] of cache) {
+    if (hasSheet(state, contextId)) return topicId;
+  }
+  return null;
+}
+
 export function subscribeTopicWindows(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
