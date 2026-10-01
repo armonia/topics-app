@@ -16,7 +16,7 @@ import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { stagedEntries, buildSystemPrompt, buildUserPrompt, rulesFallback, usableMessage } from "../lib/commit-message";
 import { getProvider } from "../providers";
 import { HEAVY_DIRS, walkFileTree } from "../lib/file-tree";
-import { protectedDirExcludes } from "../lib/protected-app-data";
+import { isProtectedFromWalk, protectedDirExcludes } from "../lib/protected-app-data";
 // La cache dello stato git vive in `lib/` e non qui: la riempie questa route,
 // ma a invalidarla è `git-watcher`, e finché la funzione stava in questo file
 // il watcher doveva importare una ROUTE — chiudendo il ciclo
@@ -1234,7 +1234,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             if (skip) continue;
             const fullPath = join(dir, entry.name);
             if (entry.isDirectory()) {
-              await walkFlat(fullPath);
+              // Other apps' data (`lib/protected-app-data.ts`): this walk has no
+              // depth limit, so from HOME or ~/Library it would read straight
+              // into Containers and make macOS ask for access.
+              if (!isProtectedFromWalk(fullPath, resolvedPath!)) await walkFlat(fullPath);
             } else if (entry.isFile()) {
               // resolvedPath is guaranteed non-null (guarded at the top of the
               // handler); TS just loses the narrowing inside this closure.
