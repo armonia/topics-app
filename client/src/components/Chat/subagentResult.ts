@@ -24,10 +24,9 @@ export function latestSubagentResult(
   return null;
 }
 
-const ENVELOPE = /<subagent-result((?: [a-z_]+="[^"]*")*)>\n([\s\S]*?)\n<\/subagent-result>/g;
-const STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'stopped', 'undelivered', 'lost']);
+const ENVELOPE = /<subagent-result(.*)>\n([\s\S]*?)\n<\/subagent-result>/g;
 /** The server writes `<` as `<\\` in the child's words (`neutralizeTags`): the card shows them as written. */
-const unescapeTags = (s: string) => s.replace(/<\\/g, '<');
+const restoreTags = (s: string) => s.replace(/<\\/g, '<');
 
 /**
  * The result a foreground `spawn_agent` returned as its answer (SUBAGENT-13),
@@ -37,28 +36,22 @@ const unescapeTags = (s: string) => s.replace(/<\\/g, '<');
  * find it. Null for a background spawn, a wait that handed over, or another child.
  */
 export function foregroundSpawnResult(output: string | undefined, agentId: string | undefined): SubagentResultCard | null {
-  if (!output || !agentId) return null;
-  for (const m of output.matchAll(ENVELOPE)) {
-    const attrs = Object.fromEntries([...m[1]!.matchAll(/([a-z_]+)="([^"]*)"/g)].map((a) => [a[1]!, unescapeTags(a[2]!)]));
-    if (attrs.agent_id !== agentId || !STATUSES.has(attrs.status ?? '')) continue;
-    const status = attrs.status as SubagentResultCard['status'];
-    const body = unescapeTags(m[2]!);
-    // Only a completed turn's body is the child's words; any other quotes the last line seen.
-    const text = status === 'completed'
-      ? (body === '_(finished with no output)_' ? '' : body)
-      : body.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
-    const reason: SubagentResultCard['reason'] | undefined = attrs.reason
-      ? {
-        code: attrs.reason,
-        ...(attrs.reason_detail ? { detail: attrs.reason_detail } : {}),
-        ...(attrs.exit_code && Number.isFinite(Number(attrs.exit_code)) ? { exitCode: Number(attrs.exit_code) } : {}),
-      }
-      : undefined;
+  // Every envelope names its child: none matches an undefined agentId.
+  for (const m of output?.matchAll(ENVELOPE) ?? []) {
+    const a: Record<string, string | undefined> = {};
+    for (const [, k, v] of m[1]!.matchAll(/(\w+)="([^"]*)"/g)) a[k!] = restoreTags(v!);
+    // The server writes the envelope, status included: the card draws an unknown one as a failure.
+    if (a.agent_id !== agentId) continue;
+    const body = restoreTags(m[2]!);
     return {
-      agentId, name: attrs.agent ?? '', turn: Number(attrs.turn) || 1, status,
-      partial: attrs.partial === 'true', text,
-      ...(reason ? { reason } : {}),
-      ...(attrs.branch ? { branch: attrs.branch } : {}),
+      agentId: agentId!, name: a.agent!, turn: +a.turn!,
+      status: a.status as SubagentResultCard['status'], partial: a.partial === 'true',
+      // Only a completed turn's body is the child's words; any other quotes the last line seen.
+      text: a.status === 'completed'
+        ? (body === '_(finished with no output)_' ? '' : body)
+        : (body.match(/^>.*/gm) ?? []).join('\n').replace(/^> ?/gm, ''),
+      ...(a.reason && { reason: { code: a.reason, detail: a.reason_detail, exitCode: a.exit_code ? Number(a.exit_code) : undefined } }),
+      ...(a.branch && { branch: a.branch }),
     };
   }
   return null;

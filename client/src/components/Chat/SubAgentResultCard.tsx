@@ -8,7 +8,7 @@
  * row when it woke the chat, an `assistant` row when it could not. Either way
  * it is drawn as cards, never as the person's bubble.
  */
-import { useMemo, type ComponentType } from 'react';
+import type { ComponentType } from 'react';
 import { Bot, CircleCheck, CircleStop, CircleX, Hourglass, Loader2, MailX, SquareTerminal, Unplug } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
@@ -103,12 +103,12 @@ export function SpawnAgentCard({ detail, sessionKey, isRunning }: {
   const terminals = useTerminalSessions();
   // A later turn's row wins; a foreground call's first result is only in its own answer.
   const rowResult = useSubagentResult(sessionKey, detail.agentId);
-  const answered = useMemo(() => foregroundSpawnResult(detail.result, detail.agentId), [detail.result, detail.agentId]);
-  const result = rowResult ?? answered;
+  const result = rowResult ?? foregroundSpawnResult(detail.result, detail.agentId);
   const live = detail.agentId ? terminals.find((s) => s.id === detail.agentId) ?? null : null;
   const state = spawnCardState({ live, result, isRunning: !!isRunning });
   const { icon: Icon, className } = PHASE_ICON[state];
   const name = detail.name ?? result?.name ?? detail.description ?? tr('chat.subagent.title');
+  const openLabel = tr('chat.subagent.open');
   return (
     <div className="space-y-1.5" data-testid="spawn-agent-card" data-state={state} data-agent-id={detail.agentId}>
       <div className="flex min-w-0 items-center gap-1.5 text-mini">
@@ -121,8 +121,8 @@ export function SpawnAgentCard({ detail, sessionKey, isRunning }: {
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); openPane(live.id, name); }}
-            title={tr('chat.subagent.open')}
-            aria-label={tr('chat.subagent.open')}
+            title={openLabel}
+            aria-label={openLabel}
             className="flex-shrink-0 rounded p-0.5 text-app-text-muted hover:bg-app-hover hover:text-app-text"
           >
             <SquareTerminal size={12} />
