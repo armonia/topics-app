@@ -101,13 +101,13 @@ export function useSeenFocusedPane(focusedPanelId: string | null): void {
   useEffect(() => {
     if (!subject || !unseen) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let cancelled = false;
+    let disposed = false;
     const arm = () => {
-      if (cancelled || timer !== null) return;
+      if (disposed || timer !== null) return;
       timer = setTimeout(() => {
         timer = null;
         // The window can have gone behind during the wait without an event.
-        if (!cancelled && isWindowAwake()) seeSubject(subject);
+        if (!disposed && isWindowAwake()) seeSubject(subject);
       }, SEEN_DWELL_MS);
     };
     const disarm = () => {
@@ -120,7 +120,7 @@ export function useSeenFocusedPane(focusedPanelId: string | null): void {
     window.addEventListener('focus', onAwakeChange);
     window.addEventListener('blur', onAwakeChange);
     return () => {
-      cancelled = true;
+      disposed = true;
       disarm();
       document.removeEventListener('visibilitychange', onAwakeChange);
       window.removeEventListener('focus', onAwakeChange);

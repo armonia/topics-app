@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-30",
+  "generated": "2026-10-01",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -1952,8 +1952,7 @@
       "richiesta"
     ],
     "client/src/state/signals.ts": [
-      "byCsid",
-      "cancelled"
+      "byCsid"
     ],
     "client/src/state/streamingContract.test.ts": [
       "vivi"

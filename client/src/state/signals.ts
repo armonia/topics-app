@@ -1200,11 +1200,6 @@ export function useTerminalLoading(sessionId: string | undefined): boolean {
   );
 }
 
-/** A claude-code session finished a turn and the user hasn't looked yet. */
-export function useTerminalFinished(sessionId: string | undefined): boolean {
-  return useSignalsStore((s) => !!sessionId && s.terminalFinishedIds.has(sessionId));
-}
-
 /** A terminal session is restarting via "Ricarica", until it reconnects. */
 export function useTerminalReloading(sessionId: string | undefined): boolean {
   return useSignalsStore((s) => !!sessionId && s.terminalReloadingIds.has(sessionId));
