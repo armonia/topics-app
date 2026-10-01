@@ -37,7 +37,7 @@
 import type { Database } from "bun:sqlite";
 import type { ContentBlock } from "../../shared/types";
 import { containsSameString, leanBlocks, STRIP_FIELDS, type MovedOutputMark } from "../../shared/lean-tool-call";
-import { decodeCol, encodeCol, MACHINE_MARKS, MOVED_OUTPUT_MARK } from "../../shared/message-blob";
+import { decodeCol, encodeCol, encodesAsBlob, MACHINE_MARKS, MOVED_OUTPUT_MARK } from "../../shared/message-blob";
 import { parseToolCallDetail } from "../../shared/tool-call-detail";
 import { warnThrottled } from "./warn-throttled";
 
@@ -217,8 +217,13 @@ export function restoreBlocksJson(db: Database, messageId: string, json: string 
 export interface BlocksColumn {
   /** What goes in `messages.blocks`. */
   value: string | Uint8Array | null;
-  /** The whole timeline, as it would be stored without the split. */
-  whole: string | Uint8Array | null;
+  /**
+   * The whole timeline, as it would be stored without the split. A function:
+   * on a split row it is needed only when the split fails, and compressing it
+   * up front made the closing write of a turn 2.5 times slower (verify of
+   * DATA-07, the 8 biggest closed rows of this machine's DB).
+   */
+  whole: () => string | Uint8Array | null;
   moved: Map<string, MovedOutput> | null;
   /** The split timeline before encoding, for the read-back check. */
   stubbed: unknown[] | null;
@@ -231,15 +236,16 @@ export interface BlocksColumn {
  * or that `encodeCol` would keep as plain text, is written exactly as before.
  */
 export function blocksColumn<B>(blocks: readonly B[] | null | undefined, final: boolean): BlocksColumn {
-  if (!blocks) return { value: null, whole: null, moved: null, stubbed: null, original: null };
+  if (!blocks) return { value: null, whole: () => null, moved: null, stubbed: null, original: null };
   const lean = leanBlocks(blocks as never) as unknown as unknown[];
   const text = JSON.stringify(lean);
-  const whole = encodeCol(text) ?? null;
-  if (!final || typeof whole === "string" || whole === null) return { value: whole, whole, moved: null, stubbed: null, original: null };
-  const split = splitToolOutputs(lean);
-  if (!split) return { value: whole, whole, moved: null, stubbed: null, original: null };
+  const split = final && encodesAsBlob(text) ? splitToolOutputs(lean) : null;
+  if (!split) {
+    const value = encodeCol(text) ?? null;
+    return { value, whole: () => value, moved: null, stubbed: null, original: null };
+  }
   const value = encodeCol(JSON.stringify(split.blocks)) ?? null;
-  return { value, whole, moved: split.moved, stubbed: split.blocks, original: lean };
+  return { value, whole: () => encodeCol(text) ?? null, moved: split.moved, stubbed: split.blocks, original: lean };
 }
 
 /**
@@ -307,7 +313,7 @@ export function writeSplitRow(
     })();
   } catch (err) {
     warnThrottled("tool-output-store:write", `[tool-outputs] message ${messageId}: output kept in the row:`, err);
-    writeRow(col.whole);
+    writeRow(col.whole());
   }
 }
 

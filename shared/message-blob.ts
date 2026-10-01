@@ -42,9 +42,13 @@ export const MACHINE_MARKS = MACHINE_ROW_KINDS.map((k) => `"kind":"${k}"`);
  */
 export function encodeCol(s: string | null | undefined): string | Uint8Array | null | undefined {
   if (s == null) return s;
-  if (s.length < COMPRESS_THRESHOLD && !s.includes(MOVED_OUTPUT_MARK)) return s;
-  if (MACHINE_MARKS.some((m) => s.includes(m))) return s;
-  return Bun.zstdCompressSync(Buffer.from(s, "utf8"), { level: 3 });
+  return encodesAsBlob(s) ? Bun.zstdCompressSync(Buffer.from(s, "utf8"), { level: 3 }) : s;
+}
+
+/** Whether `encodeCol(s)` compresses `s`, decided without compressing it. */
+export function encodesAsBlob(s: string): boolean {
+  if (s.length < COMPRESS_THRESHOLD && !s.includes(MOVED_OUTPUT_MARK)) return false;
+  return !MACHINE_MARKS.some((m) => s.includes(m));
 }
 
 /**
