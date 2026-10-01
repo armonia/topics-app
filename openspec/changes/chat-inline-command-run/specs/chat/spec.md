@@ -172,7 +172,10 @@ l'esecuzione (la sceglie il server da `cwdOf: <sessionKey>`, CMDRUN-05), aprirla
 come pane accanto alla chat, e incollarvi il comando **senza Invio**, con
 `term.paste()` di xterm alla prima schermata della shell. Se il comando ha più
 righe e la shell non ha il bracketed paste acceso, NON SHALL incollare niente:
-il comando va negli appunti e un avviso lo dice. È l'uscita per ciò che
+il comando va negli appunti e un avviso lo dice. Nessun byte di controllo
+diverso da tab e a capo SHALL arrivare alla shell: un `\r` diventa a capo, gli
+altri (C0, DEL) si tolgono, perché un `ESC[201~` chiuderebbe il bracketed paste
+e farebbe girare le righe dopo. È l'uscita per ciò che
 l'esecuzione in linea non può fare: `sudo`, login, prompt, modificare il
 comando prima di lanciarlo.
 
@@ -186,3 +189,8 @@ comando prima di lanciarlo.
 - **GIVEN** un blocco `bash` con `cd app\nbun test`
 - **WHEN** clicchi Apri nel terminale
 - **THEN** la shell mostra entrambe le righe nella riga di comando e nessuna è stata eseguita
+
+#### Scenario: un byte di controllo non chiude l'incolla
+- **GIVEN** un blocco `bash` con `echo safe`, `ESC[201~`, a capo, `touch x`
+- **WHEN** clicchi Apri nel terminale
+- **THEN** alla shell arrivano `echo safe[201~` e `touch x` senza l'ESC, e nessuna riga è stata eseguita

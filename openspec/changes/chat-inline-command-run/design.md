@@ -81,6 +81,10 @@ arrivato fino a `rm -rf ./` sarebbe un blocco perfettamente eseguibile.
   chiama per nome: svuotano le pane / SIGKILL a metà turno, `CLAUDE.md`).
   Più `placeholder`: un `<parola>` che non è `<<` né `< file`. Una
   redirezione `>` non si valuta: dal testo non si sa se il file esiste.
+- Le continuazioni di riga (`\` a fine riga) si uniscono prima di dividere, e
+  le parole riservate che introducono un comando (`if`, `then`, `else`,
+  `elif`, `do`, `while`, `until`, `!`) si saltano come i wrapper: `then rm
+  -rf build` e `git push \⏎ --force` chiedono come le loro forme su una riga.
 - Si scandisce **tutto** il testo, anche quando il blocco è collassato a 10
   righe (`CodeBlock`, `isLong && collapsed`, `MessageContent.tsx:435`).
 
@@ -190,6 +194,12 @@ occasione di vedere cosa parte.
   paste acceso (zsh lo accende di default) un testo di più righe entra come
   incollato e non parte; se la modalità è spenta e il testo ha più righe, non
   si incolla niente, il comando va negli appunti e un avviso lo dice.
+- Prima di incollare, un `\r` diventa a capo e ogni altro byte di controllo
+  (C0 diverso da tab e a capo, DEL) si toglie (`pendingTerminalPaste.ts`):
+  `term.paste()` di xterm li lascia passare, e un `ESC[201~` dentro il testo
+  chiuderebbe il bracketed paste in anticipo e farebbe girare le righe dopo;
+  un `\r` nudo è un Invio. Esegui manca già su quei blocchi (CHAT-RUN-02), Apri
+  nel terminale no: lì il testo arriva senza i byte che non si vedono.
 
 ## 7. La resa dell'output
 
