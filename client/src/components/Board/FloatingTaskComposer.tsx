@@ -435,7 +435,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     <div
       // `hidden` batte il breakpoint: display è UNA proprietà, quindi le due
       // classi non si sommano — vanno scelte, non concatenate.
-      className={`pointer-events-none absolute inset-x-0 bottom-6 z-10 justify-center px-4 transition-transform duration-150 ease-out ${
+      className={`pointer-events-none absolute inset-x-0 bottom-6 z-10 justify-center px-4 transition-transform duration-fast ease-out ${
         hidden ? 'hidden' : hiddenBelowLg ? 'hidden lg:flex' : 'flex'
       }`}
       style={kbInset ? { transform: `translateY(-${kbInset}px)` } : undefined}
@@ -464,7 +464,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         // non scattano mai dentro una pane stretta su uno schermo largo, che è
         // il caso normale in un layout a riquadri. Stesso schema del composer
         // della chat (ChatInput.tsx).
-        className={`input-glass @container pointer-events-auto relative w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
+        className={`input-glass @container pointer-events-auto relative w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-fast ease-out ${
           dragOver ? '-translate-y-2 border-emerald-400/70' : expanded ? '-translate-y-2 border-app-border-light' : 'translate-y-0 border-app-border'
         }`}
       >
@@ -490,7 +490,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             if (images.length) { e.preventDefault(); void addFiles(images); }
           }}
           placeholder={tr('board.composer.placeholder')}
-          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-body-lg leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
+          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-body-lg leading-5 text-app-text outline-none transition-[min-height] duration-fast ease-out placeholder:text-app-placeholder ${
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
         />
@@ -583,7 +583,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             )}
           </div>
         )}
-        <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-200 ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
+        <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-fast ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
           {/* Cluster dei chip: `min-w-0 flex-1` gli lascia stringersi sotto la
               larghezza del contenuto e `overflow-x-auto` lo fa SCORRERE invece
               di tagliare — prima la riga era un unico flex con `overflow-hidden`

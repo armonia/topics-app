@@ -3006,7 +3006,7 @@ export function PanelGrid({
         }}
       >
         {!bootUnknown && (
-        <div data-testid="grid-welcome" className={`text-center transition-all duration-300 max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
+        <div data-testid="grid-welcome" className={`text-center transition-all duration-fast max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
           {emptyDragOver ? (
             <>
               <div className="text-display-lg mb-3 float-icon">{'\uD83D\uDCCC'}</div>

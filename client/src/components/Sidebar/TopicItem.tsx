@@ -362,7 +362,7 @@ export const TopicItem = memo(function TopicItem({
         >
           <ChevronRight
             size={ROW_CHEVRON}
-            className={cn('transition-transform duration-150', isExpanded && 'rotate-90')}
+            className={cn('transition-transform duration-fast', isExpanded && 'rotate-90')}
           />
         </button>
       ) : depth === 0 ? (

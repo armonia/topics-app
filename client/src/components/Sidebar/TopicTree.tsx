@@ -1255,7 +1255,7 @@ export function TopicTree({
             aria-label={isExpanded ? `Collapse ${item.name}` : `Expand ${item.name}`}
             aria-expanded={isExpanded}
           >
-            <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
           {/* Name button:
               - not selected → FOCUS the project + EXPAND it (show children).
@@ -1517,7 +1517,7 @@ export function TopicTree({
             <ChevronRight
               size={12}
               aria-hidden="true"
-              className={`transition-transform duration-150 text-app-text-tertiary ${!isCollapsed ? 'rotate-90' : ''}`}
+              className={`transition-transform duration-fast text-app-text-tertiary ${!isCollapsed ? 'rotate-90' : ''}`}
             />
           </button>
           {/* Nessun `pr-1`: il padding di destra ora è quello della card

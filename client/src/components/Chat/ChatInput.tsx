@@ -29,6 +29,7 @@ import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';
 import { POPOVER_PANEL, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
+import { useExitGhost } from '@/lib/exitGhost';
 import { useSheetDrag } from '@/hooks/useSheetDrag';
 import { SheetGrabber } from '@/components/Shared/SheetGrabber';
 import { chatFocus } from '../../state/chatFocus';
@@ -840,12 +841,16 @@ export function ChatInput({
   // Unified dismissal for the slash-command menu: capture-phase outside-pointer
   // + Escape close. The textarea stays "inside" (arrow/Enter selection is
   // handled by handleKeyDown) and the caret is left untouched.
+  const slashMenuOpen = showSlashMenu && filteredSlashCommands.length > 0;
   useDismissable({
-    open: showSlashMenu && filteredSlashCommands.length > 0,
+    open: slashMenuOpen,
     onClose: () => { setShowSlashMenu(false); setSlashFilter(''); },
     refs: [textareaRef, slashMenuRef],
     restoreFocus: false,
   });
+  // Closing leaves the DOM at once as before; an inert copy fades out
+  // (lib/exitGhost, MOTION-04) instead of the menu vanishing in one frame.
+  useExitGhost(slashMenuRef, slashMenuOpen);
 
   const handleMentionSelect = useCallback((file: MentionedFile) => {
     if (mentionStartPos >= 0) {
@@ -1709,7 +1714,7 @@ export function ChatInput({
             )}
 
             {/* Popover menus (anchored to form) */}
-            {showSlashMenu && filteredSlashCommands.length > 0 && (
+            {slashMenuOpen && (
               <div ref={slashMenuRef} role="listbox" className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} z-50 py-1.5 max-h-48 overflow-y-auto`}>
                 {filteredSlashCommands.map((cmd, idx) => (
                   <button

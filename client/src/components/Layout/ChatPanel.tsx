@@ -139,7 +139,7 @@ export function ChatPanel({
 
   return (
     <>
-      <div ref={chatAreaRef} data-testid="chat-panel" data-chat-topic-id={topic.id} role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: `${browserInset}px` } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+      <div ref={chatAreaRef} data-testid="chat-panel" data-chat-topic-id={topic.id} role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: `${browserInset}px` } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-instant ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {hasTopicBrowserWindow(browserWindow) && (
           <Suspense fallback={null}>
             <TopicBrowserWindow topicId={topic.id} areaRef={chatAreaRef} projectPath={topic.projectPath ?? undefined} />

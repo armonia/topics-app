@@ -829,7 +829,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 repo», che e un'informazione vera. */}
             <GitBranch size={14} className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : ''}`} />
             <span className={`truncate ${notGit ? 'text-app-text-muted' : ''}`}>Git</span>
-            <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
+            <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-fast text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
           </div>
           {/* Right: branch + badges + refresh */}
           {/* La propagazione si ferma solo sui CONTROLLI, non su tutto il

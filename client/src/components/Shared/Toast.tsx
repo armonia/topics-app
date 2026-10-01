@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, createContext, useContext } 
 import { useT } from '../../hooks/useT';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
+import { MOTION } from '../../lib/motion';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -96,7 +97,8 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
   useEffect(() => {
     requestAnimationFrame(() => setState('visible'));
     const dur = t.duration || 3000;
-    const exitTimer = setTimeout(() => setState('exit'), dur - 300);
+    // The exit starts one fade before the removal: `duration-fast` below.
+    const exitTimer = setTimeout(() => setState('exit'), dur - MOTION.fast);
     const removeTimer = setTimeout(() => onRemove(t.id), dur);
     return () => { clearTimeout(exitTimer); clearTimeout(removeTimer); };
   }, [t.id, t.duration, onRemove]);
@@ -111,7 +113,7 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
       data-testid="toast"
       // `items-start` and not `items-center`: a message on two lines keeps the
       // icon and the close button on the FIRST line, where they belong.
-      className={`flex items-start gap-2 px-3 py-2 rounded-lg shadow-lg text-mini font-medium text-white transition-all duration-300 ${bg} ${
+      className={`flex items-start gap-2 px-3 py-2 rounded-lg shadow-lg text-mini font-medium text-white transition-all duration-fast ${bg} ${
         state === 'enter' ? 'opacity-0 translate-y-2' :
         state === 'exit'  ? 'opacity-0 -translate-y-1' :
                             'opacity-100 translate-y-0'

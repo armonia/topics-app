@@ -333,6 +333,17 @@
   --text-display-xl: 48px;
 }
 
+/* The motion durations as Tailwind utilities: `duration-instant`, `-fast`,
+ * `-base`, `-slow`. `inline` makes each class read the `--motion-*` token
+ * itself (declared once, in `:root` below), so a component cannot hold a copy
+ * of the number. A numeric `duration-150` is refused by `motion.test.ts`. */
+@theme inline {
+  --transition-duration-instant: var(--motion-instant);
+  --transition-duration-fast: var(--motion-fast);
+  --transition-duration-base: var(--motion-base);
+  --transition-duration-slow: var(--motion-slow);
+}
+
 /* Font stack */
 :root {
   /* CIÒ CHE NON DIPINGIAMO NOI, e per cui il tema andava DICHIARATO.

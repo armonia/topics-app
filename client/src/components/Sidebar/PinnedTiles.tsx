@@ -788,7 +788,7 @@ export function PinnedTiles({
       }}
       // Col dito la zona attiva è più alta: 8px sono un bersaglio da cursore, e
       // qui ci si infila un polpastrello per aprire una riga nuova.
-      className={`mx-1.5 transition-all duration-100 ${
+      className={`mx-1.5 transition-all duration-instant ${
         newRowAt === at ? '' : attiva ? (isMobile ? 'h-5' : 'h-2') : ''
       }`}
       // Mostrando l'anteprima questo spazio DIVENTA una riga, e una riga ha

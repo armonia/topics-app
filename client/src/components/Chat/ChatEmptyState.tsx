@@ -96,8 +96,10 @@ export function ChatEmptyState({
     <div
       data-testid="chat-empty-state"
       aria-hidden={fading || undefined}
-      className={`text-center px-3 pb-3 transition-opacity duration-200 ${
-        fading ? 'absolute bottom-full left-0 right-0 opacity-0 pointer-events-none' : 'opacity-100'
+      // The greeting leaves on the exit pair of the motion tokens, the fade
+      // the first-send contract models (chat-first-send-smooth.spec.ts).
+      className={`text-center px-3 pb-3 transition-opacity duration-fast ${
+        fading ? 'ease-(--ease-exit) absolute bottom-full left-0 right-0 opacity-0 pointer-events-none' : 'ease-(--ease-standard) opacity-100'
       }`}
     >
       <p className="text-body-lg font-medium text-app-text-secondary">{topic.name}</p>

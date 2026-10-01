@@ -248,7 +248,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       aria-label={`Avanzamento di ${d.filename}`}
                       data-testid="browser-download-bar"
                     >
-                      <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${d.percent}%` }} />
+                      <div className="h-full bg-primary transition-[width] duration-base" style={{ width: `${d.percent}%` }} />
                     </div>
                   )}
                 </div>

@@ -376,7 +376,7 @@ function GitSectionRow({
         <div className="flex items-center gap-2 min-w-0">
           <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
           <span className={`truncate ${git ? '' : 'text-app-text-muted'}`}>Git</span>
-          <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
+          <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-fast text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
         </div>
         <div className="flex items-center gap-1 min-w-0 ml-auto">
           {git && (
@@ -997,7 +997,7 @@ export function ProjectSidebar({
               >
                 <FolderTree size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.files')}</span>
-                <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
+                <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
                 {expandedSections.files && (
                   <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
                     <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
@@ -1073,7 +1073,7 @@ export function ProjectSidebar({
               >
                 <CirclePlay size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.processes')}</span>
-                <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
+                <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 {runningCount > 0 && (
                   <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                     {runningCount}
@@ -1210,7 +1210,7 @@ export function ProjectSidebar({
           >
             <FolderTree size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.files')}</span>
-            <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
+            <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
             {expandedSections.files && (
               <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
                 <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
@@ -1332,7 +1332,7 @@ export function ProjectSidebar({
           >
             <CirclePlay size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.processes')}</span>
-            <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
+            <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             {runningCount > 0 && (
               <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                 {runningCount}

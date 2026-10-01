@@ -85,7 +85,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
             <div className="h-1.5 flex-1 rounded-full bg-black/5 dark:bg-white/5 overflow-hidden">
               <div
                 data-testid="live-context-fill"
-                className={`h-full rounded-full transition-all duration-300 ${liveFill}`}
+                className={`h-full rounded-full transition-all duration-base ${liveFill}`}
                 style={{ width: `${Math.min(Math.max(live.percent, 0), 100)}%` }}
               />
             </div>
@@ -121,7 +121,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
           return (
             <div
               key={source.id}
-              className="h-full transition-all duration-300"
+              className="h-full transition-all duration-base"
               style={{
                 width: `${Math.min(widthPercent, 100)}%`,
                 backgroundColor: CATEGORY_COLORS[source.category] || '#6b7280',

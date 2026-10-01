@@ -120,7 +120,7 @@ export function WindowControls({ visible }: { visible: boolean }) {
       // `windowControlsGeometry.ts`, which is where the why lives and which
       // derives the title inset from it. Written out as a literal because
       // Tailwind scans the source, and pinned to the constant by the test.
-      className={`app-no-drag absolute left-[6px] top-1/2 -translate-y-1/2 z-10 flex items-center gap-[4px] transition-opacity duration-150 ${
+      className={`app-no-drag absolute left-[6px] top-1/2 -translate-y-1/2 z-10 flex items-center gap-[4px] transition-opacity duration-fast ${
         visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
       aria-hidden={!visible}

@@ -64,7 +64,7 @@ export function ContextRing({ percent, level, onClick, size = 14 }: ContextRingP
         strokeDasharray={circumference}
         strokeDashoffset={offset}
         transform={`rotate(-90 ${cx} ${cy})`}
-        className="transition-all duration-300"
+        className="transition-all duration-base"
       />
     </svg>
   );

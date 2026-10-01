@@ -289,7 +289,7 @@ const TreeNode = memo(function TreeNodeRow({ node, depth, selectedPath, expanded
       >
         {isDir ? (
           <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-app-text-tertiary">
-            <ChevronRight size={12} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            <ChevronRight size={12} className={`transition-transform duration-fast ${isExpanded ? 'rotate-90' : ''}`} />
           </span>
         ) : (
           <span className="flex items-center justify-center w-4 h-4 flex-shrink-0">{(() => { const d = getFileIconDef(node.name); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>

@@ -65,7 +65,7 @@ export function MediaViewer({ filePath, mediaType, filename }: { filePath: strin
               src={mediaUrl}
               alt={filename}
               style={{ transform: `scale(${zoom})`, transformOrigin: 'center', maxWidth: zoom <= 1 ? '100%' : 'none', maxHeight: zoom <= 1 ? '100%' : 'none' }}
-              className="object-contain transition-transform duration-100"
+              className="object-contain transition-transform duration-instant"
               onError={() => setImageError(true)}
               draggable={false}
             />
