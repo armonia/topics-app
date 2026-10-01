@@ -605,6 +605,9 @@ export default defineConfig({
         "**/changed-files-complete.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
         "**/turn-fold.spec.ts",
+        // The page the agent opened stays in sight in the turn and brings the
+        // page back from the topic's window: filmed on the engine that ships.
+        "**/chat-browser-open-marker.spec.ts",
         "**/board-conversation-details.spec.ts",
         "**/chat-compact-command.spec.ts",
         "**/chat-compact-drain.spec.ts",
