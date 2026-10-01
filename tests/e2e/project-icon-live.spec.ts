@@ -3,6 +3,9 @@ import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
 
 /**
  * @covers PROJECT-14
