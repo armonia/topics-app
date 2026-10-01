@@ -127,6 +127,7 @@ import { observePlanUsage } from "../providers/native/usage-window";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
 import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
+import { __resetPendingForTests } from "./auth";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
@@ -203,6 +204,10 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       releaseDispatchHold();
       // Same for the stale-stream threshold a spec cut to 1 s.
       setBenchStaleTimeout(null);
+      // And for pairing requests, which live in memory, not in the DB: a spec
+      // that shows the pairing screen leaves one pending, and every later file
+      // would open under the approval card that covers the bottom-right corner.
+      __resetPendingForTests();
       const snap = loadBaseline();
       if (!snap) {
         // Meglio un errore esplicito che un reset silenziosamente saltato: chi
