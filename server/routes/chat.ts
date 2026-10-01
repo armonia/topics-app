@@ -569,7 +569,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const isWoken = body.mode === "woken";
       const adottaTurnoVivo = isReattach || isWoken;
       // Typed by a person, not produced by the machine (goal nudge, dispatch, wake, resume).
-      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt;
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !body.subagentResults && !resumeAttempt;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
@@ -690,7 +690,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
           userRowMarks({
-            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit,
+            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit, subagentResults: body.subagentResults,
             repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),
           }),
         );
@@ -2557,7 +2557,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 pendingAsk: askingPlanApproval || interrupted.length > 0 || sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
                 ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
                 fromHuman: sentByPerson,
-                woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own
+                woken: isWoken || !!body.processExit || !!body.subagentResults, // a command's or a sub-agent's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };

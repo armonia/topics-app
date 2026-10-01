@@ -1098,7 +1098,36 @@ export type ContentBlock =
    * null when the process ended without recording one; `label` is the
    * command's short label, the one the Processes panel shows.
    */
-  | { kind: 'process-exit'; processId: string; exitCode: number | null; label: string };
+  | { kind: 'process-exit'; processId: string; exitCode: number | null; label: string }
+  /**
+   * THIS ROW CARRIES THE RESULTS OF `spawn_agent` CHILDREN, not words anybody
+   * typed (server/services/subagent-wake.ts). A `user` row when it wakes the
+   * parent chat, an `assistant` row when the parent could not be woken; either
+   * way the chat draws one card per result (SUBAGENT-12, SUBAGENT-16).
+   */
+  | { kind: 'subagent-result'; results: SubagentResultCard[] };
+
+/**
+ * One turn of one sub-agent, as its card shows it. `reason.code` is one of the
+ * codes of `server/lib/subagent-result.ts`; a code this client does not know
+ * falls back to the status alone.
+ */
+export interface SubagentResultCard {
+  agentId: string;
+  /** The name the parent chose. */
+  name: string;
+  turn: number;
+  status: 'completed' | 'failed' | 'stopped' | 'undelivered' | 'lost';
+  /** `text` is the last line seen of a cut turn, not an outcome. */
+  partial: boolean;
+  text: string;
+  reason?: { code: string; detail?: string; exitCode?: number };
+  /** The model the child actually ran. */
+  model?: string;
+  agentType?: string;
+  durationMs?: number;
+  branch?: string;
+}
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

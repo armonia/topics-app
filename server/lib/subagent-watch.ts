@@ -32,10 +32,12 @@
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
 import { resolveAppDataDir } from "./data-dir";
-import type { Topic, StoredMessage } from "../types";
+import type { ContentBlock, Topic, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { formatSubAgentExitMessage, formatSubAgentExitBody, type ReportLanguage, type SubAgentExitInfo } from "../routes/subagent-exit";
+import { formatSubAgentExitMessage, formatSubAgentExitBody, subAgentResultOf, type ReportLanguage, type SubAgentExitInfo } from "../routes/subagent-exit";
+import { resultKey } from "./subagent-result";
+import { subagentResultCard, type SubagentWakeRequest } from "../services/subagent-wake";
 
 /** Una sessione padre sorvegliata, col cursore di lettura del suo transcript. */
 interface WatchedSession {
@@ -65,6 +67,8 @@ export interface SubagentWatchDeps {
     sessionKey: string,
     role: "user" | "assistant",
     content: string,
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+    blocks?: ContentBlock[],
   ) => StoredMessage;
   broadcastToAll: (message: OutboundMessage) => void;
   bumpUnread: (topicId: string) => void;
@@ -77,6 +81,12 @@ export interface SubagentWatchDeps {
   watchTimeoutMs?: number;
   /** The language of the report. Absent = Italian, the language it always had. */
   reportLanguage?: () => ReportLanguage;
+  /**
+   * Wake the parent chat with the result (`services/subagent-wake.ts`,
+   * SUBAGENT-12). Absent = the result is written as a plain row at once, the
+   * behaviour before the wake existed.
+   */
+  requestWake?: (r: SubagentWakeRequest) => void;
 }
 
 export interface SubagentWatcher {
@@ -345,28 +355,25 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     startPolling();
   }
 
-  const deliveredExits = new Set<string>(); // childId, contro le uscite doppie
+  /** Delivered results, per child AND turn (SUBAGENT-11): a second turn reports too. */
+  const deliveredExits = new Set<string>();
 
-  function deliverExit(info: SubAgentExitInfo): void {
-    if (!info.parentSessionKey.startsWith("topic:")) return;
-    if (deliveredExits.has(info.childId)) return;
-    deliveredExits.add(info.childId);
-    // Written at once, even while the parent's turn is still open (the usual
-    // case: `stop_agent` is called from inside a turn). The turn writes its
-    // own row by id (`rowId`, de295bf01), so a row born after it is never the
-    // target of its body. Holding the report in memory until the turn closes
-    // lost it for good on a restart: `/stop` has already deleted the child's
-    // row, and no boot path reports it again (SUBAGENT-04, SUBAGENT-07).
+  /**
+   * The result as a plain assistant row with its card block: the fallback of
+   * the wake, and the whole delivery when no wake is wired.
+   */
+  function writeResultRow(info: SubAgentExitInfo): void {
     const topic = deps.getTopicBySessionKey(info.parentSessionKey);
     if (!topic) return;
     const language = deps.reportLanguage?.() ?? "it";
     const body = formatSubAgentExitBody(info, language);
     const content = formatSubAgentExitMessage(info, language);
+    const blocks = [{ kind: "subagent-result" as const, results: [subagentResultCard(subAgentResultOf(info))] }];
     // NON si usa `deliverMessage` qui: l'ordine dei broadcast è quello
     // originale e va tenuto — `unread:updated` arriva DOPO `topic:updated`, non
     // prima. Sono due messaggi che il client applica in sequenza, e invertirli
     // è il genere di modifica che si scopre da un badge che non compare.
-    const stored = deps.appendLocalMessage(info.parentSessionKey, "assistant", content);
+    const stored = deps.appendLocalMessage(info.parentSessionKey, "assistant", content, undefined, blocks);
     deps.broadcastToAll({
       type: "message:new",
       sessionKey: info.parentSessionKey,
@@ -375,6 +382,7 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
       messageId: stored.id,
       content,
       preview: body.slice(0, 100),
+      blocks,
     } as OutboundMessage);
     // Rinfresca `lastActivity` nella sidebar, così la riga non sembra congelata
     // — stessa finalizzazione che fanno i turni di chat.
@@ -383,6 +391,30 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     deps.broadcastToAll({ type: "topic:updated", topic } as OutboundMessage);
     deps.bumpUnread(topic.id);
     console.log(`[SubagentExit] Delivered result of "${info.name}" → topic ${topic.id.slice(0, 8)}`);
+  }
+
+  function deliverExit(info: SubAgentExitInfo): void {
+    if (!info.parentSessionKey.startsWith("topic:")) return;
+    const result = subAgentResultOf(info);
+    const key = resultKey(result);
+    if (deliveredExits.has(key)) { info.settle?.(); return; }
+    deliveredExits.add(key);
+    if (!deps.getTopicBySessionKey(info.parentSessionKey)) { info.settle?.(); return; }
+    // With the wake (choice 3) the result waits for the parent's open turn to
+    // end and then starts a turn of its own. It is not lost meanwhile: the
+    // caller has already written it on the child's `subagents` row, and
+    // `settle` drops that copy only once it reached the chat (SUBAGENT-07).
+    if (deps.requestWake) {
+      deps.requestWake({
+        parentSessionKey: info.parentSessionKey,
+        result,
+        writeRow: () => writeResultRow(info),
+        settle: () => info.settle?.(),
+      });
+      return;
+    }
+    writeResultRow(info);
+    info.settle?.();
   }
 
   return {

@@ -108,3 +108,16 @@ describe("repeatedRowMarks", () => {
     expect(repeatedRowMarks(db, "s", "same")).toBeUndefined();
   });
 });
+
+describe("a sub-agent's results wake the chat in a marked row (SUBAGENT-12)", () => {
+  const card = { agentId: "c1", name: "scout", turn: 1, status: "completed", partial: false, text: "Report: 3 files" };
+
+  test("the well-formed cards ride on the row, so nobody reads them as the person's words", () => {
+    expect(userRowMarks({ subagentResults: [card] })).toEqual([{ kind: "subagent-result", results: [card] }] as never);
+  });
+
+  test("a malformed entry is dropped, and none at all marks nothing", () => {
+    expect(userRowMarks({ subagentResults: [{ ...card, status: "finished" }, { name: "x" }] })).toBeUndefined();
+    expect(userRowMarks({ subagentResults: [] })).toBeUndefined();
+  });
+});
