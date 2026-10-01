@@ -22,7 +22,7 @@ const HOME = `${ROOT}/home`;
 const TOKEN = "subagent-std-token";
 const topicKey = (n: number) => `topic:5a738995-0000-4000-8000-00000000010${n}`;
 const SONNET_CHAT = topicKey(1);
-const GPT_CHAT = topicKey(2);
+const FOREIGN_MODEL_CHAT = topicKey(2);
 const MEDIUM_CHAT = topicKey(3);
 
 let bridge: FakeBridge;
@@ -113,7 +113,7 @@ beforeAll(async () => {
   bridge = await startFakeClaudeBridge(ROOT, SOCKET_PATH);
   ctx = await createTestAppContext();
   topic(SONNET_CHAT, "claude-sonnet-5-5[1m]");
-  topic(GPT_CHAT, "gpt-5.6-sol", "codex");
+  topic(FOREIGN_MODEL_CHAT, "gpt-5.6-sol", "codex");
   topic(MEDIUM_CHAT, "claude-opus-5[1m]");
   ctx.db.run("UPDATE topics SET effort = 'medium' WHERE session_key = ?", [MEDIUM_CHAT]);
   const terminal = await import("../../server/routes/terminal");
@@ -162,7 +162,7 @@ describe("the child starts with the model, profile and effort it was given (SUBA
   }, 30_000);
 
   test("a chat on a GPT model hands nothing down, and the answer says why", async () => {
-    const { body } = await spawn(GPT_CHAT, { model: "inherit" });
+    const { body } = await spawn(FOREIGN_MODEL_CHAT, { model: "inherit" });
     expect(argsOf(body.agentId as string)).not.toContain("--model");
     expect(body.modelNote).toBe("default (parent model gpt-5.6-sol is not a Claude model)");
   }, 30_000);
