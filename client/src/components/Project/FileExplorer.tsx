@@ -13,7 +13,8 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
-import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, SIDEBAR_ACTIVE, SIDEBAR_INDENT_STEP, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
@@ -1167,6 +1168,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     refs: [contextMenuRef],
     restoreFocus: false,
   });
+  // It closes as before; an inert copy fades out (lib/exitGhost, MOTION-04).
+  useExitGhost(contextMenuRef, !!contextMenuPos);
 
   // Keyboard shortcuts for copy/cut/paste
   useEffect(() => {
@@ -1391,7 +1394,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     <div
       ref={contextMenuRef}
       role="menu"
-      className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[200px]"
+      // `POPOVER_SURFACE`: the card was the same classes written by hand,
+      // without the shared entrance every other context menu has.
+      className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
       style={{ ...contextMenuStyle(), zIndex: Z_CONTEXT_MENU }}
     >
       {/* Header */}

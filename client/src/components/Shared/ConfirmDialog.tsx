@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 
 /**
@@ -64,6 +65,10 @@ export function ConfirmDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   useModalDialog({ onClose: onCancel, panelRef, initialFocusRef: cancelRef });
+  // Callers unmount the dialog to close it: the veil and the card fade out as
+  // an inert copy (lib/exitGhost), like settings and the palette.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, true, 'modal');
 
   return (
     // `MODAL_OVERLAY` e non `z-[100]` scritto a mano. Le classi sono le stesse
@@ -75,6 +80,7 @@ export function ConfirmDialog({
     // sotto la card di pairing che arriva da sola: la stessa forma del bug per
     // cui ⌘N «apriva tutti i dropdown». Ora il piano lo dichiara la costante.
     <div
+      ref={overlayRef}
       className={MODAL_OVERLAY}
       onClick={onCancel}
     >

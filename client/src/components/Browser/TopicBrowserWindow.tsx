@@ -39,7 +39,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
@@ -242,6 +243,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // body, because a window shrunk to its bar would clip it away otherwise, and
   // that menu is the ONLY way back for a page lent to the layout.
   const [menuAnchor, setMenuAnchor] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  // The menu closes as before; an inert copy fades out (lib/exitGhost).
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  useExitGhost(addMenuRef, addOpen && menuAnchor !== null);
   // Geometry while a gesture is in flight: the store only hears the result, so
   // a drag is one write instead of one per frame.
   const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null);
@@ -596,9 +600,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
             onPointerDown={() => setAddOpen(false)}
           />
           <div
+            ref={addMenuRef}
             data-testid="topic-browser-add-menu"
             role="menu"
-            className="fixed min-w-[220px] overflow-auto py-1 rounded-md border border-app-border bg-surface shadow-lg"
+            // `POPOVER_SURFACE`: the one menu of the app that drew its own
+            // card (another radius, an opaque fill) and so had no entrance.
+            className={`fixed min-w-[220px] overflow-auto ${POPOVER_SURFACE}`}
             style={{
               left: menuAnchor.left,
               top: menuAnchor.top,

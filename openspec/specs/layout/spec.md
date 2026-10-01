@@ -1353,6 +1353,30 @@ in the stylesheet: a later declaration wins the cascade by source order.
 - **GIVEN** settings or the command palette
 - **THEN** the veil SHALL fade in over at most `--motion-fast`, and on close veil and panel SHALL fade out together
 
+#### Scenario: every other floating surface uses the same entrance and exit
+- **GIVEN** the sidebar user menu and its levels, the app tooltip, the composer's mention menu, the context inspector, the file tree's context menu, the git branch and history popovers, the floating browser window's add menu, an empty browser pane's address sheet, the keyboard shortcuts, new topic, chat settings, changelog, confirmation, file search and project share dialogs, and the image lightbox
+- **WHEN** one opens and then closes
+- **THEN** it SHALL enter through the shared surface styles and leave through the shared exit copy, within the same budgets
+
+#### Scenario: a phone sheet rises and goes back down
+- **GIVEN** a bottom sheet under 768px (a `Menu` sheet, the Topics menu, the context inspector)
+- **WHEN** it opens
+- **THEN** it SHALL slide up over at most `--motion-base` on `--ease-standard`, and its scrim SHALL fade in over at most `--motion-fast`
+- **AND WHEN** it closes, an inert copy of the sheet SHALL slide back down and a copy of its scrim SHALL fade out, within `--motion-fast`
+
+#### Scenario: a fold opens with a fade
+- **GIVEN** a native `<details>` fold or the changelog's internal section
+- **WHEN** it opens
+- **THEN** what it reveals SHALL fade in over at most `--motion-fast`, animating opacity only
+
+#### Scenario: a toast closed by hand
+- **WHEN** the close button of a toast is pressed
+- **THEN** the toast SHALL fade out over `--motion-fast` like a timed dismissal, and then leave the DOM
+
+#### Scenario: a new floating surface is built from the shared pieces
+- **GIVEN** a component that portals a surface or renders a menu, tooltip or dialog
+- **THEN** it SHALL take its card from the shared surface styles or a shared primitive, and a direct user of an entering style SHALL call the shared exit (`floatingSurfaces.test.ts`)
+
 #### Scenario: the curve at runtime
 - **THEN** `--ease-standard` read from the document SHALL be the token of `lib/motion.ts`
 

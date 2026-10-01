@@ -14,6 +14,7 @@ import { ShareControl } from '../Share/ShareControl';
 import { buildTabLinkForTarget } from '../../lib/tabLink';
 import { Select } from '../Shared/Select';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { topicsApi, worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -295,6 +296,10 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   // partito: hooks/useModalDialog. L'Escape scritto a mano stava su `document`
   // e in bolla — con un dialogo annidato rispondevano tutti e due.
   useModalDialog({ open: isOpen, onClose: handleClose, panelRef: dialogRef });
+  // Closing unmounts the dialog at once; the veil and the card fade out as an
+  // inert copy (lib/exitGhost, MOTION-04), like settings and the palette.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useExitGhost(overlayRef, isOpen, 'modal');
 
   if (!isOpen) return null;
 
@@ -306,7 +311,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   // esiste, e senza portale il modale resterebbe imprigionato nella pane invece
   // di coprire la finestra. Vedi PaneKeepAlive.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={handleClose} role="dialog" aria-modal="true" aria-label={`${topic.name} Settings`}>
+    <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center" onClick={handleClose} role="dialog" aria-modal="true" aria-label={`${topic.name} Settings`}>
       <div className={`absolute ${MODAL_BACKDROP}`} />
       <div
         ref={dialogRef}

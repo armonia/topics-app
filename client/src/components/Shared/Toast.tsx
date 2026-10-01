@@ -3,6 +3,7 @@ import { useT } from '../../hooks/useT';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
 import { MOTION } from '../../lib/motion';
+import { prefersReducedMotion } from '../../lib/reducedMotion';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -103,6 +104,16 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
     return () => { clearTimeout(exitTimer); clearTimeout(removeTimer); };
   }, [t.id, t.duration, onRemove]);
 
+  // THE CLOSE BUTTON LEAVES THE WAY THE TIMER DOES. It removed the toast in
+  // one frame while the timed dismissal faded it: the same card, two exits.
+  // Now it plays the same `exit` state for one `fast` fade, then removes; with
+  // reduced motion there is no fade to wait for, so it goes at once.
+  const dismiss = useCallback(() => {
+    if (prefersReducedMotion()) { onRemove(t.id); return; }
+    setState('exit');
+    setTimeout(() => onRemove(t.id), MOTION.fast);
+  }, [onRemove, t.id]);
+
   const { bg, icon } = styles[t.type];
 
   return (
@@ -135,7 +146,7 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
           {t.action.label}
         </button>
       )}
-      <button aria-label={tr('toast.close')} onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+      <button aria-label={tr('toast.close')} onClick={dismiss} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
         <X size={12} />
       </button>
     </div>

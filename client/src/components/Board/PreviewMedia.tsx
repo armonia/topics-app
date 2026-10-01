@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, FileText, Maximize2, PanelTop, X } from 'luc
 import { getMediaUrl } from '../../lib/api';
 import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
 import { MODAL_LAYER } from '../../lib/modalStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
@@ -38,6 +39,10 @@ function Lightbox({ url, video, onClose, su, giu, posizione }: {
   // dialoghi (hooks/useModalDialog), invece di un listener scritto a mano qui.
   const panelRef = useRef<HTMLDivElement>(null);
   useModalDialog({ onClose, panelRef });
+  // `anim-pop` was never defined in the stylesheet, so the lightbox landed in
+  // one frame: it fades in on the shared veil entrance and leaves as an inert
+  // copy (lib/exitGhost, MOTION-04).
+  useExitGhost(panelRef, true, 'modal');
   return createPortal(
     <div
       ref={panelRef}
@@ -45,7 +50,7 @@ function Lightbox({ url, video, onClose, su, giu, posizione }: {
       // `MODAL_LAYER` e non `z-[200]`: un lightbox a schermo intero è una
       // superficie modale, e 200 lo lasciava sotto ogni popover (9999). Il
       // piano si dichiara con la costante, non con un numero scelto a occhio.
-      className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop`}
+      className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm modal-backdrop-enter`}
       data-testid="preview-lightbox"
       // `role="dialog"` non è solo ARIA: è il marcatore con cui il resto
       // dell'app riconosce che c'è un modale aperto (lib/modalSurface). Senza,
