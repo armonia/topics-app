@@ -48,6 +48,7 @@ import {
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
+import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
 import { archiveTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
@@ -3281,6 +3282,55 @@ function isRemotePeer(req: Request, srv: { requestIP(req: Request): { address: s
   return !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
 }
 
+// The /api/* routers in precedence order: see server/route-table.ts.
+const apiRouteTable = buildRouteTable({
+  topicsRouter,
+  orchestratorSessionsRouter,
+  voiceRouter,
+  mediaRouter,
+  branchesRouter,
+  projectsRouter,
+  worktreesRouter,
+  machinesRouter,
+  nodesRouter,
+  filesRouter,
+  browserRouter,
+  cronRouter,
+  contextRouter,
+  terminalRouter,
+  statusRouter,
+  memoryRouter,
+  mcpRouter,
+  sessionEnvironmentRouter,
+  activityRouter,
+  externalSessionsRouter,
+  checkpointsRouter,
+  goalsRouter,
+  openRouter,
+  openclawContextRouter,
+  contextPreviewRouter,
+  authRouter,
+  accountRouter,
+  peopleRouter,
+  licenseRouter,
+  billingRouter,
+  dashboardRouter,
+  usageRouter,
+  profileRouter,
+  processesRouter,
+  tasksRouter,
+  pushRouter,
+  notificationsRouter,
+  clientTraceRouter,
+  uiStateRouter,
+  providersRouter,
+  appSettingsRouter,
+  calendarRouter,
+  tabsRouter,
+  claudeHooksRouter,
+  e2eRouter,
+});
+
 const opzioniServer = {
   port: PORT,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
@@ -3885,52 +3935,7 @@ const opzioniServer = {
 
     // Route through handlers
     if (isApiRequest) {
-      const response = await topicsRouter(req, url, pathname, method)
-        || await orchestratorSessionsRouter(req, url, pathname, method)
-        || await voiceRouter(req, url, pathname, method)
-        || await mediaRouter(req, url, pathname, method)
-        || await branchesRouter(req, url, pathname, method)
-        || await projectsRouter(req, url, pathname, method)
-        || await worktreesRouter(req, url, pathname, method)
-        || await machinesRouter(req, url, pathname, method)
-        || await nodesRouter(req, url, pathname, method)
-        || await filesRouter(req, url, pathname, method)
-        || await browserRouter(req, url, pathname, method)
-        || await cronRouter(req, url, pathname, method)
-        || await contextRouter(req, url, pathname, method)
-        || await terminalRouter(req, url, pathname, method)
-        || await statusRouter(req, url, pathname, method)
-        || await memoryRouter(req, url, pathname, method)
-        || await mcpRouter(req, url, pathname, method)
-        || await sessionEnvironmentRouter(req, url, pathname, method)
-        || await activityRouter(req, url, pathname, method)
-        || await externalSessionsRouter(req, url, pathname, method)
-        || await checkpointsRouter(req, url, pathname, method)
-        || await goalsRouter(req, url, pathname, method)
-        || await openRouter(req, url, pathname, method)
-        || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
-        || await contextPreviewRouter(req, url, pathname, method)
-        || await authRouter(req, url, pathname, method)
-        || await accountRouter(req, url, pathname, method)
-        || await peopleRouter(req, url, pathname, method)
-        || await licenseRouter(req, url, pathname, method)
-        || await billingRouter(req, url, pathname, method)
-        || await dashboardRouter(req, url, pathname, method)
-        || await usageRouter(req, url, pathname, method)
-        || await profileRouter(req, url, pathname, method)
-        || await processesRouter(req, url, pathname, method)
-        || await tasksRouter(req, url, pathname, method)
-        || await pushRouter(req, url, pathname, method)
-        || await notificationsRouter(req, url, pathname, method)
-        || await clientTraceRouter(req, url, pathname, method)
-        || await uiStateRouter(req, url, pathname, method)
-        || await providersRouter(req, url, pathname, method)
-        || await appSettingsRouter(req, url, pathname, method)
-        || await calendarRouter(req, url, pathname, method)
-        || await tabsRouter(req, url, pathname, method)
-        || await claudeHooksRouter(req, url, pathname, method)
-        || await e2eRouter(req, url, pathname, method)
-;
+      const response = await dispatchRouteTable(apiRouteTable, req, url, pathname, method);
 
       if (response) {
         applyDesktopCors(req, response);
