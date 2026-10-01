@@ -36,7 +36,10 @@ import { useCommandRun } from './Chat/useCommandRun';
 import { RunButtons, RunConfirmStrip } from './Chat/CodeBlockRunControls';
 
 // Only a block that has been run draws one: its output reader stays out of the first load.
-const CommandRunBlock = lazy(() => import('./Chat/CommandRunBlock').then((m) => ({ default: m.CommandRunBlock })));
+const CommandRunBlock = lazy(async () => {
+  const { CommandRunBlock: block } = await import('./Chat/CommandRunBlock');
+  return { default: block };
+});
 
 /**
  * Directory of the markdown file currently being previewed. Used by
