@@ -167,3 +167,23 @@ test('una sessione uscita ADESSO non è un cadavere: prima si richiede', () => {
   // The fresh read says parked, so the tab stays, overlay and all.
   expect(decideRestoredTerminalPane('A', roster, seen, true, new Set(['A']))).toBe('keep');
 });
+
+/**
+ * SUBSTRIP-01g. A sub-agent stopped by its parent has its row DELETED, so a
+ * fresh read confirms it gone; before, its tab inside a project closed by
+ * itself while the chat still showed it as ended.
+ */
+describe("decideRestoredTerminalPane — ended sub-agents", () => {
+  test("the tab of an ended sub-agent stays, even once confirmed gone", () => {
+    const ended = set("child");
+    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1", "child"), true, NONE, set("child"), ended)).toBe("keep");
+  });
+
+  test("and across a reload, when it was never seen in this mount", () => {
+    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1"), true, NONE, NONE, set("child"))).toBe("keep");
+  });
+
+  test("once its row is dismissed, a gone session is pruned as before", () => {
+    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1", "child"), true, NONE, set("child"), NONE)).toBe("prune");
+  });
+});

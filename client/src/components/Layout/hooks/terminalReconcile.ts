@@ -66,6 +66,15 @@
  * asks the server again, and only an id the fresh answer does NOT list (it
  * lands in `confirmedGoneIds`) is finally pruned. That is also what terminates
  * the loop: without it a re-read would return `verify` forever.
+ *
+ * AN ENDED SUB-AGENT IS A FOURTH CASE, and its tab is not a corpse either. A
+ * chat's sub-agent stopped by its parent (`stop_agent`) has its row DELETED,
+ * not parked: the fresh dormant read does not list it, so it was confirmed
+ * gone and its tab inside the project closed by itself a moment after the
+ * end, while the chat's strip kept its row marked ended (SUBSTRIP-01). The
+ * ended sub-agents the client remembers (`state/endedSubAgents.ts`) are
+ * passed in, and their panes stay for as long as that row does: until the
+ * user closes the tab or dismisses the row, or the parent chat is archived.
  */
 
 /** Keep the pane · re-read the dormant list before deciding · prune it. */
@@ -87,6 +96,8 @@ export type RestoredTerminalPaneVerdict = 'keep' | 'verify' | 'prune';
  * @param confirmedGoneIds     session ids a dormant list read AFTER their
  *                             disappearance did not list: neither live nor
  *                             parked, so they are really gone.
+ * @param endedSubAgentIds     sub-agents whose end the chat's strip shows as an
+ *                             ended row: their tab stays with the row.
  */
 const NO_IDS: ReadonlySet<string> = new Set<string>();
 
@@ -97,6 +108,7 @@ export function decideRestoredTerminalPane(
   rosterAuthoritative = false,
   dormantIds: ReadonlySet<string> = NO_IDS,
   confirmedGoneIds: ReadonlySet<string> = NO_IDS,
+  endedSubAgentIds: ReadonlySet<string> = NO_IDS,
 ): RestoredTerminalPaneVerdict {
   // Present now → keep.
   if (rosterIds.has(sessionId)) return 'keep';
@@ -104,6 +116,9 @@ export function decideRestoredTerminalPane(
   // parked session is indistinguishable from one closed elsewhere, and pruning
   // it would make the idle-park mechanism delete the tabs it is parking.
   if (dormantIds.has(sessionId)) return 'keep';
+  // An ended sub-agent → keep. Its session is gone for good, but the user has
+  // not dismissed it yet: the tab says how it ended until they do.
+  if (endedSubAgentIds.has(sessionId)) return 'keep';
   // Seen-then-gone: closed in another window, or parked one second ago. The
   // dormant set in hand cannot tell them apart, because it was read before the
   // disappearance. Ask again; prune only once the fresh answer has ruled.

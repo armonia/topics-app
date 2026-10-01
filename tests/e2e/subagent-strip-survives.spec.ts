@@ -15,11 +15,11 @@
  * reached. The tripwire below refuses to go on if the PTY resolved any other
  * binary.
  *
- * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f
+ * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f SUBSTRIP-01g SUBSTRIP-01h
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
 import {
@@ -62,10 +62,10 @@ test.beforeEach(async ({ request }) => {
  * Spawn a sub-agent of the test's chat through the route the MCP `spawn_agent`
  * tool calls, and check it runs the stub.
  */
-async function spawnSubAgent(request: APIRequestContext, name: string): Promise<string> {
+async function spawnSubAgent(request: APIRequestContext, name: string, cwd = "/tmp"): Promise<string> {
   const spawned = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/spawn`, {
     headers: TOKEN,
-    data: { prompt: "wait for instructions", name, cwd: "/tmp" },
+    data: { prompt: "wait for instructions", name, cwd },
   });
   expect(spawned.ok(), `spawn refused: ${spawned.status()} ${await spawned.text()}`).toBe(true);
   const id = ((await spawned.json()) as { agentId: string }).agentId;
@@ -329,26 +329,28 @@ async function endFromItsPane(page: Page): Promise<void> {
   await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
 }
 
-test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
-  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01e" });
-  // The project keeps a closed terminal's session for a minute (the undo
-  // window) before retiring it, and the row must not come back then.
-  test.setTimeout(180_000);
-  // The chat of a PROJECT, with its sub-agent's pane moved into the project
-  // window: a close there runs the project's own close, not the one of the
-  // top-level tabs that the test above covers.
+/**
+ * The test's chat moved into a PROJECT, with its sub-agent and a live
+ * sentinel, and the sub-agent's pane open in the project window: a close or a
+ * prune there runs the project's own code, not the one of the top-level tabs.
+ * `agentInProject` runs the sub-agent in the project's folder, as one spawned
+ * from there does, instead of `/tmp`.
+ */
+async function chatInProjectWithPaneOpen(
+  page: Page, dirName: string, agentInProject = false,
+): Promise<{ projectDir: string; sentinelId: string; inProject: Locator }> {
   // The standalone chat of beforeEach goes first: its sub-agent would be a
   // second row with the same name in the sidebar.
   await deleteTopic(page.request, topicId);
   await deleteAllTerminalSessions(page.request);
-  const projectDir = canonicalTmpDir("e2e-substrip-project");
+  const projectDir = canonicalTmpDir(dirName);
   mkdirSync(projectDir, { recursive: true });
   topicId = (await createTopic(page.request, `${TOPIC_NAME} in project`, { projectPath: projectDir })).id;
   const list = await page.request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
   const { topics } = (await list.json()) as { topics: Record<string, { sessionKey: string; projectPath?: string }> };
   sessionKey = topics[topicId]?.sessionKey ?? "";
   expect(topics[topicId]?.projectPath, "the chat belongs to a project").toBeTruthy();
-  agentId = await spawnSubAgent(page.request, AGENT_NAME);
+  agentId = await spawnSubAgent(page.request, AGENT_NAME, agentInProject ? projectDir : "/tmp");
   const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
 
   await resetPaneStore(page.request, []);
@@ -365,6 +367,15 @@ test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does n
   await expect(inProject.first()).toBeVisible({ timeout: 20_000 });
   await inProject.first().click();
   await expect(page.locator('[data-testid="single-terminal-pane"]:visible')).toBeVisible({ timeout: 20_000 });
+  return { projectDir, sentinelId, inProject };
+}
+
+test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01e" });
+  // The project keeps a closed terminal's session for a minute (the undo
+  // window) before retiring it, and the row must not come back then.
+  test.setTimeout(180_000);
+  const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-project");
 
   await closeTabViaCommand(inProject.first());
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
@@ -405,4 +416,88 @@ test("SUBSTRIP-01f: Cmd+W on the tab of an ENDED sub-agent takes its row away, f
   await reloadToChat(page);
   await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 20_000 });
   await expect(stripRow(page)).toHaveCount(0);
+});
+
+/**
+ * How many answers to the dormant list this page has had. A terminal tab whose
+ * session is not in the roster is decided on such an answer: parked, it stays;
+ * not listed, it is gone. After a reload the first one comes from the network
+ * (the 2 s read cache of `coalescedFetch` lives in the page), so counting them
+ * is how the tests below know the boot verdict was taken, instead of sleeping
+ * on it. Right after an end the verdict may instead come from a cached read,
+ * with nothing to count: that moment is checked, and the reload is the proof.
+ */
+function countDormantReads(page: Page): () => number {
+  let n = 0;
+  page.on("response", (r) => {
+    if (new URL(r.url()).pathname === "/api/terminal/sessions/dormant") n++;
+  });
+  return () => n;
+}
+
+/** Two frames: a verdict taken in a fetch callback has been rendered. */
+async function twoFrames(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+}
+
+/**
+ * The parent stops its sub-agent (`stop_agent`): the session is DELETED, not
+ * parked, so the dormant list does not list it and it reads as gone. Returns
+ * once this page has taken the roster without it and shows its row ended.
+ */
+async function stopAndSeeItEnded(page: Page): Promise<void> {
+  await stopSubAgent(page.request, agentId);
+  await expect.poll(() => clientDropped(page, agentId), { timeout: 30_000 }).toBe(true);
+  await showChat(page);
+  await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
+  await twoFrames(page);
+}
+
+/** Reload, and return once the boot verdict on every terminal tab is taken. */
+async function reloadAndAwaitVerdict(page: Page, dormantReads: () => number, sentinelId: string): Promise<void> {
+  const before = dormantReads();
+  await reloadToChat(page);
+  await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 20_000 });
+  await expect.poll(dormantReads, { timeout: 15_000 }).toBeGreaterThan(before);
+  await twoFrames(page);
+}
+
+test("SUBSTRIP-01g: inside a project, the tab of a sub-agent its parent stopped stays open with its ended row", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01g" });
+  const dormantReads = countDormantReads(page);
+  const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-ends-in-project", true);
+
+  // The end. Before the fix the tab closed by itself here: the dormant list
+  // does not hold a stopped sub-agent, so the project's prune took its tab.
+  await stopAndSeeItEnded(page);
+  expect(await inProject.count(), "the ended sub-agent's tab, once its row says ended").toBe(1);
+
+  // A reload is not a dismissal: the restored tab is never seen in a roster
+  // again, and an authoritative one does not list it.
+  await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
+  expect(await inProject.count(), "the ended sub-agent's tab, after a reload").toBe(1);
+  await expect(stripRow(page)).toHaveAttribute("data-state", "ended");
+
+  // Dismissing the row is the user done with it: the tab kept for that row
+  // goes with it, at once, not at the next roster that happens to come in.
+  await stripRow(page).getByTestId("subagent-dismiss").click();
+  await expect(stripRow(page)).toHaveCount(0);
+  await expect(inProject).toHaveCount(0, { timeout: 5_000 });
+  await resetProjectPanes(page.request, projectDir).catch(() => {});
+  removeTmpDir(projectDir);
+});
+
+test("SUBSTRIP-01h: a top-level tab of a sub-agent its parent stopped stays open with its ended row", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01h" });
+  const dormantReads = countDormantReads(page);
+  const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
+
+  await openChat(page);
+  await openPaneFromStrip(page);
+  await stopAndSeeItEnded(page);
+  expect(await terminalTab(page).count(), "the ended sub-agent's tab, once its row says ended").toBe(1);
+
+  await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
+  expect(await terminalTab(page).count(), "the ended sub-agent's tab, after a reload").toBe(1);
+  await expect(stripRow(page)).toHaveAttribute("data-state", "ended");
 });
