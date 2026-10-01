@@ -166,6 +166,38 @@ function fuzzyScanDir(dir: string): string | null {
   return null;
 }
 
+const INDEX_HTML_CANDIDATES = ["index.html", "public/index.html"];
+const REMOTE_URL_RE = /^(https?:)?\/\//;
+
+/** The local (or inline `data:`) icon sources a web manifest declares, largest
+ *  declared size first; empty when the file is missing or malformed. */
+function manifestIconSrcs(manifestPath: string): string[] {
+  if (!isFile(manifestPath)) return [];
+  try {
+    const m = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    const icons: Array<{ src?: string; sizes?: string }> = Array.isArray(m.icons) ? m.icons : [];
+    return icons
+      .filter((i) => typeof i.src === "string" && !REMOTE_URL_RE.test(i.src!))
+      .map((i) => ({ src: i.src!, size: parseInt((i.sizes || "0").split("x")[0], 10) || 0 }))
+      .sort((a, b) => b.size - a.size)
+      .map((i) => i.src);
+  } catch { return []; /* malformed manifest — ignore */ }
+}
+
+/** The local (or inline `data:`) href of an index.html's `<link rel=icon>`. */
+function indexIconHref(htmlPath: string): string | null {
+  if (!isFile(htmlPath)) return null;
+  try {
+    const href = extractIconHref(readFileSync(htmlPath, "utf-8"));
+    return href && !REMOTE_URL_RE.test(href) ? href : null;
+  } catch { return null; /* unreadable — ignore */ }
+}
+
+/** Where a manifest's or a page's local icon reference points on disk. */
+function localIconTarget(referrer: string, src: string): string {
+  return join(dirname(referrer), src.replace(/^\//, ""));
+}
+
 /** One full icon scan of a single directory: conventional favicon/logo files,
  *  then web-manifest icons, then index.html <link rel=icon> (file or inline
  *  data URI), then the fuzzy filename scan. */
@@ -177,40 +209,28 @@ export function scanDirForIcon(dir: string): ResolvedProjectIcon | null {
   // Web manifest: pick the icon with the largest declared size (fallback first).
   for (const rel of MANIFEST_CANDIDATES) {
     const mp = join(dir, rel);
-    if (!isFile(mp)) continue;
-    try {
-      const m = JSON.parse(readFileSync(mp, "utf-8"));
-      const icons: Array<{ src?: string; sizes?: string }> = Array.isArray(m.icons) ? m.icons : [];
-      const scored = icons
-        .filter((i) => typeof i.src === "string" && !/^(https?:)?\/\//.test(i.src!))
-        .map((i) => ({ src: i.src!, size: parseInt((i.sizes || "0").split("x")[0], 10) || 0 }))
-        .sort((a, b) => b.size - a.size);
-      for (const { src } of scored) {
-        if (src.startsWith("data:")) {
-          const inline = parseDataUriIcon(src);
-          if (inline) return { kind: "inline", ...inline };
-          continue;
-        }
-        const cand = join(dirname(mp), src.replace(/^\//, ""));
-        if (isFile(cand) && extname(cand).toLowerCase() in ICON_CONTENT_TYPE) return fileIcon(cand);
-      }
-    } catch { /* malformed manifest — ignore */ }
-  }
-  // index.html <link rel="icon"> — file href or inline data: URI.
-  for (const rel of ["index.html", "public/index.html"]) {
-    const hp = join(dir, rel);
-    if (!isFile(hp)) continue;
-    try {
-      const href = extractIconHref(readFileSync(hp, "utf-8"));
-      if (!href || /^(https?:)?\/\//.test(href)) continue;
-      if (href.startsWith("data:")) {
-        const inline = parseDataUriIcon(href);
+    for (const src of manifestIconSrcs(mp)) {
+      if (src.startsWith("data:")) {
+        const inline = parseDataUriIcon(src);
         if (inline) return { kind: "inline", ...inline };
         continue;
       }
-      const cand = join(dirname(hp), href.replace(/^\//, ""));
+      const cand = localIconTarget(mp, src);
       if (isFile(cand) && extname(cand).toLowerCase() in ICON_CONTENT_TYPE) return fileIcon(cand);
-    } catch { /* unreadable — ignore */ }
+    }
+  }
+  // index.html <link rel="icon"> — file href or inline data: URI.
+  for (const rel of INDEX_HTML_CANDIDATES) {
+    const hp = join(dir, rel);
+    const href = indexIconHref(hp);
+    if (!href) continue;
+    if (href.startsWith("data:")) {
+      const inline = parseDataUriIcon(href);
+      if (inline) return { kind: "inline", ...inline };
+      continue;
+    }
+    const cand = localIconTarget(hp, href);
+    if (isFile(cand) && extname(cand).toLowerCase() in ICON_CONTENT_TYPE) return fileIcon(cand);
   }
   // Last resort: loosely-named brand files (logo-acme.png, favicon-32.png, …).
   const fuzzy = fuzzyScanDir(dir);
@@ -297,7 +317,7 @@ const SCAN_ROOT_DIRS: readonly string[] = (() => {
     let d = rel;
     while (d && d !== ".") { out.add(d); d = dirname(d); }
   };
-  for (const rel of [...ICON_CANDIDATES, ...MANIFEST_CANDIDATES, "index.html", "public/index.html"]) {
+  for (const rel of [...ICON_CANDIDATES, ...MANIFEST_CANDIDATES, ...INDEX_HTML_CANDIDATES]) {
     addWithAncestors(dirname(rel));
   }
   for (const d of FUZZY_DIRS) if (d) addWithAncestors(d);
@@ -308,17 +328,42 @@ const SCAN_ROOT_DIRS: readonly string[] = (() => {
  * The directories to watch so that ANY change able to alter
  * `resolveProjectIcon(dir)` is seen: for the root and for each nested-app root
  * that exists, the `SCAN_ROOT_DIRS` that exist; the root itself also sees a
- * nested app or `apps/` appear; `apps/` sees a new app; and the folder of the
- * file currently served, since a manifest or an index.html may point anywhere
- * inside the project. Non-recursive on purpose: one watch per folder that
- * matters, never a walk of the whole tree (node_modules included).
+ * nested app or `apps/` appear; `apps/` sees a new app.
+ *
+ * And the folders a manifest or an index.html NAMES, which may be anywhere in
+ * the project (`public/icons/`, `media/brand/`). They are read from those files
+ * and not from the icon served now: an icon that does not exist yet, or that a
+ * script removes and writes back, has no "served file" to take the folder from,
+ * and watching only what is served lost exactly those two. A named folder that
+ * does not exist yet is covered by its nearest existing ancestor: its creation
+ * is an entry there, and the next check watches it.
+ *
+ * Non-recursive on purpose: one watch per folder that matters, never a walk of
+ * the whole tree (node_modules included).
  */
-export function projectIconWatchDirs(dir: string, resolved: ResolvedProjectIcon | null): string[] {
+export function projectIconWatchDirs(dir: string): string[] {
   const out = new Set<string>();
+  const addNamed = (target: string) => {
+    // Every existing folder from the target's up to the project root, never
+    // past it: a reference to `../../elsewhere` adds nothing.
+    for (let d = dirname(target); d === dir || isInsideDir(d, dir); d = dirname(d)) {
+      if (isDir(d)) out.add(d);
+      if (d === dir) break;
+    }
+  };
   const addRoot = (root: string) => {
     for (const rel of SCAN_ROOT_DIRS) {
       const d = rel ? join(root, rel) : root;
       if (isDir(d)) out.add(d);
+    }
+    for (const rel of MANIFEST_CANDIDATES) {
+      const mp = join(root, rel);
+      for (const src of manifestIconSrcs(mp)) if (!src.startsWith("data:")) addNamed(localIconTarget(mp, src));
+    }
+    for (const rel of INDEX_HTML_CANDIDATES) {
+      const hp = join(root, rel);
+      const href = indexIconHref(hp);
+      if (href && !href.startsWith("data:")) addNamed(localIconTarget(hp, href));
     }
   };
   addRoot(dir);
@@ -335,10 +380,6 @@ export function projectIconWatchDirs(dir: string, resolved: ResolvedProjectIcon 
         if (isDir(nested)) addRoot(nested);
       }
     } catch { /* unreadable — ignore */ }
-  }
-  if (resolved?.kind === "file") {
-    const d = dirname(resolved.path);
-    if (d === dir || isInsideDir(d, dir)) out.add(d);
   }
   return [...out];
 }

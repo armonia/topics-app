@@ -15,7 +15,7 @@ import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
  * icon that changed kept showing the old bytes (same URL, already decoded in the
  * page), and a removed icon stayed on screen.
  *
- * The three tests below change the folder ONLY on disk, never reload the page,
+ * The tests below change the folder ONLY on disk, never reload the page,
  * and watch two pages of the same browser: the second page is a second window.
  */
 
@@ -110,6 +110,30 @@ test.describe("PROJECT-14: a project's icon follows its folder without a reload"
 
     writeFileSync(`${dir}/favicon.svg`, svg(BLUE));
 
+    for (const p of pages) {
+      await expect.poll(() => drawnIconColor(p, dirName), { timeout: 5000 }).toBe(BLUE);
+    }
+  });
+
+  test("named: an icon a manifest names in its own folder shows up, and comes back after a regeneration", async ({ page, context }) => {
+    // `public/icons/` is not one of the usual places: only the manifest says
+    // the icon lives there.
+    mkdirSync(`${dir}/public/icons`, { recursive: true });
+    writeFileSync(`${dir}/public/manifest.json`, JSON.stringify({ icons: [{ src: "/icons/icon.svg", sizes: "192x192" }] }));
+    const pages = await twoWindows(page, context);
+    for (const p of pages) await expect.poll(() => iconCount(p, dirName)).toBe(0);
+
+    writeFileSync(`${dir}/public/icons/icon.svg`, svg(RED));
+    for (const p of pages) {
+      await expect.poll(() => drawnIconColor(p, dirName), { timeout: 5000 }).toBe(RED);
+    }
+
+    // A script that regenerates the icons: the file goes away, then comes back.
+    unlinkSync(`${dir}/public/icons/icon.svg`);
+    for (const p of pages) {
+      await expect.poll(() => iconCount(p, dirName), { timeout: 5000 }).toBe(0);
+    }
+    writeFileSync(`${dir}/public/icons/icon.svg`, svg(BLUE));
     for (const p of pages) {
       await expect.poll(() => drawnIconColor(p, dirName), { timeout: 5000 }).toBe(BLUE);
     }

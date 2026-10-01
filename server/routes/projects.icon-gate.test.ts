@@ -92,7 +92,7 @@ beforeEach(() => {
     OPENCLAW_DIR: openclawDir,
     loadTopics: () => ({ topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
     worktreeStore: { list: () => [] },
-    projectStore: { list: () => [] },
+    projectStore: { list: () => [], getByPath: () => null },
     json: (data: any, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
     readJSON: (req: Request) => req.json(),
@@ -100,6 +100,7 @@ beforeEach(() => {
     errorResponse: (status: number, error: string) =>
       new Response(JSON.stringify({ error }), { status, headers: { "Content-Type": "application/json" } }),
     broadcastToAll: () => {},
+    broadcastToProjectViewers: () => {},
   } as unknown as AppContext;
   router = createProjectsRouter(ctx) as typeof router;
 });

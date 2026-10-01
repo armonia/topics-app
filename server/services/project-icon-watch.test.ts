@@ -109,6 +109,27 @@ describe("project-icon-watch on the real disk", () => {
     expect(await until(() => frames.at(-1)?.version === null)).toBe(true);
     expect(frames.at(-1)).toEqual({ type: "project:icon", path: p, version: null });
   });
+
+  test("an icon a manifest names in a folder of its own is seen when it lands, and again after a regeneration", async () => {
+    const iw = createProjectIconWatch({ push: (f) => frames.push(f), debounceMs: 30 });
+    watches.push(iw);
+    const p = project("manifest");
+    mkdirSync(join(p, "public", "icons"), { recursive: true });
+    writeFileSync(join(p, "public", "manifest.json"), JSON.stringify({ icons: [{ src: "/icons/icon.svg", sizes: "192x192" }] }));
+    const icon = join(p, "public", "icons", "icon.svg");
+    expect(observe(iw, p)).toBeNull();
+
+    let w = 16;
+    writeFileSync(icon, svg(w));
+    expect(await until(() => frames.at(-1)?.version != null, () => writeFileSync(icon, svg(++w)))).toBe(true);
+
+    // A script that regenerates the icons removes the file and writes it back
+    // later: the folder must still be watched while the icon is missing.
+    unlinkSync(icon);
+    expect(await until(() => frames.at(-1)?.version === null)).toBe(true);
+    writeFileSync(icon, svg(++w));
+    expect(await until(() => frames.at(-1)?.version != null, () => writeFileSync(icon, svg(++w)))).toBe(true);
+  });
 });
 
 describe("project-icon-watch rules", () => {
@@ -127,6 +148,27 @@ describe("project-icon-watch rules", () => {
     fire(join(p, "public"), "favicon.svg");
     expect(await until(() => frames.length === 1)).toBe(true);
     expect(frames[0].version).not.toBeNull();
+  });
+
+  test("a folder a manifest names stays watched while its icon is missing", async () => {
+    const { iw, fire, watched } = seamWatch();
+    const p = project("regen");
+    const icons = join(p, "public", "icons");
+    mkdirSync(icons, { recursive: true });
+    writeFileSync(join(p, "public", "manifest.json"), JSON.stringify({ icons: [{ src: "/icons/icon.svg" }] }));
+    writeFileSync(join(icons, "icon.svg"), svg(16));
+    expect(observe(iw, p)).not.toBeNull();
+
+    unlinkSync(join(icons, "icon.svg"));
+    fire(icons, "icon.svg");
+    expect(await until(() => frames.length === 1)).toBe(true);
+    expect(frames[0].version).toBeNull();
+    expect(watched()).toContain(icons);
+
+    writeFileSync(join(icons, "icon.svg"), svg(32));
+    fire(icons, "icon.svg");
+    expect(await until(() => frames.length === 2)).toBe(true);
+    expect(frames[1].version).not.toBeNull();
   });
 
   test("an event on a source file does not even look", async () => {

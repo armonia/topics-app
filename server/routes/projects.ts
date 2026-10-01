@@ -60,7 +60,7 @@ let iconAllowCache: { at: number; dirs: Set<string>; db: unknown } | null = null
 const ICON_VERSIONS_MAX_PATHS = 512;
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject } = ctx;
+  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
 
   /**
    * La riga intera esce SOLO verso chi la vede: `broadcastProject` chiede
@@ -79,8 +79,19 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
    * changes or goes away leaves as one `project:icon` frame (see
    * `services/project-icon-watch.ts`). Fed by the two icon routes below, so
    * it covers exactly the projects on screen, whatever pane is open.
+   *
+   * The frame carries the project's path, so it goes only to the sockets that
+   * see the project, like the row frames above: to every socket it would hand
+   * an incognito project's path to an org mate. A folder with no project row
+   * of its own (a topic's folder, a worktree) falls on the rule of a project
+   * without an organisation: the machine and the installation's owners.
    */
-  const iconWatch = createProjectIconWatch({ push: (frame) => broadcastToAll(frame) });
+  const iconWatch = createProjectIconWatch({
+    push: (frame, realDir) => {
+      const row = projectStore.getByPath(frame.path) ?? projectStore.getByPath(realDir);
+      broadcastToProjectViewers(frame, visibilitaDi(row ?? {}));
+    },
+  });
 
   /**
    * Whether the icon of this (realpath'd) folder may be served: exact member

@@ -46,7 +46,8 @@ export type ProjectIconFrame = {
 interface DirHandle { close(): void }
 
 export interface ProjectIconWatchDeps {
-  push: (frame: ProjectIconFrame) => void;
+  /** One frame per path a client asked with; `realDir` is the folder behind it. */
+  push: (frame: ProjectIconFrame, realDir: string) => void;
   /** Quiet time after the last relevant event before the icon is resolved again. */
   debounceMs?: number;
   /** Projects watched at once; past it the one asked about longest ago is dropped. */
@@ -101,12 +102,12 @@ export function createProjectIconWatch(deps: ProjectIconWatchDeps): ProjectIconW
   const watchDir = deps.watchDir ?? defaultWatchDir;
   const entries = new Map<string, Entry>();
 
-  function announce(entry: Entry): void {
-    for (const path of entry.aliases) deps.push({ type: "project:icon", path, version: entry.version });
+  function announce(realDir: string, entry: Entry): void {
+    for (const path of entry.aliases) deps.push({ type: "project:icon", path, version: entry.version }, realDir);
   }
 
-  function arm(realDir: string, entry: Entry, resolved: ResolvedProjectIcon | null): void {
-    const wanted = new Set(existsSync(realDir) ? projectIconWatchDirs(realDir, resolved) : []);
+  function arm(realDir: string, entry: Entry): void {
+    const wanted = new Set(existsSync(realDir) ? projectIconWatchDirs(realDir) : []);
     for (const [dir, h] of entry.dirs) {
       if (!wanted.has(dir)) { h.close(); entry.dirs.delete(dir); }
     }
@@ -135,11 +136,11 @@ export function createProjectIconWatch(deps: ProjectIconWatchDeps): ProjectIconW
     const version = projectIconVersion(resolved);
     if (version !== entry.version) {
       entry.version = version;
-      announce(entry);
+      announce(realDir, entry);
     }
     // A project folder that no longer exists has nothing left to watch.
     if (gone) { stopWatching(realDir); return; }
-    arm(realDir, entry, resolved);
+    arm(realDir, entry);
   }
 
   function makeRoom(): void {
@@ -170,7 +171,7 @@ export function createProjectIconWatch(deps: ProjectIconWatchDeps): ProjectIconW
         makeRoom();
         const entry: Entry = { version, aliases: new Set([asked]), dirs: new Map(), timer: null };
         entries.set(realDir, entry);
-        arm(realDir, entry, resolved);
+        arm(realDir, entry);
         return version;
       }
       // Touch: the project asked about most recently is the last to be dropped.
@@ -179,8 +180,8 @@ export function createProjectIconWatch(deps: ProjectIconWatchDeps): ProjectIconW
       if (!known.aliases.has(asked) && known.aliases.size < MAX_ALIASES) known.aliases.add(asked);
       if (known.version !== version) {
         known.version = version;
-        announce(known);
-        arm(realDir, known, resolved);
+        announce(realDir, known);
+        arm(realDir, known);
       }
       return version;
     },

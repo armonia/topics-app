@@ -229,13 +229,13 @@ describe("projectIconWatchDirs — the folders whose entries can change the answ
     mkdirSync(join(dir, "public"));
     mkdirSync(join(dir, "node_modules"));
     mkdirSync(join(dir, "docs"));
-    expect(projectIconWatchDirs(dir, null).sort()).toEqual([dir, join(dir, "public")].sort());
+    expect(projectIconWatchDirs(dir).sort()).toEqual([dir, join(dir, "public")].sort());
   });
 
   test("nested apps and apps/<name> are scanned roots too", () => {
     mkdirSync(join(dir, "site", "public"), { recursive: true });
     mkdirSync(join(dir, "apps", "web", "static"), { recursive: true });
-    const dirs = projectIconWatchDirs(dir, null);
+    const dirs = projectIconWatchDirs(dir);
     for (const d of [dir, join(dir, "site"), join(dir, "site", "public"), join(dir, "apps"), join(dir, "apps", "web"), join(dir, "apps", "web", "static")]) {
       expect(dirs).toContain(d);
     }
@@ -244,9 +244,32 @@ describe("projectIconWatchDirs — the folders whose entries can change the answ
   test("the folder of a file a manifest points to is watched even off the usual places", () => {
     const icon = put("public/brand/mark.png");
     put("public/manifest.json", JSON.stringify({ icons: [{ src: "brand/mark.png", sizes: "512x512" }] }));
-    const resolved = resolveProjectIcon(dir);
-    expect(resolved).toEqual(file(icon));
-    expect(projectIconWatchDirs(dir, resolved)).toContain(join(dir, "public", "brand"));
+    expect(resolveProjectIcon(dir)).toEqual(file(icon));
+    expect(projectIconWatchDirs(dir)).toContain(join(dir, "public", "brand"));
+  });
+
+  test("the folder a manifest names is watched while the icon is missing, so the icon is seen when it lands", () => {
+    // `public/icons/` is not one of the usual places: only the manifest says
+    // the icon lives there. It must be watched before the file exists (an icon
+    // added later) and after it is gone (an icon regenerated: removed, then
+    // written back).
+    mkdirSync(join(dir, "public", "icons"), { recursive: true });
+    put("public/manifest.json", JSON.stringify({ icons: [{ src: "/icons/icon.svg", sizes: "192x192" }] }));
+    expect(resolveProjectIcon(dir)).toBeNull();
+    expect(projectIconWatchDirs(dir)).toContain(join(dir, "public", "icons"));
+  });
+
+  test("for a named folder that does not exist yet, its nearest existing ancestor is watched", () => {
+    mkdirSync(join(dir, "media"));
+    put("index.html", '<link rel="icon" href="/media/brand/mark.svg">');
+    const dirs = projectIconWatchDirs(dir);
+    expect(dirs).toContain(join(dir, "media"));
+    expect(dirs).not.toContain(join(dir, "media", "brand"));
+  });
+
+  test("a manifest pointing outside the project adds no folder outside it", () => {
+    put("manifest.json", JSON.stringify({ icons: [{ src: "../../elsewhere/icon.png" }] }));
+    for (const d of projectIconWatchDirs(dir)) expect(d === dir || d.startsWith(dir + "/")).toBe(true);
   });
 });
 

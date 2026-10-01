@@ -9,7 +9,9 @@
  *  - `POST /api/projects/icon-versions` tells a window, in one request, the
  *    version of every project it draws, behind the same gate as the GET.
  *  - Once a project has been asked about, a change on disk leaves as one
- *    `project:icon` frame through `broadcastToAll`.
+ *    `project:icon` frame, through the fan-out that only reaches the sockets
+ *    seeing the project (`broadcastToProjectViewers`; who receives it is checked in
+ *    tests/integration/project-broadcast-visibility.test.ts).
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -56,14 +58,15 @@ beforeEach(() => {
     OPENCLAW_DIR: join(root, ".openclaw"),
     loadTopics: () => ({ topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
     worktreeStore: { list: () => [] },
-    projectStore: { list: () => [] },
+    projectStore: { list: () => [], getByPath: () => null },
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
     readJSON: (req: Request) => req.json(),
     matchRoute: () => null,
     errorResponse: (status: number, error: string) =>
       new Response(JSON.stringify({ error }), { status, headers: { "Content-Type": "application/json" } }),
-    broadcastToAll: (m: Record<string, unknown>) => { frames.push(m); },
+    broadcastToAll: () => {},
+    broadcastToProjectViewers: (m: Record<string, unknown>) => { frames.push(m); },
   } as unknown as AppContext;
   router = createProjectsRouter(ctx) as typeof router;
 });

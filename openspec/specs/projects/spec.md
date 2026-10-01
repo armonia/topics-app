@@ -617,7 +617,9 @@ When the file that gives a project its icon appears, changes or goes away (a fav
 
 The server SHALL own an icon identity per project (`version`: the served file's path, inode, size and change times, or the bytes of an inline icon; `null` when there is none). It SHALL send it as the ETag of `GET /api/projects/icon`, and SHALL let the browser keep the URL that names the current version (`&v=<version>`) for good, while any other URL of the icon, and the "no icon" answer, SHALL be revalidated at every use.
 
-The server SHALL watch the folders the resolver reads, non-recursively, for every project a client has asked the icon of (by `GET /api/projects/icon` or `POST /api/projects/icon-versions`), whether or not any pane of that project is open, and SHALL send ONE `project:icon` frame (`path`, `version`) when the version changes. Changes to files that cannot define an icon SHALL NOT trigger a frame.
+The server SHALL watch the folders the resolver reads, non-recursively, for every project a client has asked the icon of (by `GET /api/projects/icon` or `POST /api/projects/icon-versions`), whether or not any pane of that project is open, and SHALL send ONE `project:icon` frame (`path`, `version`) when the version changes. Changes to files that cannot define an icon SHALL NOT trigger a frame. The watched folders SHALL include those a web manifest or an `index.html` names for its icon, whether or not the icon exists there now (for a named folder that does not exist yet, its nearest existing ancestor inside the project).
+
+The `project:icon` frame SHALL reach only the sockets that see the project (PROJECT-07's rule); a folder with no project row of its own SHALL follow the rule of a project without an organisation.
 
 The client SHALL apply a `project:icon` frame to every surface without probing, and SHALL draw the icon from the versioned URL, so the old bytes cannot be shown again. A probe that started before the frame SHALL NOT overwrite it.
 
@@ -639,6 +641,16 @@ The existing invariants SHALL hold: one probe per path at a time, an UNVERIFIED 
 - **GIVEN** a project whose icon is shown
 - **WHEN** its icon file is deleted
 - **THEN** the icon SHALL disappear from both windows, leaving no placeholder
+
+#### Scenario: The icon lives in a folder only the manifest names
+- **GIVEN** a project whose manifest names `/icons/icon.svg` and whose `public/icons/` has no icon yet
+- **WHEN** the icon is written there, later removed, and later written back
+- **THEN** both windows SHALL show it, then drop it, then show the new one, without a reload
+
+#### Scenario: An incognito project's icon changes
+- **GIVEN** an incognito project and a connected org mate who does not see it
+- **WHEN** its icon changes
+- **THEN** the org mate's sockets SHALL NOT receive the `project:icon` frame
 
 #### Scenario: The server restarted while the window stayed open
 - **GIVEN** a window drawing icons and a server that restarted

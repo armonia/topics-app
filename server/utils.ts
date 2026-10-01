@@ -14,7 +14,7 @@ import type {
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
 import {
-  osservatoreDaDispositivo, envelopeProgettoPer,
+  osservatoreDaDispositivo, envelopeProgettoPer, vedeProgetto,
   type Osservatore, type TipoFrameProgetto,
 } from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
@@ -1054,6 +1054,42 @@ export function createAppContext(baseDir: string): AppContext {
         devValidateOutbound(message);
         payload = JSON.stringify(message);
         serializzati.set(message.type, payload);
+      }
+      sendFrame(ws, payload, message.type);
+    }
+  }
+
+  /**
+   * A frame ABOUT a project (it names its path) that only the sockets seeing
+   * that project may receive; the others get nothing.
+   *
+   * Not `broadcastProject`: that one carries a row and owes a retraction to
+   * whoever stops seeing it. A frame like `project:icon` carries no row to
+   * retract, so silence is the whole answer, and sending it to every socket
+   * would hand an incognito project's path to an org mate.
+   *
+   * Same order as `broadcastProject`: the guest filter first, then the
+   * visibility rule, with one observer per device for this fan-out only.
+   */
+  function broadcastToProjectViewers(message: OutboundMessage, project: Parameters<typeof vedeProgetto>[1]): void {
+    const guests = guestSocketFilter();
+    const sees = new Map<string, boolean>();
+    let payload: string | null = null;
+    for (const ws of wsClients) {
+      if (ws.readyState !== 1) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      const deviceId = ws.data.deviceId ?? null;
+      // The empty string is not a device id: here it is loopback, the machine.
+      const key = deviceId ?? "";
+      let visible = sees.get(key);
+      if (visible === undefined) {
+        visible = vedeProgetto(osservatoreDaDispositivo(db, deviceId), project);
+        sees.set(key, visible);
+      }
+      if (!visible) continue;
+      if (payload === null) {
+        devValidateOutbound(message);
+        payload = JSON.stringify(message);
       }
       sendFrame(ws, payload, message.type);
     }
@@ -2934,7 +2970,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, turnLedger, wsClients, deviceSockets,
-    broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
+    broadcast, broadcastToAll, broadcastProject, broadcastToProjectViewers, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, loadUnreadForInit, saveUnread, bumpUnread, saveUnreadEntries,

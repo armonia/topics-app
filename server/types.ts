@@ -518,6 +518,12 @@ export interface AppContext {
    * `broadcastToAll`: it already carries only the id.
    */
   broadcastProject: (type: import("./lib/project-visibility").TipoFrameProgetto, project: Project) => void;
+  /**
+   * A frame that names a project (its path) and has no row to retract, such
+   * as `project:icon`: it goes only to the sockets that see the project
+   * (`vedeProgetto`), and the others get nothing.
+   */
+  broadcastToProjectViewers: (message: OutboundMessage, project: import("./lib/project-visibility").ProgettoVisibilita) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   loadTopics: (filter?: TopicsFilter) => TopicsData;
