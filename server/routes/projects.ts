@@ -29,6 +29,7 @@ import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
+import { createProjectIconWatch } from "../services/project-icon-watch";
 import { isInsideDir } from "../lib/path-containment";
 import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
 import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
@@ -55,6 +56,8 @@ function stripCtrl(input: unknown): string | null {
 /** The icon route keeps the known-project allowlist for this long; a miss rebuilds it before denying. */
 const ICON_ALLOW_TTL_MS = 5_000;
 let iconAllowCache: { at: number; dirs: Set<string>; db: unknown } | null = null;
+/** A window draws a few dozen projects; past this a request is not a window. */
+const ICON_VERSIONS_MAX_PATHS = 512;
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject } = ctx;
@@ -70,6 +73,37 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
    * la scelta fra i due canali gliela chiede il compilatore.
    */
   const emit = broadcastProject;
+
+  /**
+   * The icons some client is drawing, watched on disk: a favicon that appears,
+   * changes or goes away leaves as one `project:icon` frame (see
+   * `services/project-icon-watch.ts`). Fed by the two icon routes below, so
+   * it covers exactly the projects on screen, whatever pane is open.
+   */
+  const iconWatch = createProjectIconWatch({ push: (frame) => broadcastToAll(frame) });
+
+  /**
+   * Whether the icon of this (realpath'd) folder may be served: exact member
+   * of the known-project union. The set is kept for a few seconds, and a MISS
+   * rebuilds it before denying, so the cache can only confirm, never
+   * crystallise a denial (rationale at the GET route below).
+   */
+  const iconDirAllowed = (realDir: string): boolean => {
+    const iconAllowedDirs = (fresh: boolean): Set<string> => {
+      const now = Date.now();
+      if (!fresh && iconAllowCache && iconAllowCache.db === ctx.db && now - iconAllowCache.at < ICON_ALLOW_TTL_MS) return iconAllowCache.dirs;
+      const dirs = knownProjectDirs({
+        db: ctx.db,
+        loadTopics: ctx.loadTopics,
+        worktreeStore: ctx.worktreeStore,
+        projectStore,
+        workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
+      });
+      iconAllowCache = { at: now, dirs, db: ctx.db };
+      return dirs;
+    };
+    return iconAllowedDirs(false).has(realDir) || iconAllowedDirs(true).has(realDir);
+  };
 
   /**
    * Chi sta chiedendo, tradotto nella forma che la regola di visibilità legge
@@ -163,26 +197,15 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // is kept for a few seconds, and a MISS rebuilds it before denying:
       // a folder opened a moment ago is allowed on the rebuild, so the cache
       // can only ever confirm, never crystallise a denial.
-      const iconAllowedDirs = (fresh: boolean): Set<string> => {
-        const now = Date.now();
-        if (!fresh && iconAllowCache && iconAllowCache.db === ctx.db && now - iconAllowCache.at < ICON_ALLOW_TTL_MS) return iconAllowCache.dirs;
-        const dirs = knownProjectDirs({
-          db: ctx.db,
-          loadTopics: ctx.loadTopics,
-          worktreeStore: ctx.worktreeStore,
-          projectStore,
-          workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
-        });
-        iconAllowCache = { at: now, dirs, db: ctx.db };
-        return dirs;
-      };
-      let allowed = iconAllowedDirs(false).has(realDir);
-      if (!allowed) allowed = iconAllowedDirs(true).has(realDir);
-      if (!allowed) {
+      if (!iconDirAllowed(realDir)) {
         console.log(`[icon] 403 (not in allowlist): ${realDir}`);
         return new Response(null, { status: 403 });
       }
       const resolved = resolveProjectIcon(realDir);
+      // The identity of what is served now (file + mtime + size, or the inline
+      // bytes). Observing it also starts watching the folder, so from this
+      // request on a change reaches every window as `project:icon`.
+      const version = iconWatch.observe(realDir, dir, resolved);
       console.log(`[icon] ${resolved ? (resolved.kind === "file" ? "200 " + resolved.path : `200 inline(${resolved.contentType})`) : "204 no-icon"} ← ${realDir} [ua=${(req.headers.get("user-agent") || "?").slice(0, 60)} ref=${(req.headers.get("referer") || "?").slice(0, 60)} dest=${req.headers.get("sec-fetch-dest") || "?"}]`);
       // 204, non 404: la directory esiste, è nell'allowlist, e la risposta è
       // «non c'è nessuna icona» — che è un esito RIUSCITO della domanda, non una
@@ -195,7 +218,23 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // Resta 404 per una directory che non esiste e 403 per una fuori allowlist:
       // là il codice di errore è l'informazione. Il `max-age` evita di rileggere
       // il disco a ogni riapertura della palette.
-      if (!resolved) return new Response(null, { status: 204, headers: { "cache-control": "max-age=120" } });
+      //
+      // `no-cache` and not `max-age` since the icon follows the folder live:
+      // a 204 kept by the browser for two minutes answered «no icon» to a
+      // project that had just gained one, and the store then remembered it.
+      // The store keeps the answer itself, so this costs no extra request.
+      if (!resolved) return new Response(null, { status: 204, headers: { "cache-control": "no-cache" } });
+      // The URL the store draws carries `v=<version>`: a changed icon is a NEW
+      // URL, so the browser cannot show the old bytes, and the URL of the
+      // current version may be kept for good. Any other URL (the first probe,
+      // a stale version) is revalidated against the ETag at every use.
+      const entityTag = version ? `"${version}"` : null;
+      const cacheControl = version && url.searchParams.get("v") === version
+        ? "public, max-age=31536000, immutable"
+        : "no-cache";
+      if (entityTag && req.headers.get("if-none-match") === entityTag) {
+        return new Response(null, { status: 304, headers: { etag: entityTag, "cache-control": cacheControl } });
+      }
       // Project icons are arbitrary content from the project dir served on
       // OUR origin. An SVG favicon (file OR inline data: URI) can carry
       // <script>/<foreignObject> that executes if the icon URL is opened as a
@@ -207,7 +246,8 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // <img>-loaded favicons (the only real use) are unaffected.
       const iconHeaders = (ct: string) => ({
         "content-type": ct,
-        "cache-control": "max-age=300",
+        "cache-control": cacheControl,
+        ...(entityTag ? { etag: entityTag } : {}),
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
         "x-content-type-options": "nosniff",
         "content-disposition": 'inline; filename="icon"',
@@ -226,6 +266,36 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       try {
         return new Response(readFileSync(realIcon), { headers: iconHeaders(ct) });
       } catch { return new Response(null, { status: 404 }); }
+    }
+
+    // POST /api/projects/icon-versions { paths } → { versions: { [path]: version | null } }
+    //
+    // The cheap revalidation: ONE request tells a window the current icon
+    // version of every project it draws, instead of one probe per project. The
+    // store sends it for the answers it took from its cache (nothing asked the
+    // server about them in this page), on every reconnect (a restart lost the
+    // watches, and pushes may have been missed while the socket was down) and
+    // when the window comes back to the front. Same gate as the GET above:
+    // a path outside the known projects is left out of the answer, and a
+    // folder that no longer exists answers null, like the GET's 404. Each
+    // allowed path is observed, so the watch set is rebuilt by this call too.
+    if (method === "POST" && pathname === "/api/projects/icon-versions") {
+      let body: { paths?: unknown };
+      try { body = await readJSON(req); } catch { return errorResponse(400, "invalid JSON"); }
+      if (!Array.isArray(body?.paths)) return errorResponse(400, "paths required (array)");
+      const paths = [...new Set(body.paths.filter((p): p is string => typeof p === "string" && p.startsWith("/")))]
+        .slice(0, ICON_VERSIONS_MAX_PATHS);
+      const versions: Record<string, string | null> = {};
+      for (const p of paths) {
+        let realDir: string;
+        try {
+          if (!existsSync(p) || !statSync(p).isDirectory()) { versions[p] = null; continue; }
+          realDir = realpathSync(p);
+        } catch { versions[p] = null; continue; }
+        if (!iconDirAllowed(realDir)) continue;
+        versions[p] = iconWatch.observe(realDir, p, resolveProjectIcon(realDir));
+      }
+      return json({ versions });
     }
 
     // GET /api/projects/resolve-open?path=<abs> → la tab da aprire per un path

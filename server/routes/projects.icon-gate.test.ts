@@ -131,7 +131,9 @@ describe("GET /api/projects/icon — il cancello", () => {
     const dir = makeWorkspaceProject("open-carousel", { icon: false });
     const res = (await icon(dir))!;
     expect(res.status).toBe(204);
-    expect(res.headers.get("cache-control")).toBe("max-age=120");
+    // `no-cache`, not `max-age=120`: a 204 kept by the browser answered «no
+    // icon» to a project that had just gained one (PROJECT-14).
+    expect(res.headers.get("cache-control")).toBe("no-cache");
   });
 
   test("noto anche per le altre sorgenti: il progetto di un topic, la cwd di un terminale", async () => {

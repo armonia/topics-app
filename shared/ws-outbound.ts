@@ -1197,6 +1197,20 @@ const filesChangedSchema = z.looseObject({
   projectPath: z.string(),
 });
 
+/**
+ * The icon of a project changed on disk: it appeared, its bytes changed, or it
+ * went away. `version` is the server's identity of the icon now served
+ * (`server/lib/project-icon.ts`, `projectIconVersion`), `null` when the folder
+ * has none. `path` is the path the clients asked the icon for, so the store can
+ * key it without resolving anything. One frame per change, sent only for
+ * projects some client has asked about (`server/services/project-icon-watch.ts`).
+ */
+const projectIconSchema = z.looseObject({
+  type: z.literal('project:icon'),
+  path: z.string(),
+  version: z.nullable(z.string()),
+});
+
 // ---- Claude session state + events (highest-traffic live path) ------------
 
 /**
@@ -1487,6 +1501,7 @@ const OUTBOUND_SCHEMAS = {
   'git:status': gitStatusSchema,
   // Filesystem del progetto — l'evento che il file-watcher emette.
   'files:changed': filesChangedSchema,
+  'project:icon': projectIconSchema,
   // Claude session state (highest-traffic live path)
   'session:state': sessionStateSchema,
   // Appaiamento dei dispositivi

@@ -1,11 +1,15 @@
 /**
  * @covers PROJECT-09
+ * @covers PROJECT-14
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveProjectIcon, scanDirForIcon, extractIconHref, parseDataUriIcon, type ResolvedProjectIcon } from "./project-icon";
+import {
+  resolveProjectIcon, scanDirForIcon, extractIconHref, parseDataUriIcon, type ResolvedProjectIcon,
+  projectIconVersion, projectIconWatchDirs, iconRelevantEntry,
+} from "./project-icon";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "proj-icon-")); });
@@ -185,5 +189,74 @@ describe("resolveProjectIcon (nested-app layouts)", () => {
     put("src/main.ts");
     put("client/src/app.tsx");
     expect(resolveProjectIcon(dir)).toBeNull();
+  });
+});
+
+describe("projectIconVersion — the identity of what is served", () => {
+  test("null when there is no icon", () => {
+    expect(projectIconVersion(null)).toBeNull();
+  });
+
+  test("stable while the file is untouched, different once it is rewritten, even with the same size", () => {
+    const p = put("favicon.svg", "<svg>aa</svg>");
+    const v1 = projectIconVersion(resolveProjectIcon(dir));
+    expect(v1).toMatch(/^[0-9a-f]{16}$/);
+    expect(projectIconVersion(resolveProjectIcon(dir))).toBe(v1);
+    writeFileSync(p, "<svg>bb</svg>");
+    const v2 = projectIconVersion(resolveProjectIcon(dir));
+    expect(v2).not.toBeNull();
+    expect(v2).not.toBe(v1);
+  });
+
+  test("a different file winning the resolution is a different version", () => {
+    put("public/logo.png");
+    const before = projectIconVersion(resolveProjectIcon(dir));
+    put("favicon.png");
+    expect(projectIconVersion(resolveProjectIcon(dir))).not.toBe(before);
+  });
+
+  test("an inline icon is identified by its bytes", () => {
+    const a = projectIconVersion({ kind: "inline", contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg/>") });
+    const b = projectIconVersion({ kind: "inline", contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg/>") });
+    const c = projectIconVersion({ kind: "inline", contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg />") });
+    expect(a).toBe(b);
+    expect(c).not.toBe(a);
+  });
+});
+
+describe("projectIconWatchDirs — the folders whose entries can change the answer", () => {
+  test("only folders that exist: the root, and the asset folders present", () => {
+    mkdirSync(join(dir, "public"));
+    mkdirSync(join(dir, "node_modules"));
+    mkdirSync(join(dir, "docs"));
+    expect(projectIconWatchDirs(dir, null).sort()).toEqual([dir, join(dir, "public")].sort());
+  });
+
+  test("nested apps and apps/<name> are scanned roots too", () => {
+    mkdirSync(join(dir, "site", "public"), { recursive: true });
+    mkdirSync(join(dir, "apps", "web", "static"), { recursive: true });
+    const dirs = projectIconWatchDirs(dir, null);
+    for (const d of [dir, join(dir, "site"), join(dir, "site", "public"), join(dir, "apps"), join(dir, "apps", "web"), join(dir, "apps", "web", "static")]) {
+      expect(dirs).toContain(d);
+    }
+  });
+
+  test("the folder of a file a manifest points to is watched even off the usual places", () => {
+    const icon = put("public/brand/mark.png");
+    put("public/manifest.json", JSON.stringify({ icons: [{ src: "brand/mark.png", sizes: "512x512" }] }));
+    const resolved = resolveProjectIcon(dir);
+    expect(resolved).toEqual(file(icon));
+    expect(projectIconWatchDirs(dir, resolved)).toContain(join(dir, "public", "brand"));
+  });
+});
+
+describe("iconRelevantEntry — which events are worth a look", () => {
+  test("images, manifests, pages, folders and unnamed events are; source files are not", () => {
+    for (const n of ["favicon.svg", "logo-acme.PNG", "site.webmanifest", "manifest.json", "index.html", "public", "icons", null]) {
+      expect(iconRelevantEntry(n)).toBe(true);
+    }
+    for (const n of ["App.tsx", "server.ts", "bun.lock", "styles.css", "README.md"]) {
+      expect(iconRelevantEntry(n)).toBe(false);
+    }
   });
 });
