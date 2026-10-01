@@ -160,6 +160,12 @@ exit 0
 STUB
   chmod +x "$HOME/.local/bin/claude"
 fi
+# E LO STUB VA NOMINATO, non solo messo li'. `resolveClaudeBin()` prova
+# `$CLAUDE_BIN`, poi il PATH, e solo dopo `$HOME`: su un Mac che ha la CLI vera
+# in `~/.local/bin` (sul PATH ereditato dalla shell) vinceva lei, e il 30/09
+# `subagent-strip-survives` ha avviato due volte la `claude` vera; l'ha fermata
+# solo la guardia della spec. In CI non si vedeva: li' la CLI non c'e'.
+export CLAUDE_BIN="$HOME/.local/bin/claude"
 # Dedicated PTY-bridge socket so EVERY server started via this script — the
 # initial globalSetup server AND any in-test restart (terminal-session-resume)
 # — is bridge-isolated. Without this, a restart that omits TOPICS_PTY_SOCKET
