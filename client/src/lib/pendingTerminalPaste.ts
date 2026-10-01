@@ -13,13 +13,13 @@ const pending = new Map<string, string>();
 
 /**
  * The text as it may reach a shell: a carriage return becomes a newline, and
- * every other control byte but tab and newline (C0 and DEL) is dropped. Run is
- * not offered on a block holding them, but Open in terminal is, and xterm's
- * `paste()` passes them through: an embedded `ESC[201~` would close the
- * bracketed paste early and the lines after it would run, and a bare `\r` is
- * an Enter.
+ * every other control byte (below 0x20 or 0x7f) but tab and newline is
+ * dropped. Run is not offered on a block holding them, but Open in terminal
+ * is, and xterm's `paste()` passes them through: an embedded `ESC[201~` would
+ * close the bracketed paste early and the lines after it would run, and a
+ * bare `\r` is an Enter.
  */
-function typeableText(text: string): string {
+function withoutControlBytes(text: string): string {
   let out = '';
   const normalized = text.replace(/\r\n?/g, '\n');
   for (let i = 0; i < normalized.length; i++) {
@@ -31,7 +31,7 @@ function typeableText(text: string): string {
 }
 
 export function setPendingTerminalPaste(sessionId: string, text: string): void {
-  pending.set(sessionId, typeableText(text));
+  pending.set(sessionId, withoutControlBytes(text));
 }
 
 export function hasPendingTerminalPaste(sessionId: string): boolean {
