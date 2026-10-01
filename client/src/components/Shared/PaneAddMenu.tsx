@@ -53,7 +53,7 @@ import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
+import { BAR_LABEL_TOP, GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { useExitGhost } from '../../lib/exitGhost';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
@@ -348,11 +348,11 @@ export function PaneAddMenu({
     // agli altri il resto — cioè quattro bersagli disuguali per quattro porte
     // che valgono uguale.
     // `h-full` and not `h-11`: since card 1e015ad6 every button of the row is
-    // as tall as the strip and reaches the edge of the screen. The band it is
-    // READ in stays 44 and stays at the TOP (the span below), so the four
-    // words keep sitting on one line.
+    // as tall as the strip and reaches the edge of the screen. The glyph is
+    // centred in it on both axes and the word hangs under it, out of flow
+    // (`BAR_LABEL_TOP`), exactly like its siblings (MobileChromeBar).
     triggerVariant === 'bar'
-      ? `edge-lit flex flex-1 min-w-0 h-full flex-col items-center justify-start rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
+      ? `edge-lit relative flex flex-1 min-w-0 h-full items-center justify-center rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
       : triggerVariant === 'header'
       ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
@@ -394,15 +394,14 @@ export function PaneAddMenu({
         aria-expanded={open}
         data-testid="pane-add-menu-trigger"
       >
-        {/* The 'bar' variant keeps glyph and word inside a 44 band at the top
-            of the button: the button is as tall as the strip, what you read is
-            not. The other variants are as tall as their content, so there is
-            nothing to frame. */}
+        {/* The 'bar' variant centres the glyph in the button and hangs the word
+            under it, out of flow, so the glyph's centre is the button's centre.
+            The other variants are as tall as their content. */}
         {triggerVariant === 'bar' ? (
-          <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">
+          <>
             <Plus size={triggerIconSize} aria-hidden="true" />
-            {triggerLabel && <span className="text-micro font-medium leading-none">{triggerLabel}</span>}
-          </span>
+            {triggerLabel && <span className="pointer-events-none absolute inset-x-0 text-center text-micro font-medium leading-none" style={{ top: BAR_LABEL_TOP }}>{triggerLabel}</span>}
+          </>
         ) : (
           <>
             <Plus size={triggerIconSize} aria-hidden="true" />

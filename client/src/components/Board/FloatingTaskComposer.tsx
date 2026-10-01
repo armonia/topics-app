@@ -23,6 +23,7 @@ import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { TaskModelMenuOptions } from './TaskModelMenuOptions';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 import { useComposerBoardSettings } from '../../hooks/useCardBoardSettings';
+import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -438,7 +439,9 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       className={`pointer-events-none absolute inset-x-0 bottom-6 z-10 justify-center px-4 transition-transform duration-fast ease-out ${
         hidden ? 'hidden' : hiddenBelowLg ? 'hidden lg:flex' : 'flex'
       }`}
-      style={kbInset ? { transform: `translateY(-${kbInset}px)` } : undefined}
+      // `bottom-6` plus the room the phone's button row takes (`--mobile-band-own-h`,
+      // 0px elsewhere): the board runs under the row, the composer stays above it.
+      style={{ bottom: `calc(1.5rem + var(${BAND_OWN_PROPERTY}, 0px))`, ...(kbInset ? { transform: `translateY(-${kbInset}px)` } : {}) }}
     >
       <div
         ref={wrapRef}

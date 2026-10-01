@@ -14,6 +14,7 @@
  */
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { animateEl, EASE, MOTION } from '../../lib/motion';
+import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
 
 /** Long enough to read the sentence twice, short enough not to become furniture. */
 export const DROP_NOTICE_MS = 8000;
@@ -35,7 +36,7 @@ export function DropNotice({ text, onDone }: { text: string; onDone: () => void 
     // the wrong height for a frame.
     const composer = anchor.parentElement?.querySelector<HTMLElement>('[data-testid="board-task-composer"]');
     const h = composer?.getBoundingClientRect().height ?? 0;
-    anchor.style.bottom = `${h > 0 ? BASE_OFFSET + h + GAP : BASE_OFFSET}px`;
+    anchor.style.bottom = `calc(${h > 0 ? BASE_OFFSET + h + GAP : BASE_OFFSET}px + var(${BAND_OWN_PROPERTY}, 0px))`;
     animateEl(el, [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: MOTION.fast, easing: EASE.standard });
   }, []);
   // `onDone` is a stable callback in the board: the timer starts once per notice.
@@ -49,7 +50,7 @@ export function DropNotice({ text, onDone }: { text: string; onDone: () => void 
     return () => { window.clearTimeout(t); exit?.cancel(); };
   }, [onDone]);
   return (
-    <div ref={anchorRef} className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4" style={{ bottom: BASE_OFFSET }}>
+    <div ref={anchorRef} className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4" style={{ bottom: `calc(${BASE_OFFSET}px + var(${BAND_OWN_PROPERTY}, 0px))` }}>
       <div
         ref={ref}
         role="status"

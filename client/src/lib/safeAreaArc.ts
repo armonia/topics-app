@@ -143,7 +143,7 @@ export interface OptionsQueue {
    * one line, and a caller that does want a plinth has it here.
    */
   pavimento: number;
-  /** Altezza delle scatole: è il tetto della curvatura (metà altezza = capsula). */
+  /** Height of the boxes: together with their width it sets the corner-radius cap. */
   altezza: number;
   /** Il raggio che una scatola ha quando l'arco non la tocca. */
   standard: number;
@@ -174,19 +174,22 @@ export interface FormaScatola {
  * Due limiti, e sono entrambi reali:
  *  · SOTTO — mai meno del raggio standard: un angolo esterno più squadrato
  *    degli altri tre è un difetto, non una curva;
- *  · SOPRA — mai più di mezza altezza, che è il massimo che una scatola alta
- *    così può portare (oltre, il browser lo taglia comunque). Su una fila da 44
- *    e un iPhone da 54 di raggio il tetto morde: l'angolo esterno diventa una
- *    capsula, ed è la curva più vicina all'arco che quel bottone può avere.
+ *  · ABOVE — `lato`, the box's short side. The browser shrinks the radii
+ *    when two adjacent corners do not fit on one side: the outer corner (R)
+ *    and the other corner (standard) on the same side may add up to the side
+ *    at most, so the concentric radius can reach `lato − standard`, not half
+ *    the side. With the iPhone's 78×73 slab and a radius of 54 the cap (61)
+ *    does not bite: the corner is CONCENTRIC in full and the slab rises not
+ *    one pixel. With a 44 box the cap is 32, and the lift pays the rest.
  *
  * Fuori dall'arco (`distanza ≥ raggio`) non c'è nessun angolo da seguire e si
  * torna allo standard: è ciò che tiene squadrato il tasto in mezzo senza un
  * ramo dedicato a lui.
  */
-export function curvaturaEsterna(distanza: number, raggio: number, altezza: number, standard: number): number {
+export function curvaturaEsterna(distanza: number, raggio: number, lato: number, standard: number): number {
   if (raggio <= 0 || !Number.isFinite(distanza) || distanza >= raggio) return standard;
   const concentrico = raggio - Math.max(0, distanza);
-  return Math.max(standard, Math.min(concentrico, altezza / 2));
+  return Math.max(standard, Math.min(concentrico, lato - standard));
 }
 
 /**
@@ -211,7 +214,8 @@ export function formaFila({ larghezza, scatole, raggio, pavimento, altezza, stan
     const daDestra = larghezza - (s.x + s.larghezza);
     const vicino = Math.min(daSinistra, daDestra);
     const lontano = Math.max(daSinistra, daDestra);
-    const curvatura = curvaturaEsterna(vicino, raggio, altezza, standard);
+    // The short side sets the cap: the box is `altezza` tall and as wide as it is.
+    const curvatura = curvaturaEsterna(vicino, raggio, Math.min(altezza, s.larghezza), standard);
     // Il lato vicino porta l'angolo tondo, l'altro no: chiedere l'alzata a
     // entrambi con la stessa curvatura regalerebbe al lato lontano uno sconto
     // che il suo angolo, standard, non ha.

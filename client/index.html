@@ -29,7 +29,18 @@
          the BOTTOM (innerHeight = screen − topInset), so a band of webview
          background shows below the content and can't be filled from inside the
          page. `black` insets the viewport BELOW an opaque status bar and fills
-         all the way to the bottom edge. -->
+         all the way to the bottom edge.
+
+         Seen on a real iPhone on 08/06 (bc92725d7). On 01/10 it was flipped to
+         `black-translucent` so content could run under the status bar too, and
+         put back the same day: that was never tried on a phone, the app root is
+         `position: fixed; bottom: 0`, so a short viewport would lift the button
+         row ~47-62px off the glass (its corners no longer on the screen's curve),
+         and the translucent bar forces a WHITE clock and battery over the light
+         chrome. Under `black` the bottom safe area is ours (`viewport-fit=cover`,
+         the scrollers' trailing spacer, the button row); the top one belongs to
+         the status bar. Flip it only after reading `innerHeight` against
+         `screen.height` in standalone on a device. -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
