@@ -25,9 +25,9 @@
  * first frame and then jumped (the hidden pane had stored its 0x0 box as the
  * composer's height), and history rows replayed the entrance animation.
  */
-import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
+import { expect, test, type Locator, type Page, type APIRequestContext } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, seedPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
+import { createTerminalSession, createTopic, deleteTerminalSession, seedPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -51,6 +51,14 @@ const TAIL_FRAMES = 12;
  */
 const RESIDENT_COMMIT_CAP = 14;
 
+/**
+ * Skeleton frames of a chat mounted again after a group switch, from the sizes
+ * it measured before (listStateCache): 6-8 measured, 14 without them. A frame
+ * count, not a time: the steps are Virtuoso's viewport measure, its render, and
+ * the curtain's two still frames, which load does not add to.
+ */
+const REMOUNT_SKELETON_CAP = 10;
+
 const tab = (paneId: string) => `[data-testid="panel-tab-bar"] [data-pane-id="${paneId}"]`;
 
 interface FrameReport {
@@ -58,6 +66,8 @@ interface FrameReport {
   seq: string;
   firstContent: number | null;
   jumpPx: number;
+  /** The same movement, unrounded: sub-pixel settles show here and not above. */
+  rawJumpPx: number;
   entrances: number;
   sameShell: boolean;
   skeletonBox: { top: number; bottom: number } | null;
@@ -67,7 +77,7 @@ interface FrameReport {
 /** The per-frame meter, armed before the input and started by it (capture phase). */
 async function installMeter(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const SPIN = '[data-testid="chat-skeleton"], .animate-spin';
+    const SPIN = '[data-testid="chat-skeleton"], [data-testid="terminal-skeleton"], .animate-spin';
     const shown = (el: Element): boolean => {
       for (let n: Element | null = el; n; n = n.parentElement) {
         if (n.getAttribute("data-pane-visible") === "0") return false;
@@ -76,7 +86,8 @@ async function installMeter(page: Page): Promise<void> {
       }
       return true;
     };
-    type Cfg = { key: string; needle: string; trigger: string; triggerKey?: string };
+    /** `content`: where the needle is looked for; a chat's rows unless given. */
+    type Cfg = { key: string; needle: string; content?: string; trigger: string; triggerKey?: string };
     const w = window as unknown as Record<string, unknown>;
     w.__tabSwitchArm = (cfg: Cfg) => {
       const escapedKey = CSS.escape(cfg.key);
@@ -86,6 +97,7 @@ async function installMeter(page: Page): Promise<void> {
         seq: "",
         firstContent: null as number | null,
         jumpPx: 0,
+        rawJumpPx: 0,
         entrances: 0,
         sameShell: false,
         skeletonBox: null as { top: number; bottom: number } | null,
@@ -93,12 +105,14 @@ async function installMeter(page: Page): Promise<void> {
       };
       w.__tabSwitchOut = out;
       let firstTop: number | null = null;
-      const tick = (frame: number) => {
+      let firstRawTop: number | null = null;
+      /** Reads one frame; true once enough frames have been read. */
+      const sample = (frame: number): boolean => {
         const shell = document.querySelector(`[data-pane-shell="${escapedKey}"]`);
         let content: Element | null = null;
         let spin = false;
         if (shell) {
-          for (const m of Array.from(shell.querySelectorAll('[data-testid="chat-message"]'))) {
+          for (const m of Array.from(shell.querySelectorAll(cfg.content ?? '[data-testid="chat-message"]'))) {
             if ((m.textContent ?? "").includes(cfg.needle) && shown(m)) content = m;
           }
           for (const s of Array.from(shell.querySelectorAll(SPIN))) {
@@ -120,9 +134,12 @@ async function installMeter(page: Page): Promise<void> {
         out.seq += ok ? "C" : spin ? "S" : ".";
         if (ok && out.firstContent === null) out.firstContent = frame;
         if (ok) {
-          const top = Math.round(content!.getBoundingClientRect().top);
+          const rawTop = content!.getBoundingClientRect().top;
+          const top = Math.round(rawTop);
           if (firstTop === null) firstTop = top;
           else out.jumpPx = Math.max(out.jumpPx, Math.abs(top - firstTop));
+          if (firstRawTop === null) firstRawTop = rawTop;
+          else out.rawJumpPx = Math.max(out.rawJumpPx, Math.abs(rawTop - firstRawTop));
         }
         if (out.trace.length < 30) {
           const items = shell?.querySelector('[data-testid="virtuoso-item-list"]');
@@ -131,11 +148,45 @@ async function installMeter(page: Page): Promise<void> {
           out.trace.push(`${frame}${out.seq.slice(-1)}:it=${items ? items.childElementCount : -1}${content ? `@${content.getBoundingClientRect().top.toFixed(1)}` : ""}${geometry}`);
         }
         const enough = out.firstContent !== null ? frame >= out.firstContent + (w.__tabSwitchTail as number) : frame >= 180;
-        if (enough) {
-          out.sameShell = !!shellBefore && shellBefore === document.querySelector(`[data-pane-shell="${escapedKey}"]`);
-          out.done = true;
-          return;
-        }
+        if (enough) out.sameShell = !!shellBefore && shellBefore === document.querySelector(`[data-pane-shell="${escapedKey}"]`);
+        return enough;
+      };
+      // WHEN A FRAME IS READ: after its layout, not in its rAF callback. A pane
+      // shown again is placed by its own ResizeObserver, which runs between the
+      // layout and the paint of that frame; a rAF callback runs before both, so
+      // it read the DOM of the frame BEFORE any of that, and could not tell a
+      // pane that paints the right rows from one that paints the wrong rows and
+      // fixes them a frame later (TABSWITCH-03). The meter's own observer is
+      // created after the app's and so runs after them in the same rendering
+      // update: it reads what is about to be painted. It watches a 1 px
+      // sentinel whose width changes in every rAF, so it fires on every frame;
+      // a frame it misses is read at the next rAF, as before.
+      const sentinel = document.createElement("div");
+      sentinel.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
+      document.body.appendChild(sentinel);
+      let pending = 0;
+      let finished = false;
+      const finish = () => {
+        finished = true;
+        observer.disconnect();
+        sentinel.remove();
+        out.done = true;
+      };
+      const readPending = () => {
+        const frame = pending;
+        pending = 0;
+        if (frame && sample(frame)) finish();
+      };
+      const observer = new ResizeObserver(() => {
+        if (!finished) readPending();
+      });
+      observer.observe(sentinel);
+      const tick = (frame: number) => {
+        if (finished) return;
+        readPending();
+        if (finished) return;
+        pending = frame;
+        sentinel.style.width = `${(frame % 2) + 1}px`;
         requestAnimationFrame(() => tick(frame + 1));
       };
       const onTrigger = (e: Event) => {
@@ -163,7 +214,7 @@ interface Switch {
  */
 async function measureSwitch(
   page: Page,
-  target: { key: string; needle: string; topicId: string; sessionKey: string },
+  target: { key: string; needle: string; content?: string; topicId: string; sessionKey: string },
   trigger: { event: string; key?: string },
   act: () => Promise<void>,
 ): Promise<Switch> {
@@ -175,7 +226,7 @@ async function measureSwitch(
       w.__tabSwitchTail = tail as number;
       w.__tabSwitchArm(cfg);
     },
-    [{ key: target.key, needle: target.needle, trigger: trigger.event, triggerKey: trigger.key }, TAIL_FRAMES] as const,
+    [{ key: target.key, needle: target.needle, content: target.content, trigger: trigger.event, triggerKey: trigger.key }, TAIL_FRAMES] as const,
   );
   const requests: string[] = [];
   const onRequest = (r: { url: () => string; method: () => string }) => {
@@ -215,6 +266,40 @@ async function seedChat(request: APIRequestContext, name: string, count: number,
   }
   await unarchiveTopic(request, t.id);
   return { topicId: t.id, sessionKey };
+}
+
+/**
+ * Holds the rows before a chat's first page until `release()`: then they are
+ * merged once the chat has been seen and hidden again, which is the case under
+ * test. Unheld, the merge can land before the first look (the pane is mounted
+ * behind the focused one at boot), and there is nothing to see.
+ */
+async function holdOlderPages(page: Page, sessionKey: string): Promise<() => void> {
+  let release: () => void = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/history/${encodeURIComponent(sessionKey)}*`, async (route) => {
+    let body: { before?: string } = {};
+    try {
+      body = JSON.parse(route.request().postData() || "{}") as { before?: string };
+    } catch {
+      // No body: the tail request.
+    }
+    if (body.before) await released;
+    await route.continue();
+  });
+  return release;
+}
+
+/** The first message whose bottom is below the top of the list, and how far its top is from it. */
+async function topRow(list: Locator): Promise<{ text: string; offset: number }> {
+  return list.evaluate((el) => {
+    const top = el.getBoundingClientRect().top;
+    for (const m of Array.from(el.querySelectorAll('[data-testid="chat-message"]'))) {
+      const r = m.getBoundingClientRect();
+      if (r.bottom > top + 2) return { text: ((m.textContent ?? "").match(/Row \d+\. /) ?? [""])[0], offset: r.top - top };
+    }
+    return { text: "", offset: 0 };
+  });
 }
 
 function expectResident(label: string, s: Switch): void {
@@ -280,6 +365,140 @@ test.describe("a tab switch is instant", () => {
     expectResident("command palette", await measureSwitch(page, L, { event: "keydown", key: "Enter" }, () => page.keyboard.press("Enter")));
   });
 
+  test("a chat whose history was completed while it was hidden is final on the first frame of the return", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-03" });
+    test.setTimeout(180_000);
+    const long = await seedChat(request, "TSI merged chat", LONG_COUNT, "MERGED-END", true);
+    const short = await seedChat(request, "TSI plain chat", SHORT_COUNT, "PLAIN-END");
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        [long.topicId]: { id: long.topicId, type: "chat", title: "", topicId: long.topicId, openedAt },
+        [short.topicId]: { id: short.topicId, type: "chat", title: "", topicId: short.topicId, openedAt },
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [long.topicId, short.topicId], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await installProbe(page);
+    await installMeter(page);
+    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
+    const release = await holdOlderPages(page, long.sessionKey);
+    await goToApp(page);
+    const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "PLAIN-END" });
+    const longRow = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "MERGED-END" });
+    const longList = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message-list"]`);
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible({ timeout: 20_000 });
+    // First look at the long chat: its last page only, read to the bottom.
+    await page.locator(tab(long.topicId)).first().click();
+    await expect(longRow).toBeVisible({ timeout: 20_000 });
+    await expect(longList).toHaveAttribute("data-history", "partial");
+    await expect.poll(() => longList.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(1);
+    await settlePanes(page);
+    // Away, and the rest of the thread (1960 rows) is merged above it.
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible();
+    release();
+    await expect(longList).toHaveAttribute("data-history", "complete", { timeout: 20_000 });
+
+    // Before the fix the first frame of the return painted rows 29-43 of the
+    // 2000 (the old scroll offset over the merged list) and the last message a
+    // frame later.
+    const L = { key: long.topicId, needle: "MERGED-END", ...long };
+    const s = await measureSwitch(page, L, { event: "click" }, () => page.locator(tab(long.topicId)).first().click());
+    const r = s.report;
+    const detail = `seq=${r.seq} trace=${r.trace.join(" ")} commits=${s.commits} requests=${s.requests.join(",")}`;
+    expect(r.firstContent, `the last message on the first frame after the input. ${detail}`).toBe(1);
+    expect(r.seq, `no frame without it after that. ${detail}`).toMatch(/^C+$/);
+    // Less than a pixel, not zero, and only here: the rows at the bottom were
+    // never measured at their new indices, so the first frame renders fewer of
+    // them at estimated heights, and once measured the content height changes
+    // by its fractional part (616.0 -> 615.2 px measured). The rounded check of
+    // TABSWITCH-01 would read that 0.8 px as a 1 px jump.
+    expect(r.rawJumpPx, `nothing moves by a pixel or more after the first frame. ${detail}`).toBeLessThan(1);
+    expect(r.sameShell, `the same shell node. ${detail}`).toBe(true);
+    expect([...s.reactRemounts, ...s.domRemounts], `no pane remounted. ${detail}`).toEqual([]);
+    expect(s.requests, `nothing asked to the server. ${detail}`).toEqual([]);
+    expect(s.commits, `React commits under the cap. ${detail}`).toBeLessThanOrEqual(RESIDENT_COMMIT_CAP);
+    expect(r.entrances, `no history row replays the entrance. ${detail}`).toBe(0);
+  });
+
+  test("a reader scrolled up in a chat whose history was completed while hidden finds the row they were reading, still, on the first frame", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-03" });
+    test.setTimeout(180_000);
+    const long = await seedChat(request, "TSI read-up chat", LONG_COUNT, "READUP-END", true);
+    const short = await seedChat(request, "TSI side chat", SHORT_COUNT, "SIDE-END");
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        [long.topicId]: { id: long.topicId, type: "chat", title: "", topicId: long.topicId, openedAt },
+        [short.topicId]: { id: short.topicId, type: "chat", title: "", topicId: short.topicId, openedAt },
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [long.topicId, short.topicId], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await installProbe(page);
+    await installMeter(page);
+    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
+    const release = await holdOlderPages(page, long.sessionKey);
+    await goToApp(page);
+    const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "SIDE-END" });
+    const longRow = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "READUP-END" });
+    const longList = page.locator(`[data-pane-shell="${long.topicId}"] [data-testid="chat-message-list"]`);
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible({ timeout: 20_000 });
+    await page.locator(tab(long.topicId)).first().click();
+    await expect(longRow).toBeVisible({ timeout: 20_000 });
+    await expect(longList).toHaveAttribute("data-history", "partial");
+    await expect.poll(() => longList.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 10_000 }).toBeLessThanOrEqual(1);
+    await settlePanes(page);
+    // The reader goes up some 2000 px with the wheel, inside the first page.
+    const box = (await longList.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 4; i++) {
+      const before = await longList.evaluate((el) => el.scrollTop);
+      await page.mouse.wheel(0, -500);
+      await expect.poll(() => longList.evaluate((el) => el.scrollTop)).toBeLessThan(before);
+    }
+    let last = -1;
+    await expect.poll(async () => {
+      const st = await longList.evaluate((el) => el.scrollTop);
+      const still = st === last;
+      last = st;
+      return still;
+    }, { intervals: [250] }).toBe(true);
+    await settlePanes(page);
+    const reading = await topRow(longList);
+    expect(reading.text, "a numbered row at the top of the list").not.toBe("");
+    // Away, and the rest of the thread (1960 rows) is merged above that row.
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible();
+    release();
+    await expect(longList).toHaveAttribute("data-history", "complete", { timeout: 20_000 });
+
+    const R = { key: long.topicId, needle: reading.text, ...long };
+    const s = await measureSwitch(page, R, { event: "click" }, () => page.locator(tab(long.topicId)).first().click());
+    const back = await topRow(longList);
+    const r = s.report;
+    const detail = `reading=${JSON.stringify(reading)} back=${JSON.stringify(back)} seq=${r.seq} trace=${r.trace.join(" ")}`;
+    expect(r.firstContent, `the row they were reading on the first frame after the input. ${detail}`).toBe(1);
+    expect(r.seq, `no frame without it after that. ${detail}`).toMatch(/^C+$/);
+    // Before the fix the rows were rendered at estimated heights on the first
+    // frame and moved by 72-99 px once measured, sometimes back and forth.
+    expect(r.rawJumpPx, `nothing moves by a pixel or more after the first frame. ${detail}`).toBeLessThan(1);
+    // And at the place they left it, not some 440 px lower: the anchor was the
+    // first row Virtuoso rendered, 400 px of overscan above the viewport.
+    expect(back.text, `the same row at the top. ${detail}`).toBe(reading.text);
+    expect(Math.abs(back.offset - reading.offset), `at the same offset from the top. ${detail}`).toBeLessThan(1);
+    expect(r.entrances, `no history row replays the entrance. ${detail}`).toBe(0);
+  });
+
   test("a chat in another group shows its skeleton on the first frame and lands without a jump", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TABSWITCH-02" });
     test.setTimeout(180_000);
@@ -318,5 +537,66 @@ test.describe("a tab switch is instant", () => {
       expect(r.jumpPx, `${label}: no jump once the content is there. ${detail}`).toBe(0);
       expect(r.entrances, `${label}: no history row replays the entrance. ${detail}`).toBe(0);
     }
+    // The first group's chat was seen at rest at the bottom before the switch:
+    // it mounts again from the sizes it measured (listStateCache). Measured 14
+    // skeleton frames without them (both runs), 6-8 with them.
+    const backSkeleton = back.report.seq.match(/^S*/)![0].length;
+    expect(backSkeleton, `back to the first group: the chat mounts from what it measured. seq=${back.report.seq}`).toBeLessThanOrEqual(REMOUNT_SKELETON_CAP);
+  });
+
+  test("a terminal evicted by the residency cap shows its last screen or its skeleton from the first frame, never an empty pane", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-02" });
+    test.setTimeout(180_000);
+    const term = await createTerminalSession(request, { name: "tsi-term", cols: 100, rows: 24 });
+    const termPane = `terminal:${term.id}`;
+    // Twelve light panes stay mounted (RESIDENCY_BUDGET.light): thirteen more
+    // chats push the terminal out.
+    const fillers: string[] = [];
+    for (let i = 0; i < 13; i++) fillers.push((await seedChat(request, `TSI filler ${i}`, 2, `FILL${i}-END`)).topicId);
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        [termPane]: { id: termPane, type: "terminal", title: "Terminal", terminalSessionId: term.id, openedAt },
+        ...Object.fromEntries(fillers.map((id) => [id, { id, type: "chat", title: "", topicId: id, openedAt }])),
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [termPane, ...fillers], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await installProbe(page);
+    await installMeter(page);
+    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), termPane);
+    await goToApp(page);
+    const termShell = page.locator(`[data-pane-shell="${termPane}"]`);
+    await page.locator(tab(termPane)).first().click();
+    await termShell.locator(".xterm").first().click();
+    await page.keyboard.type("seq 1 3000\n");
+    await expect(termShell.locator(".xterm-rows")).toContainText("2999", { timeout: 20_000 });
+    const T = { key: termPane, needle: "2999", content: '.xterm-rows, [data-testid="terminal-text"]', topicId: term.id, sessionKey: term.id };
+    // Twice: back to it with the copy of its last screen this device keeps, and
+    // without one (another device, or a cleared cache), where the skeleton
+    // stands in for it.
+    for (const round of ["with its last screen", "without a copy of it"] as const) {
+      for (const id of fillers) {
+        await page.locator(tab(id)).first().click();
+        await expect(page.locator(`[data-pane-shell="${id}"]`)).toHaveAttribute("data-pane-visible", "1");
+      }
+      // Evicted: its shell leaves the page once the dwell and the delay are over.
+      await expect(termShell).toHaveCount(0, { timeout: 30_000 });
+      if (round === "without a copy of it") await page.evaluate(() => localStorage.removeItem("terminal-scrollback-cache"));
+      const s = await measureSwitch(page, T, { event: "click" }, () => page.locator(tab(termPane)).first().click());
+      const r = s.report;
+      const detail = `${round}: seq=${r.seq} trace=${r.trace.join(" ")}`;
+      // Before the fix: the last screen on the first frame, then four to six
+      // frames of an empty terminal until the replay was drawn (C.....C), and
+      // with no copy, empty frames from the first one.
+      expect(r.seq[0], `the first frame holds the last screen or the skeleton, never an empty pane. ${detail}`).not.toBe(".");
+      expect(r.seq, `skeleton or last screen, then the terminal, and nothing empty in between. ${detail}`).toMatch(/^[SC]*C+$/);
+      expect(r.seq, `no empty frame at all. ${detail}`).not.toContain(".");
+      expect(r.rawJumpPx, `the last screen and the terminal drawn over it line up. ${detail}`).toBeLessThan(1);
+    }
+    await deleteTerminalSession(request, term.id).catch(() => {});
   });
 });

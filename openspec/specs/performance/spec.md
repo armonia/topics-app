@@ -1030,6 +1030,18 @@ skeleton and the content; and SHALL NOT move the content once it is there.
 - **WHEN** the user switches group and back
 - **THEN** each chat shows its skeleton or its content on the first frame, then its content with no empty frame in between and no jump
 
+#### Scenario: back to a chat rebuilt by a group switch
+- **GIVEN** a chat seen at rest at the bottom, whose pane a group switch (or the residency cap) unmounted
+- **WHEN** the user comes back to it
+- **THEN** its list mounts from the sizes and offset it measured before, kept as data (a few hundred bytes), not as a mounted pane
+- **AND** the skeleton lasts at most 10 frames (14 without them, 6-8 with them, measured 2026-10-01)
+
+#### Scenario: back to a terminal the residency cap evicted
+- **GIVEN** a terminal with a screen of output, pushed out of the page by the residency cap
+- **WHEN** the user comes back to its tab
+- **THEN** the first frame shows its last screen (the copy this device keeps) or, with no copy, the terminal skeleton
+- **AND** that stays until xterm has drawn the replay, with no empty frame in between, and the replayed rows land exactly where the copy's lines were (the copy is drawn at the row height it was written at, bottom-aligned to xterm's whole rows)
+
 ### Requirement: BGSTREAM-01 — A stream frame re-renders only what shows its session
 
 A frame of a chat's turn (`stream:start`, a token, the end) for a session that
@@ -1050,3 +1062,27 @@ and 1026 component renders, `App` among the roots.
 - **THEN** `App` does not render, and the component renders stay within the case's budget
 - **AND** the hidden chat's composer shows Stop, and shows Send again once the turn's flag drops with no message changed
 
+### Requirement: TABSWITCH-03 — A chat whose history was completed while hidden is final on the first frame of the return
+
+The rest of a chat's history is merged only while its pane is hidden. The
+merge re-indexes the list, so the scroll offset the pane had when it was hidden
+points, over the merged list, at rows from the top of the thread. When the pane
+is shown again it SHALL be placed (at the bottom, or on the row the reader had
+at the top) and the rows at that place SHALL be rendered before the first frame
+paints, never a frame later: the first frame of the return painted rows 29-43
+of 2000 and the last message one frame after (tab-switch audit 2026-09-30).
+Nothing SHALL move by a pixel or more after that frame. A frame is read after
+its layout, where a pane shown again is placed, not in its animation-frame
+callback, which runs before that.
+
+#### Scenario: back to a long chat right after its first look
+- **GIVEN** a chat of 2000 messages opened once on its last page and read to the bottom
+- **WHEN** the user switches to another tab, the rest of its history is merged, and the user comes back
+- **THEN** its last message is on screen on the first frame of the return, with no frame of other rows before it
+- **AND** it does not move by a pixel or more in the frames after
+
+#### Scenario: back to a long chat the reader had scrolled up in
+- **GIVEN** a chat of 2000 messages opened on its last page, where the reader went up some 2000 px with the wheel
+- **WHEN** the user switches to another tab, the rest of its history is merged above the row they were reading, and the user comes back
+- **THEN** that row is on the first frame of the return at the place it had (the same row at the top, less than a pixel from its old offset), not the first row of the 400 px overscan above it
+- **AND** it does not move by a pixel or more in the frames after: before, the rows were placed from sizes kept by index (stale after the merge) and moved by 72-99 px once measured, sometimes back and forth

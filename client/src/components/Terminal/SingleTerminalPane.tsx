@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -30,6 +31,7 @@ import { queueReasonText } from '../../../../shared/queue-reason-text';
 import { openTopicInApp } from '../../lib/deepLinkEntry';
 import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../shared/terminal-messages';
 import { useSwapFreeze } from '../../state/swapFreeze';
+import { TerminalCover } from './TerminalCover';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -136,8 +138,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // seed is the text the reader left there, read synchronously from the local
   // copy and painted on the first frame; it is removed as soon as the server's
   // replay lands, which is the moment it stops being what is on screen.
+  // Until xterm has DRAWN the replay, not until `replay-end`: a pane the
+  // residency cap evicted showed 4-6 empty frames in between (TABSWITCH-02).
   const [scrollbackSeed] = useState(() => readTerminalScrollback(sessionId));
-  const [seedShown, setSeedShown] = useState(scrollbackSeed !== null);
+  const [replayDrawn, setReplayDrawn] = useState(false);
+  const seedRef = useRef<HTMLDivElement>(null);
+  /** xterm's row height, last time it had one: a hidden pane measures 0, and
+   *  the copy written as the pane goes away is written while it is hidden. */
+  const rowPxRef = useRef(0);
 
   // ── Cadenza di redraw ──────────────────────────────────────────────────
   // Scrivere su xterm schedula un redraw DOM: un TUI vivo (lo spinner di
@@ -392,7 +400,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     for (let i = first; i <= buf.baseY + buf.cursorY; i++) {
       lines.push(buf.getLine(i)?.translateToString(true) ?? '');
     }
-    writeTerminalScrollback(sessionId, lines.join('\n'));
+    const screen = containerRef.current?.querySelector<HTMLElement>('.xterm-screen');
+    const measured = screen && term.rows > 0 ? screen.offsetHeight / term.rows : 0;
+    if (measured > 0) rowPxRef.current = measured;
+    writeTerminalScrollback(sessionId, lines.join('\n'), rowPxRef.current);
   }, [sessionId]);
   const captureRef = useRef(captureScrollback);
   useEffect(() => { captureRef.current = captureScrollback; }, [captureScrollback]);
@@ -402,10 +413,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // otherwise leave a frozen screenful of yesterday's text over a live pane,
   // which is worse than the black rectangle it was there to remove.
   useEffect(() => {
-    if (!seedShown) return;
-    const timer = setTimeout(() => setSeedShown(false), 5000);
+    if (replayDrawn) return;
+    const timer = setTimeout(() => setReplayDrawn(true), 5000);
     return () => clearTimeout(timer);
-  }, [seedShown]);
+  }, [replayDrawn]);
 
   // Mount terminal
   useEffect(() => {
@@ -458,6 +469,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // size and the fit throws or proposes nothing; the delayed fits below stay
     // as the safety net for that and for fonts that finish loading late.
     try { fitAddon.fit(); } catch { /* no layout yet: the delayed fits retry */ }
+    // xterm's rows are known now: the seed's box takes their exact height (the
+    // first frame, before this runs, rounds the pane down to whole rows).
+    const screen = el.querySelector<HTMLElement>('.xterm-screen');
+    if (screen && screen.offsetHeight > 0) {
+      rowPxRef.current = screen.offsetHeight / term.rows;
+      if (seedRef.current) seedRef.current.style.height = `${screen.offsetHeight}px`;
+    }
 
     // Ogni byte del PTY passa da qui, mai da `term.write` diretto: il coalescer
     // decide se ridisegnare subito o accumulare, e scavalcarlo romperebbe
@@ -700,7 +718,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // The screen the reader was looking at is on screen again, for
               // real this time: the seed has done its job and steps aside, and
               // what it will show NEXT time is written down here.
-              setSeedShown(false);
+              // Into xterm now; once parsed, xterm draws it in its next frame,
+              // and a frame asked after that removes the cover in the same one.
+              coalescer.flush();
+              term.write('', () => requestAnimationFrame(() => flushSync(() => setReplayDrawn(true))));
               // A tick later: the bytes of the replay are in the coalescer, not
               // yet in the buffer, and capturing now would write down an empty
               // screen on top of a good one.
@@ -1264,17 +1285,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           className="absolute inset-0"
           onClick={() => termRef.current?.term.focus()}
         />
-        {/* The last screen, until the real one is back. Same metrics as xterm's
-            DOM renderer and pinned to the bottom, the way a terminal reads: the
-            replay lands on top of it without anything moving. */}
-        {seedShown && scrollbackSeed && (
-          <pre
-            data-testid="terminal-text"
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 px-[1px] overflow-hidden whitespace-pre text-prose leading-[17px] text-app-text-muted"
-            style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}
-          >{scrollbackSeed}</pre>
-        )}
+        {/* The last screen, or the skeleton, until xterm has drawn the replay. */}
+        {!replayDrawn && (scrollbackSeed || !stale) && <TerminalCover ref={seedRef} copy={scrollbackSeed} />}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button
