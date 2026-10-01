@@ -29,6 +29,7 @@ import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
+import { protectedDirExcludes } from "../../lib/protected-app-data";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
 
@@ -711,6 +712,9 @@ export async function executeTool(
         const root = input.path ? safePath(ctx, String(input.path)) : resolve(ctx.workspace);
         const args = ["-rn", "--color=never"];
         if (input.glob) args.push(`--include=${String(input.glob)}`);
+        // Other apps' data stays out of a search from HOME or ~/Library
+        // (`lib/protected-app-data.ts`): it is the server reading, not the agent.
+        for (const ex of protectedDirExcludes(root)) args.push(`--exclude-dir=${ex}`);
         args.push(String(input.pattern), root);
         const { out, code } = await runCommand("/usr/bin/grep", args, resolve(ctx.workspace), 30_000);
         // grep esce 1 quando non trova niente: è una risposta, non un errore.

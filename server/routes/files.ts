@@ -16,6 +16,7 @@ import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { stagedEntries, buildSystemPrompt, buildUserPrompt, rulesFallback, usableMessage } from "../lib/commit-message";
 import { getProvider } from "../providers";
 import { HEAVY_DIRS, walkFileTree } from "../lib/file-tree";
+import { protectedDirExcludes } from "../lib/protected-app-data";
 // La cache dello stato git vive in `lib/` e non qui: la riempie questa route,
 // ma a invalidarla è `git-watcher`, e finché la funzione stava in questo file
 // il watcher doveva importare una ROUTE — chiudendo il ciclo
@@ -224,6 +225,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         for (const ex of [...HEAVY_DIRS, ".git", ".topics-secrets", "data", "test-results", "videos", "uploads"]) {
           args.push(`--exclude-dir=${ex}`);
         }
+        // Other apps' data: reading it makes macOS ask "Topics Host would like
+        // to access data from other apps" (`lib/protected-app-data.ts`).
+        for (const ex of protectedDirExcludes(resolvedPath)) args.push(`--exclude-dir=${ex}`);
         args.push("--exclude=*.lock");
         args.push("--", query, ".");
 
