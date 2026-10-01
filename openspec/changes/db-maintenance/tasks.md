@@ -17,4 +17,4 @@ temporanee.
 - [x] `server/lib/db-incremental-vacuum.ts` + timer in `server.ts` su `whatIsStillWorking()`
 
 ## 4. Chiusura
-- [ ] Typecheck, lint, `check:*` della CI, `tests/unit`, `review-checks-rails`
+- [x] Typecheck, lint, `check:*` della CI, `tests/unit`, `review-checks-rails` (02/10: tutti 0 tranne `check:route-latency`, exit 2 «non misurabile» con load 17-35; i banchi Playwright drag/growth/ink/scroll-fluidity non lanciati sul Mac)
