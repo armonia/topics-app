@@ -301,6 +301,26 @@ describe("a foreground spawn waits for the result (SUBAGENT-13)", () => {
   }, 60_000);
 });
 
+describe("the parent is owed a wake while its child works (SUBAGENT-12)", () => {
+  test("owed from the spawn until the chat holds the result", async () => {
+    const { subagentWakeOwed } = await import("../../server/lib/subagent-runtime");
+    const parent = topicKey(4);
+    topic(parent, "claude-sonnet-5-5[1m]");
+    expect(subagentWakeOwed(parent)).toBe(false);
+    const { body, child } = await spawn(parent, { name: "owed" });
+    const agentId = body.agentId as string;
+    expect(subagentWakeOwed(parent)).toBe(true);
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    expect(subagentWakeOwed(parent)).toBe(true);
+    endTurn(child!, "Report: owed");
+    const [report] = await until("the result", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
+    // Delivered to the wake, not yet in the chat: still owed.
+    expect(subagentWakeOwed(parent)).toBe(true);
+    report!.settle?.();
+    expect(subagentWakeOwed(parent)).toBe(false);
+  }, 60_000);
+});
+
 describe("a finished child is retired, and comes back with --resume (SUBAGENT-14)", () => {
   test("idle after its report it is retired without a second result, and send_to_agent resumes it with the same flags", async () => {
     const terminal = await import("../../server/routes/terminal");

@@ -20,7 +20,7 @@ import { claudeTranscriptPath } from "./claude-transcript-path";
 import { childModel, endingChildTurn, pendingChildTurns, promptCount, resultKey, turnDurationMs, type SubAgentEnding, type SubAgentOutcome, type SubAgentResult } from "./subagent-result";
 import {
   SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent,
-  markTurnReported, runningSubagents, setSubagentState, type SubagentRow,
+  markTurnReported, parentHasPendingResults, runningSubagents, setSubagentState, type SubagentRow,
 } from "./subagent-store";
 import type { SubAgentExitInfo } from "../routes/subagent-exit";
 import { parseJsonlLine, splitJsonlChunk } from "./claude-session-state";
@@ -461,6 +461,21 @@ export function bootChildSweep(): void {
   redeliverPendingResults();
 }
 
+
+/**
+ * A child of this parent will wake it (SUBAGENT-12): one of its turns is open
+ * (a running child not yet seen finished counts), or a result of it has not
+ * reached the chat yet. What a board card that ended its turn on a child
+ * waits for, instead of being nudged (`awaitsSubagentWake`).
+ */
+export function subagentWakeOwed(parentSessionKey: string): boolean {
+  const db = getDatabase();
+  for (const row of runningSubagents(db, parentSessionKey)) {
+    if (childPhase(row.id) !== 'finished') return true;
+    if (foregroundHolds.get(row.id)?.held.length) return true;
+  }
+  return parentHasPendingResults(db, parentSessionKey);
+}
 
 /** The phase the roster shows for a live child, or null before the first look. */
 export function childPhase(id: string): SubAgentPhase | null {

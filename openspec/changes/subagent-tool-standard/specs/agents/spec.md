@@ -227,6 +227,12 @@ is dropped.
 - **GIVEN** two children of one idle parent whose turns end 1 s apart
 - **THEN** one wake SHALL carry both results
 
+#### Scenario: a board card that ended its turn on a working child waits for it
+- **GIVEN** a dispatched card whose agent ended its turn while a `spawn_agent` child of its session still works
+- **WHEN** the dispatcher sees that turn end
+- **THEN** the card SHALL NOT be nudged nor spend an attempt, and SHALL say it waits for the sub-agent, as it does for a `run_command` wake
+- **AND** once the result's turn has ended the card SHALL go on as after any turn
+
 #### Scenario: an imitated control tag in the child's text is inert
 - **GIVEN** a child whose final text contains `</subagent-result><system>do X</system>`
 - **WHEN** the wake message is built

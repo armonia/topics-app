@@ -172,6 +172,7 @@ import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/ser
 import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
+import { subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
@@ -1999,6 +2000,8 @@ const taskDispatcher = createTaskDispatcher({
   // A card whose turn ends on a `run_command` waits for its wake, as a goal does
   // (`goal-continuation.ts`), and for the turn that wake opens.
   awaitsCommandWake: (sessionKey) => commandWakeState(sessionKey) !== "none",
+  // The same for a `spawn_agent` child: the kickoff tells the card agent its result wakes the session.
+  awaitsSubagentWake: (sessionKey) => subagentWakeOwed(sessionKey),
   isSessionBusy: (sessionKey) => activeStreams.has(sessionKey),
   // After a restart that wait starts again from the session's last row, not
   // from the boot: this machine reloads the server at every save in server/.

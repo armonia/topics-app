@@ -162,6 +162,11 @@ export function pendingResultsOf(db: Db, id: string): SubAgentResult[] {
   });
 }
 
+/** A result of one of this parent's children is still on its way to the chat. */
+export function parentHasPendingResults(db: Db, parentSessionKey: string): boolean {
+  return attempt(false, () => !!db.query("SELECT 1 FROM subagents WHERE parent_session_key = ? AND pending_results IS NOT NULL LIMIT 1").get(parentSessionKey));
+}
+
 /** Every result a restart found still owed to a parent chat. */
 export function allPendingResults(db: Db): Array<{ row: SubagentRow; results: SubAgentResult[] }> {
   return attempt([], () => {
