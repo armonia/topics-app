@@ -96,7 +96,8 @@ describe("native glob matches like globstar", () => {
   test("dependency and git folders are walked only when the pattern names them", async () => {
     expect((await glob("**/*.ts")).content).not.toContain("node_modules");
     expect((await glob("node_modules/**/*.ts")).content).toBe("node_modules/pkg/index.ts");
-    expect((await glob("**/HEAD")).content).toBe("nessun file");
+    // Nothing matched: the answer names the folders it did not enter.
+    expect((await glob("**/HEAD")).content).toBe("nessun file\n(not entered: .git, build, node_modules; name one in the pattern to search it)");
     expect((await glob(".git/*")).content).toBe(".git/HEAD");
     expect((await glob("{build,lib}/*.ts")).content.split("\n")).toEqual(["build/gen.ts", "lib/e.ts"]);
   });

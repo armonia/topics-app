@@ -78,11 +78,22 @@ describe("reachesProtectedAppData", () => {
 });
 
 describe("protectedDirExcludes", () => {
+  /** Would `--exclude-dir=<one of ex>` drop a folder with this base name? */
+  const excludes = (ex: string[], name: string) => ex.some((p) => new Bun.Glob(p).match(name));
+
   test("from HOME: Library plus the media libraries", () => {
     const ex = protectedDirExcludes(home, home);
     expect(ex).toContain("Library");
-    expect(ex).toContain("*.photoslibrary");
+    expect(excludes(ex, "Photos Library.photoslibrary")).toBe(true);
     expect(ex).not.toContain("Containers");
+  });
+
+  test("a media library spelled in another case is excluded where the file system ignores case", () => {
+    if (process.platform !== "darwin" && process.platform !== "win32") return;
+    const ex = protectedDirExcludes(join(home, "Projects", "app"), home);
+    expect(excludes(ex, "Old.PHOTOSLIBRARY")).toBe(true);
+    expect(excludes(ex, "photo booth library")).toBe(true);
+    expect(excludes(ex, "src")).toBe(false);
   });
 
   test("from ~/Library: the per-app folders, never Library itself (grep would drop the root)", () => {
@@ -94,11 +105,11 @@ describe("protectedDirExcludes", () => {
   test("from a project: only the media libraries", () => {
     const ex = protectedDirExcludes(join(home, "Projects", "app"), home);
     expect(ex).not.toContain("Library");
-    expect(ex).toContain("*.photoslibrary");
+    expect(excludes(ex, "Photos Library.photoslibrary")).toBe(true);
   });
 
   test("a root that IS a media library keeps its own contents searchable", () => {
     const ex = protectedDirExcludes(join(home, "Pictures", "P.photoslibrary"), home);
-    expect(ex.some((n) => n.startsWith("*"))).toBe(false);
+    expect(excludes(ex, "Other.photoslibrary")).toBe(false);
   });
 });

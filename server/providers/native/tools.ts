@@ -729,7 +729,7 @@ export async function executeTool(
         // In-process, no shell: a read-only tool whose pattern reached `bash` ran commands.
         const found = await globFiles(root, String(input.pattern ?? ""), { within: ctx.workspace, signal: ctx.signal });
         if (!found.ok) return { content: found.reason, isError: true };
-        return { content: truncate(globAnswer(found.files, found.truncated)) };
+        return { content: truncate(globAnswer(found)) };
       }
 
       // THE PLAN IS THE RESULT: this tool writes nothing and runs nothing.

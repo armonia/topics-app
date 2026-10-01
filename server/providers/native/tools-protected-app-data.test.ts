@@ -12,7 +12,7 @@
  * @covers RT-11
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { executeTool } from "./tools";
 import { makeFakeHome, PROTECTED_FILES, type FakeHome } from "../../lib/protected-app-data.fixture";
@@ -94,5 +94,27 @@ describe("native search roots inside other apps' data", () => {
     const g = await executeTool("grep", { pattern: "needle", path: "Projects/app/c" }, { workspace: fake.home });
     expect(g.isError).toBe(true);
     expect(leaks(g.content)).toBe(false);
+  });
+});
+
+describe("a protected root is refused before it is touched", () => {
+  test("an unreadable container and a missing one answer like a readable one: never opened", async () => {
+    // Mode 000 makes any open() fail: a root that answered «cannot read» or «no
+    // such folder» here would have been opened before the refusal.
+    const locked = join(fake.home, "Library", "Containers", "com.locked.app", "Data");
+    mkdirSync(locked, { recursive: true });
+    chmodSync(locked, 0o000);
+    try {
+      for (const path of ["Library/Containers/com.locked.app/Data", "Library/Containers/com.missing.app/Data"]) {
+        for (const [tool, pattern] of [["glob", "*"], ["grep", "needle"]] as const) {
+          const r = await executeTool(tool, { pattern, path }, { workspace: fake.home });
+          expect(r.content).toContain("private data");
+        }
+      }
+      const r = await executeTool("glob", { pattern: "Library/Containers/com.locked.app/Data/*" }, { workspace: fake.home });
+      expect(r.content).toContain("private data");
+    } finally {
+      chmodSync(locked, 0o755);
+    }
   });
 });

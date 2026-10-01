@@ -17,7 +17,6 @@
  * enters other apps' data (`lib/protected-app-data.ts`), and enters dependency
  * folders only when the pattern names them.
  */
-import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { HEAVY_DIRS } from "../../lib/file-tree";
@@ -40,7 +39,7 @@ export interface GlobOptions {
 }
 
 export type GlobOutcome =
-  | { ok: true; files: string[]; truncated: boolean }
+  | { ok: true; files: string[]; truncated: boolean; skipped: string[] }
   | { ok: false; reason: string };
 
 /**
@@ -83,12 +82,13 @@ export async function globFiles(root: string, pattern: string, opts: GlobOptions
 
   const start = segs.slice(0, head);
   const startDir = join(root, ...start);
-  if (!existsSync(startDir)) return { ok: true, files: [], truncated: false };
   const where = resolveSearchRoot(opts.within ?? root, startDir);
-  if (!where.ok) return where;
+  // A literal head that does not exist is a search with no matches, not an error.
+  if (!where.ok) return where.missing ? { ok: true, files: [], truncated: false, skipped: [] } : where;
   const { root: base, home } = where;
 
   const files: string[] = [];
+  const skipped = new Set<string>();
   let entries = 0;
   let truncated = false;
 
@@ -109,7 +109,7 @@ export async function globFiles(root: string, pattern: string, opts: GlobOptions
         // Without `**` each level has its own segment: a folder past the last
         // one, or one that does not match its own, cannot hold a match.
         if (!recursive && (level >= lastLevel || !segMatchers[head + level]!.match(entry.name))) continue;
-        if (SKIPPED_DIRS.has(entry.name) && !named.has(entry.name)) continue;
+        if (SKIPPED_DIRS.has(entry.name) && !named.has(entry.name)) { skipped.add(entry.name); continue; }
         const full = join(dir, entry.name);
         if (isProtectedFromWalk(full, base, home)) continue;
         await walk(full, path, level + 1);
@@ -122,11 +122,18 @@ export async function globFiles(root: string, pattern: string, opts: GlobOptions
 
   await walk(base, start.join("/"), 0);
   if (opts.signal?.aborted) return { ok: false, reason: "search cancelled" };
-  return { ok: true, files, truncated };
+  return { ok: true, files, truncated, skipped: [...skipped].sort() };
 }
 
-/** The tool's answer: one path per line, and a note when the walk stopped early. */
-export function globAnswer(files: string[], truncated: boolean): string {
-  const note = truncated ? "\n(walk stopped early: narrow the pattern or pass a deeper `path`)" : "";
-  return (files.join("\n") || "nessun file") + note;
+/**
+ * The tool's answer: one path per line, a note when the walk stopped early, and,
+ * when nothing matched, the folders it did not enter: a wildcard misses
+ * `build/gen.ts` on purpose, and the agent should know where to look.
+ */
+export function globAnswer(found: { files: string[]; truncated: boolean; skipped: string[] }): string {
+  const notes = [
+    found.truncated ? "(walk stopped early: narrow the pattern or pass a deeper `path`)" : "",
+    !found.files.length && found.skipped.length ? `(not entered: ${found.skipped.join(", ")}; name one in the pattern to search it)` : "",
+  ].filter(Boolean);
+  return [found.files.join("\n") || "nessun file", ...notes].join("\n");
 }

@@ -125,7 +125,18 @@ export function protectedDirExcludes(root: string, home: string = homeDir()): st
     if (r === lib) names.push(...PROTECTED_LIBRARY_DIRS);
     else if (isInsideDir(lib, r)) names.push("Library");
   }
-  names.push(...MEDIA_LIBRARY_SUFFIXES.map((s) => `*${s}`), ...MEDIA_LIBRARY_NAMES);
+  const media = new Set<string>([...MEDIA_LIBRARY_SUFFIXES.map((s) => `*${s}`), ...MEDIA_LIBRARY_NAMES]);
+  names.push(...media);
   const own = basename(resolve(root));
-  return names.filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : (FOLD_CASE ? n.toLowerCase() === own.toLowerCase() : n === own)));
+  return names
+    .filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : (FOLD_CASE ? n.toLowerCase() === own.toLowerCase() : n === own)))
+    // grep compares `--exclude-dir` with case: on a file system that ignores it,
+    // `Old.PHOTOSLIBRARY` is the same package and must be excluded too. The
+    // Library folders keep their spelling: macOS creates them, a person does not.
+    .map((n) => (FOLD_CASE && media.has(n) ? caseless(n) : n));
+}
+
+/** `*.photoslibrary` as a glob that matches it in any case: `*.[pP][hH]…`. */
+function caseless(pattern: string): string {
+  return pattern.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
 }
