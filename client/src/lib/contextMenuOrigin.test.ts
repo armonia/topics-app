@@ -9,6 +9,7 @@ import {
   installContextMenuSupport,
   isContextMenuKey,
   isTextField,
+  keepSystemMenuOffPanel,
   keyboardMenuPoint,
   takeContextMenuOrigin,
   type ContextMenuHost,
@@ -181,5 +182,55 @@ describe('installContextMenuSupport', () => {
     install();
     host.fire('contextmenu', { target: el('DIV'), defaultPrevented: false });
     expect(takeContextMenuOrigin()).toBeNull();
+  });
+});
+
+describe('keepSystemMenuOffPanel', () => {
+  /** An element whose `closest` honours the selector, as far as the commands go. */
+  function node(tagName: string, opts: { command?: boolean } = {}): OriginElement {
+    return {
+      tagName,
+      closest: (sel) => (opts.command && sel.includes('button') ? node(tagName) : null),
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+      getAttribute: () => null,
+      dispatchEvent: () => true,
+    };
+  }
+  /** A selection that holds exactly `inside`. */
+  const selecting = (...inside: OriginElement[]) => ({ isCollapsed: inside.length === 0, containsNode: (n: unknown) => inside.includes(n as OriginElement) });
+  function rightClick(target: OriginElement, selection: ReturnType<typeof selecting> | null) {
+    const ev = { target: target as unknown as EventTarget, prevented: false, stopped: false, preventDefault() { ev.prevented = true; }, stopPropagation() { ev.stopped = true; } };
+    keepSystemMenuOffPanel(ev, selection);
+    return ev;
+  }
+
+  test('a right-click on a command of the panel turns the system menu down and stops at the panel', () => {
+    const ev = rightClick(node('BUTTON', { command: true }), selecting());
+    expect(ev.prevented).toBe(true);
+    expect(ev.stopped).toBe(true);
+  });
+
+  test('a text field in the panel keeps the system menu', () => {
+    expect(rightClick(node('INPUT'), selecting()).prevented).toBe(false);
+  });
+
+  test('selected text in the panel (a diff line, a console row) keeps the system menu with Copy', () => {
+    const line = node('SPAN');
+    const ev = rightClick(line, selecting(line));
+    expect(ev.prevented).toBe(false);
+    // Still ours to stop: the row behind the portal must not open a second menu.
+    expect(ev.stopped).toBe(true);
+  });
+
+  test('text that is not selected, or a selection somewhere else, is still the panel', () => {
+    const line = node('SPAN');
+    expect(rightClick(line, selecting()).prevented).toBe(true);
+    expect(rightClick(line, selecting(node('SPAN'))).prevented).toBe(true);
+    expect(rightClick(line, null).prevented).toBe(true);
+  });
+
+  test('a selected label of a command is still the command: WebKit selects the word under a right-click', () => {
+    const label = node('SPAN', { command: true });
+    expect(rightClick(label, selecting(label)).prevented).toBe(true);
   });
 });

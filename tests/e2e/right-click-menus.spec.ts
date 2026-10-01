@@ -11,7 +11,9 @@
  *    decides whether WebKit draws its own menu), and NOT on the composer;
  *  - one menu, inside the viewport, and flipped to the other side of the
  *    pointer when opened near the bottom-right corner;
- *  - a right-click ON the open menu does not ask for the system menu on top;
+ *  - a right-click ON the open menu does not ask for the system menu on top,
+ *    except on text selected inside it (a diff, a console log), where the
+ *    system menu is the only way to Copy;
  *  - Esc and an outside press close it, and the focus goes back to the
  *    element that was right-clicked;
  *  - Shift+F10 on the focused element opens the same menu.
@@ -19,12 +21,15 @@
  * @covers CTXMENU-01
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { execFileSync } from "child_process";
 import { mkdirSync, writeFileSync } from "fs";
-import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectInnerPanes, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectInnerPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { projectRowSelector } from "./fixtures/file-explorer.fixture";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { E2E_BASE } from "./helpers/test-server";
+import { projectIdForPath } from "../../shared/board";
 
 hermetic(test);
 
@@ -99,8 +104,8 @@ async function exerciseMenu(page: Page, target: Locator, opts: Exercise = {}): P
   await expectInsideViewport(page, menu);
 
   // A right-click ON our menu does not stack the system menu over it.
-  const mbox = (await menu.boundingBox())!;
-  await page.mouse.click(mbox.x + mbox.width / 2, mbox.y + 3, { button: "right" });
+  const panelBox = (await menu.boundingBox())!;
+  await page.mouse.click(panelBox.x + panelBox.width / 2, panelBox.y + 3, { button: "right" });
   expect(await takeContextMenus(page)).toEqual([true]);
   await expect(menu).toHaveCount(1);
 
@@ -311,5 +316,98 @@ test.describe("Right-click across the app (CTXMENU-01)", () => {
     await composer.focus();
     await page.keyboard.press("Shift+F10");
     await expect(page.getByRole("menu")).toHaveCount(0);
+  });
+});
+
+test.describe("Right-click on text inside a menu panel (CTXMENU-01)", () => {
+  const repo = canonicalTmpDir(`e2e-rclick-diff-${process.pid}`);
+  const projectId = projectIdForPath(repo);
+  const stamp = Date.now();
+  let topicId = "";
+  let taskId = "";
+
+  test.beforeAll(async ({ request }) => {
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(`${repo}/README.md`, "# diff\n");
+    initGitRepo(repo);
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@test", "-c", "commit.gpgsign=false", "-C", repo, ...a], { encoding: "utf8" }).trim();
+    git("checkout", "-q", "-b", `topics/rclick-${stamp}`);
+    mkdirSync(`${repo}/src`, { recursive: true });
+    writeFileSync(`${repo}/src/only.ts`, "export const COPYMEDIFF = 'line in the diff';\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "delivery");
+    const commit = git("rev-parse", "HEAD");
+    git("checkout", "-q", "main");
+    topicId = (await createTopic(request, `RCLICK-D-${stamp}`, { projectPath: repo })).id;
+    const created = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { data: { text: "right-click on the diff", status: "review" } });
+    expect(created.ok(), `create task ${created.status()}`).toBe(true);
+    taskId = ((await created.json()) as { id: string }).id;
+    const delivered = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/delivery`, {
+      data: { branch: `topics/rclick-${stamp}`, commit, filesChanged: 1, insertions: 1, deletions: 0 },
+    });
+    expect(delivered.ok(), `delivery ${delivered.status()}`).toBe(true);
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (taskId) await deleteTask(request, projectId, taskId).catch(() => {});
+    if (topicId) await deleteTopic(request, topicId).catch(() => {});
+    removeTmpDir(repo);
+  });
+
+  /** The centre of `needle` as laid out inside `root`. */
+  async function textPoint(root: Locator, needle: string, select: boolean): Promise<{ x: number; y: number }> {
+    const p = await root.evaluate((el, a) => {
+      const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        const i = (n.textContent ?? "").indexOf(a.needle);
+        if (i < 0) continue;
+        const r = document.createRange();
+        r.setStart(n, i);
+        r.setEnd(n, i + a.needle.length);
+        if (a.select) {
+          const s = window.getSelection()!;
+          s.removeAllRanges();
+          s.addRange(r);
+        }
+        const b = r.getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }
+      return null;
+    }, { needle, select });
+    expect(p, `"${needle}" on screen`).not.toBeNull();
+    return p!;
+  }
+
+  test("RC-09 the task's changes panel: selected diff text keeps the system menu, its commands do not", async ({ page }) => {
+    await recordContextMenus(page);
+    await resetPaneStore(page.request, []);
+    await page.goto(`/task/${taskId}`);
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 20_000 });
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await drawer.getByTestId("task-changes-trigger").click();
+    const panel = page.getByTestId("task-changes-panel");
+    await expect(panel).toContainText("COPYMEDIFF", { timeout: 20_000 });
+    await takeContextMenus(page);
+
+    // A command of the panel (the file header) is still the panel's: no
+    // system menu over it, even though WebKit selects the word under a
+    // right-click.
+    const header = await textPoint(panel.getByTestId("diff-file").locator("button").first(), "only.ts", false);
+    await page.mouse.click(header.x, header.y, { button: "right" });
+    expect(await takeContextMenus(page)).toEqual([true]);
+    await expect(panel).toBeVisible();
+
+    // A diff line, selected: the system menu (Copy) opens, the panel stays,
+    // and the row behind the portal does not open a menu of its own. Last: in
+    // WebKit a right-click after the system menu opened dispatched no
+    // `contextmenu` at all (measured when this step came first).
+    const line = await textPoint(panel, "COPYMEDIFF", true);
+    expect(await page.evaluate(() => String(window.getSelection()))).toBe("COPYMEDIFF");
+    await page.mouse.click(line.x, line.y, { button: "right" });
+    expect(await takeContextMenus(page)).toEqual([false]);
+    await expect(panel).toBeVisible();
+    await expect(page.getByRole("menu")).toHaveCount(1);
   });
 });

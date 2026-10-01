@@ -157,13 +157,38 @@ export function installContextMenuSupport(host: ContextMenuHost): () => void {
   };
 }
 
+/** What, inside a menu panel, is one of its commands. */
+const COMMAND = 'button, a[href], summary, [role^="menuitem"], [role="option"]';
+
+/** The minimum of a `Selection` this module needs. */
+export interface SelectionLike {
+  isCollapsed: boolean;
+  containsNode(node: never, allowPartialContainment: boolean): boolean;
+}
+
+function currentSelection(): SelectionLike | null {
+  return typeof document === 'undefined' ? null : document.getSelection();
+}
+
 /**
  * The `onContextMenu` of an open menu panel: a right-click ON a menu of ours is
  * not a request for the system menu on top of it, nor for a second menu from
  * the row behind (a portal bubbles through the React tree to whoever opened
- * it). A text field inside the panel keeps the system menu: cut, copy, paste.
+ * it). Two places inside a panel keep the system menu: a text field (cut,
+ * copy, paste), and SELECTED TEXT that is not a command's label. Some panels
+ * are reading surfaces (the task's diff, the browser console): turning the
+ * system menu down there took Copy away with it, and the panel has no Copy of
+ * its own. A command's label stays the panel's even when selected, because
+ * WebKit on macOS selects the word under a right-click before the event fires.
  */
-export function keepSystemMenuOffPanel(e: { target: EventTarget | null; preventDefault(): void; stopPropagation(): void }): void {
+export function keepSystemMenuOffPanel(
+  e: { target: EventTarget | null; preventDefault(): void; stopPropagation(): void },
+  selection: SelectionLike | null = currentSelection(),
+): void {
   e.stopPropagation();
-  if (!isTextField(e.target as unknown as OriginElement | null)) e.preventDefault();
+  const target = e.target as unknown as OriginElement | null;
+  if (isTextField(target)) return;
+  const onSelectedText = !!target && typeof target.closest === 'function' && !!selection && !selection.isCollapsed
+    && target.closest(COMMAND) === null && selection.containsNode(target as never, true);
+  if (!onSelectedText) e.preventDefault();
 }

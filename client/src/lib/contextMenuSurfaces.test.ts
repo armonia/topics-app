@@ -73,8 +73,8 @@ function block(code: string, open: number): string {
 function takesTheRightClick(code: string): boolean {
   // Inline attribute handlers.
   for (const m of code.matchAll(/onContextMenu=\{/g)) {
-    const expr = block(code, m.index! + 'onContextMenu='.length);
-    if (expr.includes('=>') && /\bpreventDefault\s*\(/.test(expr)) return true;
+    const handler = block(code, m.index! + 'onContextMenu='.length);
+    if (handler.includes('=>') && /\bpreventDefault\s*\(/.test(handler)) return true;
   }
   // Named handlers.
   for (const m of code.matchAll(/(?:const|let|function)\s+(\w*[Cc]ontext[Mm]enu\w*)\b/g)) {
