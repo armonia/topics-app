@@ -147,7 +147,7 @@ proposta e ripulite dei segreti.
       - lo stato viene dall'esito e dal seed, non dai byte della PTY;
       - «Sotto-agenti» e gli stati passano da i18n.
 - [x] 5.4 Chiavi in `client/src/i18n-chat-it.ts` e `i18n-chat-en.ts`.
-- [ ] 5.5 E2E sul server isolato :13334, con una chat seminata con una chiamata
+- [x] 5.5 E2E sul server isolato :13334, con una chat seminata con una chiamata
       `spawn_agent` e i blocchi `subagent-result` di tre stati (`completed`,
       `undelivered`, `stopped` parziale):
       - ogni card mostra il suo stato;
