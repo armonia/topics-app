@@ -1,6 +1,5 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
 import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -32,11 +31,9 @@ import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
-import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
-import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
+import { type AnchorRect } from '@/lib/popoverPosition';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
-import { useDismissable } from '@/hooks/useDismissable';
-import { useExitGhost } from '@/lib/exitGhost';
 import { usePaneStore } from '../../state/pane/store';
 import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, SPACES_MAX } from '../../state/pane/types';
@@ -451,13 +448,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // (editor di rinomina aperto, sottomenu «Sposta nel gruppo» espanso), e per
   // farlo serve l'ancora, non l'esito di un conto fatto una volta sola.
   const [ctxMenu, setCtxMenu] = useState<{ paneId: string; anchor: AnchorRect } | null>(null);
-  // Dove il pannello è finito DOPO essere stato misurato. `null` = non ancora
-  // misurato: il pannello è renderizzato ma invisibile (vedi lo stile in fondo).
-  const [ctxPos, setCtxPos] = useState<{ top: number; left: number } | null>(null);
-  const ctxMenuRef = useRef<HTMLDivElement>(null);
-  // The menu leaves the DOM on close as before; an inert copy fades out
-  // (lib/exitGhost, MOTION-04) instead of it vanishing in one frame.
-  useExitGhost(ctxMenuRef, ctxMenu !== null);
   // "Sposta nello Spazio →" inline submenu (expanded space list inside the
   // context menu). Collapses whenever the menu re-opens on another tab.
   const [spaceSubmenuOpen, setSpaceSubmenuOpen] = useState(false);
@@ -565,12 +555,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     }
   }, [activePaneId]);
 
-  // Close context menu on outside pointer / Escape via the shared dismissal
-  // contract (capture-phase pointerdown+touchstart+Escape, focus-restore). The
-  // rename editor and the "Sposta nello Spazio" submenu both live inside
-  // ctxMenuRef, so one panel ref covers every "inside" target.
-  useDismissable({ open: !!ctxMenu, onClose: () => setCtxMenu(null), refs: [ctxMenuRef] });
-
   // Apre il menu della tab ANCORANDOLO alla tab. Una sola porta per il tasto
   // destro e per il dito: il menu è lo stesso, e non può divergere.
   const openTabMenu = useCallback((paneId: string, tabEl: HTMLElement) => {
@@ -578,53 +562,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     setCtxMenu({ paneId, anchor: { top: r.top, right: r.right, bottom: r.bottom, left: r.left } });
   }, []);
 
-  // IL MENU SI MISURA, NON SI INDOVINA.
-  //
-  // Qui c'era un'altezza stimata a costante (`menuHeight = 296`), e il commento
-  // lo ammetteva: «Stima, non misura». Su una tab chat le voci sono una quindicina
-  // più i divisori, e sotto i 768px una riga di menu è alta 44px: ~730px reali
-  // contro 296 stimati. Con quel numero il conto diceva sempre «ci sta sotto la
-  // tab», e su una viewport da iPhone le ultime voci finivano fuori schermo —
-  // senza scroll con cui raggiungerle.
-  //
-  // Adesso il pannello si rende invisibile, si MISURA quello vero e lo si colloca
-  // con `computeMenuPosition` (la stessa funzione di <Menu>, che clampa ai bordi e
-  // ribalta sopra se sotto non ci sta). La misura da sola però non basterebbe: un
-  // pannello più alto della viewport non sta da nessuna parte. Serve il TETTO —
-  // `max-height` a viewport meno i margini + `overflow-y-auto`, sullo stile del
-  // pannello in fondo al file — ed è quello che rende la misura sempre
-  // risolvibile: comunque vadano le voci, il pannello sta nello schermo e il resto
-  // si scorre.
-  //
-  // Perché (a) e non portare il menu su <Menu>/<DropdownPortal>: il pannello non è
-  // una lista di bottoni e basta, ci vivono dentro l'editor di rinomina e il
-  // sottomenu «Sposta nel gruppo», più l'esclusività popover legata a `ctxMenuRef`
-  // (useDismissable, sopra). <Menu> vuole un `anchorRef` stabile — qui l'ancora è
-  // una tab diversa a ogni apertura — e su mobile diventa un foglio dal basso che
-  // si porta dietro il proprio fuoco e la propria tastiera roving, che
-  // litigherebbe con il campo di rinomina.
-  //
-  // Le dipendenze includono `renameDraft` e `spaceSubmenuOpen` perché sono le due
-  // cose che cambiano l'altezza del pannello DOPO l'apertura.
-  useLayoutEffect(() => {
-    if (!ctxMenu) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset a una costante alla chiusura: converge subito e non può ciclare
-      setCtxPos(null);
-      return;
-    }
-    const el = ctxMenuRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const next = computeMenuPosition(ctxMenu.anchor, { width: r.width, height: r.height }, { margin: POPOVER_MARGIN });
-    // Confronto prima di scrivere: riaprire il menu sulla STESSA tab ricrea
-    // l'oggetto `ctxMenu` e rifarebbe partire un render per una posizione
-    // identica. E scrivendo sempre, una misura invariata riaccendeva l'effetto
-    // in coda a se stesso.
-    setCtxPos((prev) =>
-      prev && prev.top === next.top && prev.left === next.left ? prev : { top: next.top, left: next.left },
-    );
-  }, [ctxMenu, renameDraft, spaceSubmenuOpen]);
-
+  // IL MENU SI MISURA, NON SI INDOVINA, e lo fa `ContextMenuPortal` con
+  // l'ancora della tab: misura il pannello vero, lo mette sotto la tab o sopra
+  // se sotto non ci sta, e lo rimette a posto quando cambia altezza da sé
+  // (editor di rinomina aperto, sottomenu «Sposta nel gruppo» espanso). Qui
+  // c'era una copia scritta a mano di tutto questo, senza il fuoco: il menu non
+  // lo prendeva (le frecce non lo percorrevano) e un tasto destro SUL menu
+  // apriva quello di sistema sopra il nostro.
   // «Tieni premuto» = la primitiva condivisa (hooks/useLongPress). Qui c'era la
   // copia locale del gesto: timer a 500ms, tolleranza ZERO su `onTouchMove` (un
   // pixel di tremolio lo uccideva, quindi con un dito vero spesso non partiva) e
@@ -1617,29 +1561,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         </div>
       )}
 
-      {/* Right-click context menu — portaled so position:fixed escapes transformed ancestors */}
-      {ctxMenu && createPortal(
-        <div
-          ref={ctxMenuRef}
-          role="menu"
-          // `overflow-y-auto` + il tetto qui sotto: senza, le voci oltre il bordo
-          // dello schermo non erano raggiungibili in nessun modo. `overscroll-contain`
-          // perché lo scroll del menu non deve travasare nella pagina sotto.
-          className={`fixed ${POPOVER_SURFACE} min-w-[150px] overflow-y-auto overscroll-contain`}
-          style={{
-            // Finché la misura non c'è il pannello sta fuori campo e invisibile:
-            // renderizzato (serve per misurarlo) ma mai mostrato alla posizione
-            // sbagliata, così non lampeggia da un angolo all'altro.
-            top: ctxPos?.top ?? -9999,
-            left: ctxPos?.left ?? -9999,
-            visibility: ctxPos ? 'visible' : 'hidden',
-            // Il tetto è la viewport meno i margini. È anche ciò che rende la
-            // misura sempre risolvibile: `getBoundingClientRect` legge l'altezza
-            // GIÀ tagliata, quindi `computeMenuPosition` non può mai collocare un
-            // pannello più alto dello schermo.
-            maxHeight: Math.max(160, window.innerHeight - POPOVER_MARGIN * 2),
-            zIndex: Z_CONTEXT_MENU,
-          }}
+      {/* Right-click context menu, the shared cursor menu anchored to the tab (CTXMENU-01) */}
+      {ctxMenu && (
+        <ContextMenuPortal
+          open
+          x={ctxMenu.anchor.left}
+          y={ctxMenu.anchor.bottom}
+          anchor={ctxMenu.anchor}
+          onClose={() => setCtxMenu(null)}
+          minWidth={150}
         >
           {/* "Fissa" / "Rimuovi dai Fissati" — sidebar pinning parity for tabs.
               Pin key = the sidebar-item id, resolved by the canonical
@@ -2148,8 +2078,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               </>
             );
           })()}
-        </div>,
-        document.body
+        </ContextMenuPortal>
       )}
     </div>
   );

@@ -13,6 +13,7 @@ import { SheetGrabber } from './SheetGrabber';
 import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 import { useExitGhost } from '../../lib/exitGhost';
+import { keepSystemMenuOffPanel } from '../../lib/contextMenuOrigin';
 
 /**
  * Menu — the ONE anchored-popover primitive. Every custom menu / dropdown in the
@@ -201,6 +202,8 @@ export function Menu({
         role={role}
         tabIndex={-1}
         onKeyDown={onKeyDown}
+        // No system menu over (or under) ours: see `lib/contextMenuOrigin`.
+        onContextMenu={keepSystemMenuOffPanel}
         data-testid={testId}
         // Marchio STABILE «questo è un menu fluttuante», per chi deve
         // distinguere il fuoco dentro un popover dal fuoco su un campo della

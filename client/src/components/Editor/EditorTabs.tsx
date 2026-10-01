@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useRef, Suspense } from 'react';
 import { copyText } from '../../lib/clipboard';
-import { X, File, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
+import { X, File, WrapText, Eye, Code, Copy, Check, Pin } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { filesApi } from '../../lib/api';
@@ -14,6 +14,10 @@ import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useT } from '../../hooks/useT';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadCodeEditor } from '../../state/pane/panePreload';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
+import { POPOVER_ITEM } from '../../lib/popoverStyles';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { useMobile } from '../../hooks/useMobile';
 
 // `lazyWarm`, same reason as in `FilePane`: this module is itself warmed from
 // the boot snapshot, and a bare `lazy()` here would put the spinner one hop
@@ -50,8 +54,14 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   const t = useT();
   const confirm = useConfirm();
   // La X di una tab non ha un altro percorso col dito (il tasto centrale e' del
-  // mouse, e qui non c'e' menu contestuale): senza puntatore si vede.
+  // mouse): senza puntatore si vede.
   const closeReveal = useHoverReveal('self', { touch: 'shown' });
+  // The tab's own menu (CTXMENU-01): a right-click on a file tab used to fall
+  // to the system menu ("Reload", "Inspect Element") over a strip whose tabs
+  // have commands of their own. Same menu on a long press.
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const { isTouch } = useMobile();
+  const tabPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [darkMode, setDarkMode] = useState(false);
@@ -252,9 +262,13 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
           return (
             <div
               key={tab.path}
-              onClick={() => setActiveIndex(i)}
+              onClick={() => { if (tabPress.consumeClick()) return; setActiveIndex(i); }}
               onDoubleClick={() => { if (tab.preview) pinTab(tab.path); }}
               onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } }}
+              onContextMenu={(e) => { e.preventDefault(); setTabMenu({ x: e.clientX, y: e.clientY, path: tab.path }); }}
+              {...tabPress.handlers}
+              data-pressing={tabPress.pressed || undefined}
+              data-editor-tab={tab.path}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-compact cursor-pointer border-r border-app-border max-w-[180px] group select-none ${
                 isActive
                   ? 'bg-surface text-app-text border-b-2 border-b-primary'
@@ -277,6 +291,34 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
           );
         })}
       </div>
+      {tabMenu && (() => {
+        const index = tabs.findIndex((tb) => tb.path === tabMenu.path);
+        const tab = tabs[index];
+        if (!tab) return null;
+        const close = () => setTabMenu(null);
+        return (
+          <ContextMenuPortal open x={tabMenu.x} y={tabMenu.y} onClose={close} ariaLabel={tab.name}>
+            <button role="menuitem" className={POPOVER_ITEM} onClick={() => { close(); void closeTab(index); }}>
+              <X size={14} className="text-app-text-tertiary" />
+              {t('editor.tab.menu.close')}
+            </button>
+            {tab.preview && (
+              <button role="menuitem" className={POPOVER_ITEM} onClick={() => { close(); pinTab(tab.path); }}>
+                <Pin size={14} className="text-app-text-tertiary" />
+                {t('editor.tab.menu.keepOpen')}
+              </button>
+            )}
+            <button
+              role="menuitem"
+              className={POPOVER_ITEM}
+              onClick={() => { close(); void copyText(tab.path.replace(projectPath, '').replace(/^\//, '')); }}
+            >
+              <Copy size={14} className="text-app-text-tertiary" />
+              {t('editor.tab.menu.copyPath')}
+            </button>
+          </ContextMenuPortal>
+        );
+      })()}
 
       {/* Breadcrumb path bar */}
       {activeTab && (

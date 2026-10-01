@@ -9,12 +9,11 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { gitStatusTextClass, gitStatusLabel } from '../../lib/gitStatusColors';
 import { startDragPreview, endDragPreview } from '../../lib/dragPreview';
 import { useGitStatus } from '../../hooks/useGitStatus';
-import { useDismissable } from '../../hooks/useDismissable';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
-import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
-import { useExitGhost } from '@/lib/exitGhost';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
+import { isContextMenuKey } from '@/lib/contextMenuOrigin';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, SIDEBAR_ACTIVE, SIDEBAR_INDENT_STEP, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
@@ -498,7 +497,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const { gitStatus: feGitStatus } = useGitStatus({ projectPath });
 
   const treeRef = useRef<HTMLDivElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void; pinTab: (path: string) => void } | null>(null);
   const lastClickedPathRef = useRef<string | null>(null);
   const draggedPathsRef = useRef<string[]>([]);
@@ -1161,16 +1159,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     }
   }, [getTargetDir, loadFiles, toast]);
 
-  // Dismissal for the file context menu (right-click, positioned at the cursor).
-  useDismissable({
-    open: !!contextMenuPos,
-    onClose: closeContextMenu,
-    refs: [contextMenuRef],
-    restoreFocus: false,
-  });
-  // It closes as before; an inert copy fades out (lib/exitGhost, MOTION-04).
-  useExitGhost(contextMenuRef, !!contextMenuPos);
-
   // Keyboard shortcuts for copy/cut/paste
   useEffect(() => {
     const el = treeRef.current;
@@ -1204,20 +1192,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     el.addEventListener('keydown', handler);
     return () => el.removeEventListener('keydown', handler);
   }, [selectedPaths, handlePaste]);
-
-  // Compute adjusted context menu position to stay within viewport
-  const contextMenuStyle = useCallback(() => {
-    if (!contextMenuPos) return { left: 0, top: 0 };
-    const menuWidth = 200;
-    const menuHeight = 320;
-    let x = contextMenuPos.x;
-    let y = contextMenuPos.y;
-    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
-    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 8;
-    if (x < 0) x = 8;
-    if (y < 0) y = 8;
-    return { left: x, top: y };
-  }, [contextMenuPos]);
 
   // Open file from external source (e.g. Context Inspector memory tree)
   // Retry briefly to handle the case where EditorTabs hasn't mounted yet
@@ -1276,6 +1250,18 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       const node = flat[currentIdx];
       if (node?.type === 'dir' && expandedDirs.has(node.path)) {
         handleToggleDir(node.path);
+      }
+    } else if (isContextMenuKey(e)) {
+      // The tree keeps the focus on itself and paints the current row, so the
+      // key reaches the tree and not the row: open the row's menu from here,
+      // through the same `contextmenu` its right-click sends.
+      const row = focusedPath
+        ? (e.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-path="${CSS.escape(focusedPath)}"]`)
+        : null;
+      if (row) {
+        e.preventDefault();
+        const r = row.getBoundingClientRect();
+        openContextMenuAt({ element: row, touched: row, x: Math.round(r.left), y: Math.round(r.bottom) });
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -1389,16 +1375,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const multiSelectCount = selectedPaths.size;
   const isMultiSelect = multiSelectCount > 1;
 
-  // Render the context menu portal
-  const contextMenuPortal = contextMenuPos && contextMenuNode && createPortal(
-    <div
-      ref={contextMenuRef}
-      role="menu"
-      // `POPOVER_SURFACE`: the card was the same classes written by hand,
-      // without the shared entrance every other context menu has.
-      className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
-      style={{ ...contextMenuStyle(), zIndex: Z_CONTEXT_MENU }}
-    >
+  // The shared cursor menu (CTXMENU-01). It was a hand-written card placed
+  // with a GUESSED size (200x320, whatever the entries): near the bottom edge a
+  // short menu jumped far above the pointer and a long one ran off the screen,
+  // and on close the focus fell on the page instead of the row.
+  const contextMenuPortal = contextMenuPos && contextMenuNode && (
+    <ContextMenuPortal open x={contextMenuPos.x} y={contextMenuPos.y} onClose={closeContextMenu} minWidth={200}>
       {/* Header */}
       <div className="px-3 py-1.5 text-mini text-app-text-tertiary font-medium truncate border-b border-app-border mb-1">
         {isMultiSelect ? `${multiSelectCount} items selected` : contextMenuNode.name}
@@ -1489,8 +1471,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       >
         <Trash2 size={14} /> {tr('files.trash')}{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
-    </div>,
-    document.body
+    </ContextMenuPortal>
   );
 
   const deleteConfirmPortal = deleteConfirm && createPortal(

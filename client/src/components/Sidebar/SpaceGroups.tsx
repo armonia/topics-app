@@ -29,10 +29,8 @@
  * e commuta il gruppo prima che la riga apra la sua pane, altrimenti aprirebbe
  * qualcosa che resta invisibile.
  */
-import { useRef, useState, type ReactNode, useLayoutEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, type ReactNode } from 'react';
 import { AppWindow, ChevronDown, ChevronRight, CornerDownLeft, Merge, Pencil } from 'lucide-react';
-import { useDismissable } from '../../hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';
 import { focusSpaceWindow, popOutSpace, closeSpaceWindow } from '../../lib/popOutSpace';
@@ -40,16 +38,14 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX, TAB_LABEL_TYPE, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
-import { useExitGhost } from '../../lib/exitGhost';
-import { computeMenuPosition, type MenuPosition } from '@/lib/popoverPosition';
+import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import { bringPaneIntoSpace, firstOtherLiveSpace } from '../Layout/spaceHelpers';
 import { useGoToSpace, type SpaceCard } from './useSpaceCards';
 import { useT } from '../../hooks/useT';
 
-/** Larghezza minima del menu — così il clamp orizzontale non deve misurare
- *  (tienila in lockstep con il min-w qui sotto). */
+/** Larghezza minima del menu. */
 const MENU_MIN_W = 190;
 
 interface CardMenuState {
@@ -79,28 +75,6 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   const goToSpace = useGoToSpace();
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useDismissable({ open: menu !== null, onClose: () => setMenu(null), refs: [menuRef] });
-  useExitGhost(menuRef, menu !== null);
-  // Il menu si ancora al CURSORE, quindi il suo «trigger» e' un punto: si
-  // costruisce un rettangolo di larghezza zero li' e si lascia decidere al
-  // posizionatore, che misura il pannello vero, ribalta, e da' il tetto del
-  // lato scelto. Vedi `useAnchoredPopover`.
-  const [pos, setPos] = useState<MenuPosition | null>(null);
-  useLayoutEffect(() => {
-    // La misura va PRIMA che il browser dipinga, e in un effetto: leggere un
-    // ref durante il render e' esattamente cio' che React vieta.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!menu) { setPos(null); return; }
-    const el = menuRef.current;
-    if (!el) return;
-    setPos(computeMenuPosition(
-      { top: menu.y, bottom: menu.y, left: menu.x, right: menu.x },
-      { width: el.offsetWidth, height: el.offsetHeight },
-      { gap: 0 },
-    ));
-  }, [menu]);
-
   const meta = spaces[card.id];
   const isDefault = card.id === DEFAULT_SPACE_ID;
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -299,29 +273,19 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         </div>
       )}
 
-      {menu && createPortal(
-        <div
-          ref={menuRef}
-          className={`fixed ${POPOVER_SURFACE} min-w-[190px] overflow-y-auto overscroll-contain`}
-          style={{
-            // Il tetto e' ancorato alla FINESTRA, non al cursore.
-            //
-            // Era `calc(100vh - y - 8)`: su desktop, con la barra di stato in
-            // fondo, il pavimento vero e' `innerHeight - 38`, quindi un menu da
-            // 107px si apriva con 30px di tetto — una fessura. Su mobile la
-            // barra di stato sale in cima e resta la sola safe-area: l'argomento
-            // andava NEGATIVO, CSS clampa `max-height` a 0, e il tocco lungo
-            // «non faceva niente».
-            //
-            // E `top` non e' piu' il cursore nudo: il menu si misura e ribalta
-            // sopra quando sotto non ci sta.
-            top: pos?.top ?? menu.y,
-            left: pos?.left ?? Math.max(POPOVER_MARGIN, Math.min(menu.x, window.innerWidth - MENU_MIN_W - POPOVER_MARGIN)),
-            maxHeight: pos?.maxHeight ?? Math.max(160, window.innerHeight - POPOVER_MARGIN * 2),
-            zIndex: Z_POPOVER,
-            visibility: pos ? 'visible' : 'hidden',
-          }}
-          data-testid="space-menu"
+      {/* The shared cursor menu (CTXMENU-01). This one was the last menu of
+          the column written by hand: no `role="menu"`, so to a screen reader
+          and to the occlusion selector it was a loose div, and no focus to go
+          back to on close. */}
+      {menu && (
+        <ContextMenuPortal
+          open
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          minWidth={MENU_MIN_W}
+          testId="space-menu"
+          ariaLabel={card.name}
         >
           {meta && !meta.deleted && (
             renameDraft !== null ? (
@@ -417,8 +381,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
               </button>
             </>
           )}
-        </div>,
-        document.body,
+        </ContextMenuPortal>
       )}
     </div>
   );

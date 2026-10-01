@@ -2279,6 +2279,9 @@ const IT: Dict = {
   'common.loading': 'Carico…',
   // ── Editor: le schede e il file che non si è caricato.
   'editor.tab.close': 'Chiudi {name}',
+  'editor.tab.menu.close': 'Chiudi',
+  'editor.tab.menu.keepOpen': 'Tieni aperta',
+  'editor.tab.menu.copyPath': 'Copia percorso',
   'editor.loadFailed': 'Il file non è stato caricato, quindi non è modificabile da qui.',
   // ── Git: cronologia dei commit e blocchi del diff. `git.hunk.stageTitle`
   //    tiene il valore IT alla lettera: `git-hunk-staging.spec.ts` lo ancora.
