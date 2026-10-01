@@ -11,6 +11,11 @@ SHALL lanciare `command` con `startCommandProcess`
 - `messageId` SHALL essere un messaggio di quella sessione, `role = 'assistant'`,
   non `partial`: altrimenti 404 (non esiste o è di un'altra sessione) o 409
   (ancora in streaming), e nessun processo parte. `command` vuoto: 400.
+- `command` NON SHALL essere il testo del fence che un testo della risposta
+  (`content` o un blocco `text` della timeline) lascia aperto
+  (`isCommandCut`, `shared/cut-fence.ts`): Stop, il riavvio e l'errore del
+  provider chiudono la riga con `partial = 0` e il testo troncato. Altrimenti
+  409 `command_cut`, e nessun processo parte.
 - La cartella SHALL essere quella in cui gira il Bash dell'agente della
   sessione: worktree pronta, poi progetto (`getTopicWorkspaceForSession`,
   `server/providers/claude-code.ts:592`), poi `defaultWorkspace`, poi `HOME`.
@@ -53,6 +58,12 @@ risolta. `command` e `/send` restano cancellati come oggi.
 #### Scenario: un messaggio in streaming non si esegue
 - **GIVEN** una risposta con `partial = 1`
 - **THEN** la route risponde 409 e nessun processo parte
+
+#### Scenario: un comando troncato dal riavvio non si esegue
+- **GIVEN** una risposta con `partial = 0`, `end_reason = 'cut-by-restart'` (o `'stopped'`) che finisce con `` ```bash\necho cut ./bui `` senza il fence di chiusura
+- **WHEN** `POST` con `command: "echo cut ./bui"`
+- **THEN** la route risponde 409 `command_cut` e nessun processo parte
+- **AND** un blocco della stessa risposta chiuso prima del taglio parte (200)
 
 #### Scenario: nessuno viene svegliato
 - **GIVEN** un'esecuzione di `exit 0` finita

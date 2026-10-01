@@ -58,6 +58,21 @@ rifarebbe il parse di ogni messaggio a ogni render. Quindi:
 quindi un blocco a metà si disegna come un blocco finito. `rm -rf ./build/cache`
 arrivato fino a `rm -rf ./` sarebbe un blocco perfettamente eseguibile.
 
+`partial` da solo non basta: Stop, la spazzata al boot
+(`server/lib/boot-partial-sweep.ts`, `end_reason = 'cut-by-restart'`) e
+l'errore del provider (`server/routes/chat.ts`, `end_reason = 'error'`)
+chiudono la riga con `partial = 0` e tengono il testo troncato, e il riavvio
+qui succede a ogni salvataggio del server. Quindi il contesto porta anche i
+testi della risposta (`content` e i blocchi `text`), e `isCommandCut`
+(`shared/cut-fence.ts`) dice se il comando di un blocco è il corpo del fence
+che uno di quei testi lascia aperto: ogni sua riga è una riga di quel corpo
+(anche senza `> ` o senza il prompt `$ `). Si confronta il testo e non la
+posizione perché gli offset ripartono da 0 nei pezzi in cui un segmento viene
+parsato. Il blocco tagliato dice «Troncato» al posto di Esegui; Apri nel
+terminale resta. La route applica la stessa funzione sui testi salvati
+(409 `command_cut`). Un blocco chiuso prima del taglio resta eseguibile; uno
+identico al pezzo troncato perde Esegui anche lui, ed è il verso giusto.
+
 ## 3. Estrazione e rischio: due funzioni pure
 
 `runnableCommand(lang, text)` → `string | null`:
@@ -96,7 +111,8 @@ comando nel terminale.
 
 `POST /api/sessions/:sessionKey/command-runs` `{ messageId, blockKey, command }`:
 1. La sessione esiste; `messageId` è di quella sessione, `role = 'assistant'`,
-   `partial = 0`; altrimenti 404 / 409.
+   `partial = 0`, e `command` non è il fence che la risposta lascia aperto
+   (`isCommandCut`); altrimenti 404 / 409 (`message_partial`, `command_cut`).
 2. Cartella: la stessa del Bash dell'agente, `getTopicWorkspaceForSession`
    (`server/providers/claude-code.ts:592`, worktree pronta › progetto) e
    altrimenti `defaultWorkspace` / `HOME` (`claude-code.ts:2150`). Non

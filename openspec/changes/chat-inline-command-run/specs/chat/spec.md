@@ -11,6 +11,12 @@ Copia, solo quando valgono tutte queste condizioni:
   risposta NON è `partial` (durante lo streaming `completePartialMarkdown`,
   `client/src/components/MessageContent.tsx:59`, chiude i fence aperti e un
   comando troncato si disegnerebbe come finito);
+- il blocco NON è il fence che un testo della risposta lascia aperto: Stop, il
+  riavvio del server e l'errore del provider chiudono la riga con
+  `partial = 0` e il testo troncato, e un fence aperto si disegna comunque
+  chiuso. Su quel blocco l'intestazione dice «Troncato» al posto di Esegui;
+  Apri nel terminale resta (incolla senza eseguire, CHAT-RUN-05). La regola è
+  `isCommandCut` (`shared/cut-fence.ts`), la stessa della route (CMDRUN-05);
 - l'etichetta del fence è `bash`, `sh`, `zsh`, `shell`, `console` o
   `shellsession`, e `runnableCommand` (funzione pura) ne estrae un comando non
   vuoto: il testo intero per le prime quattro; per `console`/`shellsession`
@@ -38,6 +44,11 @@ tastiera. Il blocco intero SHALL girare come un solo script.
 #### Scenario: mentre l'agente scrive, niente Esegui
 - **GIVEN** una risposta ancora in streaming il cui fence `bash` è a metà
 - **THEN** il blocco non mostra Esegui
+
+#### Scenario: una risposta troncata dentro il fence, niente Esegui su quel blocco
+- **GIVEN** una risposta con `partial = 0` chiusa da Stop, da un riavvio o da un errore, che finisce con `` ```bash\nrm -rf ./ `` senza il fence di chiusura
+- **THEN** quel blocco non mostra Esegui e la sua intestazione dice «Troncato»
+- **AND** un blocco della stessa risposta chiuso prima del taglio mostra Esegui
 - **AND** lo mostra appena la risposta è completa
 
 #### Scenario: console esegue solo le righe col prompt

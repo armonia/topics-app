@@ -32,6 +32,8 @@ Se esce non-zero, ci si ferma qui.
 - [x] 3.5 `topics:seed-composer` con `mode: 'append'` in `ChatPane.tsx`.
 - [x] 3.6 Apri nel terminale: pane come `handleQuickCreateTerminal`, incolla in attesa consumato da `SingleTerminalPane.tsx` alla prima schermata con `term.paste()`; più righe senza bracketed paste → appunti + avviso.
 
+- [x] 3.7 Comando troncato in una risposta finita (Stop, riavvio, errore): `shared/cut-fence.ts` (`isCommandCut`), letto dal client in `useCommandRun` («Troncato» al posto di Esegui) e dalla route (409 `command_cut`). Test: `shared/cut-fence.test.ts`, `commandRunGate.test.tsx`, `server/routes/command-runs.test.ts`.
+
 ## 4. Verifica
 
 - [x] 4.1 I test del §1 verdi; `bunx tsc` di client e server; rails statiche.
