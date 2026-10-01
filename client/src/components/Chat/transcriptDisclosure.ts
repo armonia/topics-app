@@ -24,7 +24,8 @@
  *  - when closing near the end would make the list shorter than the view,
  *    keeps the missing height as empty room below the last row instead of
  *    letting the browser pull the content down (`--chat-anchor-slack`). That
- *    room is given back as soon as it is out of sight, or filled by new output.
+ *    room is given back as soon as it is out of sight, filled by new output,
+ *    or scrolled away by a scroll down past the end.
  *
  * `null` outside a transcript (the board's task drawer renders the same rows):
  * a fold there toggles as before.

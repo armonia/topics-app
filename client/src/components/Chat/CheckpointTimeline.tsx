@@ -84,32 +84,10 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
   if (checkpoints.length === 0) return null;
 
   return (
-    <div className="relative border-t border-app-border">
-      {/* Compact bar */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-mini text-app-text-tertiary hover:bg-app-hover transition-colors"
-      >
-        <Clock size={12} />
-        <span>{checkpoints.length} checkpoint{checkpoints.length !== 1 ? 's' : ''}</span>
-        {/* Timeline dots */}
-        {checkpoints.length > 0 && (
-          <div className="flex items-center gap-1 ml-1">
-            {checkpoints.slice(-8).map((cp) => (
-              <div
-                key={cp.idx}
-                className={`w-1.5 h-1.5 rounded-full ${cp.gitHash ? 'bg-primary' : 'bg-app-placeholder'}`}
-                title={cp.description}
-              />
-            ))}
-          </div>
-        )}
-        <span className="ml-auto text-mini">{expanded ? 'Hide' : 'Show'}</span>
-      </button>
-
+    <div className="border-t border-app-border">
       {/* Expanded timeline */}
-      {/* Over the transcript, standing on the bar: see `DockedStripPanel`. */}
-      <DockedStripPanel open={expanded} testId="checkpoint-panel" className="mx-2 md:mx-3 px-3 py-2 max-h-[200px] overflow-y-auto">
+      {/* Above the bar, in its flow: see `DockedStripPanel`. */}
+      <DockedStripPanel open={expanded} testId="checkpoint-panel" className="px-3 py-2 bg-surface max-h-[200px] overflow-y-auto">
           {error && <p className="text-red-500 text-mini mb-2">{error}</p>}
 
           <div className="flex items-center justify-between mb-2">
@@ -185,6 +163,28 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
             </div>
           )}
       </DockedStripPanel>
+      {/* Compact bar */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-mini text-app-text-tertiary hover:bg-app-hover transition-colors"
+      >
+        <Clock size={12} />
+        <span>{checkpoints.length} checkpoint{checkpoints.length !== 1 ? 's' : ''}</span>
+        {/* Timeline dots */}
+        {checkpoints.length > 0 && (
+          <div className="flex items-center gap-1 ml-1">
+            {checkpoints.slice(-8).map((cp) => (
+              <div
+                key={cp.idx}
+                className={`w-1.5 h-1.5 rounded-full ${cp.gitHash ? 'bg-primary' : 'bg-app-placeholder'}`}
+                title={cp.description}
+              />
+            ))}
+          </div>
+        )}
+        <span className="ml-auto text-mini">{expanded ? 'Hide' : 'Show'}</span>
+      </button>
+
     </div>
   );
 }

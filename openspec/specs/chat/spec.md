@@ -613,7 +613,7 @@ Every expand/collapse surface a person can click in a topic's chat (a run of too
 calls, a single tool row and its lazily fetched output, a sub-agent card, the
 folded work of a finished turn, a reasoning row, the details of a turn error, a
 long code block, the compaction recap, a dispatcher envelope, a process exit
-line) SHALL keep the header that was clicked at the same position on screen
+line, the body of a message that is a `/command`) SHALL keep the header that was clicked at the same position on screen
 (within 1 px, vertically and horizontally) in every painted frame while its body
 opens or closes, and nothing above that header SHALL move. The body grows or
 shrinks below the header in one continuous change: a body SHALL NOT appear as a
@@ -624,16 +624,22 @@ where the list follows new output, and in the middle of a long history.
 A toggle by hand takes the view from the bottom-follow for that toggle, like a
 scroll does: the list does not re-pin to the bottom while the body settles, and
 afterwards the follow comes back only when the reader is at the true bottom again
-(or sends, or asks for the bottom). Closing a fold near the end keeps the missing
-height as empty room below the last row instead of pulling every row down; that
-room is given back as soon as it is out of sight or filled by new output. Motion
+(or sends, or asks for the bottom). A second click on the same header while it
+is still closing (a quick close and reopen) is part of the same hold, not a
+scroll. Closing a fold near the end keeps the missing height as empty room below
+the last row instead of pulling every row down; that room is given back as soon
+as it is out of sight or filled by new output, and a scroll down past the end
+(wheel or finger) takes it away by the same amount, so the last row comes back
+onto the composer under the reader's own hand. Motion
 is the shared height animation of the body (`MOTION.base`), and nothing animates
 under `prefers-reduced-motion`.
 
-The strips docked above the composer (the todo list, the files this chat
-touched, the checkpoints) open their content in a panel standing on the strip,
-over the bottom of the transcript: the strip, the composer and the conversation
-keep their place.
+The strips docked above the composer (the goal, the todo list, the files this
+chat touched, the checkpoints) open their content ABOVE their header, in the
+flow of the docked block: the header keeps its place under the pointer, and a
+transcript that was following the bottom follows the block up, so its newest
+row is never hidden under the opened list (while the agent writes, too). A
+transcript read further up does not move.
 
 #### Scenario: opening a fold at the bottom of the chat
 - **GIVEN** a chat at its true bottom whose last message holds a closed fold
@@ -648,6 +654,17 @@ keep their place.
 - **THEN** the header and the rows above it stay where they were while the body closes
 - **AND** the room left below the last row is given back when the reader scrolls up or new output arrives
 
+#### Scenario: closed and reopened at once at the true bottom
+- **GIVEN** a fold open at the end of the chat, read down to the true bottom
+- **WHEN** the person presses its header twice in a row, the second press while the body is still closing
+- **THEN** the header stays within 1 px of where it was in every frame
+- **AND** the fold ends open
+
+#### Scenario: the room left near the end scrolls away
+- **GIVEN** a tall fold near the end closed with its header near the top of the view, leaving empty room below the last row
+- **WHEN** the reader scrolls down with the wheel
+- **THEN** the room goes and the last row rests on the composer again
+
 #### Scenario: a fold in the middle of a long history
 - **GIVEN** a reader who scrolled two screens up with the wheel
 - **WHEN** they open and then close a fold there
@@ -659,9 +676,15 @@ keep their place.
 - **THEN** the body opens onto the whole output in one run, not onto a loading line that the output pushes down later
 
 #### Scenario: a strip docked over the composer
-- **GIVEN** the todo strip or the changed-files strip above the composer
+- **GIVEN** the goal bar, the todo strip or the changed-files strip above the composer
 - **WHEN** the person opens and closes it
-- **THEN** the strip's header and the transcript rows on screen stay where they were
+- **THEN** the strip's header stays where it was
+- **AND** with the chat at its bottom the newest row stays in sight above the opened list; read further up, the rows on screen do not move
+
+#### Scenario: a docked list open while the agent writes
+- **GIVEN** the todo strip open with the chat at its bottom
+- **WHEN** the agent streams new output
+- **THEN** the newest streamed word is painted in sight, not under the list
 
 #### Scenario: the follow comes back
 - **GIVEN** a fold opened by hand at the bottom, its body now below the fold

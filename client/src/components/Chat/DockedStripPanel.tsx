@@ -1,22 +1,26 @@
 /**
- * WHAT A STRIP ABOVE THE COMPOSER OPENS, FLOATS ABOVE IT.
+ * WHAT A STRIP ABOVE THE COMPOSER OPENS, OPENS ABOVE ITS OWN HEADER.
  *
  * The strips docked over the composer (the todo list, the files this chat
- * touched, the checkpoints) used to open in place, in the flow of the block
- * at the bottom of the pane. That block is docked to the bottom edge, so it can
- * only grow upward: the header that was clicked climbed by the height of the
- * list it opened, and the composer's taller block re-pinned the whole
- * transcript above it (measured in `tests/e2e/chat-accordion-no-shift.spec.ts`).
+ * touched, the checkpoints, the goal) sit in the block docked to the bottom
+ * edge of the pane, so whatever they open can only grow upward. Opened below
+ * the header, as they used to, the header climbed by the height of the list
+ * under the pointer (measured in `tests/e2e/chat-accordion-no-shift.spec.ts`).
  *
- * Here the list opens as a panel standing on the strip, over the bottom of the
- * transcript, the way a menu opens over a page: the strip keeps its height,
- * the header stays under the pointer, the composer and the conversation do not
- * move. The panel takes the strip's width and the shared popover surface and
- * entrance (`POPOVER_PANEL`), and the strip it stands on is its `relative`
- * parent. Nothing is lost: closing it shows the transcript again where it was.
+ * Here the list unrolls ABOVE the header, in the flow of the strip: the header
+ * is the strip's bottom line and stays under the pointer. The block gets
+ * taller, and the transcript, which reserves the block's height below its last
+ * row, keeps its newest row right above the strip when it was following the
+ * bottom (the composer's own resize pin, frame by frame while the body
+ * animates); a transcript read further up does not move. A panel floating
+ * over the transcript instead kept everything still but hid the newest output
+ * under it while the agent was writing.
+ *
+ * Same body as every fold (`DisclosureBody`): height animated, nothing under
+ * reduced motion. A rule under the list separates it from the header.
  */
 import type { ReactNode } from 'react';
-import { POPOVER_PANEL } from '../../lib/popoverStyles';
+import { DisclosureBody } from './DisclosureBody';
 
 export function DockedStripPanel({ open, children, className, testId, id }: {
   open: boolean;
@@ -25,15 +29,9 @@ export function DockedStripPanel({ open, children, className, testId, id }: {
   testId?: string;
   id?: string;
 }) {
-  if (!open) return null;
   return (
-    <div
-      id={id}
-      data-testid={testId}
-      data-docked-strip-panel="true"
-      className={`absolute bottom-full left-0 right-0 z-20 mb-1 ${POPOVER_PANEL} ${className ?? ''}`}
-    >
+    <DisclosureBody open={open} id={id} testId={testId} className={`border-b border-app-border/50 ${className ?? ''}`}>
       {children}
-    </div>
+    </DisclosureBody>
   );
 }

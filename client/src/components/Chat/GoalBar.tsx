@@ -31,6 +31,7 @@ import {
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
+import { DockedStripPanel } from './DockedStripPanel';
 
 interface Props {
   goal: TopicGoal;
@@ -75,20 +76,21 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
   const done = rows.filter((r) => r.status === 'completed').length;
   const active = rows.find((r) => r.status === 'in_progress');
   const byAgent = goal.createdBy === 'agent';
-  // Whether the closed line hides part of the objective: only then the chevron
-  // says there is more. Measured on the text itself, closed, and re-measured
-  // when the pane changes width.
+  // Whether the line hides part of the objective: only then the chevron says
+  // there is more, and the opened panel repeats it whole. Measured on the text
+  // itself, which stays one line open or closed, and re-measured when the pane
+  // changes width.
   const textRef = useRef<HTMLSpanElement>(null);
   const [truncated, setTruncated] = useState(false);
   useLayoutEffect(() => {
     const el = textRef.current;
-    if (!el || expanded) return;
+    if (!el) return;
     const measure = () => setTruncated(el.scrollWidth > el.clientWidth + 1);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [goal.content, expanded]);
+  }, [goal.content]);
 
   // THE STATE OF THE LOOP, which is not the state of the objective.
   //
@@ -158,28 +160,73 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
       data-testid="goal-bar"
       className={CHAT_STRIP_NEUTRAL}
     >
-      <div className={`flex gap-2 px-2.5 py-1.5 ${expanded ? 'items-start' : 'items-center'}`}>
+      {/* Opened ABOVE the line that was clicked, in the bar's flow
+          (`DockedStripPanel`): the bar is docked to the bottom, so a line that
+          wrapped or a list under it climbed by its own height under the
+          pointer. The line keeps its place and its single row. */}
+      <DockedStripPanel open={expanded && (truncated || rows.length > 0)} testId="goal-bar-panel">
+        {truncated && (
+          <p data-testid="goal-bar-full-text" className={`whitespace-pre-wrap break-words px-2.5 pt-1.5 pl-[38px] text-compact font-medium text-app-text ${rows.length ? '' : 'pb-1.5'}`}>
+            {goal.content}
+          </p>
+        )}
+        {rows.length > 0 && (
+          <ul className="space-y-0.5 px-2.5 py-1.5">
+            {!own && (
+              <li className="pb-0.5 text-micro uppercase tracking-wide text-app-text-muted">
+                {tr('goal.notCompacted')}
+              </li>
+            )}
+            {rows.map((r, i) => (
+              <li key={i} className="flex items-start gap-2 text-compact">
+                <span className="mt-0.5 flex-shrink-0">
+                  {r.status === 'completed' ? (
+                    <CircleCheck size={13} aria-hidden="true" />
+                  ) : r.status === 'in_progress' ? (
+                    <CircleDot size={13} aria-hidden="true" />
+                  ) : (
+                    <Circle size={13} aria-hidden="true" />
+                  )}
+                </span>
+                <span
+                  className={
+                    r.status === 'completed'
+                      ? 'text-app-text-muted line-through'
+                      : r.status === 'in_progress'
+                        ? 'font-medium text-app-text'
+                        : 'text-app-text-secondary'
+                  }
+                >
+                  {r.content}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </DockedStripPanel>
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
         <button
           type="button"
           // A click OPENS the bar, with or without steps: a long objective cut
           // to one line was readable only through the native tooltip, which is
-          // slow, small and gone on touch (23/09). Open, the text wraps whole.
+          // slow, small and gone on touch (23/09). Open, the panel above shows
+          // it whole.
           onClick={() => setExpanded(!expanded)}
-          className={`flex min-w-0 flex-1 gap-2 text-left ${expanded ? 'items-start' : 'items-center'}`}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
           aria-expanded={expanded}
           data-testid="goal-bar-toggle"
         >
           {(rows.length > 0 || truncated) && (
             <ChevronRight
               size={13}
-              className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+              className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? '-rotate-90' : ''}`}
             />
           )}
           <Target size={13} className="flex-shrink-0 text-app-text-secondary" />
           <span
             ref={textRef}
             data-testid="goal-bar-text"
-            className={`min-w-0 flex-1 text-compact font-medium text-app-text ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}
+            className="min-w-0 flex-1 truncate text-compact font-medium text-app-text"
           >
             {goal.content}
           </span>
@@ -257,44 +304,11 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
         </button>
       </div>
 
-      {!expanded && active && (
+      {/* Open or closed: dropping it on open would pull the line above down. */}
+      {active && (
         <div className="truncate px-2.5 pb-1.5 pl-[38px] text-mini text-app-text-secondary">
           {active.content}
         </div>
-      )}
-
-      {expanded && rows.length > 0 && (
-        <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
-          {!own && (
-            <li className="pb-0.5 text-micro uppercase tracking-wide text-app-text-muted">
-              {tr('goal.notCompacted')}
-            </li>
-          )}
-          {rows.map((r, i) => (
-            <li key={i} className="flex items-start gap-2 text-compact">
-              <span className="mt-0.5 flex-shrink-0">
-                {r.status === 'completed' ? (
-                  <CircleCheck size={13} aria-hidden="true" />
-                ) : r.status === 'in_progress' ? (
-                  <CircleDot size={13} aria-hidden="true" />
-                ) : (
-                  <Circle size={13} aria-hidden="true" />
-                )}
-              </span>
-              <span
-                className={
-                  r.status === 'completed'
-                    ? 'text-app-text-muted line-through'
-                    : r.status === 'in_progress'
-                      ? 'font-medium text-app-text'
-                      : 'text-app-text-secondary'
-                }
-              >
-                {r.content}
-              </span>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

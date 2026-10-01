@@ -1610,7 +1610,7 @@ export function MessageList({
      */
     const GESTURE_WINDOW_MS = 400;
     let gestureUntil = 0;
-    const markGesture = () => {
+    const markGesture = (e?: Event) => {
       gestureUntil = Date.now() + GESTURE_WINDOW_MS;
       // Shared with `totalListHeightChanged` and the general ResizeObserver
       // below: both need to suspect a growth that follows this same gesture,
@@ -1623,7 +1623,7 @@ export function MessageList({
       // mezzo ci sta una rimisura (scorrendo, Virtuoso monta righe nuove e
       // l'altezza totale cambia) che rimetterebbe la vista in fondo.
       openingUntilRef.current = 0;
-      disclosure.release(); // and a toggled fold's hold ends: the view is the reader's
+      if (e?.type !== 'pointerdown' || e.target === el) disclosure.release(); // a fold's hold ends, but not on a click in the content (a quick reopen): only a press on the scroller itself is its scrollbar
     };
     // Tasti che muovono la lista. Freccia giù / Fine / PagGiù non servono: qui
     // interessa solo chi va INDIETRO, e chi va in fondo ci pensa `reached-bottom`.

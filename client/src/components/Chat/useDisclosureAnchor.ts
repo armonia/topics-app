@@ -17,7 +17,17 @@
  * mounting). It lasts at least the fold's animation plus a margin, and ends
  * once the content has kept the same height for a few frames in a row; a hard
  * stop bounds it. A gesture (wheel, finger, scrollbar, scroll keys) ends it at
- * once: from then on the view is the reader's.
+ * once: from then on the view is the reader's. A press on the transcript's
+ * content is not one: a second click on the same header while it is still
+ * closing (a quick close and reopen) would otherwise end the hold mid-way, and
+ * the list, shorter for an instant, was clamped under the pointer.
+ *
+ * THE ROOM BELOW THE LAST ROW. Closing near the end keeps the missing height as
+ * empty room under the last row (`--chat-anchor-slack`). It is given back as
+ * soon as it is out of sight (a scroll up, new output, a fold reopened), on a
+ * send or the back-to-bottom button, and by scrolling DOWN past the end: a
+ * wheel or a finger there takes the room away by the same amount, and the
+ * transcript settles back onto the composer under the reader's own hand.
  *
  * WHAT THE LIST DOES WITH IT (`MessageList`). While a hold runs, every pin to
  * the bottom stands down, forced ones included (`holdingRef`, read by
@@ -137,6 +147,9 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
       if (target > max) writeSlack(el, slackRef.current + Math.ceil(target - max));
       el.scrollTop = Math.max(0, target);
     }
+    // A body that grows back (the same fold reopened while it was closing)
+    // fills the room it had left: what the view no longer needs goes now.
+    if (slackRef.current > 0) writeSlack(el, slackAfter(slackRef.current, el.scrollTop, el.clientHeight, el.scrollHeight));
     const content = el.scrollHeight - slackRef.current;
     hold.stillFrames = content === hold.lastContent && Math.abs(dy) < 0.5 ? hold.stillFrames + 1 : 0;
     hold.lastContent = content;
@@ -193,6 +206,14 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
     writeSlack(el, slackAfter(slackRef.current, el.scrollTop, el.clientHeight, el.scrollHeight));
   }, [writeSlack]);
 
+  /** A scroll down of `px` past the end: the room below the last row shrinks by as much. */
+  const scrollPastEnd = useCallback((el: HTMLElement, px: number) => {
+    if (slackRef.current <= 0 || holdRef.current || px <= 0) return;
+    // Only at the end: above it a scroll down is an ordinary scroll.
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) return;
+    writeSlack(el, Math.max(0, Math.round(slackRef.current - px)));
+  }, [writeSlack]);
+
   const clearSlack = useCallback((el: HTMLElement | null) => {
     if (slackRef.current <= 0) return;
     if (el) writeSlack(el, 0);
@@ -228,6 +249,29 @@ export function useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef, onH
       delete (el as { scrollBy?: unknown }).scrollBy;
     };
   }, [scrollerEl, scrollerElRef]);
+
+  // A wheel down, or a finger dragging up, at the end: the room goes with it.
+  useEffect(() => {
+    const el = scrollerElRef.current;
+    if (!el || el !== scrollerEl) return;
+    let touchY: number | null = null;
+    const onWheel = (e: WheelEvent) => { if (e.deltaY > 0) scrollPastEnd(el, e.deltaY); };
+    const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0]?.clientY ?? null; };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY;
+      if (y == null) return;
+      if (touchY != null) scrollPastEnd(el, touchY - y);
+      touchY = y;
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [scrollerEl, scrollerElRef, scrollPastEnd]);
 
   return useMemo(
     () => ({ toggled, holding, release, consumeSlack, clearSlack }),

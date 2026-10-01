@@ -71,7 +71,11 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
   if (!rows.length) return null;
 
   return (
-    <div data-testid="chat-changes-strip" className={`relative ${CHAT_STRIP_NEUTRAL}`}>
+    <div data-testid="chat-changes-strip" className={CHAT_STRIP_NEUTRAL}>
+      {/* Above the header, in the strip's flow: see `DockedStripPanel`. */}
+      <DockedStripPanel open={open} testId="chat-changes-panel" className="max-h-48 overflow-y-auto px-2.5 py-1.5">
+        <ChangedFileList testId="chat-changes-list" rows={rows} onOpen={openDiff} />
+      </DockedStripPanel>
       <button
         type="button"
         data-testid="chat-changes-chip"
@@ -82,7 +86,7 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
       >
         <ChevronRight
           size={13}
-          className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+          className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? '-rotate-90' : ''}`}
         />
         <FileDiff size={13} className="flex-shrink-0 text-app-text-secondary" />
         <span className="flex-shrink-0 text-mini font-medium tabular-nums text-app-text-secondary">
@@ -99,10 +103,6 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
           </span>
         )}
       </button>
-      {/* Over the transcript, standing on the strip: see `DockedStripPanel`. */}
-      <DockedStripPanel open={open} testId="chat-changes-panel" className="max-h-48 overflow-y-auto px-2.5 py-1.5">
-        <ChangedFileList testId="chat-changes-list" rows={rows} onOpen={openDiff} />
-      </DockedStripPanel>
     </div>
   );
 }
