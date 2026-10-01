@@ -335,8 +335,8 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 23 variants', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(23);
+  test('exactly 24 variants', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(24);
   });
 
   test('discriminator literals are frozen', () => {
@@ -360,12 +360,15 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     //   agent_control — ListAgents / TaskOutput / TaskStop
     //   artifact      — Artifact (publishing a page)
     //   ask_user      — AskUserQuestion (the question put to the human)
+    // One on 2026-10-01 (CHAT-BROWSER-03):
+    //   browser       — open_browser_pane / browser_open that worked
     expect([...types].sort()).toEqual([
       'agent_control',
       'agent_message',
       'artifact',
       'ask_user',
       'bash_output',
+      'browser',
       'edit',
       'fetch',
       'kill_shell',
