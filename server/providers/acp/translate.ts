@@ -162,8 +162,8 @@ export function translateSessionUpdate(
     }
     // `user_message_chunk` è l'eco del nostro stesso prompt (replay di
     // `session/load`): ri-emetterlo duplicherebbe il messaggio dell'umano.
+    // Gli altri sono superfici che non abbiamo.
     case "user_message_chunk":
-    // Superfici che non abbiamo.
     case "available_commands_update":
     case "current_mode_update":
     case "config_option_update":

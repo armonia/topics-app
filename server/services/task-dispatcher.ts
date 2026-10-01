@@ -2933,7 +2933,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let attemptId: string | null = null;
     const attemptStore = deps.attempts;
     try {
-      let task = deps.svc.get(taskId)?.task;
+      const task = deps.svc.get(taskId)?.task;
       if (!task) return;
 
       // Context reuse (opt-in on the task): ride the BLOCKER agent's topic —

@@ -5,7 +5,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { readFileSync } from "fs";
 import { slotAcquiredLine, slotWaitingLine } from "../../shared/slot-acquired";
 import { gateSlowdownLine } from "../../shared/gate-slowdown";
 import { slackMs } from "../../tests/helpers/time-slack";
@@ -20,7 +19,6 @@ import {
   tailOf,
   MAX_CHECKS,
   NOT_MEASURED_EXIT,
-  STATIC_RAILS_CHECK,
   type CheckRun,
   checksVerdict,
 } from "./review-checks";

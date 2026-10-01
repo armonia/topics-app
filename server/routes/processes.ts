@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
@@ -898,7 +898,7 @@ export function getScriptsSnapshot(): any[] {
 
 // Debounced output notification
 let outputNotifyTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingOutputIds = new Set<string>();
+const pendingOutputIds = new Set<string>();
 
 function notifyScriptOutput(ctx: AppContext, processId: string) {
   pendingOutputIds.add(processId);

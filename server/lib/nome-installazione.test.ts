@@ -32,6 +32,7 @@ describe("nome dell'installazione", () => {
     // control byte in the middle of an interface is the defect discovered
     // late and badly.
     const n = nomeInstallazione() ?? "";
+    // eslint-disable-next-line no-control-regex -- the assertion is that no control character survives, so the class names them
     expect(n).not.toMatch(/[\u0000-\u001f\u007f]/);
     expect(n).toBe(n.trim());
   });

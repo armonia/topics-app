@@ -961,7 +961,7 @@ describe('ClaudeSessionTracker — seguire il FORK del transcript (sessione adot
     const db = freshDb();
     const rec = makeRecorder();
     const fake = makeSink();
-    const { dir, parent } = seedFrozenAdoption(db, 'topic-fork');
+    const { dir } = seedFrozenAdoption(db, 'topic-fork');
     const tracker = makeTracker(db, rec, { importSink: fake.sink });
 
     // Il padre non cresce più: senza inseguire il fork, la chat è una foto.

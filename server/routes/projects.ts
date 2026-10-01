@@ -43,6 +43,7 @@ const ICON_MAX = 16;
 
 function stripCtrl(input: unknown): string | null {
   if (typeof input !== "string") return null;
+  // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
   return input.replace(/[\x00-\x1f\x7f]/g, "").trim();
 }
 
@@ -105,7 +106,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         return json(project); // null on miss is intentional (200 with body=null)
       }
       const archivedParam = url.searchParams.get("archived");
-      let opts: { archived?: boolean } = {};
+      const opts: { archived?: boolean } = {};
       if (archivedParam === "true") opts.archived = true;
       else if (archivedParam === "false") opts.archived = false;
       // Il filtro sta QUI e non nel SQL dello store: la regola è una funzione

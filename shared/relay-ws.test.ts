@@ -368,8 +368,7 @@ describe("un giro completo fra due capi, senza rete", () => {
     const rias = creaRiassemblatore({ latoRemoto: "guest" });
     const arrivati: string[] = [];
     const iniziale = costoMessaggio(5) * 3;
-    let capo: ReturnType<typeof creaCapoCanale>;
-    capo = creaCapoCanale({
+    const capo: ReturnType<typeof creaCapoCanale> = creaCapoCanale({
       s: 1,
       credito: iniziale,
       invia: (f) => {

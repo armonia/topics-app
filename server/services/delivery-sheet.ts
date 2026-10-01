@@ -131,8 +131,6 @@ function num(n: number | null | undefined): number | null {
  */
 export function renderDeliverySheet(data: DeliverySheetData): string {
   const files = num(data.filesChanged);
-  const ins = num(data.insertions);
-  const del = num(data.deletions);
   const hasCode = !!(data.branch && files !== null);
 
   // LE QUOTE, in un posto solo. Il titolo occupa fino a tre righe e la fascia

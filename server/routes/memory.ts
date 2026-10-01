@@ -94,7 +94,7 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
     writeFileSync(filepath, content, "utf-8");
   }
 
-  return async function memoryRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  return async function memoryRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // GET /api/memory — global memory
     if (method === "GET" && pathname === "/api/memory") {

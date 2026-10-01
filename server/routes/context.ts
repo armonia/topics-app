@@ -34,7 +34,7 @@ const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; time
 export function createContextRouter(ctx: AppContext): RouteHandler {
   const { GATEWAY_URL, GATEWAY_TOKEN, json, loadTopics, loadLocalMessages } = ctx;
 
-  return async function contextRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  return async function contextRouter(_req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // Il contesto REALE dell'ultima chiamata al modello — la stessa cosa che
     // l'evento WS `stream:context` manda durante lo streaming, qui per chi

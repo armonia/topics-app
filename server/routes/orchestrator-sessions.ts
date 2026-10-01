@@ -65,7 +65,7 @@ function createOrdinaryOrchestratorTopic(ctx: AppContext): Topic {
 }
 
 export function createOrchestratorSessionsRouter(ctx: AppContext): RouteHandler {
-  const { db, json, matchRoute, getTopicById, saveSingleTopic, broadcastToAll } = ctx;
+  const { db, json, getTopicById, saveSingleTopic, broadcastToAll } = ctx;
 
   return async function orchestratorSessionsRouter(
     req: Request,

@@ -17,8 +17,7 @@ import { join } from "node:path";
 
 // Redirect the media root BEFORE the modules that read TOPICS_HOME run their
 // (now-lazy) dir resolution, so the test never writes into the real ~/.topics.
-let tmpHome: string;
-tmpHome = mkdtempSync(join(tmpdir(), "topics-shot-test-"));
+const tmpHome = mkdtempSync(join(tmpdir(), "topics-shot-test-"));
 process.env.TOPICS_HOME = tmpHome;
 
 import { writeAgentScreenshot, handleBrowserObserve } from "./browser-tools-handler";

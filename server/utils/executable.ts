@@ -59,6 +59,7 @@ export function probeBinaryPath(path: string): Promise<ProbeResult> {
 function parseVersion(output: string): string | undefined {
   if (!output) return undefined;
   // Strip ANSI escapes
+  // eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
   const clean = output.replace(/\x1b\[[0-9;]*m/g, "").trim();
   // First line, or first match of vX.Y.Z / X.Y.Z
   const firstLine = clean.split("\n")[0]?.trim();

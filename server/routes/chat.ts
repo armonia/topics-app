@@ -253,7 +253,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   }
   const {
     resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
-    getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
+    getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
     ssePingMs,
   } = deps;
@@ -368,7 +368,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   }
   return chatRouter;
 
-  async function routeChat(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  async function routeChat(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // The goal loop resends through this very route: see `goalLoop`.
     goalLoop.useRoute(chatRouter);
     if (method === "POST" && pathname === "/api/chat") {

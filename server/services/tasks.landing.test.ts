@@ -13,10 +13,7 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
+import { createTaskService, type TaskService } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 /**

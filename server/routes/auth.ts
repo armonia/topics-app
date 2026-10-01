@@ -323,7 +323,7 @@ function risolvePersonaPerAppaiamento(
   }
 }
 
-export interface AuthRouterOpts extends AgentStartCapabilitiesRouteOpts {}
+export type AuthRouterOpts = AgentStartCapabilitiesRouteOpts;
 
 export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): RouteHandler {
   const { json, readJSON, db } = ctx as AppContext & { db: { query: (sql: string) => { all: (...a: unknown[]) => unknown[]; get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown } } };

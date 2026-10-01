@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, afterAll } from "bun:test";
 import { readFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { writeMcpConfigForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 
@@ -17,7 +18,7 @@ function track(sessionKey: string): string {
 afterAll(() => {
   for (const sk of SESSIONS) {
     const safe = sk.replace(/[^A-Za-z0-9._-]/g, "_");
-    try { unlinkSync(`${require("os").tmpdir()}/topics-mcp/${safe}.json`); } catch { /* best-effort */ }
+    try { unlinkSync(`${tmpdir()}/topics-mcp/${safe}.json`); } catch { /* best-effort */ }
   }
 });
 

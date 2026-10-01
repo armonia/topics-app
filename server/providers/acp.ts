@@ -44,7 +44,6 @@ import type {
   ProviderContextStrategy,
   ProviderDiagnostic,
   ProviderDoneMessage,
-  ProviderRequirement,
   StreamHandler,
   AbortReason,
 } from "./types";
@@ -70,8 +69,6 @@ import {
   errText,
   findOption,
   flattenMessages,
-  isMethodNotFound,
-  readTopicEffort,
   withTimeout,
 } from "./acp/helpers";
 import {

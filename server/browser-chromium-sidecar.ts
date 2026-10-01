@@ -496,6 +496,7 @@ export type PsReader = () => string | null;
 // never load it (the comment on `defaultLauncher` says so).
 const defaultPsReader: PsReader = () => {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see the comment above: child_process stays out of the module level
     const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
     return execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" });
   } catch {
@@ -656,6 +657,7 @@ export function portOwnedBy(
     deps.lsof ??
     (() => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process stays out of the module level, as for `defaultPsReader`
         const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
         return execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
           encoding: "utf8",

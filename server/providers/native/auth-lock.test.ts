@@ -39,7 +39,6 @@ const WORKER_PATH = join(import.meta.dir, "auth-lock-worker.fixture.ts");
 
 let requestCount = 0;
 let currentRefreshToken = "refresh-iniziale";
-let currentAccessToken = "access-token-0";
 let tokenGeneration = 0;
 
 let server: ReturnType<typeof Bun.serve>;
@@ -55,13 +54,12 @@ beforeAll(() => {
   // Server finto: conta le richieste e ruota il refresh token.
   server = Bun.serve({
     port: 0, // porta libera scelta dal kernel
-    fetch(req) {
+    fetch(_req) {
       requestCount++;
       const gen = ++tokenGeneration;
       const newAccess = `access-token-${gen}`;
       const newRefresh = `refresh-${gen}`;
       currentRefreshToken = newRefresh;
-      currentAccessToken = newAccess;
       return Response.json({
         access_token: newAccess,
         refresh_token: newRefresh,

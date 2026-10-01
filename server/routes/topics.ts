@@ -3,7 +3,7 @@ import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
-import { join, resolve, dirname } from "path";
+import { join, resolve } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall, UnreadData } from "../types";
@@ -1353,6 +1353,7 @@ export function createTopicsRouter(
       // sends nothing.
       let initialMessage: string | null = null;
       if (body.initialMessage !== undefined && body.initialMessage !== null) {
+        // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
         const cleaned = String(body.initialMessage).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
         if (cleaned.length > 8000) return json({ error: "initialMessage too long (max 8000)" }, 400);
         if (cleaned.length > 0) initialMessage = cleaned;
@@ -1763,6 +1764,7 @@ export function createTopicsRouter(
           if (body.initialMessage === null || body.initialMessage === "") {
             topic.initialMessage = null;
           } else {
+            // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
             const cleaned = String(body.initialMessage).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
             if (cleaned.length > 8000) return json({ error: "initialMessage too long (max 8000)" }, 400);
             topic.initialMessage = cleaned;

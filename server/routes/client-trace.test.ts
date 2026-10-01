@@ -71,6 +71,7 @@ describe("formatClientTraceLines", () => {
       "t",
     );
     expect(hostile![0]).toContain("pane-attach a?b?c?d?[31me?f?g?");
+    // eslint-disable-next-line no-control-regex -- the assertion is that no control character survives, so the class names them
     expect(hostile![0]).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/);
   });
 

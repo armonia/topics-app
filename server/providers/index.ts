@@ -19,7 +19,6 @@ import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProvider
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
-import { warnDeprecatedEnv } from "../lib/env-alias";
 import { existsSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { resolveCodexBin } from "../lib/codex-bin";
@@ -33,7 +32,6 @@ import {
   resolveCodexApprovalMode,
   resolveClaudeCodeEnabled,
   resolveAgentRuntime,
-  type AppSettings,
 } from "../services/app-settings";
 
 
@@ -61,6 +59,7 @@ const PROVIDER_PREFERENCE_ORDER = [
 // Factory (single provider)
 // ---------------------------------------------------------------------------
 
+/* eslint-disable @typescript-eslint/no-require-imports -- each provider module (and its SDK) is loaded only when a provider of that type is configured */
 export function createProvider(config: ProviderConfig): AIProvider {
   switch (config.type) {
     case "openclaw": {
@@ -105,6 +104,7 @@ export function createProvider(config: ProviderConfig): AIProvider {
       throw new Error(`Unknown provider type: ${(config as any).type}`);
   }
 }
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 // ---------------------------------------------------------------------------
 // Registry API
@@ -335,6 +335,7 @@ export async function stopAllProviders(graceMs = 3500): Promise<void> {
  */
 function invalidateSnapshot(name: string): void {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the lazy import the comment above explains (snapshot-manager imports this module)
     const { getSnapshotManager } = require("./snapshot-manager") as typeof import("./snapshot-manager");
     getSnapshotManager().invalidate(name);
   } catch {
@@ -443,6 +444,7 @@ export async function initProviders(): Promise<AIProvider[]> {
   // DEFAULT solo se il runtime lo chiede (vedi `recomputeDefault`).
   if (!_providers.has("topics")) {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- native/auth is loaded only when the native runtime is not registered yet
       const { hasCredentials } = require("./native/auth");
       if (hasCredentials()) {
         const p = createProvider({

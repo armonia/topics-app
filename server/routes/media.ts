@@ -223,7 +223,7 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       // Prefer the media allowlist for cacheable project media; fall back to
       // resolveProjectPath so sibling images of any openable MD file load.
       // Symmetric with /api/files/content which also uses resolveProjectPath.
-      let resolved = isPathAllowed(resolve(filePath)) ? resolve(filePath) : resolveProjectPath(filePath);
+      const resolved = isPathAllowed(resolve(filePath)) ? resolve(filePath) : resolveProjectPath(filePath);
       // Da quando un file locale si APRE nel pannello passando di qui, un
       // rifiuto finisce a schermo intero davanti a una persona: in JSON è
       // indistinguibile dalla pagina bianca. Stesso codice HTTP, lingua umana —
@@ -268,7 +268,7 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       const range = req.headers.get("range");
       const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
       if (m) {
-        let start = m[1] ? parseInt(m[1], 10) : 0;
+        const start = m[1] ? parseInt(m[1], 10) : 0;
         let end = m[2] ? parseInt(m[2], 10) : size - 1;
         if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
           return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" } });

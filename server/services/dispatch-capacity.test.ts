@@ -4,9 +4,8 @@
  * @covers KANBAN-07
  */
 import { test, expect, describe } from "bun:test";
-import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, dispatchResourceVerdict, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */

@@ -205,7 +205,7 @@ describe("confirmOutbound", () => {
    */
   test("il lucchetto parla per la SUA sessione e solo finche' e' vivo, poi esce dalla mappa", async () => {
     const { deps } = makeDeps({ card: false, row: runningRow("tool-99") });
-    let clock = 2_000_000;
+    const clock = 2_000_000;
     deps.now = () => clock;
     const sessionKey = "chat-session-4";
     const stranger = "chat-session-5";

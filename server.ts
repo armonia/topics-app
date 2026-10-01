@@ -23,7 +23,7 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
@@ -35,7 +35,7 @@ import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
-  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
+  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
   listenWithSquatterFallback, PortTakenError,
 } from "./server/services/daemon-state";
 import {
@@ -116,16 +116,11 @@ import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { killProcessTree } from "./server/lib/process-tree";
 import { killAgentProcessTree } from "./server/lib/kill-agent-tree";
-import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
-import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
 import { resolveDeliveryBranch, type DeliveryBranchDeps } from "./server/services/delivery-branch-ref";
-import { landedMergeRange } from "./server/services/task-diff-range";
-import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
-import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingState } from "./server/services/landing-audit";
-import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain } from "./server/services/landing-verdict";
+import { classifyLanding } from "./server/services/landing-audit";
 import { createTranscriptUsageReader } from "./server/services/transcript-usage";
 import { createDispatchUsageReader } from "./server/services/dispatch-usage";
 import { orphanChildSessions } from "./server/services/agent-census";
@@ -210,7 +205,7 @@ import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
-import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
@@ -226,12 +221,8 @@ import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { startBundleProbe } from "./server/lib/bundle-probe";
 // `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
-// sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
-// entrambi i silenzi.
-import { pendingAskVerdict, cancelAsk, pendingAskKeys } from "./server/lib/ask-user-bridge";
-// The stale-stream rule, pure so it can be tested without a server: the
-// finalize decision must never be reachable while the child process is alive.
-import { staleStreamVerdict } from "./server/lib/stale-stream-verdict";
+// sola domanda era il difetto.
+import { cancelAsk, pendingAskKeys } from "./server/lib/ask-user-bridge";
 // La porta unica di «questo turno aspetta una PERSONA». Le due sorgenti di
 // silenzio legittimo sono una domanda a schermo E una richiesta di permesso a
 // schermo: qui dentro tre punti ne conoscevano solo la prima, che è esattamente
@@ -1750,6 +1741,7 @@ const taskDispatcher = createTaskDispatcher({
   // has a runtime that is not held, and the automatic pick itself (AGPT-01).
   // Built in task-auto-model.ts, where the dispatcher tests drive the same hooks.
   ...automaticDispatchHooks({
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy like the `await import` of the same module at boot: static, it would move the snapshot manager (and the provider registry it imports) up the boot's module order
     snapshot: () => (require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager")).getSnapshotManager().getSnapshot(),
     getProvider: tryGetProvider,
     log: (message) => console.log(`[dispatcher] ${message}`),
@@ -1859,6 +1851,7 @@ const taskDispatcher = createTaskDispatcher({
     return { path: c.path, projectStoreId: storeId };
   },
   createTopic: (o) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy like the `await import` of the same module at boot: static, it would move the snapshot manager (and the provider registry it imports) up the boot's module order
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     const snapshot = getSnapshotManager().getSnapshot();
     // AICTRL-01: ON e' instradamento, non identita'. Bersaglio e switch restano scritti sul topic, chi esegue lo decide `resolveTopicProvider` a ogni turno. allow-italian: la regola che questa chiamata applica
@@ -4185,6 +4178,7 @@ const opzioniServer = {
       { const __ui = loadAllUiState(db); inviaIniziale({ type: "ui-state:init", data: __ui.data, meta: __ui.meta }); }
       // Initial provider snapshot — keeps the picker / settings page in sync without an extra HTTP fetch.
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy like the `await import` of the same module at boot: static, it would move the snapshot manager (and the provider registry it imports) up the boot's module order
         const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
         inviaIniziale({ type: "providers:snapshot", snapshot: getSnapshotManager().getSnapshot() });
       } catch {

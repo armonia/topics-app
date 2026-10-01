@@ -12,8 +12,6 @@ import fs from "fs";
 import { homedir, tmpdir } from "os";
 import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
-import { timingSafeEqualStr } from "../utils";
-import { readState } from "../services/daemon-state";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";

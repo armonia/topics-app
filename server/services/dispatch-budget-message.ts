@@ -27,7 +27,7 @@ const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
  */
 export function machineBudgetMessage(
   verdict: AdmissionVerdict,
-  cores: number,
+  _cores: number,
   share: number,
   /** Our footprint and its ceiling, as the gate compared them. Absent = only
    *  the quota clause can be told. */

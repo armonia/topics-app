@@ -489,10 +489,11 @@ export function createBrowserRouter(
             await browserService.hover(id, body.x, body.y);
             return json({ ok: true });
 
-          case "evaluate":
+          case "evaluate": {
             if (!body.script) return errorResponse(400, "script required");
             const evalResult = await browserService.evaluate(id, body.script);
             return json({ result: evalResult });
+          }
 
           case "screenshot": {
             const buf = await browserService.screenshot(id, { format: body.format, quality: body.quality, fullPage: body.fullPage });

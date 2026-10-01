@@ -725,7 +725,7 @@ export function loadActiveBranchForReplay(sessionKey: string): ReplayTurn[] {
     childrenOf.set(key, list);
   }
 
-  let activeRows: Row[] = [];
+  const activeRows: Row[] = [];
   let cursor: string | null = null;
   while (true) {
     // Both annotated on purpose: `cursor` is reassigned from `chosen.id` at the

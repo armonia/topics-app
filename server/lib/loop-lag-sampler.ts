@@ -125,6 +125,7 @@ export const readSelfMemory: () => Omit<LoopLagSample, "load1" | "cpuMs"> = (() 
   const absent = { footprintMB: null, compressedMB: null, residentMB: null, diskFaults: null, runnableMs: null };
   if (process.platform !== "darwin") return () => absent;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- bun:ffi loaded inside the try, so a runtime without it reads null instead of failing the module load
     const { dlopen, FFIType, ptr } = require("bun:ffi") as typeof import("bun:ffi");
     const lib = dlopen("/usr/lib/libSystem.dylib", {
       proc_pid_rusage: { args: [FFIType.i32, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },

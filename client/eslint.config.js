@@ -67,4 +67,25 @@ export default defineConfig([
       'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
     },
   },
+  {
+    // The server side: server/, shared/ and server.ts, linted from the repo
+    // root by `bun run lint:server` (scripts/lint.ts), which passes this file
+    // with --config, so these globs are relative to the root. The client's own
+    // `eslint .` runs inside client/ and never matches them.
+    files: ['server/**/*.ts', 'shared/**/*.ts', 'server.ts'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      // `any` here is governed by check:any (files that must stay at zero) and
+      // check:any-budget (the ratchet on the total), not by eslint: two gates
+      // with two different answers for the same line is how one gets muted.
+      '@typescript-eslint/no-explicit-any': 'off',
+      // A `let` that a closure reads before its one assignment (a `settle`
+      // that clears a timer armed later, a service the earlier handlers call
+      // once boot has created it) cannot become `const` where it stands: moved
+      // down it throws in the temporal dead zone on the path that runs first.
+      'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
+    },
+  },
 ])

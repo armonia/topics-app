@@ -4,7 +4,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-export function lintCachePath(root: string, target: "client" | "relay"): string {
+export type LintTarget = "client" | "relay" | "server";
+
+/** What each target lints, from the repo root (client lints itself from client/). */
+export const LINT_TARGET_PATHS: Record<Exclude<LintTarget, "client">, string[]> = {
+  relay: ["relay"],
+  server: ["server", "shared", "server.ts"],
+};
+
+export function lintCachePath(root: string, target: LintTarget): string {
   // The current rules inspect individual files, without a TypeScript project.
   // Include dependencies too: not every ESLint plugin exposes its own version.
   const key = createHash("sha256");
@@ -16,13 +24,13 @@ export function lintCachePath(root: string, target: "client" | "relay"): string 
 
 if (import.meta.main) {
   const [target, ...args] = process.argv.slice(2);
-  if (target !== "client" && target !== "relay") {
-    console.error("Usage: bun run scripts/lint.ts <client|relay> [eslint arguments]");
+  if (target !== "client" && target !== "relay" && target !== "server") {
+    console.error("Usage: bun run scripts/lint.ts <client|relay|server> [eslint arguments]");
     process.exit(2);
   }
   const root = resolve(import.meta.dir, "..");
   const result = spawnSync(resolve(root, "client/node_modules/.bin/eslint"), [
-    ...(target === "relay" ? ["--config", "client/eslint.config.js", "relay"] : ["."]),
+    ...(target === "client" ? ["."] : ["--config", "client/eslint.config.js", ...LINT_TARGET_PATHS[target]]),
     "--cache", "--cache-strategy", "content", "--cache-location", lintCachePath(root, target),
     ...args,
   ], { cwd: target === "client" ? resolve(root, "client") : root, stdio: "inherit" });

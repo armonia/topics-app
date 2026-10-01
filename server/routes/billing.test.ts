@@ -211,7 +211,7 @@ describe("billing · il webhook si autentica da solo", () => {
       corpo: manomesso === corpo ? corpo + " " : manomesso, header,
     });
     expect(r?.status).toBe(400);
-    expect((await r?.json()).code).toBe("bad_signature");
+    expect((await r?.json())?.code).toBe("bad_signature");
   });
 });
 

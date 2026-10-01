@@ -24,10 +24,13 @@
 
 // CSI sequences: ESC [ params intermediates final  (covers colour `m`, cursor
 // moves H/f/A-G, erases J/K, show/hide cursor ?25l/h, etc.)
+// eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
 const CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 // OSC sequences: ESC ] ... terminated by BEL or ST (ESC \)
+// eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
 const OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 // Other 2-byte ESC sequences (charset selection, etc.)
+// eslint-disable-next-line no-control-regex -- strips terminal escape sequences, so ESC and BEL are the point of the pattern
 const ESC2 = /\x1b[@-Z\\-_]/g;
 
 /**

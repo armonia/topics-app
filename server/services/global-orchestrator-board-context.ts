@@ -23,6 +23,7 @@ type TaskRow = {
 
 function compactTaskText(value: unknown): string {
   const text = typeof value === "string" ? value : "";
+  // eslint-disable-next-line no-control-regex -- removes control characters from text that came from outside, on purpose
   const compact = text.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
   return compact.length > 180 ? `${compact.slice(0, 177)}…` : compact || "(untitled task)";
 }

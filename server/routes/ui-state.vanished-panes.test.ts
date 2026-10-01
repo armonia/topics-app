@@ -10,8 +10,8 @@
  * @covers PROJ-ID-03
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { mkdirSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { dropVanishedProjectPanes } from "./ui-state";
 

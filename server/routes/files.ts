@@ -26,7 +26,7 @@ import { gitEnvFor } from "../lib/git-identity";
 
 // Conservative git ref/remote name validation (mirrors worktrees.ts BASE_REF_REGEX)
 const GIT_REF_MAX = 200;
-const GIT_REF_REGEX = /^[A-Za-z0-9_./\-]+$/;
+const GIT_REF_REGEX = /^[A-Za-z0-9_./-]+$/;
 function isValidGitRef(ref: unknown): ref is string {
   return typeof ref === "string" && ref.length > 0 && ref.length <= GIT_REF_MAX && GIT_REF_REGEX.test(ref);
 }
@@ -302,7 +302,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!body?.path || body.content === undefined) return json({ error: "path and content required" }, 400);
       const resolvedFile = resolveProjectPath(body.path);
       if (!resolvedFile) return errorResponse(400, "Invalid path");
-      try { writeFileSync(resolvedFile, body.content, "utf-8"); return json({ ok: true, path: resolvedFile }); } catch (err: any) { return json({ error: "Failed to save file" }, 500); }
+      try { writeFileSync(resolvedFile, body.content, "utf-8"); return json({ ok: true, path: resolvedFile }); } catch { return json({ error: "Failed to save file" }, 500); }
     }
 
     // --- Apply edit (search/replace) ---
@@ -323,7 +323,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const content = readFileSync(resolvedFile, "utf-8");
 
         // Try exact match first
-        let idx = content.indexOf(body.searchText);
+        const idx = content.indexOf(body.searchText);
 
         if (idx !== -1) {
           // Save backup before writing
@@ -365,7 +365,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
 
         return json({ error: "Search text not found in file", ok: false }, 400);
-      } catch (err: any) {
+      } catch {
         return json({ error: "Failed to apply edit" }, 500);
       } finally {
         releaseLock(resolvedFile);
@@ -1503,7 +1503,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           }
         }
         return json({ changes });
-      } catch (err: any) {
+      } catch {
         return json({ changes: [] });
       }
     }

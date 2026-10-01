@@ -143,7 +143,7 @@ test("il flip che balla non cambia il seme a ogni oscillazione", async () => {
   expect(JSON.stringify(store.files.ctx)).toBe(afterOne);
 });
 
-test("il passaggio riempie i buchi e non sostituisce: non puo\' sloggare nessuno", async () => {
+test("il passaggio riempie i buchi e non sostituisce: non puo' sloggare nessuno", async () => {
   const { registry } = scriptedRegistry({ result: NATIVE });
   const store = fakeStore({
     ctx: { cookies: [{ name: "sid", value: "FRESCO-DAL-TELEFONO", domain: "example.com", path: "/" }], origins: [] },
