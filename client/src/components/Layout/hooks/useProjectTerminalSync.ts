@@ -30,6 +30,7 @@ import { createDormantTerminalGuard } from '../../../lib/dormantTerminalGuard';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../../../lib/coalesceFetch';
 import { decideRestoredTerminalPane } from './terminalReconcile';
 import { ROSTER_RECONCILED_HEADER } from '../../../../../shared/terminal-messages';
+import { subAgentMemorySnapshot, subscribeSubAgentMemory } from '../../../state/endedSubAgents';
 
 interface TerminalRosterEntry { id: string; cwd: string; name: string; type: string }
 
@@ -129,6 +130,9 @@ export function useProjectTerminalSync({
       // hand cannot settle: collected here, re-checked after the update. The
       // panes stay meanwhile.
       const toVerify = new Set<string>();
+      // Ended sub-agents keep their tab while the chat's strip keeps their row
+      // (see terminalReconcile): read now, the store re-runs this pass below.
+      const endedSubAgentIds = new Set(subAgentMemorySnapshot().ended.map(e => e.id));
       setPanes(prev => {
         let updated = prev.filter(p => {
           if (p.type !== 'terminal') return true;
@@ -172,7 +176,7 @@ export function useProjectTerminalSync({
           // `verify`: keep the pane, ask the dormant list again, decide then.
           if (!guard.loaded) return true;
           const verdict = decideRestoredTerminalPane(
-            sid, sessionIds, seen, rosterAuthoritative, guard.dormantIds, guard.confirmedGoneIds,
+            sid, sessionIds, seen, rosterAuthoritative, guard.dormantIds, guard.confirmedGoneIds, endedSubAgentIds,
           );
           if (verdict === 'verify') toVerify.add(sid);
           return verdict !== 'prune';
@@ -236,11 +240,19 @@ export function useProjectTerminalSync({
     // la PRIMA passata che pota qualcosa, non una seconda che prova a rimettere.
     guard.load();
 
-    return onWSMessage((msg: WSMessage) => {
+    // The row of an ended sub-agent went (dismissed from the strip, or its
+    // chat archived): its tab, kept only for that row, goes now. Without this
+    // re-run it lingered until the next roster happened to come in, and then
+    // closed by itself.
+    const stopEnded = subscribeSubAgentMemory(() => {
+      if (guard.loaded) syncTerminals(lastRosterRef.current, lastRosterReconciledRef.current);
+    });
+    const stopRoster = onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; sessions?: unknown };
       if (m.type === 'terminal:sessions' && Array.isArray(m.sessions)) {
         syncTerminals(m.sessions as TerminalRosterEntry[], (msg as { reconciled?: boolean }).reconciled === true);
       }
     });
+    return () => { stopEnded(); stopRoster(); };
   }, [onWSMessage, projectPath, topicsRef, setPanes]);
 }
