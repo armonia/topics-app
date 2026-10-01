@@ -1,5 +1,6 @@
 /**
  * @covers CHAT-TOOL-02
+ * @covers CHAT-BROWSER-01
  *
  * Partial: aggregation of tool-call groups, as pure grouping. The rendered
  * strip is elsewhere.
@@ -66,6 +67,38 @@ describe('partitionToolGroup', () => {
     expect(segs.map((s) => s.kind)).toEqual(['aggregate', 'solo', 'aggregate']);
     expect(segs[0].kind === 'aggregate' && segs[0].tools.map((t) => t.name)).toEqual(['Read', 'Grep']);
     expect(segs[2].kind === 'aggregate' && segs[2].tools.map((t) => t.name)).toEqual(['Edit']);
+  });
+
+  // CHAT-BROWSER-01: three Reads, an opening, three Reads.
+  test('a browser opening splits the run and is never counted in it', () => {
+    const open = tc({
+      name: 'mcp__topics__open_browser_pane',
+      args: { url: 'http://localhost:5173/' },
+      result: 'Opened browser pane at http://localhost:5173/ (title: Vite App) [contextId: t1]',
+    });
+    const again = tc({
+      name: 'mcp__topics__open_browser_pane',
+      args: { url: 'http://localhost:5173/b' },
+      result: 'Opened browser pane at http://localhost:5173/b [contextId: t1]',
+    });
+    const tools = [tc({ name: 'Read' }), tc({ name: 'Read' }), tc({ name: 'Read' }), open, tc({ name: 'Read' }), again, tc({ name: 'Read' }), tc({ name: 'Read' })];
+    const segs = partitionToolGroup(tools);
+    expect(segs.map((s) => s.kind)).toEqual(['aggregate', 'browser', 'aggregate']);
+    expect(segs[1].kind === 'browser' && segs[1].marker.pages).toHaveLength(2);
+    expect(segs[2].kind === 'aggregate' && summarizeToolGroup(segs[2].tools).total).toBe(3);
+  });
+
+  test('a FAILED opening stays in the run, counted among its errors', () => {
+    const failed = tc({
+      name: 'mcp__topics__open_browser_pane',
+      args: { url: 'http://localhost:1/' },
+      status: 'error',
+      result: 'navigation failed: goto: net::ERR_CONNECTION_REFUSED',
+    });
+    const tools = [tc({ name: 'Read' }), failed, tc({ name: 'Read' })];
+    const segs = partitionToolGroup(tools);
+    expect(segs.map((s) => s.kind)).toEqual(['aggregate']);
+    expect(segs[0].kind === 'aggregate' && summarizeToolGroup(segs[0].tools).errors).toBe(1);
   });
 
   test('GROUP_MIN threshold is 3', () => {

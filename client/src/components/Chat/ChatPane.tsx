@@ -37,6 +37,7 @@ import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { TaskCardStrip } from './TaskCardStrip';
 import { TaskWorkFoldContext } from './taskWorkFoldContext';
+import { ChatTopicContext } from './chatTopicContext';
 import { useTopicTask } from '../../state/taskSessions';
 import { ChangedFilesStrip } from './ChangedFilesStrip';
 import { UnsentStrip } from './UnsentStrip';
@@ -1704,7 +1705,9 @@ function ChatPaneComponent({
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
+      <ChatTopicContext.Provider value={topic.id}>
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      </ChatTopicContext.Provider>
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it

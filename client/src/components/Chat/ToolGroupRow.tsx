@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
+import { BrowserOpenMarker } from './BrowserOpenMarker';
 import { useSettledMetricClass } from './settledMetrics';
 import {
   GROUP_MIN,
@@ -185,7 +186,9 @@ export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey
   return (
     <>
       {segments.map((seg) =>
-        seg.kind === 'solo' ? (
+        seg.kind === 'browser' ? (
+          <BrowserOpenMarker key={`br-${seg.marker.id}`} marker={seg.marker} />
+        ) : seg.kind === 'solo' ? (
           <ToolCallRow key={seg.tool.id} toolCall={seg.tool} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
         ) : seg.tools.length >= GROUP_MIN ? (
           <ToolGroupRow key={`grp-${seg.tools[0].id}`} tools={seg.tools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
