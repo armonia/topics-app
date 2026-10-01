@@ -286,3 +286,23 @@ export function cartelloRisveglio(isWoken: boolean, source: unknown): ContentBlo
   const l = typeof source === "string" ? source.trim() : "";
   return [{ kind: "woken", ...(l ? { label: l } : {}) }];
 }
+
+/**
+ * The banner on top of the answer to a `run_command` wake (BGVIS-07): the
+ * command's name, how it ended and its last line of output, as a Monitor's end
+ * says its own. The wake's body carries them (`processExit`,
+ * `server/lib/process-exit-wake.ts`); a body without a process id is no
+ * command's wake and gets nothing.
+ */
+export function commandWakeBanner(processExit: unknown): ContentBlock[] {
+  const exit = processExit as { processId?: unknown; exitCode?: unknown; label?: unknown; lastLine?: unknown } | null | undefined;
+  if (!exit || typeof exit !== "object" || typeof exit.processId !== "string" || !exit.processId) return [];
+  const label = typeof exit.label === "string" ? exit.label.trim() : "";
+  const text = typeof exit.lastLine === "string" ? exit.lastLine.trim() : "";
+  return [{
+    kind: "woken", source: "command",
+    ...(label ? { label } : {}),
+    exitCode: typeof exit.exitCode === "number" ? exit.exitCode : null,
+    ...(text ? { text } : {}),
+  }];
+}

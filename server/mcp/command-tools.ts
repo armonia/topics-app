@@ -46,6 +46,7 @@ export const COMMAND_TOOLS = [
         command: { type: "string", description: "The command line, run with `zsh -c` on macOS and `sh -c` elsewhere." },
         cwd: { type: "string", description: "Optional directory to run in, relative to the project root (or absolute inside it). Defaults to the root." },
         wake: { type: "boolean", description: "Wake this topic with the outcome when the command ends by itself (default true). A Stop never wakes." },
+        description: { type: "string", description: "Optional short name (a few words) shown to the person while it runs and in its outcome. Defaults to the command's first line." },
       },
       required: ["command"],
     },
@@ -57,7 +58,7 @@ interface RunCommandResp { processId?: string; pid?: number; wake?: boolean }
 
 export async function callRunCommand(
   args: ParsedArgs,
-  toolArgs: { command?: unknown; cwd?: unknown; wake?: unknown },
+  toolArgs: { command?: unknown; cwd?: unknown; wake?: unknown; description?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.command !== "string" || !toolArgs.command.trim()) {
@@ -67,6 +68,7 @@ export async function callRunCommand(
     command: toolArgs.command,
     ...(typeof toolArgs.cwd === "string" && toolArgs.cwd ? { cwd: toolArgs.cwd } : {}),
     ...(toolArgs.wake === false ? { wake: false } : {}),
+    ...(typeof toolArgs.description === "string" && toolArgs.description.trim() ? { description: toolArgs.description } : {}),
   };
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/commands/run`;
   const res = await httpJson<RunCommandResp>(args, "POST", path, body, fetchImpl);

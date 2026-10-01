@@ -65,3 +65,12 @@ export function shouldHandleOpenDiff(
   const target = detail.projectPath ? toPaneId(detail.projectPath) : focusedPanelId;
   return target === wrapperPaneId;
 }
+
+/**
+ * The window event that opens a process's log as a pane of a project window,
+ * `{ processId, scriptName, projectPath }`: the chat's background line sends
+ * it for a `run_command` it names (BGVIS-07). Scoped by `projectPath` with the
+ * rule of `open-file-diff` (`shouldHandleOpenDiff`), so with two project
+ * windows side by side only the chat's own opens it.
+ */
+export const OPEN_PROCESS_LOG_EVENT = 'open-process-log';

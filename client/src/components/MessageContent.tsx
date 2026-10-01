@@ -5,7 +5,7 @@ import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, Activity, X } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, Activity, SquareTerminal, X } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import type { PlanDecisionHandler } from './Chat/planDetection';
@@ -985,18 +985,21 @@ type BlockGroup =
  * non nella cronologia), colore diverso. Blu e non ambra perché non è un
  * problema: è una consegna, ed è la cosa che si stava aspettando.
  */
-type WakeBlock = { kind: 'woken'; label?: string; source?: 'monitor' | 'task'; text?: string; end?: string };
+type WakeBlock = { kind: 'woken'; label?: string; source?: 'monitor' | 'task' | 'command'; text?: string; end?: string; exitCode?: number | null };
 
 /**
  * With a known source (rows from 30/09 on) the banner names it as Claude Code
  * does: a Monitor's event with the Monitor's description and the event's own
  * text, a Monitor's end with how it ended (the CLI's words) and its last event,
- * or a background task's report. An older row carries only a label.
+ * or a background task's report. An older row carries only a label. A
+ * `run_command` that ended says its name, its exit code and its last line of
+ * output (BGVIS-07), the way a Monitor's end does.
  */
 function WokenBanner({ woken }: { woken: WakeBlock }) {
   const tr = useT();
-  const { label, source, text, end } = woken;
+  const { label, source, text, end, exitCode } = woken;
   const title = !label ? tr('woken.arrived')
+    : source === 'command' ? (typeof exitCode === 'number' ? tr('woken.commandEnded', { what: label, code: exitCode }) : tr('woken.commandEndedUnknown', { what: label }))
     : source === 'monitor' && end ? tr('woken.monitorEnded', { what: label, how: end })
       : source === 'monitor' ? tr('woken.monitorEvent', { what: label })
         : source === 'task' ? tr('woken.taskReport', { what: label })
@@ -1007,7 +1010,7 @@ function WokenBanner({ woken }: { woken: WakeBlock }) {
       data-source={source}
       className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-compact leading-snug text-blue-900 dark:text-blue-200"
     >
-      <span aria-hidden className="flex-shrink-0 leading-snug">{source === 'monitor' ? <Activity className="w-4 h-4" /> : <Bell className="w-4 h-4" />}</span>
+      <span aria-hidden className="flex-shrink-0 leading-snug">{source === 'monitor' ? <Activity className="w-4 h-4" /> : source === 'command' ? <SquareTerminal className="w-4 h-4" /> : <Bell className="w-4 h-4" />}</span>
       <span className="min-w-0 break-words">
         {title}
         {text && (

@@ -86,4 +86,15 @@ describe('il cartello del risveglio', () => {
     expect(html).toContain('data-testid="woken-event"');
     expect(html).toContain('EVT-TWO');
   });
+
+  test("a run_command's end names the command, its exit code and its last line of output (BGVIS-07)", () => {
+    const html = render([{ kind: 'woken', label: 'CMDJOB', source: 'command', exitCode: 3, text: 'tick 3 failed' } as ContentBlock, { kind: 'text', text: 'ok' }]);
+    expect(html).toContain('data-source="command"');
+    expect(html).toMatch(/(Command ended|Comando terminato): CMDJOB \(exit 3\)/);
+    expect(html).toContain('data-testid="woken-event"');
+    expect(html).toContain('tick 3 failed');
+    const unknown = render([{ kind: 'woken', label: 'CMDJOB', source: 'command', exitCode: null } as ContentBlock, { kind: 'text', text: 'ok' }]);
+    expect(unknown).toMatch(/(Command ended|Comando terminato): CMDJOB \((exit code unknown|codice di uscita sconosciuto)\)/);
+    expect(unknown).not.toContain('exit 0');
+  });
 });

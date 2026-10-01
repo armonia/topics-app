@@ -974,8 +974,9 @@ export type ContentBlock =
    * Monitor's event, with the event's text; `"task"` a background Agent or
    * Bash that reported. A wake answering several notifications carries one
    * block each. Rows written before carry `label` alone.
+   * `source: "command"`: a `run_command` wake, with `exitCode` (null: none) and the last output line as `text`.
    */
-  | { kind: 'woken'; label?: string; source?: WakeEvent['source']; text?: string; end?: string }
+  | { kind: 'woken'; label?: string; source?: WakeEvent['source'] | 'command'; text?: string; end?: string; exitCode?: number | null }
   /**
    * QUESTO TURNO L'HA RIPRESO IL SERVER, non tu.
    *

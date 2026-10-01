@@ -31,6 +31,7 @@ import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES 
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
 import { applyJobQuota } from "../services/agent-job-quota";
+import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 
 interface ScriptProcess {
   processId: string;
@@ -715,9 +716,10 @@ function finishCommand(sp: ScriptProcess): void {
     watchedBySession: isWatchedBySession(sp.processId, cmd.sessionKey),
   });
   saveState();
-  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  if (_broadcastCtx) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, cmd); }
   if (cmd.wake) requestWakeFor(sp);
 }
+export const commandBackgroundWork = commandWorkOver(() => runningScripts.values()); // the chat's background line (BGVIS-07)
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
@@ -791,7 +793,7 @@ function settleWakeReadInTurn(sp: ScriptProcess, sessionKey: string, db: AppCont
  * the server does not lose it).
  */
 function startCommandProcess(o: {
-  projectPath: string; cwd: string; command: string;
+  projectPath: string; cwd: string; command: string; description?: unknown;
   sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"];
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
   const processId = crypto.randomUUID();
@@ -813,7 +815,7 @@ function startCommandProcess(o: {
     closeSync(fd);
   }
   const sp: ScriptProcess = {
-    processId, scriptName: shellLabel(o.command), command: o.command, projectPath: o.projectPath,
+    processId, scriptName: commandLabel(o.command, o.description), command: o.command, projectPath: o.projectPath,
     status: "running", pid: proc.pid, pidLstart: pidStartTime(proc.pid), startedAt: new Date().toISOString(),
     output: [], outputBytes: 0, proc, source: "command",
     cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId },
@@ -821,7 +823,7 @@ function startCommandProcess(o: {
   runningScripts.set(processId, sp);
   followLog(sp, logPath, 0);
   saveState();
-  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  if (_broadcastCtx) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, sp.cmd!); }
   void proc.exited.then(() => finishCommand(sp));
   // `wake` as it will be honoured: a terminal's session has no topic to wake.
   return { processId, scriptName: sp.scriptName, pid: proc.pid, startedAt: sp.startedAt, wake: sp.cmd!.wake };
@@ -2034,7 +2036,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if (!cwd) return json({ error: `cwd must be an existing directory inside ${r.path}` }, 400);
         try {
           const started = startCommandProcess({
-            projectPath: r.path, cwd, command, sessionKey,
+            projectPath: r.path, cwd, command, sessionKey, description: body?.description,
             topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null,
             wake: body?.wake !== false, db: ctx.db,
           });

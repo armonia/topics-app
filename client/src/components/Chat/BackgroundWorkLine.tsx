@@ -37,13 +37,21 @@
  * with a start time its running time. The CLI lists a Monitor as a plain
  * `local_bash`; the server recognises it from the tool call that armed it.
  *
+ * A COMMAND OF TOPICS IS WORK TOO (BGVIS-07). A process the agent started with
+ * `run_command` lives in Topics' registry, not in the CLI, and the chat showed
+ * nothing while it ran (30/09: "no UI at all, I don't know what it is doing").
+ * It is listed here like the CLI's tasks, with a terminal icon, its running
+ * time and, when its end will wake the chat, that it will. A click opens it in
+ * the Processes pane of the chat's project window, where its Stop is: the
+ * composer's Stop stops the CLI's work, and a command outlives the CLI.
+ *
  * A NEW TURN DOES NOT TAKE IT AWAY. The work of an earlier turn keeps running
  * while the next one is open, and the line keeps naming it until it ends
  * (BGVIS-05). Only the tooltip changes: with a turn open the chat is not free,
  * and the composer's Stop is the turn's.
  */
 import { memo } from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, SquareTerminal } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useTopicBackgroundWork, useTopicLoading } from '../../state/signals';
 import type { TopicBackgroundWork } from '../../state/backgroundWork';
@@ -52,23 +60,38 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact, formatRunningFor } from '../../state/workLongevity';
 import { CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { OrbitLoader } from '../Layout/StreamingIndicator';
+import { OPEN_PROCESS_LOG_EVENT } from '../Layout/fileOpenScope';
 
-export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, isMobile }: { topicId: string; isMobile: boolean }) {
+export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, projectPath, isMobile }: { topicId: string; projectPath?: string; isMobile: boolean }) {
   const work = useTopicBackgroundWork(topicId);
   const turnOpen = useTopicLoading(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
   return work ? (
     <div className={`chat-measure pb-2 ${isMobile ? 'px-2' : 'px-4'}`}>
-      <Line work={work} turnOpen={turnOpen} />
+      <Line work={work} turnOpen={turnOpen} projectPath={projectPath} />
     </div>
   ) : null;
 });
 
-function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean }) {
+/**
+ * Opens a command's log as a pane of the project window that hosts this chat
+ * (`useProjectFileOpen`, scoped by project like `open-file-diff`). A chat with
+ * no project window around it has nobody listening, and nothing opens.
+ */
+function openCommandProcess(task: BackgroundTaskSummary, projectPath: string | undefined): void {
+  if (!task.processId) return;
+  window.dispatchEvent(new CustomEvent(OPEN_PROCESS_LOG_EVENT, {
+    detail: { processId: task.processId, scriptName: task.description, projectPath },
+  }));
+}
+
+function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turnOpen: boolean; projectPath?: string }) {
   const tr = useT();
   const now = useSharedNow();
   const n = work.tasks.length;
   const names = work.tasks.map((t) => t.description).join(', ');
+  // Commands only: the composer's Stop has nothing to stop, their own Stop is in the Processes pane.
+  const commandsOnly = n > 0 && work.tasks.every((t) => t.type === 'command');
   // With no task listed a report is waking the CLI right now: that is news.
   const { isStale, elapsedMs } = deriveWorkLongevity(n > 0 ? work.lastSignalAt : undefined, now);
   return (
@@ -76,7 +99,7 @@ function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean
       data-testid="background-work-line"
       data-stale={isStale ? 'true' : undefined}
       className="rounded-lg border border-app-border/60 bg-app-hover/40 text-app-text"
-      title={[names, turnOpen ? '' : tr('chat.background.free')].filter(Boolean).join('\n')}
+      title={[names, turnOpen ? '' : tr(commandsOnly ? 'chat.background.freeCommands' : 'chat.background.free')].filter(Boolean).join('\n')}
     >
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
         <span className="flex min-w-0 items-center gap-2">
@@ -91,7 +114,7 @@ function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean
         </span>
         {n > 0 && (
           <span data-testid="background-work-names" className="min-w-0 grow basis-24 truncate text-compact text-app-text">
-            {work.tasks.map((t, i) => <Task key={`${i}:${t.description}`} task={t} now={now} last={i === n - 1} />)}
+            {work.tasks.map((t, i) => <Task key={`${i}:${t.processId ?? t.description}`} task={t} now={now} last={i === n - 1} projectPath={projectPath} />)}
           </span>
         )}
         {isStale && (
@@ -104,19 +127,41 @@ function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean
   );
 }
 
-function Task({ task, now, last }: { task: BackgroundTaskSummary; now: number; last: boolean }) {
+function Task({ task, now, last, projectPath }: { task: BackgroundTaskSummary; now: number; last: boolean; projectPath?: string }) {
   const tr = useT();
   const monitor = task.type === 'monitor';
+  const command = task.type === 'command';
   const running = task.startedAt ? formatRunningFor(Math.max(0, now - task.startedAt)) : '';
-  return (
-    <span data-testid="background-work-task" data-type={task.type}>
+  const body = (
+    <>
       {monitor && (
         <Activity className="mr-0.5 inline h-3 w-3 align-[-1px] text-app-text-secondary" role="img" aria-label={tr('chat.background.monitor')} />
+      )}
+      {command && (
+        <SquareTerminal className="mr-0.5 inline h-3 w-3 align-[-1px] text-app-text-secondary" role="img" aria-label={tr('chat.background.command')} />
       )}
       {task.description}
       {running && (
         <span data-testid="background-work-running" className="tabular-nums text-app-text-secondary">{` ${running}`}</span>
       )}
+      {command && task.wakes && (
+        <span data-testid="background-work-wakes" className="text-app-text-secondary">{` · ${tr('chat.background.wakes')}`}</span>
+      )}
+    </>
+  );
+  return (
+    <span data-testid="background-work-task" data-type={task.type} data-process-id={task.processId}>
+      {command && task.processId ? (
+        <button
+          type="button"
+          data-testid="background-work-open"
+          onClick={() => openCommandProcess(task, projectPath)}
+          title={tr('chat.background.openProcess')}
+          className="inline max-w-full truncate text-left underline-offset-2 hover:underline"
+        >
+          {body}
+        </button>
+      ) : body}
       {!last && ', '}
     </span>
   );

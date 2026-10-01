@@ -22,7 +22,7 @@ import { createEditRouter } from "./edit";
 import { createForkRouter } from "./fork";
 import { consumeFork } from "../lib/chat-fork-store";
 import { createChatRouter } from "./chat";
-import { commandWakeState } from "./processes";
+import { commandBackgroundWork, commandWakeState } from "./processes";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
@@ -1237,7 +1237,7 @@ export function createTopicsRouter(
           ...(awaitingSince != null ? { awaitingSince } : {}),
         });
       }
-      return json({ sessions: withBackgroundWork(sessions, getTopicBySessionKey) });
+      return json({ sessions: withBackgroundWork(sessions, getTopicBySessionKey, commandBackgroundWork) });
     }
 
     /**

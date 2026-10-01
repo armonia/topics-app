@@ -44,6 +44,17 @@ function workOf(sessionKey: string, w: { tasks?: BackgroundTaskSummary[]; lastSi
   };
 }
 
+/**
+ * Does the composer's Stop apply to this work? It stops the CLI's own (the
+ * route's `stopBackgroundOnly` asks the provider), so a chat that runs only
+ * `run_command` processes has nothing for it: offered there, the Stop answered
+ * "nothing to stop" and the commands ran on. Their Stop is in the Processes
+ * pane the line opens (BGVIS-07). No task listed is the CLI about to resume.
+ */
+export function composerStopsWork(tasks: ReadonlyArray<BackgroundTaskSummary>): boolean {
+  return tasks.length === 0 || tasks.some((t) => t.type !== 'command');
+}
+
 export interface StreamingSnapshot {
   /** Topics with a turn open, answering or parked on a question. */
   streamingTopics: Set<string>;
@@ -73,8 +84,9 @@ export function readStreamingSnapshot(rows: ReadonlyArray<StreamingRowInput>): S
   for (const s of rows) {
     if (s.state === 'background') {
       if (!s.sessionKey) continue;
-      snap.backgroundSessions.add(s.sessionKey);
-      if (s.topicId) snap.backgroundTopics.set(s.topicId, workOf(s.sessionKey, s));
+      const work = workOf(s.sessionKey, s);
+      if (composerStopsWork(work.tasks)) snap.backgroundSessions.add(s.sessionKey);
+      if (s.topicId) snap.backgroundTopics.set(s.topicId, work);
       continue;
     }
     if (s.state !== 'streaming' && s.state !== 'waiting') continue;
@@ -91,7 +103,8 @@ function sameWork(a: TopicBackgroundWork, b: TopicBackgroundWork): boolean {
   return a.sessionKey === b.sessionKey
     && a.lastSignalAt === b.lastSignalAt
     && a.tasks.length === b.tasks.length
-    && a.tasks.every((t, i) => t.type === b.tasks[i].type && t.description === b.tasks[i].description && t.startedAt === b.tasks[i].startedAt);
+    && a.tasks.every((t, i) => t.type === b.tasks[i].type && t.description === b.tasks[i].description && t.startedAt === b.tasks[i].startedAt
+      && t.processId === b.tasks[i].processId && t.wakes === b.tasks[i].wakes);
 }
 
 /**

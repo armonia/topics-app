@@ -175,6 +175,19 @@ export function processExitText(f: ProcessExitFacts): string {
 }
 
 /**
+ * The command's last line of output, for the banner over the wake's answer
+ * (BGVIS-07): what the person was waiting for, as a Monitor's end shows its
+ * last event. Blank lines are skipped; a long line is cut like the text's.
+ */
+export function processExitLastLine(lines: readonly string[]): string | undefined {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]!.trim();
+    if (l) return l.length > WAKE_LINE_MAX_CHARS ? `${l.slice(0, WAKE_LINE_MAX_CHARS)}…` : l;
+  }
+  return undefined;
+}
+
+/**
  * Is a wake owed when the process ends? Not when nobody asked for one, not
  * when there is no topic to wake (a terminal's session), not after a Stop
  * (whoever stopped it decided, and a woken agent might start it again), and
@@ -276,7 +289,7 @@ export async function deliverProcessExit(
         body: JSON.stringify({
           sessionKey: topic.sessionKey,
           messages: [{ role: "user", content: processExitText(f) }],
-          processExit: { processId: f.processId, exitCode: f.exitCode, label: f.label },
+          processExit: { processId: f.processId, exitCode: f.exitCode, label: f.label, lastLine: processExitLastLine(f.lines) },
           // A copy says which message it repeats: the route writes the copy's
           // id on that count, as it does for a resend of the sweep.
           ...(resend ? { ripresa: resend.attempts, resendOf: resend.messageId } : {}),

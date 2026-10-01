@@ -132,6 +132,8 @@ const IT: Dict = {
   'woken.monitorEvent': 'Evento del monitor: {what}',
   'woken.monitorEnded': 'Monitor terminato: {what} ({how})',
   'woken.taskReport': 'Un lavoro in background ha risposto: {what}',
+  'woken.commandEnded': 'Comando terminato: {what} (exit {code})',
+  'woken.commandEndedUnknown': 'Comando terminato: {what} (codice di uscita sconosciuto)',
   'ripreso.banner': 'Il server si è riavviato e ha ripreso da solo: questa è la risposta rifatta.',
   'monitor.armed': 'in ascolto',
   'monitor.armed.blurb': "L'agente non sta aspettando fermo: quando l'evento arriva, la risposta compare qui come messaggio nuovo.",

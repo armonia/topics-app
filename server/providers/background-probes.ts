@@ -7,7 +7,7 @@
  */
 import type { AbortReason } from "./types";
 import { registeredProviders } from "./index";
-import type { BackgroundWorkDetail } from "../../shared/background-work";
+import type { BackgroundTaskSummary, BackgroundWorkDetail } from "../../shared/background-work";
 
 /** The background probes a provider may answer. */
 type BackgroundProbe = {
@@ -109,6 +109,32 @@ export function sessionBackgroundDetail(sessionKey: string): BackgroundWorkDetai
   return { tasks: [], lastSignalAt: 0 };
 }
 
+/**
+ * The `run_command` processes still running, by session, as the process
+ * registry reports them (`commandBackgroundWork` in `routes/processes.ts`).
+ * Not a provider probe: a command is a child of the server, not of the CLI,
+ * and no clock that kills a CLI waits for it. It only joins what the chat's
+ * background line names (BGVIS-07).
+ */
+export type CommandWork = { sessions: () => string[]; tasks: (sessionKey: string) => BackgroundTaskSummary[] };
+
+/**
+ * What the line names for a session: the provider's tasks, then its running
+ * commands. A session with commands only has no CLI news to go stale:
+ * `lastSignalAt` 0, which the line reads as "no age" (the server watches the
+ * process itself, and its end is a push).
+ */
+function detailWithCommands(sessionKey: string, provider: BackgroundWorkDetail | null, commands: CommandWork | undefined): BackgroundWorkDetail {
+  let own: BackgroundTaskSummary[] = [];
+  try { own = commands?.tasks(sessionKey) ?? []; } catch { /* a failing registry claims nothing */ }
+  if (!provider) return { tasks: own, lastSignalAt: 0 };
+  return own.length ? { tasks: [...provider.tasks, ...own], lastSignalAt: provider.lastSignalAt } : provider;
+}
+
+function commandSessions(commands: CommandWork | undefined): string[] {
+  try { return commands?.sessions() ?? []; } catch { return []; }
+}
+
 /** A background row of `/api/topics/streaming`: no turn open, work still running, and what it is. */
 export type BackgroundStatusRow = { topicId: string; sessionKey: string; state: "background" } & BackgroundWorkDetail;
 
@@ -129,11 +155,15 @@ export type StreamingStatusRow = TurnStatusRow | BackgroundStatusRow;
 export function backgroundStatusRows(
   listed: ReadonlyArray<{ sessionKey: string }>,
   topicOf: (sessionKey: string) => { id: string; sessionKey?: string | null } | null | undefined,
+  commands?: CommandWork,
 ): BackgroundStatusRow[] {
   const rows: BackgroundStatusRow[] = [];
-  for (const sessionKey of sessionsWithBackgroundWork()) {
+  const provider = new Set(sessionsWithBackgroundWork());
+  for (const sessionKey of new Set([...provider, ...commandSessions(commands)])) {
     const topic = listed.some((s) => s.sessionKey === sessionKey) ? null : topicOf(sessionKey);
-    if (topic?.sessionKey) rows.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background", ...sessionBackgroundDetail(sessionKey) });
+    if (!topic?.sessionKey) continue;
+    const detail = detailWithCommands(sessionKey, provider.has(sessionKey) ? sessionBackgroundDetail(sessionKey) : null, commands);
+    rows.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background", ...detail });
   }
   return rows;
 }
@@ -152,17 +182,22 @@ export function backgroundStatusRows(
  *
  * Only named tasks ride along: with none listed the work has reported and a
  * turn will answer it, which an open turn already says.
+ *
+ * `commands`: the session's `run_command` processes still running, named
+ * beside the provider's tasks, turn open or not (BGVIS-07).
  */
 export function withBackgroundWork(
   turns: ReadonlyArray<TurnStatusRow>,
   topicOf: (sessionKey: string) => { id: string; sessionKey?: string | null } | null | undefined,
+  commands?: CommandWork,
 ): StreamingStatusRow[] {
   const busy = new Set(sessionsWithBackgroundWork());
+  const running = new Set(commandSessions(commands));
   const rows: StreamingStatusRow[] = turns.map((row) => {
-    if (!busy.has(row.sessionKey)) return row;
-    const detail = sessionBackgroundDetail(row.sessionKey);
+    if (!busy.has(row.sessionKey) && !running.has(row.sessionKey)) return row;
+    const detail = detailWithCommands(row.sessionKey, busy.has(row.sessionKey) ? sessionBackgroundDetail(row.sessionKey) : null, running.has(row.sessionKey) ? commands : undefined);
     return detail.tasks.length > 0 ? { ...row, background: detail } : row;
   });
-  rows.push(...backgroundStatusRows(turns, topicOf));
+  rows.push(...backgroundStatusRows(turns, topicOf, commands));
   return rows;
 }

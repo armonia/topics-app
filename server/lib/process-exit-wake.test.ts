@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { hasMachineMark } from "../../shared/prompt-number";
 import {
   deliverProcessExit,
+  processExitLastLine,
   processExitText,
   wakeDelivered,
   wakeOwedAtExit,
@@ -188,6 +189,14 @@ describe("deliverProcessExit", () => {
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toMatchObject({ sessionKey: "s-a", processExit: { processId: "p-1", exitCode: 3 } });
     expect(String((bodies[0].messages as Array<{ content: string }>)[0].content)).toContain("tick 2");
+  });
+
+  test("the wake names the command's last line of output, for the banner over its answer (BGVIS-07)", async () => {
+    const { d, bodies } = deps({});
+    expect(await deliverProcessExit(d, { ...FACTS, lines: ["tick 1", "  tick 2  ", "", "   "] })).toBe("sent");
+    expect(bodies[0]).toMatchObject({ processExit: { processId: "p-1", exitCode: 3, label: FACTS.label, lastLine: "tick 2" } });
+    expect(processExitLastLine([])).toBeUndefined();
+    expect(processExitLastLine(["x".repeat(500)])).toBe(`${"x".repeat(400)}…`);
   });
 
   test("a 409 stream_in_flight puts it back to wait instead of losing it", async () => {

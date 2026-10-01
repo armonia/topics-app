@@ -17,6 +17,9 @@
  *   load
  *     loads the registry the way a boot does and dies: what the boot itself
  *     wrote to `scripts.json` is what the test reads.
+ *   background
+ *     loads the registry the way a boot does and prints `{tasks}`: what the
+ *     chat's background line names for the topic after the restart (BGVIS-07).
  *   boot <project> <processId> <db>
  *     loads the registry the way a boot does, starts the wakes with a chat
  *     route that writes the row into `<db>` (a sqlite file with `messages`),
@@ -28,7 +31,7 @@ import { Database } from "bun:sqlite";
 const [mode, project, arg, dbPath] = process.argv.slice(2);
 const TOPIC = { id: "topic-life", sessionKey: "topic:life" };
 
-const { createProcessesRouter } = await import("../../../server/routes/processes");
+const { commandBackgroundWork, createProcessesRouter } = await import("../../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../../server/lib/process-exit-wake");
 
 const router = createProcessesRouter({
@@ -52,6 +55,11 @@ if (mode === "start") {
 }
 
 if (mode === "load") process.exit(0);
+
+if (mode === "background") {
+  process.stdout.write(`${JSON.stringify({ tasks: commandBackgroundWork.tasks(TOPIC.sessionKey) })}\n`);
+  process.exit(0);
+}
 
 async function closed(processId: string): Promise<void> {
   const end = Date.now() + 20_000;

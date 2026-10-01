@@ -4938,6 +4938,87 @@ come `local_bash`), senza tempo, e compariva solo al poll successivo (15 s).
 - **THEN** la risposta ha un banner `source: "monitor"` che dice che quel Monitor
   è finito e come, con l'ultimo evento, e la riga sparisce
 
+### Requirement: BGVIS-07 — Un comando lanciato con `run_command` è lavoro in background della chat
+
+Un processo che l'agente lancia con il tool Topics `run_command` SHALL comparire
+nella riga `background-work-line` di BGVIS-04/05/06 per tutta la sua vita, come
+un task della CLI, e SHALL sparire quando il processo esce.
+
+Il caso da cui nasce (30/09, Attilio su una chat viva: «qua anche non sta uscendo
+nessuna ui, non so che sta facendo»): il turno era finito, l'agente aveva
+lanciato con `run_command` un ciclo che aspettava tre lavori («this topic gets a
+message when it ends») e la chat aspettava lui. La riga leggeva solo le sonde dei
+provider (`server/providers/background-probes.ts` → `claude/background-work.ts`:
+Agent, Bash, Monitor della CLI), e un comando vive nel registro dei processi di
+Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava niente.
+
+- Quali: OGNI comando della sessione ancora in corsa, con o senza sveglia dovuta,
+  come Claude Code elenca ogni shell in background in corsa (un dev server
+  compreso). Lo dice il registro (`commandBackgroundWork` in
+  `server/routes/processes.ts`), che `withBackgroundWork` riceve dalla route
+  `/api/topics/streaming` accanto ai task del provider: con turno aperto nel
+  campo `background` della riga del turno, senza in una riga `background`. Una
+  sessione con soli comandi ha `lastSignalAt: 0` (nessuna notizia della CLI che
+  possa invecchiare: il server guarda il processo da sé).
+- Forma: `BackgroundTaskSummary` (`shared/background-work.ts`) con `type:
+  "command"`, `description` = la `description` data a `run_command` (parametro
+  facoltativo nuovo) oppure la prima riga del comando, tagliata
+  (`commandLabel`), `startedAt` = l'avvio del processo, `processId` e `wakes`
+  (la sua fine sveglierà la chat). Lo stesso nome va nel pannello Processi e
+  nella sveglia.
+- Freschezza: all'avvio e alla fine di un comando il registro SHALL mandare
+  `background:changed {topicId, sessionKey}` come per i task della CLI
+  (BGVIS-06), non aspettare il poll dei 15 s.
+- Riavvio: un comando riadottato al boot (vivo, stesso `lstart`) resta nella
+  riga; uno trovato morto si chiude al boot e non compare.
+- Riga: `background-work-task` con `data-type="command"` e `data-process-id`,
+  l'icona lucide `SquareTerminal` (etichetta i18n `chat.background.command`), il
+  tempo di corsa e, se una sveglia è dovuta, «sveglia la chat quando finisce»
+  (`background-work-wakes`). Il nome è un bottone (`background-work-open`) che
+  apre il log del processo come pane della finestra di progetto della chat
+  (evento `open-process-log`, con lo scoping per progetto di `open-file-diff`).
+- Stop: lo Stop del composer ferma il lavoro della CLI, non i comandi (vivono
+  fuori dalla CLI apposta). Una chat con soli comandi NON SHALL entrare
+  nell'insieme per sessione del composer (`composerStopsWork`,
+  `client/src/state/backgroundWork.ts`): lì lo Stop rispondeva «niente da
+  fermare». Lo Stop di un comando è nel pannello Processi che la riga apre.
+- Sveglia: la risposta alla sveglia SHALL portare in cima un banner `woken` con
+  `source: "command"`, il nome del comando, il suo `exitCode` (null = nessuno
+  registrato, detto «sconosciuto», mai un successo) e la sua ultima riga di
+  output come `text`, come fa la fine di un Monitor. Il banner viaggia anche su
+  `stream:start`. Non cambia chi rimanda un turno tagliato da un'interruzione:
+  `outageCutNotResent` ignora il banner di un comando.
+
+#### Scenario: il registro nomina il comando, lo spinge, e lo toglie
+- **GIVEN** un comando lanciato dalla route di `run_command` con una
+  `description`
+- **THEN** `commandBackgroundWork` lo nomina `{type: "command", description,
+  processId, wakes: true, startedAt}` ed è partito un `background:changed`
+- **AND** `withBackgroundWork` senza turni dà una riga `background` con quel task
+  e `lastSignalAt: 0`; con un turno aperto, UNA riga di turno che lo porta in
+  `background`
+- **WHEN** il comando esce
+- **THEN** non è più nominato ed è partito un secondo `background:changed`
+
+#### Scenario: dopo un riavvio resta solo chi è vivo
+- **GIVEN** uno `scripts.json` con un comando vivo (stesso `lstart`) e uno morto
+- **WHEN** il registro si carica in un processo nuovo
+- **THEN** nomina solo quello vivo
+
+#### Scenario: una chat vera, dal turno alla sveglia
+- **GIVEN** una chat in una finestra di progetto su una CLI finta
+  (`helpers/fake-claude-command.ts`) un cui turno resta aperto e chiama
+  `run_command` subito dopo un poll di stato
+- **THEN** entro 5 s, con lo Stop del turno visibile, la riga ha un task
+  `data-type="command"` con il nome, l'icona, un tempo e «sveglia la chat»
+- **WHEN** il turno finisce
+- **THEN** la riga lo nomina ancora, il tempo avanza e il composer non offre Stop
+- **WHEN** si clicca il nome
+- **THEN** il log del processo si apre come tab della finestra di progetto
+- **WHEN** il comando esce
+- **THEN** la riga sparisce e la risposta alla sveglia ha un banner `source:
+  "command"` con il nome, `exit 0` e l'ultima riga di output
+
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 
 Il runtime nativo SHALL rendere visibile l'output di un `bash` mentre il comando

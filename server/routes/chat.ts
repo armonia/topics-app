@@ -27,7 +27,7 @@ import { askerStillThere, openQuestionsOnRows, sessionHasOpenQuestion } from "..
 import { onFirstModelEvent, type AnswerRelay, type Carry } from "../lib/answer-relay";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
-import { cartelloRisveglio } from "../providers/claude/woken-turn";
+import { cartelloRisveglio, commandWakeBanner } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
 import { getSessionCliPid } from "../providers/session-pids";
 import { captureTurnCheckpoint } from "../services/turn-checkpoints";
@@ -1256,7 +1256,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // new block. Persisted on finalize so reload preserves ordering.
           // See `server/types.ts:ContentBlock` — same shape lives on
           // `StoredMessage.blocks` and (mirror-typed) on the client.
-          const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenSource ?? body.wokenLabel);
+          // A `run_command` wake names its command, how it ended and its last line (BGVIS-07).
+          const blocks: ContentBlock[] = isWoken ? cartelloRisveglio(true, body.wokenSource ?? body.wokenLabel) : commandWakeBanner(body.processExit);
           // Il cartello della RIPRESA (`lib/ripresa-boot.ts`): senza, sembrerebbe
           // che l'agente abbia risposto due volte alla stessa domanda.
           // It carries the resend number in the chain: if this turn too dies
@@ -1515,7 +1516,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
             // A wake's banner rides the start: no live frame carries it, and a
             // woken turn often ends before any history read brings it (BGVIS-06).
-            ...(isWoken ? { banners: blocks.filter((b) => b.kind === "woken") } : {}),
+            ...(isWoken || body.processExit ? { banners: blocks.filter((b) => b.kind === "woken") } : {}),
           });
 
           // Create SSE response for the HTTP client

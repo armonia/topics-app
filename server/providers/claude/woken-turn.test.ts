@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { cartelloRisveglio, isWokenTurnLine } from "./woken-turn";
+import { cartelloRisveglio, commandWakeBanner, isWokenTurnLine } from "./woken-turn";
 
 /** Il caso base: la CLI ha ricominciato a parlare e nessuno ascolta. */
 const risveglio = {
@@ -78,5 +78,22 @@ describe("the woken block of a Monitor's end", () => {
     expect(cartelloRisveglio(true, [{ source: "monitor", label: "probe-mon", text: "EVT-ONE" }])).toEqual([
       { kind: "woken", label: "probe-mon", source: "monitor", text: "EVT-ONE" },
     ]);
+  });
+});
+
+describe("the woken block of a run_command's end (BGVIS-07)", () => {
+  test("names the command, its exit code and its last line of output", () => {
+    expect(commandWakeBanner({ processId: "p-1", exitCode: 0, label: "CMDJOB", lastLine: "  done 42 " })).toEqual([
+      { kind: "woken", source: "command", label: "CMDJOB", exitCode: 0, text: "done 42" },
+    ]);
+    // No code recorded is said as unknown, never as a success; no output, no text.
+    expect(commandWakeBanner({ processId: "p-2", exitCode: null, label: "sleep 5" })).toEqual([
+      { kind: "woken", source: "command", label: "sleep 5", exitCode: null },
+    ]);
+  });
+
+  test("a body without a process id is no command's wake and gets no banner", () => {
+    expect(commandWakeBanner(undefined)).toEqual([]);
+    expect(commandWakeBanner({ exitCode: 0, label: "x" })).toEqual([]);
   });
 });

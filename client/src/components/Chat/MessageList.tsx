@@ -351,7 +351,7 @@ export function MessageList({
     // work running, and here its coming and going cannot move the composer.
     Footer: () => (
       <>
-        <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
+        <BackgroundWorkLine topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
         <QueuedTurns
           turns={queued}
           isMobile={isMobile}
@@ -393,7 +393,7 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
+  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id, topic.projectPath]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.

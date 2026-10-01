@@ -329,7 +329,12 @@ export function outageCutNotResent(
   cause: unknown, blocks: readonly unknown[] | null | undefined, directAnswer: () => boolean,
 ): boolean {
   if (!isOutage(cause)) return false;
-  return !!blocks?.some((b) => (b as { kind?: unknown } | null)?.kind === "woken") || !directAnswer();
+  // A `run_command` wake's banner is not the CLI's wake: that turn answers a
+  // row of Topics, which resends it itself after an outage (process-exit-wake.ts).
+  return !!blocks?.some((b) => {
+    const mark = b as { kind?: unknown; source?: unknown } | null;
+    return mark?.kind === "woken" && mark.source !== "command";
+  }) || !directAnswer();
 }
 
 /** The sweep resends a turn cut with this cause, on a row with these blocks. */

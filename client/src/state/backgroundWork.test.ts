@@ -15,7 +15,7 @@
  * @covers BGVIS-01, BGVIS-02, BGVIS-05
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mergeBackgroundWork, projectBackgroundCount, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
+import { composerStopsWork, mergeBackgroundWork, projectBackgroundCount, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
 import { signalsActions, useSignalsStore } from "./signals";
 import type { Topic } from "../types";
 
@@ -50,6 +50,18 @@ describe("readStreamingSnapshot", () => {
     expect(snap.backgroundTopics.has("W")).toBe(false);
     // With a turn open the composer's Stop is the turn's.
     expect(snap.backgroundSessions.size).toBe(0);
+  });
+
+  test("a chat running only run_command processes names them, and offers no composer Stop that would stop nothing (BGVIS-07)", () => {
+    const command = { type: "command", description: "CMDJOB", processId: "p-1", wakes: true, startedAt: 5 };
+    const snap = readStreamingSnapshot([
+      { topicId: "C", sessionKey: "topic:C", state: "background", tasks: [command], lastSignalAt: 0 },
+      { topicId: "M", sessionKey: "topic:M", state: "background", tasks: [command, twoTasks[0]], lastSignalAt: 9 },
+    ]);
+    expect(snap.backgroundTopics.get("C")).toEqual({ sessionKey: "topic:C", tasks: [command], lastSignalAt: 0 });
+    expect([...snap.backgroundSessions]).toEqual(["topic:M"]);
+    expect(composerStopsWork([])).toBe(true);
+    expect(composerStopsWork([command])).toBe(false);
   });
 
   test("a row from a server that does not name the tasks reads as none named", () => {

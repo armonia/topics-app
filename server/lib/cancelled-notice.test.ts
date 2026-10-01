@@ -37,7 +37,7 @@
  * @covers INTERRUPT-03
  */
 import { test, expect, describe } from "bun:test";
-import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, isResumableCause, CAUSE_NOSTRE } from "./cancelled-notice";
+import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, isResumableCause, outageCutNotResent, CAUSE_NOSTRE } from "./cancelled-notice";
 import type { TurnEndInfo } from "../providers/stop-reason";
 
 describe("cancelledNotice — chi merita una spiegazione in chat", () => {
@@ -432,5 +432,15 @@ describe("outages outside the turn resume by themselves", () => {
   test("rows the claude-code watchdog closed before the cause travelled are recognised by their text", () => {
     // Row 5e92d06e, topic 3019832f, 25/09 01:50Z: the block as it sits in the DB.
     expect(eCartelloDiInterruzione("Nessuna attività dal modello per 30 minuti. Turno terminato.")).toBe(true);
+  });
+});
+
+describe("the banner of a run_command wake does not change who resends an outage's cut (BGVIS-07)", () => {
+  test("a CLI wake's banner keeps the cut from the sweep; a command's banner leaves the rule as it was without it", () => {
+    const direct = () => true;
+    expect(outageCutNotResent("api-unavailable", [{ kind: "woken", source: "monitor", label: "m" }], direct)).toBe(true);
+    expect(outageCutNotResent("api-unavailable", [{ kind: "woken", source: "command", label: "c", exitCode: 0 }], direct)).toBe(false);
+    expect(outageCutNotResent("api-unavailable", [], direct)).toBe(false);
+    expect(outageCutNotResent("api-unavailable", [{ kind: "woken", source: "command", label: "c", exitCode: 0 }], () => false)).toBe(true);
   });
 });
