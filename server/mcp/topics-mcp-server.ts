@@ -36,6 +36,10 @@ import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
+import { homedir } from "os";
+import { agentTypeDescription, readAgentProfiles } from "../lib/agent-profiles";
+import { subagentWakeText } from "../services/subagent-wake";
+import type { SubAgentResult } from "../lib/subagent-result";
 import type { ParsedArgs } from "./topics-http";
 
 interface JsonRpcRequest {
@@ -106,6 +110,9 @@ const MODIFICA = {
   idempotentHint: false,
   openWorldHint: false,
 } as const satisfies McpToolAnnotations;
+
+/** Replaced by the profiles visible when the tool list is served (`withAgentProfiles`). */
+const AGENT_TYPE_PLACEHOLDER = "Optional profile to start the sub-agent from.";
 
 const TOOLS = [
   {
@@ -620,13 +627,30 @@ const TOOLS = [
   {
     name: "spawn_agent",
     description:
-      "Spawn a NEW interactive Claude Code sub-agent and give it a task. Returns an agentId and the directory it runs in; the sub-agent then runs asynchronously in its own terminal pane (visible to the user, nested under this session), with a shell of its own. It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, which is not immediate, and the answer names the branch). It runs on the Claude Code CLI's default model, whatever model this session uses: this tool cannot choose the model (the built-in Agent tool can, where you have it). Poll its output with read_agent(agent_id) — do NOT wait. It does not exit when done: stop_agent it once you have its answer; for a chat, how it ended is then posted in this chat. Use this to delegate independent work; you remain in control via send_to_agent / read_agent / stop_agent.",
+      "Spawn a NEW interactive Claude Code sub-agent and give it a task, the way the built-in Agent tool does, but visible: it runs in its own terminal pane nested under this session, with a shell of its own, and the user can read it and type into it. It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
+      "It runs on this session's model unless you pass model or an agent_type whose profile names one; the answer says which model, profile and effort really started. Never choose haiku on your own initiative: only when the user asks for it. " +
+      "By default it runs in the background: when its turn ends, a chat is woken with its result (you do not need to poll), while a terminal session reads it with read_agent. With run_in_background:false the call waits up to 10 minutes and returns the result itself. It stays alive after its turn for follow-ups with send_to_agent; after 15 idle minutes it is retired, and send_to_agent resumes it from where it was. stop_agent when you no longer need it.",
     inputSchema: {
       type: "object",
       properties: {
         prompt: { type: "string", description: "The initial task/instructions to give the sub-agent (its first message)." },
-        name: { type: "string", description: "Optional short display name for the sub-agent's tab." },
+        name: { type: "string", description: "Optional short display name for the sub-agent's tab. Its result is reported under this name." },
         cwd: { type: "string", description: "Optional absolute working directory. Defaults to this session's cwd." },
+        model: {
+          type: "string",
+          enum: ["inherit", "sonnet", "opus", "fable", "haiku"],
+          description: "'inherit' (default) runs it on this session's model. Name another one only when the task or the user calls for it; never haiku unless the user asks.",
+        },
+        agent_type: { type: "string", description: AGENT_TYPE_PLACEHOLDER },
+        effort: {
+          type: "string",
+          enum: ["low", "medium", "high", "xhigh", "max"],
+          description: "Optional reasoning effort. Defaults to the profile's, else this chat's.",
+        },
+        run_in_background: {
+          type: "boolean",
+          description: "true (default): return at once, the result arrives as a notification. false: wait for the result, up to 10 minutes.",
+        },
         isolation: {
           type: "string",
           enum: ["inherit", "worktree"],
@@ -640,7 +664,7 @@ const TOOLS = [
   {
     name: "send_to_agent",
     description:
-      "Send a follow-up message to a sub-agent you spawned (steer it, answer its question, give the next task). Submits the input as if typed at its prompt. Read its reply afterwards with read_agent.",
+      "Send a follow-up message to a sub-agent you spawned (steer it, answer its question, give the next task). Submits the input as if typed at its prompt. A retired, stopped or lost sub-agent is resumed from where it was, with the same model and profile (up to 24 hours after it ended). Its reply arrives like its first result: a chat is woken, a terminal reads it with read_agent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -668,7 +692,7 @@ const TOOLS = [
   {
     name: "list_agents",
     description:
-      "List the sub-agents you spawned (agentId, name, cwd, whether currently busy).",
+      "List the sub-agents you spawned: the running ones (with whether they are waiting for their prompt, working or finished their turn) and those that ended in the last 24 hours (retired, stopped or lost), which send_to_agent can resume.",
     inputSchema: { type: "object", properties: {} },
     annotations: SOLA_LETTURA,
   },
@@ -851,10 +875,38 @@ const GLOBAL_ORCHESTRATOR_TOOL_NAMES = new Set([
  * esattamente il modo in cui la versione a due flag si rompeva:
  * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
-export function toolsForProfile(profile: string | undefined, platform: NodeJS.Platform = process.platform): typeof TOOLS {
+export function toolsForProfile(
+  profile: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+  /** Where the profiles of `agent_type` are read from: the session's directory and the user's home. */
+  opts: { cwd?: string | null; home?: string } = {},
+): typeof TOOLS {
   if (profile === "global-orchestrator") {
     return TOOLS.filter((t) => GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name));
   }
+  return withAgentProfiles(toolsForOrdinaryProfile(profile, platform), opts);
+}
+
+/**
+ * `spawn_agent` with the `agent_type` description listing the profiles the
+ * server can see now (SUBAGENT-09): built on every tools/list, so a profile
+ * added to ~/.claude/agents shows up in the next session without a release.
+ */
+function withAgentProfiles(tools: typeof TOOLS, opts: { cwd?: string | null; home?: string }): typeof TOOLS {
+  const spawn = tools.find((t) => t.name === "spawn_agent");
+  if (!spawn) return tools;
+  // `cwd: null` says there is no project: only the user's profiles.
+  const cwd = opts.cwd === undefined ? process.cwd() : opts.cwd;
+  const description = agentTypeDescription(readAgentProfiles({ home: opts.home ?? homedir(), cwd }));
+  const schema = spawn.inputSchema as { properties: Record<string, object> };
+  const withList = {
+    ...spawn,
+    inputSchema: { ...schema, properties: { ...schema.properties, agent_type: { type: "string", description } } },
+  } as (typeof TOOLS)[number];
+  return tools.map((t) => (t === spawn ? withList : t));
+}
+
+function toolsForOrdinaryProfile(profile: string | undefined, platform: NodeJS.Platform): typeof TOOLS {
   // Global board tools have no safe meaning outside the registry-backed
   // coordinator. Do not merely hide them from `tools/list`: exclude them from
   // every ordinary profile and deny direct calls below as well.
@@ -1290,37 +1342,84 @@ export async function callMoveToProject(
 }
 
 // --- Sub-agent orchestration bridge ---------------------------------------
-interface SpawnAgentResp { agentId?: string; name?: string; cwd?: string; branch?: string | null }
-interface AgentRow { agentId?: string; name?: string; cwd?: string; branch?: string | null; busy?: boolean }
+interface SpawnAgentResp {
+  agentId?: string; name?: string; cwd?: string; branch?: string | null;
+  model?: string | null; modelSource?: string; modelNote?: string; agentType?: string | null; effort?: string | null;
+  notify?: "chat" | "read_agent";
+}
+interface AgentRow { agentId?: string; name?: string; cwd?: string; branch?: string | null; busy?: boolean; state?: string; phase?: string | null }
 interface ListAgentsResp { agents?: AgentRow[] }
 interface ReadAgentEvent { type?: string; text?: string; name?: string; input?: unknown }
 interface ReadAgentResp { events?: ReadAgentEvent[]; nextOffset?: number; source?: string; buffer?: string }
+interface WaitAgentResp { status?: "done" | "running" | "released"; result?: SubAgentResult }
+
+/** How long a foreground `spawn_agent` waits for its child's result (SUBAGENT-13). */
+export const SPAWN_FOREGROUND_MS = 10 * 60_000;
+/**
+ * One leg of that wait. Each leg that comes back empty is a progress beat, so
+ * neither the client nor a stall watchdog reads the wait as a hung call: the
+ * rule is that our own wait is not a stall (c82359c1).
+ */
+export const SPAWN_WAIT_LEG_MS = 25_000;
 
 export async function callSpawnAgent(
   args: ParsedArgs,
-  toolArgs: { prompt?: unknown; name?: unknown; cwd?: unknown; isolation?: unknown },
+  toolArgs: { prompt?: unknown; name?: unknown; cwd?: unknown; isolation?: unknown; model?: unknown; agent_type?: unknown; effort?: unknown; run_in_background?: unknown },
   fetchImpl: typeof fetch = fetch,
+  opts: { onProgress?: (leg: number) => void; legMs?: number; foregroundMs?: number; now?: () => number } = {},
 ): Promise<string> {
   if (typeof toolArgs?.prompt !== "string" || !toolArgs.prompt) {
     throw new Error("spawn_agent: 'prompt' (string) is required");
   }
   const payload: Record<string, unknown> = { prompt: toolArgs.prompt };
-  if (typeof toolArgs.name === "string" && toolArgs.name) payload.name = toolArgs.name;
-  if (typeof toolArgs.cwd === "string" && toolArgs.cwd) payload.cwd = toolArgs.cwd;
+  for (const key of ["name", "cwd", "model", "agent_type", "effort"] as const) {
+    if (typeof toolArgs[key] === "string" && toolArgs[key]) payload[key] = toolArgs[key];
+  }
+  const foreground = toolArgs.run_in_background === false;
+  if (foreground) payload.run_in_background = false;
   // Only when asked: the body of a plain spawn stays exactly `{prompt}` /
   // `{prompt,name,cwd}`, which is what the route has always received.
   const isolated = toolArgs.isolation === "worktree";
   if (typeof toolArgs.isolation === "string" && toolArgs.isolation) payload.isolation = toolArgs.isolation;
-  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents/spawn`;
+  const base = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents`;
   // A worktree is born through a dependency install, which is minutes on a big
   // repository: the default 45s ceiling would cut the call in half and leave a
   // checkout alive with no child in it. The budget below stays under the
   // tool-call ceiling of the CLI that is calling us.
   const signal = isolated ? AbortSignal.timeout(SPAWN_WORKTREE_TIMEOUT_MS) : undefined;
-  const body = await httpJson<SpawnAgentResp>(args, "POST", path, payload, fetchImpl, signal);
+  const body = await httpJson<SpawnAgentResp>(args, "POST", `${base}/spawn`, payload, fetchImpl, signal);
   if (typeof body?.agentId !== "string") throw new Error("spawn_agent: server did not return an agentId");
   const branch = body.branch ? ` · branch=${body.branch}` : "";
-  return `spawned sub-agent "${body.name ?? body.agentId}" · agentId=${body.agentId} · cwd=${body.cwd ?? "?"}${branch} — read its output with read_agent(agent_id="${body.agentId}")`;
+  const model = body.model ? ` · model=${body.model}` : body.modelNote ? ` · model=${body.modelNote}` : "";
+  const profile = body.agentType ? ` · agent_type=${body.agentType}` : "";
+  const effort = body.effort ? ` · effort=${body.effort}` : "";
+  const head = `spawned sub-agent "${body.name ?? body.agentId}" · agentId=${body.agentId} · cwd=${body.cwd ?? "?"}${branch}${model}${profile}${effort}`;
+  const later = body.notify === "chat"
+    ? "its result will wake this chat when its turn ends, no need to poll"
+    : `read its output with read_agent(agent_id="${body.agentId}")`;
+  if (!foreground) return `${head} — ${later}`;
+
+  const now = opts.now ?? Date.now;
+  const legMs = opts.legMs ?? SPAWN_WAIT_LEG_MS;
+  const deadline = now() + (opts.foregroundMs ?? SPAWN_FOREGROUND_MS);
+  const waitPath = `${base}/${encodeURIComponent(body.agentId)}/wait`;
+  for (let leg = 1; now() < deadline; leg++) {
+    const ms = Math.max(100, Math.min(legMs, deadline - now()));
+    let r: WaitAgentResp | undefined;
+    try {
+      r = await httpJson<WaitAgentResp>(args, "GET", `${waitPath}?legMs=${ms}`, undefined, fetchImpl, AbortSignal.timeout(ms + 15_000));
+    } catch {
+      // The server is away: the child goes on, and its result follows the
+      // ordinary road once the server holds it no longer.
+      break;
+    }
+    if (r?.status === "done" && r.result) return `${head}\n\n${subagentWakeText([r.result])}`;
+    if (r?.status === "released") break;
+    opts.onProgress?.(leg);
+  }
+  // Hand the result over to the notification, then say so.
+  await httpJson(args, "GET", `${waitPath}?release=1`, undefined, fetchImpl).catch(() => {});
+  return `${head} — still working after ${Math.round((opts.foregroundMs ?? SPAWN_FOREGROUND_MS) / 60_000)} minutes: status=running; ${later}`;
 }
 
 export async function callSendToAgent(
@@ -1335,8 +1434,9 @@ export async function callSendToAgent(
     throw new Error("send_to_agent: 'input' (string) is required");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents/${encodeURIComponent(toolArgs.agent_id)}/send`;
-  await httpJson<{ ok?: boolean }>(args, "POST", path, { input: toolArgs.input }, fetchImpl);
-  return `sent to ${toolArgs.agent_id} — read the reply with read_agent(agent_id="${toolArgs.agent_id}")`;
+  const res = await httpJson<{ ok?: boolean; resumed?: boolean }>(args, "POST", path, { input: toolArgs.input }, fetchImpl);
+  const resumed = res?.resumed ? " (it had ended: resumed from where it was)" : "";
+  return `sent to ${toolArgs.agent_id}${resumed} — its reply arrives like its first result (a chat is woken; otherwise read_agent(agent_id="${toolArgs.agent_id}"))`;
 }
 
 export async function callReadAgent(
@@ -1377,7 +1477,8 @@ export async function callListAgents(
   if (!agents.length) return "No sub-agents spawned.";
   return agents.map((a) => {
     const branch = a.branch ? ` branch=${a.branch}` : "";
-    return `${a.busy ? "[busy]" : "[idle]"} ${a.name ?? a.agentId} id=${a.agentId} cwd=${a.cwd ?? "?"}${branch}`;
+    const state = a.state && a.state !== "running" ? a.state : (a.phase ?? (a.busy ? "busy" : "idle"));
+    return `[${state}] ${a.name ?? a.agentId} id=${a.agentId} cwd=${a.cwd ?? "?"}${branch}`;
   }).join("\n");
 }
 
@@ -2774,7 +2875,11 @@ export const TOOL_HANDLERS: Record<
     }),
   wait_for_condition: (a, t) => callWaitForCondition(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
-  spawn_agent: (a, t) => callSpawnAgent(a, t as { prompt?: unknown; name?: unknown; cwd?: unknown }),
+  // `onProgress` for the foreground wait: a beat per empty leg (SUBAGENT-13).
+  spawn_agent: (a, t, ctx) =>
+    callSpawnAgent(a, t, fetch, {
+      onProgress: ctx?.onProgress ? (leg) => ctx.onProgress?.(leg, "the sub-agent is working") : undefined,
+    }),
   send_to_agent: (a, t) => callSendToAgent(a, t as { agent_id?: unknown; input?: unknown }),
   read_agent: (a, t) => callReadAgent(a, t as { agent_id?: unknown; since?: unknown }),
   list_agents: (a, t) => callListAgents(a, t),
