@@ -1025,6 +1025,12 @@ machine under load.
 - **THEN** the reply is at the bottom on the first frame after the click, and does not move by a pixel in the frames after
 - **AND** no pane remounts, no request names that chat, and no row replays the entrance animation
 
+#### Scenario: back to a chat whose long reply ran while it was hidden
+- **GIVEN** the same two chats, and a turn of the long one whose reply (thirty paragraphs) is taller than the viewport arrives while it is hidden
+- **WHEN** the user clicks back to it
+- **THEN** the end of the reply is at the bottom on the first frame after the click, and does not move by a whole pixel in the frames after, while the list measures the reply it could not measure hidden
+- **AND** no pane remounts, no request names that chat, and no row replays the entrance animation
+
 ### Requirement: TABSWITCH-02 — A switch that mounts a pane never shows an empty one
 
 A switch that has to mount the pane (a chat in another group, a pane evicted by

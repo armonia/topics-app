@@ -45,6 +45,7 @@ import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
+import { useHiddenTurnReturn } from './useHiddenTurnReturn';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -1858,47 +1859,8 @@ export function MessageList({
     // di nuovo (ref), non toglierla da questa lista.
   }, [scrollerEl, viewKey, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow, placeRowAt]);
 
-  /**
-   * The pane gets its box back in the commit of the input that selects it: if
-   * the list grew while it was hidden (a turn that ran behind another tab), the
-   * bottom is pinned HERE, before the first frame.
-   *
-   * A hidden scroller has no box, so every pin of that turn wrote to nothing and
-   * the viewport comes back at the old bottom, a whole reply short. The "pane
-   * returns visible" branch of the ResizeObserver above lands it, but too late:
-   * the observer is delivered after the frame's animation callbacks, which can
-   * read the reply 52 px too low, and its `scrollToIndex` stops one pixel short,
-   * which its pin closes two frames later (row at 667.6 or 616.1, then 615.1 px:
-   * tab-switch e2e, TABSWITCH-01 "a chat whose turn ran while it was hidden").
-   *
-   * Only when the last row is already in the DOM: then this is a plain scroll
-   * over rows Virtuoso rendered, and nothing it has to recompute. Otherwise (a
-   * merge re-indexed the list, a reader's anchor to put back) the observer
-   * branch keeps the case, as before.
-   */
-  const aliveAtLastLayoutRef = useRef(paneAlive);
-  useLayoutEffect(() => {
-    const cameBack = paneAlive && !aliveAtLastLayoutRef.current;
-    aliveAtLastLayoutRef.current = paneAlive;
-    if (!cameBack) return;
-    // In a microtask, still before the frame: out of React's commit, so the
-    // `scroll` sent below renders Virtuoso's new range at once (its handler runs
-    // in `flushSync`, which a layout effect would only defer). That render
-    // changes the content height by the rounding of its sizes (+1 px measured),
-    // so the bottom is read again after it.
-    queueMicrotask(() => {
-      if (restoreAnchorRef.current) return;
-      const el = scrollerElRef.current;
-      if (!el || el.clientHeight === 0) return;
-      const last = itemsRef.current.length - 1;
-      if (last < 0 || !el.querySelector(`[data-testid="virtuoso-item-list"] > [data-index="${last}"]`)) return;
-      for (let pass = 0; pass < 3; pass++) {
-        if (el.scrollHeight - el.scrollTop - el.clientHeight <= 0.5) return;
-        pinToBottom({ now: true, force: !userTouchedRef.current, settleFrames: 0 });
-        el.dispatchEvent(new Event('scroll'));
-      }
-    });
-  }, [paneAlive, pinToBottom]);
+  // A turn that ran while the pane was hidden: its bottom on the first frame back.
+  useHiddenTurnReturn({ paneAlive, scrollerElRef, itemsRef, restoreAnchorRef, userTouchedRef, pinToBottom });
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
