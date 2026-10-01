@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.424",
+    "date": "2026-10-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "liste, chat e schermate sotto i tasti, cinque tasti uguali (#181)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.423",
     "date": "2026-10-01",
     "sections": {
