@@ -119,6 +119,7 @@ import {
 } from './focusIntent';
 import { useShallow } from 'zustand/react/shallow';
 import { tracePaneAttach } from '../lib/paneAttachTrace';
+import { apiFetch } from '../lib/shell/net';
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -1697,7 +1698,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isBrowserPaneId(topicId)) {
       const bctx = getBrowserContextFromPaneId(topicId);
       if (bctx) {
-        fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+        apiFetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
         clearBrowserSpawner(bctx);
         addBrowserTombstone(bctx);
         if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});

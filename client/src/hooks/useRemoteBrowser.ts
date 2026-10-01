@@ -11,6 +11,7 @@ import { tracePaneAttach } from '../lib/paneAttachTrace';
 import {
   appendStreamConsole, keepConsoleOfPage, tallyConsole, type StreamConsoleEntry,
 } from '../components/Browser/streamConsole';
+import { apiFetch } from '../lib/shell/net';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -476,7 +477,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // The interact endpoint does getOrCreate server-side.
   const interact = useCallback(async (body: Record<string, unknown>) => {
     try {
-      const res = await fetch(`/api/browsers/${encodedId}/interact`, {
+      const res = await apiFetch(`/api/browsers/${encodedId}/interact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -506,7 +507,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // Fetch context info via REST (URL/title check + connection probe).
   const fetchInfo = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/browsers/${encodedId}`);
+      const res = await apiFetch(`/api/browsers/${encodedId}`);
       if (!mountedRef.current) return false;
       if (res.ok) {
         const data = await res.json();
@@ -1222,7 +1223,7 @@ function rememberFramable(url: string, framable: boolean): void {
     setState(s => (s.framable ? { ...s, framable: false } : s));
     if (!url || !/^https?:\/\//i.test(url)) return;
     let cancelled = false;
-    fetch(`/api/browsers/framable?url=${encodeURIComponent(url)}`)
+    apiFetch(`/api/browsers/framable?url=${encodeURIComponent(url)}`)
       .then(r => (r.ok ? r.json() : { framable: false }))
       .then((d: { framable?: boolean }) => {
         if (!cancelled && mountedRef.current) {

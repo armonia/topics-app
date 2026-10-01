@@ -6,6 +6,7 @@ import { type OrgProjectRow, scopeProjectsToOrg } from './orgProjects';
 import { copyText } from '../../lib/clipboard';
 import { installationInviteUrl } from './installationInvite';
 import { collaborationProgress } from './orgCollaborationProgress';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * THE PROJECTS OF THE ORGANISATION: what is there, and nothing else.
@@ -55,7 +56,7 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
 
   useEffect(() => {
     let vivo = true;
-    fetch('/api/projects', { credentials: 'same-origin' })
+    apiFetch('/api/projects', { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null))
       .then((b: { projects?: OrgProjectRow[] } | null) => {
         if (vivo && b?.projects) setProgetti(b.projects);
@@ -69,15 +70,15 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
     let alive = true;
     const projects = progetti.filter((project) => !project.incognito);
     void Promise.all([
-      fetch('/api/auth/relay', { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
-      fetch('/api/auth/devices', { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+      apiFetch('/api/auth/relay', { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+      apiFetch('/api/auth/devices', { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
       orgId
-        ? fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null)
+        ? apiFetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null)
         : Promise.resolve(null),
       Promise.all(projects.map(async (project) => {
         const [shares, starts] = await Promise.all([
-          fetch(`/api/auth/shares?resourceType=project&resourceId=${encodeURIComponent(project.id)}`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
-          fetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(project.id)}`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+          apiFetch(`/api/auth/shares?resourceType=project&resourceId=${encodeURIComponent(project.id)}`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+          apiFetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(project.id)}`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
         ]);
         return { shares: shares?.shares ?? [], starts: starts?.capabilities ?? [] };
       })),

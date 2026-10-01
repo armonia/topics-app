@@ -34,6 +34,7 @@ import {
   type TombstoneKind,
 } from './closedTabRecord';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
+import { apiFetch } from '../../../lib/shell/net';
 
 // Only a close within this window drives a LIVE eviction (mirrors the tombstone
 // store's own TTL). Bounds the blast radius: a stale marker can't reach across
@@ -113,7 +114,7 @@ function parseEntries(value: unknown): TombstoneEntry[] | null {
 async function putWithRetry(uiKey: string, json: string): Promise<void> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(`/api/ui-state/${encodeURIComponent(uiKey)}`, {
+      const res = await apiFetch(`/api/ui-state/${encodeURIComponent(uiKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
         body: json,
@@ -170,7 +171,7 @@ function flushPendingOnTeardown(): void {
     const latest = serializeKind(kind);
     if (latest === lastSyncedJson.get(uiKey)) { unackedJson.delete(uiKey); continue; }
     try {
-      void fetch(`/api/ui-state/${encodeURIComponent(uiKey)}`, {
+      void apiFetch(`/api/ui-state/${encodeURIComponent(uiKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
         body: latest,

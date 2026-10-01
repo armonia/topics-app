@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { apiFetch } from '../lib/shell/net';
 
 /**
  * L'anteprima dell'ultimo messaggio di ogni chat, per la riga di sidebar.
@@ -298,7 +299,7 @@ export function clearTopicPreview(topicId: string): void {
  */
 export async function hydrateTopicPreviews(opts?: { archived?: boolean }): Promise<void> {
   try {
-    const res = await fetch(`/api/topics/previews${opts?.archived ? '?archived=1' : ''}`);
+    const res = await apiFetch(`/api/topics/previews${opts?.archived ? '?archived=1' : ''}`);
     if (!res.ok) return;
     const data = (await res.json()) as {
       previews?: Record<string, { text?: string; role?: string; at?: number }>;

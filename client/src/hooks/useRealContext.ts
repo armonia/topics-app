@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ContextUpdatePayload, ContextUsage, WSMessage } from '../types';
 import { formatTokens as sharedFormatTokens } from '../lib/formatTokens';
+import { apiFetch } from '../lib/shell/net';
 
 /**
  * Dal payload sul filo (blocco `usage_update` ACP + presentazione) alla forma
@@ -51,7 +52,7 @@ export function useRealContext(
   useEffect(() => {
     if (!sessionKey) return;
     let cancelled = false;
-    fetch(`/api/context/live?sessionKey=${encodeURIComponent(sessionKey)}`)
+    apiFetch(`/api/context/live?sessionKey=${encodeURIComponent(sessionKey)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { context?: ContextUpdatePayload | null } | null) => {
         if (cancelled) return;

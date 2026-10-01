@@ -11,6 +11,8 @@
  * absolute path, which is what the board stores and what /api/media serves.
  */
 
+import { apiFetch } from './shell/net';
+
 export interface StagedAttachment {
   /** Absolute path returned by /api/upload — what the board stores. */
   path: string;
@@ -57,7 +59,7 @@ export function dragCarriesFiles(data: DataTransfer | null): boolean {
 export async function uploadAttachment(file: File): Promise<StagedAttachment> {
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch('/api/upload', { method: 'POST', body: fd });
+  const r = await apiFetch('/api/upload', { method: 'POST', body: fd });
   const d = await r.json().catch(() => null) as { path?: string; error?: string } | null;
   if (!r.ok || !d?.path) throw new Error(d?.error || 'upload failed');
   return { path: d.path, name: file.name, isImage: file.type.startsWith('image/') };

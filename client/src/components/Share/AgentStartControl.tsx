@@ -25,6 +25,7 @@ import type {
   AgentStartCapabilityContract,
   AgentStartSubjectType,
 } from '../../../../shared/agent-start-capability';
+import { apiFetch } from '../../lib/shell/net';
 
 export interface AgentStartSubject {
   subjectType: AgentStartSubjectType;
@@ -97,8 +98,8 @@ export function AgentStartControl({ projectId, subjects }: {
   const load = useCallback(async () => {
     try {
       const [response, delegatedResponse] = await Promise.all([
-        fetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}`, { credentials: 'same-origin' }),
-        fetch(...listDelegatedRequests()),
+        apiFetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}`, { credentials: 'same-origin' }),
+        apiFetch(...listDelegatedRequests()),
       ]);
       if (!response.ok) throw new Error(String(response.status));
       setInventory(await response.json() as AgentStartInventory);
@@ -106,7 +107,7 @@ export function AgentStartControl({ projectId, subjects }: {
         const listed = delegatedRequests(await delegatedResponse.json());
         const refreshed = await Promise.all(listed.map(async (request) => {
           if (request.state !== 'pending' && request.state !== 'approved') return request;
-          const statusResponse = await fetch(...getDelegatedRequest(request.id));
+          const statusResponse = await apiFetch(...getDelegatedRequest(request.id));
           return statusResponse.ok ? delegatedRequestStatus(await statusResponse.json(), request) : request;
         }));
         setRemoteRequests(refreshed);
@@ -116,7 +117,7 @@ export function AgentStartControl({ projectId, subjects }: {
         // replace the verification step immediately.
         if (refreshed.some((request, index) => request.purpose === 'catalog'
           && request.state === 'active' && listed[index]?.state !== 'active')) {
-          const updated = await fetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}`, { credentials: 'same-origin' });
+          const updated = await apiFetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}`, { credentials: 'same-origin' });
           if (updated.ok) setInventory(await updated.json() as AgentStartInventory);
         }
       }
@@ -179,7 +180,7 @@ export function AgentStartControl({ projectId, subjects }: {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(...grantAgentStartRequest({
+      const response = await apiFetch(...grantAgentStartRequest({
         projectId, subjectType: chosenSubject.subjectType, subjectId: chosenSubject.subjectId,
         machineId: computer, model, effort, maxDurationMinutes: minutes,
       }));
@@ -189,7 +190,7 @@ export function AgentStartControl({ projectId, subjects }: {
       // purpose-specific owner approval flow; the browser receives a code and
       // status, never the confined credential exchanged by the servers.
       if ((selectedComputer?.remote || selectedComputer?.modelSupport === 'unverified') && body?.capability?.id) {
-        const requestResponse = await fetch(...createDelegatedRequest(computer, body.capability.id));
+        const requestResponse = await apiFetch(...createDelegatedRequest(computer, body.capability.id));
         if (!requestResponse.ok) throw new Error(String(requestResponse.status));
       }
       resetForm();
@@ -206,7 +207,7 @@ export function AgentStartControl({ projectId, subjects }: {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(...revokeAgentStartRequest(projectId, capabilityId));
+      const response = await apiFetch(...revokeAgentStartRequest(projectId, capabilityId));
       if (!response.ok) throw new Error(String(response.status));
       await load();
     } catch {
@@ -221,7 +222,7 @@ export function AgentStartControl({ projectId, subjects }: {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(...reissueDelegatedRequest(requestId));
+      const response = await apiFetch(...reissueDelegatedRequest(requestId));
       if (!response.ok) throw new Error(String(response.status));
       await load();
     } catch {
@@ -236,7 +237,7 @@ export function AgentStartControl({ projectId, subjects }: {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(...revokeDelegatedRequest(requestId));
+      const response = await apiFetch(...revokeDelegatedRequest(requestId));
       if (!response.ok) throw new Error(String(response.status));
       await load();
     } catch {
@@ -251,7 +252,7 @@ export function AgentStartControl({ projectId, subjects }: {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(...createCatalogRequest(selectedComputer.id, projectId));
+      const response = await apiFetch(...createCatalogRequest(selectedComputer.id, projectId));
       if (!response.ok) throw new Error(String(response.status));
       await load();
     } catch {

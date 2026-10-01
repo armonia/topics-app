@@ -69,6 +69,7 @@ import { useSessionFlagValue } from '../../state/sessionFlags';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -1445,7 +1446,7 @@ function ChatPaneComponent({
           const urls: string[] = []; let imgFailCount = 0;
           for (const img of curImages) {
             try {
-              const res = await fetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: img.dataUrl, mimeType: img.mimeType }) });
+              const res = await apiFetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: img.dataUrl, mimeType: img.mimeType }) });
               if (res.ok) urls.push((await res.json()).url); else { imgFailCount++; console.error('[ChatPane] image upload failed:', res.status, res.statusText); }
             } catch (e) { imgFailCount++; console.error('[ChatPane] image upload failed:', e); }
           }

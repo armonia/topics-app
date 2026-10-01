@@ -20,6 +20,7 @@ import type { TabTarget } from '../../../shared/tab-link';
 import { openTabInApp } from './tabLink';
 import { isTauri } from './shell';
 import { tauriInvoke } from './shell/tauri';
+import { apiFetch } from './shell/net';
 
 /** Il campanello che il guscio suona quando ha accodato qualcosa. */
 export const OS_OPEN_PATH_EVENT = 'topics:os-open-path';
@@ -85,7 +86,7 @@ export async function drainOsOpenPaths(deps: OsOpenDeps): Promise<number> {
 
 /** Il verdetto del server sul path: cosa aprire, o niente. */
 export async function resolveOsPathOnServer(path: string): Promise<TabTarget | null> {
-  const res = await fetch(`/api/projects/resolve-open?path=${encodeURIComponent(path)}`);
+  const res = await apiFetch(`/api/projects/resolve-open?path=${encodeURIComponent(path)}`);
   if (!res.ok) return null;
   const body = (await res.json()) as { target?: TabTarget | null };
   return body?.target ?? null;

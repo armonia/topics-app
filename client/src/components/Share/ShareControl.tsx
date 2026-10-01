@@ -8,6 +8,7 @@ import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
 import { AgentStartControl } from './AgentStartControl';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -186,10 +187,10 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const carica = useCallback(async () => {
     try {
       const [s, d, r, l] = await Promise.all([
-        fetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`, { credentials: 'same-origin' }).then((r) => r.json()),
-        fetch('/api/auth/subjects', { credentials: 'same-origin' }).then((r) => r.json()),
-        fetch('/api/auth/relay', { credentials: 'same-origin' }).then((r) => r.json()),
-        fetch(`/api/auth/share-links?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`, { credentials: 'same-origin' }).then((r) => r.json()),
+        apiFetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`, { credentials: 'same-origin' }).then((r) => r.json()),
+        apiFetch('/api/auth/subjects', { credentials: 'same-origin' }).then((r) => r.json()),
+        apiFetch('/api/auth/relay', { credentials: 'same-origin' }).then((r) => r.json()),
+        apiFetch(`/api/auth/share-links?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`, { credentials: 'same-origin' }).then((r) => r.json()),
       ]) as [
         { shares: Share[] }, { subjects: Subject[] },
         { enabled: boolean; baseUrl: string | null; relayId: string | null; connected: boolean },
@@ -212,7 +213,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const condividi = async (sog: Subject, level: GrantLevel = 'read') => {
     setInCorso(true);
     try {
-      const r = await fetch('/api/auth/shares', {
+      const r = await apiFetch('/api/auth/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -248,7 +249,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
     if (!relay) return;
     setInCorso(true);
     try {
-      const r = await fetch('/api/auth/share-links', {
+      const r = await apiFetch('/api/auth/share-links', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -265,7 +266,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const revocaLink = async (ref: string) => {
     setInCorso(true);
     try {
-      await fetch(`/api/auth/share-links?ref=${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'same-origin' });
+      await apiFetch(`/api/auth/share-links?ref=${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'same-origin' });
       setAppenaCreato(null);
       await carica();
     } finally { setInCorso(false); }
@@ -274,7 +275,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const togli = async (s: Share) => {
     setInCorso(true);
     try {
-      await fetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
+      await apiFetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
         method: 'DELETE', credentials: 'same-origin',
       });
       await carica();

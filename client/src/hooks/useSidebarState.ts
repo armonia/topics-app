@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { WSMessage } from '../types';
 import { normalizePinKey } from '../state/pane/adapters';
 import { mergePinnedLayout, placePinnedTile, reconcilePinnedLayout, type PinnedDropTarget, type PinnedRow } from '../components/Sidebar/pinnedLayout';
+import { apiFetch } from '../lib/shell/net';
 
 /** Dove una cosa trascinata da fuori viene posata. Ri-esportato da qui perché è
  *  questo hook a offrire l'operazione (`pinAt`) che lo consuma. */
@@ -287,7 +288,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
   // GET /api/ui-state/:key endpoint returns { value, payload_version, server_seq } // PANE-01-ALLOWED
   // as of migration 012; unwrap .value for the legacy consumer shape.
   useEffect(() => {
-    fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED: sidebar-state key, not pane state
+    apiFetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED: sidebar-state key, not pane state
       .then((r): Promise<unknown> | null => r.ok ? r.json() : null)
       .then((envelope: unknown) => {
         // La versione va letta dalla BUSTA, prima che il sanitize scenda dentro
@@ -376,7 +377,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
       const q = base !== null ? `?base=${base}` : '';
       try {
         // PANE-01-ALLOWED: non-pane ui-state key (sidebar-state).
-        const res = await fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}${q}`, { // PANE-01-ALLOWED
+        const res = await apiFetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}${q}`, { // PANE-01-ALLOWED
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(next),
@@ -394,7 +395,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
         // ripassarci sopra.
         if (attempt === PUBLISH_MAX_RETRY || !mountedRef.current) return;
         // PANE-01-ALLOWED: rilettura della stessa chiave non-pane per il retry.
-        const fresh = await fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED
+        const fresh = await apiFetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED
           .then((r): Promise<unknown> | null => (r.ok ? r.json() : null))
           .catch(() => null);
         if (!mountedRef.current) return;

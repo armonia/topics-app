@@ -12,6 +12,7 @@ import { chatFinishedEdge } from '../lib/notify/chatFinished';
 import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
 import { isSubjectInFront } from './chatInView';
 import { subscribeAllSessionFlags } from './sessionFlags';
+import { apiFetch } from '../lib/shell/net';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -131,7 +132,7 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     let cancelled = false;
     const refresh = async () => {
       try {
-        const res = await fetch('/api/topics/streaming');
+        const res = await apiFetch('/api/topics/streaming');
         if (!res.ok) return;
         const body = (await res.json()) as { sessions?: StreamingRowInput[] };
         if (cancelled) return;

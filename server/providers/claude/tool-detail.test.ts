@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deriveToolDetail, deriveToolDetailFromCall, TOPICS_BRIDGE_TOOLS, TOPICS_BROWSER_TOOLS } from "./tool-detail";
+import { deriveToolDetail, deriveToolDetailFromCall, TOPICS_BRIDGE_TOOLS, TOPICS_BROWSER_TOOLS } from "../../../shared/tool-detail";
 import { TOOL_HANDLERS } from "../../mcp/topics-mcp-server";
 import { BROWSER_TOOL_SPECS } from "../../browser-tool-spec";
 import { parseToolCallDetail } from "../../../shared/tool-call-detail";
@@ -573,17 +573,30 @@ describe("parity with the CLI's tools", () => {
     }
   });
 
-  test("the client mirror knows the same names as the server", () => {
-    // The docblock of `tool-detail.ts` says "Keep the mapping in sync", and by
-    // hand that means diverging sooner or later. An old message, which goes
-    // through the mirror, would render differently from a new one, and nobody
-    // would see it because the two paths never meet.
-    const mirror = readFileSync(
+  test("the client derives through this module, not through a copy of it", () => {
+    // There used to be a client mirror "kept in sync" by hand, and a test here
+    // that grepped it for the same names. It had drifted anyway (the goal-steps
+    // rule existed only on the client). The mirror is gone: the client imports
+    // `shared/tool-detail.ts`, and this pins that it does not grow a copy back.
+    const client = readFileSync(
       join(import.meta.dir, "..", "..", "..", "client/src/components/Chat/toolDetail.ts"),
       "utf8",
     );
-    for (const n of ["agent", "task", "enterplanmode", "exitplanmode", "sendmessage", "artifact", "askuserquestion", "toolsearch", "edit_file", ...TOPICS_BRIDGE_TOOLS, ...TOPICS_BROWSER_TOOLS]) {
-      expect(mirror, `the client mirror does not know \`${n}\``).toContain(`'${n}'`);
+    expect(client).toMatch(/import \{[^}]*\bderiveToolDetail\b[^}]*\} from '(\.\.\/)+shared\/tool-detail';/);
+    expect(client, "a second derivation is back on the client").not.toMatch(/function deriveToolDetail\b/);
+    for (const n of ["SHELL_NAMES", "TOPICS_BRIDGE_NAMES", "TOPICS_BROWSER_NAMES", "TODO_LIST_NAMES"]) {
+      expect(client, `the client holds its own \`${n}\` again`).not.toContain(n);
     }
+  });
+
+  test("goal steps are a todo at the boundary, as the client always rendered them", () => {
+    // The rule lived only in the client mirror, so the server stored `mcp` and
+    // the client re-derived on every render. One implementation, one answer.
+    for (const n of ["update_goal_steps", "mcp__topics__update_goal_steps"]) {
+      const d = deriveToolDetail(n, { steps: [{ content: "a", status: "completed" }, "b"] });
+      expect(d).toEqual({ type: "todo", items: [{ content: "a", status: "completed" }, { content: "b", status: "pending" }] });
+    }
+    // An unknown status stays generic: an invented todo is worse than the JSON.
+    expect(deriveToolDetail("update_goal_steps", { steps: [{ content: "a", status: "deleted" }] }).type).toBe("mcp");
   });
 });

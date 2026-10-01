@@ -49,7 +49,9 @@ describe("posti esauriti · il rifiuto arriva a chi guarda", () => {
     const i = SEZIONE.indexOf("const aggiungi = async");
     expect(i, "la funzione è stata rinominata: aggiorna questo test").toBeGreaterThan(-1);
     const corpo = SEZIONE.slice(i, SEZIONE.indexOf("\n  };", i));
-    expect(corpo, "la risposta va raccolta in una variabile").toMatch(/const\s+\w+\s*=\s*await fetch\(/);
+    // Every /api request of the client goes through apiFetch (lib/shell/net.ts,
+    // enforced by check:api-door), so the call to look for is that door.
+    expect(corpo, "la risposta va raccolta in una variabile").toMatch(/const\s+\w+\s*=\s*await apiFetch\(/);
     expect(corpo, "e va guardata").toContain(".ok");
   });
 

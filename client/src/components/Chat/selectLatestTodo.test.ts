@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { selectLatestTodo } from './selectLatestTodo';
-import { TODO_TOOL_NAMES, deriveToolDetail } from './toolDetail';
+import { TODO_TOOL_NAMES, deriveToolDetail } from '../../../../shared/tool-detail';
 import type { ChatMessage, ToolCall } from '../../types';
 
 function todoCall(id: string, items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>): ToolCall {

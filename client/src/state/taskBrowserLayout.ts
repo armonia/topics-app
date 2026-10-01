@@ -35,6 +35,7 @@ import {
   pickCellStacks,
   rowGroupIds,
 } from '../components/Layout/groupLayoutStacks';
+import { apiFetch } from '../lib/shell/net';
 
 /** Every task browser pane is a single group kind — no chat/file affinity. */
 const GROUP_TYPE: PaneGroupType = 'utility';
@@ -446,7 +447,7 @@ export function sanitizeTaskLayout(v: unknown): TaskLayoutState | null {
 
 async function uiGet<T>(key: string): Promise<T | null> {
   try {
-    const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-layout keys, not pane state
+    const r = await apiFetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-layout keys, not pane state
     if (!r.ok) return null;
     const d = await r.json().catch(() => null);
     return (d?.value ?? null) as T | null;
@@ -459,7 +460,7 @@ function uiPutDebounced(key: string, value: unknown, ms = 800): void {
   if (t) clearTimeout(t);
   writeTimers.set(key, setTimeout(() => {
     writeTimers.delete(key);
-    fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: task-browser-layout keys, not pane state
+    apiFetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: task-browser-layout keys, not pane state
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
     }).catch(() => {});
   }, ms));

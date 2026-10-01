@@ -21,6 +21,7 @@ import { useToast } from '../Shared/Toast';
 import { useT } from '../../hooks/useT';
 import { SwitchTrack } from '../Shared/Switch';
 import { useConfirm } from '../../hooks/useConfirm';
+import { apiFetch } from '../../lib/shell/net';
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -210,7 +211,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       setProviders([]);
       return;
     }
-    fetch('/api/providers')
+    apiFetch('/api/providers')
       .then(r => r.json())
       .then(data => setProviders(data.providers || []))
       .catch(() => setProviders([]));

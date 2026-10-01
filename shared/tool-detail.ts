@@ -1,31 +1,39 @@
 /**
- * Tool detail normalizer.
+ * Tool detail normalizer: the ONE implementation.
  *
  * Translates a raw tool name + args (as emitted by the Claude Code CLI, the
- * Codex CLI, the OpenClaw gateway, etc.) into the typed `ToolCallDetail`
- * union the renderer branches on. Done at the provider boundary so:
+ * Codex CLI, the OpenClaw gateway, the native provider, etc.) into the typed
+ * `ToolCallDetail` union the renderer branches on. The server runs it at the
+ * provider boundary, so:
  *   1. The wire format the client sees is uniform across providers.
  *   2. Tool-name aliases (`Bash` / `bash` / `shell` / `exec_command`) collapse
  *      into one `detail.type === "shell"` shape.
  *   3. The renderer doesn't have to JSON-grovel `args` for every tool kind.
+ * The client runs the same function only for a tool call that reached it
+ * without a usable `detail` (rows stored before the boundary existed), and
+ * otherwise only renders.
+ *
+ * It used to live twice, `server/providers/claude/tool-detail.ts` and
+ * `client/src/components/Chat/toolDetail.ts`, "kept in sync" by a comment. In
+ * 90 days 21 commits touched them: 12 both, 9 the client only, 0 the server
+ * only. The client copy had drifted ahead (the goal-steps rule below existed
+ * only there), so this module is the CLIENT's semantics, proven equal to it on
+ * every tool call stored in a copy of the live database.
  *
  * The mapping is intentionally permissive: when a tool name doesn't match a
  * known kind we return `{ type: "unknown", raw: { args, result? } }` so the
  * renderer falls back to a generic JSON view instead of dropping the call.
- *
- * Mirrored (read-only) on the client at
- * `client/src/components/Chat/toolDetail.ts` for legacy messages whose
- * `detail` was never built server-side. Keep the mapping in sync.
  */
 
-import type { ToolCall, ToolCallDetail } from "../../types";
-import { isPlanFile } from "../../../shared/plan-file";
-import { batchEditUnifiedDiff } from "../../../shared/multi-edit-diff";
+import type { ToolCall, ToolCallDetail } from "./types";
+import { isPlanFile } from "./plan-file";
+import { batchEditUnifiedDiff } from "./multi-edit-diff";
 
 /**
  * The Topics bridge tools (`server/mcp/topics-mcp-server.ts`), as the native
- * provider names them: bare. Kept as a literal list because the client mirror
- * cannot import from `server/`; `tool-detail.test.ts` pins it to the real table.
+ * provider names them: bare. A literal list because shared/ cannot import from
+ * `server/`; `server/providers/claude/tool-detail.test.ts` pins it to the real
+ * table.
  */
 export const TOPICS_BRIDGE_TOOLS: ReadonlySet<string> = new Set([
   "open_browser_pane", "close_browser_pane", "browser_list_tabs", "browser_focus_tab", "import_chrome",
@@ -46,7 +54,7 @@ export const TOPICS_BROWSER_TOOLS: ReadonlySet<string> = new Set([
   "browser_status", "browser_upload",
 ]);
 
-/** Lowercase + strip leading/trailing punctuation for alias match. */
+/** Lowercase + trim, for alias match. */
 function canon(name: string): string {
   return (name || "").toLowerCase().trim();
 }
@@ -65,10 +73,68 @@ function n(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
+const SHELL_NAMES = new Set(["bash", "shell", "exec_command", "run_command", "terminal", "exec"]);
+const READ_NAMES = new Set(["read", "read_file", "view_file", "view"]);
+const EDIT_NAMES = new Set(["edit", "edit_file", "multiedit", "apply_patch", "apply_diff", "str_replace_editor", "str_replace"]);
+const WRITE_NAMES = new Set(["write", "write_file", "create_file"]);
+const SEARCH_NAMES = new Set(["search", "websearch", "web_search"]);
+const FETCH_NAMES = new Set(["webfetch", "web_fetch", "fetch"]);
+/** The whole-list form: one call carries the ENTIRE todo list. */
+const TODO_LIST_NAMES = new Set(["todowrite", "todo_write"]);
+/** The per-item form the CLI 2.1.220 added: one call, one task. */
+const TODO_ITEM_NAMES = new Set(["taskcreate", "task_create", "taskupdate", "task_update"]);
+
 /**
- * Build a `ToolCallDetail` from a tool name + args. Result string optional —
- * caller passes it on tool_result events to enrich `output`/`content`/`result`
- * fields per detail kind.
+ * Every name that can produce a `detail.type === 'todo'` from a todo tool.
+ *
+ * Exported because `selectLatestTodo` needs the same list as a cheap pre-filter
+ * (it runs on the whole transcript at every streaming frame, and Zod-parsing a
+ * detail per tool call to answer "no" was the cost it avoids). That list used to
+ * be a SECOND copy held in sync by a comment: a name added to the branches below
+ * and not to the copy silently lost its strip. One set, two readers.
+ */
+export const TODO_TOOL_NAMES: ReadonlySet<string> = new Set([...TODO_LIST_NAMES, ...TODO_ITEM_NAMES]);
+
+/** `update_goal_steps`, bare (native provider) or behind any MCP prefix. */
+export function isGoalStepsTool(name: string): boolean {
+  const c = canon(name);
+  return c === "update_goal_steps" || c.endsWith("__update_goal_steps");
+}
+
+/** `set_goal`, bare or behind any MCP prefix. */
+export function isSetGoalTool(name: string): boolean {
+  const c = canon(name);
+  return c === "set_goal" || c.endsWith("__set_goal");
+}
+
+/**
+ * Goal steps as a todo. Same shape as the TodoWrite list (content + status),
+ * so same card and same summary "2/7 · current step": before, they were
+ * generic JSON with an empty header. An unknown status or an empty list stays
+ * generic: an invented todo is worse than the JSON.
+ *
+ * Deliberately NOT in TODO_TOOL_NAMES: the strip above the composer is for the
+ * turn's todos, and GoalBar already shows the goal steps.
+ */
+export function goalStepsAsTodo(args: unknown): ToolCallDetail | null {
+  const steps = asRecord(args).steps;
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  const items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> = [];
+  for (const raw of steps) {
+    const step = typeof raw === "string" ? { content: raw } : asRecord(raw);
+    const content = s(step.content);
+    if (!content) continue;
+    const status = s(step.status) ?? "pending";
+    if (status !== "pending" && status !== "in_progress" && status !== "completed") return null;
+    items.push({ content, status });
+  }
+  return items.length > 0 ? { type: "todo", items } : null;
+}
+
+/**
+ * Build a `ToolCallDetail` from a tool name + args. Result string optional:
+ * the caller passes it on tool_result events to enrich `output`/`content`/
+ * `result` fields per detail kind.
  */
 export function deriveToolDetail(
   name: string,
@@ -78,15 +144,13 @@ export function deriveToolDetail(
   const c = canon(name);
   const a = asRecord(args);
 
-  // Shell variants — Claude Code, Codex, MCP shell tools.
-  if (
-    c === "bash" ||
-    c === "shell" ||
-    c === "exec_command" ||
-    c === "run_command" ||
-    c === "terminal" ||
-    c === "exec"
-  ) {
+  if (isGoalStepsTool(name)) {
+    const todo = goalStepsAsTodo(a);
+    if (todo) return todo;
+  }
+
+  // Shell variants: Claude Code, Codex, MCP shell tools.
+  if (SHELL_NAMES.has(c)) {
     return {
       type: "shell",
       command: s(a.command) ?? s(a.cmd) ?? s(a.input) ?? "",
@@ -98,8 +162,7 @@ export function deriveToolDetail(
     };
   }
 
-  // Read variants
-  if (c === "read" || c === "read_file" || c === "view_file" || c === "view") {
+  if (READ_NAMES.has(c)) {
     return {
       type: "read",
       filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "",
@@ -109,16 +172,8 @@ export function deriveToolDetail(
     };
   }
 
-  // Edit variants — single Edit, MultiEdit (concat), apply_patch, str_replace
-  if (
-    c === "edit" ||
-    c === "edit_file" ||
-    c === "multiedit" ||
-    c === "apply_patch" ||
-    c === "apply_diff" ||
-    c === "str_replace_editor" ||
-    c === "str_replace"
-  ) {
+  // Edit variants: single Edit, MultiEdit, apply_patch, str_replace.
+  if (EDIT_NAMES.has(c)) {
     if (c === "multiedit" && Array.isArray(a.edits)) {
       // EVERY edit, as hunks of one diff (`shared/multi-edit-diff.ts`): the
       // first-edit-plus-a-count form left the rest of them off the screen.
@@ -139,21 +194,16 @@ export function deriveToolDetail(
     };
   }
 
-  // Write variants
-  if (c === "write" || c === "write_file" || c === "create_file") {
+  if (WRITE_NAMES.has(c)) {
     const filePath = s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "";
     const content = s(a.content);
-    // Una scrittura in `.claude/plans/` NON è una scrittura: è il PIANO.
+    // A write into `.claude/plans/` is not a write: it is the PLAN.
     //
-    // In `--permission-mode plan` la CLI 2.1.223 non espone più `ExitPlanMode`
-    // (provato sul wire: 29 tool, e quello non c'è), quindi il modello non ha
-    // più un modo di consegnare il piano — e ripiega su quello che gli resta,
-    // cioè scriverlo in `~/.claude/plans/<slug>.md`. Lì dentro il piano
-    // compariva come una riga `Write` verso una cartella che nessuno apre: il
-    // lavoro c'era tutto e a schermo non si vedeva.
-    if (content && isPlanFile(filePath)) {
-      return { type: "plan", text: content };
-    }
+    // In `--permission-mode plan` the CLI 2.1.223 no longer exposes
+    // `ExitPlanMode` (checked on the wire: 29 tools, that one absent), so the
+    // model writes the plan to `~/.claude/plans/<slug>.md` instead. There the
+    // plan showed up as a `Write` row into a folder nobody opens.
+    if (content && isPlanFile(filePath)) return { type: "plan", text: content };
     return {
       type: "write",
       filePath,
@@ -161,16 +211,15 @@ export function deriveToolDetail(
     };
   }
 
-  // Search variants — distinguish by sub-kind so the UI can show the right
-  // count format ("12 files" vs "47 matches").
+  // Search variants, by sub-kind so the UI can show the right count format
+  // ("12 files" vs "47 matches").
   if (c === "grep") {
+    const mode = s(a.output_mode);
     return {
       type: "search",
       toolName: "grep",
       query: s(a.pattern) ?? s(a.query) ?? "",
-      ...(s(a.output_mode) === "files_with_matches" ? { mode: "files_with_matches" } : {}),
-      ...(s(a.output_mode) === "count" ? { mode: "count" } : {}),
-      ...(s(a.output_mode) === "content" ? { mode: "content" } : {}),
+      ...(mode === "files_with_matches" || mode === "count" || mode === "content" ? { mode } : {}),
       ...(result ? { content: result } : {}),
     };
   }
@@ -182,7 +231,7 @@ export function deriveToolDetail(
       ...(result ? { content: result } : {}),
     };
   }
-  if (c === "search" || c === "websearch" || c === "web_search") {
+  if (SEARCH_NAMES.has(c)) {
     return {
       type: "search",
       toolName: "web_search",
@@ -191,8 +240,8 @@ export function deriveToolDetail(
     };
   }
 
-  // Fetch variants — Claude Code WebFetch, MCP firecrawl, etc.
-  if (c === "webfetch" || c === "web_fetch" || c === "fetch") {
+  // Fetch variants: Claude Code WebFetch, MCP firecrawl, etc.
+  if (FETCH_NAMES.has(c)) {
     return {
       type: "fetch",
       url: s(a.url) ?? "",
@@ -201,8 +250,7 @@ export function deriveToolDetail(
     };
   }
 
-  // Todo
-  if (c === "todowrite" || c === "todo_write") {
+  if (TODO_LIST_NAMES.has(c)) {
     if (Array.isArray(a.todos)) {
       const items = (a.todos as Array<Record<string, unknown>>).map((t) => ({
         content: s(t.content) ?? "",
@@ -213,20 +261,16 @@ export function deriveToolDetail(
     }
   }
 
-  // TaskCreate / TaskUpdate — la CLI 2.1.220 ha affiancato al vecchio
-  // `TodoWrite` (che portava l'INTERA lista) due tool che agiscono su UN task
-  // per volta. Senza questi case la todo non veniva riconosciuta qui, al
-  // confine dello stream, e arrivava al client come tool generico: JSON grezzo
-  // a schermo al posto della TodoCard.
+  // TaskCreate / TaskUpdate: the CLI 2.1.220 added, next to `TodoWrite` (the
+  // WHOLE list in one call), two tools that act on ONE task at a time. They map
+  // to the same `todo` shape with a single item: the card already exists.
   //
-  // Stessa forma `todo` con una voce sola — la card esiste già.
-  //
-  // Ma NON sempre: una `TaskUpdate` che porta solo `{taskId, status}` non ha un
-  // testo da mostrare, e una voce con etichetta vuota è PEGGIO del tool
-  // generico. In quel caso si lascia passare invece di fingere. Stessa scelta
-  // per `status: "deleted"`, che non è uno stato di avanzamento: mapparlo su
-  // "completed" direbbe una cosa falsa.
-  if (c === "taskcreate" || c === "task_create" || c === "taskupdate" || c === "task_update") {
+  // But NOT always: a `TaskUpdate` carrying only `{taskId, status}` has no text
+  // to show, and an item with an empty label is WORSE than the generic card. In
+  // that case it falls through instead of pretending. Same for
+  // `status: "deleted"`, which is not a progress state: mapping it to
+  // "completed" would say something false.
+  if (TODO_ITEM_NAMES.has(c)) {
     const content = s(a.subject);
     const rawStatus = s(a.status);
     const known = rawStatus === "in_progress" || rawStatus === "completed" || rawStatus === "pending";
@@ -235,7 +279,7 @@ export function deriveToolDetail(
         type: "todo",
         items: [{
           content,
-          // Un task nasce sempre `pending`: TaskCreate non porta uno status.
+          // A task is always born `pending`: TaskCreate carries no status.
           status: (known ? rawStatus : "pending") as "pending" | "in_progress" | "completed",
           ...(s(a.activeForm) ? { activeForm: s(a.activeForm)! } : {}),
         }],
@@ -243,22 +287,13 @@ export function deriveToolDetail(
     }
   }
 
-  // Plan exit / plan tools — show the proposed plan body. `enterplanmode` has
+  // Plan exit / plan tools: show the proposed plan body. `enterplanmode` has
   // no body to show, but it is the same event to a reader ("this turn is about
   // a plan"), and leaving it out made it render as a raw JSON blob.
   if (c === "exitplanmode" || c === "exit_plan_mode" || c === "enterplanmode" || c === "enter_plan_mode") {
     return { type: "plan", text: s(a.plan) ?? s(a.text) ?? "" };
   }
 
-  // Sub-agent (Task tool). The actions[] is filled in by the SidechainTracker
-  // via onSubAgentUpdate; here we just seed the metadata so the parent row
-  // shows description/subAgentType while the sub-agent runs.
-  //
-  // `agent` is the SAME tool under its current name. Measured 2026-08-25 on the
-  // real transcripts of this machine: `Agent` was emitted 58 times and every
-  // one of them rendered as a generic JSON blob, while `Task` - the older name
-  // for the identical call - rendered properly. Two names for one operation,
-  // one of them invisible.
   // ── Agent-fleet harness tools ──────────────────────────────────────────────
   // Measured 2026-08-25 on 40 real transcripts: all of these were emitted by
   // the CLI and every one rendered as a raw JSON blob.
@@ -304,7 +339,7 @@ export function deriveToolDetail(
   // the generic `mcp__` branch below, otherwise the one tool whose whole point
   // is to be read renders as an anonymous MCP row. Same name set as
   // `server/providers/ask-user-detector.ts`, which decides whether the turn is
-  // waiting on a human: the row and the wait now agree on what a question is.
+  // waiting on a human: the row and the wait agree on what a question is.
   if (c === "askuserquestion" || c === "ask_user_question" || c.endsWith("__ask_user_question")) {
     const qs = Array.isArray(a.questions) ? (a.questions as Array<Record<string, unknown>>) : [];
     return {
@@ -325,6 +360,11 @@ export function deriveToolDetail(
     return { type: "search", query: s(a.query) ?? "", toolName: "tool_search", ...(result ? { content: result } : {}) };
   }
 
+  // Sub-agent (Task tool). The actions[] is filled in by the SidechainTracker
+  // via onSubAgentUpdate; here we just seed the metadata so the parent row
+  // shows description/subAgentType while the sub-agent runs. `agent` is the
+  // SAME tool under its current name (measured 2026-08-25: `Agent` emitted 58
+  // times, every one a generic JSON blob while `Task` rendered properly).
   if (c === "task" || c === "agent") {
     return {
       type: "sub_agent",
@@ -335,7 +375,7 @@ export function deriveToolDetail(
     };
   }
 
-  // Monitor — long-lived event watcher (Bash/ws stream). The `description` is
+  // Monitor: long-lived event watcher (Bash/ws stream). The `description` is
   // shown in every notification; a `command` or `ws.url` names the source.
   if (c === "monitor") {
     const ws = asRecord(a.ws);
@@ -408,10 +448,9 @@ export function deriveToolDetail(
     };
   }
 
-  // L'ATTESA di un processo (`wait_for_process`). Non e' un MCP qualunque: ha un
-  // processId, cioe' l'unica cosa che permette alla card di restare VIVA mentre
-  // la riga e' aperta — il difetto che la card `monitor` qui sopra dichiara di
-  // non poter risolvere. Si intercetta prima del ramo `mcp__`.
+  // The WAIT on a process (`wait_for_process`). Not just any MCP: it carries a
+  // processId, the one thing that lets the card stay LIVE while the row is
+  // open. Caught before the `mcp__` branch.
   if (c === "wait_for_process" || c.endsWith("__wait_for_process")) {
     const timeout = typeof a.timeout_ms === "number" ? a.timeout_ms : undefined;
     return {
@@ -439,7 +478,7 @@ export function deriveToolDetail(
 
   // MCP namespaced tool. Names look like `mcp__<server>__<tool>`. Strip the
   // namespace so the renderer can show "<server> · <tool>" with a chip-style
-  // label instead of the full ugly name.
+  // label instead of the full name.
   if (c.startsWith("mcp__")) {
     const parts = name.split("__");
     return {
@@ -451,7 +490,7 @@ export function deriveToolDetail(
     };
   }
 
-  // Fallback — unknown kind, render generic.
+  // Fallback: unknown kind, render generic.
   return {
     type: "unknown",
     raw: {
@@ -463,8 +502,7 @@ export function deriveToolDetail(
 
 /**
  * Convenience: derive detail from a ToolCall, merging args + result. Used by
- * provider/route code that already has a ToolCall in hand and wants to attach
- * `detail` to it before broadcasting.
+ * code that already has a ToolCall in hand and wants to attach `detail` to it.
  */
 export function deriveToolDetailFromCall(tc: ToolCall): ToolCallDetail {
   return deriveToolDetail(tc.name, tc.args, tc.result);

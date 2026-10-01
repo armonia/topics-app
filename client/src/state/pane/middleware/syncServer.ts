@@ -19,6 +19,7 @@ import { selectSyncableSnapshot } from '../selectors';
 import { rememberLocalAck } from './selfEcho';
 import { getTabId } from './syncCrossTab';
 import { hasReceivedServerHydrate } from './serverHydrated';
+import { apiFetch } from '../../../lib/shell/net';
 
 const REMOTE_KEY = 'pane-store-v2';
 const DEBOUNCE_MS = 500;
@@ -148,7 +149,7 @@ async function putWithRetry(
     // broadcast still lands.
     const url =
       baseSeq === undefined ? `/api/ui-state/${key}` : `/api/ui-state/${key}?base=${baseSeq}`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -269,7 +270,7 @@ function flushNowKeepalive(): void {
   void (async () => {
     try {
       // Finding #10: X-Client-Id on the keepalive teardown path too.
-      const res = await fetch(`${teardownFlushUrl(state.lastServerSeq)}`, {
+      const res = await apiFetch(`${teardownFlushUrl(state.lastServerSeq)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

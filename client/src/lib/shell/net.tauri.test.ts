@@ -60,8 +60,8 @@ let calls: Call[];
 // modulo per il cancello sul codice morto, che da lì in poi non può segnalare
 // nessun export di `net.ts` (`bun run check:deadcode-blindspots`).
 async function loadNet() {
-  const { serverHttpBase, installNetShim, __resetNetShimForTests } = await import('./net');
-  return { serverHttpBase, installNetShim, __resetNetShimForTests };
+  const { serverHttpBase, installNetShim, __resetNetShimForTests, apiFetch } = await import('./net');
+  return { serverHttpBase, installNetShim, __resetNetShimForTests, apiFetch };
 }
 let net: Awaited<ReturnType<typeof loadNet>>;
 
@@ -212,5 +212,31 @@ describe('installNetShim · gate (Tauri)', () => {
     await w.window.fetch('/api/topics');
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(`${PROXY}/api/topics`);
+  });
+});
+
+describe('apiFetch · the door (Tauri)', () => {
+  test('reaches the proxy origin once, with the callsite headers, shim installed or not', async () => {
+    const w = globalThis as unknown as { window: { fetch: typeof fetch }; fetch: typeof fetch };
+    for (const shim of [false, true]) {
+      calls = [];
+      net.__resetNetShimForTests();
+      w.window.fetch = makeSpy();
+      w.fetch = w.window.fetch;
+      if (shim) {
+        net.installNetShim();
+        w.fetch = w.window.fetch;
+      }
+
+      await net.apiFetch('/api/ui-state/pane-store-v2', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Client-Id': 'tab-1' },
+      });
+
+      // Absolute already, so the shim passes it through instead of prefixing twice.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toBe(`${PROXY}/api/ui-state/pane-store-v2`);
+      expect(calls[0]!.headers.get('X-Client-Id')).toBe('tab-1');
+    }
   });
 });

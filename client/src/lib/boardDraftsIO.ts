@@ -5,9 +5,11 @@
  * failures are silent, the in-memory text is never blocked on the network.
  */
 
+import { apiFetch } from './shell/net';
+
 export async function uiGet<T>(key: string): Promise<T | null> {
   try {
-    const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: draft keys, not pane state
+    const r = await apiFetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: draft keys, not pane state
     if (!r.ok) return null;
     const d = await r.json().catch(() => null);
     return (d?.value ?? null) as T | null;
@@ -38,7 +40,7 @@ function sendDraft(key: string, value: unknown, keepalive: boolean): void {
   const settle = (): void => { if (fitsUnloadBudget) unloadBytesInFlight -= bytes; };
   try {
     // PANE-01-ALLOWED: draft keys, not pane state
-    fetch(`/api/ui-state/${key}`, {
+    apiFetch(`/api/ui-state/${key}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
       keepalive: fitsUnloadBudget,
     }).then(settle, settle);

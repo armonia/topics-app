@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { WSMessage } from '../types';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
+import { apiFetch } from '../lib/shell/net';
 
 interface UseServerStateOptions {
   /** localStorage key for fast-paint cache */
@@ -83,7 +84,7 @@ export function useServerState<T>(
    */
   const putValue = useCallback((next: T) => {
     // PANE-01-ALLOWED: generic non-pane key (supplied by caller). Pane state uses dedicated middleware, not this hook.
-    fetch(`/api/ui-state/${encodeURIComponent(key)}`, { // PANE-01-ALLOWED
+    apiFetch(`/api/ui-state/${encodeURIComponent(key)}`, { // PANE-01-ALLOWED
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next),

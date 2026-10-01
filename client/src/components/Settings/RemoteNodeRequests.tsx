@@ -12,6 +12,7 @@ import {
   revokeLocalDelegatedAuthorization,
   type DelegatedMachineRequest,
 } from './delegatedMachineAccess';
+import { apiFetch } from '../../lib/shell/net';
 
 interface LocalProject { id: string; name: string; path: string; incognito?: boolean }
 interface LocalPerson { id: string; name: string; owner: boolean }
@@ -33,7 +34,7 @@ export function RemoteNodeRequests() {
 
   const loadRequests = useCallback(async () => {
     try {
-      const pendingResponse = await fetch(...listLocalDelegatedRequests());
+      const pendingResponse = await apiFetch(...listLocalDelegatedRequests());
       // Guests do not see an empty approval box: the route is owner-only and
       // 403 means this surface simply is not theirs.
       if (pendingResponse.status === 403) { setAvailable(false); return; }
@@ -51,8 +52,8 @@ export function RemoteNodeRequests() {
     if (choicesLoaded) return;
     try {
       const [projectsResponse, devicesResponse] = await Promise.all([
-        fetch('/api/projects', { credentials: 'same-origin' }),
-        fetch('/api/auth/devices', { credentials: 'same-origin' }),
+        apiFetch('/api/projects', { credentials: 'same-origin' }),
+        apiFetch('/api/auth/devices', { credentials: 'same-origin' }),
       ]);
       const [projectsBody, devicesBody] = await Promise.all([
         projectsResponse.ok ? projectsResponse.json() : Promise.resolve({ projects: [] }),
@@ -106,7 +107,7 @@ export function RemoteNodeRequests() {
     setBusy(request.id);
     setError(null);
     try {
-      const response = await fetch(...(approved
+      const response = await apiFetch(...(approved
         ? approveLocalDelegatedRequest(request.id, chosen.projectId, chosen.personId)
         : denyLocalDelegatedRequest(request.id)));
       if (!response.ok) throw new Error(String(response.status));
@@ -122,7 +123,7 @@ export function RemoteNodeRequests() {
     setBusy(request.id);
     setError(null);
     try {
-      const response = await fetch(...revokeLocalDelegatedAuthorization(request.id));
+      const response = await apiFetch(...revokeLocalDelegatedAuthorization(request.id));
       if (!response.ok) throw new Error(String(response.status));
       await loadRequests();
     } catch {

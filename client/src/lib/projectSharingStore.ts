@@ -27,6 +27,7 @@ import { useSyncExternalStore } from 'react';
 import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
 import { subscribeFrames } from './wsFrameBus';
 import { sharedWith, type OrgRef, type ProjectSharing } from './projectSharing';
+import { apiFetch } from './shell/net';
 
 let projects: Map<string, ProjectSharing> | null = null;
 let orgs: Map<string, OrgRef> | null = null;
@@ -64,7 +65,7 @@ async function fetchOnce(): Promise<void> {
     // In parallel: they are independent, and in series the answer would wait
     // on the slower of two round trips for no reason.
     const [pRes, oRes] = await Promise.allSettled([
-      fetch('/api/projects', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
+      apiFetch('/api/projects', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
       // useIdentityPresence asks the same list at boot: one GET between the two.
       coalescedFetch('/api/auth/orgs', { credentials: 'same-origin' }, { ttlMs: BOOT_READ_TTL_MS })
         .then((r) => (r.ok ? r.json() : null)),
@@ -141,7 +142,7 @@ function armSocket(): void {
 /** Only the project list, after a retraction whose envelope carries no path. */
 async function refetchProjects(): Promise<void> {
   try {
-    const body = await fetch('/api/projects', { credentials: 'same-origin' })
+    const body = await apiFetch('/api/projects', { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null)) as { projects?: ProjectRow[] } | null;
     if (!body?.projects) return;
     const next = new Map<string, ProjectSharing>();

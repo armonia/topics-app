@@ -12,6 +12,7 @@
  * sempre.
  */
 import { isLoopbackUrl } from '../components/Browser/navErrorMessage';
+import { apiFetch } from './shell/net';
 
 /**
  * Oltre questo, si smette di aspettare e si prova a caricare.
@@ -34,7 +35,7 @@ export async function loopbackAlive(url: string, timeoutMs = PROBE_TIMEOUT_MS): 
   });
   const ask = (async () => {
     try {
-      const res = await fetch(`/api/browsers/port-listening?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
+      const res = await apiFetch(`/api/browsers/port-listening?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
       if (!res.ok) return true;
       const body = (await res.json()) as { listening?: boolean };
       return body.listening !== false;

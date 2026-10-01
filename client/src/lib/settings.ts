@@ -1,4 +1,5 @@
 import type { AppSettings } from '../types';
+import { apiFetch } from './shell/net';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   fontSize: 13,
@@ -189,7 +190,7 @@ export function __resetSettingsSyncState(): void {
 
 function putSettings(settings: AppSettings): void {
   // PANE-01-ALLOWED: non-pane ui-state key (app settings: fontSize, density, notifications). Not one of the 6 legacy pane keys.
-  fetch(`/api/ui-state/${SETTINGS_SERVER_KEY}`, { // PANE-01-ALLOWED
+  apiFetch(`/api/ui-state/${SETTINGS_SERVER_KEY}`, { // PANE-01-ALLOWED
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(syncableSettings(settings)),
