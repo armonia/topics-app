@@ -122,3 +122,18 @@ async function readListeningPorts(now: number): Promise<typeof cachedPorts> {
     return cachedPorts;
   }
 }
+
+
+/** The listening addresses of each tracked pid's process tree, from one port list. */
+export async function listenersOf(
+  pids: number[],
+  ports: ReadonlyArray<ListeningPort>,
+  treeOf: (pid: number) => Promise<Set<number>>,
+): Promise<Map<number, Array<{ host: string; port: number }>>> {
+  const out = new Map<number, Array<{ host: string; port: number }>>();
+  for (const pid of pids) {
+    const tree = await treeOf(pid);
+    out.set(pid, ports.filter((lp) => tree.has(lp.pid)).map((lp) => ({ host: lp.host, port: lp.port })));
+  }
+  return out;
+}
