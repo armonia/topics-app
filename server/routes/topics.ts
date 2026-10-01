@@ -22,7 +22,7 @@ import { createEditRouter } from "./edit";
 import { createForkRouter } from "./fork";
 import { consumeFork } from "../lib/chat-fork-store";
 import { createChatRouter } from "./chat";
-import { commandBackgroundWork, commandWakeState } from "./processes";
+import { commandBackgroundWork, commandServices, commandWakeState, topicCommandProcesses } from "./processes";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
@@ -1237,7 +1237,8 @@ export function createTopicsRouter(
           ...(awaitingSince != null ? { awaitingSince } : {}),
         });
       }
-      return json({ sessions: withBackgroundWork(sessions, getTopicBySessionKey, commandBackgroundWork) });
+      // `services`: the servers a chat runs, shown as servers and not waited on (BGVIS-08).
+      return json({ sessions: withBackgroundWork(sessions, getTopicBySessionKey, commandBackgroundWork), services: commandServices() });
     }
 
     /**
@@ -3171,6 +3172,10 @@ export function createTopicsRouter(
           code: "orchestrator_topic_invariant",
         }, 403);
       }
+      // The chat's own `run_command` processes first: the ones its line and its
+      // server row show (BGVIS-08). Before, only the provider's sub-agents were
+      // here, and a chat showing a server answered `[]`.
+      const commands = topicCommandProcesses(topicId);
       try {
         const procProvider = resolveProvider(getTopicById(topicId));
         let result: any;
@@ -3179,11 +3184,11 @@ export function createTopicsRouter(
         } else if (procProvider.invokeTool) {
           result = await procProvider.invokeTool("sessions_list", { kinds: ["other"], activeMinutes: 30 });
         } else {
-          return json([]);
+          return json(commands);
         }
         const sessions = result?.result?.sessions || [];
-        return json(subagentProcesses(sessions));
-      } catch { return json([]); }
+        return json([...commands, ...subagentProcesses(sessions)]);
+      } catch { return json(commands); }
     }
 
     {

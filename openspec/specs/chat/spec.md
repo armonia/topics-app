@@ -4990,8 +4990,9 @@ Agent, Bash, Monitor della CLI), e un comando vive nel registro dei processi di
 Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava niente.
 
 - Quali: OGNI comando della sessione ancora in corsa, con o senza sveglia dovuta,
-  come Claude Code elenca ogni shell in background in corsa (un dev server
-  compreso). Lo dice il registro (`commandBackgroundWork` in
+  come Claude Code elenca ogni shell in background in corsa, TRANNE un server
+  (senza sveglia e in ascolto su una porta), che la chat mostra come server e
+  non aspetta (BGVIS-08). Lo dice il registro (`commandBackgroundWork` in
   `server/routes/processes.ts`), che `withBackgroundWork` riceve dalla route
   `/api/topics/streaming` accanto ai task del provider: con turno aperto nel
   campo `background` della riga del turno, senza in una riga `background`. Una
@@ -5055,6 +5056,77 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
 - **WHEN** il comando esce
 - **THEN** la riga sparisce e la risposta alla sveglia ha un banner `source:
   "command"` con il nome, `exit 0` e l'ultima riga di output
+
+### Requirement: BGVIS-08 — Un server lanciato dalla chat si vede come server, non come lavoro che la chat aspetta
+
+Un comando lanciato con `run_command` che NON sveglia la chat (`wake: false`) e
+il cui albero di processi ascolta su almeno una porta TCP SHALL essere un
+**server** della chat: non lavoro in background che la chat aspetta. Un comando
+che sveglia la chat resta lavoro atteso (BGVIS-07) anche se ascolta su una
+porta; uno che non ascolta su niente pure.
+
+Il caso da cui nasce (01/10, Attilio su una chat viva: «questa sessione ha la
+chat in attesa di un lavoro in background ma invece dovrebbe essere un processo
+Topics e si dovrebbe vedere che il server è attivo»): l'agente aveva lanciato
+`python3 -m http.server 8777 --bind 127.0.0.1` con `run_command` senza sveglia;
+la chat diceva «In attesa di 1 lavoro in background» con l'anello grigio sulla
+tab per tutta la vita del server, e `GET /api/processes?topicId=` di quella
+chat rispondeva `[]` mentre la chat nominava il processo.
+
+- Riconoscimento, misurato e non indovinato dal testo del comando: le porte in
+  ascolto dell'albero del processo (`lsof`, `server/lib/command-services.ts`),
+  guardate da un timer che gira solo mentre c'è un comando senza sveglia in
+  corsa (2 s all'inizio, raddoppio fino a 30 s finché niente cambia, di nuovo
+  2 s a ogni avvio). La route di stato NON SHALL lanciare `lsof`.
+- Un server NON SHALL comparire fra i `tasks` di `/api/topics/streaming`: niente
+  riga `background-work-line`, niente glifo `background` su riga, tab e
+  progetto, niente riga fra gli agenti attivi, e lo Stop del composer non lo
+  riguarda. La risposta SHALL portare a parte `services: [{topicId, sessionKey,
+  services}]` (`TopicServices`, `shared/background-work.ts`).
+- In chat, nel `Footer` del trascritto sotto la riga di BGVIS-04, una riga
+  compatta per server `data-testid="running-service-row"` (non un banner):
+  «Server · 127.0.0.1:8777 · nome» con **Apri** (una tab del browser di Topics
+  sull'indirizzo, attraverso `openLink` come ogni link della chat), **Log** (il
+  log del processo nella finestra di progetto, evento `open-process-log`) e
+  **Ferma** (`POST /api/scripts/:id/stop`). Entra con `reveal-in`.
+- Dal vivo: un avvio, una fine e una porta che compare o sparisce SHALL mandare
+  `background:changed`, come per BGVIS-06/07.
+- Fine: per `SERVICE_END_SHOWN_MS` (8 s) dopo l'uscita il server resta fra i
+  `services` con `ended: {at, exitCode, stopped}`; la riga dice come è finito
+  («Server fermato», «Server terminato (exit N)») e sparisce da sé dopo 5 s.
+- `GET /api/processes?topicId=` SHALL elencare, prima dei sotto-agenti, i
+  processi `run_command` di quella chat (in corsa e recenti), con le porte.
+
+#### Scenario: il registro distingue un server da un comando atteso
+- **GIVEN** un comando senza sveglia che avvia un vero server HTTP su una porta
+  libera, e uno identico con la sveglia
+- **WHEN** il timer vede la porta del primo
+- **THEN** il primo è fra i `services` della chat con `listen: [{host:
+  "127.0.0.1", port}]` e non fra i `tasks`; il secondo resta fra i `tasks`
+- **AND** `GET /api/processes` della chat lo elenca `running` con la porta
+- **WHEN** lo si ferma
+- **THEN** è fra i `services` con `ended.stopped` e senza exit code
+
+#### Scenario: una chat vera avvia un server
+- **GIVEN** una chat in una finestra di progetto su una CLI finta
+  (`helpers/fake-claude-service.ts`) che lancia con `run_command` senza sveglia
+  un vero server HTTP su una porta libera
+- **THEN** la chat ha UNA riga `running-service-row` con `127.0.0.1:<porta>` e
+  il nome, nessuna `background-work-line`, nessun glifo `background` sulla tab
+  e nessuno Stop nel composer
+- **AND** `GET /api/processes?topicId=` lo elenca `running` con la porta
+- **WHEN** si clicca Apri
+- **THEN** parte una `browser:open-tab` su `http://127.0.0.1:<porta>/` per quella chat
+- **WHEN** si clicca Log
+- **THEN** il log del processo si apre come tab della finestra di progetto
+- **WHEN** si clicca Ferma
+- **THEN** la riga dice «Server fermato» e poi sparisce
+
+#### Scenario: con la sveglia resta lavoro atteso
+- **GIVEN** la stessa CLI finta che lancia lo stesso server CON la sveglia
+- **WHEN** il server risponde sulla sua porta
+- **THEN** la riga `background-work-line` lo nomina con «sveglia la chat» e non
+  c'è nessuna `running-service-row`
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 

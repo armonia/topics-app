@@ -222,7 +222,7 @@ When a background shell dies — the CLI exits, the shell takes a SIGTERM — th
 
 ### Requirement: SUBAGENT-03 — The sub-agent process panel tells the truth about what is running
 
-`GET /api/processes` is the only view Topics has of sub-agents AS PROCESSES. The mapping from a provider's session list SHALL keep only the sub-agents, SHALL treat `active` as the only status meaning running, and SHALL carry a completion time only for what has finished.
+`GET /api/processes` is the only view Topics has of sub-agents AS PROCESSES. It SHALL list first the chat's own `run_command` processes, running and recent, with their ports (BGVIS-08 in `chat/spec.md`): a chat that showed a server answered `[]` there. The mapping from a provider's session list SHALL keep only the sub-agents, SHALL treat `active` as the only status meaning running, and SHALL carry a completion time only for what has finished.
 
 #### Scenario: Only sub-agents reach the panel
 - **GIVEN** a provider session list holding sub-agent sessions, a topic session and a terminal session
