@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useExitGhost } from '../../lib/exitGhost';
 
 /**
  * IL TOOLTIP DELL'APP. Nessun `title=` nativo dove l'informazione conta.
@@ -66,6 +67,10 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
   // Smontando col timer in volo, `setAperto` scriverebbe su un componente che
   // non c'è più. Succede davvero: i filtri si rimontano quando cambia la board.
   useEffect(() => stopTimer, []);
+
+  // It settles in on the shared `popover-enter` and fades out as an inert copy
+  // (lib/exitGhost), like every floating surface, instead of popping.
+  useExitGhost(tipRef, aperto);
 
   // ESC lo chiude. Chi naviga da tastiera deve poterselo togliere di mezzo
   // senza spostare il fuoco.
@@ -148,7 +153,7 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
           // `text-app-text` on top it gave nearly black text on a nearly black
           // background. Same fix, same reason as `TooltipDelegate`: the two must
           // look identical or they read as two different components.
-          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg"
+          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg popover-enter"
           style={{
             top: pos?.top ?? -9999,
             left: pos?.left ?? -9999,
