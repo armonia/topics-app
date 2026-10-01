@@ -319,6 +319,7 @@ jobs:
           bun run check:test-skips
           bun run check:emdash
           bun run check:bloat
+          bun run check:route-shadowing
           # La scala tipografica e' UNA, e sta nel blocco `@theme` di
           # index.css. Questo rifiuta le due strade per uscirne: una misura
           # assoluta scritta a mano nel componente (`text-[12.5px]`, cioe' il

@@ -66,6 +66,7 @@
     "check:e2e-no-verdict": "bun run scripts/check-e2e-no-verdict.ts",
     "check:e2e-touched": "bun run scripts/check-e2e-touched.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",
+    "check:route-shadowing": "bun run scripts/check-route-shadowing.ts",
     "qa:gate": "./scripts/qa-gate.sh",
     "check:security": "bun run scripts/check-security.ts",
     "check:spec-coverage": "bun run scripts/check-spec-coverage.ts",

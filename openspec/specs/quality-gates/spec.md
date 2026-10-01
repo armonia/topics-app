@@ -750,3 +750,30 @@ suite.
 #### Scenario: un solo file sulla riga di comando
 - **GIVEN** un percorso esplicito
 - **THEN** SHALL essere eseguito solo quello
+
+### Requirement: GATE-17 — L'ordine dei router è una tabella, e due router che rivendicano la stessa rotta si vedono ROSSI
+
+Le richieste `/api/*` SHALL passare dai router nell'ordine di UNA tabella
+esplicita (`API_ROUTER_ORDER`, `server/route-table.ts`): il primo che risponde
+vince, chi restituisce null lascia passare la richiesta al successivo, un router
+che esiste solo sotto una condizione SHALL tenere il suo posto e dichiarare la
+condizione. Prima l'ordine esisteva solo come catena di 45 `||` dentro `fetch`,
+e nessuno poteva leggerlo né fissarlo.
+
+L'ordine SHALL essere fissato da un test con la lista d'oro dei nomi: cambiarlo
+è un cambio di precedenza, e si fa apposta, mai come effetto collaterale.
+
+Un cancello (`check:route-shadowing`) SHALL leggere i predicati di percorso dei
+router veri e uscire NON-ZERO quando un router più avanti rivendica un metodo e
+un percorso che uno più indietro rivendica già, nominando i due file con la
+riga. Una sovrapposizione esaminata e voluta SHALL stare in una lista scritta
+con il motivo, e una voce della lista che non trova più niente SHALL essere
+rossa. Il cancello NON SHALL cambiare la precedenza: riporta.
+
+#### Scenario: due router sulla stessa rotta
+- **GIVEN** un router che rivendica `GET /api/x` dopo un altro che la rivendica già
+- **THEN** il cancello SHALL uscire 1, nominando entrambi i file
+
+#### Scenario: l'ordine cambiato per sbaglio
+- **GIVEN** due router scambiati di posto nella tabella
+- **THEN** il test della lista d'oro SHALL fallire
