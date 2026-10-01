@@ -28,7 +28,8 @@ import { replaceInList, consumeTabRestored, consumeTabPermanent } from '../../..
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
-import { reconcilePaneOrder } from './paneOrderReconcile';
+import { reconcilePaneOrder, renamePromotedDrafts } from './paneOrderReconcile';
+import { promotedTo } from '../../../state/composerHandoff';
 import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
@@ -284,8 +285,9 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   // ("3 tab su un solo pane"). The strip must be a pure function of its store:
   // one id ⇒ one tab. The echo effect below writes the reconciled list back,
   // healing the persisted order.
+  // A promoted draft is renamed where it stands first (`renamePromotedDrafts`).
   const validatedOrderedIds = useMemo(
-    () => reconcilePaneOrder(orderedIds, topicIds),
+    () => reconcilePaneOrder(renamePromotedDrafts(orderedIds, topicIds, promotedTo), topicIds),
     [orderedIds, topicIds],
   );
 

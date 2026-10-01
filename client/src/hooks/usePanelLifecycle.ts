@@ -31,6 +31,8 @@
  */
 
 import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
+import { carryFirstBubble, draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
+import { notePromotion } from '../state/composerHandoff';
 import {
   useCallback,
   useEffect,
@@ -2211,13 +2213,26 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
+    // The bubble first, the topic behind it: the draft's pane draws the message
+    // on the frame after the key instead of after the round trip and the
+    // promotion's renders (see `state/firstSend.ts`).
+    const draftKey = draftSessionKey(draftId);
+    const bubbleId = stageFirstBubble(draftKey, firstMessage);
     const topic = await createTopic({
       name: 'New Chat',
       icon: DEFAULT_TOPIC_ICON,
       color: '#0066ff',
       projectPath: meta.projectPath,
     });
-    if (!topic) return;
+    if (!topic) {
+      withdrawFirstBubble(draftKey, bubbleId);
+      return;
+    }
+    // The lineage first: every render from here on that sees the topic's id
+    // must key the pane as the draft it was (`composerHandoff.ts`). Not for an
+    // id already open in a pane (the remap below bails on it): that pane would
+    // take the draft's key too.
+    if (!usePaneStore.getState().panes[topic.id]) notePromotion(draftId, topic.id);
     // Atomically remap the draft pane to the new topic id in the pane store
     // (covers groups + focusedPaneId + closedStack in one shot). REORDER_PANES
     // alone would silently drop the new id because the pane entity didn't
@@ -2239,9 +2254,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // content. Keep the draft (and the user's text) intact instead.
       if (usePaneStore.getState().panes[draftId]) {
         console.warn('promoteDraft: id collision, keeping draft', draftId, '→', topic.id);
+        withdrawFirstBubble(draftKey, bubbleId);
         return;
       }
     }
+    // Into the topic's session, id and all, before anything renders the pane
+    // with its new topic: it finds its row already there.
+    carryFirstBubble(draftKey, topic.sessionKey);
     setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
     // Split-layout remap: PanelGrid keys its solo split cells (and their grid
     // slots) by pane id. Announce the promotion so a draft living in a split
@@ -2264,7 +2283,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     try { localStorage.removeItem(draftTextKey(draftId)); } catch {}
     forgetDraft(draftId);
-    await sendMessage(topic.sessionKey, firstMessage, options);
+    await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
   const handleQuickCreateTerminal = useCallback(async (termType: TerminalAgentType = 'shell', skipPermissions = true): Promise<string | null> => {

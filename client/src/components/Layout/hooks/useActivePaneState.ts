@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import type { Topic } from '../../../types';
+import { draftSessionKey } from '../../../state/firstSend';
 import {
   isBrowserPaneId,
   isProjectPaneId,
@@ -49,7 +50,7 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
           name: 'New Chat',
           icon: '💬',
           color: '#0066ff',
-          sessionKey: `draft-session:${id}`,
+          sessionKey: draftSessionKey(id),
           createdAt: DRAFT_SENTINEL_TS,
           updatedAt: DRAFT_SENTINEL_TS,
         } as Topic;

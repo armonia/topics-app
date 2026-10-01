@@ -5,7 +5,7 @@
  * @covers LAYOUT-02
  */
 import { describe, test, expect } from 'bun:test';
-import { reconcilePaneOrder } from './paneOrderReconcile';
+import { reconcilePaneOrder, renamePromotedDrafts } from './paneOrderReconcile';
 
 const PROJECT = 'project:%2FUsers%2Futente%2FProjects%2Ftopics-app';
 
@@ -47,5 +47,29 @@ describe('reconcilePaneOrder — una identità per pane', () => {
   test('lista vuota / store vuoto', () => {
     expect(reconcilePaneOrder([], ['a'])).toEqual([]);
     expect(reconcilePaneOrder(['a', 'a'], [])).toEqual([]);
+  });
+});
+
+describe('renamePromotedDrafts', () => {
+  const promotions = new Map([['draft:x', 't1']]);
+  const promoted = (id: string) => promotions.get(id);
+
+  test('puts the topic where its draft stood', () => {
+    expect(renamePromotedDrafts(['a', 'draft:x', 'b'], ['a', 't1', 'b'], promoted)).toEqual(['a', 't1', 'b']);
+  });
+
+  test('returns the same array when no draft was promoted', () => {
+    const order = ['a', 'b'];
+    expect(renamePromotedDrafts(order, ['a', 'b'], promoted)).toBe(order);
+  });
+
+  test('leaves a draft that is still open alone', () => {
+    const order = ['draft:x', 'a'];
+    expect(renamePromotedDrafts(order, ['draft:x', 'a', 't1'], promoted)).toBe(order);
+  });
+
+  test('does not rename to a topic that is not open', () => {
+    const order = ['draft:x', 'a'];
+    expect(renamePromotedDrafts(order, ['a'], promoted)).toBe(order);
   });
 });

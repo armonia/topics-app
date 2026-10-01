@@ -1029,3 +1029,24 @@ skeleton and the content; and SHALL NOT move the content once it is there.
 - **GIVEN** a chat in the current group and a chat in another group
 - **WHEN** the user switches group and back
 - **THEN** each chat shows its skeleton or its content on the first frame, then its content with no empty frame in between and no jump
+
+### Requirement: BGSTREAM-01 — A stream frame re-renders only what shows its session
+
+A frame of a chat's turn (`stream:start`, a token, the end) for a session that
+no pane in front shows SHALL NOT re-render the application root. The chat's
+per-session turn flags (loading, streaming, thinking, stopped by the user) SHALL
+live outside `App`'s state, in a store with a subscription per session: the pane
+that shows the session subscribes to it (a pane kept alive behind another tab
+included, so its composer's Stop follows the turn), and the sidebar's live set
+is fed from a subscription, not from a render of `App`.
+
+Measured on the base (client-speed audit 2026-09-30, a copy of a real
+workspace): one background `stream:start` plus one token cost 8 React commits
+and 1026 component renders, `App` among the roots.
+
+#### Scenario: a turn starts in a chat nobody is looking at
+- **GIVEN** a chat in front, a second chat kept alive behind another tab, and a third open nowhere
+- **WHEN** a `stream:start` and a token arrive for the second or the third
+- **THEN** `App` does not render, and the component renders stay within the case's budget
+- **AND** the hidden chat's composer shows Stop, and shows Send again once the turn's flag drops with no message changed
+
