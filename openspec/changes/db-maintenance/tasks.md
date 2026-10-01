@@ -8,9 +8,9 @@ temporanee.
 - [x] `server/db.ts`: `PRAGMA auto_vacuum = INCREMENTAL` prima di ogni tabella, solo su DB nuovo
 
 ## 2. Conversione una tantum in `start-prod.sh` (DBMAINT-02)
-- [ ] Test sul passo vero di `start-prod.sh` contro una cartella dati temporanea: converte, salta con DB aperto, salta con disco stretto, salta con marcatore, già convertito = niente
-- [ ] `scripts/enable-incremental-vacuum.ts`: lock esclusivo, checkpoint, backup, disco 2×, `VACUUM`, marcatore sul fallimento
-- [ ] `scripts/start-prod.sh`: il passo prima del ciclo di supervisione, mai bloccante
+- [x] Test sul passo vero di `start-prod.sh` contro una cartella dati temporanea: converte, salta con DB aperto, salta con disco stretto, salta con marcatore, già convertito = niente
+- [x] `scripts/enable-incremental-vacuum.ts`: lock esclusivo, checkpoint, backup, disco 2×, `VACUUM`, marcatore sul fallimento
+- [x] `scripts/start-prod.sh`: il passo prima del ciclo di supervisione, mai bloccante
 
 ## 3. Restituzione a riposo nel server (DBMAINT-03)
 - [ ] Test del giro: tetto per giro, stop quando occupato, salto con `NONE` o freelist vuota
