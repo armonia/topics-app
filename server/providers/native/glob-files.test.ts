@@ -35,6 +35,14 @@ beforeAll(() => {
   writeFileSync(join(base, "elsewhere", "secret.ts"), "needle\n");
   // A folder of the workspace that is a link out of it.
   symlinkSync(join(base, "elsewhere"), join(ws, "out"));
+  // `back -> sub/../decoy` with `sub` a link out: the kernel takes `..` from
+  // where `sub` really points (outside), not from the text (`ws/decoy`).
+  mkdirSync(join(base, "far", "deep"), { recursive: true });
+  mkdirSync(join(base, "far", "decoy"));
+  writeFileSync(join(base, "far", "decoy", "secret.ts"), "needle\n");
+  mkdirSync(join(ws, "decoy"));
+  symlinkSync(join(base, "far", "deep"), join(ws, "sub"));
+  symlinkSync("sub/../decoy", join(ws, "back"));
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
@@ -71,6 +79,13 @@ describe("native search roots follow links before they are checked", () => {
     const r = await glob("**/*");
     expect(r.content.split("\n")).toContain("out");
     expect(r.content).not.toContain("secret.ts");
+  });
+
+  test("a `..` in a link target is taken from where the link really points", async () => {
+    for (const r of [await glob("*", join(ws, "back")), await executeTool("grep", { pattern: "needle", path: "back" }, { workspace: ws })]) {
+      expect(r.isError).toBe(true);
+      expect(r.content).toContain("outside the workspace");
+    }
   });
 
   test("grep refuses the same link as `path`", async () => {

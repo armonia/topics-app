@@ -12,7 +12,7 @@
  * @covers RT-11
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { executeTool } from "./tools";
 import { makeFakeHome, PROTECTED_FILES, type FakeHome } from "../../lib/protected-app-data.fixture";
@@ -116,5 +116,27 @@ describe("a protected root is refused before it is touched", () => {
     } finally {
       chmodSync(locked, 0o755);
     }
+  });
+});
+
+describe("other spellings of a protected folder", () => {
+  // Both exist only on file systems that fold names (APFS, NTFS) and on macOS.
+  const folding = process.platform === "darwin" || process.platform === "win32";
+
+  test.if(folding)("`ſ` (long s) is an `s` to the file system, and to the check", async () => {
+    for (const path of ["Library/Containerſ/com.other.app", "Pictures/Photos Library.photoſlibrary"]) {
+      for (const [tool, pattern] of [["glob", "**/*"], ["grep", "needle"]] as const) {
+        const r = await executeTool(tool, { pattern, path }, { workspace: fake.home });
+        expect(r.content).toContain("private data");
+        expect(leaks(r.content)).toBe(false);
+      }
+    }
+  });
+
+  test.if(process.platform === "darwin")("the data volume's second spelling of HOME is refused before it is touched", async () => {
+    const app = join(fake.home, "Projects", "app");
+    symlinkSync(`/System/Volumes/Data${realpathSync(fake.home)}`, join(app, "firm"));
+    const r = await executeTool("glob", { pattern: "*", path: "firm/Library/Containers/com.other.app" }, { workspace: app });
+    expect(r.content).toContain("private data");
   });
 });

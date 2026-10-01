@@ -44,12 +44,20 @@ const MEDIA_LIBRARY_SUFFIXES = [
 const MEDIA_LIBRARY_NAMES = ["Photo Booth Library"];
 
 const FOLD_CASE = process.platform === "darwin" || process.platform === "win32";
-const key = (p: string): string => (FOLD_CASE ? resolve(p).toLowerCase() : resolve(p));
+/**
+ * A name as the file system compares it. `toLowerCase()` alone is not that:
+ * APFS folds `ſ` (long s) to `s`, so `Containerſ` IS `Containers` on disk and
+ * would walk past a lowercase comparison. NFKC then upper-then-lower folds it,
+ * and the Kelvin sign with it. It folds a little MORE than APFS (fullwidth
+ * letters), which only ever refuses a name, never lets one through.
+ */
+const fold = (s: string): string => (FOLD_CASE ? s.normalize("NFKC").toUpperCase().toLowerCase() : s);
+const key = (p: string): string => fold(resolve(p));
 
 function isMediaLibraryName(name: string): boolean {
-  const n = FOLD_CASE ? name.toLowerCase() : name;
+  const n = fold(name);
   return MEDIA_LIBRARY_SUFFIXES.some((s) => n.endsWith(s))
-    || MEDIA_LIBRARY_NAMES.some((m) => (FOLD_CASE ? m.toLowerCase() : m) === n);
+    || MEDIA_LIBRARY_NAMES.some((m) => fold(m) === n);
 }
 
 /**
@@ -129,7 +137,7 @@ export function protectedDirExcludes(root: string, home: string = homeDir()): st
   names.push(...media);
   const own = basename(resolve(root));
   return names
-    .filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : (FOLD_CASE ? n.toLowerCase() === own.toLowerCase() : n === own)))
+    .filter((n) => !(n.startsWith("*") ? isMediaLibraryName(own) : fold(n) === fold(own)))
     // grep compares `--exclude-dir` with case: on a file system that ignores it,
     // `Old.PHOTOSLIBRARY` is the same package and must be excluded too. The
     // Library folders keep their spelling: macOS creates them, a person does not.

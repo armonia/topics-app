@@ -15,10 +15,12 @@
  * a time with `lstat` and `readlink`, and every prefix is checked against the
  * protected areas BEFORE it is touched: a refused root is refused without a
  * single file-system call inside it, which also means a missing and an existing
- * container answer the same.
+ * container answer the same. A `..` in a link's target is taken the way the
+ * kernel takes it, from the folder the walk has really reached, not by editing
+ * the text of the path.
  */
 import { lstatSync, readlinkSync, realpathSync } from "node:fs";
-import { join, parse, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { homeDir } from "../../lib/broad-cwd";
 import { isInsideDir } from "../../lib/path-containment";
 import { isProtectedRoot } from "../../lib/protected-app-data";
@@ -27,8 +29,21 @@ export type SearchRoot =
   | { ok: true; root: string; home: string }
   | { ok: false; reason: string; missing?: true };
 
-/** Links followed at most: past this a chain is a loop. */
-const MAX_LINKS = 40;
+/** A `\\` is a separator in a link target only on Windows; elsewhere it is part of a name. */
+const TARGET_SEP = process.platform === "win32" ? /[\\/]/ : "/";
+
+/** Links followed at most, as the kernel does (`MAXSYMLINKS`): past this a chain is a loop. */
+const MAX_LINKS = 32;
+
+/**
+ * macOS reaches the data volume under a second spelling too (`/Users/x` is
+ * `/System/Volumes/Data/Users/x`), through a firmlink that `lstat` does not
+ * report as a link. A prefix is checked under both.
+ */
+const DATA_VOLUME = "/System/Volumes/Data";
+function withoutDataVolume(p: string): string | null {
+  return process.platform === "darwin" && p.startsWith(`${DATA_VOLUME}/`) ? p.slice(DATA_VOLUME.length) : null;
+}
 
 type Followed = { path: string } | { refused: true } | { error: "missing" | "unreadable" };
 
@@ -39,8 +54,13 @@ function followLinks(p: string, stop: (prefix: string) => boolean): Followed {
   let rest = relative(cur, abs).split(sep).filter(Boolean);
   let hops = 0;
   while (rest.length > 0) {
-    const next = join(cur, rest.shift()!);
-    if (stop(next)) return { refused: true };
+    const part = rest.shift()!;
+    if (part === ".") continue;
+    // `cur` holds no links any more, so its parent is the real one.
+    if (part === "..") { cur = dirname(cur); continue; }
+    const next = join(cur, part);
+    const alias = withoutDataVolume(next);
+    if (stop(next) || (alias !== null && stop(alias))) return { refused: true };
     let link: boolean;
     try {
       link = lstatSync(next).isSymbolicLink();
@@ -49,10 +69,12 @@ function followLinks(p: string, stop: (prefix: string) => boolean): Followed {
     }
     if (!link) { cur = next; continue; }
     if (++hops > MAX_LINKS) return { error: "unreadable" };
-    // A relative target is relative to the folder that holds the link.
-    const target = resolve(cur, readlinkSync(next));
-    cur = parse(target).root;
-    rest = [...relative(cur, target).split(sep).filter(Boolean), ...rest];
+    const target = readlinkSync(next);
+    if (!target) return { error: "missing" };
+    // A relative target continues from the folder that holds the link; its
+    // components, `..` included, are walked like the rest, never collapsed.
+    if (isAbsolute(target)) cur = parse(target).root;
+    rest = [...target.slice(isAbsolute(target) ? parse(target).root.length : 0).split(TARGET_SEP).filter(Boolean), ...rest];
   }
   return { path: cur };
 }
