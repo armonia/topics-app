@@ -26,7 +26,9 @@ const CSS = readFileSync(join(import.meta.dir, '..', 'index.css'), 'utf8');
 
 /** The `:root` block (light theme), which is where the defects were. */
 function rootBlock(): string {
-  const i = CSS.indexOf(':root');
+  // The selector at the start of a line: a comment that names `:root` (the
+  // motion tokens' note above the block does) is not the block.
+  const i = CSS.search(/^:root\s*\{/m);
   const open = CSS.indexOf('{', i);
   let depth = 0;
   for (let j = open; j < CSS.length; j++) {
