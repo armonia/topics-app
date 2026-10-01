@@ -657,6 +657,17 @@ describe("deriveToolDetail — browser openings", () => {
     for (const [name, result] of failures) {
       expect(deriveToolDetail(name, { url: "http://localhost:1/" }, result).type).toBe("mcp");
     }
+    // A task chat's opening does not fail the call (`navigationFatal: false`):
+    // the context is ready, but the page never loaded. The warning that says
+    // so leads the outcome line, and it is what decides.
+    const OUTCOME = "Browser context ready at http://localhost:5999/ (title: App) \u2014 but NO visible pane is mounted. [contextId: task-12345678-app]";
+    for (const warning of [
+      "navigation failed: goto: net::ERR_CONNECTION_REFUSED",
+      "navigation failed: goto: net::ERR_CONNECTION_REFUSED \u26a0 Nothing answers on port 5999 right now.",
+      'navigation failed: the pane is still on about:blank: "http://localhost:5999/" never loaded. Nothing was shown to the user.',
+    ]) {
+      expect(deriveToolDetail("mcp__topics__open_browser_pane", { url: "http://localhost:5999/", name: "App" }, `${warning}\n${OUTCOME}`).type).toBe("mcp");
+    }
     // The caller knows it failed even when the text does not say so.
     expect(deriveToolDetail("open_browser_pane", { url: "http://localhost:1/" }, OPENED, { failed: true }).type).toBe("mcp");
   });

@@ -139,6 +139,9 @@ const BROWSER_OPEN_NAMES = new Set(["browser_open", "mcp__topics__browser_open"]
  *  wherever a port warning pushed it. The title is lazy so a `)` inside it stays. */
 const OPEN_PANE_OUTCOME = /^(Opened browser pane|Browser context ready) at (\S+)(?: \(title: (.*?)\))?(?= \u2014 |\s*\[contextId:|$)/m;
 const OPENED_CONTEXT = /\[contextId: ([^\]\s]+)\]\s*$/;
+/** The warning a non-fatal opening (a task chat's) puts ahead of its outcome
+ *  when the page never loaded (`server/routes/browser-open-pane-flow.ts`). */
+const NAVIGATION_FAILED = /^navigation failed: /m;
 
 /** `host[:port]` of a URL, or the URL itself when it does not parse. */
 export function pageHost(url: string): string {
@@ -166,6 +169,8 @@ function browserOpenDetail(c: string, a: Record<string, unknown>, result: string
   if (OPEN_PANE_NAMES.has(c)) {
     const m = OPEN_PANE_OUTCOME.exec(result);
     if (!m) return null;
+    // The context is ready but the page is not: nothing was opened to point at.
+    if (NAVIGATION_FAILED.test(result.slice(0, m.index))) return null;
     const contextId = OPENED_CONTEXT.exec(result)?.[1];
     return {
       ...base,
