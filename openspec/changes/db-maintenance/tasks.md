@@ -13,8 +13,8 @@ temporanee.
 - [x] `scripts/start-prod.sh`: il passo prima del ciclo di supervisione, mai bloccante
 
 ## 3. Restituzione a riposo nel server (DBMAINT-03)
-- [ ] Test del giro: tetto per giro, stop quando occupato, salto con `NONE` o freelist vuota
-- [ ] `server/lib/db-incremental-vacuum.ts` + timer in `server.ts` su `whatIsStillWorking()`
+- [x] Test del giro: tetto per giro, stop quando occupato, salto con `NONE` o freelist vuota
+- [x] `server/lib/db-incremental-vacuum.ts` + timer in `server.ts` su `whatIsStillWorking()`
 
 ## 4. Chiusura
 - [ ] Typecheck, lint, `check:*` della CI, `tests/unit`, `review-checks-rails`
