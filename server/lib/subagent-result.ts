@@ -54,8 +54,12 @@ export function promptText(ev: TranscriptEvent | null): string | null {
   return text;
 }
 
-/** How the child's process came to an end, as the server saw it. */
-export type SubAgentEnding = 'exited' | 'stopped' | 'closed' | 'swept' | 'lost';
+/**
+ * How the child's process came to an end, as the server saw it. `reloaded` is
+ * the tab's «Ricarica»: the process goes and comes back under the same id with
+ * `--resume`, which does not go on with a cut turn, so that turn ends there.
+ */
+export type SubAgentEnding = 'exited' | 'stopped' | 'closed' | 'swept' | 'lost' | 'reloaded';
 
 /** The status vocabulary of SUBAGENT-11: `completed` is the only one whose text is an outcome. */
 export type SubAgentStatus = 'completed' | 'failed' | 'stopped' | 'undelivered' | 'lost';
@@ -78,6 +82,7 @@ export type SubAgentReason =
   | { code: 'exited-mid-turn' }
   | { code: 'stopped-by-parent' }
   | { code: 'tab-closed' }
+  | { code: 'reloaded' }
   | { code: 'swept' }
   | { code: 'terminal-lost' };
 
@@ -123,6 +128,7 @@ const cutOutcome = (text: string, ending: SubAgentEnding, exitCode: number | nul
   if (ending === 'lost') return { status: 'lost', partial, text, reason: { code: 'terminal-lost' } };
   if (ending === 'stopped') return { status: 'stopped', partial, text, reason: { code: 'stopped-by-parent' } };
   if (ending === 'closed') return { status: 'stopped', partial, text, reason: { code: 'tab-closed' } };
+  if (ending === 'reloaded') return { status: 'stopped', partial, text, reason: { code: 'reloaded' } };
   if (ending === 'swept') return { status: 'stopped', partial, text, reason: { code: 'swept' } };
   return {
     status: 'failed', partial, text,
@@ -169,6 +175,9 @@ export function classifyChildTurn(
       errorText = text;
       continue;
     }
+    // A synthetic line that is not an error is the CLI's, not the model's: the
+    // "No response requested." a resume appends to a cut turn.
+    if (ev.message?.model === '<synthetic>') continue;
     if (text) turnText = text;
     state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
   }
@@ -232,6 +241,9 @@ export function endingChildTurn(
 ): { turn: number; outcome: SubAgentOutcome } | null {
   const count = lines ? promptCount(lines) : 0;
   if (count > 0 && count <= s.turnsReported) return null;
+  // A Reload before the prompt arrived ends no turn: the child lives on, and
+  // the `undelivered` clock of the live watch still runs.
+  if (count === 0 && s.ending === 'reloaded') return null;
   if (count === 0 && lines && s.undeliveredReported) return null;
   const turn = Math.max(1, count);
   return { turn, outcome: classifyChildTurn(lines, turn, { ending: s.ending, exitCode: s.exitCode })! };

@@ -229,6 +229,31 @@ describe("one result per turn, without waiting for the process to exit (SUBAGENT
     expect(reportsFor(agentId).length).toBe(2);
     expect(rowOf(agentId)?.state).toBe("stopped");
   }, 60_000);
+
+  test("a Reload mid-turn reports the open turn as stopped, and the child can then be retired", async () => {
+    const terminal = await import("../../server/routes/terminal");
+    const { body, child } = await spawn(SONNET_CHAT, { name: "reload-mid" });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    bridge.append(child!, { type: "assistant", message: { model: "claude-sonnet-5-5", role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Mapping the call sites" }, { type: "tool_use", id: "t1", name: "Grep", input: {} }] } });
+    const phase = async () => ((await (await call(agents(SONNET_CHAT), "GET")).json()) as { agents: Array<{ agentId: string; phase: string }> }).agents.find((a) => a.agentId === agentId)?.phase;
+    await untilAsync("the working phase", async () => (await phase()) === "working");
+
+    expect((await call(`/api/terminal/sessions/${agentId}/reload`, "POST")).status).toBe(200);
+    // What the CLI writes when it resumes a conversation cut mid-turn: it does not go on with the turn.
+    const resumed = bridge.children.get(agentId)!;
+    bridge.append(resumed, { type: "user", isMeta: true, message: { role: "user", content: [{ type: "text", text: "Continue from where you left off." }] } });
+    bridge.append(resumed, { type: "assistant", message: { model: "<synthetic>", role: "assistant", stop_reason: "stop_sequence", content: [{ type: "text", text: "No response requested." }] } });
+
+    const [cut] = await until("the reload's result", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
+    expect(cut).toMatchObject({ name: "reload-mid", turn: 1, outcome: { status: "stopped", partial: true, text: "Mapping the call sites", reason: { code: "reloaded" } } });
+    expect(rowOf(agentId)).toMatchObject({ state: "running", turns_reported: 1 });
+    await untilAsync("the finished phase", async () => (await phase()) === "finished");
+    await new Promise((r) => setTimeout(r, 2_500));
+    expect(reportsFor(agentId).length).toBe(1);
+    expect(terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 })).toEqual([agentId]);
+    expect(rowOf(agentId)?.state).toBe("retired");
+  }, 60_000);
 });
 
 describe("a foreground spawn waits for the result (SUBAGENT-13)", () => {

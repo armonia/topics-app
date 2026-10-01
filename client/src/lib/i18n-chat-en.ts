@@ -179,6 +179,7 @@ const CHAT_EN: Dict = {
   'chat.subagent.reason.exited-mid-turn': 'exited mid-turn',
   'chat.subagent.reason.stopped-by-parent': 'stopped with stop_agent',
   'chat.subagent.reason.tab-closed': 'its tab was closed',
+  'chat.subagent.reason.reloaded': 'its tab was reloaded',
   'chat.subagent.reason.swept': 'retired because its parent is no longer working',
   'chat.subagent.reason.terminal-lost': 'its terminal did not survive the restart',
   'chat.subagent.lastSeen': 'Last line seen, not a result:',

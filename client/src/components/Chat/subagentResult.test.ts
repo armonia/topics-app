@@ -1,7 +1,8 @@
 /** @covers SUBAGENT-16 */
 import { describe, expect, test } from 'bun:test';
 import type { ContentBlock, SubagentResultCard } from '../../types';
-import { latestSubagentResult, spawnCardState } from './subagentResult';
+import { latestSubagentResult, reasonText, spawnCardState } from './subagentResult';
+import { ensureLocaleLoaded, t } from '../../lib/i18n';
 import { buildToolDisplayLabel, resolveToolDetail } from './toolDetail';
 import { toolCardHasBody } from './toolCardBody';
 
@@ -47,4 +48,13 @@ describe('spawn_agent is drawn as the sub-agent card, not the generic MCP one', 
       expect(toolCardHasBody(detail)).toBe(true);
     });
   }
+});
+
+describe('the reason a result card names', () => {
+  test('a Reload has words of its own, in both languages', async () => {
+    await ensureLocaleLoaded('en');
+    const tr = (lang: 'it' | 'en') => ((key: string, vars?: Record<string, string>) => t(key, lang, vars)) as never;
+    expect(reasonText(tr('it'), { code: 'reloaded' })).toBe('la sua tab è stata ricaricata');
+    expect(reasonText(tr('en'), { code: 'reloaded' })).toBe('its tab was reloaded');
+  });
 });

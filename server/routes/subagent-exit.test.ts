@@ -53,6 +53,11 @@ describe("formatSubAgentExitBody", () => {
     );
   });
 
+  it("names a Reload as the reason a turn was cut", () => {
+    const outcome: SubAgentOutcome = { status: "stopped", partial: false, text: "", reason: { code: "reloaded" } };
+    expect(formatSubAgentExitBody({ outcome })).toBe("_(fermato prima di finire il turno: la sua tab è stata ricaricata)_");
+  });
+
   it("speaks English when the chat's output language is English", () => {
     const outcome: SubAgentOutcome = { status: "lost", partial: false, text: "", reason: { code: "terminal-lost" } };
     expect(formatSubAgentExitBody({ outcome }, "en"))

@@ -1208,11 +1208,11 @@ function handleBridgeMessage(msg: any) {
       // cascade). The explicit /stop reap path can't reach here — it pre-deletes
       // the session so `exitedSession` would be null — so /stop calls the helper
       // itself. Guarded to topic-parented children inside the helper.
-      // A Reload kills the PTY to relaunch it under the SAME id: that exit is
-      // not the child's end, and reporting it would also make the dedup (keyed
-      // by id) swallow the real report later.
-      if (exitedSession && !reloadingSessionIds.has(msg.id)) {
-        reportChildEnd(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null, 'exited');
+      // A Reload kills the PTY to relaunch it under the SAME id: not the
+      // child's end, but the end of the turn it was in, which `--resume` does
+      // not go on with.
+      if (exitedSession) {
+        reportChildEnd(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null, reloadingSessionIds.has(msg.id) ? 'reloaded' : 'exited');
       }
       break;
     }

@@ -167,6 +167,12 @@ rename of the child's tab SHALL NOT change it.
 - **WHEN** the parent stops it
 - **THEN** the result SHALL be `status: "stopped"`, `partial: true`, carrying that text as the last line seen, not as the outcome
 
+#### Scenario: a Reload mid-turn is stopped, and the child lives on
+- **GIVEN** a working child whose last assistant record is `tool_use` with the text "Mapping the call sites"
+- **WHEN** its tab is reloaded, and the resumed CLI appends only a meta line and a `<synthetic>` "No response requested."
+- **THEN** the turn SHALL be reported as `status: "stopped"`, `partial: true`, with that text and the reason that the tab was reloaded
+- **AND** the child's row SHALL stay `running`, its phase SHALL become finished, and it SHALL be retired like any finished child
+
 #### Scenario: a spend limit is a failure with its reason
 - **GIVEN** a child transcript whose last assistant record is `<synthetic>` with "You've hit your monthly spend limit"
 - **WHEN** the classifier runs

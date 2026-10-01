@@ -98,6 +98,24 @@ describe("endingChildTurn", () => {
     expect(endingChildTurn(fixture("startup-only"), { turnsReported: 0, undeliveredReported: false, ending: "stopped", exitCode: null })?.outcome.status).toBe("undelivered");
   });
 
+  test("a Reload mid-turn is stopped, and the resume's synthetic line is not taken for the child's text", () => {
+    // What `--resume` of a turn cut by the Reload appends: a meta nudge and a synthetic answer, no end_turn.
+    const lines = [
+      ...fixture("stopped-midturn"),
+      JSON.stringify({ type: "user", isMeta: true, message: { role: "user", content: [{ type: "text", text: "Continue from where you left off." }] } }),
+      JSON.stringify({ type: "assistant", message: { model: "<synthetic>", role: "assistant", stop_reason: "stop_sequence", content: [{ type: "text", text: "No response requested." }] } }),
+    ];
+    expect(classifyChildTurn(lines, 1)).toBeNull();
+    expect(endingChildTurn(lines, { turnsReported: 0, undeliveredReported: false, ending: "reloaded", exitCode: null })).toEqual({
+      turn: 1, outcome: { status: "stopped", partial: true, text: "Sto mappando dove il tool_result finisce", reason: { code: "reloaded" } },
+    });
+  });
+
+  test("a Reload before the prompt arrived reports nothing: the undelivered clock still runs", () => {
+    expect(endingChildTurn(fixture("startup-only"), { turnsReported: 0, undeliveredReported: false, ending: "reloaded", exitCode: null })).toBeNull();
+    expect(endingChildTurn(null, { turnsReported: 0, undeliveredReported: false, ending: "reloaded", exitCode: null })).toBeNull();
+  });
+
   test("a completed turn the monitor had not seen yet is still completed at the stop", () => {
     expect(endingChildTurn(fixture("completed"), { turnsReported: 0, undeliveredReported: false, ending: "stopped", exitCode: null })).toEqual({
       turn: 1, outcome: { status: "completed", partial: false, text: "Report: 3 files" },

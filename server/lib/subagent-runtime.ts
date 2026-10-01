@@ -155,7 +155,12 @@ function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitC
   if (result.status === 'undelivered') runtimeOf(result.agentId).undeliveredReported = true;
   else markTurnReported(db, result.agentId, result.turn);
   const rt = childRuntime.get(result.agentId);
-  if (rt && result.status !== 'undelivered') rt.phase = 'finished';
+  if (rt && result.status !== 'undelivered') {
+    rt.phase = 'finished';
+    // A look already in flight may have read the row before this report and
+    // set the phase back: the next tick reads the file again and settles it.
+    rt.lastSize = -1;
+  }
   deps().broadcast();
   const hold = foregroundHolds.get(result.agentId);
   if (hold) {
@@ -326,7 +331,9 @@ async function settledChildLines(child: ChildRef, done: (lines: string[] | null)
  * by itself, or lost with its terminal. Its row records the end, and the turn
  * it was in is reported, unless it was already: an idle child stopped after
  * its report produces no second result (SUBAGENT-11). A retirement is not an
- * end, and neither is a Reload (the caller skips that one).
+ * end. A Reload is not one either: the child comes back under the same id, so
+ * its row stays `running` and the watch keeps what it knows of it, but the
+ * turn it cut is reported as `stopped`.
  */
 export function reportChildEnd(child: ChildRef, exitCode: number | null, ending: SubAgentEnding): void {
   if (!child.parentSessionKey) return;
@@ -334,9 +341,10 @@ export function reportChildEnd(child: ChildRef, exitCode: number | null, ending:
   const db = getDatabase();
   const row = getSubagent(db, child.id);
   if (row?.state === 'retired') return;
-  if (row) setSubagentState(db, child.id, ending === 'lost' ? 'lost' : 'stopped');
+  const reloaded = ending === 'reloaded';
+  if (row && !reloaded) setSubagentState(db, child.id, ending === 'lost' ? 'lost' : 'stopped');
   const rt = childRuntime.get(child.id);
-  childRuntime.delete(child.id);
+  if (!reloaded) childRuntime.delete(child.id);
   void (async () => {
     const verdictOf = (lines: string[] | null) => endingChildTurn(lines, {
       turnsReported: getSubagent(getDatabase(), child.id)?.turnsReported ?? 0,

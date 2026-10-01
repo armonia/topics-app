@@ -150,22 +150,27 @@ describe("spawn_agent from a chat", () => {
     expect(stateOf(agentId)).toBe("stopped");
   }, 30_000);
 
-  test("a Reload is not the child's end; closing its tab later reports it once, as closed", async () => {
+  test("a Reload ends the open turn as stopped, not the child; closing its tab later reports the next turn once, as closed", async () => {
     const { agentId, child } = await spawn("dnd-audit", "Audit del drag-and-drop degli split.");
     await until("the prompt record", () => hasPrompt(child));
     append(child, { type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Leggo PanelGrid" }] } });
-    // The Reload kills the PTY and relaunches it under the same id. Its exit
-    // used to be reported, and the dedup by id then swallowed the real end.
+    // The Reload kills the PTY and relaunches it under the same id with
+    // `--resume`, which does not go on with the cut turn: that turn ends here.
     expect((await call(`/api/terminal/sessions/${agentId}/reload`, "POST")).status).toBe(200);
+    const [cut] = await until("the reload's report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 10_000);
+    expect(cut!.outcome).toEqual({ status: "stopped", partial: true, text: "Leggo PanelGrid", reason: { code: "reloaded" } });
+    expect(stateOf(agentId)).toBe("running");
+    // The child lives on and is given a second turn.
+    const resumed = bridge.children.get(agentId)!;
+    append(resumed, { type: "user", message: { role: "user", content: "Ora gli split annidati." } });
+    append(resumed, { type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Leggo SplitPane" }] } });
     // A person closes the tab: retired before the bridge's exit frame, which
     // used to leave the chat with no report at all.
     expect((await call(`/api/terminal/sessions/${agentId}`, "DELETE")).status).toBe(200);
-    const [report] = await until("the report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 10_000);
-    expect(report!.outcome).toEqual({ status: "stopped", partial: true, text: "Leggo PanelGrid", reason: { code: "tab-closed" } });
+    await until("the close's report", () => reportsFor(agentId).length > 1, 10_000);
+    expect(reportsFor(agentId)[1]).toMatchObject({ turn: 2, outcome: { status: "stopped", partial: true, text: "Leggo SplitPane", reason: { code: "tab-closed" } } });
     expect(stateOf(agentId)).toBe("stopped");
-    // A report of the Reload would have started earlier on the same schedule,
-    // so it would already be here.
-    expect(reportsFor(agentId)).toHaveLength(1);
+    expect(reportsFor(agentId)).toHaveLength(2);
   }, 30_000);
 
   test("a built-in Agent id gets a 404 that says so", async () => {

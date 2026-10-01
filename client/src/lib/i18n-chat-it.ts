@@ -200,6 +200,7 @@ const CHAT_IT: Dict = {
   'chat.subagent.reason.exited-mid-turn': 'uscito a metà turno',
   'chat.subagent.reason.stopped-by-parent': 'fermato con stop_agent',
   'chat.subagent.reason.tab-closed': 'la sua tab è stata chiusa',
+  'chat.subagent.reason.reloaded': 'la sua tab è stata ricaricata',
   'chat.subagent.reason.swept': "ritirato perché chi l'ha lanciato non lavora più",
   'chat.subagent.reason.terminal-lost': 'il suo terminale non è sopravvissuto al riavvio',
   'chat.subagent.lastSeen': 'Ultima riga vista, non un esito:',
