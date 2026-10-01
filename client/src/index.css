@@ -4803,6 +4803,17 @@ html.windows-acrylic .floating-splits [data-split-card] [data-split-card] {
 
 .reveal-in { animation: revealIn var(--motion-fast) var(--ease-standard) both; }
 
+/* A native fold (`<details>`) opens with the same fade as `.reveal-in`, on
+ * what it reveals. Opacity only: a height animation would move everything
+ * under the fold for 150ms, and none of these folds is measured mid-open.
+ * Under `.anims-paused` it is switched off like the class it mirrors. */
+details[open] > :not(summary) {
+  animation: revealIn var(--motion-fast) var(--ease-standard) both;
+}
+.anims-paused details[open] > :not(summary) {
+  animation: none !important;
+}
+
 /* IL FANTASMA CHE VIAGGIA fra due colonne della board.
    È una copia della card, `fixed` sul body: dentro la colonna non poteva
    volare, perché un corpo colonna scorre (`overflow-y: auto`) e un contenitore
