@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.422",
+    "date": "2026-10-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A chat whose long reply ran while it was hidden is at its bottom on the first frame of the return, and moves by less than a pixel after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reader who scrolled up stays where they are when a new row lands in the same frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The short-chat reload test counts its history request on WebKit too",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "useHiddenTurnReturn chiama frameId il frame in coda, non raf",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.421",
     "date": "2026-10-01",
     "sections": {
@@ -53,7 +84,17 @@
           "scope": null
         },
         {
+          "it": "Inside a project, the tab of a sub-agent its parent stopped stays open while its chat shows it ended",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Le righe della palette restano dove sono finché la query non cambia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chat whose turn ran while it was hidden behind another tab is at its bottom on the first frame of the return, and nothing moves after it",
           "en": "",
           "scope": null
         }
@@ -230,6 +271,16 @@
         },
         {
           "it": "The client takes the patched dompurify 3.4.16",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A sender whose reply was cut short shows the lines the turn says while its reload is in flight",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The reconnect test reads the reloaded chat once it is on screen, and checks that coming back reads nothing more",
           "en": "",
           "scope": null
         }

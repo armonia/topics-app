@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.422 — 2026-10-01
+
+### Sotto il cofano
+- A chat whose long reply ran while it was hidden is at its bottom on the first frame of the return, and moves by less than a pixel after it
+- A reader who scrolled up stays where they are when a new row lands in the same frame
+- The short-chat reload test counts its history request on WebKit too
+- useHiddenTurnReturn chiama frameId il frame in coda, non raf
+
 ## 2.2.421 — 2026-10-01
 
 ### Sotto il cofano
@@ -14,7 +22,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La palette non rifà la ricerca dei messaggi a ogni aggiornamento di una chat
 - PALETTE-19 nomina chi scrive la posizione della lista quando fallisce
 - PALETTE-19 riporta anche le mutazioni della lista accanto agli eventi di scroll
+- Inside a project, the tab of a sub-agent its parent stopped stays open while its chat shows it ended
 - Le righe della palette restano dove sono finché la query non cambia
+- A chat whose turn ran while it was hidden behind another tab is at its bottom on the first frame of the return, and nothing moves after it
 
 ## 2.2.420 — 2026-10-01
 
@@ -52,6 +62,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A countdown close in a project window reconciles rows and focus against the current groups, so a split made during the countdown stays where it is and keeps the focus
 - A chat's background line is proven to list only that chat's commands, and a backtick in a command's description no longer breaks its wake text
 - The client takes the patched dompurify 3.4.16
+- A sender whose reply was cut short shows the lines the turn says while its reload is in flight
+- The reconnect test reads the reloaded chat once it is on screen, and checks that coming back reads nothing more
 
 ## 2.2.418 — 2026-09-30
 
