@@ -220,7 +220,15 @@ test.describe("Command Palette, opening and typing", () => {
         w.__palTrail = [];
         w.__palWrites = [];
         el.setAttribute("data-e2e-scroller", "1");
-        el.addEventListener("scroll", () => w.__palTrail.push(`${Math.round(el.scrollTop)}/${el.scrollHeight}/${el.clientHeight}`));
+        const t0 = performance.now();
+        const at = () => `+${Math.round(performance.now() - t0)}`;
+        el.addEventListener("scroll", () => w.__palTrail.push(`${at()}:${Math.round(el.scrollTop)}/${el.scrollHeight}/${el.clientHeight}`));
+        // What changed in the list, and when, next to the scroll events.
+        new MutationObserver((ms) => {
+          let added = 0, removed = 0, text = 0, attrs = 0;
+          for (const m of ms) { added += m.addedNodes.length; removed += m.removedNodes.length; if (m.type === "characterData") text++; if (m.type === "attributes") attrs++; }
+          w.__palTrail.push(`${at()}:dom(+${added} -${removed} txt${text} attr${attrs} top=${Math.round(el.scrollTop)})`);
+        }).observe(el, { childList: true, subtree: true, characterData: true, attributes: true });
         // Who writes the position: the first frames of each writer's stack.
         const note = (what: string) => w.__palWrites.push(`${what} @ ${(new Error().stack ?? "").split("\n").slice(2, 6).map((s) => s.trim()).join(" < ")}`);
         const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
