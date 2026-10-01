@@ -23,7 +23,8 @@ const { commandBackgroundWork, commandServices, createProcessesRouter, topicComm
 
 let ctx: AppContext;
 let processes: ReturnType<typeof createProcessesRouter>;
-const started: string[] = [];
+/** Every command a test ran, with its chat: what `afterAll` makes sure has exited. */
+const started: { processId: string; topicId: string }[] = [];
 
 beforeAll(async () => {
   ctx = await createTestAppContext();
@@ -31,7 +32,10 @@ beforeAll(async () => {
   processes = createProcessesRouter(ctx);
 });
 afterAll(async () => {
-  for (const id of started) await call("POST", `/api/scripts/${id}/stop`).catch(() => {});
+  // A test that failed before its Stop: stop what it left and wait for the exits.
+  const left = started.filter((s) => isRunning(s.topicId, s.processId));
+  for (const s of left) await call("POST", `/api/scripts/${s.processId}/stop`).catch(() => {});
+  await until(() => !left.some((s) => isRunning(s.topicId, s.processId)));
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
 });
@@ -70,7 +74,7 @@ const serverCommand = (port: number) =>
 async function run(topic: Topic, command: string, wake: boolean): Promise<string> {
   const res = await call("POST", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/commands/run`, { command, wake, description: `srv ${seq}` });
   const { processId } = (await res.json()) as { processId: string };
-  started.push(processId);
+  started.push({ processId, topicId: topic.id });
   return processId;
 }
 
@@ -78,6 +82,12 @@ async function until(ok: () => boolean, ms = 12_000): Promise<void> {
   const end = Date.now() + ms;
   while (!ok() && Date.now() < end) await Bun.sleep(100);
 }
+
+/** Does a server still answer on this port. */
+const answers = (port: number) => fetch(`http://127.0.0.1:${port}/`).then((r) => r.text()).then((t) => t === "SRV-OK").catch(() => false);
+
+const isRunning = (topicId: string, processId: string) =>
+  topicCommandProcesses(topicId).some((p) => p.processId === processId && p.status === "running");
 
 const servicesOf = (topic: Topic) => commandServices().find((r) => r.topicId === topic.id)?.services ?? [];
 
@@ -103,6 +113,7 @@ describe("a command that serves a port without waking the chat", () => {
     await until(() => !!servicesOf(topic)[0]?.ended);
     expect(servicesOf(topic)[0]?.ended).toMatchObject({ stopped: true, exitCode: null });
     expect(topicCommandProcesses(topic.id).map((p) => p.status)).toEqual(["done"]);
+    expect(await answers(port)).toBe(false);
   }, 30_000);
 
   test("a command that wakes the chat stays background work, port or not", async () => {
@@ -120,5 +131,9 @@ describe("a command that serves a port without waking the chat", () => {
     expect(commandBackgroundWork.tasks(topic.sessionKey).map((t) => t.processId)).toEqual([processId]);
     expect(servicesOf(topic)).toEqual([]);
     expect((await call("POST", `/api/scripts/${processId}/stop`)).status).toBe(200);
+    // The Stop signals in the background: wait for the exit, or the test
+    // process ends first and leaves the server running with no one to stop it.
+    await until(() => !isRunning(topic.id, processId));
+    expect(await answers(port)).toBe(false);
   }, 30_000);
 });
