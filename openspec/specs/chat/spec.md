@@ -1551,6 +1551,15 @@ A top-level terminal tab of a chat's sub-agent SHALL NOT be closed by the end of
 - **WHEN** the parent stops the sub-agent, which deletes its session instead of parking it
 - **THEN** the tab SHALL stay open while the strip shows the row marked ended, also after a reload
 
+### Requirement: SUBSTRIP-01i — A sub-agent stopped while the app is closed keeps its project tab at the next launch
+
+Inside a project window, the terminal tab of a chat's sub-agent whose session ended while no page of the app was open SHALL stay open at the next launch, with the chat's strip showing its row marked ended (SUBSTRIP-01g), also when the roster answers after the parked-sessions list.
+
+#### Scenario: The parent stops the sub-agent while the app is closed
+- **GIVEN** a project's chat whose live sub-agent's terminal tab is open in the project window
+- **WHEN** the app is closed, the parent stops the sub-agent, and the app is opened again
+- **THEN** the tab SHALL be open and the strip SHALL show the row marked ended, also after a further reload
+
 ### Requirement: SUBSTRIP-01d — A dismissal holds in every window of the browser
 
 The ended rows and the dismissals SHALL be shared by every window of the same browser: a row dismissed in one window SHALL disappear from the others, and no window SHALL bring it back by writing its own older copy.

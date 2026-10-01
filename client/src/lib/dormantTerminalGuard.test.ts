@@ -14,6 +14,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { createDormantTerminalGuard } from './dormantTerminalGuard';
+import { BOOT_READ_TTL_MS } from './coalesceFetch';
 
 /** A controlled fetcher: answers what it is told to, and counts the calls. */
 function fetcherOf(...answers: string[][]) {
@@ -130,5 +131,45 @@ describe('dormantTerminalGuard', () => {
     guard.recheck(['A', 'Z']);
     await settle();
     expect(calls.length).toBe(before);
+  });
+});
+
+/**
+ * THE RE-READ IS A REQUEST OF ITS OWN, ALSO IN THE FIRST SECONDS AFTER BOOT.
+ * The boot read goes through `coalescedFetch` with a 2 s TTL (every project
+ * window asks at once). A re-read went the same way, so a session that left
+ * the roster within 2 s of boot was ruled on the answer read BEFORE it left:
+ * parked meanwhile, it was not listed, and its tab was pruned as gone. Driven
+ * through the real fetcher, with the network stubbed at `fetch`.
+ */
+describe('dormantTerminalGuard, real fetcher', () => {
+  test('a re-read inside the boot TTL asks the server again and keeps a session parked meanwhile', async () => {
+    const realFetch = globalThis.fetch;
+    let parked: string[] = [];
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests++;
+      return new Response(JSON.stringify(parked.map(id => ({ id }))), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const guard = createDormantTerminalGuard({ onUpdate: () => {} });
+      const started = Date.now();
+      guard.load();
+      await settle();
+      expect(guard.loaded).toBe(true);
+      expect(requests).toBe(1);
+
+      // `/exit` in a claude tab: the row is parked, then the roster drops it.
+      parked = ['A'];
+      guard.recheck(['A']);
+      await settle();
+      await settle();
+      expect(Date.now() - started).toBeLessThan(BOOT_READ_TTL_MS);
+      expect(requests).toBe(2);
+      expect(guard.dormantIds.has('A')).toBe(true);
+      expect(guard.confirmedGoneIds.has('A')).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

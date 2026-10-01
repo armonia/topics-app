@@ -15,7 +15,7 @@
  * reached. The tripwire below refuses to go on if the PTY resolved any other
  * binary.
  *
- * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f SUBSTRIP-01g SUBSTRIP-01h
+ * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f SUBSTRIP-01g SUBSTRIP-01h SUBSTRIP-01i
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -483,6 +483,54 @@ test("SUBSTRIP-01g: inside a project, the tab of a sub-agent its parent stopped 
   await stripRow(page).getByTestId("subagent-dismiss").click();
   await expect(stripRow(page)).toHaveCount(0);
   await expect(inProject).toHaveCount(0, { timeout: 5_000 });
+  await resetProjectPanes(page.request, projectDir).catch(() => {});
+  removeTmpDir(projectDir);
+});
+
+/**
+ * The same end, while no page of the app is open: the next launch is the first
+ * to see the roster without it. It compares that roster with the one it cached
+ * (`terminal-sessions-cache`) and records the end; the project window rules on
+ * the same roster, and its tab is one it has never seen in a roster of its
+ * own, so an authoritative roster that does not list it prunes it unless the
+ * end is already known.
+ */
+test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the app was closed stays open with its ended row", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01i" });
+  const dormantReads = countDormantReads(page);
+  const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-ends-while-closed", true);
+  // The page has cached a roster that lists it live: that is what the next
+  // launch compares with.
+  await expect.poll(() => page.evaluate((sid) => {
+    const raw = localStorage.getItem("terminal-sessions-cache");
+    return !!raw && (JSON.parse(raw) as Array<{ id: string }>).some((s) => s.id === sid);
+  }, agentId), { timeout: 15_000 }).toBe(true);
+  await twoFrames(page);
+
+  // The app closed; the parent stops it meanwhile.
+  await page.goto("about:blank");
+  await stopSubAgent(page.request, agentId);
+
+  // The roster answers after the dormant list, as a loaded server's may: the
+  // project window then rules on the first roster that comes in, and nothing
+  // orders that ruling after the page's record of the end.
+  const roster = (url: URL) => url.pathname === "/api/terminal/sessions";
+  await page.route(roster, async (route) => { await new Promise((r) => setTimeout(r, 600)); await route.continue(); });
+  const before = dormantReads();
+  await page.goto("/");
+  await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
+  await showChat(page);
+  await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 20_000 });
+  await expect.poll(dormantReads, { timeout: 15_000 }).toBeGreaterThan(before);
+  await expect.poll(() => clientDropped(page, agentId), { timeout: 15_000 }).toBe(true);
+  await twoFrames(page);
+  await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
+  expect(await inProject.count(), "the tab of the sub-agent stopped while the app was closed").toBe(1);
+  await page.unroute(roster);
+
+  // And the next launch keeps it too, on a roster cache that no longer lists it.
+  await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
+  expect(await inProject.count(), "the ended sub-agent's tab, after a reload").toBe(1);
   await resetProjectPanes(page.request, projectDir).catch(() => {});
   removeTmpDir(projectDir);
 });
