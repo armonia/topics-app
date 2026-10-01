@@ -301,12 +301,19 @@ export async function dispatchBrowserToolCall(
   topic: Topic,
   browserService: BrowserService,
 ): Promise<unknown> {
-  return dispatchBrowserToolCallByContext(
-    toolName,
-    args,
-    resolveContextIdForTopic(topic),
-    browserService,
-  );
+  const contextId = resolveContextIdForTopic(topic);
+  const result = await dispatchBrowserToolCallByContext(toolName, args, contextId, browserService);
+  return toolName === "browser_open" ? withOpenedContext(result, contextId) : result;
+}
+
+/**
+ * A successful `browser_open` says which context it navigated (BROWSER-CHAT-05):
+ * the chat marker uses it to bring that page back on screen. A result carrying
+ * an `error` opened nothing, so it gets no context to point at.
+ */
+function withOpenedContext(result: unknown, contextId: string): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result) || "error" in result) return result;
+  return { ...result, contextId };
 }
 
 /**

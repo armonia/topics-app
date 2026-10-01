@@ -846,6 +846,32 @@ describe("handleMessage", () => {
     }
   });
 
+  test("open_browser_pane: the text names the context it opened, at the END, in both outcomes (BROWSER-CHAT-05)", async () => {
+    // The chat marker and browser_focus_tab need to know WHICH page this was.
+    // The prefix stays as it was: pane-nav-outcome and the agents read it.
+    const orig = globalThis.fetch;
+    const call = async (visible: boolean) => {
+      (globalThis as any).fetch = stubFetch(async () =>
+        new Response(JSON.stringify({ url: "https://example.com/", title: "T", visible, contextId: "topic-1" }), { status: 200 }),
+      );
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 79, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "https://example.com/" } } },
+        ARGS,
+      );
+      return (resp!.result as any).content[0].text as string;
+    };
+    try {
+      const opened = await call(true);
+      expect(opened.startsWith("Opened browser pane at https://example.com/ (title: T)")).toBe(true);
+      expect(opened.endsWith("[contextId: topic-1]")).toBe(true);
+      const ready = await call(false);
+      expect(ready.startsWith("Browser context ready at https://example.com/ (title: T)")).toBe(true);
+      expect(ready.endsWith("[contextId: topic-1]")).toBe(true);
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   test("open_browser_pane: a foreign-port warning LEADS the text, it does not trail it (task f9cf765e)", async () => {
     const orig = globalThis.fetch;
     (globalThis as any).fetch = stubFetch(async () =>

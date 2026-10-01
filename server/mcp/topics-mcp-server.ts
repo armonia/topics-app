@@ -953,7 +953,7 @@ export async function callOpenBrowserPane(
   args: ParsedArgs,
   toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ url: string; title: string; visible: boolean; warning?: string }> {
+): Promise<{ url: string; title: string; visible: boolean; contextId?: string; warning?: string }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
     throw new Error("open_browser_pane: 'url' (string) is required");
   }
@@ -987,7 +987,7 @@ export async function callOpenBrowserPane(
     const text = await resp.text().catch(() => "");
     throw new Error(`topics-app HTTP ${resp.status}: ${text || resp.statusText}`);
   }
-  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; warning?: unknown; error?: unknown };
+  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; contextId?: unknown; warning?: unknown; error?: unknown };
   if (body.error) throw new Error(String(body.error));
   return {
     url: typeof body.url === "string" ? body.url : toolArgs.url,
@@ -995,6 +995,9 @@ export async function callOpenBrowserPane(
     // Assente (server più vecchio del flag) ⇒ si tiene il messaggio storico:
     // meglio non dire niente che dire «invisibile» a un server che non lo sa.
     visible: body.visible !== false,
+    // Absent from a server older than BROWSER-CHAT-05: then the text simply
+    // does not name it, and the chat falls back to the topic's own context.
+    ...(typeof body.contextId === "string" && body.contextId ? { contextId: body.contextId } : {}),
     // The foreign-port / no-response check (task f9cf765e): present only when
     // there IS something to say, so a plain open keeps its plain result shape.
     ...(typeof body.warning === "string" && body.warning ? { warning: body.warning } : {}),
@@ -2698,9 +2701,13 @@ export const TOOL_HANDLERS: Record<
     // I due esiti DEVONO leggersi diversi. Finché il messaggio era lo stesso,
     // «pane aperta» e «contesto vivo che nessuno vede» erano indistinguibili da
     // fuori: né l'agente né l'umano potevano accorgersi del guasto.
-    const body = r.visible
+    const outcome = r.visible
       ? `Opened browser pane at ${where}`
       : `Browser context ready at ${where} — but NO visible pane is mounted (no Topics window took it). The page is loaded and drivable with browser_*; call browser_focus_tab to surface it, or tell the user it is not on screen.`;
+    // The context goes LAST, so every reader of the prefix (pane-nav-outcome,
+    // the agents themselves) keeps reading what it always read. The chat
+    // marker parses it back out (`shared/tool-detail.ts`).
+    const body = r.contextId ? `${outcome} [contextId: ${r.contextId}]` : outcome;
     // The port/project warning (task f9cf765e) LEADS the result: it is the one
     // line an agent skimming "Opened browser pane at ..." must not be able to
     // miss, so it is not appended at the end where a long result truncates it.

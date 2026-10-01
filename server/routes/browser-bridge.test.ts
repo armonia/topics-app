@@ -16,6 +16,7 @@
  * `getOrCreate`, `listContexts`, `destroyContext`), così le asserzioni cadono
  * sul contextId che il ponte ha SCELTO, non su un mock del ponte stesso.
  * @covers BROWSER-CHAT-03
+ * @covers BROWSER-CHAT-05
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -310,7 +311,9 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: true });
+    // The context travels back too (BROWSER-CHAT-05): it is what lets the chat
+    // marker and `browser_focus_tab` find this exact page again.
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: true, contextId: "t1" });
     // L'ordine è il fix del guasto: prima il client monta il pannello sotto
     // ctxId, poi ci si naviga dentro. Invertito, Playwright guidava un fantasma.
     expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/" });
@@ -326,7 +329,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/inizio" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/finale", title: "Titolo", visible: true });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/finale", title: "Titolo", visible: true, contextId: "t1" });
     expect(h.typed("browser:navigate").map((b) => b.url)).toEqual([
       "https://example.com/inizio",
       "https://example.com/finale",
@@ -340,7 +343,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true, contextId: "task-12345678-aaaaaaaaa" });
     // contextId STABILE per (task, topic): riaprire riusa la stessa scheda.
     expect(h.typed("browser:open-task-tab")[0]).toMatchObject({
       taskId: "12345678-task",
@@ -445,7 +448,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     // nomi degeneri in UNA tab sola, che è peggio del ripiego.
     const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://x.test/", name: "###" });
 
-    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "", visible: true });
+    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "", visible: true, contextId: "task-12345678-aaaaaaaaa" });
     expect(h.persisted[0].contextId).toBe("task-12345678-aaaaaaaaa");
     expect(h.persisted[0].title).toBe("");
   });
@@ -520,7 +523,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true, contextId: "term-42" });
     expect(h.broadcasts).toEqual([{
       type: "browser:open-near-pane",
       paneId: "terminal:42",
@@ -685,7 +688,7 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: false });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: false, contextId: "t1" });
     expect(h.typed("browser:force-open")).toEqual([
       { type: "browser:force-open", contextId: "t1", url: "https://example.com/" },
     ]);
@@ -778,7 +781,7 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
 
     const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false, contextId: "term-42" });
     expect(h.typed("browser:force-open")[0]).toMatchObject({ contextId: "term-42" });
   });
 
@@ -795,7 +798,7 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
     // `visible:false` is the HONEST answer: the drawer is closed, the
     // navigation still went to the headless context (where observe/act land),
     // but nobody is watching it and the caller knows.
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false, contextId: "task-12345678-aaaaaaaaa" });
     expect(h.navigations).toEqual([{ contextId: "task-12345678-aaaaaaaaa", url: "https://example.com/" }]);
   });
 });
