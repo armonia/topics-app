@@ -240,6 +240,16 @@ scelta; lo stesso limite non scritto è una sorpresa.
 - **GIVEN** un livello non riconosciuto
 - **THEN** SHALL valere il predefinito, non quello permissivo
 
+#### Scenario: uno strumento di lettura non esegue niente
+- **GIVEN** il livello che CHIEDE, e una ricerca per nome o per contenuto il cui
+  testo contiene una sostituzione di comando, un `..` o un trattino iniziale
+- **THEN** il testo SHALL essere trattato come un modello da cercare e mai come
+  un comando o un'opzione, e la ricerca NON SHALL uscire dalla cartella di lavoro,
+  nemmeno attraverso un collegamento simbolico che sta dentro di essa
+- **AND** una ricerca indicata DENTRO i dati privati di un'altra app (cartelle per
+  app di `~/Library`, librerie di foto) NON SHALL partire, se la cartella di
+  lavoro non sta già lì
+
 ### Requirement: RT-08 — Una sessione ferma si sfratta, un turno vivo MAI
 
 Le sessioni tenute in memoria SHALL essere SFRATTATE dopo un tempo di inattività:

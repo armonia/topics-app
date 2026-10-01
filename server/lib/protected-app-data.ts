@@ -52,14 +52,18 @@ function isMediaLibraryName(name: string): boolean {
     || MEDIA_LIBRARY_NAMES.some((m) => (FOLD_CASE ? m.toLowerCase() : m) === n);
 }
 
-/** Every protected area `abs` lies in (the area's own root, case-folded). */
-function areasOf(abs: string, home: string): string[] {
+/**
+ * Every protected area `abs` lies in (the area's own root, case-folded).
+ * `wholeLibrary: false` leaves out `~/Library` itself and keeps the per-app
+ * folders and media libraries.
+ */
+function areasOf(abs: string, home: string, wholeLibrary = true): string[] {
   const p = key(abs);
   const out: string[] = [];
   if (home) {
     const lib = key(join(home, "Library"));
     if (isInsideDir(p, lib)) {
-      out.push(lib);
+      if (wholeLibrary) out.push(lib);
       for (const d of PROTECTED_LIBRARY_DIRS) {
         const area = key(join(home, "Library", d));
         if (isInsideDir(p, area)) out.push(area);
@@ -80,6 +84,18 @@ function areasOf(abs: string, home: string): string[] {
 export function isProtectedFromWalk(dir: string, root: string, home: string = homeDir()): boolean {
   const rootAreas = new Set(areasOf(root, home));
   return areasOf(dir, home).some((a) => !rootAreas.has(a));
+}
+
+/**
+ * May a search start at `root`, chosen by an agent whose workspace is
+ * `workspace`? `true` = it must not: `root` is inside another app's folder or a
+ * media library that the workspace is not in. `~/Library` itself and
+ * `~/Library/Logs` are fine as roots: naming them is a choice, and the walk
+ * from there still stops at the per-app folders (`isProtectedFromWalk`).
+ */
+export function isProtectedRoot(root: string, workspace: string, home: string = homeDir()): boolean {
+  const own = new Set(areasOf(workspace, home, false));
+  return areasOf(root, home, false).some((a) => !own.has(a));
 }
 
 /**

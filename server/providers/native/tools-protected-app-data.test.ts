@@ -3,10 +3,8 @@
  * HOME (a topic whose project is the home folder) it must not read other apps'
  * data on the way (`lib/protected-app-data.ts`).
  *
- * `glob` is not covered here on purpose: it is a bash pattern, and the macOS
- * `/bin/bash` (3.2) has no `globstar`, so `**` matches ONE level like `*`. It
- * reaches inside another app's folder only when the pattern itself spells
- * every level out, which is the agent asking, not the server walking.
+ * `glob` walks in-process (`glob-files.ts`), so it is held to the same rule,
+ * even when the pattern names a protected folder outright.
  *
  * The workspace is a temporary tree laid out like a home, never the real one.
  * Every protected file holds `needle`, so a walk that enters one shows it.
@@ -14,12 +12,21 @@
  * @covers RT-11
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { executeTool } from "./tools";
 import { makeFakeHome, PROTECTED_FILES, type FakeHome } from "../../lib/protected-app-data.fixture";
 
 let fake: FakeHome;
-beforeAll(() => { fake = makeFakeHome(); });
+beforeAll(() => {
+  fake = makeFakeHome();
+  // Links a project might hold: one to another app's folders, one to Library.
+  symlinkSync(join(fake.home, "Library", "Containers"), join(fake.home, "Projects", "app", "c"));
+  symlinkSync(join(fake.home, "Library"), join(fake.home, "Projects", "app", "lib2"));
+});
+
+/** A protected file shows up in `content`, whatever folder or link it was reached through. */
+const leaks = (content: string) => PROTECTED_FILES.some((rel) => content.includes(rel.split("/").slice(-2).join("/")));
 afterAll(() => fake.dispose());
 
 describe("native grep from a workspace at HOME", () => {
@@ -35,5 +42,57 @@ describe("native grep from a workspace at HOME", () => {
     const r = await executeTool("grep", { pattern: "needle", path: join(fake.home, "Library") }, { workspace: fake.home });
     expect(r.content).toContain("Logs/app.log");
     for (const rel of PROTECTED_FILES) expect(r.content).not.toContain(rel);
+  });
+});
+
+describe("native glob from a workspace at HOME", () => {
+  test("`**` lists the home's files and nothing under Library or in a photo library", async () => {
+    const r = await executeTool("glob", { pattern: "**/*" }, { workspace: fake.home });
+    expect(r.content).toContain("notes.txt");
+    expect(r.content).toContain("Projects/app/src/a.ts");
+    for (const rel of PROTECTED_FILES) expect(r.content).not.toContain(rel);
+    expect(r.content).not.toContain("Library/Logs");
+  });
+
+  test("a pattern that names a protected folder is refused, not walked", async () => {
+    for (const pattern of ["Library/Containers/**/*", "Library/**/*.txt", "Pictures/Photos Library.photoslibrary/**/*"]) {
+      const r = await executeTool("glob", { pattern }, { workspace: fake.home });
+      for (const rel of PROTECTED_FILES) expect(r.content).not.toContain(rel);
+    }
+  });
+
+  test("rooted at ~/Library it lists Logs and skips the per-app folders", async () => {
+    const r = await executeTool("glob", { pattern: "**/*", path: join(fake.home, "Library") }, { workspace: fake.home });
+    expect(r.content).toContain("Logs/app.log");
+    for (const rel of PROTECTED_FILES) expect(r.content).not.toContain(rel.replace(/^Library\//, ""));
+  });
+});
+
+describe("native search roots inside other apps' data", () => {
+  test("`path` inside a protected folder is refused, for glob and for grep", async () => {
+    for (const path of [join(fake.home, "Library", "Containers"), "Library/Containers", "Pictures/Photos Library.photoslibrary"]) {
+      for (const [tool, pattern] of [["glob", "**/*"], ["grep", "needle"]] as const) {
+        const r = await executeTool(tool, { pattern, path }, { workspace: fake.home });
+        expect(r.isError).toBe(true);
+        expect(leaks(r.content)).toBe(false);
+      }
+    }
+  });
+
+  test("a link to Containers is refused once followed, and a wildcard does not enter it", async () => {
+    const app = join(fake.home, "Projects", "app");
+    for (const [workspace, input] of [
+      [fake.home, { pattern: "**/*", path: "Projects/app/c" }],
+      [fake.home, { pattern: "Projects/app/c/**/*" }],
+      [app, { pattern: "c/**/*" }],
+      [app, { pattern: "**/*", path: "lib2" }],
+      [fake.home, { pattern: "**/*" }],
+    ] as const) {
+      const r = await executeTool("glob", input, { workspace });
+      expect(leaks(r.content)).toBe(false);
+    }
+    const g = await executeTool("grep", { pattern: "needle", path: "Projects/app/c" }, { workspace: fake.home });
+    expect(g.isError).toBe(true);
+    expect(leaks(g.content)).toBe(false);
   });
 });

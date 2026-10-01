@@ -30,6 +30,8 @@ import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { protectedDirExcludes } from "../../lib/protected-app-data";
+import { globAnswer, globFiles } from "./glob-files";
+import { resolveSearchRoot } from "./search-root";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
 
@@ -709,13 +711,13 @@ export async function executeTool(
       }
 
       case "grep": {
-        const root = input.path ? safePath(ctx, String(input.path)) : resolve(ctx.workspace);
+        // Links followed, then checked (`search-root.ts`): the server reads, not the agent.
+        const where = resolveSearchRoot(ctx.workspace, input.path ? safePath(ctx, String(input.path)) : ctx.workspace);
+        if (!where.ok) return { content: where.reason, isError: true };
         const args = ["-rn", "--color=never"];
         if (input.glob) args.push(`--include=${String(input.glob)}`);
-        // Other apps' data stays out of a search from HOME or ~/Library
-        // (`lib/protected-app-data.ts`): it is the server reading, not the agent.
-        for (const ex of protectedDirExcludes(root)) args.push(`--exclude-dir=${ex}`);
-        args.push(String(input.pattern), root);
+        for (const ex of protectedDirExcludes(where.root, where.home)) args.push(`--exclude-dir=${ex}`);
+        args.push("-e", String(input.pattern), where.root); // `-e`: a leading `-` is a pattern, not an option
         const { out, code } = await runCommand("/usr/bin/grep", args, resolve(ctx.workspace), 30_000);
         // grep esce 1 quando non trova niente: è una risposta, non un errore.
         if (code === 1 && !out.trim()) return { content: "nessuna corrispondenza" };
@@ -724,12 +726,10 @@ export async function executeTool(
 
       case "glob": {
         const root = input.path ? safePath(ctx, String(input.path)) : resolve(ctx.workspace);
-        const { out } = await runCommand(
-          "/bin/bash",
-          ["-lc", `shopt -s globstar nullglob dotglob; cd ${JSON.stringify(root)} && printf '%s\\n' ${String(input.pattern)}`],
-          resolve(ctx.workspace), 30_000,
-        );
-        return { content: truncate(out.trim() || "nessun file") };
+        // In-process, no shell: a read-only tool whose pattern reached `bash` ran commands.
+        const found = await globFiles(root, String(input.pattern ?? ""), { within: ctx.workspace, signal: ctx.signal });
+        if (!found.ok) return { content: found.reason, isError: true };
+        return { content: truncate(globAnswer(found.files, found.truncated)) };
       }
 
       // THE PLAN IS THE RESULT: this tool writes nothing and runs nothing.

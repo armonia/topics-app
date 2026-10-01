@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { isProtectedFromWalk, protectedDirExcludes, reachesProtectedAppData } from "./protected-app-data";
+import { isProtectedFromWalk, isProtectedRoot, protectedDirExcludes, reachesProtectedAppData } from "./protected-app-data";
 
 const home = "/Users/someone";
 const lib = join(home, "Library");
@@ -50,6 +50,20 @@ describe("isProtectedFromWalk", () => {
   test("an unrelated project is never touched", () => {
     expect(isProtectedFromWalk("/srv/app/src", "/srv/app", home)).toBe(false);
     expect(isProtectedFromWalk("/srv/app/Library", "/srv/app", home)).toBe(false);
+  });
+});
+
+describe("isProtectedRoot", () => {
+  test("from a HOME workspace a search may start in Library or Logs, never in an app's folder", () => {
+    expect(isProtectedRoot(lib, home, home)).toBe(false);
+    expect(isProtectedRoot(join(lib, "Logs"), home, home)).toBe(false);
+    expect(isProtectedRoot(join(lib, "Containers"), home, home)).toBe(true);
+    expect(isProtectedRoot(join(home, "Pictures", "Photos Library.photoslibrary"), home, home)).toBe(true);
+  });
+
+  test("a workspace already inside an app's folder searches it freely", () => {
+    const ws = join(lib, "Containers", "com.mine.app");
+    expect(isProtectedRoot(join(ws, "Data"), ws, home)).toBe(false);
   });
 });
 
