@@ -74,13 +74,14 @@ export function spaceAttentionTier(
     } else if (pane.type === 'terminal') {
       const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
       if (!sid) continue;
-      // NB: qui NON si filtra per "visto" — vedi la nota gemella in signals.ts:
-      // `terminalFinishedIds` copre le sessioni SENZA fase nota, e il reset del
-      // visto passa da `claudePhaseAwaitingTermIds`. Le due popolazioni sono
-      // disgiunte, quindi un gate qui renderebbe muto per sempre il pallino di
-      // una sessione hook-less al secondo turno finito.
+      // The finished mark is not gated on "seen": the seen event CLEARS it
+      // (`seeSubject`), and a gate would mute a hook-less session's second
+      // finished turn for good. The phase IS gated, as on the tab, the row and
+      // the project rollup: a phase-parked terminal you have looked at stays
+      // `awaiting-user` until its next turn, and the card stayed blue over it.
       if (sig.claudePhaseAwaitingInputTermIds.has(sid)) return 'input';
-      if (sig.claudePhaseAwaitingTermIds.has(sid) || sig.terminalFinishedIds.has(sid)) hasDone = true;
+      if (sig.terminalFinishedIds.has(sid)) hasDone = true;
+      else if (sig.claudePhaseAwaitingTermIds.has(sid) && !sig.seenSubjects.has(sid)) hasDone = true;
     } else if (pane.type === 'project' && pane.projectPath) {
       const tier = projectAttentionTier(
         pane.projectPath,

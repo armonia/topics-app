@@ -59,7 +59,7 @@ export interface NotificationRecordInput {
   groupKey?: string | null;
   source?: NotificationSource;
   /** Born seen: the banner is about a chat the person is looking at right now
-   *  (`isChatInFront`). The row stays in the history, but it never counts as
+   *  (`isSubjectInFront`). The row stays in the history, but it never counts as
    *  unseen, so the badge and the Dock do not go up and come back down one
    *  seen-dwell later at every turn end of the chat in front. */
   seen?: boolean;
@@ -183,6 +183,14 @@ export const TERMINAL_TARGET_KIND = 'terminal';
 
 export function terminalNotificationGroupKey(sessionId: string): string {
   return `${TERMINAL_TARGET_KIND}:${sessionId}`;
+}
+
+/** The way back: the terminal session a group key stands for, or null when the
+ *  key is not a terminal's. Reads the same prefix the birth key writes. */
+export function terminalSessionOfGroupKey(groupKey: string | null | undefined): string | null {
+  const prefix = terminalNotificationGroupKey('');
+  if (!groupKey || !groupKey.startsWith(prefix)) return null;
+  return groupKey.slice(prefix.length) || null;
 }
 
 export function defaultNotificationGroupKey(

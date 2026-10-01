@@ -41,6 +41,23 @@ export function isWindowAwake(): boolean {
   return liveBrowserViews().size > 0;
 }
 
+/**
+ * Calls `onChange` on every event that can flip `isWindowAwake()` (the tab
+ * hidden or shown, the window focused or blurred) and returns the unsubscribe.
+ * Not a store: whoever needs to react to the window coming back (the seen
+ * dwells) listens here, and reads the predicate in its own callback.
+ */
+export function onWindowAwakeChange(onChange: () => void): () => void {
+  document.addEventListener('visibilitychange', onChange);
+  window.addEventListener('focus', onChange);
+  window.addEventListener('blur', onChange);
+  return () => {
+    document.removeEventListener('visibilitychange', onChange);
+    window.removeEventListener('focus', onChange);
+    window.removeEventListener('blur', onChange);
+  };
+}
+
 // Qui c'era anche uno store `useSyncExternalStore` (`useWindowAwake`) che
 // ri-renderizzava il chiamante al cambio di fuoco, con un set di listener
 // globali refcontato. L'unico chiamante era `usePaneWatched`, che a sua volta

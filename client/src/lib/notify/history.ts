@@ -10,7 +10,7 @@ import type {
   NotificationRecordInput,
   NotificationRow,
 } from '../../../../shared/notification-log';
-import { NOTIFICATION_MAX_ROWS } from '../../../../shared/notification-log';
+import { NOTIFICATION_MAX_ROWS, terminalSessionOfGroupKey } from '../../../../shared/notification-log';
 
 export interface NotificationHistoryPage {
   rows: NotificationRow[];
@@ -89,6 +89,24 @@ export async function markNotificationsSeen(
 }
 
 // ── Decisioni pure ──────────────────────────────────────────────────────────
+
+/**
+ * Is a row about the pane the person is looking at, so it is recorded already
+ * seen? Its subject is the chat it leads to, or the terminal it is grouped
+ * under (a terminal is never a target, its row carries the session only in
+ * the group key). Born unseen, a turn that ended on the focused terminal put
+ * +1 on the bell and the Dock that no gesture took back: the terminal raises
+ * no finished mark in front of you, so the seen event had nothing to clear.
+ */
+export function notificationBornSeen(
+  target: { kind: string; id: string } | null | undefined,
+  groupKey: string | null | undefined,
+  isInFront: (subjectId: string) => boolean,
+): boolean {
+  if (target?.kind === 'topic' && isInFront(target.id)) return true;
+  const terminal = terminalSessionOfGroupKey(groupKey);
+  return terminal !== null && isInFront(terminal);
+}
 
 /**
  * Inserisci in testa la riga arrivata dal fronte `notification:new`, senza

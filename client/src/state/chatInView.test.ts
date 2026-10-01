@@ -13,7 +13,7 @@
  * @covers CHAT-DONE-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { holdChatInView, isChatInFront, seeChatFinished, takeChatDoneSeen } from "./chatInView";
+import { holdSubjectInFront, isSubjectInFront, seeChatFinished, takeChatDoneSeen } from "./chatInView";
 import { chatFinishedEdge } from "../lib/notify/chatFinished";
 import { signalsActions, useSignalsStore } from "./signals";
 
@@ -26,33 +26,33 @@ afterEach(() => {
 
 describe("the chat 'done' mark and the chat in front", () => {
   test("five turns that end on the chat in front raise no mark", () => {
-    releases.push(holdChatInView("front"));
-    const edges = Array.from({ length: 5 }, () => chatFinishedEdge(end("front"), isChatInFront));
+    releases.push(holdSubjectInFront("front"));
+    const edges = Array.from({ length: 5 }, () => chatFinishedEdge(end("front"), isSubjectInFront));
     expect(edges).toEqual([null, null, null, null, null]);
   });
 
   test("a chat that is not in front is marked as before, and a new turn still clears", () => {
-    releases.push(holdChatInView("front"));
-    expect(chatFinishedEdge(end("behind"), isChatInFront)).toEqual({ op: "mark", topicId: "behind" });
-    expect(chatFinishedEdge({ type: "stream:start", topicId: "front" }, isChatInFront)).toEqual({ op: "clear", topicId: "front" });
+    releases.push(holdSubjectInFront("front"));
+    expect(chatFinishedEdge(end("behind"), isSubjectInFront)).toEqual({ op: "mark", topicId: "behind" });
+    expect(chatFinishedEdge({ type: "stream:start", topicId: "front" }, isSubjectInFront)).toEqual({ op: "clear", topicId: "front" });
   });
 
   test("once the pane lets go, the next turn end marks the chat", () => {
-    const release = holdChatInView("front");
-    expect(chatFinishedEdge(end("front"), isChatInFront)).toBeNull();
+    const release = holdSubjectInFront("front");
+    expect(chatFinishedEdge(end("front"), isSubjectInFront)).toBeNull();
     release();
     release(); // a second release is a no-op, not a negative count
-    expect(isChatInFront("front")).toBe(false);
-    expect(chatFinishedEdge(end("front"), isChatInFront)).toEqual({ op: "mark", topicId: "front" });
+    expect(isSubjectInFront("front")).toBe(false);
+    expect(chatFinishedEdge(end("front"), isSubjectInFront)).toEqual({ op: "mark", topicId: "front" });
   });
 
   test("two panes on one chat: it stays in front until both let go", () => {
-    const a = holdChatInView("twice");
-    const b = holdChatInView("twice");
+    const a = holdSubjectInFront("twice");
+    const b = holdSubjectInFront("twice");
     a();
-    expect(isChatInFront("twice")).toBe(true);
+    expect(isSubjectInFront("twice")).toBe(true);
     b();
-    expect(isChatInFront("twice")).toBe(false);
+    expect(isSubjectInFront("twice")).toBe(false);
   });
 });
 

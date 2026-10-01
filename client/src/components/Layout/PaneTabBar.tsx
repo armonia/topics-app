@@ -11,7 +11,7 @@ import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
-import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell, useTopicLoading } from '../../state/signals';
+import { useSignalsStore, projectAttentionTier, attentionFillFor, useTopicLoading } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -379,18 +379,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // dentro il map: gli hook non possono stare in un ciclo, ed è anche la ragione
   // per cui questa lista legge i Set a monte invece di chiamare un hook per tab.
   const seenSubjects = useSignalsStore((s) => s.seenSubjects);
-  // Arma la soglia del "visto" sul soggetto della tab ATTIVA — la sola che possa
-  // essere guardata — e solo se il gruppo e l'app hanno il fuoco: è la stessa
-  // definizione severa (`isFullyActive`) che questa barra usa per la superficie
-  // neutra, quindi le due cose non possono divergere.
-  const activePane = panes.find((p) => p.id === activePaneId);
-  const activeSubjectId =
-    activePane?.type === 'chat'
-      ? activePane.topicId ?? undefined
-      : activePane?.type === 'terminal'
-        ? activePane.terminalSessionId ?? getTerminalSessionFromPaneId(activePane.id) ?? undefined
-        : undefined;
-  useSeenDwell(activeSubjectId, groupIsFocused && isAppFocused);
+  // The bar arms no seen dwell of its own: the one dwell is the window's
+  // focused pane (`useSeenFocusedPane`, App), whatever input focused it.
   const claudeCodeSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of terminalSessions) {
@@ -1137,7 +1127,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // di passaggio, cercandone un'altra — ne spegneva il fill anche se non
         // avevi letto niente. Ora la decisione è una sola, in `attentionFillFor`,
         // e "visto" pretende SEEN_DWELL_MS davanti con la finestra sveglia (la
-        // soglia è armata da `useSeenDwell` sul soggetto della tab attiva).
+        // soglia è armata da `useSeenFocusedPane` sulla pane a fuoco della finestra).
         //
         // Una pane 'project' non ha un soggetto proprio, e tiene qui la regola
         // vecchia — attiva = vista — come valvola: fra i suoi figli ce ne sono di
@@ -1286,12 +1276,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             key={pane.stableKey ?? pane.id}
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
+            // The pane in front of the person: active in a focused group of a
+            // focused surface (`isFullyActive`), the one a click inside moves.
+            data-focused={isFullyActive ? 'true' : undefined}
             role="tab"
             // Lo stato come ATTRIBUTO, non come classe: i locator dei test erano
             // agganciati alle classi Tailwind del badge, e rinominarne una li
             // faceva passare a verde-vuoto senza che nulla fosse rotto. Un
             // data-attribute è il vero appiglio.
             data-attention={rawTier ?? undefined}
+            // The PAINTED tier, after the seen gate: what the blue/amber fill
+            // shows. `data-attention` is the state; this is the mark.
+            data-attention-fill={attentionTier ?? undefined}
             // Il nome accessibile porta lo stato, che prima non era detto da
             // nessuna parte (il colore non parla). `aria-label` e non `title`: un
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
@@ -1363,7 +1359,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // on its way to the click, so the panel does not open empty.
             onPointerEnter={pane.type === 'browser' ? prefetchBrowserTabSheet : undefined}
             onFocus={pane.type === 'browser' ? prefetchBrowserTabSheet : undefined}
-            onClick={() => { if (tabLongPress.consumeClick()) return; if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
+            // No private clear here: the tab click only FOCUSES the pane, like a
+            // click inside it, and the seen event of the focused pane clears its
+            // marks on every surface (`useSeenFocusedPane`).
+            onClick={() => { if (tabLongPress.consumeClick()) return; onActivate(pane.id); }}
             // Il doppio clic è il gesto con cui si dice «questa la tengo»: vale
             // anche per una chat nuova, che da quel momento non si richiude più
             // da sola (`state/draftPane.ts`). Vale ANCHE quando non c'è niente

@@ -50,6 +50,7 @@ import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
 import type { SendMessageOptions } from '@/hooks/useChat';
+import { SubjectInFront, useSeenFocusedPane } from '../../state/paneSeen';
 
 // `lazyWarm`, not `lazy`, for the pane bodies: their chunks are asked for at
 // boot from the local pane-store snapshot (`state/pane/panePreload`), and a
@@ -260,6 +261,11 @@ export function StandaloneChatGroup({
     onBrowserNavigateUrl: setBrowserNavigateUrl,
   });
   const { validatedOrderedIds, effectivePinnedIds, activePaneId } = ordering.derived;
+  // No pane focused (a new device, after a drop): the tab bar below still draws
+  // this group's active tab as focused, so that pane is the one in front and
+  // gets the seen dwell (App's `useSeenFocusedPane` has no focus to read). A
+  // cell with no box is not drawn at all.
+  useSeenFocusedPane(!focusedPanelId && hasBox ? activePaneId : null);
 
   // Terminal pane labels derived from server sessions. Fall back to the
   // agent-specific label (Shell / Claude Code / Codex) when the roster carries
@@ -583,39 +589,45 @@ export function StandaloneChatGroup({
   // because the message-store handles (history, streaming, send, stop) live at
   // this level: the board receives one function instead of twenty props.
   const renderOrchestratorChat = useCallback((topic: Topic, paneId: string, focused: boolean) => (
-    <ChatPanel
-      bodyOnly
-      /* The LIVE projection when there is one: renaming the coordinator, or
-         recolouring it, must reach the drawer without reopening it. */
-      topic={topics[topic.id] ?? topic}
-      isFocused={focused}
-      onFocus={() => onFocusPanel(paneId)}
-      /* The board closes the drawer (the X lives in its frame), and the
-         conversation is not dragged from here: `bodyOnly` renders neither
-         header nor handle, so these two have no target to fire from. */
-      onClose={() => { /* closing belongs to the frame, not the body */ }}
-      onDragStart={() => { /* no drag handle in `bodyOnly` */ }}
-      isDragOver={false}
-      showCloseButton={false}
-      getSessionMessages={getSessionMessages}
-      getCompactionMarkers={getCompactionMarkers}
-      isSessionLoading={isSessionLoading}
-      isSessionStreaming={isSessionStreaming}
-      wasSessionStopped={wasSessionStopped}
-      stopSession={stopSession}
-      sendMessage={sendMessage}
-      editMessage={editMessage}
-      regenerateMessage={regenerateMessage}
-      deleteMessage={deleteMessage}
-      switchBranch={switchBranch}
-      loadHistory={loadHistory}
-      chatError={chatError}
-      sendWS={sendWS}
-      onWSMessage={onWSMessage}
-      onUpdateTopic={onUpdateTopic}
-      onFocusPanel={onFocusPanel}
-    />
-  ), [topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
+    <>
+      {/* The board pane has no subject of its own: the coordinator in its drawer
+          is the pane in front when the board is (focused, or drawn focused with
+          no pane focused), and gets the seen dwell from here. */}
+      <SubjectInFront subjectId={focused || (!focusedPanelId && hasBox && paneId === activePaneId) ? topic.id : null} />
+      <ChatPanel
+        bodyOnly
+        /* The LIVE projection when there is one: renaming the coordinator, or
+           recolouring it, must reach the drawer without reopening it. */
+        topic={topics[topic.id] ?? topic}
+        isFocused={focused}
+        onFocus={() => onFocusPanel(paneId)}
+        /* The board closes the drawer (the X lives in its frame), and the
+           conversation is not dragged from here: `bodyOnly` renders neither
+           header nor handle, so these two have no target to fire from. */
+        onClose={() => { /* closing belongs to the frame, not the body */ }}
+        onDragStart={() => { /* no drag handle in `bodyOnly` */ }}
+        isDragOver={false}
+        showCloseButton={false}
+        getSessionMessages={getSessionMessages}
+        getCompactionMarkers={getCompactionMarkers}
+        isSessionLoading={isSessionLoading}
+        isSessionStreaming={isSessionStreaming}
+        wasSessionStopped={wasSessionStopped}
+        stopSession={stopSession}
+        sendMessage={sendMessage}
+        editMessage={editMessage}
+        regenerateMessage={regenerateMessage}
+        deleteMessage={deleteMessage}
+        switchBranch={switchBranch}
+        loadHistory={loadHistory}
+        chatError={chatError}
+        sendWS={sendWS}
+        onWSMessage={onWSMessage}
+        onUpdateTopic={onUpdateTopic}
+        onFocusPanel={onFocusPanel}
+      />
+    </>
+  ), [focusedPanelId, hasBox, activePaneId, topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
 
   if (validatedOrderedIds.length === 0) return null;
   // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is

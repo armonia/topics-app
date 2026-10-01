@@ -233,11 +233,18 @@ describe("projectAttentionTier — un figlio già VISTO non segnala più", () =>
     expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S(), S(), S("a"))).toBe("done");
   });
 
-  test("il figlio AMBRA visto non declassa: vince quello che resta", () => {
-    // 'b' chiede un permesso (input) ma l'hai guardato; 'a' ha solo finito il turno.
-    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("b"))).toBe("done");
-    // Se invece l'ambra NON è vista, vince lei.
+  test("il figlio AMBRA resta ambra anche visto: un permesso in attesa non si spegne con lo sguardo", () => {
+    // 'b' asks for a permission (input) and you looked at it: the request is
+    // still open, so it wins, as on the tab, the row and the group card.
+    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("b"))).toBe("input");
     expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("a"))).toBe("input");
+    // A look only clears the blue: 'a' seen, no amber, the project is quiet.
+    expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S(), S("a"))).toBeNull();
+  });
+
+  test("vale anche per un terminale claude-code in attesa di permesso", () => {
+    const terminals = [{ id: "t1", cwd: `${PROJ}/sub`, type: "claude-code" } as TerminalSessionInfo];
+    expect(projectAttentionTier(PROJ, {}, terminals, S(), S("t1"), S(), S("t1"), S("t1"))).toBe("input");
   });
 
   test("vale anche per i terminali claude-code sotto il progetto", () => {

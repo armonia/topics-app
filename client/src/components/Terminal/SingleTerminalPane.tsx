@@ -13,7 +13,7 @@ import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openTerminalLink } from './wrappedLinkProvider';
 import { createPaneId } from '../../state/pane/adapters';
-import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
+import { signalsActions, useTerminalReloading } from '../../state/signals';
 import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
 import { shouldDeclareExpired } from '../../hooks/rosterTrust';
 import { usePaneAlive } from '../../state/paneLiveness';
@@ -311,18 +311,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const heldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputQueueRef = useRef<TerminalInputQueue | null>(null);
 
-  // Viewing a claude-code session = its "finished a turn" notification is seen,
-  // so clear it. Depending on `finished` (not just isActive) is what makes this
-  // false-positive-proof: if the session finishes *while you're already looking
-  // at it* (isActive stays true, so an [isActive,sessionId] effect would never
-  // re-run), the badge would otherwise pop on a pane you're staring at. This
-  // also kills the "I paused mid-typing" false finish — composing in an active
-  // pane keeps it cleared.
-  const finished = useTerminalFinished(sessionId);
+  // The "finished a turn" mark is NOT cleared here. Visible is not seen: this
+  // pane is `isActive` in every cell of a split, focused or not, and clearing
+  // on that wiped the mark of a terminal nobody was looking at. The one seen
+  // event is the window's focused pane after the dwell (`useSeenFocusedPane`),
+  // and a turn that ends on the focused terminal raises no mark at all
+  // (`isSubjectInFront`), which also covers the "paused mid-typing" finish.
   const reloading = useTerminalReloading(sessionId);
-  useEffect(() => {
-    if (isActive && finished) signalsActions.clearTerminalFinished(sessionId);
-  }, [isActive, finished, sessionId]);
 
   // Chi decide la cadenza. Stessa soglia di `useAnimationPause` (documento
   // visibile + finestra a fuoco), più "questa pane è quella attiva". Il flush al
