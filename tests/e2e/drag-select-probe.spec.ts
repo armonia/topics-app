@@ -71,7 +71,17 @@ async function armLog(page: Page) {
       if (!el || !(el as Element).tagName) return String(t === document ? "document" : t === window ? "window" : t);
       return `${el.tagName.toLowerCase()}${el.getAttribute("data-testid") ? `[${el.getAttribute("data-testid")}]` : ""}`;
     };
-    for (const type of ["pointerdown", "mousedown", "selectstart", "pointerup", "mouseup", "click", "focusin", "dragstart"]) {
+    let moves = 0, movesPrevented = 0;
+    window.addEventListener("mousemove", (e) => { moves++; setTimeout(() => { if (e.defaultPrevented) movesPrevented++; (w as unknown as { __moves: string }).__moves = `${movesPrevented}/${moves}`; }, 0); }, true);
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) {
+        const t = r.target as Element;
+        const inMsg = (t.nodeType === 1 ? t : t.parentElement)?.closest?.("[data-message-id]");
+        if (inMsg) w.__probe.push(`mutation:${r.type}@${(t.nodeType === 1 ? t : t.parentElement)?.tagName?.toLowerCase()} +${r.addedNodes.length}/-${r.removedNodes.length}${r.attributeName ? ` attr=${r.attributeName}` : ""}`);
+      }
+    });
+    mo.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    for (const type of ["pointerdown", "mousedown", "selectstart", "pointerup", "mouseup", "click", "focusin", "dragstart", "gotpointercapture", "lostpointercapture"]) {
       window.addEventListener(type, (e) => {
         // Read after every other listener ran: did anyone cancel it?
         setTimeout(() => w.__probe.push(`${type}@${tag(e.target)}${e.defaultPrevented ? "(prevented)" : ""} sel=${window.getSelection()?.toString().length ?? -1}`), 0);
@@ -87,15 +97,15 @@ async function armLog(page: Page) {
   });
 }
 
-async function stroke(page: Page, label: string, steps: number) {
-  const s = await page.evaluate((w) => {
+async function stroke(page: Page, label: string, steps: number, firstLine = false) {
+  const s = await page.evaluate(([w, first]) => {
     const lines = [...document.querySelectorAll("[data-message-id] *")].filter(
       (el) => el.childElementCount === 0 && /^Messaggio \d+:/.test(el.textContent ?? ""),
     );
     for (const el of lines) {
       const r = el.getBoundingClientRect();
       if (r.width < w + 8 || r.height === 0) continue;
-      const y = r.top + r.height / 2;
+      const y = first ? r.top + 8 : r.top + r.height / 2;
       const x0 = r.left + 2;
       const x1 = x0 + w;
       if (el.contains(document.elementFromPoint(x0, y)) && el.contains(document.elementFromPoint(x1, y))) {
@@ -116,7 +126,7 @@ async function stroke(page: Page, label: string, steps: number) {
       }
     }
     return null;
-  }, 60);
+  }, [60, firstLine] as const);
   expect(s, "an uncovered line").not.toBeNull();
   await armLog(page);
   await page.mouse.move(s!.x0, s!.y);
@@ -130,8 +140,9 @@ async function stroke(page: Page, label: string, steps: number) {
     afterSettle: window.getSelection()?.toString() ?? "",
     active: `${document.activeElement?.tagName.toLowerCase()}[${document.activeElement?.getAttribute("data-testid") ?? ""}]`,
     log: (window as unknown as { __probe: string[] }).__probe,
+    moves: (window as unknown as { __moves?: string }).__moves ?? "none",
   }));
-  const out = { label, steps, beforeUp: beforeUp.length, afterUp: afterUp.length, afterSettle: report.afterSettle.length, active: report.active, ...s, log: report.log };
+  const out = { label, steps, beforeUp: beforeUp.length, afterUp: afterUp.length, afterSettle: report.afterSettle.length, active: report.active, movesPrevented: report.moves, ...s, log: report.log };
   console.log(`PROBE ${JSON.stringify(out)}`);
   return out;
 }
@@ -190,6 +201,14 @@ test.describe("probe: controls", () => {
 test.describe("probe: mouse selection in the chat", () => {
   test.describe.configure({ retries: 0 });
   test.beforeEach(async ({ request }) => { await resetPaneStore(request, []); });
+
+  test("no drag first, stroke inside the first line", async ({ page, request, browserName }) => {
+    const topic = await scene(page, request);
+    try {
+      const r = await stroke(page, `${browserName} no-drag first-line`, 5, true);
+      expect(r.afterUp, JSON.stringify(r)).toBeGreaterThan(0);
+    } finally { await deleteTopic(request, topic.id).catch(() => {}); }
+  });
 
   for (const steps of [5]) {
     test(`no drag first, stroke in ${steps} steps`, async ({ page, request, browserName }) => {
