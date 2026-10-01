@@ -31,6 +31,7 @@ import { createTerminalSession, createTopic, deleteTerminalSession, seedPaneStor
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 import { beginGesture, endGesture, installProbe, settlePanes } from "./helpers/react-commit-probe";
 
 hermetic(test);
@@ -302,12 +303,66 @@ async function topRow(list: Locator): Promise<{ text: string; offset: number }> 
   });
 }
 
-function expectResident(label: string, s: Switch): void {
+/**
+ * Two chats as tabs, the long one read to the bottom and left behind the other;
+ * a whole turn of it (start, the chunks, end) arrives while it is hidden, so
+ * every pin the turn asks for lands on a scroller with no box; then a click
+ * back to it, measured.
+ */
+async function switchBackAfterHiddenTurn(page: Page, request: APIRequestContext, chunks: string[], needle: string): Promise<Switch> {
+  const long = await seedChat(request, "TSI turn chat", LONG_COUNT, "TURN-END", true);
+  const short = await seedChat(request, "TSI quiet chat", SHORT_COUNT, "QUIET-END");
+  const openedAt = Date.now();
+  await seedPaneStore(request, () => ({
+    panes: {
+      [long.topicId]: { id: long.topicId, type: "chat", title: "", topicId: long.topicId, openedAt },
+      [short.topicId]: { id: short.topicId, type: "chat", title: "", topicId: short.topicId, openedAt },
+    },
+    groups: { "group:default": { id: "group:default", paneIds: [long.topicId, short.topicId], splitRatio: 1, splitAxis: "horizontal" } },
+    projects: {},
+    groupOrder: ["group:default"],
+    closedStack: [],
+  }));
+  const ws = await interceptWebSocket(page);
+  await installProbe(page);
+  await installMeter(page);
+  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
+  await goToApp(page);
+  const longShell = page.locator(`[data-pane-shell="${long.topicId}"]`);
+  const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "QUIET-END" });
+  const longRow = longShell.locator('[data-testid="chat-message"]').filter({ hasText: "TURN-END" });
+  await page.locator(tab(short.topicId)).first().click();
+  await expect(shortRow).toBeVisible({ timeout: 20_000 });
+  // Read to the bottom once, then away: the turn below runs behind the tab.
+  await page.locator(tab(long.topicId)).first().click();
+  await expect(longRow).toBeVisible({ timeout: 20_000 });
+  await page.locator(tab(short.topicId)).first().click();
+  await expect(shortRow).toBeVisible();
+  await expect(longShell.locator('[data-testid="chat-message-list"]')).toHaveAttribute("data-history", "complete", { timeout: 20_000 });
+
+  const messageId = `tsi-hidden-turn-${Date.now()}`;
+  const frame = { sessionKey: long.sessionKey, topicId: long.topicId };
+  ws.send({ type: "stream:start", ...frame, messageId });
+  for (const content of chunks) ws.send({ type: "stream:content_chunk", ...frame, content });
+  const reply = longShell.locator('[data-testid="chat-message"]').filter({ hasText: needle });
+  await expect(reply).toHaveCount(1, { timeout: 10_000 });
+  await expect(longShell.locator('[data-composer-action="stop"]')).toHaveCount(1);
+  ws.send({ type: "stream:end", ...frame, messageId });
+  await expect(longShell.locator('[data-composer-action="stop"]')).toHaveCount(0, { timeout: 10_000 });
+  await expect(reply).toHaveCount(1);
+
+  const L = { key: long.topicId, needle, ...long };
+  return measureSwitch(page, L, { event: "click" }, () => page.locator(tab(long.topicId)).first().click());
+}
+
+function expectResident(label: string, s: Switch, opts: { subPixelSettle?: boolean } = {}): void {
   const r = s.report;
   const detail = `${label}: seq=${r.seq} trace=${r.trace.join(" ")} commits=${s.commits} requests=${s.requests.join(",")}`;
   expect(r.firstContent, `${label}: content on the first frame after the input. ${detail}`).toBe(1);
   expect(r.seq, `${label}: no frame without the content after it landed. ${detail}`).toMatch(/^C+$/);
-  expect(r.jumpPx, `${label}: nothing moves after the first frame. ${detail}`).toBe(0);
+  if (opts.subPixelSettle) expect(r.rawJumpPx, `${label}: nothing moves by a pixel after the first frame. ${detail}`).toBeLessThan(1);
+  else expect(r.jumpPx, `${label}: nothing moves after the first frame. ${detail}`).toBe(0);
   expect(r.sameShell, `${label}: the same shell node, not a remount. ${detail}`).toBe(true);
   expect([...s.reactRemounts, ...s.domRemounts], `${label}: no pane remounted. ${detail}`).toEqual([]);
   expect(s.requests, `${label}: nothing asked to the server for a pane already on the page. ${detail}`).toEqual([]);
@@ -363,6 +418,34 @@ test.describe("a tab switch is instant", () => {
     await page.keyboard.type("TSI long chat");
     await expect(palette).toContainText("TSI long chat");
     expectResident("command palette", await measureSwitch(page, L, { event: "keydown", key: "Enter" }, () => page.keyboard.press("Enter")));
+  });
+
+  test("a chat whose turn ran while it was hidden is final on the first frame of the return", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-01" });
+    test.setTimeout(180_000);
+    // Before the fix the reply rose after the first frame, 2 runs out of 2: from
+    // 616.1 to 615.1 px here, and in a probe that read the first frame before
+    // the ResizeObserver, from the old bottom (667.6 px, 52 px too low). The
+    // pins of the return ran in that observer, delivered after the frame's
+    // animation callbacks, and its scrollToIndex stopped a pixel short.
+    const s = await switchBackAfterHiddenTurn(page, request, ["HIDDEN-TICK-0 ", "HIDDEN-TICK-1 ", "HIDDEN-TICK-2 "], "HIDDEN-TICK-2");
+    expectResident("click, back to the chat whose turn ran while it was hidden", s);
+  });
+
+  test("a chat whose long reply ran while it was hidden is at its bottom on the first frame of the return", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-01" });
+    test.setTimeout(180_000);
+    // Thirty paragraphs, taller than the viewport. Virtuoso measures the reply
+    // a frame or two after the return; until then the true bottom is past the
+    // end of the list it knows. Before the fix the first frame showed the old
+    // bottom and the reply then jumped by 1230 px (red 2 runs out of 2).
+    const paragraphs = Array.from({ length: 30 }, (_, i) => `Paragraph ${i} of the hidden reply, long enough to wrap: ${"lorem ipsum dolor sit amet ".repeat(6)}\n\n`);
+    const s = await switchBackAfterHiddenTurn(page, request, [...paragraphs, "HIDDEN-LONG-END"], "HIDDEN-LONG-END");
+    // The one movement allowed is under a pixel: once measured, Virtuoso trades
+    // the rows above the viewport for a padding of their whole-pixel sizes, and
+    // the bottom settles by that rounding (0.08-0.63 px measured). The rounded
+    // `jumpPx` reads that as 1 px whenever it crosses a half pixel.
+    expectResident("click, back to the chat whose long reply ran while it was hidden", s, { subPixelSettle: true });
   });
 
   test("a chat whose history was completed while it was hidden is final on the first frame of the return", async ({ page, request }) => {

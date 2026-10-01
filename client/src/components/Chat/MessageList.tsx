@@ -45,6 +45,7 @@ import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
+import { useHiddenTurnReturn } from './useHiddenTurnReturn';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -1887,6 +1888,9 @@ export function MessageList({
     // sulla geometria sbagliata. Se quel giorno arriva, la cura è stabilizzarla
     // di nuovo (ref), non toglierla da questa lista.
   }, [scrollerEl, viewKey, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow, placeRowAt]);
+
+  // A turn that ran while the pane was hidden: its bottom on the first frame back.
+  useHiddenTurnReturn({ paneAlive, scrollerElRef, itemsRef, restoreAnchorRef, userTouchedRef, pinToBottom });
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
