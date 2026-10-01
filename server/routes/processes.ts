@@ -666,6 +666,7 @@ function finishCommand(sp: ScriptProcess): void {
 const commandServiceWatch = serviceWatch({
   rows: () => runningScripts.values(),
   listenersOf: async (pids) => listenersOf(pids, await getListeningPorts(SERVICE_WATCH_MIN_MS / 2), getDescendantPids),
+  alive: isPidAlive,
   onChange: (row) => { if (_broadcastCtx && row.cmd) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, row.cmd); } },
 });
 export const commandBackgroundWork = commandWorkOver(() => runningScripts.values(), commandServiceWatch.listenOf); // the chat's background line (BGVIS-07)

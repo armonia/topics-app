@@ -65,6 +65,7 @@ describe("command-services", () => {
     const watch = serviceWatch({
       rows: () => rows,
       listenersOf: async (pids) => { asked.push(pids); return answer; },
+      alive: () => true,
       onChange: (r) => changed.push(r.processId),
     });
     expect(await watch.tick()).toBe(false);
@@ -77,6 +78,39 @@ describe("command-services", () => {
     expect(watch.listenOf("srv")).toBeUndefined();
     expect(changed).toEqual(["srv", "srv"]);
     expect(asked.every((pids) => pids.length === 1 && pids[0] === rows[0]!.pid)).toBe(true);
+  });
+
+  test("a server whose process is gone or stopped keeps its addresses until its row closes, so its end is told", async () => {
+    // A re-adopted server is not the registry's child: its row closes at the
+    // next pid check, seconds after the process died. A pass in between sees
+    // no port and must not turn it into a task the chat waits for.
+    let answer = new Map<number, ListenAddress[]>();
+    const changed: string[] = [];
+    const dead = new Set<number>();
+    const rows = [row("gone"), row("halted"), row("closed")];
+    rows[1]!.pid = 201; rows[2]!.pid = 202;
+    const watch = serviceWatch({
+      rows: () => rows,
+      listenersOf: async () => answer,
+      alive: (pid) => !dead.has(pid),
+      onChange: (r) => changed.push(r.processId),
+    });
+    answer = new Map(rows.map((r) => [r.pid!, [at(8000 + r.pid!)]]));
+    expect(await watch.tick()).toBe(true);
+    changed.length = 0;
+    dead.add(rows[0]!.pid!);
+    rows[1]!.cmd!.stopped = true;
+    answer = new Map();
+    expect(await watch.tick()).toBe(true);
+    expect(watch.listenOf("gone")).toEqual([at(8000 + rows[0]!.pid!)]);
+    expect(watch.listenOf("halted")).toEqual([at(8201)]);
+    // A live server that closed its port is no server any more.
+    expect(watch.listenOf("closed")).toBeUndefined();
+    expect(changed).toEqual(["closed"]);
+    // Its row closes: the chat's servers say how it ended.
+    const ended = { ...rows[0]!, status: "error", completedAt: new Date(NOW).toISOString() };
+    const out = servicesOver([], [ended], watch.listenOf, NOW);
+    expect(out[0]!.services[0]!.ended).toEqual({ at: NOW, exitCode: null, stopped: false });
   });
 
   test("an address reads as the row writes it and opens on the loopback when it listens everywhere", () => {

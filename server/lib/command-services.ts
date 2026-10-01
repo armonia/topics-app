@@ -23,7 +23,9 @@
  * appears, one that goes) is pushed (`onChange`), as a start and an end are.
  *
  * The last addresses of a server are kept for a few seconds after it ends, so
- * the chat can say that the server ended and how (`SERVICE_END_SHOWN_MS`).
+ * the chat can say that the server ended and how (`SERVICE_END_SHOWN_MS`); a
+ * pass that finds no port on a server that is going (stopped, or its process
+ * dead and its row not closed yet) keeps them too.
  */
 import type { ListenAddress, RunningServiceSummary, TopicServices } from "../../shared/background-work";
 
@@ -126,6 +128,8 @@ export interface ServiceWatch {
 export function serviceWatch(deps: {
   rows: () => Iterable<ServiceRowLike>;
   listenersOf: (pids: number[]) => Promise<Map<number, ListenAddress[]>>;
+  /** Is this pid still a live process (a zombie is not). */
+  alive: (pid: number) => boolean;
   onChange: (row: ServiceRowLike) => void;
 }): ServiceWatch {
   const listen = new Map<string, ListenAddress[]>();
@@ -146,6 +150,11 @@ export function serviceWatch(deps: {
       const next = (byPid.get(row.pid!) ?? []).slice().sort((a, b) => a.port - b.port || a.host.localeCompare(b.host));
       const prev = listen.get(row.processId);
       if (next.length === 0 && !prev) continue;
+      // No port because the server is going (stopped, or its process gone and
+      // its row not yet closed: a re-adopted one is closed by a pid check every
+      // few seconds). It stays a server until its row closes, so the chat says
+      // how it ended instead of turning it into a task it waits for.
+      if (next.length === 0 && (row.cmd!.stopped || !deps.alive(row.pid!))) continue;
       if (sameListen(prev, next)) continue;
       if (next.length) listen.set(row.processId, next); else listen.delete(row.processId);
       changed = true;

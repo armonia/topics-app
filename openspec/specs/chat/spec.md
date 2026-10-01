@@ -5094,6 +5094,10 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - Fine: per `SERVICE_END_SHOWN_MS` (8 s) dopo l'uscita il server resta fra i
   `services` con `ended: {at, exitCode, stopped}`; la riga dice come è finito
   («Server fermato», «Server terminato (exit N)») e sparisce da sé dopo 5 s.
+- Un server che sta finendo (fermato, o col processo morto e la riga non ancora
+  chiusa: uno riadottato dopo un riavvio si chiude al controllo del pid ogni
+  3 s) SHALL tenere i suoi indirizzi anche se il timer non vede più la porta:
+  non torna fra i `tasks` e la sua fine resta detta con `ended`.
 - `GET /api/processes?topicId=` SHALL elencare, prima dei sotto-agenti, i
   processi `run_command` di quella chat (in corsa e recenti), con le porte.
 
@@ -5106,6 +5110,14 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **AND** `GET /api/processes` della chat lo elenca `running` con la porta
 - **WHEN** lo si ferma
 - **THEN** è fra i `services` con `ended.stopped` e senza exit code
+- **AND** il server non risponde più sulla sua porta prima che il test finisca
+
+#### Scenario: un server che sta finendo non torna lavoro atteso
+- **GIVEN** il timer conosce le porte di tre server
+- **WHEN** un passaggio non vede più nessuna porta, e del primo il processo è
+  morto, il secondo è stato fermato, il terzo è vivo
+- **THEN** il primo e il secondo tengono i loro indirizzi e il terzo li perde
+- **AND** chiusa la riga del primo, i `services` dicono come è finito
 
 #### Scenario: una chat vera avvia un server
 - **GIVEN** una chat in una finestra di progetto su una CLI finta
