@@ -139,3 +139,30 @@ function placeBeside(
 
   return { top, left, placement: pushedUp ? 'above' : 'below', maxHeight };
 }
+
+/**
+ * Place a context menu at the pointer, the way the system menu does: it opens
+ * to the right of and below the point, FLIPS to the left of the point when the
+ * right edge would cut it and above the point when the bottom edge would, and
+ * only then clamps inside the margin. Clamping alone (what the cursor menus
+ * did) slid a menu opened near the right edge back under the pointer, so the
+ * row you had just right-clicked disappeared behind its own menu.
+ *
+ * A menu larger than the viewport on an axis is pinned to the margin on that
+ * axis; its own `max-height` and scroll take care of the rest.
+ */
+export function placeAtPoint(
+  point: { x: number; y: number },
+  menu: MenuSize,
+  opts: { margin?: number; viewportWidth?: number; viewportHeight?: number } = {},
+): { top: number; left: number } {
+  const margin = opts.margin ?? 8;
+  const vw = opts.viewportWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
+  const vh = opts.viewportHeight ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
+  const axis = (at: number, size: number, room: number): number => {
+    const start = at + size + margin > room ? at - size : at;
+    const max = room - size - margin;
+    return max >= margin ? Math.max(margin, Math.min(start, max)) : margin;
+  };
+  return { left: axis(point.x, menu.width, vw), top: axis(point.y, menu.height, vh) };
+}

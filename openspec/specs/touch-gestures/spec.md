@@ -352,3 +352,41 @@ Tenendo premuto SHALL sollevarsi una tessera, e trascinandola SHALL riordinarsi.
 #### Scenario: i bersagli allargati
 - **GIVEN** righe adiacenti
 - **THEN** ogni bersaglio SHALL colpire sé stesso
+
+### Requirement: CTXMENU-01 — Il tasto destro apre il menu dell'app dove l'app ha comandi, e lascia quello di sistema dove non ne ha
+
+Dove un elemento ha comandi suoi (righe della sidebar, tab, card della board,
+righe dei file e delle modifiche git), il tasto destro SHALL aprire il menu
+dell'app costruito sul menu al cursore CONDIVISO, non su una scheda scritta a
+mano: quattro menu scritti a mano avevano ciascuno un pezzo in meno (una misura
+indovinata, nessun ruolo, nessun fuoco a cui tornare).
+
+Quel menu SHALL stare dentro la finestra, aprendosi dall'altro lato del
+puntatore quando un bordo lo taglierebbe; SHALL essere UNO alla volta; Esc e un
+clic fuori SHALL chiuderlo; alla chiusura il fuoco SHALL tornare all'elemento
+cliccato. Shift+F10 e il tasto menu SHALL aprire lo stesso menu sull'elemento
+che ha il fuoco, e tenendo premuto col dito SHALL aprirsi lo stesso menu.
+
+Dove l'app non ha comandi (i campi di testo, il testo del composer, il testo
+selezionato in chat, il terminale) il menu di sistema SHALL restare, e NON SHALL
+essere sostituito da un menu vuoto. Il menu di sistema NON SHALL mai comparire
+sopra o sotto uno dell'app: un tasto destro SU un menu aperto non apre quello di
+sistema.
+
+Un file che si prende il tasto destro senza il menu condiviso SHALL far fallire
+un controllo strutturale.
+
+#### Scenario: tasto destro su una riga con comandi
+- **GIVEN** una riga della sidebar
+- **WHEN** l'utente ci clicca col tasto destro
+- **THEN** SHALL aprirsi il menu dell'app dentro la finestra, e il menu di sistema NO
+
+#### Scenario: chiusura e tastiera
+- **GIVEN** il menu aperto col tasto destro o con Shift+F10
+- **WHEN** l'utente preme Esc
+- **THEN** il menu SHALL chiudersi e il fuoco SHALL tornare all'elemento da cui era partito
+
+#### Scenario: un campo di testo
+- **GIVEN** il composer
+- **WHEN** l'utente ci clicca col tasto destro
+- **THEN** SHALL aprirsi il menu di sistema, e nessun menu dell'app

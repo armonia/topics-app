@@ -619,13 +619,24 @@
     "42 gz under its ceiling.",
     "Written below: entry raw 1.505.812 / gz 475.103, critical path raw 2.119.442 /",
     "gz 635.047 (the worse of CI and Mac), 5 files. Total assets baseline unchanged",
-    "(8.377.807); measured 8.424.467, inside 2%."
+    "(8.377.807); measured 8.424.467, inside 2%.",
+    "",
+    "2026-10-01, the right-click lane: entry eager 1.536.546 raw / 484.570 gz.",
+    "main at the branch point measured 1.535.075 raw, 853 bytes under the 2% ceiling;",
+    "the lane adds 1.471 raw net. What it bought, all on first paint by design:",
+    "lib/contextMenuOrigin (installed from main.tsx: the element a right-click came",
+    "from, so the focus goes back to it, and Shift+F10 / the ContextMenu key",
+    "opening the same menu), placeAtPoint in lib/popoverPosition, and the shared",
+    "cursor menu taking the focus and walking it with the arrows; net of the four",
+    "hand-written menus it replaced (topic, group, tab, file tree). No dependency,",
+    "no lazy import turned static. Critical path and total assets unchanged,",
+    "inside 2%."
   ],
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1505812,
-    "gz": 475103
+    "raw": 1536546,
+    "gz": 484570
   },
   "critical_path": {
     "raw": 2119442,

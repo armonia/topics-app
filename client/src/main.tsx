@@ -14,6 +14,7 @@ import { installPaneAttachTraceSink } from './lib/paneAttachTrace';
 import { getTabId } from './state/pane/middleware/syncCrossTab';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
+import { browserContextMenuHost, installContextMenuSupport } from './lib/contextMenuOrigin';
 import { SessionRoot } from './components/Share/SessionRoot';
 import { warmGuestView } from './components/Share/guestViewLazy';
 import { getSession } from './lib/auth/session';
@@ -56,6 +57,12 @@ document.addEventListener('drop', (e) => e.preventDefault());
 // ai puntatori: senza, l'iframe si mangia il `dragover` e lasciare un browser
 // sopra un altro browser non raggruppa niente. Vedi `lib/paneDragFlag`.
 installPaneDragFlag();
+
+// Right-click: the element a menu came from (its focus goes back there on
+// close) and Shift+F10 / the ContextMenu key opening the same menu. No global
+// `contextmenu` suppression: where nobody answers, the system menu stays.
+// See `lib/contextMenuOrigin`.
+installContextMenuSupport(browserContextMenuHost(window));
 
 // A CHUNK THAT DOES NOT LOAD IS THE BOUNDARY'S BUSINESS, not this file's.
 //
