@@ -988,6 +988,39 @@ export const scriptsApi = {
   },
 };
 
+/**
+ * A run of a command from the chat: Run under a code block of a reply
+ * (CHAT-RUN-03, CMDRUN-05). `output` is null while it runs, and then it is read
+ * from the registry with `scriptsApi.output(runId, offset)`.
+ */
+export interface CommandRunInfo {
+  runId: string;
+  blockKey: number;
+  command: string;
+  cwd: string;
+  status: 'running' | 'done' | 'error' | 'stopped' | 'unknown';
+  exitCode: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  output: string | null;
+  droppedLines: number;
+}
+
+export const commandRunsApi = {
+  async start(sessionKey: string, run: { messageId: string; blockKey: number; command: string }): Promise<{ runId: string; processId: string; cwd: string; startedAt: string }> {
+    return request<{ runId: string; processId: string; cwd: string; startedAt: string }>(`/sessions/${encodeURIComponent(sessionKey)}/command-runs`, {
+      method: 'POST',
+      body: JSON.stringify(run),
+    });
+  },
+
+  /** For each block of the message, its last run. */
+  async list(sessionKey: string, messageId: string): Promise<CommandRunInfo[]> {
+    const { runs } = await request<{ runs: CommandRunInfo[] }>(`/sessions/${encodeURIComponent(sessionKey)}/command-runs?messageId=${encodeURIComponent(messageId)}`);
+    return runs;
+  },
+};
+
 // Command API (slash commands)
 export interface CommandResult {
   ok: boolean;

@@ -512,6 +512,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onPlanDecision={onPlanDecision}
                 sessionKey={topic.sessionKey}
                 messageId={msg.id}
+                runnable
               />
               </FoldWork>
             </div>
