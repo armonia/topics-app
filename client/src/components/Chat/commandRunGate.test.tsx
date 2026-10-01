@@ -72,7 +72,8 @@ describe('Run on a code block', () => {
   test('the markdown of a file preview, which shares the same components: no Run', () => {
     owner();
     const html = renderToStaticMarkup(createElement(ChatMarkdown, { components: markdownComponents, children: BASH }));
-    expect(html).toContain('echo ciao');
+    // Text, not markup: once another file has registered highlight.js's bash, `echo` sits in its own span.
+    expect(html.replace(/<[^>]+>/g, '')).toContain('echo ciao');
     expect(hasRun(html)).toBe(false);
     expect(hasTerminal(html)).toBe(false);
   });
