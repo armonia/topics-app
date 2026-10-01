@@ -36,6 +36,42 @@ export const EXIT_MS: Record<ExitKind, number> = {
 };
 
 /**
+ * Copy `src` deep, with every `<video>`/`<audio>` replaced by a still: a canvas
+ * with its classes, holding the frame it was on (blank and 300x150, like a
+ * video with no metadata, when there is none). A cross-origin frame only
+ * taints the canvas: it is still drawn.
+ *
+ * NOT `cloneNode(true)` FOR MEDIA: a cloned media element is a NEW one, not a
+ * picture of the old. It starts with no frame (readyState 0), fetches its
+ * source again even while detached and, with `autoPlay`, starts it from 0 with
+ * its sound until the copy is removed. The board's lightbox closed that way:
+ * the frame being watched vanished in one frame and the clip restarted aloud.
+ * Swapping the clone afterwards is too late, the fetch has already started, so
+ * a media element is never cloned at all.
+ *
+ * `pairs` maps every node of `src` to its copy, so the scroll offsets land on
+ * the right element whatever the swap changed.
+ */
+function copyWithStills(src: Node, pairs: Map<Node, Node>): Node {
+  let out: Node;
+  if (src instanceof HTMLMediaElement) {
+    const still = document.createElement('canvas');
+    still.className = src.className;
+    if (src instanceof HTMLVideoElement && src.readyState > 1) {
+      still.width = src.videoWidth;
+      still.height = src.videoHeight;
+      still.getContext('2d')?.drawImage(src, 0, 0);
+    }
+    out = still;
+  } else {
+    out = src.cloneNode(false);
+    for (const child of src.childNodes) out.appendChild(copyWithStills(child, pairs));
+  }
+  pairs.set(src, out);
+  return out;
+}
+
+/**
  * Put a fading copy of `node` (already removed by React) back into `parent`.
  * `scrolled` restores the scroll offsets the copy would otherwise lose: a
  * detached element has no layout, so its `scrollTop` reads 0 and a scrolled
@@ -49,7 +85,8 @@ export function playExitGhost(
 ): HTMLElement | null {
   if (prefersReducedMotion()) return null;
   if (document.documentElement.classList.contains('anims-paused')) return null;
-  const ghost = node.cloneNode(true) as HTMLElement;
+  const pairs = new Map<Node, Node>();
+  const ghost = copyWithStills(node, pairs) as HTMLElement;
   for (const el of [ghost, ...ghost.querySelectorAll('[id], [data-testid]')]) {
     el.removeAttribute('id');
     el.removeAttribute('data-testid');
@@ -58,13 +95,9 @@ export function playExitGhost(
   ghost.inert = true;
   ghost.dataset.exitGhost = kind;
   parent.appendChild(ghost);
-  if (scrolled.size > 0) {
-    const from = [node, ...node.querySelectorAll('*')];
-    const to = [ghost, ...ghost.querySelectorAll('*')];
-    for (const [el, top] of scrolled) {
-      const i = from.indexOf(el);
-      if (i >= 0) to[i].scrollTop = top;
-    }
+  for (const [el, top] of scrolled) {
+    const copy = pairs.get(el);
+    if (copy instanceof Element) copy.scrollTop = top;
   }
   window.setTimeout(() => ghost.remove(), EXIT_MS[kind]);
   return ghost;

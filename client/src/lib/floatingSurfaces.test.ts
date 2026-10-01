@@ -106,8 +106,8 @@ describe('floating surfaces (MOTION-04)', () => {
       const code = byFile.get(file);
       expect({ file, exists: code !== undefined }).toEqual({ file, exists: true });
       // Still flagged without its entry: an entry nobody needs is a hole for the next one.
-      const flagged = FLOATING.test(code ?? '') && !ENTERING.test(code ?? '') && !SHARED_PRIMITIVE.test(code ?? '');
-      expect({ file, flagged }).toEqual({ file, flagged: true });
+      const needsEntry = FLOATING.test(code ?? '') && !ENTERING.test(code ?? '') && !SHARED_PRIMITIVE.test(code ?? '');
+      expect({ file, needsEntry }).toEqual({ file, needsEntry: true });
     }
   });
 

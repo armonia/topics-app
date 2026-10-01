@@ -20,7 +20,8 @@ import { canonicalTmpRoot, cleanupFileProject, removeTmpDir, seedFileProject, ty
 import { projectRow } from "./helpers/project-row";
 import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import {
   COMPOSITOR_PROPS,
   MODAL_MAX_MS,
@@ -205,8 +206,10 @@ test.describe("The board's lightbox and the task drawer's folds", () => {
   // `/api/media` serves the server's own media root only (preview-slide.spec.ts).
   const mediaDir = `${testServerEnv(E2E_PORT).TOPICS_HOME}/media/e2e-motion-${Date.now()}`;
   const taskText = "motion card with a cover";
+  const clipText = "motion card with a clip";
   let topicId: string | null = null;
   let taskId = "";
+  let clipTaskId = "";
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(mediaDir, { recursive: true });
@@ -226,10 +229,23 @@ test.describe("The board's lightbox and the task drawer's folds", () => {
       data: { previewImage: `${mediaDir}/cover.png` },
     });
     expect(cover.ok(), `cover refused: ${cover.status()}`).toBe(true);
+    // A clip WITH sound: the lightbox plays it unmuted, which is what makes a
+    // copy of it that restarts audible.
+    copyFileSync(resolvePath(__dirname, "fixtures/video/clip.webm"), `${mediaDir}/clip.webm`);
+    const clipTask = await request.post(`${E2E_BASE}/api/boards/${boardId}/tasks`, {
+      data: { text: clipText, status: "review" },
+    });
+    expect(clipTask.ok(), `clip task refused: ${clipTask.status()}`).toBe(true);
+    clipTaskId = ((await clipTask.json()) as { id: string }).id;
+    const clip = await request.patch(`${E2E_BASE}/api/boards/${boardId}/tasks/${clipTaskId}`, {
+      data: { previewImage: `${mediaDir}/clip.webm` },
+    });
+    expect(clip.ok(), `clip refused: ${clip.status()}`).toBe(true);
   });
 
   test.afterAll(async ({ request }) => {
     if (taskId) await request.delete(`${E2E_BASE}/api/boards/${boardId}/tasks/${taskId}`).catch(() => undefined);
+    if (clipTaskId) await request.delete(`${E2E_BASE}/api/boards/${boardId}/tasks/${clipTaskId}`).catch(() => undefined);
     if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
     removeTmpDir(projectPath);
     removeTmpDir(mediaDir);
@@ -275,6 +291,66 @@ test.describe("The board's lightbox and the task drawer's folds", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("preview-lightbox")).toHaveCount(0);
     await expectExit(page, "preview lightbox", "modal", MODAL_MAX_MS);
+  });
+
+  /* THE EXIT COPY OF A PLAYING VIDEO. The copy is `cloneNode`, and a cloned
+   * `<video autoPlay>` is a NEW media element: it has no frame (readyState 0),
+   * fetches the clip again and starts it from 0 with its sound until the copy
+   * is removed. So the frame the reviewer was watching vanished in one frame
+   * and the clip restarted aloud on close. The copy must keep that frame and
+   * neither load nor play anything. */
+  test("a card's preview lightbox with a video closes on the frame it showed, in silence", async ({ page }) => {
+    await openBoard(page);
+    const thumb = page.locator(`[data-task-card="${clipTaskId}"] [data-testid="preview-card"] video`).first();
+    await expect(thumb).toBeVisible({ timeout: 20_000 });
+    await thumb.click();
+    const lightbox = page.getByTestId("preview-lightbox");
+    await expect(lightbox).toBeVisible();
+    // The clip is really playing, with a frame on screen and its sound on.
+    await expect.poll(() => lightbox.locator("video").evaluate((v: HTMLVideoElement) =>
+      v.readyState >= 2 && !v.paused && !v.muted && v.currentTime > 0.2), { timeout: 15_000 }).toBe(true);
+
+    await page.evaluate(() => {
+      type Copy = { media: number; frame: { w: number; h: number; opaque: boolean } | null };
+      const w = window as unknown as { __exitMedia: { copies: Copy[]; events: string[] } };
+      w.__exitMedia = { copies: [], events: [] };
+      const inCopy = new WeakSet<EventTarget>();
+      for (const type of ["loadstart", "play", "playing"]) {
+        document.addEventListener(type, (e) => { if (e.target && inCopy.has(e.target)) w.__exitMedia.events.push(type); }, true);
+      }
+      new MutationObserver((records) => {
+        for (const r of records) for (const n of r.addedNodes) {
+          if (!(n instanceof HTMLElement) || !n.matches('[data-exit-ghost]')) continue;
+          const media = n.querySelectorAll("video, audio");
+          media.forEach((m) => inCopy.add(m));
+          const canvas = n.querySelector("canvas");
+          let frame: Copy["frame"] = null;
+          if (canvas && canvas.width > 0 && canvas.height > 0) {
+            const px = canvas.getContext("2d")!.getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data;
+            frame = { w: canvas.width, h: canvas.height, opaque: px[3] === 255 };
+          }
+          w.__exitMedia.copies.push({ media: media.length, frame });
+        }
+      }).observe(document.body, { childList: true });
+    });
+    let refetched = 0;
+    page.on("request", (r) => { if (r.url().includes("clip.webm")) refetched++; });
+
+    await page.keyboard.press("Escape");
+    await expect(lightbox).toHaveCount(0);
+    // Read once the copy is gone: a removed media element is paused, so nothing
+    // in it can start after this point.
+    await expect(page.locator("[data-exit-ghost]")).toHaveCount(0);
+    const seen = await page.evaluate(() => (window as unknown as { __exitMedia: unknown }).__exitMedia) as {
+      copies: { media: number; frame: { w: number; h: number; opaque: boolean } | null }[];
+      events: string[];
+    };
+    expect(seen.copies.length, "the lightbox leaves through an exit copy").toBeGreaterThan(0);
+    const copy = seen.copies[0]!;
+    expect(copy.media, `the copy holds no media element that could load or play: ${JSON.stringify(seen)}, refetched ${refetched}`).toBe(0);
+    expect(seen.events, "nothing in the copy loads or plays").toEqual([]);
+    expect(refetched, "closing does not fetch the clip again").toBe(0);
+    expect(copy.frame, "the copy shows the frame the clip was on, at its size").toEqual({ w: 96, h: 64, opaque: true });
   });
 
   test("a section of the task drawer opens with a fade", async ({ page }) => {
