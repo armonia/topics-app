@@ -42,6 +42,16 @@ const LINE = "Il testo della chat che sta sotto la finestra e non va selezionato
 /**
  * A horizontal stroke of `width` px over a chat line that nothing covers at
  * either end: the element under both points is that line's own text.
+ *
+ * Inside the element's FIRST line, not at its middle. A bubble's text wraps on
+ * two lines (42 px at a 21.125 px line height), so its middle is the boundary
+ * between them: Chromium hit-tests a press there on the block, not on the text
+ * (`selectstart` targets the div), and the drag only moves a caret along the
+ * second line. Measured on CI Chromium (probe, PR #180, 01/10): 0 characters
+ * at the middle with or without a drag first, 8 inside the first line, 10 on a
+ * plain page; no mutation, no cancelled mousemove, no pointer capture during
+ * the stroke. That is what made the stroke select nothing on Chromium in runs
+ * 36737336902 and 36738472708, not the drag guard.
  */
 async function uncoveredStroke(page: Page, width: number): Promise<{ x0: number; x1: number; y: number } | null> {
   return page.evaluate((w) => {
@@ -53,7 +63,8 @@ async function uncoveredStroke(page: Page, width: number): Promise<{ x0: number;
     for (const el of lines) {
       const r = el.getBoundingClientRect();
       if (r.width < w + 8 || r.height === 0) continue;
-      const y = r.top + r.height / 2;
+      const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
+      const y = r.top + Math.min(r.height, Number.isFinite(lineHeight) ? lineHeight : r.height) / 2;
       const x0 = r.left + 2;
       const x1 = x0 + w;
       if (el.contains(document.elementFromPoint(x0, y)) && el.contains(document.elementFromPoint(x1, y))) return { x0, x1, y };
@@ -147,7 +158,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser flottante si trascina senza 
     return samples;
   }
 
-  test("TOPIC-BROWSER-01s: trascinando la barra sopra il testo della chat non si seleziona niente, durante e dopo", async ({ page, request, browserName }) => {
+  test("TOPIC-BROWSER-01s: trascinando la barra sopra il testo della chat non si seleziona niente, durante e dopo", async ({ page, request }) => {
     const { topic, windowEl, bar, grip, target } = await dragScene(page, request);
     try {
       await page.mouse.move(grip.x, grip.y);
@@ -172,18 +183,15 @@ test.describe("TOPIC-BROWSER-01 la finestra browser flottante si trascina senza 
       // no selectstart is cancelled any more and the transcript's text is
       // selectable again by style.
       expect(await guardLeftNothing(page), "the guard is still holding the transcript after the drop").toEqual({ selectstartCancelled: false, userSelect: "auto-or-text" });
-      // And a real stroke selects again. WebKit only: on Chromium this stroke
-      // selected nothing in CI (runs 36737336902, 36738472708) with the guard
-      // already gone by the checks above, which is outside what this guard does.
-      if (browserName === "webkit") {
-        const stroke = await uncoveredStroke(page, 60);
-        expect(stroke, "no chat line left uncovered by the dropped window").not.toBeNull();
-        await page.mouse.move(stroke!.x0, stroke!.y);
-        await page.mouse.down();
-        await page.mouse.move(stroke!.x1, stroke!.y, { steps: 5 });
-        await page.mouse.up();
-        expect((await selectionText(page)).length, "the chat can no longer be selected after a drag").toBeGreaterThan(0);
-      }
+      // And a real stroke selects again, on both engines (the stroke runs
+      // inside a line: see `uncoveredStroke`).
+      const stroke = await uncoveredStroke(page, 60);
+      expect(stroke, "no chat line left uncovered by the dropped window").not.toBeNull();
+      await page.mouse.move(stroke!.x0, stroke!.y);
+      await page.mouse.down();
+      await page.mouse.move(stroke!.x1, stroke!.y, { steps: 5 });
+      await page.mouse.up();
+      expect((await selectionText(page)).length, "the chat can no longer be selected after a drag").toBeGreaterThan(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

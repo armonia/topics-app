@@ -210,6 +210,16 @@ test.describe("probe: mouse selection in the chat", () => {
     } finally { await deleteTopic(request, topic.id).catch(() => {}); }
   });
 
+  test("after a drag of the floating window, stroke inside the first line", async ({ page, request, browserName }) => {
+    const topic = await scene(page, request);
+    try {
+      await drag(page);
+      await expect(page.locator("html")).not.toHaveClass(/drag-no-select/);
+      const r = await stroke(page, `${browserName} after-drag first-line`, 5, true);
+      expect(r.afterUp, JSON.stringify(r)).toBeGreaterThan(0);
+    } finally { await deleteTopic(request, topic.id).catch(() => {}); }
+  });
+
   for (const steps of [5]) {
     test(`no drag first, stroke in ${steps} steps`, async ({ page, request, browserName }) => {
       const topic = await scene(page, request);
