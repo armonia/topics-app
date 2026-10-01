@@ -5,6 +5,7 @@ import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
 import { getDatabase } from "../db";
+import { warnThrottled } from "../lib/warn-throttled";
 import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
@@ -1653,7 +1654,8 @@ async function reconcileSessions(attempt = 0): Promise<void> {
           // row. The 1h sweep is shell-only (type='shell'), so a dormant codex
           // row survives until then.
           console.warn(`[Terminal] Failed to recreate codex session ${row.id}: ${err.message} — parking dormant`);
-          try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); } catch {}
+          try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); }
+          catch (e) { warnThrottled("terminal_sessions:park-after-recreate", `[Terminal] terminal_sessions: marking ${row.id} dormant after a failed recreate failed:`, e); }
         }
       }
     }
@@ -2611,7 +2613,8 @@ export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = '
     }
     sessionSockets.delete(id);
   }
-  try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [id]); } catch {}
+  try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [id]); }
+  catch (e) { warnThrottled("terminal_sessions:retire", `[Terminal] terminal_sessions: deleting the row of retired ${id} failed:`, e); }
   if (claudeSessionId && (sessionType === 'claude-code' || sessionType === 'claude-code-team')) {
     _tracker?.dropTerminalSession(claudeSessionId);
   }
@@ -2836,7 +2839,8 @@ export function parkTerminalSession(id: string, exitCode: number | null = null):
   clearTerminalActivity(id);
   // `exitCode` is what the bridge would have reported had the process quit by
   // itself: NULL for a park (a restart kills, it does not diagnose).
-  try { getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, id]); } catch {}
+  try { getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, id]); }
+  catch (e) { warnThrottled("terminal_sessions:park", `[Terminal] terminal_sessions: marking parked ${id} dormant failed:`, e); }
   try { sendToBridge({ type: "kill", id }); } catch { /* bridge down: the PTY is already gone */ }
   broadcastTerminalSessions();
   return true;
@@ -2960,7 +2964,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       try {
         const db = getDatabase();
         db.run("DELETE FROM terminal_sessions WHERE status = 'dormant' AND claude_session_id IS NULL AND type = 'shell' AND datetime(created_at) < datetime('now', '-1 hour')");
-      } catch {}
+      } catch (e) { warnThrottled("terminal_sessions:sweep", "[Terminal] terminal_sessions: sweeping dormant shells older than 1h failed:", e); }
 
       const filterTopicId = url.searchParams.get('topicId');
       let values = Array.from(sessions.values());
@@ -3186,7 +3190,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (!session && !dbRow) return errorResponse(404, "Terminal session not found");
 
       if (session) { session.name = name; session.nameSource = 'user'; }
-      try { db.run("UPDATE terminal_sessions SET name = ?, name_source = 'user' WHERE id = ?", [name, renameMatch.id]); } catch {}
+      try { db.run("UPDATE terminal_sessions SET name = ?, name_source = 'user' WHERE id = ?", [name, renameMatch.id]); }
+      catch (e) { warnThrottled("terminal_sessions:rename", `[Terminal] terminal_sessions: saving the new name of ${renameMatch.id} failed:`, e); }
 
       broadcastTerminalSessions();
       return json({ ok: true, id: renameMatch.id, name });
@@ -3254,7 +3259,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           (row.name_source as 'default' | 'auto' | 'user') || 'default',
         );
         // Mark as active
-        try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch {}
+        try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); }
+        catch (e) { warnThrottled("terminal_sessions:revive", `[Terminal] terminal_sessions: marking revived ${row.id} active failed:`, e); }
         broadcastTerminalSessions();
         return session;
       })();
@@ -3327,7 +3333,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           snap.cols, snap.rows, snap.topicId, snap.type,
           snap.skipPermissions, snap.claudeSessionId, snap.parentSessionKey,
         );
-        try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [snap.id]); } catch {}
+        try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [snap.id]); }
+        catch (e) { warnThrottled("terminal_sessions:reload", `[Terminal] terminal_sessions: marking reloaded ${snap.id} active failed:`, e); }
         broadcastTerminalSessions();
         return json({ id: session.id, type: session.type, claudeSessionId: session.claudeSessionId || null });
       } catch (err: any) {
@@ -3533,7 +3540,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           for (const ws of sockets) { try { ws.close(1000, "Sub-agent stopped"); } catch {} }
           sessionSockets.delete(child.id);
         }
-        try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [child.id]); } catch {}
+        try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [child.id]); }
+        catch (e) { warnThrottled("terminal_sessions:subagent-stop", `[Terminal] terminal_sessions: deleting the row of stopped sub-agent ${child.id} failed:`, e); }
         if (childClaudeId) _tracker?.dropTerminalSession(childClaudeId);
         clearTerminalActivity(child.id);
         broadcastTerminalSessions();
