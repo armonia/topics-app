@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.420 — 2026-10-01
+
+### Sotto il cofano
+- A running Monitor is named as a Monitor with its running time from the moment it is armed, and each wake names the event that caused it
+- A woken turn shows its Monitor banner live, without a reload
+- The wake answering a Monitor's end names that Monitor, how it ended and its last event, and the chat spec proves the background:changed push
+- A command started with run_command is named on the chat's background line while it runs, and the answer to its wake names it, its exit code and its last line
+- The command fake names its job description with an English identifier, so the identifier-language rail passes
+- A chat's background line is proven to list only that chat's commands, and a backtick in a command's description no longer breaks its wake text
+- The client takes the patched dompurify 3.4.16
+
 ## 2.2.418 — 2026-09-30
 
 ### Sotto il cofano
