@@ -31,6 +31,7 @@ import { createTerminalSession, createTopic, deleteTerminalSession, seedPaneStor
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 import { beginGesture, endGesture, installProbe, settlePanes } from "./helpers/react-commit-probe";
 
 hermetic(test);
@@ -363,6 +364,62 @@ test.describe("a tab switch is instant", () => {
     await page.keyboard.type("TSI long chat");
     await expect(palette).toContainText("TSI long chat");
     expectResident("command palette", await measureSwitch(page, L, { event: "keydown", key: "Enter" }, () => page.keyboard.press("Enter")));
+  });
+
+  test("a chat whose turn ran while it was hidden is final on the first frame of the return", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSWITCH-01" });
+    test.setTimeout(180_000);
+    const long = await seedChat(request, "TSI turn chat", LONG_COUNT, "TURN-END", true);
+    const short = await seedChat(request, "TSI quiet chat", SHORT_COUNT, "QUIET-END");
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        [long.topicId]: { id: long.topicId, type: "chat", title: "", topicId: long.topicId, openedAt },
+        [short.topicId]: { id: short.topicId, type: "chat", title: "", topicId: short.topicId, openedAt },
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [long.topicId, short.topicId], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    const ws = await interceptWebSocket(page);
+    await installProbe(page);
+    await installMeter(page);
+    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
+    await goToApp(page);
+    const longShell = page.locator(`[data-pane-shell="${long.topicId}"]`);
+    const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "QUIET-END" });
+    const longRow = longShell.locator('[data-testid="chat-message"]').filter({ hasText: "TURN-END" });
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible({ timeout: 20_000 });
+    // Read to the bottom once, then away: the turn below runs behind the tab.
+    await page.locator(tab(long.topicId)).first().click();
+    await expect(longRow).toBeVisible({ timeout: 20_000 });
+    await page.locator(tab(short.topicId)).first().click();
+    await expect(shortRow).toBeVisible();
+    await expect(longShell.locator('[data-testid="chat-message-list"]')).toHaveAttribute("data-history", "complete", { timeout: 20_000 });
+
+    // A whole turn of the hidden chat, as the server sends it: start, three
+    // chunks, end. Every pin it asks for lands on a scroller with no box.
+    const messageId = `tsi-hidden-turn-${Date.now()}`;
+    const frame = { sessionKey: long.sessionKey, topicId: long.topicId };
+    ws.send({ type: "stream:start", ...frame, messageId });
+    for (let i = 0; i < 3; i++) ws.send({ type: "stream:content_chunk", ...frame, content: `HIDDEN-TICK-${i} ` });
+    const reply = longShell.locator('[data-testid="chat-message"]').filter({ hasText: "HIDDEN-TICK-2" });
+    await expect(reply).toHaveCount(1, { timeout: 10_000 });
+    await expect(longShell.locator('[data-composer-action="stop"]')).toHaveCount(1);
+    ws.send({ type: "stream:end", ...frame, messageId });
+    await expect(longShell.locator('[data-composer-action="stop"]')).toHaveCount(0, { timeout: 10_000 });
+    await expect(reply).toHaveCount(1);
+
+    // Before the fix the reply rose after the first frame, 2 runs out of 2: from
+    // 616.1 to 615.1 px here, and in a probe that read the first frame before
+    // the ResizeObserver, from the old bottom (667.6 px, 52 px too low). The
+    // pins of the return ran in that observer, delivered after the frame's
+    // animation callbacks, and its scrollToIndex stopped a pixel short.
+    const L = { key: long.topicId, needle: "HIDDEN-TICK-2", ...long };
+    expectResident("click, back to the chat whose turn ran while it was hidden", await measureSwitch(page, L, { event: "click" }, () => page.locator(tab(long.topicId)).first().click()));
   });
 
   test("a chat whose history was completed while it was hidden is final on the first frame of the return", async ({ page, request }) => {

@@ -1018,6 +1018,13 @@ machine under load.
 - **THEN** its last message is on screen on the first frame, with no skeleton, and does not move in the frames after
 - **AND** no pane remounts, no request names that chat, and no row replays the entrance animation
 
+#### Scenario: back to a chat whose turn ran while it was hidden
+- **GIVEN** two chats open as tabs, the long one read to the bottom and then left behind the other
+- **AND** a whole turn of the long chat (start, chunks, end) arrives while it is hidden, so its reply sits below the bottom the scroller kept
+- **WHEN** the user clicks back to it
+- **THEN** the reply is at the bottom on the first frame after the click, and does not move by a pixel in the frames after
+- **AND** no pane remounts, no request names that chat, and no row replays the entrance animation
+
 ### Requirement: TABSWITCH-02 — A switch that mounts a pane never shows an empty one
 
 A switch that has to mount the pane (a chat in another group, a pane evicted by
