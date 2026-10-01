@@ -1,10 +1,13 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useContext, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
 import { useSettledMetricClass } from './settledMetrics';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
+import { TranscriptRowResizeContext } from './transcriptRowResize';
 import {
   GROUP_MIN,
   firstFailedTool,
@@ -60,7 +63,15 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
   // click continua a scegliere fra tutte le azioni e le sole attive.
   const expanded = open || live;
 
-  const toggle = () => setOpen((v) => !v);
+  // A click on the row holds it where it is while the body unrolls under it
+  // (`transcriptDisclosure.ts`). The failure badge does not: it is a jump to
+  // the failed row, and that row is scrolled into view on purpose.
+  const disclose = useDisclosureToggle();
+  const onRowResize = useContext(TranscriptRowResizeContext);
+  const toggle = (e: MouseEvent<HTMLElement>) => {
+    disclose(e.currentTarget);
+    setOpen((v) => !v);
+  };
 
   return (
     <div data-testid="tool-group-row" data-group-id={tools[0]?.id} className="text-compact">
@@ -158,17 +169,15 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
           </span>
         </span>
       </div>
-      {expanded && (
-        // Rientro + filo a sinistra: è la timeline verticale che il commento di
-        // MessageContent promette da sempre («connected by a left border line»)
-        // e che non c'era. Senza, le azioni del gruppo stavano sulla stessa
-        // colonna della riga che le contiene, e la gerarchia spariva.
-        <div className="ml-[9px] pl-3 border-l border-app-border/50 space-y-px">
-          {(open ? tools : tools.filter(isActiveTool)).map((tc) => (
-            <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} highlighted={tc.id === focusId} />
-          ))}
-        </div>
-      )}
+      {/* Rientro + filo a sinistra: è la timeline verticale che il commento di
+          MessageContent promette da sempre («connected by a left border line»)
+          e che non c'era. Senza, le azioni del gruppo stavano sulla stessa
+          colonna della riga che le contiene, e la gerarchia spariva. */}
+      <DisclosureBody open={expanded} className="ml-[9px] pl-3 border-l border-app-border/50 space-y-px" onMotion={onRowResize ?? undefined}>
+        {(open ? tools : tools.filter(isActiveTool)).map((tc) => (
+          <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} highlighted={tc.id === focusId} />
+        ))}
+      </DisclosureBody>
     </div>
   );
 }

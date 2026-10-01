@@ -3,6 +3,7 @@ import { TriangleAlert, Copy, Check } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { copyText } from '../../lib/clipboard';
 import { readableVerdict } from './errorVerdict';
+import { useDisclosureToggle } from './transcriptDisclosure';
 
 /**
  * The turn's verdict, as an element of its OWN.
@@ -21,6 +22,7 @@ export function TurnErrorBanner({ text }: { text: string }) {
   const tr = useT();
   const { headline, details, truncated } = useMemo(() => readableVerdict(text), [text]);
   const [copied, setCopied] = useState(false);
+  const disclose = useDisclosureToggle();
 
   const copy = async () => {
     if (!details) return;
@@ -42,7 +44,12 @@ export function TurnErrorBanner({ text }: { text: string }) {
           // `<details>` and not a button with state: the fold is closed on its
           // own, it opens with the keyboard, and the browser prints it open.
           <details data-testid="turn-error-details" className="mt-1">
-            <summary className="cursor-pointer select-none text-mini opacity-80 hover:opacity-100">
+            <summary
+              // The browser opens the fold right after this click: the
+              // summary stays where it is while the details unroll under it.
+              onClick={(e) => disclose(e.currentTarget)}
+              className="cursor-pointer select-none text-mini opacity-80 hover:opacity-100"
+            >
               {/* A payload stored cut off says so: what is in the fold is not
                   the whole thing the provider sent, and a reader about to
                   paste it into a bug report needs to know that. */}

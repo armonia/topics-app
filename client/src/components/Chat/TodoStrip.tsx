@@ -3,15 +3,17 @@
  *
  * A compact, collapsible mirror of the latest `TodoWrite`, rendered above the
  * composer so the current plan stays visible while typing. Collapsed by
- * default to a progress line ("3/7 · <active item>"); expands in place to the
- * full checklist. Purely presentational — the inline transcript card is
- * unaffected.
+ * default to a progress line ("3/7 · <active item>"); opens the full
+ * checklist in a panel standing on the strip (`DockedStripPanel`), so neither
+ * the strip nor the transcript moves. Purely presentational: the inline
+ * transcript card is unaffected.
  */
 
 import { useState } from 'react';
 import { ListChecks, ChevronRight, CircleCheck, CircleDot, Circle } from 'lucide-react';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import { DockedStripPanel } from './DockedStripPanel';
 
 export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
   const [expanded, setExpanded] = useState(false);
@@ -19,7 +21,7 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
   const allDone = done === total;
 
   return (
-    <div data-testid="todo-strip" className={CHAT_STRIP_NEUTRAL}>
+    <div data-testid="todo-strip" className={`relative ${CHAT_STRIP_NEUTRAL}`}>
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
@@ -39,8 +41,8 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
         </span>
       </button>
 
-      {expanded && (
-        <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
+      <DockedStripPanel open={expanded} testId="todo-strip-panel" className="max-h-64 overflow-y-auto">
+        <ul className="space-y-0.5 px-2.5 py-1.5">
           {items.map((t, i) => (
             <li key={i} className="flex items-start gap-2 text-compact">
               <span className="mt-0.5 flex-shrink-0">
@@ -66,7 +68,7 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
             </li>
           ))}
         </ul>
-      )}
+      </DockedStripPanel>
     </div>
   );
 }

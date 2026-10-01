@@ -19,6 +19,8 @@ import { ChevronDown, ChevronRight, FileDiff, Users, Workflow, X } from 'lucide-
 import { useT } from '../../hooks/useT';
 import type { ChatMessage, ToolCall } from '../../types';
 import { formatDurationMs, formatToolCounts, isWhollyFailed } from './toolGrouping';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
 import { baseName, summarizeTools, summarizeWork } from './taskWorkFold';
 
 /** Up to this many file names spell themselves out; past it, a count. */
@@ -35,6 +37,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const disclose = useDisclosureToggle();
   const bodyId = useId();
   const summary = useMemo(() => (tools ? summarizeTools(tools) : summarizeWork(msg ? [msg] : [])), [msg, tools]);
 
@@ -60,7 +63,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
         type="button"
         aria-expanded={open}
         aria-controls={bodyId}
-        onClick={() => setOpen((v) => !v)}
+        onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
         title={tr('chat.taskWork.summaryTitle')}
         data-testid="task-work-summary"
         className="w-full rounded border border-app-border/60 bg-app-bg-secondary/40 px-2 py-1 text-left text-app-text-secondary transition-colors hover:bg-app-bg-secondary/80 hover:text-app-text"
@@ -117,13 +120,11 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
         </span>
       </button>
       {/* Open: the same rows as always, indented under the line that summed
-          them up. Mounted only when open, so a closed transcript does not pay
-          for the tool bodies it is not showing. */}
-      {open && (
-        <div id={bodyId} data-testid="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
-          {children}
-        </div>
-      )}
+          them up. Mounted only when open (or closing), so a closed transcript
+          does not pay for the tool bodies it is not showing. */}
+      <DisclosureBody open={open} id={bodyId} testId="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
+        {children}
+      </DisclosureBody>
     </div>
   );
 }

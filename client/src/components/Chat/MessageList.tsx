@@ -43,6 +43,7 @@ import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
+import { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext, useDisclosureAnchor } from './useDisclosureAnchor';
 import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 import { conversationViewKey } from '../../state/composerHandoff';
 import { useHiddenTurnReturn } from './useHiddenTurnReturn';
@@ -372,6 +373,7 @@ export function MessageList({
           onSendNow={onSendQueueNow}
           busy={queueBusy}
         />
+        <div style={{ height: `var(${ANCHOR_SLACK_PROPERTY}, 0px)` }} />{/* Room a fold closed near the end keeps below the last row (useDisclosureAnchor). */}
         {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
         <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
       </>
@@ -695,6 +697,7 @@ export function MessageList({
   /** Quando abbiamo pinnato l'ultima volta: serve a distinguere «la vista è in
    *  fondo perché ce l'abbiamo portata noi» da «ci è saltata da sola». */
   const lastPinAtRef = useRef(0);
+  const disclosureHoldingRef = useRef<() => boolean>(() => false); // a fold toggled by hand holds the view (useDisclosureAnchor)
   /** Finestra entro cui un arrivo al fondo è ancora attribuibile al nostro pin. */
   const PIN_ATTRIBUTION_MS = 500;
   /** Entro tanto da un nostro pin, un calo di `scrollTop` è il riassestamento
@@ -728,7 +731,7 @@ export function MessageList({
    * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
   const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean; renderNow?: boolean }) => {
-    if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
+    if (disclosureHoldingRef.current() || (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() }))) return;
     if (opts?.viaVirtuoso) {
       virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
       // `renderNow`: the offset is written at once, but Virtuoso renders its
@@ -751,7 +754,7 @@ export function MessageList({
       // Ri-controllo dentro il frame: uno scroll dell'utente arrivato fra la
       // programmazione e l'esecuzione non va sovrascritto da un pin ormai vecchio.
       if (!el) return;
-      if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
+      if (disclosureHoldingRef.current() || (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() }))) return;
       // DOPO le guardie: qui si registrano i pin ESEGUITI, non quelli tentati.
       // Stava in cima, quindi un pin che poi si tirava indietro rinfrescava
       // comunque la finestra di attribuzione — e per 500ms un auto-riancoraggio
@@ -776,6 +779,10 @@ export function MessageList({
     authorityRef.current = decision.state;
     if (decision.pin) pinToBottom(pinOpts);
   }, [pinToBottom]);
+  // A toggle is a hand on the chat, like a wheel: the hold, the opening's forced pins standing down.
+  const onDisclosureHold = useCallback(() => { userTouchedRef.current = true; openingUntilRef.current = 0; dispatchScroll({ type: 'disclosure-toggled' }); }, [dispatchScroll]);
+  const onDisclosureSettled = useCallback((d: number) => { if (d <= BOTTOM_RELEASE_PX) dispatchScroll({ type: 'reached-bottom', distanceFromBottom: d }); }, [dispatchScroll]);
+  const disclosure = useDisclosureAnchor({ scrollerElRef, scrollerEl, holdingRef: disclosureHoldingRef, onHold: onDisclosureHold, onSettled: onDisclosureSettled });
 
   /**
    * While the reader holds the scroll, nobody takes the view to the bottom,
@@ -796,7 +803,7 @@ export function MessageList({
     const guarded = (optionsOrX?: ScrollToOptions | number, y?: number): void => {
       const top = typeof optionsOrX === 'object' ? optionsOrX?.top : y;
       const toBottom = top != null && top > el.scrollTop && top >= el.scrollHeight - el.clientHeight - AT_BOTTOM_TOLERANCE_PX;
-      if (toBottom && authorityRef.current.userHeld && !jumpPending()) return;
+      if (toBottom && (authorityRef.current.userHeld || disclosureHoldingRef.current()) && !jumpPending()) return;
       if (typeof optionsOrX === 'object' || optionsOrX === undefined) native(optionsOrX);
       else native(optionsOrX, y ?? 0);
     };
@@ -878,6 +885,7 @@ export function MessageList({
       // of THAT chat: it must not scroll this one.
       restoreAnchorRef.current = null;
       lastDistanceFromBottomRef.current = 0;
+      disclosure.release(); disclosure.clearSlack(null); // a fold held in the previous chat belongs to it
       // NB: `initialTopMostIndexRef` NON si scongela qui, ed è deliberato.
       // Passando da una chat corta a una lunga il ref resta quello di prima e
       // la nuova lista monta all'indice sbagliato — un difetto vero, ma
@@ -897,7 +905,7 @@ export function MessageList({
       // tutta. Il pin vero lo fa l'effetto che aspetta il caricamento.
       dispatchScroll({ type: 'topic-switch' });
     }
-  }, [viewKey, dispatchScroll, filteredMessages.length]);
+  }, [viewKey, dispatchScroll, filteredMessages.length, disclosure]);
 
   /**
    * Il pin di APERTURA: la prima volta che questa chat ha dei messaggi a
@@ -1615,6 +1623,7 @@ export function MessageList({
       // mezzo ci sta una rimisura (scorrendo, Virtuoso monta righe nuove e
       // l'altezza totale cambia) che rimetterebbe la vista in fondo.
       openingUntilRef.current = 0;
+      disclosure.release(); // and a toggled fold's hold ends: the view is the reader's
     };
     // Tasti che muovono la lista. Freccia giù / Fine / PagGiù non servono: qui
     // interessa solo chi va INDIETRO, e chi va in fondo ci pensa `reached-bottom`.
@@ -1668,26 +1677,16 @@ export function MessageList({
       if (!gesto || st > scrollUpAnchorRef.current) scrollUpAnchorRef.current = st;
       const riferimento = gesto ? scrollUpAnchorRef.current : lastScrollTopRef.current;
       if (isUserScrollUp(riferimento, st)) {
-        // Subito dopo un NOSTRO pin, il calo è nostro anche se il dito era
-        // appena passato di lì.
-        //
-        // `scrollToIndex('LAST')` porta la vista in fondo e poi Virtuoso
-        // rimisura le altezze: quel riassestamento ABBASSA `scrollTop` di
-        // qualche decina di pixel — è la stessa ambiguità per cui esiste la
-        // finestra di guardia. Ma la guardia, per un gesto, si scavalca
-        // apposta (un gesto l'app non lo produce), e nel varco ci cadeva il
-        // riassestamento che segue di un frame l'ultima rotellina: la presa si
-        // rialzava da sola un istante dopo che «torna in fondo» l'aveva
-        // sciolta, e la chat restava ferma a 12px dal fondo senza che nessun
-        // pin potesse più chiuderli. Centocinquanta millisecondi: nulla per una
-        // mano, tutto per il nostro assestamento.
-        const nostro = Date.now() - lastPinAtRef.current < SELF_PIN_SETTLE_MS;
-        // Dentro quella finestra il movimento e' NOSTRO: non si declassa, non
-        // si emette affatto. Declassarlo a `delta` sembrava prudente e non lo
-        // era: fuori dalla finestra di guardia un `delta` con distanza grande
-        // sgancia comunque l'autorita', e da li' ogni pin non forzato e'
-        // vietato — cioe' si spegnevano le vie di recupero che restano dopo
-        // l'apertura, per un movimento che avevamo causato noi.
+        // Right after one of OUR pins the drop is ours, even if a finger was just
+        // there: `scrollToIndex('LAST')` then Virtuoso's re-measure LOWERS
+        // `scrollTop` by tens of px, and taken for a gesture it re-raised the hold
+        // just after «back to bottom» released it, leaving the chat 12px short
+        // (150 ms: nothing for a hand, all of our settling). So is every move
+        // while a toggled fold holds its header: a gesture ends that hold first.
+        const nostro = Date.now() - lastPinAtRef.current < SELF_PIN_SETTLE_MS || disclosure.holding();
+        // Ours is not emitted at all, not even downgraded to `delta`: past the
+        // guard window a far `delta` still detaches, and that switched off
+        // every recovery pin over a move we had caused ourselves.
         if (nostro) {
           scrollUpAnchorRef.current = st;
         } else {
@@ -1696,6 +1695,7 @@ export function MessageList({
         }
       }
       lastScrollTopRef.current = st;
+      disclosure.consumeSlack(el);
       // Kept for `completeOutOfSight`: once the pane is hidden its geometry
       // reads zero, and this is the last honest distance from the bottom.
       lastDistanceFromBottomRef.current = Math.max(0, el.scrollHeight - st - el.clientHeight);
@@ -1783,6 +1783,7 @@ export function MessageList({
         completeOutOfSightRef.current();
         return;
       }
+      disclosure.consumeSlack(el);
       syncArrow(el);
       // L'ULTIMA crescita, quella che nessuno annuncia.
       //
@@ -1887,7 +1888,7 @@ export function MessageList({
     // presenti qui invece di restare una closure stantia che misura la freccia
     // sulla geometria sbagliata. Se quel giorno arriva, la cura è stabilizzarla
     // di nuovo (ref), non toglierla da questa lista.
-  }, [scrollerEl, viewKey, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow, placeRowAt]);
+  }, [scrollerEl, viewKey, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow, placeRowAt, disclosure]);
 
   // A turn that ran while the pane was hidden: its bottom on the first frame back.
   useHiddenTurnReturn({ paneAlive, scrollerElRef, itemsRef, restoreAnchorRef, userTouchedRef, pinToBottom });
@@ -1933,8 +1934,9 @@ export function MessageList({
     if (last?.role !== 'user') return;
     // Inviare È l'intento di seguire la risposta: la transizione `user-sent`
     // riancora anche una vista che l'utente aveva portato indietro a leggere.
+    disclosure.release(); disclosure.clearSlack(scrollerElRef.current);
     dispatchScroll({ type: 'user-sent' }, { frames: 2 });
-  }, [filteredMessages, dispatchScroll]);
+  }, [filteredMessages, dispatchScroll, disclosure]);
 
   // Re-pin the bottom when the COMPOSER grows. Its height is the Footer, the
   // ONLY bottom spacer, so when the Stop button, TodoStrip, a new line or an
@@ -2043,6 +2045,7 @@ export function MessageList({
     // corso è esattamente ciò a cui sta dicendo di no — non può vetarlo.
     const decision = reduceScroll(authorityRef.current, { type: 'scroll-to-bottom' }, Date.now());
     authorityRef.current = decision.state;
+    disclosure.release(); disclosure.clearSlack(scrollerElRef.current); // the last row's bottom, not a fold's room
     // La freccia sparisce SUBITO, senza aspettare la misura: il pin è
     // asincrono (rAF) e lasciarla accesa per due frame dopo il click la fa
     // sembrare non premuta. `arrowShownRef` va tenuto allineato, o la prossima
@@ -2052,14 +2055,14 @@ export function MessageList({
     pinToBottom({ viaVirtuoso: true, force: true });
     setNewMsgCount(0);
     setShowNewBanner(false);
-  }, [pinToBottom]);
+  }, [pinToBottom, disclosure]);
 
   // data-testid on the outer wrapper ensures the selector is always queryable
   // regardless of loading/empty/Virtuoso state (pane-undo.spec.ts relies on
   // [data-testid='chat-scroll-container']). The Virtuoso internal scroller is
   // targeted via scrollerElRef without a separate testid.
   return (
-    <TranscriptRowResizeContext.Provider value={onRowResize}>
+    <TranscriptRowResizeContext.Provider value={onRowResize}><TranscriptDisclosureContext.Provider value={disclosure}>
     <div
       data-testid="chat-scroll-container"
       ref={chatContainerRef}
@@ -2147,7 +2150,7 @@ export function MessageList({
             // vedeva ANIMARE la vista verso il basso a ogni item nuovo — la
             // versione più fastidiosa del difetto, perché dura più frame ed è
             // esattamente il momento in cui uno sta tirando su.
-            if (authorityRef.current.userHeld) return false;
+            if (authorityRef.current.userHeld || disclosure.holding()) return false;
             return isAtBottom ? 'smooth' : false;
           }}
           // 150 (not 50) so the redesign's initial bottom-anchor — which
@@ -2368,6 +2371,6 @@ export function MessageList({
       <div ref={messagesEndRef} />
       <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} bottomOffset={inputAreaHeight} />
     </div>
-    </TranscriptRowResizeContext.Provider>
+    </TranscriptDisclosureContext.Provider></TranscriptRowResizeContext.Provider>
   );
 }

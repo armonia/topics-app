@@ -33,6 +33,7 @@ import { branchLabelFor } from '../../lib/changesStripBranch';
 import { openTaskInApp } from '../../lib/openTaskLink';
 import { changedFileOpen } from '../../lib/changesStripOpen';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import { DockedStripPanel } from './DockedStripPanel';
 import type { Topic, WSMessage } from '../../types';
 
 interface ChangedFilesStripProps {
@@ -70,7 +71,7 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
   if (!rows.length) return null;
 
   return (
-    <div data-testid="chat-changes-strip" className={CHAT_STRIP_NEUTRAL}>
+    <div data-testid="chat-changes-strip" className={`relative ${CHAT_STRIP_NEUTRAL}`}>
       <button
         type="button"
         data-testid="chat-changes-chip"
@@ -98,11 +99,10 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
           </span>
         )}
       </button>
-      {open && (
-        <div className="max-h-48 overflow-y-auto border-t border-app-border/50 px-2.5 py-1.5">
-          <ChangedFileList testId="chat-changes-list" rows={rows} onOpen={openDiff} />
-        </div>
-      )}
+      {/* Over the transcript, standing on the strip: see `DockedStripPanel`. */}
+      <DockedStripPanel open={open} testId="chat-changes-panel" className="max-h-48 overflow-y-auto px-2.5 py-1.5">
+        <ChangedFileList testId="chat-changes-list" rows={rows} onOpen={openDiff} />
+      </DockedStripPanel>
     </div>
   );
 }

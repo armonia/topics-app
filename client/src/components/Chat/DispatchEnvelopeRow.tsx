@@ -17,6 +17,9 @@
 import { useState } from 'react';
 import { Bot } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
+import { StableToggleLabel } from './StableToggleLabel';
 
 export function DispatchEnvelopeRow({ messageId, content }: {
   /** The row's id, so an E2E locator can point at THIS envelope. */
@@ -26,6 +29,7 @@ export function DispatchEnvelopeRow({ messageId, content }: {
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const disclose = useDisclosureToggle();
   return (
     <div
       data-testid="dispatch-envelope-row"
@@ -39,17 +43,21 @@ export function DispatchEnvelopeRow({ messageId, content }: {
         <button
           type="button"
           data-testid="dispatch-envelope-toggle"
-          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={open ? tr('chat.dispatchEnvelope.hide') : tr('chat.dispatchEnvelope.show')}
+          onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
           className="shrink-0 underline-offset-2 hover:text-app-text hover:underline"
         >
-          {open ? tr('chat.dispatchEnvelope.hide') : tr('chat.dispatchEnvelope.show')}
+          {/* Both words hold the width: the line is centred, and a label that
+              changed length re-centred it under the pointer. */}
+          <StableToggleLabel open={open} show={tr('chat.dispatchEnvelope.show')} hide={tr('chat.dispatchEnvelope.hide')} />
         </button>
       </div>
-      {open && (
-        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-mini leading-relaxed text-app-text-secondary">
+      <DisclosureBody open={open} className="pt-1">
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-mini leading-relaxed text-app-text-secondary">
           {content}
         </pre>
-      )}
+      </DisclosureBody>
     </div>
   );
 }

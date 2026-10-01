@@ -1,4 +1,4 @@
-import { createElement, lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
@@ -19,8 +19,8 @@ import { ErrorBoundary } from '../Shared/ErrorBoundary';
 import { SpinnerFallback } from '../Shared/Spinner';
 import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFetchStatus';
 import { TranscriptRowResizeContext } from './transcriptRowResize';
-import { animateEl, EASE, MOTION } from '../../lib/motion';
-import { prefersReducedMotion } from '../../lib/reducedMotion';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -106,6 +106,14 @@ interface Props {
    */
   highlighted?: boolean;
 }
+
+/**
+ * How long a click on a trimmed row waits for its whole output before opening
+ * anyway, on the loading line. A local fetch lands in tens of milliseconds; the
+ * bound is for a slow link, where a row that does nothing for longer reads as
+ * broken.
+ */
+const DETAIL_REVEAL_WAIT_MS = 600;
 
 /**
  * One inline tool-call row. Borderless, single-line header (chevron, icon,
@@ -249,69 +257,30 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     isHumanTurn,
     autoOpen,
   });
-  // The body opens and closes by animating its HEIGHT (a grid track from 0fr
-  // to 1fr, `MOTION.base`), and the transcript hears it in the layout phase of
-  // the change (`transcriptRowResize.ts`): a pinned chat follows the body frame
-  // by frame instead of jumping after it (core:F02, core:F09). Mounted and
-  // unmounted in one frame, the body moved a pinned conversation by its whole
-  // height at once, twice per tool call. Closing keeps the body in the tree
-  // for the length of its animation; under reduced motion it goes at once.
+  // The body opens and closes by animating its height from the header down
+  // (`DisclosureBody`), and the transcript hears it in the layout phase of the
+  // change (`transcriptRowResize.ts`): a live body that opens by itself in a
+  // pinned chat is followed frame by frame instead of jumping after it
+  // (core:F02). A body opened BY HAND keeps its header where it was instead
+  // (`transcriptDisclosure.ts`): the hold set by the click vetoes that follow.
   const onRowResize = useContext(TranscriptRowResizeContext);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const [shownOpen, setShownOpen] = useState(effectiveOpen);
-  const [closing, setClosing] = useState(false);
-  if (shownOpen !== effectiveOpen) {
-    setShownOpen(effectiveOpen);
-    setClosing(!effectiveOpen && !prefersReducedMotion());
-  }
-  const bodyInTree = effectiveOpen || closing;
-  const animatedOpenRef = useRef(effectiveOpen);
-  useLayoutEffect(() => {
-    if (animatedOpenRef.current === effectiveOpen) return;
-    animatedOpenRef.current = effectiveOpen;
-    const el = bodyRef.current;
-    if (!el) return;
-    for (const a of el.getAnimations()) a.cancel();
-    const clip = el.firstElementChild as HTMLElement | null;
-    const animation = animateEl(
-      el,
-      effectiveOpen
-        ? [{ gridTemplateRows: '0fr', opacity: 0 }, { gridTemplateRows: '1fr', opacity: 1 }]
-        : [{ gridTemplateRows: '1fr', opacity: 1 }, { gridTemplateRows: '0fr', opacity: 0 }],
-      { duration: MOTION.base, easing: EASE.standard, fill: effectiveOpen ? 'none' : 'forwards' },
-    );
-    onRowResize?.(animation ? MOTION.base : 0);
-    if (animation && clip) {
-      clip.style.overflow = 'hidden';
-      const unclip = () => { clip.style.overflow = ''; };
-      animation.addEventListener('finish', unclip);
-      animation.addEventListener('cancel', unclip);
-    }
-    // `closing` is only set where motion is allowed (see above), which is
-    // where `animateEl` returns an animation to wait for.
-    if (!effectiveOpen && animation) animation.addEventListener('finish', () => setClosing(false));
-  }, [effectiveOpen, onRowResize]);
+  const disclose = useDisclosureToggle();
   useEffect(() => {
     if (!highlighted) return;
     // `?.` on the method too: old WebKit and layout-less test benches lack it.
     rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   }, [highlighted]);
 
-  const onToggle = () => {
-    setUserToggled(true);
-    setOpen((v) => !v);
-  };
-
-  // Lazy fetch: the first time a trimmed row is opened, we pull the whole
-  // detail and args from the server and merge them in.
-  useEffect(() => {
-    if (!effectiveOpen) return;
-    if (!messageId) return;
-    if (strippedBytes === 0) return;
-    if (fetchedForRef.current === toolCall.id) return; // already fetched
+  // Lazy fetch: the first time a trimmed row is opened (or pressed, see
+  // `onPointerDown`), we pull the whole detail and args from the server and
+  // merge them in. One request per call: a second ask gets the first promise.
+  const detailRequestRef = useRef<Promise<void> | null>(null);
+  const loadDetail = useCallback((): Promise<void> => {
+    if (!messageId || strippedBytes === 0) return Promise.resolve();
+    if (fetchedForRef.current === toolCall.id && detailRequestRef.current) return detailRequestRef.current;
     fetchedForRef.current = toolCall.id;
     const forId = toolCall.id;
-    chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail, args: fullArgs }) => {
+    const request = chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail, args: fullArgs }) => {
       const asRecord = (v: unknown): Record<string, unknown> | null =>
         v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
       const next = { detail: asRecord(fullDetail), args: asRecord(fullArgs) };
@@ -322,8 +291,51 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       // not arrive: a blank output here is a lost one, not an empty one.
       setFetchOutcome({ forId, state: 'error', error: err instanceof Error ? err.message : String(err) });
     });
-  }, [effectiveOpen, messageId, toolCall.id, strippedBytes]);
+    detailRequestRef.current = request;
+    return request;
+  }, [messageId, toolCall.id, strippedBytes]);
+  // Opened by anything but a click (the failure badge, a live auto-open).
+  useEffect(() => {
+    if (effectiveOpen) void loadDetail();
+  }, [effectiveOpen, loadDetail]);
   const outcome = fetchOutcome?.forId === toolCall.id ? fetchOutcome : null;
+
+  // A CLICK ON A TRIMMED ROW OPENS ONTO ITS WHOLE OUTPUT, not onto a loading
+  // line that the output then pushes down a moment later (a second change of
+  // height after the one the click asked for). The reveal waits for the fetch,
+  // which the press of the button has already started, up to a bound: past it
+  // the row opens on the loading line rather than look dead. Meanwhile the
+  // chevron turns into a spinner of the same size, and the view is already held.
+  const [revealing, setRevealing] = useState(false);
+  const onToggle = useCallback((e: MouseEvent<HTMLElement>) => {
+    if (revealing) return;
+    const anchor = e.currentTarget;
+    const opening = !effectiveOpen;
+    disclose(anchor);
+    const waitFor = opening && messageId && strippedBytes > 0 && !fetched && !outcome && !bridging ? loadDetail() : null;
+    if (!waitFor) {
+      setUserToggled(true);
+      // What is SHOWN flips, not the stored click: a sub-agent row is open
+      // by default with `open` still false, and flipping `open` made the first
+      // click on it a no-op.
+      setOpen(opening);
+      return;
+    }
+    setRevealing(true);
+    const bound = new Promise<void>((resolve) => { setTimeout(resolve, DETAIL_REVEAL_WAIT_MS); });
+    void Promise.race([waitFor, bound]).then(() => {
+      setRevealing(false);
+      // Held again from the moment the body really changes: the wait may have
+      // outlasted the first hold.
+      if (anchor.isConnected) disclose(anchor);
+      setUserToggled(true);
+      setOpen(true);
+    });
+  }, [revealing, effectiveOpen, disclose, messageId, strippedBytes, fetched, outcome, bridging, loadDetail]);
+  const onPointerDown = useCallback(() => {
+    if (!effectiveOpen && strippedBytes > 0) void loadDetail();
+  }, [effectiveOpen, strippedBytes, loadDetail]);
+
   const fetchState: { state: ToolDetailFetchState; error?: string } = outcome
     ? outcome
     : effectiveOpen && messageId && strippedBytes > 0 && !bridging ? { state: 'loading' } : { state: 'idle' };
@@ -363,50 +375,15 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       ? `${costFromTokens} token attribuiti a questa azione`
       : undefined;
 
-  return (
-    <div
-      ref={rowRef}
-      data-testid={`tool-call-row-${toolCall.id}`}
-      // Lo stato sta sulla RIGA, non su una colonna a destra. Ci stava finché
-      // quella colonna portava la spunta: tolta la spunta — che confermava la
-      // norma su ogni riga riuscita — quello span resta vuoto ogni volta che
-      // l'azione non ha nemmeno durata o costo, e un contenitore vuoto non è
-      // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
-      // riga, e adesso è scritto dove vive davvero.
-      data-status={status}
-      data-highlighted={highlighted ? 'true' : undefined}
-      className={`text-compact rounded-md transition-colors ${
-        // "In use" state must be unmissable: the active tool gets a soft
-        // primary tint + hairline ring (negative margin keeps the text
-        // column aligned with settled rows). Settled rows stay flat.
-        // `ring-inset`: il margine negativo porta la riga 6px oltre la colonna
-        // del messaggio, che è `overflow-hidden` — un anello disegnato FUORI dal
-        // bordo veniva tagliato a metà proprio sui due lati lunghi.
-        isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
-      } ${highlighted ? 'bg-red-500/5 ring-1 ring-inset ring-red-500/40' : ''}`}
-    >
-      {/* Un bottone SOLO se c'è qualcosa da aprire. Renderlo comunque e poi
-          disabilitarlo sarebbe una promessa fatta e ritirata: chi naviga da
-          tastiera ci si ferma sopra, il lettore di schermo annuncia un comando,
-          e il click non fa niente. Senza corpo la riga è una riga e basta. */}
-      {createElement(
-        hasBody ? 'button' : 'div',
-        hasBody
-          ? {
-              type: 'button' as const,
-              onClick: onToggle,
-              className: 'group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors',
-            }
-          : {
-              className: 'group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary',
-              title: emptyReason,
-              'data-empty': 'true',
-            },
+  // The header's content, the same in the button (a row with a body) and in
+  // the plain row (nothing to open).
+  const headerInner = (
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
             corpo e quelle senza partirebbero da due colonne diverse. */}
         {hasBody ? (
-          effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
+          revealing ? <Loader2 size={12} className="animate-spin text-app-text-muted flex-shrink-0" />
+            : effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
         ) : (
           <span className="w-3 flex-shrink-0" aria-hidden="true" />
         )}
@@ -489,7 +466,50 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               o cattivo, sta accanto al nome. */}
           {isRunning && <Loader2 size={11} className="animate-spin text-primary" />}
         </span>
-        </>,
+        </>
+  );
+
+  return (
+    <div
+      ref={rowRef}
+      data-testid={`tool-call-row-${toolCall.id}`}
+      // Lo stato sta sulla RIGA, non su una colonna a destra. Ci stava finché
+      // quella colonna portava la spunta: tolta la spunta — che confermava la
+      // norma su ogni riga riuscita — quello span resta vuoto ogni volta che
+      // l'azione non ha nemmeno durata o costo, e un contenitore vuoto non è
+      // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
+      // riga, e adesso è scritto dove vive davvero.
+      data-status={status}
+      data-highlighted={highlighted ? 'true' : undefined}
+      className={`text-compact rounded-md transition-colors ${
+        // "In use" state must be unmissable: the active tool gets a soft
+        // primary tint + hairline ring (negative margin keeps the text
+        // column aligned with settled rows). Settled rows stay flat.
+        // `ring-inset`: il margine negativo porta la riga 6px oltre la colonna
+        // del messaggio, che è `overflow-hidden` — un anello disegnato FUORI dal
+        // bordo veniva tagliato a metà proprio sui due lati lunghi.
+        isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
+      } ${highlighted ? 'bg-red-500/5 ring-1 ring-inset ring-red-500/40' : ''}`}
+    >
+      {/* Un bottone SOLO se c'è qualcosa da aprire. Renderlo comunque e poi
+          disabilitarlo sarebbe una promessa fatta e ritirata: chi naviga da
+          tastiera ci si ferma sopra, il lettore di schermo annuncia un comando,
+          e il click non fa niente. Senza corpo la riga è una riga e basta. */}
+      {hasBody ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          onPointerDown={onPointerDown}
+          aria-expanded={effectiveOpen}
+          aria-busy={revealing || undefined}
+          className="group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+        >
+          {headerInner}
+        </button>
+      ) : (
+        <div className="group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary" title={emptyReason} data-empty="true">
+          {headerInner}
+        </div>
       )}
       {/* LA RIGA CHE RESTA NEL THREAD quando qualcuno ha tolto la barriera.
           Fuori dal riquadro apribile, di proposito: l'esito di un permesso lo
@@ -527,14 +547,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {tr('chat.question.answerQueued')}
         </div>
       )}
-      {bodyInTree && (
-        // The grid track is what animates (0fr to 1fr). The inner box clips
-        // the body only while the track is shorter than it (set by the layout
-        // effect above for the length of the animation), so a form or a menu
-        // inside an open body is never cut.
-        <div ref={bodyRef} className="grid" style={{ gridTemplateRows: effectiveOpen ? '1fr' : '0fr' }}>
-        <div className="min-h-0">
-        <div className="ml-5 pb-1.5">
+      <DisclosureBody open={effectiveOpen} className="ml-5 pb-1.5" onMotion={onRowResize ?? undefined}>
           {/* Pending input form takes precedence: when the agent is asking
               the user, the regular ToolCardBody (args/result preview) is
               not the primary signal — the form is. But it isn't a REPLACEMENT
@@ -619,10 +632,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               </pre>
             </div>
           )}
-        </div>
-        </div>
-        </div>
-      )}
+      </DisclosureBody>
     </div>
   );
 });

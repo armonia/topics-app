@@ -5,6 +5,7 @@ import { useToast } from '../Shared/Toast';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useT } from '../../hooks/useT';
 import { BLOCKER_KEY, rollbackButtonState, rollbackDialogText } from './checkpointPlan';
+import { DockedStripPanel } from './DockedStripPanel';
 
 interface CheckpointTimelineProps {
   topicId: string;
@@ -83,7 +84,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
   if (checkpoints.length === 0) return null;
 
   return (
-    <div className="border-t border-app-border">
+    <div className="relative border-t border-app-border">
       {/* Compact bar */}
       <button
         onClick={() => setExpanded(!expanded)}
@@ -107,8 +108,8 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
       </button>
 
       {/* Expanded timeline */}
-      {expanded && (
-        <div data-testid="checkpoint-panel" className="px-3 py-2 border-t border-app-border bg-surface max-h-[200px] overflow-y-auto">
+      {/* Over the transcript, standing on the bar: see `DockedStripPanel`. */}
+      <DockedStripPanel open={expanded} testId="checkpoint-panel" className="mx-2 md:mx-3 px-3 py-2 max-h-[200px] overflow-y-auto">
           {error && <p className="text-red-500 text-mini mb-2">{error}</p>}
 
           <div className="flex items-center justify-between mb-2">
@@ -183,8 +184,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
               })}
             </div>
           )}
-        </div>
-      )}
+      </DockedStripPanel>
     </div>
   );
 }
