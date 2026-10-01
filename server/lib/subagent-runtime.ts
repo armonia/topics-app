@@ -544,9 +544,9 @@ export async function readAgentOutput(
       const fd = await fs.promises.open(path, "r");
       try {
         const len = size - start;
-        const buf = Buffer.alloc(len);
-        await fd.read(buf, 0, len, start);
-        const chunk = buf.toString("utf-8");
+        const bytes = Buffer.alloc(len);
+        await fd.read(bytes, 0, len, start);
+        const chunk = bytes.toString("utf-8");
         const { lines, remainder } = splitJsonlChunk(chunk);
         // Re-read the partial last line next call by stopping the offset before it.
         const nextOffset = size - Buffer.byteLength(remainder, "utf-8");
