@@ -32,7 +32,9 @@ import { resolve } from "node:path";
 
 const dir = import.meta.dir;
 const SERVIZIO = readFileSync(resolve(dir, "../services/tasks.ts"), "utf8");
-const ROTTA = readFileSync(resolve(dir, "tasks.ts"), "utf8");
+// The human board routes (PATCH /api/boards/:id/settings included) live in
+// `tasks-board.ts`, split out of `tasks.ts`: the call is read where it is.
+const ROTTA = readFileSync(resolve(dir, "tasks-board.ts"), "utf8");
 
 /** I campi che `updateBoardSettings` sa scrivere: `if (patch.X !== undefined)`. */
 function fieldsOfService(): string[] {
