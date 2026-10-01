@@ -1,11 +1,13 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
 import { seedMessage, type SeedMessageOpts } from "./helpers/seed-messages";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { canonicalTmpRoot } from "./helpers/test-server";
+import { interceptWebSocket } from "./helpers/ws-helpers";
+import { faults, frameCount, installProbe, measure, sampleFor, startProbe, stopProbe, waitStill, type Frame, type Measure, type Probe } from "./helpers/fold-probe";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -29,230 +31,16 @@ hermetic(test);
  * THE INVARIANT, per frame: the header stays at the same Y (±1 px) and the
  * same X, nothing above it moves, and the fold changes height in ONE run (an
  * animation or an instant reveal), never a placeholder that pops to its real
- * size later. Each test writes its measurements next to its result, and logs
- * one line per case (`ACCORDION kind case phase ...`) so a run on the old code
+ * size later. A strip docked over the composer opens its list ABOVE its
+ * header: at the bottom the transcript follows it up, so there the rule is
+ * that the newest row stays in sight above the strip instead of under it.
+ * Each test writes its measurements next to its result, and logs one line per
+ * case (`ACCORDION kind case phase ...`) so a run on the old code
  * reads as the diagnosis table.
  *
  * @covers CHAT-FOLD-01
  */
 test.use({ contextOptions: { reducedMotion: "no-preference" } });
-
-type Frame = {
-  t: number;
-  st: number;
-  sh: number;
-  ch: number;
-  hy: number | null;
-  hx: number | null;
-  ay: number | null;
-  fh: number | null;
-};
-type Probe = { frames: Frame[]; running: boolean; spec: { header: string; fold: string; docked: boolean } | null };
-
-/**
- * A target is `css` (inside the visible chat pane) or `msg:<text>|<css>` (inside
- * the message row whose text contains <text>).
- */
-async function installProbe(page: Page) {
-  await page.addInitScript(() => {
-    const p: Probe = { frames: [], running: false, spec: null };
-    (window as unknown as { __acc: Probe }).__acc = p;
-    const r1 = (n: number) => Math.round(n * 10) / 10;
-    const visiblePane = (): Element | null => {
-      for (const area of document.querySelectorAll('[data-testid="chat-input-area"]')) {
-        const r = area.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0 && area.parentElement) return area.parentElement;
-      }
-      return null;
-    };
-    const find = (root: Element | null, target: string): Element | null => {
-      if (!root) return null;
-      if (!target.startsWith("msg:")) return root.querySelector(target);
-      const [text, css] = target.slice(4).split("|");
-      const row = [...root.querySelectorAll('[data-testid="chat-message"]')].find((m) => (m.textContent ?? "").includes(text!));
-      return row ? (css ? row.querySelector(css) : row) : null;
-    };
-    const sample = () => {
-      const spec = p.spec;
-      const root = visiblePane();
-      const sc = root?.querySelector<HTMLElement>("[data-virtuoso-scroller]") ?? null;
-      const header = spec ? find(root, spec.header) : null;
-      const fold = spec ? find(root, spec.fold) : null;
-      const rows = root ? [...root.querySelectorAll('[data-testid="chat-message"]')] : [];
-      let above: Element | null = null;
-      if (header && sc) {
-        const scTop = sc.getBoundingClientRect().top;
-        const scBottom = sc.getBoundingClientRect().bottom;
-        if (spec!.docked) {
-          // The last row of the transcript still on screen above the strip.
-          const limit = header.getBoundingClientRect().top;
-          above = rows.filter((m) => {
-            const r = m.getBoundingClientRect();
-            return r.height > 0 && r.top >= scTop && r.top < Math.min(limit, scBottom);
-          }).pop() ?? null;
-        } else {
-          const own = header.closest('[data-testid="chat-message"]');
-          const idx = own ? rows.indexOf(own) : -1;
-          above = idx > 0 ? rows[idx - 1]! : null;
-          if (above && above.getBoundingClientRect().bottom < scTop) above = null;
-        }
-      }
-      const hr = header?.getBoundingClientRect();
-      p.frames.push({
-        t: performance.now(),
-        st: sc ? r1(sc.scrollTop) : -1,
-        sh: sc ? sc.scrollHeight : -1,
-        ch: sc ? sc.clientHeight : -1,
-        hy: hr && hr.height > 0 ? r1(hr.top) : null,
-        hx: hr && hr.height > 0 ? r1(hr.left) : null,
-        ay: above ? r1(above.getBoundingClientRect().top) : null,
-        fh: fold ? r1(fold.getBoundingClientRect().height) : null,
-      });
-    };
-    // Sampled in a ResizeObserver callback on a marker resized every frame:
-    // after layout, before paint, after the app's own observers (created
-    // earlier). What it reads is what is painted (see chat-transcript-motion).
-    let marker: HTMLElement | null = null;
-    const tick = () => {
-      if (p.running && marker) marker.style.width = marker.style.width === "2px" ? "1px" : "2px";
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-    let observer: ResizeObserver | null = null;
-    const arm = () => {
-      observer?.disconnect();
-      marker?.remove();
-      marker = document.createElement("div");
-      marker.setAttribute("aria-hidden", "true");
-      marker.style.cssText = "position:fixed;left:-10px;top:-10px;width:1px;height:1px;pointer-events:none";
-      document.body.appendChild(marker);
-      observer = new ResizeObserver(() => { if (p.running) sample(); });
-      observer.observe(marker);
-    };
-    (window as unknown as { __accArm: () => void }).__accArm = arm;
-    // Observers run in the order they were created. The app may create one
-    // of its own in the click handler (the fold's hold), so the sampler is
-    // created again right after every click, in the bubble phase on window,
-    // which runs after React's handler: it stays the last code before paint.
-    window.addEventListener("click", () => { if (p.running) arm(); });
-  });
-}
-
-async function startProbe(page: Page, spec: Probe["spec"]) {
-  await page.evaluate((s) => {
-    if (s && s.header.includes(";;")) {
-      // `A;;B`: the fold's own header when it is in sight, else the control
-      // under the body (a long code block folded from its end).
-      const [a, b] = s.header.split(";;");
-      const pane = [...document.querySelectorAll('[data-testid="chat-input-area"]')].find((x) => x.getBoundingClientRect().height > 0)?.parentElement;
-      const sc = pane?.querySelector("[data-virtuoso-scroller]");
-      const find = (t: string) => {
-        if (!t.startsWith("msg:")) return pane?.querySelector(t) ?? null;
-        const [text, css] = t.slice(4).split("|");
-        const row = [...(pane?.querySelectorAll('[data-testid="chat-message"]') ?? [])].find((m) => (m.textContent ?? "").includes(text!));
-        return row && css ? row.querySelector(css) : row ?? null;
-      };
-      const el = find(a!);
-      s.header = el && sc && el.getBoundingClientRect().top >= sc.getBoundingClientRect().top ? a! : b!;
-    }
-    const p = (window as unknown as { __acc: Probe }).__acc;
-    p.frames = []; p.spec = s; p.running = true;
-    (window as unknown as { __accArm: () => void }).__accArm();
-  }, spec);
-}
-
-async function stopProbe(page: Page): Promise<Frame[]> {
-  return page.evaluate(() => {
-    const p = (window as unknown as { __acc: Probe }).__acc;
-    p.running = false;
-    return JSON.parse(JSON.stringify(p.frames)) as Frame[];
-  });
-}
-
-const frameCount = (page: Page) => page.evaluate(() => (window as unknown as { __acc: Probe }).__acc.frames.length);
-
-/** Waits until the last `n` sampled frames show the view and the header still. */
-async function waitStill(page: Page, n = 12) {
-  await page.waitForFunction((k) => {
-    const f = (window as unknown as { __acc: Probe }).__acc.frames.slice(-k);
-    return f.length === k && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.hy === f[0]!.hy && x.fh === f[0]!.fh);
-  }, n, { timeout: 20_000 });
-}
-
-/** Lets the sampler run until `ms` have passed since frame `from`. */
-async function sampleFor(page: Page, from: number, ms: number) {
-  await page.waitForFunction(({ i, d }) => {
-    const f = (window as unknown as { __acc: Probe }).__acc.frames;
-    return f.length > i + 2 && f[f.length - 1]!.t - f[i]!.t >= d;
-  }, { i: from, d: ms }, { timeout: 30_000 });
-}
-
-/**
- * Distinct runs of change of the fold's height in one direction. An animation
- * or an instant reveal is ONE run; a body that shows a placeholder and then
- * its real content is two. A run may pause for a couple of frames (a busy
- * frame, the slow tail of an easing curve) and stays one; runs under 4 px
- * are rounding, not content.
- */
-function heightRuns(hs: number[], sign: 1 | -1): number {
-  const PAUSE_FRAMES = 2;
-  let runs = 0;
-  let total = 0;
-  let pause = 0;
-  let inRun = false;
-  const close = () => { if (inRun && total > 4) runs++; inRun = false; total = 0; pause = 0; };
-  for (let i = 1; i < hs.length; i++) {
-    const d = (hs[i]! - hs[i - 1]!) * sign;
-    if (d > 0.5) { inRun = true; total += d; pause = 0; continue; }
-    if (d < -0.5) { close(); continue; }
-    if (inRun && ++pause > PAUSE_FRAMES) close();
-  }
-  close();
-  return runs;
-}
-
-type Measure = {
-  kind: string;
-  where: "bottom" | "middle";
-  phase: "open" | "close";
-  frames: number;
-  headerJump: number;
-  aboveJump: number;
-  sideJump: number;
-  foldRuns: number;
-  foldDelta: number;
-  headerLost: boolean;
-};
-
-function measure(kind: string, where: Measure["where"], phase: Measure["phase"], frames: Frame[], clickAt: number): Measure {
-  const base = frames[clickAt - 1]!;
-  const after = frames.slice(clickAt);
-  const max = (xs: number[]) => xs.reduce((m, x) => Math.max(m, x), 0);
-  const hs = [base, ...after].map((f) => f.fh ?? 0);
-  return {
-    kind,
-    where,
-    phase,
-    frames: after.length,
-    headerLost: after.some((f) => f.hy === null),
-    headerJump: base.hy === null ? Infinity : max(after.filter((f) => f.hy !== null).map((f) => Math.abs(f.hy! - base.hy!))),
-    aboveJump: base.ay === null ? 0 : max(after.filter((f) => f.ay !== null).map((f) => Math.abs(f.ay! - base.ay!))),
-    sideJump: base.hx === null ? 0 : max(after.filter((f) => f.hx !== null).map((f) => Math.abs(f.hx! - base.hx!))),
-    foldRuns: heightRuns(hs, phase === "open" ? 1 : -1),
-    foldDelta: Math.round(((after[after.length - 1]?.fh ?? 0) - (base.fh ?? 0)) * 10) / 10,
-  };
-}
-
-function faults(m: Measure, docked: boolean): string[] {
-  const out: string[] = [];
-  const at = `${m.kind} ${m.where} ${m.phase}`;
-  if (m.headerLost) out.push(`${at}: the header left the DOM`);
-  if (m.headerJump > 1) out.push(`${at}: the clicked header moved ${m.headerJump}px`);
-  if (m.aboveJump > 1) out.push(`${at}: the row above moved ${m.aboveJump}px`);
-  if (m.sideJump > 1) out.push(`${at}: the header moved ${m.sideJump}px sideways`);
-  if (!docked && m.foldRuns > 1) out.push(`${at}: the fold changed height in ${m.foldRuns} separate runs (a reveal that pops)`);
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // The folds.
@@ -275,11 +63,16 @@ type Kind = {
   docked?: boolean;
   /** Seen once open, to know the click did open it. */
   opened: (page: Page, tag: string) => Locator;
+  /** Runs once the chat exists, before it is opened (a goal, a command file). */
+  setup?: (request: APIRequestContext, topicId: string) => Promise<void>;
 };
 
 const LINES = (n: number, what: string) => Array.from({ length: n }, (_, i) => `${what} line ${i + 1}`).join("\n");
 const now = Date.now();
 const WORK_DIR = join(canonicalTmpRoot(), "e2e-accordion-no-shift");
+const SLASH_COMMAND = "accfold";
+const LONG_GOAL = "Bring every gate to green and keep the transcript still while the folds open, a long objective that wraps on several lines once it is open";
+const todoItems = (tag: string) => Array.from({ length: 6 }, (_, i) => ({ content: `Step ${i + 1} ${tag}`, activeForm: `Doing step ${i + 1}`, status: i < 2 ? "completed" : i === 2 ? "in_progress" : "pending" }));
 
 const KINDS: Kind[] = [
   {
@@ -433,6 +226,37 @@ const KINDS: Kind[] = [
     opened: (page, tag) => page.getByText(`tail ${tag} line 10`),
   },
   {
+    // A message that IS a command: its body is the command's file, read from
+    // the server's home on the first open, inside a bubble aligned right.
+    name: "slash-command",
+    seed: (tag) => [{ role: "user", content: `/${SLASH_COMMAND} ${tag}` }],
+    click: (tag) => `msg:${tag}|[data-testid="user-slash-command-toggle"]`,
+    fold: (tag) => `msg:${tag}|[data-testid="user-slash-command"]`,
+    opened: (page, tag) => page.locator('[data-testid="chat-message"]', { hasText: tag }).getByTestId("invoked-command-body"),
+    setup: async () => {
+      const dir = join(E2E_HOME, ".claude", "commands");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${SLASH_COMMAND}.md`), LINES(12, "Fold the command body"));
+    },
+  },
+  {
+    name: "goal-bar",
+    docked: true,
+    // No steps of its own: the plan shown is the last TodoWrite of the chat.
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: `${tag}-goaltodo`, name: "TodoWrite", status: "success", args: { todos: todoItems(tag) }, detail: { type: "todo", items: todoItems(tag) } }],
+    }],
+    click: () => '[data-testid="goal-bar-toggle"]',
+    fold: () => '[data-testid="goal-bar"]',
+    opened: (page) => page.getByTestId("goal-bar-full-text"),
+    setup: async (request, topicId) => {
+      const res = await request.put(`${E2E_BASE}/api/topics/${topicId}/goal`, { data: { content: LONG_GOAL } });
+      expect(res.ok(), "the goal is set").toBe(true);
+    },
+  },
+  {
     name: "todo-strip",
     docked: true,
     seed: (tag) => [{
@@ -499,6 +323,7 @@ async function seedChat(request: APIRequestContext, kind: Kind) {
   await fill(18);
   if (kind.seed(last)[0]!.role === "assistant") await put({ role: "user", content: `Show me ${last}` });
   for (const m of kind.seed(last)) await put(m);
+  await kind.setup?.(request, t.id);
   await unarchiveTopic(request, t.id);
   return { topicId: t.id, mid: kind.docked ? last : mid, last };
 }
@@ -520,16 +345,19 @@ function locate(page: Page, target: string): Locator {
   return css ? row.locator(css).first() : row;
 }
 
-/** Wheels up, as a reader does, until `target` sits in the middle band of the view. */
-async function wheelToMiddle(page: Page, target: string) {
+/**
+ * Wheels, as a reader does, until `target` sits in a band of the view (by
+ * default its middle): down while it is below the band, up otherwise.
+ */
+async function wheelToMiddle(page: Page, target: string, band = { lo: 0.3, hi: 0.6, down: 160, up: 240 }) {
   const sc = scrollerOf(page);
   const box = (await sc.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 80; i++) {
     const t = locate(page, target);
     const tb = (await t.count()) ? await t.boundingBox() : null;
-    if (tb && tb.y > box.y + box.height * 0.3 && tb.y < box.y + box.height * 0.6) return;
-    const delta = tb && tb.y > box.y + box.height * 0.6 ? 160 : -240;
+    if (tb && tb.y > box.y + box.height * band.lo && tb.y < box.y + box.height * band.hi) return;
+    const delta = tb && tb.y > box.y + box.height * band.hi ? band.down : -band.up;
     await page.mouse.wheel(0, delta);
     await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
   }
@@ -558,8 +386,29 @@ async function bringIntoView(page: Page, target: string) {
   }
 }
 
+/**
+ * Whether the newest row of the transcript is hidden under the block docked
+ * over the composer: what is painted at the bottom of that row belongs to the
+ * dock (an open strip, its list) and not to the row.
+ */
+async function newestRowCovered(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const pane = [...document.querySelectorAll('[data-testid="chat-input-area"]')].find((x) => x.getBoundingClientRect().height > 0)?.parentElement;
+    const rows = [...(pane?.querySelectorAll('[data-testid="chat-message"]') ?? [])];
+    const last = rows[rows.length - 1]?.getBoundingClientRect();
+    if (!last) return "no row";
+    const hit = document.elementFromPoint(last.left + last.width / 2, last.bottom - 6);
+    if (!hit) return "nothing painted";
+    if (hit.closest('[data-testid="chat-message"]')) return null;
+    return hit.closest('[data-testid="chat-input-area"]') ? `under the dock (${hit.tagName.toLowerCase()})` : null;
+  });
+}
+
 async function togglePhase(page: Page, kind: Kind, tag: string, where: Measure["where"], phase: Measure["phase"]): Promise<{ m: Measure; frames: Frame[] }> {
-  await bringIntoView(page, kind.click(tag));
+  // A docked strip is always in sight, over the composer: wheeling "to it"
+  // scrolled the transcript to its bottom and turned the middle case into a
+  // second bottom case.
+  if (!kind.docked) await bringIntoView(page, kind.click(tag));
   const header = (kind.header ?? kind.click)(tag);
   await startProbe(page, { header, fold: kind.fold(tag), docked: !!kind.docked });
   await waitStill(page);
@@ -600,11 +449,14 @@ test.describe("a fold opened by hand does not move the transcript", () => {
         return f.length === 15 && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.sh - x.st - x.ch <= 1);
       }, null, { timeout: 30_000 });
       await stopProbe(page);
+      const covered: string[] = [];
       for (const phase of phases) {
         const { m, frames } = await togglePhase(page, kind, chat.last, "bottom", phase);
         results.push(m);
         all[`bottom-${phase}`] = frames;
         if (phase === "open") await expect.soft(kind.opened(page, chat.last), `${kind.name} bottom: the click opened it`).toBeVisible();
+        const under = kind.docked && phase === "open" ? await newestRowCovered(page) : null;
+        if (under) covered.push(`${kind.name} bottom open: the newest row is ${under}`);
       }
 
       // IN THE MIDDLE: wheeled up to an older instance (for a docked strip:
@@ -632,7 +484,178 @@ test.describe("a fold opened by hand does not move the transcript", () => {
         if (kind.docked) continue;
         expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the fold did change height`).toBeGreaterThan(10);
       }
-      expect(results.flatMap((m) => faults(m, !!kind.docked)), "the clicked header and everything above it stay put").toEqual([]);
+      expect([...results.flatMap((m) => faults(m, !!kind.docked)), ...covered], "the clicked header and everything above it stay put, the newest row in sight").toEqual([]);
     });
   }
+});
+
+/**
+ * The paths a single open and close does not reach: the reader clicking twice
+ * in a row, reading down to the true end of the chat, and the agent writing
+ * while a docked list is open.
+ */
+test.describe("a fold opened by hand: at the true end of the chat", () => {
+  test.describe.configure({ timeout: 180_000 });
+  const created: string[] = [];
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+  });
+
+  /** A chat of filler rows ending with `last`. */
+  async function chatEndingWith(request: APIRequestContext, name: string, last: Seed[]) {
+    const t = await createTopic(request, `Fold end ${name} ${Date.now().toString(36)}`);
+    created.push(t.id);
+    const sessionKey = await sessionKeyOf(request, t.id);
+    for (let i = 0; i < 36; i++) await seedMessage(request, { sessionKey, role: i % 2 === 0 ? "user" : "assistant", content: filler(i) });
+    for (const m of last) await seedMessage(request, { sessionKey, ...m });
+    await unarchiveTopic(request, t.id);
+    return { topicId: t.id, sessionKey };
+  }
+
+  async function waitAtBottom(page: Page, header: string, fold: string) {
+    await startProbe(page, { header, fold, docked: false });
+    await page.waitForFunction(() => {
+      const f = (window as unknown as { __acc: Probe }).__acc.frames.slice(-15);
+      return f.length === 15 && f.every((x) => x.st === f[0]!.st && x.sh === f[0]!.sh && x.sh - x.st - x.ch <= 1);
+    }, null, { timeout: 30_000 });
+    await stopProbe(page);
+  }
+
+  async function act(page: Page, kind: string, spec: NonNullable<Probe["spec"]>, phase: Measure["phase"], run: () => Promise<void>, ms: number) {
+    await startProbe(page, spec);
+    await waitStill(page);
+    const clickAt = await frameCount(page);
+    await run();
+    await sampleFor(page, clickAt, ms);
+    return measure(kind, "bottom", phase, await stopProbe(page), clickAt);
+  }
+
+  async function wheelDown(page: Page, times: number, delta = 300) {
+    const box = (await scrollerOf(page).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < times; i++) {
+      await page.mouse.wheel(0, delta);
+      await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+    }
+  }
+
+  test("closed and reopened at once at the true bottom: the header stays and the fold ends open", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const id = `dbl${Date.now().toString(36)}`;
+    const chat = await chatEndingWith(request, "double", [
+      { role: "user", content: "run it" },
+      { role: "assistant", content: "", toolCalls: [{ id, name: "Bash", args: { command: `ls -la /tmp/${id}` }, status: "success", result: LINES(14, "output"), startedAt: now - 2000, endedAt: now - 1000 }] },
+    ]);
+    await installProbe(page);
+    await openChat(page, request, chat.topicId);
+    const header = `[data-testid="tool-call-row-${id}"] > button`;
+    const fold = `[data-testid="tool-call-row-${id}"]`;
+    await expect(page.locator(header)).toBeVisible({ timeout: 30_000 });
+    await waitAtBottom(page, header, fold);
+    const press = async () => {
+      const b = (await page.locator(header).boundingBox())!;
+      await page.mouse.move(b.x + 40, b.y + b.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(100);
+      await page.mouse.up();
+    };
+    const open = await act(page, "tool-row", { header, fold, docked: false }, "open", press, 900);
+    // Read the body down to the true end of the chat, then a quick double
+    // press: closed and opened again while the close is still animating.
+    await wheelDown(page, 8);
+    await waitAtBottom(page, header, fold);
+    const twice = await act(page, "tool-row", { header, fold, docked: false }, "close", async () => {
+      await press();
+      await page.waitForTimeout(40);
+      await press();
+    }, 1500);
+    console.log(`ACCORDION double open=${open.headerJump}px close+reopen=${twice.headerJump}px`);
+    expect([...faults(open, false), ...faults(twice, false)], "the header stays under the pointer").toEqual([]);
+    await expect(page.locator(header), "the second press reopened it").toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("the room a fold leaves when closed near the end scrolls away with the wheel", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const tag = `tall${Date.now().toString(36)}`;
+    const calls = Array.from({ length: 30 }, (_, i) => ({ id: `${tag}-${i}`, name: "Read", args: { file_path: `/tmp/${tag}/file-${i}.ts` }, status: "success" as const, result: LINES(3, `r${i}`), startedAt: now - 3000, endedAt: now - 2000 }));
+    const chat = await chatEndingWith(request, "tall", [{ role: "user", content: "read all" }, { role: "assistant", content: "", toolCalls: calls }, { role: "assistant", content: "All read." }]);
+    await installProbe(page);
+    await openChat(page, request, chat.topicId);
+    const header = `[data-group-id="${tag}-0"] [data-testid="tool-group-summary"]`;
+    const fold = `[data-group-id="${tag}-0"]`;
+    await expect(page.locator(header)).toBeVisible({ timeout: 30_000 });
+    await waitAtBottom(page, header, fold);
+    await act(page, "tool-group", { header, fold, docked: false }, "open", () => page.locator(header).click(), 900);
+    // Down to the end, then up until the header is near the top of the view:
+    // closing it there leaves most of the view below the last row.
+    await wheelDown(page, 12);
+    await wheelToMiddle(page, header, { lo: 0.02, hi: 0.2, down: 40, up: 40 });
+    const close = await act(page, "tool-group", { header, fold, docked: false }, "close", () => page.locator(header).click(), 1200);
+    expect(faults(close, false), "closing holds the header").toEqual([]);
+    const geometry = () => page.evaluate(() => {
+      const pane = [...document.querySelectorAll('[data-testid="chat-input-area"]')].find((x) => x.getBoundingClientRect().height > 0)?.parentElement;
+      const sc = pane?.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      const rows = [...(pane?.querySelectorAll('[data-testid="chat-message"]') ?? [])];
+      const dock = pane?.querySelector('[data-testid="chat-input-area"]')?.getBoundingClientRect();
+      const last = rows[rows.length - 1]?.getBoundingClientRect();
+      return {
+        room: parseFloat(sc ? getComputedStyle(sc).getPropertyValue("--chat-anchor-slack") || "0" : "0") || 0,
+        blank: dock && last ? Math.round(dock.top - last.bottom) : null,
+      };
+    });
+    const closed = await geometry();
+    await wheelDown(page, 5);
+    await expect.poll(async () => (await geometry()).room, { message: `room after the close ${JSON.stringify(closed)}: a wheel down takes it away` }).toBe(0);
+    const after = await geometry();
+    console.log(`ACCORDION room closed=${JSON.stringify(closed)} after-wheel=${JSON.stringify(after)}`);
+    // The last row rests on the composer again: the gutter, not an empty view.
+    expect(after.blank!, "the last row is back above the composer").toBeLessThanOrEqual(40);
+  });
+
+  test("a docked list open while the agent writes: the newest output stays in sight", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const tag = `dock${Date.now().toString(36)}`;
+    const items = Array.from({ length: 8 }, (_, i) => ({ content: `Step ${i + 1} ${tag}`, activeForm: `Doing ${i + 1}`, status: i < 2 ? "completed" : i === 2 ? "in_progress" : "pending" }));
+    const chat = await chatEndingWith(request, "dock", [
+      { role: "user", content: "go" },
+      { role: "assistant", content: "", toolCalls: [{ id: `${tag}-todo`, name: "TodoWrite", status: "success", args: { todos: items }, detail: { type: "todo", items } }] },
+      { role: "user", content: "continue" },
+    ]);
+    const ws = await interceptWebSocket(page);
+    await installProbe(page);
+    await openChat(page, request, chat.topicId);
+    const strip = page.locator('[data-testid="todo-strip"] > button').first();
+    await expect(strip).toBeVisible({ timeout: 30_000 });
+    await waitAtBottom(page, '[data-testid="todo-strip"] > button', '[data-testid="todo-strip"]');
+    await strip.click();
+    await expect(page.getByText(`Step 8 ${tag}`)).toBeVisible();
+    const messageId = `msg_${tag}`;
+    ws.send({ type: "stream:start", sessionKey: chat.sessionKey, topicId: chat.topicId, messageId });
+    for (let i = 0; i < 40; i++) {
+      ws.send({ type: "stream:content_chunk", sessionKey: chat.sessionKey, topicId: chat.topicId, content: `fresh${i} ` + (i % 5 === 0 ? "\n\n" : "") });
+      await page.waitForTimeout(40);
+    }
+    await expect(page.getByText("fresh39")).toBeAttached();
+    await expect.poll(() => page.evaluate(() => {
+      // What is painted on the last streamed word: the message, or the list over it.
+      const rows = [...document.querySelectorAll('[data-testid="chat-message"]')];
+      const row = rows[rows.length - 1];
+      if (!row) return "no row";
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      let lastText: Text | null = null;
+      while ((n = walker.nextNode())) if ((n.textContent ?? "").includes("fresh")) lastText = n as Text;
+      if (!lastText) return "no streamed text";
+      const range = document.createRange();
+      range.selectNodeContents(lastText);
+      const boxes = range.getClientRects();
+      const box = boxes[boxes.length - 1];
+      if (!box) return "not laid out";
+      const hit = document.elementFromPoint(box.left + 2, box.top + box.height / 2);
+      if (!hit) return "nothing painted";
+      if (hit.closest('[data-testid="todo-strip"]')) return "under the open list";
+      return hit.closest('[data-testid="chat-message"]') ? "in sight" : `under ${hit.tagName.toLowerCase()}`;
+    }), { message: "the newest streamed word" }).toBe("in sight");
+    ws.send({ type: "stream:end", sessionKey: chat.sessionKey, topicId: chat.topicId, messageId });
+  });
 });
