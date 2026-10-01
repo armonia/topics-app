@@ -12,11 +12,13 @@ import { commandBlockKey, type CommandRunTarget } from './commandRunContext';
 import { runnableCommand } from './runnableCommand';
 import { commandRisk, type RiskReason } from './commandRisk';
 import { putStartedRun, useMessageRuns } from './commandRunStore';
+import { isCommandCut } from '../../../../shared/cut-fence';
 
 /** A refusal of Run, said in the reader's language: the server's text never reaches the screen. */
 function commandRunRefusal(err: unknown, tr: (key: string) => string): string {
   if (!(err instanceof ApiError)) return tr('run.err.unreachable');
   const code = apiErrorCode(err);
+  if (code === 'command_cut') return tr('run.err.cut');
   if (err.status === 404 || code === 'message_not_found') return tr('run.err.notFound');
   if (err.status === 409 || code === 'message_partial') return tr('run.err.partial');
   if (err.status === 501 || code === 'no_shell') return tr('run.err.noShell');
@@ -35,6 +37,8 @@ export function useCommandRun(target: CommandRunTarget | null, language: string,
   const toast = useToast();
   const command = useMemo(() => (target && offset !== undefined ? runnableCommand(language, text) : null), [target, offset, language, text]);
   const risk = useMemo(() => (command ? commandRisk(command) : null), [command]);
+  // The fence the reply left open (Stop, a restart, an error): what it holds may be half a command.
+  const cut = useMemo(() => !!command && isCommandCut(command, target!.replyTexts), [command, target]);
   const blockKey = target && offset !== undefined ? commandBlockKey(target.segment, offset) : null;
   const runs = useMessageRuns(command ? target!.sessionKey : null, command ? target!.messageId : null);
   // A run belongs to this block only while the block still says the same command.
@@ -61,15 +65,15 @@ export function useCommandRun(target: CommandRunTarget | null, language: string,
 
   /** The click on Run (or Run again): at once, or the strip first when the command asks for it. */
   const requestRun = useCallback(() => {
-    if (!risk || risk.block) return;
+    if (!risk || risk.block || cut) return;
     if (risk.confirm.length) setConfirming(risk.confirm);
     else void start();
-  }, [risk, start]);
+  }, [risk, cut, start]);
 
   const openTerminal = useCallback(() => {
     if (!target || !command) return;
     window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { sessionKey: target.sessionKey, command } }));
   }, [target, command]);
 
-  return { command, risk, run, confirming, cancel: () => setConfirming(null), start, requestRun, starting, openTerminal };
+  return { command, risk, cut, run, confirming, cancel: () => setConfirming(null), start, requestRun, starting, openTerminal };
 }

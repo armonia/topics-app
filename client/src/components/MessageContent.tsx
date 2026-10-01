@@ -1093,13 +1093,18 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // Run under a shell block (CHAT-RUN-01): a finished reply of the agent, in
   // the chat, for an owner, on a server with a shell. While the reply streams
   // `completePartialMarkdown` closes its open fence, and a command cut in the
-  // middle would be drawn as a finished block: `partial` keeps Run away.
+  // middle would be drawn as a finished block: `partial` keeps Run away. A
+  // reply closed by Stop, a restart or an error keeps its open fence too:
+  // `replyTexts` lets the block that fence draws find out it was cut.
   const session = useSyncExternalStore(subscribeSession, getSession, getSession);
   const canRun = !!runnable && role === 'assistant' && !partial && !!sessionKey && !!messageId
     && session.status === 'paired' && session.role === 'owner' && session.commandShell === true;
   const runTarget = useMemo<CommandRunTarget | null>(
-    () => (canRun ? { sessionKey: sessionKey!, messageId: messageId!, segment: 0 } : null),
-    [canRun, sessionKey, messageId],
+    () => (canRun ? {
+      sessionKey: sessionKey!, messageId: messageId!, segment: 0,
+      replyTexts: [content, ...(blocks ?? []).flatMap((b) => (b.kind === 'text' ? [b.text] : []))],
+    } : null),
+    [canRun, sessionKey, messageId, content, blocks],
   );
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);

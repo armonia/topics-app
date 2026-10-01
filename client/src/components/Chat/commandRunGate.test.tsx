@@ -57,6 +57,21 @@ describe('Run on a code block', () => {
     expect(hasRun(render({ partial: true, content: '```bash\nrm -rf ./' }))).toBe(false);
   });
 
+  test('a finished reply cut inside its fence (Stop, a restart, an error): no Run on the cut block, the header says why', () => {
+    owner();
+    const cut = render({ content: 'Pulisco la cache:\n```bash\nrm -rf ./' });
+    expect(hasRun(cut)).toBe(false);
+    expect(cut).toContain('data-testid="code-run-cut"');
+    expect(hasTerminal(cut)).toBe(true);
+    const timeline = render({
+      content: '',
+      blocks: [{ kind: 'text', text: 'Avvio:\n```bash\ngit push origin fea' }, { kind: 'error', message: 'provider error' }] as never,
+    });
+    expect(hasRun(timeline)).toBe(false);
+    // A block the reply closed before the cut still runs.
+    expect(hasRun(render({ content: `${BASH}\n\nPoi:\n\`\`\`bash\nrm -rf ./` }))).toBe(true);
+  });
+
   test("a person's own message: no Run", () => {
     owner();
     expect(hasRun(render({ role: 'user' }))).toBe(false);

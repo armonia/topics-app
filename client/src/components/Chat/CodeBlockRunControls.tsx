@@ -5,7 +5,7 @@
  * The state lives in `useCommandRun`.
  */
 import { useEffect, useRef } from 'react';
-import { EyeOff, Play, SquareTerminal, TriangleAlert } from 'lucide-react';
+import { EyeOff, Play, Scissors, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import type { RiskReason } from './commandRisk';
 import type { useCommandRun } from './useCommandRun';
@@ -19,6 +19,10 @@ export function RunButtons({ runner }: { runner: ReturnType<typeof useCommandRun
       {runner.risk?.block ? (
         <span className="text-mini text-amber-300/90 inline-flex items-center gap-1 px-1" title={tr('code.hiddenCharsTitle')} data-testid="code-run-blocked">
           <EyeOff size={10} /> {tr('code.hiddenChars')}
+        </span>
+      ) : runner.cut ? (
+        <span className="text-mini text-amber-300/90 inline-flex items-center gap-1 px-1" title={tr('code.cutTitle')} data-testid="code-run-cut">
+          <Scissors size={10} /> {tr('code.cut')}
         </span>
       ) : runner.run?.status !== 'running' && (
         <button

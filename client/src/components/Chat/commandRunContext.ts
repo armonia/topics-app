@@ -14,6 +14,8 @@ export interface CommandRunTarget {
   messageId: string;
   /** Which text segment of the reply the block is in: a reply's timeline has many, each parsed on its own. */
   segment: number;
+  /** The reply's texts (content and timeline text blocks): a block whose fence one of them leaves open is cut, and not run. */
+  replyTexts: readonly string[];
 }
 
 export const CommandRunContext = createContext<CommandRunTarget | null>(null);
