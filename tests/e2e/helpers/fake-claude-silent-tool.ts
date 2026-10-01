@@ -5,7 +5,9 @@
  * "silent N" starts a turn that says one line, starts a Bash, and then emits
  * nothing for N seconds (a long build, a wait on a Monitor), then gets its tool
  * result and ends with "SILENT-TOOL-DONE". The process stays alive the whole
- * time, which is what the stale-stream sweep asks.
+ * time, which is what the stale-stream sweep asks. "silent N after M" waits M
+ * seconds before that first line, so a read taken at the start of the turn is
+ * sure not to hold it yet.
  *
  * "pulse A B" is the same turn in two silences: a Bash quiet for A seconds,
  * then one line ("PULSE-TEXT"), B more seconds of nothing, a second Bash
@@ -32,15 +34,19 @@ function finish(text: string): void {
   out({ type: "result", subtype: "success", is_error: false, num_turns: 1, stop_reason: "end_turn", session_id: SESSION_ID, result: text, duration_ms: 90, total_cost_usd: 0 });
 }
 
-function startSilentTool(seconds: number): void {
+function startSilentTool(seconds: number, afterSeconds = 0): void {
   out({ type: "system", subtype: "init", session_id: SESSION_ID, model: "claude-finto", tools: [], fast_mode_state: "off" });
-  assistant([{ type: "text", text: "Starting a silent tool." }]);
-  assistant([{ type: "tool_use", id: "toolu_silent", name: "Bash", input: { command: `sleep ${seconds}` } }]);
-  working = setTimeout(() => {
-    working = null;
-    out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_silent", content: "" }] } });
-    finish("SILENT-TOOL-DONE");
-  }, seconds * 1000);
+  const speak = () => {
+    assistant([{ type: "text", text: "Starting a silent tool." }]);
+    assistant([{ type: "tool_use", id: "toolu_silent", name: "Bash", input: { command: `sleep ${seconds}` } }]);
+    working = setTimeout(() => {
+      working = null;
+      out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_silent", content: "" }] } });
+      finish("SILENT-TOOL-DONE");
+    }, seconds * 1000);
+  };
+  if (afterSeconds > 0) working = setTimeout(speak, afterSeconds * 1000);
+  else speak();
 }
 
 function startPulse(a: number, b: number): void {
@@ -88,9 +94,9 @@ process.stdin.on("data", (chunk: Buffer) => {
     pending = pending.slice(nl + 1);
     const text = line ? textOf(line) : null;
     if (text === null) continue;
-    const silent = /silent (\d+)/.exec(text);
+    const silent = /silent (\d+)(?: after (\d+))?/.exec(text);
     const pulse = /pulse (\d+) (\d+)/.exec(text);
-    if (silent) startSilentTool(Number(silent[1]));
+    if (silent) startSilentTool(Number(silent[1]), Number(silent[2] ?? 0));
     else if (pulse) startPulse(Number(pulse[1]), Number(pulse[2]));
     else {
       out({ type: "system", subtype: "init", session_id: SESSION_ID, model: "claude-finto", tools: [], fast_mode_state: "off" });

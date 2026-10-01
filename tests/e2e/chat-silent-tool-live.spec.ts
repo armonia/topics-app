@@ -143,6 +143,16 @@ function recordStreamEnds(page: Page): Set<string> {
   return ended;
 }
 
+/** The frames this page's socket has carried that contain `needle`. Call before the page opens its socket. */
+function recordFrames(page: Page, needle: string): Set<string> {
+  const seen = new Set<string>();
+  page.on("websocket", (ws) => ws.on("framereceived", ({ payload }) => {
+    const text = typeof payload === "string" ? payload : payload.toString("utf8");
+    if (text.includes(needle)) seen.add(text);
+  }));
+  return seen;
+}
+
 hermetic(test);
 
 test.describe("a turn silent in a tool for longer than the stale threshold", () => {
@@ -233,6 +243,35 @@ test.describe("a turn silent in a tool for longer than the stale threshold", () 
       await expect(page.getByText("SILENT-TOOL-DONE").first()).toBeVisible({ timeout: 40_000 });
       await expect(page.locator(STOP)).toHaveCount(0, { timeout: 15_000 });
       expect((await chat.turn())?.ok()).toBe(true);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  /**
+   * The race behind the test above failing its first attempt in CI: the page
+   * reads the history the moment its reply is cut, and the turn's first line
+   * is said while that answer is on its way. The answer does not hold the line
+   * yet, and the socket frame that carries it reached the page while its own
+   * reply still held the session, which swallows every frame of it. The line
+   * showed only at the turn's end, 25 s later, with no Stop in between to see.
+   */
+  test("a line the turn says while the cut reply's history is in flight reaches the sender", async ({ page, request, chatPage }) => {
+    const said = recordFrames(page, "Starting a silent tool.");
+    const { topic, sessionKey } = await openChat(page, request, chatPage, "cut-line");
+    try {
+      const history = await holdNextHistory(page, sessionKey);
+      await cutFirstReply(page, request, sessionKey, history.arm);
+      // Two seconds before the first line: the held read has none of it.
+      await chatPage.sendMessage("silent 25 after 2");
+      await history.held;
+      await expect.poll(() => said.size > 0, { timeout: 15_000, message: "the line reaches the page's socket" }).toBe(true);
+      history.release();
+
+      await expect(page.getByText("Starting a silent tool.").first()).toBeVisible({ timeout: 5_000 });
+      expect(await serverStreaming(request, sessionKey), "the line showed while the turn runs").toBe(true);
+      await expect(page.locator(STOP).first()).toBeVisible();
+      await expect(page.getByText("SILENT-TOOL-DONE").first()).toBeVisible({ timeout: 40_000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
