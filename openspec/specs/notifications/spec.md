@@ -616,18 +616,25 @@ di PROGETTO applicava gia'.
 
 ### Requirement: SEEN-02
 
-Il cancello del «visto» SHALL valere per il ramo delle chat e NON SHALL toccare
-il ramo dei terminali.
+Il cancello del «visto» NON SHALL filtrare il segno «finito» di un terminale:
+quel segno lo SPEGNE l'evento di visto (SEEN-ANY-FOCUS-01), e un filtro lo
+renderebbe muto al secondo turno finito di una sessione senza hook. La FASE di
+un terminale claude-code fermo in `awaiting-user` SHALL invece passare per lo
+stesso cancello della tab, della riga e del rollup di progetto: un terminale
+già guardato non tiene accesa la card del gruppo.
 
-Un terminale segnala per conto suo (un comando finito, un processo morto) e non
-ha una nozione di lettura che coincida con quella di una chat. Spegnerlo col
-segno di visto lo renderebbe muto su un evento che nessuno ha guardato.
+#### Scenario: il ramo dei terminali resta acceso per ciò che nessuno ha visto
 
-#### Scenario: il ramo dei terminali resta intatto
-
-- **WHEN** un terminale dentro un gruppo ha un segnale attivo e le chat dello
-  stesso gruppo sono tutte lette
+- **WHEN** un terminale dentro un gruppo ha un segnale attivo non ancora visto
+  e le chat dello stesso gruppo sono tutte lette
 - **THEN** la card del gruppo resta accesa per il terminale
+
+#### Scenario: un terminale fermo su una fase, già guardato
+
+- **WHEN** un terminale claude-code del gruppo è fermo in `awaiting-user` ed è
+  stato visto
+- **THEN** la card del gruppo torna neutra insieme alla sua tab e alla sua riga,
+  e una richiesta di permesso (`awaiting-approval`) la tiene invece accesa
 
 ### Requirement: NOTIF-SEEN-01 — Una notifica il cui soggetto e' andato avanti NON SHALL restare accesa
 
