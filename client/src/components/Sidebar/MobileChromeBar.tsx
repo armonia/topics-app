@@ -3,7 +3,7 @@ import { Hourglass, Kanban, LayoutGrid, List, Search, User, type LucideIcon } fr
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
 import { formaFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
-import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
+import { BAR_LABEL_TOP, RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { useT } from '@/hooks/useT';
 import { iniziali, useProfileIdentity } from './useProfileIdentity';
@@ -59,17 +59,29 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * there is glass, and the only thing that lives there is the home indicator,
  * which draws itself over whatever is below.
  *
- * The GLYPH and the WORD stay in the top 44 of each slab, all five on the same
- * line: what grew is the painted surface, not the place the eye reads.
+ * ── IL GLIFO STA AL CENTRO DEL TASTO, LA PAROLA GLI PENDE SOTTO ────────────
+ * Prima glifo e parola stavano nei 44 in cima alla scatola e sotto restava
+ * superficie vuota: con l'indicatore di casa la scatola e' alta 78 e il glifo
+ * stava 23px sopra il suo centro (misurato 01/10, e per i due estremi, che
+ * salivano per l'arco, 15). Adesso il CENTRO DEL GLIFO e' il centro del tasto
+ * su entrambi gli assi, uguale per tutti e cinque; la parola e' fuori flusso
+ * (`position: absolute`, `BAR_LABEL_TOP`) e pende sotto il glifo senza
+ * spostarlo, perche' una parola in flusso lo alzerebbe di mezza parola. Per
+ * lasciarle posto anche senza fascia (schermo squadrato) la scatola non scende
+ * sotto `ALTEZZA_MIN`.
  *
  * ── LA FILA ARRIVA AL BORDO DEL TELEFONO, E NE SEGUE LA CURVA ──────────────
  * Il primo e l'ultimo tasto hanno il bordo esterno SUL bordo dello schermo:
  * niente rientro, solo la fascia di sicurezza quando c'è (in orizzontale, il
  * notch). Ci arrivano perché il loro angolo basso esterno è tondo e concentrico
- * a quello del vetro, e un angolo tondo dentro l'arco costa molta meno alzata
- * di uno appuntito — 32 invece di 54, su un iPhone in verticale. Gli estremi
- * salgono di quel tanto, quelli in mezzo non salgono affatto. Il calcolo — e il
- * perché del raggio stimato dalla fascia — sta tutto in `lib/safeAreaArc.ts`.
+ * a quello del vetro. Su un iPhone in verticale (scatola 78×73, raggio 55) il
+ * raggio concentrico ci sta per intero e nessun tasto deve salire: tutti e
+ * cinque hanno la STESSA altezza e lo stesso bordo basso, e la curva sta nel
+ * raggio dell'angolo, non in uno scalino (richiesta 01/10: «il primo e l'ultimo
+ * non hanno l'altezza corretta»). Dove la scatola e' troppo bassa per portare
+ * il raggio intero (schermo con fascia ma tasto da 44) l'alzata residua c'e'
+ * ancora ed e' la sola eccezione. Il calcolo — e il perché del raggio stimato
+ * dalla fascia — sta tutto in `lib/safeAreaArc.ts`.
  * Su uno schermo squadrato il raggio è zero e la fila torna dritta da sé:
  * nessun ramo dedicato.
  *
@@ -100,9 +112,11 @@ export const MOBILE_CHROME_H_VAR = '--mobile-chrome-h';
 const PASSO = 6;
 /** Aria sopra le scatole, dentro la barra. */
 const SOPRA = 6;
-/** The band a button reads in: glyph over word, 44 tall, the finger target.
- *  It sits at the TOP of the slab; what is under it is painted surface. */
+/** The finger target: 44 tall. The slab is this plus the safe-area band. */
 const ALTEZZA = 44;
+/** The slab never goes below this: the glyph is CENTRED, and the word hangs
+ *  under it, so a square screen (no band) needs room below the middle for it. */
+const ALTEZZA_MIN = 58;
 /** Il raggio che ha un tasto quando l'arco non lo tocca — `rounded-xl`. */
 const RADIUS_STANDARD = 12;
 
@@ -167,7 +181,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
   // now covers instead of floating above. It is also what the arc is given as
   // the box height, so the outer corner can be as round as the glass is: half
   // of 78 leaves room for the concentric radius, half of 44 did not.
-  const buttonHeight = ALTEZZA + Math.max(0, safeAreaInsets.bottom);
+  const buttonHeight = Math.max(ALTEZZA_MIN, ALTEZZA + Math.max(0, safeAreaInsets.bottom));
 
   // Le alzate si ricalcolano quando cambia la LARGHEZZA (rotazione, finestra
   // ridimensionata) o la fascia inferiore. Si leggono i rettangoli veri e non
@@ -437,17 +451,15 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
       data-testid={testId}
       title={titolo ?? etichetta}
       aria-label={accessibleName ?? titolo ?? etichetta}
-      // `h-full`, not `h-11`: the slab is as tall as the strip. The reading
-      // band stays 44 and stays at the TOP (`justify-start` plus the inner
-      // box), so the five words keep sitting on one line while the surface
-      // under them runs down to the glass.
-      className={`edge-lit flex flex-1 min-w-0 h-full flex-col items-center justify-start px-1 transition-colors ${tone}`}
+      // `h-full`: the slab is as tall as the strip. The glyph is CENTRED in it
+      // on both axes (`items-center justify-center`) and the word is out of
+      // flow, hanging under the glyph, so the centre of the icon IS the centre
+      // of the button (MOBILE-GEOM-02) whatever the word is.
+      className={`edge-lit relative flex flex-1 min-w-0 h-full items-center justify-center px-1 transition-colors ${tone}`}
       style={cornersQueue(forma)}
     >
-      <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">
-        {children}
-        <span className="text-micro font-medium leading-none">{etichetta}</span>
-      </span>
+      {children}
+      <span className="pointer-events-none absolute inset-x-0 text-center text-micro font-medium leading-none" style={{ top: BAR_LABEL_TOP }}>{etichetta}</span>
     </button>
   );
 }

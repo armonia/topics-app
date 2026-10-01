@@ -47,4 +47,4 @@ export const COLUMN_FRAME = 'flex flex-col rounded-lg border border-app-border b
 export const COLUMNS_ROW_GRID = 'flex h-full min-w-0 gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3';
 
 /** The columns stack in the list view. */
-export const COLUMNS_ROW_LIST = 'flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3';
+export const COLUMNS_ROW_LIST = 'scroll-under-chrome flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3';

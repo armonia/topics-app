@@ -3321,3 +3321,37 @@ puntatore, non l'assenza di un nome.
   SHALL partire sotto la riga in alto e l'ultima SHALL finire sopra i tasti
 - **AND** scorrendo, le righe SHALL passare sotto la riga in alto e sotto i tasti
   invece di restare tagliate sul bordo della fila (`mobile-list-under-chrome.spec.ts`)
+
+#### Scenario: board, profilo e dashboard del telefono passano sotto la fila dei tasti
+- **GIVEN** un telefono con la board (o il profilo, o la dashboard) a schermo intero
+- **WHEN** si guarda la lista a riposo e poi scorsa fino in fondo
+- **THEN** la radice dell'app NON SHALL riservare la banda dei tasti (`--mobile-band-own-h`
+  la rende alla pane), lo scroller SHALL arrivare al bordo basso dello schermo e l'ultimo
+  elemento SHALL finire sopra i tasti, con una scatola in coda allo scroller e non un padding
+- **AND** il composer della board e quello di un task aperto SHALL stare tutti sopra i tasti
+- **AND** la chat non cambia: il composer e' un overlay sul trascritto e sta sopra la fila
+  (`mobile-screens-under-chrome.spec.ts`)
+
+#### Scenario: la banda «Utilizzo Claude» e' vetro, e le liste le passano sotto
+- **GIVEN** un telefono con l'avviso «Utilizzo Claude» (o limite raggiunto) in vista sopra la fila
+- **WHEN** si scorre la lista delle tab, o la board, il profilo, la dashboard
+- **THEN** la banda SHALL avere un fondo traslucido (tinta del chrome al 72%) con sfocatura, e
+  NON un fondo pieno; lo scroller SHALL arrivare al bordo basso dello schermo e a fine corsa l'ultima
+  riga SHALL stare intera sopra la banda (`--mobile-transport-h` entra nello spaziatore dello scroller
+  insieme a `--mobile-chrome-h`) (`mobile-bottom-bar-geometry.spec.ts`, MOBILE-GEOM-04)
+
+#### Scenario: la fila in basso ha cinque tasti uguali con l'icona al centro
+- **GIVEN** un iPhone con home indicator (fascia 34) e angoli tondi (raggio 55)
+- **WHEN** si misurano i cinque tasti della fila
+- **THEN** tutti SHALL avere la stessa altezza e il bordo basso sul vetro (nessuno alzato dall'arco);
+  il centro del glifo SHALL coincidere col centro del tasto su entrambi gli assi (±1px), primo e
+  ultimo compresi; l'angolo basso esterno del primo e dell'ultimo SHALL avere il raggio dello
+  schermo, quelli in mezzo il raggio standard; la parola SHALL pendere sotto il glifo senza spostarlo
+  (`mobile-bottom-bar-geometry.spec.ts`, MOBILE-GEOM-01/02/03)
+
+#### Scenario: la PWA va sotto la barra di stato e l'home indicator
+- **GIVEN** la app aperta da iPhone in modalita' standalone
+- **THEN** la pagina SHALL dichiarare `viewport-fit=cover` e `apple-mobile-web-app-status-bar-style:
+  black-translucent`; l'header e la lista della sidebar, la banda in basso e la fila dei tasti SHALL
+  estendersi sotto le due safe area con `env(safe-area-inset-top/bottom)` e il fondo SHALL essere la
+  tinta del chrome senza fasce vuote (MOBILE-GEOM-05)

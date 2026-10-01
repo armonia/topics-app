@@ -469,9 +469,10 @@
    * arretra, le pane di contenuto (`--bg-surface`) avanzano. È la stessa
    * gerarchia del Finder — barra laterale grigia, contenuto bianco — ed è
    * l'unica che regge su iPhone, dove sopra la sidebar c'è la barra di stato
-   * OPACA di iOS (`apple-mobile-web-app-status-bar-style: black`, index.html):
-   * una sidebar più CHIARA della pagina lasciava un gradino verso il nero
-   * della barra, e la fascia sopra cambiava colore aprendo e chiudendo la
+   * di iOS (`apple-mobile-web-app-status-bar-style: black-translucent`,
+   * index.html: dal 01/10 traslucida, il contenuto le passa dietro; era `black`
+   * opaca): una sidebar più CHIARA della pagina lasciava un gradino verso il
+   * nero della barra, e la fascia sopra cambiava colore aprendo e chiudendo la
    * sidebar (--bg-surface a sidebar aperta, --bg a sidebar chiusa).
    * Sotto Tauri/mac lo stesso token diventa translucido (vedi §vibrancy in
    * fondo): la tinta è la stessa, cambia solo l'alpha che lascia passare il
@@ -2408,6 +2409,29 @@ html.native-frost.dark .edge-lit::before {
  * accanto. */
 :root { --composer-gap: 0.75rem; }
 @media (max-width: 767px) { :root { --composer-gap: 0.5rem; } }
+
+/* IL VETRO DELLA BANDA DEGLI AVVISI («Utilizzo Claude», connessione, non inviati).
+   La banda sta sopra la fila dei tasti e le liste le scorrono SOTTO: il fondo e'
+   la tinta del chrome al 72% piu' un blur, con corpo bastante a leggere il testo
+   sopra qualunque cosa passi dietro, e non il pieno che fermava ogni schermata al
+   suo bordo. `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano:
+   Lightning CSS collassa la coppia grezza sul solo `-webkit-` (vedi `.glass-surface`). */
+.transport-band-glass {
+  background-color: color-mix(in srgb, var(--chrome-bg) 72%, transparent);
+  @apply backdrop-blur-md;
+}
+
+/* IL POSTO DEI TASTI, DENTRO LO SCROLLER. Una pane che si spende da sola la
+   banda della fila in basso (`--mobile-band-own-h`, App) la mette come ULTIMA
+   scatola della lista: l'ultimo elemento sta sopra i tasti a riposo e il resto
+   ci passa sotto. Una scatola vera e non un padding: la coda di un padding non
+   entra nello scroll su WebKit. 0px fuori dal telefono. */
+.scroll-under-chrome::after {
+  content: '';
+  display: block;
+  flex: none;
+  height: var(--mobile-band-own-h, 0px);
+}
 
 /* UNA CURVA SOLA, E LA FINESTRA CHE LA CONTIENE.
  *

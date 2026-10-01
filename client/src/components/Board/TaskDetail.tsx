@@ -2700,7 +2700,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
       // shrink-0) so the columns viewport shrinks beside it and the board stays
       // scrollable; wide just grows the review surface (72%/64rem caps keep a
       // strip of board visible).
-      className={`pane-frost flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-base'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`pane-frost flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-base'} absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >

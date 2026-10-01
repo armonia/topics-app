@@ -278,7 +278,12 @@ export function MobileTransportBand({ wsStatus, dataNotice, keyboardVisible }: {
       data-testid="mobile-transport-band"
       // Below the row (`zIndex: 60`) on purpose: the row is how you get out of
       // here, and no notice may be allowed to cover it.
-      className="fixed left-0 right-0 py-1 bg-app-chrome border-t border-app-border empty:hidden"
+      //
+      // GLASS, NOT A SLAB (01/10): the lists run UNDER this band like under the
+      // button row, so its ground is the chrome tint at 72% plus a blur
+      // (`.transport-band-glass`), enough body to read the notice over whatever
+      // scrolls behind it. A solid `bg-app-chrome` stopped every screen at its edge.
+      className="transport-band-glass fixed left-0 right-0 py-1 border-t border-app-border empty:hidden"
       style={{ zIndex: 59, bottom: 'var(--mobile-chrome-h, 0px)' }}
     >
       <TransportAlarms

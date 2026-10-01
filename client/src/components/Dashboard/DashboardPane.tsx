@@ -38,7 +38,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
   // never moved. `useDashboard` seeds them from the local snapshot, so on a
   // return they are there on the first frame.
   return (
-    <div data-testid="dashboard-pane" className="flex-1 flex flex-col min-h-0 overflow-auto">
+    <div data-testid="dashboard-pane" className="scroll-under-chrome flex-1 flex flex-col min-h-0 overflow-auto">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-app-border flex-shrink-0">
         <div className="flex items-center gap-2">

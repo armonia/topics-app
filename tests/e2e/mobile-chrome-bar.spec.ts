@@ -255,10 +255,11 @@ test.describe.serial("La chrome del telefono", () => {
     expect(new Set(quote).size).toBe(1);
     for (const p of dritta) expect(Math.round(p.daFondo)).toBe(FLOOR);
 
-    // ── Angoli tondi: gli estremi SALGONO, quelli in mezzo no.
-    // Con cinque scatole i «centri» sono tre, e la legge non cambia: sale chi
-    // sta entro il raggio dal bordo laterale, e nessun altro. È il motivo per
-    // cui la quinta porta non ha richiesto un ramo nuovo in `alzateFila`.
+    // ── Angoli tondi: gli estremi NON SALGONO, l'angolo segue il vetro.
+    // Dal 01/10 («il primo e l'ultimo non hanno l'altezza corretta») la scatola
+    // da 78 porta per intero il raggio concentrico, quindi l'arco non le mangia
+    // niente: tutti e cinque alti uguale, tutti sul vetro. La curva sta nel
+    // raggio dell'angolo (MOBILE-CHROME-07 e MOBILE-GEOM-03), non in uno scalino.
     await fascia(page, FASCIA_IPHONE);
     const curva = await porte(page);
     expect(curva.length).toBe(5);
@@ -271,10 +272,10 @@ test.describe.serial("La chrome del telefono", () => {
     // The ones in the middle reach the EDGE of the screen: they fill the bottom
     // band instead of floating above it, and the arc does not reach them.
     for (const centro of centrali) expect(Math.round(centro.daFondo)).toBe(FLOOR);
-    // I due estremi stanno più in alto, e fra loro sono simmetrici.
-    expect(sx.daFondo).toBeGreaterThan(centrali[0]!.daFondo);
-    expect(dx.daFondo).toBeGreaterThan(centrali[centrali.length - 1]!.daFondo);
-    expect(Math.abs(sx.daFondo - dx.daFondo)).toBeLessThanOrEqual(1);
+    // I due estremi stanno sul vetro come gli altri e hanno la stessa altezza.
+    expect(Math.round(sx.daFondo)).toBe(FLOOR);
+    expect(Math.round(dx.daFondo)).toBe(FLOOR);
+    expect(new Set(curva.map((p) => Math.round(p.altezza))).size).toBe(1);
 
     // And no door goes through the bottom edge: below it there is nothing to
     // occupy, and a button that ended up there would be clipped.
@@ -531,12 +532,13 @@ test.describe.serial("La chrome del telefono", () => {
 
     /** Il raggio standard di un tasto della fila, quando nessun arco lo tocca. */
     const STANDARD = 12;
-    /** Half the height: the most a button of the row can carry. It is READ off
-     *  the middle button, the only one the arc does not lift and therefore the
-     *  only one as tall as the whole slab, instead of being written by hand:
-     *  since the slabs go down to the glass (card 1e015ad6) that height depends
-     *  on the device band, and a fixed 22 described one phone only. */
-    const TETTO = (await porte(page))[1]!.altezza / 2;
+    /** The most a button of the row can carry: its short side minus the adjacent
+     *  corner (the browser shrinks radii that do not fit one side). READ off the
+     *  middle button instead of being written by hand: since the slabs go down to
+     *  the glass (card 1e015ad6) the height depends on the device band, and a
+     *  fixed number described one phone only. */
+    const medio0 = (await porte(page))[1]!;
+    const TETTO = Math.min(medio0.altezza, medio0.larghezza) - STANDARD;
 
     // ── Schermo squadrato: nessuna curva da seguire, tutti e dodici gli
     //    angoli sono quelli standard. Nessun ramo dedicato, stesso codice.
@@ -551,7 +553,7 @@ test.describe.serial("La chrome del telefono", () => {
 
     // ── Schermo tondo. Il raggio NON si stima qui: lo si DICHIARA, e si
     //    verifica che quello applicato sia `R − gioco` — cioè concentrico a
-    //    quello dichiarato — con mezza altezza come tetto. Tre valori di R e
+    //    quello dichiarato — con il lato corto meno l'angolo accanto come tetto. Tre valori di R e
     //    tre risposte diverse: se fosse un numero scelto a mano non si
     //    muoverebbe.
     await fascia(page, FASCIA_IPHONE);
@@ -562,7 +564,7 @@ test.describe.serial("La chrome del telefono", () => {
     // che questo caso deve saper vedere. Ricavandoli, la terna resta
     // discriminante anche se un domani la fila si stacca dal bordo.
     const gioco = (await porte(page))[0]!.daBordo;
-    const RAGGI = [gioco + STANDARD, gioco + 17, gioco + TETTO + 18];
+    const RAGGI = [gioco + STANDARD, gioco + 17, gioco + TETTO + 6];
     for (const R of RAGGI) {
       await declaredRadiusScreen(page, R);
       // Le porte sono cinque, quindi i «centri» sono tre: quello che conta è

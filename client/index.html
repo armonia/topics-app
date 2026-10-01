@@ -23,14 +23,17 @@
     <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-180.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-180.png" />
     <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-180.png" />
-    <!-- `black` (opaque), NOT `black-translucent`: on iOS standalone PWAs,
-         black-translucent makes the webview full-screen at the top (content under
-         the Dynamic Island) but leaves the layout viewport ~topInset px SHORT at
-         the BOTTOM (innerHeight = screen − topInset), so a band of webview
-         background shows below the content and can't be filled from inside the
-         page. `black` insets the viewport BELOW an opaque status bar and fills
-         all the way to the bottom edge. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- `black-translucent` (01/10, asked from the phone: «il contenuto deve andare
+         ANCHE sotto la safe area, sopra e sotto»). The webview runs full-screen
+         under the status bar, with `viewport-fit=cover` above: the safe areas are
+         ours to fill, and every edge of the app does it with `env(safe-area-inset-*)`
+         (sidebar header and list, the main column's top strip, the button row, the
+         composer). The ground under the bar is the chrome tint on <html> and the
+         bar floats over it, so if the webview ever comes up short at the bottom
+         (the reason `black` was chosen before) the strip it leaves is the SAME
+         colour as the app edge, not a blank band. `black` (opaque) used to inset
+         the whole viewport below the bar, so nothing could pass behind it. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
     <title>Topics</title>

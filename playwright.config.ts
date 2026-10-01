@@ -411,6 +411,8 @@ export default defineConfig({
         "**/browser-mobile-keyboard.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
         "**/mobile-list-under-chrome.spec.ts",
+        "**/mobile-screens-under-chrome.spec.ts",
+        "**/mobile-bottom-bar-geometry.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
         // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
         // `chromium-touch` e `tab-close-ring-touch` in quello di
@@ -578,6 +580,8 @@ export default defineConfig({
       testMatch: [
         // The phone list under the header and the button row: WebKit is what ships.
         "**/mobile-list-under-chrome.spec.ts",
+        "**/mobile-screens-under-chrome.spec.ts",
+        "**/mobile-bottom-bar-geometry.spec.ts",
         // The chat at rest: the pin loop documented in MessageList depends on
         // how the engine measures Virtuoso's rows, and WebKit is what ships.
         "**/chat-scroll-at-rest.spec.ts",

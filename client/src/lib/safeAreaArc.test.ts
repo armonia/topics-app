@@ -99,8 +99,11 @@ describe('curvaturaEsterna', () => {
     expect(curvaturaEsterna(20, 54, 200, STANDARD)).toBe(34);
   });
 
-  test('mezza altezza è il tetto: un tasto da 44 non porta 46 di raggio', () => {
-    expect(curvaturaEsterna(8, 54, ALTEZZA, STANDARD)).toBe(22);
+  test('il lato corto fa il tetto: un tasto da 44 non porta 46 di raggio', () => {
+    // 44 − 12 di angolo adiacente = 32: oltre, il browser riduce comunque.
+    expect(curvaturaEsterna(8, 54, ALTEZZA, STANDARD)).toBe(32);
+    // E uno da 73 di lato corto porta tutto l'arco concentrico.
+    expect(curvaturaEsterna(0, 55, 73, STANDARD)).toBe(55);
   });
 
   test('non scende MAI sotto lo standard, nemmeno con un raggio minuscolo', () => {
@@ -148,9 +151,10 @@ describe('formaFila', () => {
   test('iPhone: sinistra curva a SINISTRA, destra a DESTRA, il centro resta standard', () => {
     const forme = fila(390, 34);
     expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, 'destra']);
-    // Il raggio degli estremi è quello che l'arco impone (qui il tetto di
-    // mezza altezza), MAI un numero scelto a mano.
+    // Il raggio degli estremi è quello che l'arco impone (qui il tetto del
+    // lato corto), MAI un numero scelto a mano.
     expect(forme[0].curvatura).toBe(curvaturaEsterna(0, raggioSchermo(34), ALTEZZA, STANDARD));
+    expect(forme[0].curvatura).toBe(32);
     expect(forme[0].curvatura).toBe(forme[2].curvatura);
     expect(forme[1].curvatura).toBe(STANDARD);
   });
@@ -162,18 +166,29 @@ describe('formaFila', () => {
     const stretta = formaFila({ ...comune, scatole: [{ x: 0, larghezza: 44 }] });
     const larga = formaFila({ ...comune, scatole: [{ x: 0, larghezza: 120 }] });
     expect(larga[0].alzata).toBe(stretta[0].alzata);
-    // A filo del bordo vale l'arco (32, col suo angolo da 22), non il pavimento.
-    expect(stretta[0].alzata).toBeCloseTo(32, 2);
+    // A filo del bordo vale l'arco (22, col suo angolo da 32), non il pavimento.
+    expect(stretta[0].alzata).toBeCloseTo(22, 2);
   });
 
-  test('a filo la fila sale di 32 e non di 54: la differenza è l’angolo tondo', () => {
+  test('a filo la fila sale di 22 e non di 54: la differenza è l’angolo tondo', () => {
     // La prova che il primo e l'ultimo tasto POSSONO stare sul bordo. Con
     // l'angolo appuntito servivano 54 di alzata, cioè più dell'altezza del
     // tasto: la fila sarebbe uscita dalla barra invece di seguirne la curva.
     const forme = fila(390, 34);
-    expect(forme[0].alzata).toBeCloseTo(32, 2);
-    expect(forme[0].curvatura).toBe(22);
+    expect(forme[0].alzata).toBeCloseTo(22, 2);
+    expect(forme[0].curvatura).toBe(32);
     expect(forme[1].alzata).toBe(0);
+  });
+
+  test('la fila VERA dell’iPhone (78 × 73, raggio 55): nessuno sale, gli estremi sono concentrici', () => {
+    // Cinque tasti da 73 con 6 di passo su 390, alti 44 + la fascia da 34. L'angolo
+    // esterno prende tutto il raggio dello schermo e non c'è niente da alzare:
+    // e' la forma che chiede «tutti i tasti alla stessa altezza».
+    const scatole = [0, 1, 2, 3, 4].map((i) => ({ x: i * 79.2, larghezza: 73.2 }));
+    const forme = formaFila({ larghezza: 390, scatole, raggio: 55, pavimento: 0, altezza: 78, standard: STANDARD });
+    expect(forme.map((f) => f.alzata)).toEqual([0, 0, 0, 0, 0]);
+    expect(forme.map((f) => f.curvatura)).toEqual([55, STANDARD, STANDARD, STANDARD, 55]);
+    expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, null, null, 'destra']);
   });
 
   test('il pavimento è un minimo, non un addendo', () => {

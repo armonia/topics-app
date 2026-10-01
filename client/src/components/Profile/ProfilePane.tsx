@@ -84,7 +84,7 @@ export function ProfilePane() {
           find out who is around right now. Repeating the live strip here would
           render it twice in the same app: two `identity-block` in the DOM, and
           every measurement that looks for one becomes ambiguous. */}
-      <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5">
+      <div className="scroll-under-chrome min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5">
         {page === 'organization' ? (
           <OrganizationPage />
         ) : personId !== null ? (

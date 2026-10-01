@@ -81,7 +81,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
 import { seedBrowserPaneInitialUrl } from './state/pane/browserPaneUrl';
-import { isUtilityPanelType } from './state/pane/adapters/utilityPanelId';
+import { isUtilityPanelType, utilityPanelId } from './state/pane/adapters/utilityPanelId';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
@@ -110,7 +110,7 @@ import { useSignalsSync } from './state/useSignalsSync';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
 import { initEdgeSwipeGuard } from './lib/edgeSwipeGuard';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
@@ -245,6 +245,9 @@ const BOOT_DEEP_LINK = bootDeepLinkTarget();
  * declarations (CRITIQUE C10), DOM refs for App-local dropdowns, two
  * outside-click effects, and the JSX tree.
  */
+/** Le pane che scorrono sotto la fila dei tasti invece di fermarsi al suo bordo. */
+const BAND_OWNER_PANES: ReadonlySet<string> = new Set([utilityPanelId('board'), utilityPanelId('profile'), utilityPanelId('dashboard')]);
+
 function App() {
   // DEV-only overlay — lazy-loaded via dynamic import() so the module stays
   // out of the production graph entirely (PANE-05 strip contract). The static
@@ -1322,6 +1325,11 @@ function App() {
   // mentre a schermo c'è già la lista, cioè il tasto direbbe di portare dove
   // sei — e il click successivo non avrebbe niente da fare.
   const boardInFront = isMobile && sidebarCollapsed && focusedPanelId === '__board__';
+  // La schermata a fuoco si spende da sola la banda dei tasti? Solo le pane
+  // utility con una lista che scorre; la chat no (il suo composer e' gia'
+  // un overlay sul trascritto e sta sopra la fila), e le altre restano come
+  // erano, con la banda riservata dalla radice.
+  const bandOwned = isMobile && !!focusedPanelId && BAND_OWNER_PANES.has(focusedPanelId);
   const handleMobileBoardToggle = useCallback(() => {
     if (boardInFront) setSidebarCollapsed(false);
     else { handleOpenBoard(); setSidebarCollapsed(true); }
@@ -1435,7 +1443,16 @@ function App() {
         // c'è — desktop, o tastiera aperta — quindi non c'è nessun ramo, e
         // niente cambia fuori dal telefono. Senza questa riga la fila
         // coprirebbe l'ultimo messaggio della chat e il composer.
-        paddingBottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
+        //
+        // Le schermate che sanno spenderla da sole (`BAND_OWNER_PANES`) la
+        // restituiscono: la radice non ne tiene niente e la pubblica come
+        // `--mobile-band-own-h`, cosi' la loro lista scorre sotto i tasti
+        // invece di fermarsi al loro bordo. Vale anche per la banda degli
+        // avvisi (`--mobile-transport-h`, «Utilizzo Claude»): ha un fondo
+        // traslucido e sfocato, non pieno, quindi ciò che scorre le passa
+        // dietro come dietro ai tasti (01/10).
+        paddingBottom: bandOwned ? 0 : 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
+        [BAND_OWN_PROPERTY]: bandOwned ? 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))' : '0px',
         position: 'fixed',
         top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
         bottom: viewportHeight != null ? undefined : 0,
@@ -1546,15 +1563,15 @@ function App() {
             ? `calc(env(safe-area-inset-top, 0px) + ${MOBILE_SIDEBAR_HEADER_H}px)`
             : '0px',
           // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
-          // quindi la banda in basso se la riserva da sé. Ma le due metà non
-          // sono uguali: la banda degli avvisi (`--mobile-transport-h`) ha un
-          // fondo suo e ferma la colonna, come sempre; la fila dei tasti no
-          // (non ha fondo), quindi la sua altezza diventa spaziatore DELLO
-          // SCROLLER, come in alto: a riposo l'ultima tab sta sopra i tasti, e
-          // scorrendo le tab passano sotto, invece di restare tagliate a metà
-          // sul bordo della fila.
-          paddingBottom: 'var(--mobile-transport-h, 0px)',
-          [SIDEBAR_SCROLL_BOTTOM_PROPERTY as string]: 'var(--mobile-chrome-h, 0px)',
+          // quindi la banda in basso se la riserva da sé. E se la riserva
+          // DENTRO lo scroller, non come padding della colonna: la fila dei
+          // tasti non ha fondo e la banda degli avvisi («Utilizzo Claude») ne
+          // ha uno traslucido, quindi la loro altezza diventa spaziatore DELLO
+          // SCROLLER, come in alto: a riposo l'ultima tab sta sopra la banda e
+          // i tasti, e scorrendo le tab passano sotto, invece di restare
+          // tagliate a metà sul bordo.
+          paddingBottom: 0,
+          [SIDEBAR_SCROLL_BOTTOM_PROPERTY as string]: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
         }}
       >
 
@@ -2126,8 +2143,12 @@ function App() {
           // utile e sotto restava una fascia morta.
           //
           // La cima e il fondo non sono simmetrici, e la differenza è cosa ci
-          // sta contro. In cima c'è la barra di stato di iOS, OPACA: ogni pixel
-          // sotto di lei è perso, quindi il contenuto deve cominciare dopo. In
+          // sta contro. In cima c'è la barra di stato di iOS, traslucida dal
+          // 01/10 (`black-translucent`): la colonna principale comincia dopo di
+          // lei, su una fascia dello stesso chrome, perché sopra c'è la riga
+          // delle tab (`--chrome-bar-h`, letta da ogni pane) e non si sposta
+          // per un'altezza che solo il telefono ha; la sidebar e le liste
+          // invece le passano dietro. In
           // fondo c'è l'home indicator, un trattino su fondo TRASPARENTE: il
           // contenuto può scorrerci sotto, deve solo non finirci sotto qualcosa
           // da TOCCARE. Quindi la spinta la prende il solo composer — vedi
