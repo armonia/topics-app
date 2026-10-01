@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.426",
+    "date": "2026-10-02",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "velo e sfocatura sulla barra in alto, banda Utilizzo Claude piu' piena (#184)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.424",
     "date": "2026-10-01",
     "sections": {

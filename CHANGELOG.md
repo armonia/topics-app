@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.426 — 2026-10-02
+
+### Sotto il cofano
+- velo e sfocatura sulla barra in alto, banda Utilizzo Claude piu' piena (#184)
+
 ## 2.2.424 — 2026-10-01
 
 ### Sotto il cofano
