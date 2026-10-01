@@ -18,7 +18,7 @@ afterEach(() => {
   for (const db of open.splice(0)) db.close();
 });
 
-function freelist(db: Database): number {
+function freePageCount(db: Database): number {
   return (db.query("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count;
 }
 
@@ -33,7 +33,7 @@ function makeDb(mode: "INCREMENTAL" | "NONE", freePages: number): Database {
   for (let i = 0; i < freePages + 50; i++) insert.run(new Uint8Array(3000));
   db.run("COMMIT");
   db.run("DELETE FROM messages WHERE id > 50");
-  expect(freelist(db)).toBeGreaterThanOrEqual(freePages);
+  expect(freePageCount(db)).toBeGreaterThanOrEqual(freePages);
   return db;
 }
 
@@ -51,24 +51,24 @@ function countSteps(db: Database): string[] {
 describe("runIncrementalVacuum", () => {
   test("idle, more free pages than the cap: releases exactly the cap, in steps", async () => {
     const db = makeDb("INCREMENTAL", 200);
-    const before = freelist(db);
+    const before = freePageCount(db);
     const steps = countSteps(db);
     const outcome = await runIncrementalVacuum({ db, busy: () => null, stepPages: 16, maxPages: 64, log: () => {} });
     expect(outcome).toEqual({ action: "vacuumed", pages: 64, remaining: before - 64, stoppedBy: null });
     expect(steps).toEqual(Array(4).fill("PRAGMA incremental_vacuum(16)"));
-    expect(freelist(db)).toBe(before - 64);
+    expect(freePageCount(db)).toBe(before - 64);
   });
 
   test("fewer free pages than the cap: empties the freelist and stops", async () => {
     const db = makeDb("INCREMENTAL", 20);
-    const before = freelist(db);
+    const before = freePageCount(db);
     const outcome = await runIncrementalVacuum({ db, busy: () => null, stepPages: 16, maxPages: 1000, log: () => {} });
     expect(outcome).toEqual({ action: "vacuumed", pages: before, remaining: 0, stoppedBy: null });
   });
 
   test("a turn starts after the first step: the round stops there", async () => {
     const db = makeDb("INCREMENTAL", 200);
-    const before = freelist(db);
+    const before = freePageCount(db);
     let asked = 0;
     const outcome = await runIncrementalVacuum({
       db,

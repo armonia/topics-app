@@ -68,14 +68,14 @@ function databaseBytes(dbPath: string): number {
   return statSync(dbPath).size + (existsSync(wal) ? statSync(wal).size : 0);
 }
 
-function pragma(db: Database, name: string): number {
+function readSetting(db: Database, name: string): number {
   // Finalized at once: a cached statement (`db.query`) outlives `close()`, and
   // so does the connection and its exclusive lock, until the process exits.
-  const stmt = db.prepare(`PRAGMA ${name}`);
+  const statement = db.prepare(`PRAGMA ${name}`);
   try {
-    return Object.values(stmt.get() as Record<string, number>)[0];
+    return Object.values(statement.get() as Record<string, number>)[0];
   } finally {
-    stmt.finalize();
+    statement.finalize();
   }
 }
 
@@ -99,7 +99,7 @@ export function enableIncrementalVacuum(opts: EnableIncrementalVacuumOptions): E
   try {
     db = new Database(dbPath);
     db.run("PRAGMA busy_timeout = 0");
-    const mode = pragma(db, "auto_vacuum");
+    const mode = readSetting(db, "auto_vacuum");
     if (mode !== AUTO_VACUUM_NONE) return skip(`auto_vacuum is already ${mode}`);
 
     // The lock is held from here to close: nobody can open the file under us.
@@ -136,7 +136,7 @@ export function enableIncrementalVacuum(opts: EnableIncrementalVacuumOptions): E
     try {
       vacuum(db);
       db.run("PRAGMA wal_checkpoint(TRUNCATE)");
-      const now = pragma(db, "auto_vacuum");
+      const now = readSetting(db, "auto_vacuum");
       if (now !== AUTO_VACUUM_INCREMENTAL) throw new Error(`auto_vacuum is ${now} after VACUUM`);
     } catch (err) {
       const reason = `VACUUM failed: ${(err as Error).message}`;

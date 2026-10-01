@@ -55,11 +55,11 @@ afterEach(() => {
  * process", which here is this one.
  */
 function one(db: Database, sql: string): number {
-  const stmt = db.prepare(sql);
+  const statement = db.prepare(sql);
   try {
-    return Object.values(stmt.get() as object)[0] as number;
+    return Object.values(statement.get() as object)[0] as number;
   } finally {
-    stmt.finalize();
+    statement.finalize();
   }
 }
 

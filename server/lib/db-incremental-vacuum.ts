@@ -41,7 +41,7 @@ export type IncrementalVacuumOutcome =
   | { action: "skipped"; reason: string }
   | { action: "vacuumed"; pages: number; remaining: number; stoppedBy: string | null };
 
-function pragma(db: Database, name: string): number {
+function readSetting(db: Database, name: string): number {
   return Object.values(db.query(`PRAGMA ${name}`).get() as Record<string, number>)[0];
 }
 
@@ -51,9 +51,9 @@ export async function runIncrementalVacuum(deps: IncrementalVacuumDeps): Promise
   const stepPages = deps.stepPages ?? INCREMENTAL_VACUUM_STEP_PAGES;
   const maxPages = deps.maxPages ?? INCREMENTAL_VACUUM_MAX_PAGES;
 
-  const mode = pragma(db, "auto_vacuum");
+  const mode = readSetting(db, "auto_vacuum");
   if (mode !== AUTO_VACUUM_INCREMENTAL) return { action: "skipped", reason: `auto_vacuum is ${mode}, not INCREMENTAL` };
-  let free = pragma(db, "freelist_count");
+  let free = readSetting(db, "freelist_count");
   if (free === 0) return { action: "skipped", reason: "no free pages" };
 
   let released = 0;
@@ -65,7 +65,7 @@ export async function runIncrementalVacuum(deps: IncrementalVacuumDeps): Promise
       break;
     }
     db.run(`PRAGMA incremental_vacuum(${Math.min(stepPages, maxPages - released)})`);
-    const after = pragma(db, "freelist_count");
+    const after = readSetting(db, "freelist_count");
     // A step that released nothing would loop forever.
     if (after >= free) break;
     released += free - after;
