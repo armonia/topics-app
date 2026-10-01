@@ -7,7 +7,7 @@
 // origin. These helpers are the single place that knows the difference.
 
 import { isTauri } from './index';
-import { markUnpaired } from '../auth/session';
+import { markUnpaired } from '../auth/sessionState';
 
 // The data server (Bun) serves HTTPS/WSS with a local-CA ("Armonia Local CA")
 // certificate. WKWebView (the Tauri shell's engine) refuses that cert, so the

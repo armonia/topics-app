@@ -1329,9 +1329,6 @@
       "rispondi",
       "visti"
     ],
-    "client/src/lib/auth/session.ts": [
-      "precedente"
-    ],
     "client/src/lib/authErrors.test.ts": [
       "buchiEn",
       "buchiIt",
