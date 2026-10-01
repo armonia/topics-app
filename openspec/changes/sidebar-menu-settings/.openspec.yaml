@@ -1,0 +1,4 @@
+name: sidebar-menu-settings
+status: proposed
+creato: 2026-10-01
+richiesta: "comunque dovremmo animare bene ogni funzionalita in maneira minimal moderna sobria e non invasiva (ad esempio dropdowns, anche dell'utente della sidebar). Basico: di quest'ultimo, lavoriamo ancora di più sulla parte di esperienza. In particolare, vedo che tutte le impostazioni, in realtà, si potrebbero esplodere direttamente nella sidebar o alcune cose già ci sono all'interno della sidebar. Forse vanno gestite le relative impostazioni in maniera diversa e migliore in termini di UI/UX nella relativa sezione già presente in questo dropdown della sidebar, rimuovendo inuttili ripetizioni e cose ridondanti."
