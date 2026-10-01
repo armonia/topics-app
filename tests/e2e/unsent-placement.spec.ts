@@ -333,7 +333,13 @@ test.describe.serial("Unsent messages: placement", () => {
     expect(chat.banner).not.toBeNull();
     expect(chat.banner!.onTop).toBe(true);
     expect(chat.banner!.composerOverlap).toBe(0);
-    expect(chat.banner!.chatOverlap).toBe(0);
+    // Sul telefono la chat scorre sotto i tasti (MOBILE-SCREEN): il suo pannello
+    // arriva fino al fondo e la fascia ci sta sopra per costruzione, quindi
+    // `chatOverlap` non misura più niente. Quello che conta è che la fascia stia
+    // sotto il composer, non sopra il testo.
+    const composerBox = await page.getByTestId("composer-card").first().boundingBox();
+    expect(composerBox).not.toBeNull();
+    expect(chat.banner!.rect.y).toBeGreaterThanOrEqual(composerBox!.y + composerBox!.height - 1);
     expect(chat.banner!.rect.y + chat.banner!.rect.h).toBeLessThanOrEqual(844 - (await reserved()) + 1);
     await expect(page.getByTestId("unsent-banner")).toContainText(closedName);
   });
