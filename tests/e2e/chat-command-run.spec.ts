@@ -103,7 +103,6 @@ test.describe("Run under a code block of a reply", () => {
     await expect(risky.locator('[data-testid="command-run-confirm-cancel"]')).toBeFocused();
     await risky.locator('[data-testid="command-run-confirm-cancel"]').click();
     await expect(strip).toHaveCount(0);
-    await page.waitForTimeout(500);
     await expect(runOf(risky)).toHaveCount(0);
     const listed = await (await request.get(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/command-runs?messageId=${encodeURIComponent(await replyId(request, sessionKey))}`)).json() as { runs: Array<{ command: string }> };
     expect(listed.runs.map((r) => r.command)).not.toContain(RISKY);
@@ -124,7 +123,6 @@ test.describe("Run under a code block of a reply", () => {
     expect(draft.startsWith("guarda qui:\n\n```console\n$ for i in 1 2 3; do echo L$i; sleep 1; done\n(exit 0, ")).toBe(true);
     expect(draft).toContain("\nL1\nL2\nL3\n```");
     await expect(chatPage.messageInput).toBeFocused();
-    await page.waitForTimeout(500);
     expect(await page.locator('[data-testid="message-content-assistant"], [data-testid="message-content-user"]').count()).toBe(bubbles);
   });
 
@@ -139,7 +137,6 @@ test.describe("Run under a code block of a reply", () => {
     const rows = page.locator(".xterm-rows").last();
     await expect(rows).toContainText("echo two-lines-not-run", { timeout: 20_000 });
     await expect(rows).toContainText("cd /tmp");
-    await page.waitForTimeout(1_000);
     // Typed, not run: no line is the echo's output on its own.
     const lines = (await rows.innerText()).split("\n").map((l) => l.trim());
     expect(lines).not.toContain("two-lines-not-run");

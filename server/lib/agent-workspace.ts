@@ -21,7 +21,7 @@ import { getDatabase } from "../db";
  * agent's relative-path tools (Bash/Glob/Grep) resolve against it. We used to
  * spawn EVERY session in HOME and rely on the "You are working in <path>"
  * awareness block alone. For a plain interactive project chat that diverges:
- * asked to "analizza tutta la repository", the agent — sitting in HOME — ran
+ * asked to analyse the whole repository, the agent — sitting in HOME — ran
  * `find ~/Projects`, wandered into the WRONG repo, and piled up 60s no-data
  * timeouts (the "chat keeps freezing" report). Aligning the OS cwd with
  * resolveTopicCwd removes the divergence; for worktree-bound board agents the

@@ -10,32 +10,18 @@
  * `20261001220421-command-runs.sql`.
  */
 import type { Database } from "bun:sqlite";
+import type { AppContext } from "../types";
+import type { CommandRun, RunStatus } from "../../shared/command-runs";
 
 /** The most of a run's output kept in its row: the end, where a command says how it went. */
 export const RUN_OUTPUT_MAX_BYTES = 256 * 1024;
-
-export type RunStatus = "running" | "done" | "error" | "stopped" | "unknown";
-
-/** A run as the client reads it. `output` is null while it runs: then it is read from the registry. */
-export interface CommandRun {
-  runId: string;
-  blockKey: number;
-  command: string;
-  cwd: string;
-  status: RunStatus;
-  exitCode: number | null;
-  startedAt: string;
-  endedAt: string | null;
-  output: string | null;
-  droppedLines: number;
-}
 
 /**
  * The end of an output that fits in `maxBytes`, made of whole lines, and how
  * many lines were left out before it. `lines` are complete lines, oldest first;
  * `alreadyDropped` the lines the registry's buffer had already let go.
  */
-export function tailForStorage(lines: readonly string[], alreadyDropped: number, maxBytes = RUN_OUTPUT_MAX_BYTES): { output: string; droppedLines: number } {
+function tailForStorage(lines: readonly string[], alreadyDropped: number, maxBytes = RUN_OUTPUT_MAX_BYTES): { output: string; droppedLines: number } {
   let bytes = 0;
   let from = lines.length;
   while (from > 0) {
@@ -73,7 +59,7 @@ export function closeRun(db: Database, id: string, end: {
 }
 
 /** Where the run of `id` belongs: its session and message, for the frame. Null once it is gone with its message. */
-export function runOwner(db: Database, id: string): { sessionKey: string; messageId: string } | null {
+function runOwner(db: Database, id: string): { sessionKey: string; messageId: string } | null {
   const row = db.query("SELECT session_key, message_id FROM command_runs WHERE id = ?").get(id) as { session_key: string; message_id: string } | null;
   return row ? { sessionKey: row.session_key, messageId: row.message_id } : null;
 }
@@ -96,4 +82,32 @@ export function latestRuns(db: Database, sessionKey: string, messageId: string):
     });
   }
   return out;
+}
+
+/**
+ * The row of a person's run closes with the registry row: how it ended (a
+ * Stop is `stopped`, no exit code is `unknown`, never `done`), when, and the
+ * end of its output. The registry calls it from `finishCommand`, and the
+ * router once more when it is created: a run that ended while the server was
+ * down is closed at boot, before there is a database to write to. Closing
+ * twice changes nothing.
+ */
+export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">, row: {
+  processId: string; stopped: boolean; exitCode?: number; completedAt?: string; output: string[]; droppedLines?: number;
+}): void {
+  const status: Exclude<RunStatus, "running"> = row.stopped ? "stopped"
+    : row.exitCode === undefined ? "unknown"
+    : row.exitCode === 0 ? "done" : "error";
+  const { output, droppedLines } = tailForStorage(row.output, row.droppedLines ?? 0);
+  try {
+    const closed = closeRun(ctx.db, row.processId, {
+      status, exitCode: status === "done" || status === "error" ? row.exitCode ?? null : null,
+      endedAt: row.completedAt ?? new Date().toISOString(), output, droppedLines,
+    });
+    if (!closed) return;
+    const owner = runOwner(ctx.db, row.processId);
+    if (owner) ctx.broadcastToAll({ type: "command-run:updated", ...owner, runId: row.processId, status });
+  } catch (err) {
+    console.warn(`[command-runs] closing the run ${row.processId} failed:`, err);
+  }
 }

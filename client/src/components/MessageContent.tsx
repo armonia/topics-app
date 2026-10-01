@@ -1,11 +1,11 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
-import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
+import React, { createContext, lazy, Suspense, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { useT } from '../hooks/useT';
 import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, Activity, SquareTerminal, X, Play, TriangleAlert, EyeOff } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, Activity, SquareTerminal, X } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import type { PlanDecisionHandler } from './Chat/planDetection';
@@ -31,12 +31,12 @@ import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 import { getSession, subscribeSession } from '../lib/auth/session';
-import { apiErrorCode, commandRunsApi, ApiError } from '../lib/api';
-import { CommandRunContext, commandBlockKey, type CommandRunTarget } from './Chat/commandRunContext';
-import { runnableCommand } from './Chat/runnableCommand';
-import { commandRisk, type RiskReason } from './Chat/commandRisk';
-import { putStartedRun, useMessageRuns } from './Chat/commandRunStore';
-import { CommandRunBlock } from './Chat/CommandRunBlock';
+import { CommandRunContext, type CommandRunTarget } from './Chat/commandRunContext';
+import { useCommandRun } from './Chat/useCommandRun';
+import { RunButtons, RunConfirmStrip } from './Chat/CodeBlockRunControls';
+
+// Only a block that has been run draws one: its output reader stays out of the first load.
+const CommandRunBlock = lazy(() => import('./Chat/CommandRunBlock').then((m) => ({ default: m.CommandRunBlock })));
 
 /**
  * Directory of the markdown file currently being previewed. Used by
@@ -414,105 +414,6 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
   return <CodeBlock className="language-mermaid">{code}</CodeBlock>;
 });
 
-/** A refusal of Run, said in the reader's language: the server's text never reaches the screen. */
-function commandRunRefusal(err: unknown, tr: (key: string) => string): string {
-  if (!(err instanceof ApiError)) return tr('run.err.unreachable');
-  const code = apiErrorCode(err);
-  if (err.status === 404 || code === 'message_not_found') return tr('run.err.notFound');
-  if (err.status === 409 || code === 'message_partial') return tr('run.err.partial');
-  if (err.status === 501 || code === 'no_shell') return tr('run.err.noShell');
-  if (err.status === 401 || err.status === 403) return tr('run.err.forbidden');
-  return tr('run.err.failed');
-}
-
-/**
- * The part of a code block that runs it (CHAT-RUN-01, CHAT-RUN-02): Run and
- * Open in terminal in the header, the strip that asks a second time, and the
- * run under the block. Only inside a `CommandRunContext`, and only for a
- * block that `runnableCommand` reads a command from.
- */
-function useCommandRun(target: CommandRunTarget | null, language: string, text: string, offset: number | undefined) {
-  const tr = useT();
-  const toast = useToast();
-  const command = useMemo(() => (target && offset !== undefined ? runnableCommand(language, text) : null), [target, offset, language, text]);
-  const risk = useMemo(() => (command ? commandRisk(command) : null), [command]);
-  const blockKey = target && offset !== undefined ? commandBlockKey(target.segment, offset) : null;
-  const runs = useMessageRuns(command ? target!.sessionKey : null, command ? target!.messageId : null);
-  // A run belongs to this block only while the block still says the same command.
-  const run = runs.find((r) => r.blockKey === blockKey && r.command === command) ?? null;
-  const [confirming, setConfirming] = useState<RiskReason[] | null>(null);
-  const [starting, setStarting] = useState(false);
-
-  const start = useCallback(async () => {
-    if (!target || !command || blockKey === null) return;
-    setConfirming(null);
-    setStarting(true);
-    try {
-      const started = await commandRunsApi.start(target.sessionKey, { messageId: target.messageId, blockKey, command });
-      putStartedRun(target.messageId, {
-        runId: started.runId, blockKey, command, cwd: started.cwd, status: 'running', exitCode: null,
-        startedAt: started.startedAt, endedAt: null, output: null, droppedLines: 0,
-      });
-    } catch (err) {
-      toast.error(commandRunRefusal(err, tr), 6000);
-    } finally {
-      setStarting(false);
-    }
-  }, [target, command, blockKey, toast, tr]);
-
-  /** The click on Run (or Run again): at once, or the strip first when the command asks for it. */
-  const requestRun = useCallback(() => {
-    if (!risk || risk.block) return;
-    if (risk.confirm.length) setConfirming(risk.confirm);
-    else void start();
-  }, [risk, start]);
-
-  const openTerminal = useCallback(() => {
-    if (!target || !command) return;
-    window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { sessionKey: target.sessionKey, command } }));
-  }, [target, command]);
-
-  return { command, risk, run, confirming, cancel: () => setConfirming(null), start, requestRun, starting, openTerminal };
-}
-
-/** The strip that takes the header's place before a command that deletes, forces, or has a placeholder. */
-function RunConfirmStrip({ reasons, onRun, onCancel }: { reasons: RiskReason[]; onRun: () => void; onCancel: () => void }) {
-  const tr = useT();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { cancelRef.current?.focus(); }, []);
-  const destructive = reasons.filter((r) => r.kind !== 'placeholder').map((r) => r.text);
-  const placeholders = reasons.filter((r) => r.kind === 'placeholder').map((r) => r.text);
-  const list = (items: string[]) => items.map((t) => `\u201c${t}\u201d`).join(', ');
-  // The amber tint sits on the code block's own dark ground: on the light theme
-  // the page behind is white, and a translucent tint over it lost the text.
-  return (
-    <div className="bg-app-code-bg rounded-t-md">
-    <div
-      role="group"
-      data-testid="command-run-confirm"
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}
-      className="flex flex-wrap items-center justify-between gap-2 bg-amber-500/15 rounded-t-md px-2.5 py-1 border-b border-amber-400/20 text-mini text-amber-100"
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <TriangleAlert size={12} className="shrink-0 text-amber-300" />
-        <span className="min-w-0">
-          {destructive.length > 0 && <span className="block">{tr('code.confirm.destructive', { list: list(destructive) })}</span>}
-          {placeholders.length > 0 && <span className="block">{tr('code.confirm.placeholder', { list: list(placeholders) })}</span>}
-        </span>
-      </div>
-      <div className="flex items-center gap-1">
-        <button type="button" onClick={onRun} data-testid="command-run-confirm-run" className="rounded px-2 py-0.5 min-h-6 text-mini font-medium bg-amber-500/25 hover:bg-amber-500/40 text-amber-50 transition-colors">
-          {tr('code.confirm.runAnyway')}
-        </button>
-        <button type="button" ref={cancelRef} onClick={onCancel} data-testid="command-run-confirm-cancel" className="rounded px-2 py-0.5 min-h-6 text-mini text-gray-200 hover:bg-white/10 transition-colors">
-          {tr('code.confirm.cancel')}
-        </button>
-      </div>
-    </div>
-    </div>
-  );
-}
-
 // Code block with copy button, language badge, line numbers, collapsible, word wrap
 const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: { children: React.ReactNode; className?: string; blockOffset?: number }) {
   const tr = useT();
@@ -577,36 +478,6 @@ const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: 
   // the consumer treats a null shownHtml as "render plain".)
   const shownHtml = deferredContent === displayContent ? highlightedHtml : null;
 
-  const runCommandButtons = runner.command && runTarget ? (
-    <>
-      {runner.risk?.block ? (
-        <span className="text-mini text-amber-300/90 inline-flex items-center gap-1 px-1" title={tr('code.hiddenCharsTitle')} data-testid="code-run-blocked">
-          <EyeOff size={10} /> {tr('code.hiddenChars')}
-        </span>
-      ) : runner.run?.status !== 'running' && (
-        <button
-          type="button"
-          onClick={runner.requestRun}
-          disabled={runner.starting}
-          title={tr('code.runTitle')}
-          data-testid="code-run"
-          className="text-emerald-300/90 hover:text-emerald-200 rounded px-1.5 py-0.5 text-mini flex items-center justify-center gap-1 min-h-6 transition-colors disabled:opacity-50"
-        >
-          <Play size={10} /> {tr('code.run')}
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={runner.openTerminal}
-        aria-label={tr('code.openInTerminal')}
-        title={tr('code.openInTerminalTitle')}
-        data-testid="code-open-terminal"
-        className="text-gray-400 hover:text-gray-200 rounded px-1.5 py-0.5 inline-flex items-center justify-center min-w-6 min-h-6 transition-colors"
-      >
-        <SquareTerminal size={11} />
-      </button>
-    </>
-  ) : null;
 
   return (
     <div className="code-block-wrapper">
@@ -624,7 +495,7 @@ const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: 
           </span>
         </div>
         <div className="flex items-center gap-1">
-          {runCommandButtons}
+          <RunButtons runner={runner} />
           <button
             onClick={() => setShowLineNumbers(p => !p)}
             className={`text-mini px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
@@ -688,13 +559,15 @@ const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: 
         </button>
       )}
       {runner.run && runTarget && (
-        <CommandRunBlock
-          run={runner.run}
-          sessionKey={runTarget.sessionKey}
-          messageId={runTarget.messageId}
-          onRerun={runner.requestRun}
-          onOpenTerminal={runner.openTerminal}
-        />
+        <Suspense fallback={null}>
+          <CommandRunBlock
+            run={runner.run}
+            sessionKey={runTarget.sessionKey}
+            messageId={runTarget.messageId}
+            onRerun={runner.requestRun}
+            onOpenTerminal={runner.openTerminal}
+          />
+        </Suspense>
       )}
     </div>
   );

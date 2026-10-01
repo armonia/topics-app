@@ -26,9 +26,9 @@ import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
-import { commandArgv, confineCommandCwd, hasCommandShell, readExitCode } from "../lib/command-process";
-import { closeRun, insertRun, latestRuns, runOwner, tailForStorage, type RunStatus } from "../lib/command-runs";
-import { agentWorkspaceForSession } from "../lib/agent-workspace";
+import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
+import { closeRegistryRun } from "../lib/command-runs";
+import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
@@ -675,31 +675,9 @@ function finishCommand(sp: ScriptProcess): void {
   if (cmd.origin === "person") settlePersonRun(sp);
 }
 
-/**
- * The row of a person's run closes with the registry row: how it ended, when,
- * and the end of its output. Needs the database, which the registry reaches
- * through the router's context: a run that ended while the server was down is
- * closed at boot before the router exists, and the router closes it when it
- * is created (`createProcessesRouter`). Closing twice changes nothing.
- */
+/** A person's run ended: its row in `command_runs` closes (`closeRegistryRun`), once the router has a database. */
 function settlePersonRun(sp: ScriptProcess): void {
-  const ctx = _broadcastCtx;
-  if (!ctx || sp.status === "running" || !sp.cmd) return;
-  const status: Exclude<RunStatus, "running"> = sp.cmd.stopped ? "stopped"
-    : sp.exitCode === undefined ? "unknown"
-    : sp.exitCode === 0 ? "done" : "error";
-  const { output, droppedLines } = tailForStorage(sp.output, sp.droppedLines ?? 0);
-  try {
-    const closed = closeRun(ctx.db, sp.processId, {
-      status, exitCode: status === "done" || status === "error" ? sp.exitCode ?? null : null,
-      endedAt: sp.completedAt ?? new Date().toISOString(), output, droppedLines,
-    });
-    if (!closed) return;
-    const owner = runOwner(ctx.db, sp.processId);
-    if (owner) ctx.broadcastToAll({ type: "command-run:updated", ...owner, runId: sp.processId, status });
-  } catch (err) {
-    console.warn(`[processes] closing the run ${sp.processId} failed:`, err);
-  }
+  if (_broadcastCtx && sp.status !== "running" && sp.cmd) closeRegistryRun(_broadcastCtx, { ...sp, stopped: !!sp.cmd.stopped });
 }
 /** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
 const commandServiceWatch = serviceWatch({
@@ -1952,6 +1930,19 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     return true;
   }
 
+  // Run under a code block of a reply (`routes/command-runs.ts`): this registry runs it.
+  const commandRunsRoute = createCommandRunsRoute(ctx, {
+    start: (o) => startCommandProcess({ projectPath: o.cwd, ...o, wake: false, origin: "person", db: ctx.db }),
+    reconcile(runId) {
+      const sp = getScript(runId);
+      if (!sp) return "gone";
+      if (sp.status === "running") return "running";
+      settlePersonRun(sp);
+      return "ended";
+    },
+    kill(runId) { const sp = runningScripts.get(runId); if (sp) killRunningScript(sp); },
+  });
+
   return async function processesRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // POST /api/scripts/run — start a script (UI endpoint, ungated)
@@ -2051,74 +2042,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    // POST /api/sessions/:sessionKey/command-runs — Run under a code block of a reply (CMDRUN-05)
-    //
-    // A PERSON runs a command the agent wrote. No new power: an owner already
-    // has a shell (the terminal) and the agent already has `run_command` on the
-    // same road; this is that road with another origin. What it adds are the
-    // conditions under which the chat offers it, checked again here: a reply
-    // of the agent of THIS session, finished (a fence still streaming is drawn
-    // closed, and `rm -rf ./build/cache` cut at `rm -rf ./` would run). The
-    // command runs where the agent's Bash runs, wakes nobody, and its outcome
-    // is kept in `command_runs`. Guests never reach it: the path is outside
-    // their allowlist (`lib/grants.ts`), and the role is checked again here.
-    {
-      const m = (method === "POST" || method === "GET") && pathname.match(/^\/api\/sessions\/([^/]+)\/command-runs$/);
-      if (m) {
-        if (ctx.requestIdentity?.(req)?.role === "guest") return json({ error: "guest_forbidden", code: "guest_forbidden" }, 403);
-        const sessionKey = decodeURIComponent(m[1]);
-        if (method === "GET") {
-          const messageId = url.searchParams.get("messageId") ?? "";
-          if (!messageId) return json({ error: "messageId is required" }, 400);
-          // A run still `running` whose process the registry no longer has
-          // (killed with the server, never re-adopted): unknown, not running forever.
-          for (const run of latestRuns(ctx.db, sessionKey, messageId)) {
-            if (run.status !== "running") continue;
-            const sp = getScript(run.runId);
-            if (sp && sp.status !== "running") settlePersonRun(sp);
-            else if (!sp) closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt: new Date().toISOString(), output: "", droppedLines: 0 });
-          }
-          return json({ runs: latestRuns(ctx.db, sessionKey, messageId) });
-        }
-        if (!hasCommandShell()) return json({ error: "Running a command needs a POSIX shell, and this system has none", code: "no_shell" }, 501);
-        const body = await readJSON(req);
-        const command = typeof body?.command === "string" ? body.command : "";
-        if (!command.trim()) return json({ error: "command (non-empty string) is required" }, 400);
-        const blockKey = body?.blockKey;
-        if (typeof blockKey !== "number" || !Number.isSafeInteger(blockKey) || blockKey < 0) return json({ error: "blockKey (non-negative integer) is required" }, 400);
-        const messageId = typeof body?.messageId === "string" ? body.messageId : "";
-        const msg = messageId
-          ? ctx.db.query("SELECT session_key, role, partial FROM messages WHERE id = ?").get(messageId) as { session_key: string; role: string; partial: number | null } | null
-          : null;
-        if (!msg || msg.session_key !== sessionKey || msg.role !== "assistant") return json({ error: "No reply of the agent with this id in this session", code: "message_not_found" }, 404);
-        if (msg.partial) return json({ error: "The reply is still being written", code: "message_partial" }, 409);
-        const cwd = agentWorkspaceForSession(sessionKey);
-        try {
-          const started = startCommandProcess({
-            projectPath: cwd, cwd, command, sessionKey,
-            topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null,
-            wake: false, origin: "person", db: ctx.db,
-          });
-          if (!started) return json({ error: "Running a command needs a POSIX shell, and this system has none", code: "no_shell" }, 501);
-          // Synchronously after the spawn: the process cannot have closed its row before the row exists.
-          try {
-            insertRun(ctx.db, {
-              id: started.processId, sessionKey, messageId, blockKey, command, cwd, startedAt: started.startedAt,
-              authorDeviceId: ctx.requestIdentity?.(req)?.deviceId ?? null,
-            });
-          } catch (err) {
-            // No row, no run: a command nobody can see under its block is not left running.
-            const sp = runningScripts.get(started.processId);
-            if (sp) killRunningScript(sp);
-            throw err;
-          }
-          ctx.broadcastToAll({ type: "command-run:updated", sessionKey, messageId, runId: started.processId, status: "running" });
-          return json({ runId: started.processId, processId: started.processId, cwd, startedAt: started.startedAt });
-        } catch (err) {
-          return json({ error: `Failed to spawn: ${err instanceof Error ? err.message : String(err)}` }, 500);
-        }
-      }
-    }
+    const runs = await commandRunsRoute(req, url, pathname, method);
+    if (runs) return runs;
 
     // GET /api/scripts — list running + recent, with per-process ports
     if (method === "GET" && pathname === "/api/scripts") {

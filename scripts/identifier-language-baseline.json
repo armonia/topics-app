@@ -566,8 +566,7 @@
     ],
     "client/src/components/Project/ProcessLogPane.tsx": [
       "preRef",
-      "rec",
-      "stripAnsi"
+      "rec"
     ],
     "client/src/components/Project/ProjectSidebar.tsx": [
       "comandi",
@@ -5224,10 +5223,6 @@
     ],
     "server/utils/executable.ts": [
       "semver"
-    ],
-    "server/utils/path-env.ts": [
-      "ANSI_RE",
-      "stripAnsi"
     ],
     "server/utils/worktree-naming.ts": [
       "adj"

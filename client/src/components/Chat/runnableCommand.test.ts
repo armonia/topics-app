@@ -11,8 +11,8 @@ import { runnableCommand } from './runnableCommand';
 
 describe('runnableCommand', () => {
   test('the four shell labels run the whole block, without the final newline', () => {
-    for (const lang of ['bash', 'sh', 'zsh', 'shell']) {
-      expect(runnableCommand(lang, 'cd app\nbun test\n')).toBe('cd app\nbun test');
+    for (const label of ['bash', 'sh', 'zsh', 'shell']) {
+      expect(runnableCommand(label, 'cd app\nbun test\n')).toBe('cd app\nbun test');
     }
   });
 

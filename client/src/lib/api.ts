@@ -25,6 +25,7 @@ import type {
   GoalStepStatus,
 } from '../types';
 import { serverHttpBase, apiFetch } from './shell/net';
+import type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import { adoptWarmRead, warmRead } from './warmReads';
 
@@ -988,23 +989,8 @@ export const scriptsApi = {
   },
 };
 
-/**
- * A run of a command from the chat: Run under a code block of a reply
- * (CHAT-RUN-03, CMDRUN-05). `output` is null while it runs, and then it is read
- * from the registry with `scriptsApi.output(runId, offset)`.
- */
-export interface CommandRunInfo {
-  runId: string;
-  blockKey: number;
-  command: string;
-  cwd: string;
-  status: 'running' | 'done' | 'error' | 'stopped' | 'unknown';
-  exitCode: number | null;
-  startedAt: string;
-  endedAt: string | null;
-  output: string | null;
-  droppedLines: number;
-}
+/** A run of a command from the chat (CHAT-RUN-03): the server's row, one shape on both sides. */
+export type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
 
 export const commandRunsApi = {
   async start(sessionKey: string, run: { messageId: string; blockKey: number; command: string }): Promise<{ runId: string; processId: string; cwd: string; startedAt: string }> {

@@ -659,17 +659,30 @@
     "main eef665679: entry eager 1.542.237 raw / 486.821 gz against main's 1.538.455",
     "/ 485.495 (+3.782 / +1.326); critical path 2.157.045 / 646.328 against",
     "2.153.263 / 645.003. Inside 2%, numbers below unchanged; the critical path is",
-    "1,8% over its baseline after 2t, the next lane that grows it re-measures."
+    "1,8% over its baseline after 2t, the next lane that grows it re-measures.",
+    "",
+    "2026-10-02 (CHAT-RUN, Run under a code block): re-measured, as asked above.",
+    "Parent commit 5841b8574 built clean: entry 1.542.745 / 487.006, critical path",
+    "2.158.539 / 646.614 (3.292 raw / 1.134 gz under its ceiling). With the change:",
+    "entry 1.556.136 / 491.699 (+13.391 / +4.693), critical path 2.172.609 / 651.375",
+    "(+14.070 / +4.761). Bought by what a code block of a reply needs before any",
+    "click: the label and risk reading of the command (runnableCommand,",
+    "commandRisk), the per-reply run store, the Run / Open in terminal controls and",
+    "the confirm strip, the paste-on-first-screen of a new shell, and the it",
+    "strings. The run's output reader (CommandRunBlock, ansiSpans, the draft text)",
+    "is a lazy chunk loaded the first time a block has a run; eager it cost +2.772",
+    "gz more. Written below: critical path 2.172.609 / 651.375. Entry and total",
+    "assets inside 2%, unchanged."
   ],
-  "updated": "2026-10-01",
+  "updated": "2026-10-02",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 1536546,
     "gz": 484570
   },
   "critical_path": {
-    "raw": 2119442,
-    "gz": 635047,
+    "raw": 2172609,
+    "gz": 651375,
     "files": 5
   },
   "total_assets": {

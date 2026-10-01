@@ -91,8 +91,8 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
     };
     void poll();
     const timer = setInterval(() => { void poll(); setNow(Date.now()); }, LIVE_POLL_MS);
-    const unsubscribe = subscribeRunOutput(run.runId, () => { void poll(); });
-    return () => { active = false; clearInterval(timer); unsubscribe(); };
+    const stopListening = subscribeRunOutput(run.runId, () => { void poll(); });
+    return () => { active = false; clearInterval(timer); stopListening(); };
   }, [running, run.runId, sessionKey, messageId]);
 
   const text = running ? (pending ? (live ? `${live}\n${pending}` : pending) : live) : (run.output ?? live);

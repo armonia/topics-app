@@ -31,7 +31,7 @@ export function runDraftText(run: { command: string; output: string; outcome: st
   const lines = plainLines(run.output).slice(-AGENT_TAIL_LINES);
   const body = [command, summary({ outcome: run.outcome, duration: run.duration, cwd: shortenHome(run.cwd) }), ...lines].join('\n');
   // A fence longer than any run of backticks in the body, so the output cannot close it.
-  const longest = Math.max(2, ...[...body.matchAll(/`+/g)].map((m) => m[0].length));
-  const fence = '`'.repeat(longest + 1);
+  const inner = Math.max(2, ...[...body.matchAll(/`+/g)].map((m) => m[0].length));
+  const fence = '`'.repeat(inner + 1);
   return `${fence}console\n${body}\n${fence}`;
 }
