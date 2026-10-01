@@ -72,6 +72,16 @@ function rawFatColumns(ctx: AppContext, id: string): { blocks: string | null; to
   return { blocks: decodeCol(row.blocks), toolCalls: decodeCol(row.tool_calls) };
 }
 
+/**
+ * The tool output a closed row keeps out of `blocks` (`message_tool_outputs`,
+ * server/lib/tool-output-store.ts), decoded and joined: the other half of
+ * what this row stores.
+ */
+function storedOutputs(ctx: AppContext, id: string): string {
+  const rows = ctx.db.prepare("SELECT body FROM message_tool_outputs WHERE message_id = ?").all(id) as { body: unknown }[];
+  return rows.map((r) => decodeCol(r.body) ?? "").join("\n");
+}
+
 /** Somma dei byte passati a `JSON.parse` mentre gira `fn`. */
 function bytesParsedDuring(fn: () => void): number {
   const real = JSON.parse;
@@ -302,9 +312,13 @@ describe("la copia che nessuno guarda non arriva sul disco", () => {
     // campo che il disegno legge davvero. Si cerca la forma ESCAPED, che e'
     // come la stringa vive dentro il JSON della colonna.
     const inJson = JSON.stringify(OUTPUT).slice(1, -1);
-    expect(occorrenze(grezzo.blocks ?? "", inJson)).toBe(1);
+    // The closed row keeps its tool output out of `blocks`: once across the
+    // two places it can live, never twice.
+    const outside = storedOutputs(ctx, id);
+    expect(occorrenze((grezzo.blocks ?? "") + outside, inJson)).toBe(1);
     expect(occorrenze(grezzo.toolCalls ?? "", inJson)).toBe(1);
     expect(grezzo.blocks).not.toContain('"result"');
+    expect(outside).not.toContain('"result"');
     expect(grezzo.toolCalls).not.toContain('"result"');
 
     // E il testo si legge ancora, dal campo dove vive.

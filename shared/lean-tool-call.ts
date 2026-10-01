@@ -48,7 +48,7 @@ const MAX_DEPTH = 2;
  * stops at the length before reading any byte, so walking the fields costs as
  * much as reading their lengths.
  */
-function containsSameString(value: unknown, needle: string, depth = 0): boolean {
+export function containsSameString(value: unknown, needle: string, depth = 0): boolean {
   if (typeof value === 'string') return value === needle;
   if (depth >= MAX_DEPTH || value === null || typeof value !== 'object') return false;
   for (const v of Object.values(value as Record<string, unknown>)) {
@@ -302,7 +302,7 @@ export function toolCallResultText(tc: { result?: unknown; detail?: unknown } | 
  * break the collapsed summary. Measured on the full DB: 52,106 characters
  * total across all plan.text fields, i.e. effectively zero cost.
  */
-const STRIP_FIELDS = ['output', 'content', 'result'] as const;
+export const STRIP_FIELDS = ['output', 'content', 'result'] as const;
 
 /**
  * Above this many characters a string inside `args` or `detail` travels as a
@@ -391,7 +391,20 @@ type StrippableToolCall = {
   argsBytes?: number;
   detail?: unknown;
   detailBytes?: number;
+  movedOutput?: MovedOutputMark;
 };
+
+/**
+ * What a stored tool call says about the output that left its row for
+ * `message_tool_outputs` (server/lib/tool-output-store.ts): the characters of
+ * each `detail` field that now reads `''`, and of a `result` that is gone.
+ *
+ * Only the history read sees it. The full read puts the text back and drops
+ * the mark; the history strip below turns it into the same `detailBytes` the
+ * text itself would have counted, and drops it too, so it never reaches a
+ * client.
+ */
+export type MovedOutputMark = { detail?: Record<string, number>; result?: number };
 
 /**
  * `detail` as the history wire carries it: the three large text fields
@@ -411,13 +424,23 @@ type StrippableToolCall = {
  */
 export function stripDetailText<T extends StrippableToolCall>(tc: T): T {
   const det = tc.detail;
-  if (!det || typeof det !== 'object') return tc;
+  const moved = tc.movedOutput?.detail;
+  if (!det || typeof det !== 'object') return withoutMovedMark(tc);
   const rec = det as Record<string, unknown>;
   let bytes = 0;
   const newDet: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rec)) {
     if ((STRIP_FIELDS as readonly string[]).includes(k) && typeof v === 'string' && v.length > 0) {
       bytes += v.length;
+      newDet[k] = '';
+      continue;
+    }
+    // A field whose text left the row counts what it held, as if it were
+    // still here: the wire's `detailBytes` does not depend on where it lives.
+    // Only while the row still reads '': a later write that put text back
+    // was counted just above.
+    if (moved && v === '' && typeof moved[k] === 'number') {
+      bytes += moved[k]!;
       newDet[k] = '';
       continue;
     }
@@ -429,8 +452,15 @@ export function stripDetailText<T extends StrippableToolCall>(tc: T): T {
     bytes += p.removed;
     newDet[k] = p.value;
   }
-  if (bytes === 0) return tc;
-  return { ...tc, detail: newDet, detailBytes: bytes } as T;
+  if (bytes === 0) return withoutMovedMark(tc);
+  return withoutMovedMark({ ...tc, detail: newDet, detailBytes: bytes } as T);
+}
+
+/** `tc` without its `movedOutput` mark: the mark is storage, never wire. */
+function withoutMovedMark<T extends StrippableToolCall>(tc: T): T {
+  if (tc.movedOutput === undefined) return tc;
+  const { movedOutput: _mark, ...rest } = tc;
+  return rest as T;
 }
 
 /**

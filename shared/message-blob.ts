@@ -27,7 +27,7 @@ const COMPRESS_THRESHOLD = 512;
  * A machine mark exactly as `JSON.stringify` writes it into `blocks`: the same
  * text `MACHINE_ROW_SQL` looks for with `LIKE`.
  */
-const MACHINE_MARKS = MACHINE_ROW_KINDS.map((k) => `"kind":"${k}"`);
+export const MACHINE_MARKS = MACHINE_ROW_KINDS.map((k) => `"kind":"${k}"`);
 
 /**
  * Comprime `s` se supera la soglia, altrimenti la restituisce invariata.
@@ -42,10 +42,20 @@ const MACHINE_MARKS = MACHINE_ROW_KINDS.map((k) => `"kind":"${k}"`);
  */
 export function encodeCol(s: string | null | undefined): string | Uint8Array | null | undefined {
   if (s == null) return s;
-  if (s.length < COMPRESS_THRESHOLD) return s;
+  if (s.length < COMPRESS_THRESHOLD && !s.includes(MOVED_OUTPUT_MARK)) return s;
   if (MACHINE_MARKS.some((m) => s.includes(m))) return s;
   return Bun.zstdCompressSync(Buffer.from(s, "utf8"), { level: 3 });
 }
+
+/**
+ * A row whose tool output left for `message_tool_outputs` stays a blob at
+ * any size. It was one before the output left (only rows that `encodeCol`
+ * compressed are split, server/lib/tool-output-store.ts), and the `LIKE`
+ * readers above see a blob as nothing: a row that shrank under the threshold
+ * and went back to plain text would start matching probes that never saw it,
+ * such as a comment id inside a tool's arguments.
+ */
+export const MOVED_OUTPUT_MARK = '"movedOutput":';
 
 /**
  * Decomprime `v` se e' un Buffer/Uint8Array, restituisce `v` se e' una

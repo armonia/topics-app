@@ -44,8 +44,12 @@ function seedThread(ctx: AppContext, sessionKey: string, prefix: string, turns: 
   for (let i = 0; i < turns; i++) {
     const u = `${prefix}-u${i}`;
     msgs.push({ id: u, role: "user", content: `question ${i}`, timestamp: new Date(Date.now() + i * 2000).toISOString(), parentId });
-    const output = blob(`${prefix}-${i}`, TURN_KB);
-    const tc: ToolCall = { id: `${prefix}-t${i}`, name: "Bash", args: {}, status: "success", detail: { type: "shell", command: `echo ${i}`, output } };
+    // The fat sits in the command, not the output: a closed row's output is
+    // kept out of `blocks` (server/lib/tool-output-store.ts) and a page never
+    // reads it, so a fat output would no longer make the session fat for this
+    // route. A long command stays in the row and is cut to its head on the wire.
+    const command = blob(`${prefix}-${i}`, TURN_KB);
+    const tc: ToolCall = { id: `${prefix}-t${i}`, name: "Bash", args: {}, status: "success", detail: { type: "shell", command, output: `done ${i}` } };
     const blocks: ContentBlock[] = [
       { kind: "tool", toolCall: tc } as ContentBlock,
       { kind: "text", text: `answer ${i}` } as ContentBlock,

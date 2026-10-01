@@ -57,6 +57,7 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall, providerRunsBrowserToolsItself, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { decodeCol } from "../../shared/message-blob";
+import { restoreBlocksJson } from "../lib/tool-output-store";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
@@ -1096,7 +1097,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         try {
           const r = db.prepare("SELECT content, tool_calls, blocks FROM messages WHERE id = ?")
             .get(rowId) as { content?: string; tool_calls?: string | null; blocks?: string | null } | undefined;
-          return r ? { content: r.content ?? "", toolCallsJson: decodeCol(r.tool_calls), blocksJson: decodeCol(r.blocks) } : null;
+          // Whole: this timeline is written back and broadcast, so a tool
+          // output stored out of the row comes back into it first.
+          return r ? { content: r.content ?? "", toolCallsJson: decodeCol(r.tool_calls), blocksJson: restoreBlocksJson(db, rowId, decodeCol(r.blocks)) } : null;
         } catch { return null; }
       };
       /**
@@ -1455,7 +1458,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 try {
                   const r = db.prepare("SELECT content, thinking, tool_calls, blocks FROM messages WHERE id = ?")
                     .get(partialMsg.id) as { content?: string; thinking?: string | null; tool_calls?: string | null; blocks?: string | null } | undefined;
-                  return r ? { content: r.content ?? "", thinking: r.thinking ?? null, toolCallsJson: decodeCol(r.tool_calls), blocksJson: decodeCol(r.blocks) } : null;
+                  // Whole, for the same reason as `readRowForNotice`: the
+                  // replay merges into it and the merge is what screens get.
+                  return r ? { content: r.content ?? "", thinking: r.thinking ?? null, toolCallsJson: decodeCol(r.tool_calls), blocksJson: restoreBlocksJson(db, partialMsg.id, decodeCol(r.blocks)) } : null;
                 } catch { return null; }
               })()
             : null;

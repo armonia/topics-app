@@ -1,0 +1,31 @@
+-- 20260930195818-tasks-done-recency-index.sql
+--
+-- The prefix is a UTC timestamp (YYYYMMDDHHMMSS), not a counter: it is what
+-- makes a collision between parallel cards impossible. Do not rename it.
+--
+-- The board feed (`list()` with `doneLimit`, services/tasks.ts, ~720 calls an
+-- hour) keeps the N most recent done cards with
+--   SELECT id FROM tasks WHERE archived = 0 AND status = 'done'
+--    ORDER BY COALESCE(completed_at, updated_at) DESC LIMIT ?
+-- and without an index in that order SQLite read every done card (4,066 on
+-- the live DB) through idx_tasks_status and sorted them in a temp B-tree to
+-- keep 120. This index hands them over already sorted, so the subquery stops
+-- at the 120th entry: the feed SQL goes from 3.9-4.0 ms to 1.8-1.9 ms on a
+-- copy of the live DB, same 85 rows, same md5.
+--
+-- Why PARTIAL, and why `status` leads although the WHERE pins it:
+-- - A plain (archived, status, recency) index was measured first. The planner
+--   also took it for `status IN ('review', 'done')` (delivery-backfill, the
+--   landing audit), which read almost the whole table through it in index
+--   order: 0.89 -> 1.39 ms and 0.62 -> 1.24 ms. With `WHERE archived = 0 AND
+--   status = 'done'` no query that allows another status can use it, and on
+--   the copy no other plan changes (719 static statements of server/ plus 16
+--   built by list() and the census helpers, with and without ANALYZE tasks).
+-- - With recency alone as the key, the planner costs a full walk of the
+--   partial index against `status = ?` on idx_tasks_status plus a sort, and
+--   keeps the sort. `status` first makes it an equality SEARCH that also gives
+--   the order, and it wins both with the `ANALYZE tasks` stats
+--   (refreshPlannerStats) and with none.
+CREATE INDEX IF NOT EXISTS idx_tasks_done_recency
+  ON tasks(status, COALESCE(completed_at, updated_at) DESC)
+  WHERE archived = 0 AND status = 'done';

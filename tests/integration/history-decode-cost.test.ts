@@ -15,8 +15,10 @@
  * - the first page decompresses the rows it ships plus the one that broke the
  *   budget, not the whole count the client asked for;
  * - the completion decompresses the rows BEFORE the cursor, not the tail.
- * The in-row half (tool output stored inline) needs its own storage and is not
- * what this file measures.
+ * The tool output itself is no longer in the row a page reads: a closed row
+ * keeps it in `message_tool_outputs` (server/lib/tool-output-store.ts), so a
+ * row decompresses to its lean part only. That half is gated in
+ * history-tool-output-store.test.ts; here a row costs what is left in it.
  * @covers WIRE-09
  */
 import { describe, expect, test, beforeAll, afterEach } from "bun:test";
@@ -101,8 +103,12 @@ async function historyCaller(sessionKey: string): Promise<(body: { limit: number
   };
 }
 
-/** Decompressed size of ONE assistant row of the fixture (its `blocks` JSON). */
-const ROW_BYTES = (LEAN_KB + OUTPUT_KB) * 1024;
+/**
+ * Decompressed size of ONE assistant row of the fixture (its `blocks` JSON):
+ * the lean text. The tool output (OUTPUT_KB) left the row when it was written
+ * closed, and the page never reads it back.
+ */
+const ROW_BYTES = LEAN_KB * 1024;
 const assistantRows = (msgs: StoredMessage[]) => msgs.filter((m) => m.role === "assistant").length;
 
 describe("decode cost of /api/history", () => {
@@ -116,7 +122,7 @@ describe("decode cost of /api/history", () => {
     const shipped = assistantRows(page.messages);
     expect(shipped).toBeGreaterThan(0);
     // Rows shipped plus the one that broke the budget. Before: all TURNS
-    // assistant rows (~7 MB for ~1.4 MB shipped).
+    // assistant rows (~7 MB for ~1.4 MB shipped), each with its output.
     expect(page.decoded).toBeLessThan((shipped + 1.5) * ROW_BYTES);
     expect(page.decoded).toBeGreaterThan(shipped * ROW_BYTES * 0.9);
   });

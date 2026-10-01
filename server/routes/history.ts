@@ -133,9 +133,14 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // (card 423e016f). With no turn in flight this does nothing, and a page
     // `before` the tail does not hold the live row.
     if (!before) flushTurnBody(sessionKey);
+    // `withToolOutputs: false`: the tool output a closed row keeps in
+    // `message_tool_outputs` stays there. The page ships none of it (see
+    // `leanMessagesForHistory` below) and the row fetches it on expand from
+    // the detail route; reading it here was most of what a page decompressed.
+    // Gate: tests/integration/history-tool-output-store.test.ts.
     const localMsgs = cappedRead
       ? loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false })
-      : loadLocalMessages(sessionKey);
+      : loadLocalMessages(sessionKey, { withToolOutputs: false });
     // On a lean read the "is this an empty partial?" question cannot be asked
     // of the message: its two columns were left in the table. It is asked of
     // SQLite instead, and only about the partial rows - normally none, at most
@@ -260,7 +265,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         }
         return leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
       };
-      const hydrateOne = (m: StoredMessage) => (cappedRead ? hydrateMessageBodies([m])[0]! : m);
+      const hydrateOne = (m: StoredMessage) => (cappedRead ? hydrateMessageBodies([m], { withToolOutputs: false })[0]! : m);
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';
@@ -275,7 +280,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // its rows are hydrated in one pass rather than one query each.
       // Gate: tests/integration/history-page-bytes.test.ts.
       const stripped = wantsAll
-        ? (cappedRead ? hydrateMessageBodies(capped) : capped).map(shapeForWire)
+        ? (cappedRead ? hydrateMessageBodies(capped, { withToolOutputs: false }) : capped).map(shapeForWire)
         : tailWithinBudget(capped, HISTORY_PAGE_MAX_BYTES, (m) => shapeForWire(hydrateOne(m)));
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
@@ -392,8 +397,10 @@ function findToolCall(msg: StoredMessage, toolCallId: string) {
  * comes here and gets the text back. Nothing is lost, it is only paid for
  * when it is looked at.
  *
- * No migration and no new column: the text is already in `blocks` on the stored
- * message, exactly as the provider persisted it. This route only reads it.
+ * The text is in `blocks` on the stored message, or, for a closed row whose
+ * tool output was moved out, in `message_tool_outputs`: `getMessageById` is a
+ * full read and puts it back (server/lib/tool-output-store.ts). This route is
+ * the one place a history page's tool output is read.
  *
  * It answers with `{ detail, args }` and nothing else. Returning the whole
  * message would put back on the wire precisely what the trim took off, one
