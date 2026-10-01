@@ -6,36 +6,39 @@ Se esce non-zero, ci si ferma qui.
 ## 1. Test rossi sul tree di oggi
 
 - [ ] 1.1 `client/src/lib/settingsHomes.test.ts` (bun:test): una tabella `SETTINGS_HOMES` (chiave di `AppSettings` → superficie) e il test che fallisce su una chiave senza casa o con due; oggi rosso su `voiceMode` e `keepLiveSites` (USERMENU-06).
-- [ ] 1.2 `client/src/components/Settings/sections.test.ts`: le voci sono esattamente `providers`, `tools`, `calendar`, `plan`, `remote-computers`, tradotte nelle due lingue (USERMENU-06, APPSET-05).
+- [ ] 1.2 `client/src/components/Settings/sections.test.ts`: le voci sono esattamente `providers`, `tools`, `calendar`, `plan`, `nodes`, tradotte nelle due lingue (USERMENU-06, APPSET-05).
 - [ ] 1.3 `client/src/components/Shared/Segmented.test.tsx` e `Stepper.test.tsx`: ruoli `radiogroup`/`spinbutton`, frecce, limiti, nessuna durata scritta a mano (USERMENU-07, USERMENU-08).
-- [ ] 1.4 `tests/e2e/user-menu-preferences.spec.ts` su `:13334`: tema dal livello Aspetto con il menu che resta aperto e `ui-state/theme` riletto; passo del testo da tastiera; Vista con l'ordine attivo leggibile e la riga della board; livello Notifiche dall'ingranaggio del campanello senza `settings-panel`; progetto silenziato e riattivato (USERMENU-01…03). Prima guarda `profile-menu.spec.ts` e `sidebar-status-in-menu.spec.ts` e riusa `openProfileMenu`.
-- [ ] 1.5 Stesso spec: dispositivi rinominati e revocati dal livello con `/api/auth/devices` finto come in `profile-menu.spec.ts:58-76`; il computer senza matita né cestino; «Revocati» compare dopo la revoca (USERMENU-04).
-- [ ] 1.6 Stesso spec: `openSettings('organization')` apre la tab Profilo; nessun campo di accesso fuori dal menu (USERMENU-05).
+- [ ] 1.4 `tests/e2e/user-menu-preferences.spec.ts` su `:13334`: tema dal livello Aspetto con il menu che resta aperto e `ui-state/theme` riletto; passo del testo da tastiera; Vista con l'ordine attivo leggibile e la riga della board; livello Notifiche dall'ingranaggio del campanello senza `settings-panel`, con il tasto del permesso dei banner (stato finto «non ancora deciso»), «Questo dispositivo» con `push-when-open-*` e `push-unsubscribe`, «Altri dispositivi»; progetto silenziato e riattivato (USERMENU-01…03, NOTIF-PERM-01). Prima guarda `profile-menu.spec.ts` e `sidebar-status-in-menu.spec.ts` e riusa `openProfileMenu`.
+- [ ] 1.5 Stesso spec: dispositivi rinominati e revocati dal livello con `/api/auth/devices` finto come in `profile-menu.spec.ts:58-76`; il computer senza matita né cestino; «Revocati» compare dopo la revoca; con due persone «Di chi è» sposta il dispositivo, con una non c'è; la voce Nodi delle Impostazioni ha `settings-node-pair` (USERMENU-04, USERMENU-06).
+- [ ] 1.6 Stesso spec: `openSettings('organization')` apre la tab Profilo; il pannello «Persone» ha `list-people`; il pannello «Fuori da Topics» ha `profile-public-publish`, il costo e la presenza Discord, e una revoca rifiutata mostra `profile-public-error` (USERMENU-05, APPSET-07); nessun campo di accesso fuori dal menu (USERMENU-05).
 - [ ] 1.7 Tastiera dal primo livello fino al segmento del tema; 390x844 col foglio e i bersagli da 44 px (USERMENU-07). Guardia macchina prima di ogni corsa: carico a 1 minuto sotto 18, `memory_pressure` libero almeno al 20%.
+- [ ] 1.8 Stesso spec a 390x844: dal menu del titolo si accede e si esce (blocco account), si rinomina e si revoca un dispositivo (USERMENU-09). Finché non è verde, 4.1 e 4.2 non tolgono `AccountSection` né la pagina Dispositivi.
 
 ## 2. Primitive
 
 - [ ] 2.1 `Shared/Segmented.tsx` (radiogroup, indicatore che scorre in `--motion-instant`) e `Shared/Stepper.tsx` (spinbutton), sopra i token di `index.css`, nessuna durata letterale.
 - [ ] 2.2 `PresencePopover.tsx`: frecce, Home, End sul primo livello con la stessa logica di `useMenuKeyboard`.
 - [ ] 2.3 `SubmenuItem.tsx`: `defaultOpen`; evento `topics:open-user-menu` con `detail.level` ascoltato da `IdentityBlock` e dal menu del titolo.
+- [ ] 2.4 `Sidebar/IdentityMenuItems.tsx`: il blocco account, Amici, Gruppi, Dispositivi estratto da `ProfileMenu.tsx`, con i dati di `IdentityBlock` in un hook; montato nella card del desktop e in cima al menu del titolo del telefono (`App.tsx`), letto solo a menu aperto.
 
 ## 3. Livelli del menu
 
 - [ ] 3.1 `Sidebar/AppearanceLevel.tsx` montato da `TopicsMenuItems` (quindi su desktop e telefono), coda con lo stato.
-- [ ] 3.2 `Sidebar/NotificationsLevel.tsx`: gli interruttori, lo stato push estratto da `NotificationsSection.tsx` (`PushDevices`), i progetti silenziati; ingranaggio del campanello verso `topics:open-user-menu`.
+- [ ] 3.2 `Sidebar/NotificationsLevel.tsx`: gli interruttori, `NativeBannerStatus` e `FocusGateStatus` spostati da `NotificationsSection.tsx`, `PushDevices` diviso nei livelli «Questo dispositivo» e «Altri dispositivi» con gli stessi `data-testid`, i progetti silenziati; ingranaggio del campanello verso `topics:open-user-menu`.
 - [ ] 3.3 Vista: `Shared/Switch` per Archiviati, segmento per l'ordine, Riga della board.
-- [ ] 3.4 Dispositivi: `lib/devicesApi.ts` estratto da `Settings/DevicesSection.tsx`; rinomina e revoca nel livello; livello figlio «Revocati»; riga delle richieste remote.
+- [ ] 3.4 Dispositivi: `lib/devicesApi.ts` estratto da `Settings/DevicesSection.tsx`; rinomina, revoca e «Di chi è» (solo con più persone) nel livello; livello figlio «Revocati»; riga delle richieste remote verso Impostazioni, Nodi.
 - [ ] 3.5 Sistema, Prestazioni: i siti sempre attivi con «Togli».
 
 ## 4. Togliere i doppioni
 
-- [ ] 4.1 `Settings/sections.ts` e `GlobalSettings.tsx`: cinque voci; `devices` diventa `remote-computers` con solo `RemoteNodeRequests`; titolo dal dizionario.
-- [ ] 4.2 `Settings/IdentityPages.tsx`: via `ProfilePage` e `FollowersPage` dal pannello; `OrganizationPage` resta per la tab. `AccountSection.tsx` rimosso.
-- [ ] 4.3 `Profile/PrivacySection.tsx`: «Fuori da Topics» con `DiscordSection` e il costo; `Shared/Switch` al posto dell'interruttore privato.
+- [ ] 4.1 `Settings/sections.ts` e `GlobalSettings.tsx`: cinque voci; `devices` diventa `nodes`, cioè `Settings/NodesSection.tsx` con il riquadro Nodi di `DevicesSection.tsx:568-640` (`settings-node-pair`, MACHINE-02) e `RemoteNodeRequests`; titolo dal dizionario.
+- [ ] 4.2 `Settings/IdentityPages.tsx`: via `ProfilePage` e `FollowersPage` dal pannello; `OrganizationPage` resta per la tab. `AccountSection.tsx` rimosso solo con 1.8 verde.
+- [ ] 4.3 `Profile/SelfProfile.tsx`: `ProfilePanel` guadagna `people` (lo stesso `PeopleList`, `list-people`) e `outside` («Fuori da Topics»: `ProfileStatsSection` intero e `DiscordSection`, spostati sotto `Profile/`). `Profile/PrivacySection.tsx`: `Shared/Switch` al posto dell'interruttore privato.
 - [ ] 4.4 `lib/openSettings.ts`: le sezioni tolte reindirizzano (`apriProfilo`, `topics:open-user-menu`); `SettingsPanelSection` ristretto, `tsc` trova i chiamanti.
 - [ ] 4.5 `Shared/CommandPalette.tsx`: pill del tema con l'icona e il nome del tema attuale.
 - [ ] 4.6 `voiceMode` fuori da `types/index.ts`, `lib/settings.ts`, `hooks/useVoiceLoop.ts` (il ciclo vocale resta spento come oggi).
 - [ ] 4.7 i18n: ogni etichetta nuova o spostata in `i18n-it.ts` e `i18n-en.ts`.
+- [ ] 4.8 E2E che entrano da una voce tolta: cambiano la porta, non l'asserzione (`settings-profile-devices`, `profile-followers`, `profile-discord`, `refused-gestures`, `push-phone-enroll`, `settings-mobile`, `settings-lingua-org`, `org-presence`, `org-projects-scope`, `profile-menu`).
 
 ## 5. Verifica
 

@@ -58,11 +58,22 @@ modo successivo al clic.
 
 ### Requirement: USERMENU-03 — Le preferenze delle notifiche hanno una casa sola, e il campanello ci porta
 
-Il menu utente SHALL avere un livello «Notifiche» con: notifiche (interruttore
-generale), suono e «anche sulla chat aperta» (interruttori, disattivati se il
-generale è spento), lo stato delle notifiche su questo dispositivo con «Attiva»
-solo quando premerlo fa qualcosa, e i progetti silenziati con «Riattiva»
-(l'elenco c'è solo se non è vuoto).
+Il menu utente SHALL avere un livello «Notifiche» con TUTTO quel che oggi sta
+nella voce Notifiche delle Impostazioni, e nient'altro altrove:
+
+- notifiche (interruttore generale), suono e «anche sulla chat aperta»
+  (interruttori, disattivati se il generale è spento);
+- lo stato del permesso dei banner di sistema con il tasto che quello stato
+  consente, come vuole NOTIF-PERM-01;
+- l'accesso completo al disco per rispettare «Non disturbare», con «Concedi»,
+  presente solo quando il cancello è bloccato;
+- «Questo dispositivo», livello figlio con lo stato dell'iscrizione push,
+  «Attiva» solo quando premerlo fa qualcosa, e da iscritto «Ricevi qui»
+  (interruttore), «Quando Topics è già aperto» (segmento: notifica di sistema /
+  banner in Topics) e «Disattiva qui»;
+- «Altri dispositivi», livello figlio con un interruttore push per ciascuno,
+  presente solo se ce n'è almeno uno;
+- i progetti silenziati con «Riattiva» (l'elenco c'è solo se non è vuoto).
 
 L'ingranaggio del pannello del campanello SHALL aprire il menu utente con il
 livello Notifiche già aperto (`topics:open-user-menu`), sul desktop dalla card
@@ -74,6 +85,12 @@ Notifiche.
 - **THEN** è aperto il menu utente con il livello Notifiche visibile
 - **AND** nessun `settings-panel` è montato
 
+#### Scenario: niente si perde nello spostamento
+- **GIVEN** il permesso dei banner «non ancora deciso» e questo dispositivo iscritto
+- **WHEN** apro il livello Notifiche
+- **THEN** c'è il tasto che chiede il permesso al sistema
+- **AND** il livello «Questo dispositivo» ha `push-when-open-native`, `push-when-open-in-app` e `push-unsubscribe`
+
 #### Scenario: silenziare e riattivare
 - **GIVEN** un progetto silenziato dal suo menu nella colonna
 - **THEN** il livello Notifiche lo elenca
@@ -82,16 +99,20 @@ Notifiche.
 
 ### Requirement: USERMENU-04 — I dispositivi si rinominano e si revocano dove li vedi
 
-Il livello «Dispositivi» del menu utente SHALL permettere, su ogni dispositivo
-appaiato: rinominare (il nome diventa un campo nella riga, Invio salva, Esc
-annulla) e revocare (la riga diventa una conferma in linea con il fuoco su
-«Annulla», nessuna modale). Il computer su cui gira il server NON SHALL avere
-né l'uno né l'altro.
+Il livello «Dispositivi» del menu utente, sul desktop e sul telefono
+(USERMENU-09), SHALL permettere, su ogni dispositivo appaiato: rinominare (il
+nome diventa un campo nella riga, Invio salva, Esc annulla) e revocare (la riga
+diventa una conferma in linea con il fuoco su «Annulla», nessuna modale). Il
+computer su cui gira il server NON SHALL avere né l'uno né l'altro.
+
+Quando le persone sono più di una, ogni riga SHALL avere anche «Di chi è»: un
+livello con le persone come scelta, che sposta il dispositivo sulla persona
+scelta con la stessa route di oggi. Con una persona sola NON SHALL comparire.
 
 I dispositivi revocati SHALL stare in un livello figlio «Revocati», presente
 solo se ce n'è almeno uno. Il livello NON SHALL avere una riga che apre
 un'altra copia dell'elenco. Le richieste dei computer remoti, se ci sono, SHALL
-comparire in cima come una riga che apre Impostazioni, Computer remoti.
+comparire in cima come una riga che apre Impostazioni, Nodi.
 
 #### Scenario: revocare dal menu
 - **GIVEN** un telefono appaiato
@@ -100,27 +121,52 @@ comparire in cima come una riga che apre Impostazioni, Computer remoti.
 - **WHEN** confermo
 - **THEN** il telefono passa nel livello «Revocati»
 
+#### Scenario: di chi è
+- **GIVEN** due persone e un telefono attribuito alla prima
+- **WHEN** dalla riga del telefono apro «Di chi è» e scelgo la seconda
+- **THEN** la riga dice che il telefono è della seconda
+
 #### Scenario: niente seconda copia
 - **THEN** il pannello Impostazioni non contiene l'elenco dei dispositivi
+- **AND** la voce Nodi del pannello contiene `settings-node-pair`
 
 ### Requirement: USERMENU-05 — Chi sei sta nella tab Profilo, l'account in cima al menu
 
 Il pannello Impostazioni NON SHALL avere le voci Profilo, Seguaci e
-Organizzazione. Nome, foto, bio, amici, seguaci, privacy e organizzazione
-SHALL cambiarsi dalla tab Profilo; la presenza Discord e «pubblica il costo»
-SHALL stare nel menu Privacy della tab, sotto «Fuori da Topics».
+Organizzazione. Nome, foto, bio, amici, seguaci, seguiti, privacy e
+organizzazione SHALL cambiarsi dalla tab Profilo.
 
-Accedi ed esci SHALL esistere in un solo posto: il blocco account in cima al
-menu utente. Ogni collegamento che oggi apre una voce tolta SHALL aprire la
+Ciò che oggi sta SOLO in quelle voci SHALL avere una casa nella tab prima che
+le voci escano:
+
+- «Persone», l'elenco di chi c'è da seguire, SHALL essere un pannello della
+  tab accanto a seguaci e seguiti;
+- «Fuori da Topics» SHALL essere un pannello della tab accanto a Privacy, con
+  le cifre, il banner, la pagina pubblica (Pubblica, Apri, Copia, Revoca, e
+  «pubblica il costo» come sua sotto-opzione, APPSET-07 invariato) e la
+  presenza Discord.
+
+Accedi ed esci SHALL esistere in un solo posto su ciascuno schermo: il blocco
+account in cima al menu utente, che sul telefono sta in cima al menu del titolo
+(USERMENU-09). Ogni collegamento che oggi apre una voce tolta SHALL aprire la
 stessa pagina nella tab Profilo.
 
 #### Scenario: un collegamento vecchio
 - **WHEN** qualcosa chiama `openSettings('organization')`
 - **THEN** si apre la tab Profilo sulla pagina dell'organizzazione
 
-#### Scenario: l'account una volta
+#### Scenario: la pagina pubblica ha una casa
+- **WHEN** apro la tab Profilo, pannello «Fuori da Topics»
+- **THEN** ci sono `profile-public-publish` e il «pubblica il costo»
+- **AND** una revoca rifiutata mostra `profile-public-error` accanto al tasto e lascia il link
+
+#### Scenario: le persone da seguire hanno una casa
+- **WHEN** apro la tab Profilo, pannello «Persone»
+- **THEN** c'è `list-people`
+
+#### Scenario: l'account una volta, su tutti e due gli schermi
 - **THEN** né il pannello Impostazioni né la tab Profilo hanno un campo per accedere
-- **AND** il blocco account del menu utente ce l'ha
+- **AND** il blocco account del menu utente ce l'ha, a 1400x900 nella card e a 390x844 nel menu del titolo
 
 ### Requirement: USERMENU-06 — Ogni preferenza ha una porta, e le Impostazioni tengono solo i moduli
 
@@ -131,14 +177,15 @@ Un test unitario SHALL elencare le chiavi di `AppSettings` e fallire se una
 chiave non ha una casa dichiarata o ne ha due.
 
 Il pannello Impostazioni SHALL avere esattamente le voci Provider AI,
-Strumenti, Calendario, Piano, Computer remoti, e SHALL aprirsi con ⌘, e dalla
+Strumenti, Calendario, Piano, Nodi (aggiungere un nodo, MACHINE-02, e le
+richieste da altri computer), e SHALL aprirsi con ⌘, e dalla
 riga «Impostazioni» del menu utente. Una preferenza senza controllo SHALL
 uscire da `AppSettings` (oggi `voiceMode`); una che si aggiunge SHALL anche
 togliersi (oggi `keepLiveSites`, da Sistema, Prestazioni).
 
 #### Scenario: le voci del pannello
 - **WHEN** premo ⌘,
-- **THEN** il pannello elenca cinque voci, nell'ordine Provider AI, Strumenti, Calendario, Piano, Computer remoti
+- **THEN** il pannello elenca cinque voci, nell'ordine Provider AI, Strumenti, Calendario, Piano, Nodi
 
 #### Scenario: una chiave senza casa
 - **GIVEN** una chiave aggiunta ad `AppSettings` senza una casa dichiarata
@@ -151,8 +198,9 @@ giù, Home ed End. Nei livelli di preferenze il segmento SHALL essere un
 `radiogroup` (frecce sinistra e destra cambiano e applicano), il passo uno
 `spinbutton`, l'interruttore `role="switch"`.
 
-Sotto 768 px i livelli Aspetto, Notifiche e Vista SHALL essere nel menu del
-titolo, aperti come foglio con «Indietro», con bersagli di almeno 44 px.
+Sotto 768 px i livelli del menu utente (Dispositivi, Aspetto, Notifiche,
+Vista) SHALL essere nel menu del titolo, aperti come foglio con «Indietro», con
+bersagli di almeno 44 px.
 
 #### Scenario: tutto da tastiera
 - **WHEN** apro il menu dalla card, scendo con le frecce fino ad Aspetto e premo freccia destra
@@ -176,6 +224,23 @@ a mano. Con `prefers-reduced-motion: reduce` nulla SHALL animarsi.
 - **GIVEN** `prefers-reduced-motion: reduce`
 - **WHEN** cambio il tema dal segmento
 - **THEN** l'indicatore è al posto nuovo nello stesso frame, senza transizione
+
+### Requirement: USERMENU-09 — Sul telefono il menu del titolo ha lo stesso blocco dell'identità
+
+Sotto 768 px il menu del titolo SHALL avere in cima lo stesso blocco
+dell'identità del menu utente del desktop: account (accedi, esci), Amici,
+Gruppi, Dispositivi. SHALL essere lo stesso componente montato in due host, non
+una seconda copia.
+
+Le voci delle Impostazioni che oggi sono l'unica casa sul telefono di accedi,
+esci, rinomina e revoca NON SHALL uscire dal pannello prima che questo blocco
+sia sul telefono.
+
+#### Scenario: accedere e revocare dal telefono
+- **GIVEN** 390x844 e un dispositivo appaiato oltre a questo
+- **WHEN** apro il menu del titolo
+- **THEN** in cima c'è il blocco account con il campo per accedere
+- **AND** dal livello Dispositivi revoco l'altro dispositivo con la conferma in linea
 
 ## MODIFIED Requirements
 
@@ -222,9 +287,9 @@ che già scrive (`aria-expanded` sulla riga del livello, la tab attiva).
 
 ### Requirement: APPSET-05 — Le voci delle impostazioni sono voci di PRIMO livello, tradotte davvero
 
-Le pagine dell'identità (profilo, chi segue, riservatezza, organizzazione)
-SHALL essere raggiungibili con un gesto dalla tab Profilo, ciascuna con il suo
-titolo. Il pannello Impostazioni NON SHALL contenerne nessuna.
+Le pagine dell'identità (profilo, chi segue, persone da seguire, riservatezza,
+fuori da Topics, organizzazione) SHALL essere raggiungibili con un gesto dalla
+tab Profilo, ciascuna con il suo titolo. Il pannello Impostazioni NON SHALL contenerne nessuna.
 
 Nessuna voce SHALL essere ripetuta, e ognuna SHALL avere la propria etichetta.
 
