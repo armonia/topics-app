@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-30",
+  "generated": "2026-10-01",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -4208,6 +4208,12 @@
     "server/routes/task-patch.ts": [
       "expr"
     ],
+    "server/routes/tasks-board.ts": [
+      "aggiornata",
+      "esito",
+      "migliore",
+      "prov"
+    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
@@ -4243,7 +4249,6 @@
       "condivisi",
       "elenco",
       "esc",
-      "esito",
       "fresca",
       "giaScelto",
       "identita",
