@@ -227,13 +227,13 @@ function getSnapshot(path: string): Resolved {
  *  TLS cert) <img> loads to the server fail while fetch() works — the exact
  *  split varies per window — so a 200 here is served to every surface from a
  *  blob URL, bypassing the broken transport for the rest of the session. */
-function settleViaFetch(path: string): void {
+function settleViaFetch(path: string, opts: { version?: string; afterImgError?: boolean } = {}): void {
   const startedIn = genOf(path);
   const superseded = () => genOf(path) !== startedIn;
   // Low priority: an icon never decides a layout (the slot is reserved before
   // it lands, a 'none' draws nothing), so it must not take one of the six
   // connections from the chat history at boot.
-  fetch(endpointUrl(path), { priority: 'low' })
+  fetch(endpointUrl(path, opts.version), { priority: 'low' })
     .then(async (r) => {
       if (superseded()) return;
       // 204 = "il progetto non ha un'icona", ed è una risposta RIUSCITA (prima
@@ -248,9 +248,14 @@ function settleViaFetch(path: string): void {
       } else if (r.ok) {
         const blob = await r.blob();
         if (superseded()) return;
-        const version = r.headers.get('etag')?.replace(/^W\//, '').replace(/"/g, '') || undefined;
+        const version = r.headers.get('etag')?.replace(/^W\//, '').replace(/"/g, '') || opts.version;
+        // The <img> failed and the same bytes came through fetch: this
+        // window's image transport is the broken one, for the whole session.
+        if (opts.afterImgError) imgTransportBroken = true;
+        const before = state.get(path);
         remember(path, 'has', true, version);
         setResolved(path, { s: 'has', src: URL.createObjectURL(blob), version });
+        if (before?.s === 'has' && before.src.startsWith('blob:')) URL.revokeObjectURL(before.src);
       } else if (r.status === 404) {
         // La directory non esiste più (progetto spostato/cancellato).
         remember(path, 'none', true);
@@ -269,6 +274,15 @@ function settleViaFetch(path: string): void {
     })
     .finally(() => { inflight.delete(path); });
 }
+
+/**
+ * Set once a blob recovery succeeded after an <img> failed: in this window an
+ * <img> pointed at the server cannot load (WKWebView with the self-signed
+ * certificate). From then on a new version is fetched as a blob BEFORE it is
+ * shown, so the old picture stays until the new one is ready, instead of the
+ * slot emptying while a versioned URL fails and the recovery runs again.
+ */
+let imgTransportBroken = false;
 
 /** Ensure a (single-flight) probe for this path is running or settled. */
 function ensureProbe(path: string): void {
@@ -373,6 +387,11 @@ function applyIconVersion(path: string, version: string | null): void {
   remember(path, 'has', true, version);
   const cur = state.get(path);
   if (cur?.s === 'has' && cur.version === version) return;
+  if (imgTransportBroken) {
+    inflight.add(path);
+    settleViaFetch(path, { version });
+    return;
+  }
   setResolved(path, { s: 'has', src: endpointUrl(path, version), version });
 }
 
@@ -499,7 +518,7 @@ export function reportImgError(path: string, failedSrc: string): void {
   if (inflight.has(path)) return;
   inflight.add(path);
   setResolved(path, PROBING);
-  settleViaFetch(path);
+  settleViaFetch(path, { afterImgError: true });
 }
 
 /**

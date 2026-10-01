@@ -43,6 +43,8 @@ const svg = (w: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}"
 let root: string;
 let db: Database;
 let topicPaths: string[];
+/** How many times the known-project allowlist was built (each build reads the topics). */
+let allowlistBuilds: number;
 let frames: Array<Record<string, unknown>>;
 let router: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null>;
 
@@ -52,11 +54,12 @@ beforeEach(() => {
   db.run(`CREATE TABLE terminal_sessions (id TEXT PRIMARY KEY, cwd TEXT NOT NULL)`);
   db.run(`CREATE TABLE ui_state (key TEXT PRIMARY KEY, value TEXT)`);
   topicPaths = [];
+  allowlistBuilds = 0;
   frames = [];
   const ctx = {
     db,
     OPENCLAW_DIR: join(root, ".openclaw"),
-    loadTopics: () => ({ topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
+    loadTopics: () => (allowlistBuilds++, { topics: Object.fromEntries(topicPaths.map((p, i) => [`t${i}`, { projectPath: p }])) }),
     worktreeStore: { list: () => [] },
     projectStore: { list: () => [], getByPath: () => null },
     json: (data: unknown, status = 200) =>
@@ -131,6 +134,20 @@ describe("GET /api/projects/icon carries the version", () => {
 });
 
 describe("POST /api/projects/icon-versions", () => {
+  test("folders outside the known projects cost one allowlist rebuild per request, not one each", async () => {
+    knownProject("known");
+    const strangers = Array.from({ length: 20 }, (_, i) => {
+      const d = join(root, `stranger-${i}`);
+      mkdirSync(d);
+      return d;
+    });
+    const res = (await versions(strangers))!;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ versions: {} });
+    // One build from the cold cache, one forced rebuild for the misses.
+    expect(allowlistBuilds).toBeLessThanOrEqual(2);
+  });
+
   test("one answer for many projects, behind the same gate as the GET", async () => {
     const withIcon = knownProject("with-icon");
     writeFileSync(join(withIcon, "favicon.svg"), svg(16));

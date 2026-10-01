@@ -99,22 +99,21 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
    * rebuilds it before denying, so the cache can only confirm, never
    * crystallise a denial (rationale at the GET route below).
    */
-  const iconDirAllowed = (realDir: string): boolean => {
-    const iconAllowedDirs = (fresh: boolean): Set<string> => {
-      const now = Date.now();
-      if (!fresh && iconAllowCache && iconAllowCache.db === ctx.db && now - iconAllowCache.at < ICON_ALLOW_TTL_MS) return iconAllowCache.dirs;
-      const dirs = knownProjectDirs({
-        db: ctx.db,
-        loadTopics: ctx.loadTopics,
-        worktreeStore: ctx.worktreeStore,
-        projectStore,
-        workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
-      });
-      iconAllowCache = { at: now, dirs, db: ctx.db };
-      return dirs;
-    };
-    return iconAllowedDirs(false).has(realDir) || iconAllowedDirs(true).has(realDir);
+  const iconAllowedDirs = (fresh: boolean): Set<string> => {
+    const now = Date.now();
+    if (!fresh && iconAllowCache && iconAllowCache.db === ctx.db && now - iconAllowCache.at < ICON_ALLOW_TTL_MS) return iconAllowCache.dirs;
+    const dirs = knownProjectDirs({
+      db: ctx.db,
+      loadTopics: ctx.loadTopics,
+      worktreeStore: ctx.worktreeStore,
+      projectStore,
+      workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
+    });
+    iconAllowCache = { at: now, dirs, db: ctx.db };
+    return dirs;
   };
+  const iconDirAllowed = (realDir: string): boolean =>
+    iconAllowedDirs(false).has(realDir) || iconAllowedDirs(true).has(realDir);
 
   /**
    * Chi sta chiedendo, tradotto nella forma che la regola di visibilità legge
@@ -297,13 +296,17 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       const paths = [...new Set(body.paths.filter((p): p is string => typeof p === "string" && p.startsWith("/")))]
         .slice(0, ICON_VERSIONS_MAX_PATHS);
       const versions: Record<string, string | null> = {};
+      // A miss rebuilds the allowlist ONCE per request: forty folders it does
+      // not know must not cost forty rebuilds, at every reconnect and focus.
+      let rebuilt: Set<string> | null = null;
+      const allowed = (realDir: string) => iconAllowedDirs(false).has(realDir) || (rebuilt ??= iconAllowedDirs(true)).has(realDir);
       for (const p of paths) {
         let realDir: string;
         try {
           if (!existsSync(p) || !statSync(p).isDirectory()) { versions[p] = null; continue; }
           realDir = realpathSync(p);
         } catch { versions[p] = null; continue; }
-        if (!iconDirAllowed(realDir)) continue;
+        if (!allowed(realDir)) continue;
         versions[p] = iconWatch.observe(realDir, p, resolveProjectIcon(realDir));
       }
       return json({ versions });

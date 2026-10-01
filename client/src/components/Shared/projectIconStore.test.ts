@@ -209,3 +209,35 @@ test('a probe learns the version from the ETag when it has to use the fetch lane
   expect(r.version).toBe('abc123');
   expect(r.disk).toMatchObject({ s: 'has', version: 'abc123' });
 });
+
+test('in a window whose <img> cannot reach the server, a pushed version replaces the picture without emptying it', () => {
+  const r = run(`
+    globalThis.URL.createObjectURL = (() => { let n = 0; return () => 'blob:icon-' + (++n); })();
+    globalThis.URL.revokeObjectURL = () => {};
+    seed({ '/p/a': { s: 'has', t: Date.now(), v: true, version: 'v1' } });
+    store.ensureProjectIcon('/p/a');
+    await until(() => fetches.length > 0);
+    answer(0, 200, { json: { versions: { '/p/a': 'v1' } } });
+    await flush();
+    // The <img> on the endpoint fails (WKWebView, self-signed TLS): the blob recovery takes over.
+    store.reportImgError('/p/a', store.projectIconSnapshot('/p/a').src);
+    await until(() => fetches.length > 1);
+    answer(1, 200, { etag: '"v1"' });
+    await until(() => store.projectIconSnapshot('/p/a').src?.startsWith('blob:'));
+    const recovered = store.projectIconSnapshot('/p/a').src;
+    // A new version is pushed.
+    bus.dispatchFrame({ type: 'project:icon', path: '/p/a', version: 'v2' });
+    const meanwhile = { ...store.projectIconSnapshot('/p/a') };
+    await until(() => fetches.length > 2);
+    const pushedUrl = fetches[2]?.url ?? null;
+    if (pushedUrl) answer(2, 200, { etag: '"v2"' });
+    await until(() => store.projectIconSnapshot('/p/a').version === 'v2' && store.projectIconSnapshot('/p/a').src !== recovered);
+    out({ recovered, meanwhile, pushedUrl, after: store.projectIconSnapshot('/p/a') });
+  `);
+  expect(String(r.recovered)).toMatch(/^blob:/);
+  // Until the new bytes land, the surfaces keep drawing the old picture.
+  expect(r.meanwhile).toMatchObject({ s: 'has', src: r.recovered });
+  expect(String(r.pushedUrl)).toContain('&v=v2');
+  expect((r.after as { src: string }).src).toMatch(/^blob:/);
+  expect((r.after as { src: string }).src).not.toBe(r.recovered);
+});
