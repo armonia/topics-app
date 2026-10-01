@@ -21,6 +21,8 @@
  * only skips the seed, and the url is still one click away in the address bar.
  */
 
+import { apiFetch } from './shell/net';
+
 /**
  * Past this, stop waiting and assume the context is busy.
  *
@@ -43,7 +45,7 @@ export async function contextHasPage(
   });
   const ask = (async () => {
     try {
-      const res = await fetch(`/api/browsers/${encodeURIComponent(contextId)}`, { signal: ctrl.signal });
+      const res = await apiFetch(`/api/browsers/${encodeURIComponent(contextId)}`, { signal: ctrl.signal });
       // No context yet: nothing to clobber, the seed is what creates it.
       if (res.status === 404) return false;
       if (!res.ok) return true;

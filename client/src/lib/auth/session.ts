@@ -1,12 +1,15 @@
 // L'identità di QUESTO dispositivo, e come si vede.
 //
-// Vive fuori da React perché a incontrare un rifiuto è la fetch, non un
-// componente: `api.ts` è la strada di tutte le chiamate `/api`, e il WebSocket
-// non può leggere lo stato HTTP del proprio upgrade — quindi la diagnosi la
-// porta la fetch, che invece lo vede. È la stessa forma del vecchio segnale di
+// It lives outside React because what meets a refusal is the fetch, not a
+// component: `apiFetch` (lib/shell/net.ts) is the door of every `/api` call,
+// and the WebSocket cannot read the HTTP status of its own upgrade, so the
+// diagnosis rides on the fetch, which can.
+// È la stessa forma del vecchio segnale di
 // pairing, e la lezione per cui esiste: uno stato senza uscita non è un'attesa,
 // è un vicolo cieco. Il pairing precedente FUNZIONAVA e non è mai servito a
 // nessuno perché niente a schermo lo diceva.
+
+import { apiFetch } from '../shell/net';
 
 export type SessionState =
   /** Non lo sappiamo ancora: la prima interrogazione non è tornata. */
@@ -134,13 +137,13 @@ export function subscribeSession(fn: (s: SessionState) => void): () => void {
   return () => { listeners.delete(fn); };
 }
 
-/** Chiamato da `api.ts` quando il server rifiuta per IDENTITÀ. Il codice
- *  distingue i tre modi di essere fuori, e la schermata li dice diversamente:
- *  «mai entrato» non è «ti hanno tolto l'accesso». */
+/** Called by `apiFetch` (lib/shell/net.ts) when the server refuses for
+ *  IDENTITY. The code tells apart the three ways of being out, and the screen
+ *  words them differently: "never in" is not "your access was taken away". */
 export function markUnpaired(code: string | undefined, installationName?: string | null): void {
   const reason =
     code === 'device_revoked' ? 'revoked' : code === 'session_expired' ? 'expired' : 'not_paired';
-  // The name is kept when the new answer does not carry it: `api.ts` calls
+  // The name is kept when the new answer does not carry it: `apiFetch` calls
   // this from the refusal of ANY request, which has no name in it. Clearing it
   // there would wipe the heading off the screen on the first 401, exactly when
   // it is needed.
@@ -155,7 +158,7 @@ export function markUnpaired(code: string | undefined, installationName?: string
  *  domanda che si fa PRIMA di averla. */
 export async function refreshSession(): Promise<SessionState> {
   try {
-    const r = await fetch('/api/auth/session', { credentials: 'same-origin' });
+    const r = await apiFetch('/api/auth/session', { credentials: 'same-origin' });
     if (!r.ok) { markUnpaired(undefined); return state; }
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;

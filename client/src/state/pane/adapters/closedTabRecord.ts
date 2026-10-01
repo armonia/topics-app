@@ -20,6 +20,7 @@ import { usePaneStore } from '../store';
 import type { Pane } from '../../../types';
 import type { ClosedTerminalMeta } from '../types';
 import { createPaneId, getTerminalSessionFromPaneId } from './paneConfig';
+import { apiFetch } from '../../../lib/shell/net';
 
 /**
  * Legacy ClosedTabRecord shape. Preserved verbatim so consumers importing the
@@ -288,7 +289,7 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
       // reload don't keep treating this session as user-deleted.
       clearTerminalTombstone(sessionId);
       try {
-        const check = await fetch(`/api/terminal/sessions/${sessionId}`);
+        const check = await apiFetch(`/api/terminal/sessions/${sessionId}`);
         if (check.ok) {
           return record.pane;
         }
@@ -308,7 +309,7 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
         // sessione: il `claudeSessionId` qui sotto non viene più buttato dal
         // server, che lo gira a `--resume` (server/routes/terminal.ts).
         try {
-          const revived = await fetch(`/api/terminal/sessions/${sessionId}/revive`, {
+          const revived = await apiFetch(`/api/terminal/sessions/${sessionId}/revive`, {
             method: 'POST',
           });
           // 409 = ANOTHER client (or this window's own dormant-revive) is already
@@ -337,7 +338,7 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
     // server/routes/terminal.ts.
     const idempotencyKey = `${record.pane.id}:${record.closedAt}`;
 
-    const res = await fetch('/api/terminal/sessions', {
+    const res = await apiFetch('/api/terminal/sessions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

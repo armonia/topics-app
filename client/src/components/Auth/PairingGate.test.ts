@@ -93,7 +93,7 @@ describe('PairingGate · whatever does not fit must still be reachable', () => {
     // off, where attempts follow each other for minutes, it was a steady blink.
     //
     // It used to sit in the start routine, before the first `fetch`.
-    const avvia = GATE.slice(GATE.indexOf('async function avvia'), GATE.indexOf('await fetch'));
+    const avvia = GATE.slice(GATE.indexOf('async function avvia'), GATE.indexOf('await apiFetch'));
     expect(avvia, 'the error is replaced, not zeroed before retrying')
       .not.toContain('setError(null)');
     // Positive control: on SUCCESS it is cleared, otherwise a notice would sit

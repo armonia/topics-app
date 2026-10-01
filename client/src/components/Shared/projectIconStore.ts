@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * Lo STORE dell'icona di progetto: cache persistita, sonda single-flight per
@@ -197,7 +198,7 @@ function settleViaFetch(path: string): void {
   // Low priority: an icon never decides a layout (the slot is reserved before
   // it lands, a 'none' draws nothing), so it must not take one of the six
   // connections from the chat history at boot.
-  fetch(endpointUrl(path), { priority: 'low' })
+  apiFetch(endpointUrl(path), { priority: 'low' })
     .then(async (r) => {
       // 204 = "il progetto non ha un'icona", ed è una risposta RIUSCITA (prima
       // era un 404, il 4xx più rumoroso a ogni load). Va intercettata PRIMA di

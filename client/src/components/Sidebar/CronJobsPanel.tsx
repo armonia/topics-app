@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Check, Clock, ChevronRight, Play, Trash2, RefreshCw, Calendar, Power, PowerOff } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
+import { apiFetch } from '../../lib/shell/net';
 
 interface CronJob {
   id: string;
@@ -101,7 +102,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/cron/jobs');
+      const res = await apiFetch('/api/cron/jobs');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setJobs(data.jobs || []);
@@ -129,7 +130,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
   const toggleJob = useCallback(async (jobId: string, jobEnabled: boolean) => {
     setError(null);
     try {
-      const res = await fetch('/api/cron/jobs/' + jobId, {
+      const res = await apiFetch('/api/cron/jobs/' + jobId, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: jobEnabled }),
@@ -144,7 +145,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
   const runJob = useCallback(async (jobId: string) => {
     setError(null);
     try {
-      const res = await fetch('/api/cron/jobs/' + jobId + '/run', { method: 'POST' });
+      const res = await apiFetch('/api/cron/jobs/' + jobId + '/run', { method: 'POST' });
       if (!res.ok) { setError(await refusal(res, 'Run failed')); return; }
       // A run that WORKS also has to leave a mark. Until now «Play» had no sign
       // either way, so a working run and a refused one looked identical. The
@@ -162,7 +163,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
     if (!await confirm({ title: 'Delete this job?', confirmLabel: 'Delete' })) return;
     setError(null);
     try {
-      const res = await fetch('/api/cron/jobs/' + jobId, { method: 'DELETE' });
+      const res = await apiFetch('/api/cron/jobs/' + jobId, { method: 'DELETE' });
       if (!res.ok) { setError(await refusal(res, 'Delete failed')); return; }
       setJobs(prev => prev.filter(j => j.id !== jobId));
     } catch {

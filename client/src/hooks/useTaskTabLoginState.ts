@@ -24,6 +24,7 @@
  */
 import { useEffect } from 'react';
 import { isTaskContextId } from '../state/taskBrowserTabs';
+import { apiFetch } from '../lib/shell/net';
 
 /** ContextId già serviti in questa sessione dell'app (vedi la nota sopra). */
 const applied = new Set<string>();
@@ -36,7 +37,7 @@ export function useTaskTabLoginState(contextId: string, ready: boolean): void {
     // workspace) monterebbero insieme e chiederebbero due iniezioni.
     applied.add(contextId);
     let alive = true;
-    fetch(`/api/browsers/${encodeURIComponent(contextId)}/login-state/apply`, { method: 'POST' })
+    apiFetch(`/api/browsers/${encodeURIComponent(contextId)}/login-state/apply`, { method: 'POST' })
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null)
       .then((body: { applied?: boolean; handle?: string | null } | null) => {

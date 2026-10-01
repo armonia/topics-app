@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { computeAutoShared, stepAutoShare, type AutoShareState } from '../lib/sharedAuto';
 import { startViewerCountFeed } from './viewerCountFeed';
+import { apiFetch } from '../lib/shell/net';
 
 /**
  * Decide, reading by reading, whether a desktop browser pane should render its
@@ -68,7 +69,7 @@ export function useSharedViewerCount(contextId: string, enabled: boolean, isVisi
     const feed = startViewerCountFeed({
       contextId,
       fetchCount: async () => {
-        const res = await fetch(`/api/browsers/${encodeURIComponent(contextId)}/viewers`);
+        const res = await apiFetch(`/api/browsers/${encodeURIComponent(contextId)}/viewers`);
         if (!res.ok) return null;
         const data = await res.json();
         return typeof data?.count === 'number' ? data.count : null;

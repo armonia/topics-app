@@ -20,6 +20,7 @@ import type { ClaudeSessionState, WSMessage } from '../types';
 import { subscribeLifecycle } from '../lib/wsFrameBus';
 import { useRefMirror } from './useRefMirror';
 import { useWSSubscription } from './useWSSubscription';
+import { apiFetch } from '../lib/shell/net';
 
 export interface UseClaudeSessionStateOptions {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
@@ -143,7 +144,7 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
   // cancel fn so an in-flight fetch can be abandoned on unmount / re-fetch.
   const bootstrap = useCallback((): (() => void) => {
     let cancelled = false;
-    fetch(fetchUrl)
+    apiFetch(fetchUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((body: { sessions?: ClaudeSessionState[] }) => {
         if (cancelled) return;

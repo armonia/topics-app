@@ -28,6 +28,7 @@ export type UsageRange = '1d' | '7d' | '30d' | 'all';
 // panel renders and the server stopped sending (`tests/unit/no-type-mirrors`).
 export type { ProjectUsageRow, ProjectUsage };
 import type { ProjectUsageResponse as ProjectUsage, ProjectUsageRow } from '../../../shared/usage-shapes';
+import { apiFetch } from '../lib/shell/net';
 
 export function useProjectUsage(enabled: boolean, range: UsageRange): {
   usage: ProjectUsage | null;
@@ -42,7 +43,7 @@ export function useProjectUsage(enabled: boolean, range: UsageRange): {
   const read = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/usage/projects?range=${range}`, { signal });
+      const res = await apiFetch(`/api/usage/projects?range=${range}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as ProjectUsage;
       if (signal.aborted) return;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { SessionCostProbe, WSMessage } from '../types';
+import { apiFetch } from '../lib/shell/net';
 
 /**
  * La sonda del costo di una sessione: contesto, chiamate, e il loro PRODOTTO.
@@ -36,7 +37,7 @@ export function useCostProbe(
   useEffect(() => {
     if (!sessionKey) return;
     let cancelled = false;
-    fetch(`/api/context/cost?sessionKey=${encodeURIComponent(sessionKey)}`)
+    apiFetch(`/api/context/cost?sessionKey=${encodeURIComponent(sessionKey)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { cost?: SessionCostProbe | null } | null) => {
         if (cancelled || !data?.cost) return;

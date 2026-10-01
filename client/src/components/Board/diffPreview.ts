@@ -12,6 +12,7 @@ import { diffBlobPath, type DiffPanelSource } from '../../lib/board';
 import { previewTypeOf } from '../../../../shared/preview-kind';
 import type { DiffRevs } from '../../../../shared/diff-revs';
 import type { ChangedFileRow } from '../Git/changedFiles';
+import { apiFetch } from '../../lib/shell/net';
 
 /** One side of a changed file: the path it has there and the revision to read it at. */
 export interface PreviewSide {
@@ -91,7 +92,7 @@ export function resolveMarkdownImagePath(mdPath: string, src: string): string | 
  */
 export async function reportStaleBlob(source: DiffPanelSource, side: PreviewSide, onStale: () => void): Promise<void> {
   try {
-    const res = await fetch(diffBlobPath(source, side.path, side.rev));
+    const res = await apiFetch(diffBlobPath(source, side.path, side.rev));
     await res.body?.cancel();
     if (res.status === 409) onStale();
   } catch {
@@ -104,7 +105,7 @@ export async function reportStaleBlob(source: DiffPanelSource, side: PreviewSide
  * `onStale`, which re-reads the bundle, and has no text: `null`.
  */
 export async function fetchDiffText(source: DiffPanelSource, side: PreviewSide, onStale: () => void): Promise<string | null> {
-  const res = await fetch(diffBlobPath(source, side.path, side.rev));
+  const res = await apiFetch(diffBlobPath(source, side.path, side.rev));
   if (res.status === 409) {
     await res.body?.cancel();
     onStale();

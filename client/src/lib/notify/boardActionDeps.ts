@@ -13,6 +13,7 @@
 import { boardApi } from '../board';
 import { openTaskInApp } from '../openTaskLink';
 import type { NotificationActionDeps } from './notificationAction';
+import { apiFetch } from '../shell/net';
 
 export function boardNotificationDeps(): NotificationActionDeps {
   return {
@@ -21,7 +22,7 @@ export function boardNotificationDeps(): NotificationActionDeps {
       // `credentials: 'same-origin'` è load-bearing: la sessione di Topics è un
       // cookie, e senza di lui la chiamata parte anonima e il gate
       // d'autenticazione la respinge.
-      const resp = await fetch(req.path, {
+      const resp = await apiFetch(req.path, {
         method: req.method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',

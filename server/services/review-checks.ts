@@ -95,7 +95,8 @@ export { MAX_CHECKS };
  * all eleven and turn main red on any of the eight, which is the same failure
  * the paragraph above describes and the same reason it is not a choice.
  *
- * SO ALL EIGHT ARE IN, and the chain is nineteen links. The two the CI step runs
+ * SO ALL EIGHT ARE IN, and the chain is nineteen links (twenty since
+ * `check:api-door`, 2026-10-01). The two the CI step runs
  * and this chain will NOT repeat are named here so nobody adds them back
  * thinking they were forgotten:
  *  · `check:deadcode` is already a slot of its own on the board. Inside the
@@ -136,6 +137,9 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     // here comes back in under a second instead of after the slow tail.
     "bun run check:tmp-canonical",
     "bun run check:module-mock-restore",
+    // A literal `fetch('/api...')` outside the client's door (2026-10-01),
+    // a pure scan of client/src.
+    "bun run check:api-door",
     "bun run check:any",
     "bun run check:ref-callbacks",
     "bun run check:any-budget",

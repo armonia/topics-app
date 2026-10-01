@@ -89,6 +89,7 @@ import {
   type QueuedMessage,
 } from './outboundQueue';
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
+import { apiFetch } from '../lib/shell/net';
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -786,7 +787,7 @@ export function useChat() {
       void (async () => {
         let serverSaysLive = false;
         try {
-          const res = await fetch('/api/topics/streaming');
+          const res = await apiFetch('/api/topics/streaming');
           if (res.ok) {
             const body = (await res.json()) as { sessions?: { sessionKey?: string; state?: string }[] };
             // `waiting` è vivo quanto `streaming`: il turno è aperto, ferma solo

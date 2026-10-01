@@ -8,7 +8,7 @@ import { attachTerminalTouchScroll } from './touchScroll';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
 import { TerminalInputQueue, nextInputBands, INPUT_LOSS_MESSAGE_KEY, type InputLossReason } from './inputQueue';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
-import { serverWsBase } from '../../lib/shell/net';
+import { serverWsBase, apiFetch } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openTerminalLink } from './wrappedLinkProvider';
@@ -936,7 +936,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     revivingRef.current = true;
     void (async () => {
       try {
-        const res = await fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/revive`, {
+        const res = await apiFetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/revive`, {
           method: 'POST',
         });
         // 404 = la sessione non è dormiente, è proprio sparita (riga cancellata).
@@ -967,7 +967,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/all-boards/tasks/by-topic/${encodeURIComponent(topicId)}`);
+        const res = await apiFetch(`/api/all-boards/tasks/by-topic/${encodeURIComponent(topicId)}`);
         if (!res.ok || cancelled) return;
         const body = await res.json() as { task?: BoardTask | null };
         if (!cancelled) setCauseTask(body.task ?? null);

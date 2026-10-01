@@ -11,6 +11,7 @@ import type {
   NotificationRow,
 } from '../../../../shared/notification-log';
 import { NOTIFICATION_MAX_ROWS } from '../../../../shared/notification-log';
+import { apiFetch } from '../shell/net';
 
 export interface NotificationHistoryPage {
   rows: NotificationRow[];
@@ -25,7 +26,7 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
   if (opts.limit) q.set('limit', String(opts.limit));
   if (opts.before) q.set('before', opts.before);
   const qs = q.toString();
-  const r = await fetch(`/api/notifications${qs ? `?${qs}` : ''}`);
+  const r = await apiFetch(`/api/notifications${qs ? `?${qs}` : ''}`);
   if (!r.ok) throw new Error(`GET /api/notifications ${r.status}`);
   const data = (await r.json()) as Partial<NotificationHistoryPage>;
   return {
@@ -44,7 +45,7 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
  */
 export function recordNotificationSent(input: NotificationRecordInput): void {
   try {
-    void fetch('/api/notifications', {
+    void apiFetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -63,7 +64,7 @@ export function recordNotificationSent(input: NotificationRecordInput): void {
  */
 export function markTargetSeen(targetKind: string, targetId: string): void {
   try {
-    void fetch('/api/notifications/seen', {
+    void apiFetch('/api/notifications/seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetKind, targetId }),
@@ -78,7 +79,7 @@ export function markTargetSeen(targetKind: string, targetId: string): void {
 export async function markNotificationsSeen(
   body: { ids?: string[]; upTo?: string; subjects?: string[] },
 ): Promise<{ unseen: number; unseenKeys?: string[] }> {
-  const r = await fetch('/api/notifications/seen', {
+  const r = await apiFetch('/api/notifications/seen', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

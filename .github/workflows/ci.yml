@@ -314,6 +314,12 @@ jobs:
           # spec — dipende dal carico — ma la sua CAUSA si legge nel JSX.
           bun run check:ref-callbacks
           bun run check:nul
+          # Every `/api` request of the client goes through `apiFetch`
+          # (client/src/lib/shell/net.ts), which owns the server origin and the
+          # identity refusal. This rejects a literal `fetch('/api...')` outside
+          # it: the form 173 calls had, and the reason a 401 met by any of them
+          # never reached the pairing screen.
+          bun run check:api-door
           bun run check:deadcode
           bun run check:eslint-disable
           bun run check:test-skips

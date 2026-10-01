@@ -22,6 +22,7 @@
 import { STANDALONE_NO_PTY_CODE } from '../../../shared/terminal-messages';
 import type { TerminalSessionType } from '../../../shared/terminal-session-types';
 import { fetchWhileRosterWarms } from './terminalRosterRetry';
+import { apiFetch } from './shell/net';
 
 type ErrorReporter = { error: (message: string, duration?: number) => void };
 type Translate = (key: string) => string;
@@ -105,7 +106,7 @@ export async function createTerminalSession(
 ): Promise<CreatedTerminalSession | null> {
   let res: Response;
   try {
-    res = await fetch('/api/terminal/sessions', {
+    res = await apiFetch('/api/terminal/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

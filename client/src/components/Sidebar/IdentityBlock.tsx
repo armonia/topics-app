@@ -66,6 +66,7 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
 import { useLocale, useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
+import { apiFetch } from '../../lib/shell/net';
 
 export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
   onOpenDevices?: () => void;
@@ -208,7 +209,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
 
   const readDevices = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/auth/devices', { credentials: 'same-origin' });
       if (!r.ok) return;
       const b = await r.json() as {
         thisComputer?: { current: boolean };

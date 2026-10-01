@@ -31,6 +31,7 @@ import { getTabId } from './pane/middleware/syncCrossTab';
 import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey';
 import { createUiStatePersister } from './uiStatePersist';
 import { MIN_EXPANDED_WIDTH } from '../components/Browser/topicBrowserWindowLazy';
+import { apiFetch } from '../lib/shell/net';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -404,7 +405,7 @@ export function sanitizeTopicBrowserWindow(v: unknown): TopicBrowserWindowState 
  */
 async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null } | undefined> {
   try {
-    const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: topic-browser keys, not pane state
+    const r = await apiFetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: topic-browser keys, not pane state
     if (!r.ok) return undefined;
     const d = await r.json().catch(() => undefined);
     if (d === undefined) return undefined;

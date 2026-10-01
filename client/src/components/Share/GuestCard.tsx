@@ -5,6 +5,7 @@ import { useT } from '../../hooks/useT';
 import { STATUS_LABEL, isProjectlessId } from '../../lib/board';
 import type { TaskStatus } from '../../../../shared/board';
 import { canGuestStart, guestStartRequest } from './guestStart';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * ONE SHARED CARD, AT THE LEVEL IT WAS SHARED AT.
@@ -77,7 +78,7 @@ export function GuestCard({ task, onChanged }: {
 
   const readThread = useCallback(async () => {
     try {
-      const r = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { credentials: 'same-origin' });
+      const r = await apiFetch(`/api/tasks/${encodeURIComponent(task.id)}`, { credentials: 'same-origin' });
       if (!r.ok) return;
       const b = await r.json() as { comments?: ThreadComment[] };
       // `status` entries are the board's own transition log, not somebody
@@ -102,7 +103,7 @@ export function GuestCard({ task, onChanged }: {
     if (!content || busy) return;
     setBusy(true); setFailed(false);
     try {
-      const r = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/comments`, {
+      const r = await apiFetch(`/api/tasks/${encodeURIComponent(task.id)}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -121,7 +122,7 @@ export function GuestCard({ task, onChanged }: {
     if (text === task.text) { setDraft(null); return; }
     setBusy(true); setFailed(false);
     try {
-      const r = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+      const r = await apiFetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -140,7 +141,7 @@ export function GuestCard({ task, onChanged }: {
     try {
       // No body and no execution headers: the server resolves every policy
       // field from the owner's capability.
-      const response = await fetch(...guestStartRequest(task.id));
+      const response = await apiFetch(...guestStartRequest(task.id));
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { error?: string };
         setStartError(body.error || tr('guest.start.failed'));

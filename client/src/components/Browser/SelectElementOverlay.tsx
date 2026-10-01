@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { formatElementContext, type ElementDescription } from '../../../../shared/element-describe';
+import { apiFetch } from '../../lib/shell/net';
 
 export interface SelectElementOverlayProps {
   contextId: string;
@@ -119,7 +120,7 @@ export function SelectElementOverlay({
       const coords = mapCoordsToPage(e.clientX, e.clientY);
       if (!coords) return;
       try {
-        const res = await fetch(`/api/browsers/${encodeURIComponent(contextId)}/inspect`, {
+        const res = await apiFetch(`/api/browsers/${encodeURIComponent(contextId)}/inspect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(coords),
@@ -146,7 +147,7 @@ export function SelectElementOverlay({
       try {
         // Il CLICK chiede la descrizione PIENA (markup + stile calcolato +
         // ritaglio): l'hover resta su /inspect, che è l'endpoint a costo zero.
-        const res = await fetch(`/api/browsers/${encodeURIComponent(contextId)}/describe-element`, {
+        const res = await apiFetch(`/api/browsers/${encodeURIComponent(contextId)}/describe-element`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(coords),

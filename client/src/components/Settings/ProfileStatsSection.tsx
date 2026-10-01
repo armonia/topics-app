@@ -4,7 +4,7 @@ import { appSettingsApi, profileApi, type AppBehaviorSettings, type ProfileStats
 import { copyText } from '../../lib/clipboard';
 import { bannerMarkdown } from '../../lib/bannerShare';
 import { publicProfileUrl, type RelayEndpoint } from '../../lib/publicProfileUrl';
-import { serverHttpBase } from '../../lib/shell/net';
+import { serverHttpBase, apiFetch } from '../../lib/shell/net';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 /**
@@ -104,7 +104,7 @@ export function ProfileStatsSection() {
       .catch(() => { /* non bloccante */ });
     // The relay is the only address that leaves this machine. Whether there is
     // one decides how far the link travels; the URL itself is built below.
-    fetch('/api/auth/relay', { credentials: 'same-origin' })
+    apiFetch('/api/auth/relay', { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((r: RelayEndpoint) => { if (vivo) setRelay(r); })
       .catch(() => { if (vivo) setRelay({ enabled: false, baseUrl: null, relayId: null }); });

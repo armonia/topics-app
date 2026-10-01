@@ -29,6 +29,7 @@ import { teardownNativeBrowserPane } from '../../../lib/nativeBrowserTeardown';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 import { popOutTopic, popOutTopics } from '../../../lib/popOutTopic';
+import { apiFetch } from '../../../lib/shell/net';
 
 /**
  * Per-pane-kind close-side-effect descriptor. Keeps handleClosePane +
@@ -62,7 +63,7 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         // fetch normale viene ANNULLATA dal browser quando il documento muore:
         // la richiesta non arriva, e il contesto server resta acceso. E' una
         // delle strade per cui si vedevano contesti vivi senza nessuna pane.
-        fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+        apiFetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
         // Clear the spawner relationship so the "opened a browser" tab cue
         // disappears once the browser is closed (registry isn't auto-pruned).
         clearBrowserSpawner(ctx);
@@ -119,7 +120,7 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
     matches: isTerminalPaneId,
     sideEffect: (id) => {
       const sessionId = getTerminalSessionFromPaneId(id);
-      if (sessionId) fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+      if (sessionId) apiFetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE', keepalive: true }).catch(() => {});
     },
     localManaged: false,
   },

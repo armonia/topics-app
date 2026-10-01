@@ -18,8 +18,8 @@
  * exactly when clients are reloading.
  *
  * WHAT STAYS OUT is the refusal by IDENTITY (401/403). Not because it matters
- * less, but because it already has an owner: `lib/api.ts` calls `markUnpaired`
- * on a 401, `lib/auth/session.ts` decides which of the three screens to show,
+ * less, but because it already has an owner: `apiFetch` (lib/shell/net.ts)
+ * calls `markUnpaired` on a 401, `lib/auth/session.ts` decides which of the three screens to show,
  * and the way out of there is to pair the device again. Knocking on that door
  * every three seconds does not change the answer.
  */

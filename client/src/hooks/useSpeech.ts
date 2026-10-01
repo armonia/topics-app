@@ -9,6 +9,7 @@ import {
   SPEECH_BITS_PER_SECOND,
 } from '../lib/stt';
 import { attachSilenceDetector, type VadHandle } from '../lib/vad';
+import { apiFetch } from '../lib/shell/net';
 
 
 
@@ -196,7 +197,7 @@ export function useTextToSpeech() {
     let url: string | undefined;
     try {
       // Call server TTS endpoint
-      const response = await fetch('/api/tts', {
+      const response = await apiFetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -416,7 +417,7 @@ export function useVoiceCall(
   const speakAndResume = useCallback(async (text: string) => {
     try {
       // Call server TTS endpoint (ElevenLabs)
-      const response = await fetch('/api/tts', {
+      const response = await apiFetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.slice(0, 1000) }),

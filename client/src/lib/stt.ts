@@ -17,6 +17,7 @@
 // client importino da un posto solo, non perché siano dichiarate due volte.
 import type { SttCapabilities, SttResult } from '../../../shared/stt';
 import type { Translate } from '../../../shared/queue-reason-text';
+import { apiFetch } from './shell/net';
 export type { SttCapabilities, SttResult } from '../../../shared/stt';
 
 const UNAVAILABLE: SttCapabilities = { available: false, provider: null, model: null, providers: [], language: null };
@@ -45,7 +46,7 @@ let capabilitiesPromise: Promise<SttCapabilities> | null = null;
 
 export function fetchSttCapabilities(): Promise<SttCapabilities> {
   if (!capabilitiesPromise) {
-    capabilitiesPromise = fetch('/api/stt/capabilities', { credentials: 'same-origin' })
+    capabilitiesPromise = apiFetch('/api/stt/capabilities', { credentials: 'same-origin' })
       .then(r => {
         if (r.ok) return r.json() as Promise<SttCapabilities>;
         // Server vecchio (404), non ancora appaiati (401), server che riparte
@@ -109,7 +110,7 @@ export async function transcribeAudio(blob: Blob, opts: { filename?: string; lan
   form.append('audio', blob, filename);
   if (opts.language) form.append('language', opts.language);
 
-  const resp = await fetch('/api/stt', { method: 'POST', body: form, credentials: 'same-origin' });
+  const resp = await apiFetch('/api/stt', { method: 'POST', body: form, credentials: 'same-origin' });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
     let message = text || resp.statusText;
@@ -187,7 +188,7 @@ export const MIN_VOICE_BLOB_BYTES = 512;
  */
 export function segnalaNotaVuota(spezzoni: number, byte: number, mimeType: string, superficie: string): void {
   try {
-    void fetch('/api/stt/vuota', { // allow-italian: the route path IS the data, the server matches it by value
+    void apiFetch('/api/stt/vuota', { // allow-italian: the route path IS the data, the server matches it by value
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ spezzoni, byte, mimeType, superficie }),

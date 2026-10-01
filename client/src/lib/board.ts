@@ -81,7 +81,7 @@ export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
 import { coalescedFetch } from './coalesceFetch';
 import { uiGet, uiPutDebounced } from './boardDraftsIO';
-import { serverHttpBase } from './shell/net';
+import { serverHttpBase, apiFetch } from './shell/net';
 import type { DiffRevs } from '../../../shared/diff-revs';
 
 /**
@@ -732,7 +732,7 @@ async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }
   };
   const resp = read
     ? await coalescedFetch(`/api${path}`, fullInit, read)
-    : await fetch(`/api${path}`, fullInit);
+    : await apiFetch(`/api${path}`, fullInit);
   const text = await resp.text().catch(() => '');
   let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }

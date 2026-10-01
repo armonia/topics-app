@@ -37,7 +37,7 @@ import {
   type TabTarget,
 } from '../../../shared/tab-link';
 import { PROJECT_PANES_PREFIX, projectPanesKey } from '../../../shared/project-keys';
-import { serverHttpBase } from './shell/net';
+import { serverHttpBase, apiFetch } from './shell/net';
 import { isSelfOrigin, openTaskInApp, selfTaskLinkTarget, type TaskTarget } from './openTaskLink';
 import { usePaneStore } from '../state/pane/store';
 import { createPaneId } from '../state/pane/adapters/paneConfig';
@@ -361,7 +361,7 @@ async function askServerIfSubjectExists(ref: string): Promise<SubjectCheck> {
   // Path relativo di proposito: sotto Tauri lo shim globale di `fetch`
   // (lib/shell/net) lo riscrive sull'origine del data server e ci attacca il
   // token di pairing. Rifarlo qui vorrebbe dire avere due porte che divergono.
-  const res = await fetch(`/api/tabs/resolve?ref=${encodeURIComponent(ref)}`, {
+  const res = await apiFetch(`/api/tabs/resolve?ref=${encodeURIComponent(ref)}`, {
     headers: { Accept: 'application/json' },
   });
   // Uno status non-2xx non dice niente sul SOGGETTO: 5xx è il server in

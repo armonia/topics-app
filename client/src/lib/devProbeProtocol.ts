@@ -16,6 +16,7 @@
  * worse than no probe, and the app must not care whether the server answers.
  */
 import { subscribeFrames } from './wsFrameBus';
+import { apiFetch } from './shell/net';
 
 /**
  * HOW LONG THE ARMING QUESTION WAITS FOR AN ANSWER BEFORE GIVING UP.
@@ -96,7 +97,7 @@ export function __resetArmingSnapshotForTests(): void {
 /** Writes a probe key back to ui-state. Silent when the server does not answer. */
 export async function writeProbeState(key: string, value: unknown): Promise<void> {
   try {
-    await fetch(`/api/ui-state/${key}`, {
+    await apiFetch(`/api/ui-state/${key}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(value),

@@ -65,6 +65,7 @@ import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
+import { apiFetch } from '../../lib/shell/net';
 
 /** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
@@ -1076,7 +1077,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     if (!projectPath || global) { setWorktreeCount(0); return; }
     let alive = true;
     const load = () => {
-      fetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`)
+      apiFetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`)
         .then((r) => (r.ok ? r.json() : null))
         .then((b: { worktrees?: unknown[] } | null) => {
           if (alive && Array.isArray(b?.worktrees)) setWorktreeCount(b.worktrees.length);
@@ -1100,7 +1101,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   useEffect(() => {
     if (!projectPath || global) { setBranchInv(null); return; }
     let alive = true;
-    fetch(`/api/worktrees/branches?project_path=${encodeURIComponent(projectPath)}`)
+    apiFetch(`/api/worktrees/branches?project_path=${encodeURIComponent(projectPath)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((b: { summary?: { total: number; orphan: number; onOpenTasks: number } } | null) => {
         if (alive && b?.summary) setBranchInv(b.summary);
@@ -1121,7 +1122,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     setGcRunning(true);
     setGcResult(null);
     try {
-      const r = await fetch('/api/worktrees/gc', { method: 'POST' });
+      const r = await apiFetch('/api/worktrees/gc', { method: 'POST' });
       const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
       if (!sm) { setGcResult(tr('board.gc.noAnswer')); return; }
@@ -1143,7 +1144,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       );
       // Il conteggio accanto deve riflettere la passata appena fatta.
       if (projectPath) {
-        const rr = await fetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`);
+        const rr = await apiFetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`);
         if (rr.ok) {
           const bb = (await rr.json()) as { worktrees?: unknown[] };
           if (Array.isArray(bb.worktrees)) setWorktreeCount(bb.worktrees.length);

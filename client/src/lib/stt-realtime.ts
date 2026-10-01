@@ -22,6 +22,7 @@
  */
 
 import type { SttRealtimeToken } from '../../../shared/stt';
+import { apiFetch } from './shell/net';
 
 const REALTIME_URL = 'wss://api.elevenlabs.io/v1/speech-to-text/realtime';
 
@@ -238,7 +239,7 @@ export async function startRealtimeDictation(opts: RealtimeOptions): Promise<Rea
  */
 async function fetchRealtimeToken(): Promise<SttRealtimeToken | null> {
   try {
-    const resp = await fetch('/api/stt/realtime-token', { method: 'POST', credentials: 'same-origin' });
+    const resp = await apiFetch('/api/stt/realtime-token', { method: 'POST', credentials: 'same-origin' });
     if (!resp.ok) return null;
     const body = (await resp.json()) as SttRealtimeToken;
     return typeof body?.token === 'string' && body.token ? body : null;

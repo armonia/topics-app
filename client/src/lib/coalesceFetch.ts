@@ -46,6 +46,8 @@
  *    must not pass through here.
  */
 
+import { apiFetch } from './shell/net';
+
 /** What the network gave back, kept once and handed out as fresh Responses. */
 interface Settled {
   status: number;
@@ -97,7 +99,7 @@ export interface FetchCoalescer {
  * loaded, and a reference captured too early would bypass the shim.
  */
 export function createFetchCoalescer(deps: FetchCoalescerDeps = {}): FetchCoalescer {
-  const fetcher: Fetcher = deps.fetcher ?? ((url, init) => fetch(url, init));
+  const fetcher: Fetcher = deps.fetcher ?? ((url, init) => apiFetch(url, init));
   const now = deps.now ?? (() => Date.now());
   const identity = deps.identity ?? (() => globalThis.fetch);
   const entries = new Map<string, Entry>();

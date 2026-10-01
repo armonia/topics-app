@@ -24,6 +24,7 @@
  */
 import { isTauri } from './shell';
 import { tauriInvoke } from './shell/tauri';
+import { apiFetch } from './shell/net';
 
 /** Due mesi. Non è una soglia di spazio, è quanto si concede a un sito prima
  *  di dire che quella tab non tornerà: il 30% di store che questo tocca è la
@@ -44,7 +45,7 @@ export async function reapBrowserDataStores(): Promise<number> {
   if (!isTauri) return -1;
   let keepIds: string[];
   try {
-    const res = await fetch('/api/browsers/data-store-keep-list');
+    const res = await apiFetch('/api/browsers/data-store-keep-list');
     if (!res.ok) return -1;
     const body = (await res.json()) as { contextIds?: unknown };
     if (!Array.isArray(body.contextIds)) return -1;

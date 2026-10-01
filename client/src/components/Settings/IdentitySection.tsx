@@ -6,6 +6,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { membriDaRisposta, splitMembri, type Membro, type Ruolo } from './membri';
 import { Select } from '../Shared/Select';
 import { openPersonProfile } from '../../state/profileTarget';
+import { apiFetch } from '../../lib/shell/net';
 
 /**
  * Chi sei, e con chi condividi. UN elenco solo.
@@ -173,7 +174,7 @@ export function IdentitySection({ onOrgChange }: {
 
   const carica = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/me', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/auth/me', { credentials: 'same-origin' });
       setIo(r.ok ? (await r.json()) as Io : { person: null, org: null });
     } catch {
       setIo({ person: null, org: null });
@@ -182,7 +183,7 @@ export function IdentitySection({ onOrgChange }: {
 
   const loadGroups = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/orgs', { credentials: 'same-origin' });
+      const r = await apiFetch('/api/auth/orgs', { credentials: 'same-origin' });
       const b = r.ok ? (await r.json()) as { orgs?: Gruppo[] } : null;
       setGruppi(b?.orgs ?? []);
       return b?.orgs ?? [];
@@ -191,7 +192,7 @@ export function IdentitySection({ onOrgChange }: {
 
   const loadMembers = useCallback(async (orgId: string) => {
     try {
-      const r = await fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' });
+      const r = await apiFetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' });
       const b = r.ok ? (await r.json()) as { members?: Membro[] } : null;
       // I TOLTI restano nell'array: si separano sotto, con `splitMembri`.
       setMembri(membriDaRisposta(b));
@@ -234,7 +235,7 @@ export function IdentitySection({ onOrgChange }: {
    */
   const ask = async (route: string, init: RequestInit): Promise<string | null> => {
     try {
-      const r = await fetch(route, { credentials: 'same-origin', ...init });
+      const r = await apiFetch(route, { credentials: 'same-origin', ...init });
       if (r.ok) return null;
       const body = await r.json().catch(() => null) as { error?: string } | null;
       return chiaveErroreAuth(body?.error);
@@ -281,7 +282,7 @@ export function IdentitySection({ onOrgChange }: {
     setInCorso(true);
     setRifiuto(null);
     try {
-      const r = await fetch(`/api/auth/orgs/${encodeURIComponent(scelto)}/members`, {
+      const r = await apiFetch(`/api/auth/orgs/${encodeURIComponent(scelto)}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -329,7 +330,7 @@ export function IdentitySection({ onOrgChange }: {
     })) return;
     setInCorso(true);
     try {
-      const r = await fetch(`/api/auth/people/${encodeURIComponent(m.id)}`, {
+      const r = await apiFetch(`/api/auth/people/${encodeURIComponent(m.id)}`, {
         method: 'DELETE', credentials: 'same-origin',
       });
       // Il server manda un CODICE: la frase la sceglie qui l'interfaccia.
@@ -367,7 +368,7 @@ export function IdentitySection({ onOrgChange }: {
     setInCorso(true);
     setGroupRefusal(null);
     try {
-      const r = await fetch('/api/auth/orgs', {
+      const r = await apiFetch('/api/auth/orgs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
