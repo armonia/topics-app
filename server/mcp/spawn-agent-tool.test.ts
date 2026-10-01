@@ -94,5 +94,33 @@ describe("spawn_agent at the standard of the Agent tool (SUBAGENT-08, 09, 13)", 
     expect(text).toContain("status=running");
     expect(text).toContain("its result will wake this chat");
   });
+
+  test("a Stop of the native turn ends the wait at once and hands the result over to the chat", async () => {
+    const turn = new AbortController();
+    const urls: string[] = [];
+    const fetchImpl = stubFetch(async (url, init) => {
+      urls.push(String(url));
+      if (String(url).endsWith("/spawn")) return new Response(JSON.stringify({ agentId: "kid1", name: "scout", cwd: "/p", notify: "chat" }), { status: 200 });
+      if (String(url).includes("release=1")) return new Response(JSON.stringify({ status: "running", agentId: "kid1" }), { status: 200 });
+      // The leg the user's Stop lands in: it is held open until its signal says otherwise.
+      setTimeout(() => turn.abort(), 50);
+      return new Promise<Response>((resolve, reject) => {
+        const t = setTimeout(() => resolve(new Response(JSON.stringify({ status: "running", agentId: "kid1" }), { status: 200 })), 2_000);
+        init?.signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("aborted", "AbortError")); });
+      });
+    });
+    const t0 = Date.now();
+    const outcome = await callSpawnAgent(
+      { baseUrl: "http://x", sessionKey: "topic:abc", turnSignal: turn.signal },
+      { prompt: "go", run_in_background: false },
+      fetchImpl,
+      { legMs: 100, foregroundMs: 60_000 },
+    ).then((text) => `resolved: ${text}`, (err: Error) => `threw: ${err.message}`);
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    expect(outcome).toStartWith("threw:");
+    expect(outcome).toContain("its result will wake this chat");
+    expect(urls.filter((u) => u.includes("/wait?legMs=")).length).toBe(1);
+    expect(urls.at(-1)).toContain("/wait?release=1");
+  });
 });
 

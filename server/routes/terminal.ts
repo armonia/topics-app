@@ -3563,7 +3563,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           return json({ status: "running", agentId });
         }
         const legMs = Math.min(Math.max(Number(url.searchParams.get("legMs") || "25000"), 100), 60_000);
-        return json({ agentId, ...(await waitForegroundLeg(agentId, legMs)) });
+        return json({ agentId, ...(await waitForegroundLeg(agentId, legMs, req.signal)) });
       }
 
       if (stopM && method === "POST") {

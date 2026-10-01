@@ -1403,22 +1403,29 @@ export async function callSpawnAgent(
   const legMs = opts.legMs ?? SPAWN_WAIT_LEG_MS;
   const deadline = now() + (opts.foregroundMs ?? SPAWN_FOREGROUND_MS);
   const waitPath = `${base}/${encodeURIComponent(body.agentId)}/wait`;
-  for (let leg = 1; now() < deadline; leg++) {
+  for (let leg = 1; now() < deadline && !args.turnSignal?.aborted; leg++) {
     const ms = Math.max(100, Math.min(legMs, deadline - now()));
+    // A stopped turn of the native runtime closes the leg too: left open, the
+    // loop sat in the tool until its deadline, the next turn waited behind it,
+    // and the leg the server still held took the child's result with it.
+    const legDeadline = AbortSignal.timeout(ms + 15_000);
+    const signal = args.turnSignal ? AbortSignal.any([legDeadline, args.turnSignal]) : legDeadline; // allow-any: the method that joins two signals, not the type
     let r: WaitAgentResp | undefined;
     try {
-      r = await httpJson<WaitAgentResp>(args, "GET", `${waitPath}?legMs=${ms}`, undefined, fetchImpl, AbortSignal.timeout(ms + 15_000));
+      r = await httpJson<WaitAgentResp>(args, "GET", `${waitPath}?legMs=${ms}`, undefined, fetchImpl, signal);
     } catch {
-      // The server is away: the child goes on, and its result follows the
-      // ordinary road once the server holds it no longer.
+      // The server is away, or the turn was stopped: the child goes on, and
+      // its result follows the ordinary road once the server holds it no longer.
       break;
     }
     if (r?.status === "done" && r.result) return `${head}\n\n${subagentWakeText([r.result])}`;
     if (r?.status === "released") break;
     opts.onProgress?.(leg);
   }
-  // Hand the result over to the notification, then say so.
+  // Hand the result over to the notification, then say so. Not under the
+  // turn's signal: a stopped turn is exactly when the hold has to go.
   await httpJson(args, "GET", `${waitPath}?release=1`, undefined, fetchImpl).catch(() => {});
+  if (args.turnSignal?.aborted) throw new Error(`spawn_agent: the turn was stopped while waiting; ${head.slice("spawned ".length)} goes on — ${later}`);
   return `${head} — still working after ${Math.round((opts.foregroundMs ?? SPAWN_FOREGROUND_MS) / 60_000)} minutes: status=running; ${later}`;
 }
 

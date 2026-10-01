@@ -281,6 +281,24 @@ describe("a foreground spawn waits for the result (SUBAGENT-13)", () => {
     endTurn(child!, "Late report");
     await until("the result in the chat", () => reportsFor(agentId).length > 0, 15_000);
   }, 60_000);
+
+  test("a leg its caller walked away from does not take the result: the release hands it to the chat", async () => {
+    const { body, child } = await spawn(SONNET_CHAT, { run_in_background: false });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    // The native turn is stopped mid-leg: its request goes, the route's wait does not know it yet.
+    const gone = new AbortController();
+    const url = new URL(`http://h${agents(SONNET_CHAT)}/${agentId}/wait?legMs=15000`);
+    const orphan = router(new Request(url, { method: "GET", headers: { "x-gateway-token": TOKEN }, signal: gone.signal }), url, url.pathname, "GET");
+    await new Promise((r) => setTimeout(r, 100));
+    gone.abort();
+    endTurn(child!, "Report after the Stop");
+    await new Promise((r) => setTimeout(r, 3_000));
+    expect(await (await call(`${agents(SONNET_CHAT)}/${agentId}/wait?release=1`, "GET")).json()).toEqual({ status: "running", agentId });
+    await until("the result in the chat", () => reportsFor(agentId).length > 0, 15_000);
+    expect(reportsFor(agentId)[0]!.outcome).toMatchObject({ status: "completed", text: "Report after the Stop" });
+    await orphan;
+  }, 60_000);
 });
 
 describe("a finished child is retired, and comes back with --resume (SUBAGENT-14)", () => {

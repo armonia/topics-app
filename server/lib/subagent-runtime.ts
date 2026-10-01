@@ -484,21 +484,39 @@ export function noteChildSteered(id: string): void {
  * The foreground wait of one leg (SUBAGENT-13): a result the hold already
  * has, or the next one within `legMs`, or "running". `released` when there is
  * no hold (it ended, or the spawn was a background one).
+ *
+ * `signal` is the request's: a caller that walked away (a stopped turn) takes
+ * nothing. Its leg leaves the hold, and a result that reached it anyway goes
+ * back to the hold, where the caller's release or the deadline delivers it.
  */
-export async function waitForegroundLeg(agentId: string, legMs: number): Promise<{ status: 'done'; result: SubAgentResult } | { status: 'running' | 'released' }> {
+export async function waitForegroundLeg(agentId: string, legMs: number, signal?: AbortSignal): Promise<{ status: 'done'; result: SubAgentResult } | { status: 'running' | 'released' }> {
   const hold = foregroundHolds.get(agentId);
   if (!hold) return { status: 'released' };
+  if (signal?.aborted) return { status: 'running' };
   const held = hold.held.shift();
   if (held) {
     if (!hold.held.length) releaseForeground(agentId);
     return { status: 'done', result: held };
   }
   const got = await new Promise<SubAgentResult | null>((resolve) => {
-    const w = (r: SubAgentResult) => { clearTimeout(t); resolve(r); };
-    const t = setTimeout(() => { hold.waiters.delete(w); resolve(null); }, legMs);
+    const done = (r: SubAgentResult | null) => {
+      clearTimeout(t);
+      hold.waiters.delete(w);
+      signal?.removeEventListener('abort', gone);
+      resolve(r);
+    };
+    const w = (r: SubAgentResult) => done(r);
+    const gone = () => done(null);
+    const t = setTimeout(gone, legMs);
     hold.waiters.add(w);
+    signal?.addEventListener('abort', gone, { once: true });
   });
   if (!got) return { status: 'running' };
+  if (signal?.aborted) {
+    if (foregroundHolds.get(agentId) === hold) hold.held.unshift(got);
+    else deliverChildResult(got, null);
+    return { status: 'running' };
+  }
   releaseForeground(agentId);
   return { status: 'done', result: got };
 }

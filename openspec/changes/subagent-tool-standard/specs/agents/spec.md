@@ -256,6 +256,12 @@ server's own deadline).
 - **THEN** the call SHALL return `status: "running"`
 - **AND** the result SHALL later reach the chat as SUBAGENT-12 says
 
+#### Scenario: a stopped turn ends the wait and hands over the result
+- **GIVEN** a foreground `spawn_agent` of a native-runtime turn, waiting in a leg
+- **WHEN** the person stops that turn
+- **THEN** the call SHALL end at once, release the hold, and the open leg SHALL take no result
+- **AND** the child's next result SHALL reach the chat as SUBAGENT-12 says
+
 ### Requirement: SUBAGENT-14 — A finished sub-agent can be continued, even after its process is gone
 
 A child that reported its turn and stayed idle SHALL be retired after 15
