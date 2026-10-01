@@ -13,7 +13,6 @@ import type { AgentProfile } from "./agent-profiles";
 
 export const SUBAGENT_MODELS = ["inherit", "sonnet", "opus", "fable", "haiku"] as const;
 export const SUBAGENT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type SubagentEffort = (typeof SUBAGENT_EFFORTS)[number];
 
 /** Where the model came from: the call, the profile, the parent (`inherit`), or nowhere (CLI default). */
 export type ModelSource = "call" | "profile" | "parent" | "default";

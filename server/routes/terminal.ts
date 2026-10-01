@@ -50,7 +50,7 @@ import {
   FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
-export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory, type SubAgentPhase } from "../lib/subagent-runtime";
+export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
 import { composerHoldsPrompt } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
