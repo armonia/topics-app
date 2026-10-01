@@ -900,3 +900,57 @@ quando non c'è niente né lì né nella cronologia.
 #### Scenario: una chat che ti aspetta, con le righe già viste
 - **WHEN** una chat è ferma in attesa di te e tutte le sue righe sono viste
 - **THEN** il numero globale e la campanella SHALL contarla 1, e il pannello SHALL elencarla sotto «Aspettano te»
+
+### Requirement: SEEN-ANY-FOCUS-01 — Una pane è vista quando è LA pane a fuoco della finestra, da qualunque gesto ci si arrivi
+
+Il «visto» di una pane SHALL avere una definizione sola: la pane è quella a
+fuoco della finestra (la pane attiva del gruppo a fuoco, o la pane interna a
+fuoco della finestra di progetto a fuoco), con la finestra sveglia, per
+SEEN_DWELL_MS continui. Qualunque gesto la porti a fuoco SHALL valere uguale:
+il clic sulla tab, un clic o un tocco DENTRO la pane, la tastiera, la palette,
+la riga della sidebar.
+
+Quell'unico evento SHALL spegnere insieme ogni segno di quella pane: il segno
+«finito» di un terminale (e le sue righe nel registro), il segno «done» di una
+chat (e nelle altre finestre, dalla porta del visto), il fill blu di una fase
+`awaiting-user`. Ogni superficie SHALL leggere quegli stessi segni: la tab, la
+riga della sidebar, il rollup di progetto, la card del gruppo, la campanella e
+il Dock. Nessuna superficie SHALL avere uno spegnimento suo (la tab che spegneva
+il terminale solo al proprio clic, la pane terminale che lo spegneva appena
+visibile). Fa eccezione la riga di una chat tenuta da UN'ALTRA finestra: qui
+nessuna pane la mostra, e il clic che porta avanti quella finestra è lo sguardo.
+
+Le richieste di risposta (`awaiting-approval`, una domanda aperta) e il
+non-letto restano fuori: la prima si spegne rispondendo, il secondo ha la sua
+porta (il ping `focus`), armata dalla stessa chat a fuoco con la stessa soglia.
+
+#### Scenario: una pane visibile ma non a fuoco tiene il suo segno
+- **GIVEN** una chat e un terminale finiti, ognuno visibile nella sua cella di
+  uno split, con il fuoco su un'altra cella
+- **WHEN** passa più di una soglia di visto
+- **THEN** la tab, la riga e la campanella SHALL mostrare ancora entrambi i segni
+
+#### Scenario: un clic dentro la pane la vede
+- **WHEN** si clicca DENTRO la chat (non sulla sua tab)
+- **THEN** dopo la soglia il suo segno SHALL sparire dalla tab, dalla riga e
+  dalla campanella insieme, e il terminale SHALL tenere il suo
+- **WHEN** si clicca dentro il terminale
+- **THEN** il suo segno SHALL sparire dalla riga, dalla campanella e, lasciato
+  il fuoco, dalla tab
+
+### Requirement: SEEN-ANY-FOCUS-02 — La pane a fuoco quando il suo turno finisce non resta segnata
+
+Una pane che è già quella a fuoco quando il suo turno finisce NON SHALL restare
+segnata su nessuna superficie. Un turno pulito di una chat e il segno «finito»
+di un terminale SHALL non accendersi affatto; una fase che torna su
+`awaiting-user` sotto gli occhi della persona MAY accendere il fill per la
+soglia e SHALL spegnersi da sola dopo, senza bisogno di un altro gesto.
+
+#### Scenario: una chat a fuoco riparte e si ferma di nuovo
+- **GIVEN** una chat vista, a fuoco da un clic al suo interno
+- **WHEN** la sua fase passa a `running` e torna su `awaiting-user`
+- **THEN** il fill blu SHALL sparire dalla tab e dalla riga dopo la soglia
+
+#### Scenario: un terminale a fuoco finisce un turno
+- **WHEN** un terminale a fuoco segnala un turno finito
+- **THEN** né la riga né la tab (lasciato il fuoco) SHALL mostrare un badge per lui

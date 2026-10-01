@@ -107,6 +107,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { resolvePaneSpace, isLiveSpaceId } from './state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID } from './state/pane/types';
 import { useSignalsSync } from './state/useSignalsSync';
+import { useSeenFocusedPane } from './state/paneSeen';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
@@ -748,6 +749,10 @@ function App() {
     externalDragTopicId, pendingBrowserPane, pendingSoloPanelId,
   } = panelLifecycle.state;
   const { focusedProjectPath } = panelLifecycle.derived;
+  // ONE seen event per pane: the window's focused pane, whatever input put it
+  // there (tab, a click inside, keyboard, palette, sidebar row), after the
+  // dwell, clears every mark of it on every surface.
+  useSeenFocusedPane(focusedPanelId);
   const {
     handleTopicClick, handleTopicDoubleClick, handleClosePanel,
     handleProjectClick, handleFocusPanel, handleReorderPanels,

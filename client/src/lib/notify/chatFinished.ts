@@ -111,7 +111,7 @@ export function turnEndClaimKey(end: { topicId: string; messageId?: string; late
  * else leaves it alone: an aborted or failed turn is not "finished, your turn".
  *
  * `inFront` says whether the person is looking at the chat right now
- * (`isChatInFront`): a turn that ends there raises no mark, decided here and
+ * (`isSubjectInFront`): a turn that ends there raises no mark, decided here and
  * not by clearing it a commit later, which reached the Dock number.
  */
 export function chatFinishedEdge(

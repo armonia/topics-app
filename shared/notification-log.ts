@@ -59,7 +59,7 @@ export interface NotificationRecordInput {
   groupKey?: string | null;
   source?: NotificationSource;
   /** Born seen: the banner is about a chat the person is looking at right now
-   *  (`isChatInFront`). The row stays in the history, but it never counts as
+   *  (`isSubjectInFront`). The row stays in the history, but it never counts as
    *  unseen, so the badge and the Dock do not go up and come back down one
    *  seen-dwell later at every turn end of the chat in front. */
   seen?: boolean;

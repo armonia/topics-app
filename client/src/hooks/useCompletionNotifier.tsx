@@ -21,7 +21,7 @@ import { boardApi, isAgentWorking } from '../lib/board';
 import { inPageBannerAllowed, type NotifyEventKind } from '../lib/notify/pushVoice';
 import { isPushSubscribed } from '../state/pushDevice';
 import { recordNotificationSent } from '../lib/notify/history';
-import { isChatInFront } from '../state/chatInView';
+import { isSubjectInFront } from '../state/chatInView';
 import type { NotifyTarget } from '../lib/notify/notifyTarget';
 import {
   chatNotificationKey,
@@ -316,7 +316,7 @@ export function useCompletionNotifier({
       // with "notify even when focused") is recorded already seen. Unseen, it
       // put +1 on the Dock and the badge until the seen dwell took it back,
       // at every turn end of the chat in front.
-      ...(target?.kind === 'topic' && isChatInFront(target.id) ? { seen: true } : {}),
+      ...(target?.kind === 'topic' && isSubjectInFront(target.id) ? { seen: true } : {}),
     });
   }, []);
 

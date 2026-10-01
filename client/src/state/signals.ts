@@ -22,10 +22,9 @@
  * indicator is never silently gated by an unset field (the bug class that
  * plagued the per-type call sites).
  */
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import { isWindowAwake } from './windowAwake';
 import { markTargetSeen } from '../lib/notify/history';
 import { TERMINAL_TARGET_KIND } from '../../../shared/notification-log';
 import type { Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
@@ -95,6 +94,9 @@ export function attentionTierForPhase(phase: ClaudeSessionPhase): AttentionTier 
 // SEEN_DWELL_MS continui. La finestra sveglia conta perché una tab selezionata in
 // una finestra che nessuno guarda non è stata vista — è lo stesso predicato di
 // `isWindowAwake()`, tenuto in passo di proposito.
+//
+// The one dwell, and the one seen event it fires, live in `paneSeen.ts`: the
+// window's focused pane, whatever input focused it.
 
 /**
  * Quanto una tab deve restare davanti perché conti come vista.
@@ -1158,55 +1160,6 @@ export function useTerminalAttentionFill(sessionId: string | undefined): Attenti
   const tier = useTerminalAttentionTier(sessionId);
   const seen = useSubjectSeen(sessionId);
   return attentionFillFor(tier, seen);
-}
-
-/**
- * Arma la soglia del "visto" su un soggetto mentre è davanti.
- *
- * `focused` è la nozione di davanti della superficie che chiama (ognuna ha la
- * sua: una tab pretende anche che il gruppo e l'app abbiano il fuoco). A questa
- * si aggiunge SEMPRE `isWindowAwake()`, perché una tab selezionata in una
- * finestra che nessuno guarda non è stata vista — ed è lo stesso predicato con
- * cui l'app parcheggia animazioni e poll, tenuto in passo di proposito.
- *
- * Il timer non è un `setTimeout` nudo: se la finestra si addormenta o il fuoco
- * cambia prima della soglia, l'attesa RIPARTE da zero. Solo uno sguardo continuo
- * conta.
- */
-export function useSeenDwell(subjectId: string | undefined, focused: boolean): void {
-  useEffect(() => {
-    if (!subjectId || !focused) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let cancelled = false;
-
-    const arm = () => {
-      if (cancelled || timer !== null) return;
-      timer = setTimeout(() => {
-        timer = null;
-        // Ri-controlla al momento dello scatto: la finestra può essersi
-        // addormentata durante l'attesa senza emettere un evento che vediamo.
-        if (!cancelled && isWindowAwake()) signalsActions.markSubjectSeen(subjectId);
-      }, SEEN_DWELL_MS);
-    };
-    const disarm = () => {
-      if (timer !== null) { clearTimeout(timer); timer = null; }
-    };
-    const onAwakeChange = () => { if (isWindowAwake()) arm(); else disarm(); };
-
-    if (isWindowAwake()) arm();
-    // `visibilitychange` copre la scheda nascosta, focus/blur la finestra dietro
-    // a un'altra: `isWindowAwake` guarda entrambi, quindi serve ascoltarli tutti.
-    document.addEventListener('visibilitychange', onAwakeChange);
-    window.addEventListener('focus', onAwakeChange);
-    window.addEventListener('blur', onAwakeChange);
-    return () => {
-      cancelled = true;
-      disarm();
-      document.removeEventListener('visibilitychange', onAwakeChange);
-      window.removeEventListener('focus', onAwakeChange);
-      window.removeEventListener('blur', onAwakeChange);
-    };
-  }, [subjectId, focused]);
 }
 
 /** "What is this session doing" for a subject id (topicId or terminalSessionId),

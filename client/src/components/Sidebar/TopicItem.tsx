@@ -9,7 +9,7 @@ import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
 import { getProjectLabel } from '@/lib/buildSidebarItems';
 import { DND_TYPES } from '@/lib/dndTypes';
-import { useTopicLoading, useTopicBackgroundWork, useTopicAttentionFill, useTopicAttentionTier, useSeenDwell } from '@/state/signals';
+import { useTopicLoading, useTopicBackgroundWork, useTopicAttentionFill, useTopicAttentionTier } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
@@ -140,11 +140,9 @@ export const TopicItem = memo(function TopicItem({
   // uses, so the sidebar row and the tab can't drift (tabbar ≡ sidebar
   // invariant).
   //
-  // Il FILL cade quando la riga è stata VISTA, non quando è selezionata: prima il
-  // gate era `!isFocused`, e un clic di passaggio spegneva il fill di una chat mai
-  // letta. `useSeenDwell` arma la soglia mentre la riga è davanti e la finestra è
-  // sveglia; `useTopicAttentionFill` applica FOCUS WINS in un posto solo.
-  useSeenDwell(topic.id, isFocused);
+  // The FILL goes when the chat has been SEEN, not when the row is selected.
+  // The row arms no dwell of its own: the one seen event is the window's
+  // focused pane (`useSeenFocusedPane`), and `useTopicAttentionFill` reads it.
   const attentionTier = useTopicAttentionFill(topic.id);
   const onFill = attentionTier !== null;
   // The raw tier, for `data-attention`: the same value the chat's tab exposes
@@ -277,6 +275,7 @@ export const TopicItem = memo(function TopicItem({
       tabIndex={isFocused ? 0 : -1}
       data-pinned={pinned ? 'true' : undefined}
       data-attention={rawAttentionTier ?? undefined}
+      data-attention-fill={attentionTier ?? undefined}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
