@@ -242,10 +242,28 @@ describe("check-bloat, a baseline two branches can both record", () => {
     expect(JSON.parse(merged).files).toEqual({ "src/a.ts": 330, "src/b.ts": 340, "src/c.ts": 302 });
   });
 
-  test("v2: a new offender and a bump on its neighbour merge cleanly", () => {
+  test("v2: a new offender and a bump on the entry BEFORE it merge cleanly", () => {
     const { conflicts, merged } = mergeFile(recorded(BASE), recorded({ ...BASE, "src/bb.ts": 500 }), recorded(BRANCH_B));
     expect(conflicts).toBe(0);
     expect(JSON.parse(merged).files).toEqual({ "src/a.ts": 300, "src/b.ts": 340, "src/bb.ts": 500, "src/c.ts": 302 });
+  });
+
+  // The limits of a line format, pinned so that nobody describes v2 as "different
+  // files never conflict" again: an added or removed entry is attached to its
+  // neighbour. If one of these turns green-on-merge (a merge driver, a better
+  // layout), this block and the comment on serializeBaseline change with it.
+  test("v2 limit: an added or removed entry conflicts with a change to its neighbour", () => {
+    // A new offender and a bump on the entry AFTER it.
+    expect(mergeFile(recorded(BASE), recorded({ ...BASE, "src/bb.ts": 500 }), recorded({ ...BASE, "src/c.ts": 340 })).conflicts).toBeGreaterThan(0);
+    // A file that leaves the list and a bump on the entry after it.
+    const { "src/b.ts": _gone, ...withoutB } = BASE;
+    expect(mergeFile(recorded(BASE), recorded(withoutB), recorded({ ...BASE, "src/c.ts": 340 })).conflicts).toBeGreaterThan(0);
+    // A new file after the last entry (which has no comma) and a bump on the last.
+    expect(mergeFile(recorded(BASE), recorded({ ...BASE, "src/d.ts": 500 }), recorded({ ...BASE, "src/c.ts": 340 })).conflicts).toBeGreaterThan(0);
+  });
+
+  test("v2 limit: two new files in the same gap conflict", () => {
+    expect(mergeFile(recorded(BASE), recorded({ ...BASE, "src/bb.ts": 500 }), recorded({ ...BASE, "src/bc.ts": 600 })).conflicts).toBeGreaterThan(0);
   });
 
   test("v2: notes on two different files merge cleanly, and --update-baseline keeps them", () => {

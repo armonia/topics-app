@@ -123,7 +123,7 @@ describe("CI installa il dizionario prima di far girare il cancello", () => {
   });
 });
 
-describe("the baseline merges when two branches record different files", () => {
+describe("the baseline merges when two branches change the names of different files it lists", () => {
   /** `git merge-file` exit code = number of conflicts. */
   function conflicts(base: string, ours: string, theirs: string): number {
     const dir = mkdtempSync(join(tmpdir(), "idl-merge-"));
@@ -149,5 +149,14 @@ describe("the baseline merges when two branches record different files", () => {
 
   test("without it, the same two updates merge cleanly", () => {
     expect(conflicts(serializeBaseline(BASE), serializeBaseline(OURS), serializeBaseline(THEIRS))).toBe(0);
+  });
+
+  test("limit: two branches that each add a NEW file in the same gap still conflict", () => {
+    // Both insert at the same line; a line merge cannot order them. Replaying the
+    // 5 merges of the 30 days before 01/10/2026 that conflicted on this file: 3
+    // merge cleanly without the date, the other 2 changed the same file.
+    const ours = new Map([...BASE, ["src/aa.ts", ["alfaBis"]]]);
+    const theirs = new Map([...BASE, ["src/ab.ts", ["alfaTer"]]]);
+    expect(conflicts(serializeBaseline(BASE), serializeBaseline(ours), serializeBaseline(theirs))).toBeGreaterThan(0);
   });
 });

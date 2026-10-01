@@ -129,10 +129,11 @@ interface Baseline {
 type BaselineEntry = number | { lines: number; why: string[] };
 
 /**
- * The baseline is written so that two branches recording DIFFERENT files merge
- * without a conflict, because they used not to: over 30 days 22 of the 114
- * conflicting merges of this repo touched only `*-baseline.json` files, 17 of
- * them this one alone. Three things in the v1 writer made every update collide:
+ * The baseline is written so that two branches that CHANGE the count of
+ * different files it already lists merge without a conflict, because they used
+ * not to: over 30 days 22 of the 114 conflicting merges of this repo touched
+ * only `*-baseline.json` files, 17 of them this one alone. Three things in the
+ * v1 writer made every update collide:
  *
  *   - `files` was sorted by size, so a file that grew changed place in the list,
  *     and two branches bumping files of similar size edited adjacent lines;
@@ -141,12 +142,24 @@ type BaselineEntry = number | { lines: number; why: string[] };
  *     inserted at the same spot.
  *
  * v2 sorts `files` by path (an entry never moves), separates entries with a
- * blank line (git conflicts on ADJACENT changes; one untouched line between
- * two hunks lets both through, so even neighbouring paths merge), drops
- * `updated`, and keeps the prose about a recorded file inside that file's entry.
- * The aggregate numbers come before `files` because two branches that both
- * change the duplication total SHOULD conflict: the merged tree needs a new
- * measurement, not either side's number.
+ * blank line (git conflicts on ADJACENT changes; one untouched line between two
+ * changed entries lets both through), drops `updated`, and keeps the prose about
+ * a recorded file inside that file's entry. The aggregate numbers come before
+ * `files` because two branches that both change the duplication total SHOULD
+ * conflict: the merged tree needs a new measurement, not either side's number.
+ *
+ * What it does NOT make mergeable, measured: an entry ADDED or REMOVED is an
+ * insertion or deletion, and git attaches it to the blank line on one side, so
+ * it touches its neighbour and conflicts with a branch that changed that
+ * neighbour (which side depends on where git's diff places the hunk); two new
+ * files in the same gap conflict; and the last entry has no comma, so adding a
+ * file after it rewrites its line. Replaying the 29 merges of the 30 days
+ * before 01/10/2026 that conflicted on this file, with every side rewritten in
+ * this format: 19 still conflict. Each of the 19 has a file both branches
+ * recorded at different sizes, which has to conflict; with those collisions
+ * taken out, 9 of them still conflict on an added or removed entry next to a
+ * changed one. And `--update-baseline` rewrites every entry whose file moved,
+ * so being next to a changed entry is the common case, not the rare one.
  */
 function serializeBaseline(b: Baseline): string {
   const head = {
