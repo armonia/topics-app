@@ -110,7 +110,7 @@ import { useSignalsSync } from './state/useSignalsSync';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
 import { initEdgeSwipeGuard } from './lib/edgeSwipeGuard';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
@@ -1546,9 +1546,15 @@ function App() {
             ? `calc(env(safe-area-inset-top, 0px) + ${MOBILE_SIDEBAR_HEADER_H}px)`
             : '0px',
           // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
-          // quindi la banda della fila in basso se la riserva da sé. Stessa
-          // variabile, stesso valore, un posto solo a deciderlo.
-          paddingBottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
+          // quindi la banda in basso se la riserva da sé. Ma le due metà non
+          // sono uguali: la banda degli avvisi (`--mobile-transport-h`) ha un
+          // fondo suo e ferma la colonna, come sempre; la fila dei tasti no
+          // (non ha fondo), quindi la sua altezza diventa spaziatore DELLO
+          // SCROLLER, come in alto: a riposo l'ultima tab sta sopra i tasti, e
+          // scorrendo le tab passano sotto, invece di restare tagliate a metà
+          // sul bordo della fila.
+          paddingBottom: 'var(--mobile-transport-h, 0px)',
+          [SIDEBAR_SCROLL_BOTTOM_PROPERTY as string]: 'var(--mobile-chrome-h, 0px)',
         }}
       >
 

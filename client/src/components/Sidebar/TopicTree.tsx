@@ -42,7 +42,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity, ProjectElapsed } from '@/components/Shared/SessionActivity';
@@ -2150,6 +2150,13 @@ export function TopicTree({
             {searchQuery ? 'No results' : 'No active items'}
           </div>
         )}
+
+        {/* The room for the phone's button row, as the LAST CHILD and not as
+            padding-bottom: the end padding of a flex column is not counted in
+            the scrollable overflow on WebKit (measured 01/10: the list ended
+            under the buttons and could not be scrolled clear of them). A
+            zero-height box on a desktop, where the property is `0px`. */}
+        <div aria-hidden="true" className="flex-none" style={{ height: `var(${SIDEBAR_SCROLL_BOTTOM_PROPERTY}, 0px)` }} />
       </div>
 
       {/* Righe e tessere senza un menu proprio (terminale, browser, board): una

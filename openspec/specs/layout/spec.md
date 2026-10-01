@@ -3313,3 +3313,11 @@ puntatore, non l'assenza di un nome.
   senza `relatedTarget`
 - **THEN** l'anteprima SHALL restare accesa finche' il puntatore e' dentro il
   riquadro del corpo
+
+#### Scenario: la lista del telefono passa sotto la riga in alto e sotto i tasti
+- **GIVEN** un telefono con piu' tab di quante ne stiano sullo schermo
+- **WHEN** si guarda la colonna a riposo e poi scorsa fino in fondo
+- **THEN** lo scroller SHALL arrivare al bordo basso dello schermo, la prima riga
+  SHALL partire sotto la riga in alto e l'ultima SHALL finire sopra i tasti
+- **AND** scorrendo, le righe SHALL passare sotto la riga in alto e sotto i tasti
+  invece di restare tagliate sul bordo della fila (`mobile-list-under-chrome.spec.ts`)

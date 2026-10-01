@@ -453,6 +453,15 @@ export const ROW_INSET = 6;
  * commands plus {@link ROW_INSET} above and below.
  */
 export const SIDEBAR_SCROLL_TOP_PROPERTY = '--sidebar-scroll-top';
+/**
+ * The same arrangement at the other end. The phone's button row has no ground
+ * either (`MobileChromeBar`), so a column that stops where the row begins shows
+ * a row sliced in half and nothing ever travels behind the buttons. The room the
+ * row needs is therefore a spacer INSIDE the scroller: the last tab clears the
+ * buttons at rest, and everything above it passes underneath. `0px` on a
+ * desktop, where there is no row.
+ */
+export const SIDEBAR_SCROLL_BOTTOM_PROPERTY = '--sidebar-scroll-bottom';
 export const MOBILE_SIDEBAR_HEADER_H = 56;
 
 /**
