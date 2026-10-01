@@ -2,14 +2,54 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.421 — 2026-10-01
+
+### Sotto il cofano
+- A reader who scrolled up finds the row they were reading, at its old offset and still, on the first frame after a merge made while the chat was hidden
+- La scrittura di chiusura di un turno non comprime più la timeline intera quando la divide
+- Il server di test nomina lo stub di claude, così la CLI vera sul PATH non vince
+- La baseline di check:bloat registra shared/types.ts a 1594 righe
+- Il test di contrasto trova il blocco :root dal selettore, non dalla prima volta che il file nomina :root
+- Una chat rimontata dalla cache della lista non si rompe più: initialItemCount si passa solo quando serve
+- La palette non rifà la ricerca dei messaggi a ogni aggiornamento di una chat
+- PALETTE-19 nomina chi scrive la posizione della lista quando fallisce
+- PALETTE-19 riporta anche le mutazioni della lista accanto agli eventi di scroll
+- Le righe della palette restano dove sono finché la query non cambia
+
 ## 2.2.420 — 2026-10-01
 
 ### Sotto il cofano
+- The board feed reads its 120 most recent done cards from a partial index in completion order instead of sorting every done card.
+- Opening a chat that has to mount from the palette closes the palette in the input frame and sends its history request in the Enter task, while a chat already mounted still opens in that task.
+- The command palette keeps one fixed size while typing and scrolls its results inside, and the selected row stays in view after every keystroke.
+- The pane tab context menu and the composer's slash menu fade out through the shared exit copy when they close.
+- Every Tailwind transition duration in the client reads a motion token (duration-instant / -fast / -base / -slow), and a test refuses a numeric duration class.
+- The palette's decision on how to open a chat lives in its own module, and the palette's open and sizing tests in their own spec file.
+- The done-recency migration test builds its own database even when an earlier test file in the same run set DATA_DIR or left the singleton open.
+- A closed row's tool output lives in message_tool_outputs, so a history page decompresses only what it ships and the output is read only when a tool row is expanded.
+- A stream frame for a chat nobody is looking at re-renders only the panes and rows that show that session, not the app.
+- The first message of a new chat is on screen on the first frame after Enter, and the promotion to a topic renames the pane in place instead of rebuilding it.
+- The palette scrolls the selected row back into view when the selection, the query or a filter changes, and no longer when a chat is updated in the background.
+- The first-send contract counts a frame as after the key only when its rendering began after the key.
 - A running Monitor is named as a Monitor with its running time from the moment it is armed, and each wake names the event that caused it
 - A woken turn shows its Monitor banner live, without a reload
+- Board drafts flushed on page exit count keepalive bytes over the requests in flight, so a draft past the budget goes out as a plain PUT instead of being refused
+- The first page of /api/history reads the stored bodies of all its rows in one statement and still decodes only the rows the byte budget reaches
+- A late word about an older Stop keeps the newer Stop in the queue hold, so a queue the person sent after stopping is not held again
+- A chat shown again after its history was merged while hidden paints its last message on the first frame
+- A terminal evicted by the residency cap shows its last screen or a skeleton until xterm draws the replay, aligned row for row
+- A chat rebuilt by a group switch or an eviction mounts from the sizes it measured, and shows 6-8 skeleton frames instead of 14
+- A model menu that loads on a retry takes the reload prompt down and raises no new one, and a crash screen shows a short reason with a copyable detail
+- On the phone, a tap after a drag leaves the board carousel where it is, and the snap comes back when a finger moves on the row
+- The sub-agent strip is covered for a tab closed inside a project and for Cmd+W
+- Closing a pane in a project window lands its rows and its focus in the close's own batch, so the layout no longer re-renders a second time for the same gesture
+- The board draft unload budget uses English names the identifier gate knows
+- The project-close and Cmd+W sub-agent strip cases are requirements of their own, SUBSTRIP-01e and SUBSTRIP-01f
 - The wake answering a Monitor's end names that Monitor, how it ended and its last event, and the chat spec proves the background:changed push
 - A command started with run_command is named on the chat's background line while it runs, and the answer to its wake names it, its exit code and its last line
+- On the phone, a finger dragging a board card keeps the carousel snap held until the card leaves the hand
 - The command fake names its job description with an English identifier, so the identifier-language rail passes
+- A countdown close in a project window reconciles rows and focus against the current groups, so a split made during the countdown stays where it is and keeps the focus
 - A chat's background line is proven to list only that chat's commands, and a backtick in a command's description no longer breaks its wake text
 - The client takes the patched dompurify 3.4.16
 
