@@ -2000,6 +2000,9 @@ const EN = {
   'common.loading': 'Loading…',
   // ── Editor: the tabs and the file that did not load.
   'editor.tab.close': 'Close {name}',
+  'editor.tab.menu.close': 'Close',
+  'editor.tab.menu.keepOpen': 'Keep open',
+  'editor.tab.menu.copyPath': 'Copy path',
   'editor.loadFailed': 'The file did not load, so it cannot be edited here.',
   // ── Git: commit history and diff hunks.
   'git.history.noCommits': 'No commits',
