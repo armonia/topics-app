@@ -460,4 +460,69 @@ test.describe("board motion contract", () => {
     await fire("touchmove");
     await expect.poll(snapOf).toMatch(/^x/);
   });
+
+  test("on the phone, a finger carrying a card does not give the row its snap back", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PANELOAD-03" });
+    // The snap comes back when a finger moves on the row. A finger dragging a
+    // card moves on the row too: the card's source node stays in it while the
+    // card is in hand, so every `touchmove` of the drag bubbles through the
+    // row. Released there, the snap came back at the first move with the card
+    // still in hand, the condition BOARD-18 forbids.
+    //
+    // The touches are synthesised (WebKit on the Mac has no touch input): an
+    // event named `touchstart`/`touchmove` with a `touches` list is all that
+    // dnd-kit's touch sensor and the row's listener read.
+    await openBoard(page, "reduce");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const row = page.getByTestId("kanban-columns-row");
+    const card = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`).first();
+    const snapOf = () => row.evaluate((el) => getComputedStyle(el).scrollSnapType);
+    await card.scrollIntoViewIfNeeded();
+    await nextFrames(page, 10);
+    expect(await snapOf(), "the row snaps before the drag").toMatch(/^x/);
+
+    type Finger = { __finger: (type: string, dx: number) => void };
+    await card.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + 12;
+      const hit = document.elementFromPoint(x, y);
+      const target = hit && el.contains(hit) ? hit : el;
+      (window as unknown as Finger).__finger = (type, dx) => {
+        // A MouseEvent so it carries clientX/Y: WebKit on the Mac has no
+        // TouchEvent class, and dnd-kit reads the coordinates from the event.
+        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x + dx, clientY: y });
+        const t = [{ identifier: 0, target, clientX: x + dx, clientY: y, pageX: x + dx, pageY: y, screenX: x + dx, screenY: y }];
+        Object.defineProperty(ev, "touches", { value: type === "touchend" ? [] : t });
+        Object.defineProperty(ev, "targetTouches", { value: type === "touchend" ? [] : t });
+        Object.defineProperty(ev, "changedTouches", { value: t });
+        target.dispatchEvent(ev);
+      };
+    });
+    const finger = (type: string, dx: number) =>
+      page.evaluate(({ type, dx }) => (window as unknown as Finger).__finger(type, dx), { type, dx });
+
+    await finger("touchstart", 0);
+    // The touch sensor lifts the card after a still press (200 ms).
+    await expect(page.locator("[data-drag-preview]")).toHaveCount(1, { timeout: 5_000 });
+    await nextFrames(page, 3);
+    expect(await snapOf(), "the lift did not hold the snap").toMatch(/^none/);
+    await finger("touchmove", 12);
+    await nextFrames(page, 5);
+    await finger("touchmove", 24);
+    await nextFrames(page, 5);
+    await expect(page.locator("[data-drag-preview]"), "the card left the hand").toHaveCount(1);
+    expect(await snapOf(), "the snap came back while the card was in hand").toMatch(/^none/);
+
+    // The card leaves the hand; the snap stays held until a finger scrolls.
+    await finger("touchend", 24);
+    await expect(page.locator("[data-drag-preview]")).toHaveCount(0);
+    await nextFrames(page, 5);
+    expect(await snapOf(), "the drop gave the snap back").toMatch(/^none/);
+    await row.evaluate((el) => {
+      el.dispatchEvent(new Event("touchstart", { bubbles: true }));
+      el.dispatchEvent(new Event("touchmove", { bubbles: true }));
+    });
+    await expect.poll(snapOf).toMatch(/^x/);
+  });
 });

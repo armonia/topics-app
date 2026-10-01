@@ -30,6 +30,12 @@
  * at `touchstart`: every tap starts with a `touchstart`, and releasing there
  * re-snapped the row under the finger on the first tap after a drag (measured
  * on the WebKit phone viewport: held at 343, one tap, the row jumped to 253).
+ *
+ * And a finger that moves is not always scrolling the row: while it carries a
+ * card, the card's source node stays in the row and every `touchmove` of the
+ * drag bubbles through it. So no gesture releases the hold while `inHand` is
+ * true; the listeners are armed again when the card leaves the hand, and the
+ * next finger that moves on the row afterwards is a scroll.
  */
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 
@@ -40,13 +46,13 @@ export interface RowSnapHold {
   hold: () => void;
 }
 
-export function useRowSnapHold(rowRef: RefObject<HTMLElement | null>): RowSnapHold {
+export function useRowSnapHold(rowRef: RefObject<HTMLElement | null>, inHand: boolean): RowSnapHold {
   const [held, setHeld] = useState(false);
   const hold = useCallback(() => setHeld(true), []);
 
   useEffect(() => {
     const row = rowRef.current;
-    if (!held || !row) return;
+    if (!held || inHand || !row) return;
     const release = () => setHeld(false);
     row.addEventListener('wheel', release, { passive: true, once: true });
     row.addEventListener('touchmove', release, { passive: true, once: true });
@@ -54,7 +60,7 @@ export function useRowSnapHold(rowRef: RefObject<HTMLElement | null>): RowSnapHo
       row.removeEventListener('wheel', release);
       row.removeEventListener('touchmove', release);
     };
-  }, [held, rowRef]);
+  }, [held, inHand, rowRef]);
 
   return { held, hold };
 }

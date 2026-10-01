@@ -54,13 +54,21 @@ edge SHALL move the row by pixels, never a column at a time, and the drop SHALL
 land on the column under the pointer. The snap SHALL come back at the next
 scroll gesture on the row, and a tap SHALL NOT count as one: on the phone every
 tap begins with a touch, and a row re-snapping under that finger moves the card
-it is about to press.
+it is about to press. Nor SHALL the finger that carries the card: its moves
+cross the row while the card is in hand, and the snap SHALL stay held until the
+card has left the hand.
 
 #### Scenario: the first tap after a drag on the phone does not move the row
 - **GIVEN** the phone's columns carousel, its snap held by a drag that left the row between two columns
 - **WHEN** a finger taps the row without moving
 - **THEN** the row SHALL stay where it is
 - **AND** when a finger then moves on the row, the snap SHALL come back
+
+#### Scenario: a finger dragging a card on the phone does not give the snap back
+- **GIVEN** the phone's columns carousel and a card lifted by a finger's long press
+- **WHEN** that finger moves with the card still in hand
+- **THEN** the row SHALL NOT snap
+- **AND** after the card is dropped, the snap SHALL come back at the next finger that moves on the row
 
 #### Scenario: a card held over In progress at the row's edge
 - **GIVEN** a Todo card in hand, resting over In progress inside the auto-scroll band at the row's right edge, under reduced motion and with the row's scroll instant
