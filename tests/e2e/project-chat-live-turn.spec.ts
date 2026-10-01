@@ -496,9 +496,10 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
     test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
     const app = await proxyAppSocket(page, skA);
     const historyOfA: number[] = [];
-    page.on("request", (r) => {
-      if (r.url().includes(`/api/history/${encodeURIComponent(skA)}`)) historyOfA.push(Date.now());
-    });
+    const answeredOfA: number[] = [];
+    const ofA = (url: string) => url.includes(`/api/history/${encodeURIComponent(skA)}`);
+    page.on("request", (r) => { if (ofA(r.url())) historyOfA.push(Date.now()); });
+    page.on("requestfinished", (r) => { if (ofA(r.url())) answeredOfA.push(Date.now()); });
     await openBoth(page, "P2");
     const turn = startTurn(skA, TURN);
     await expect.poll(() => app.saw("stream:start"), { timeout: 20_000 }).toBe(true);
@@ -509,10 +510,17 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
     app.state.refuse = false;
     await expect.poll(() => app.state.opens, { timeout: 20_000, message: "the socket comes back" }).toBeGreaterThan(back);
     await expect
-      .poll(() => historyOfA.filter((t) => t >= reopenedAt).length, { timeout: 10_000, message: "the reconnect reloads A" })
+      .poll(() => answeredOfA.filter((t) => t >= reopenedAt).length, { timeout: 10_000, message: "the reconnect reloads A" })
       .toBeGreaterThanOrEqual(1);
-    await expect.poll(() => bubbleOf(page, a), { timeout: 5_000 }).toEqual(WHOLE);
+    // What A holds is read once the person comes back, and not before: a
+    // hidden pane is `display:none`, its virtualised list has no viewport and
+    // renders no rows (see `data-history` in MessageList). On a slow machine
+    // it still had none when the reload landed, and the bubble read empty.
+    // The read on the socket's return is the one that must fill it: coming
+    // back reads nothing more.
+    const readsBeforeFocus = historyOfA.length;
     await projectTab(page, p1).click();
     await expect.poll(() => bubbleOf(page, a)).toEqual(WHOLE);
+    expect(historyOfA.length, "coming back to A read its history again").toBe(readsBeforeFocus);
   });
 });

@@ -168,6 +168,16 @@ async function probeHistoryRequests(page: Page, sessionKey: string): Promise<Pro
 
 test.describe("La chat si apre sulla coda", () => {
   test.use({ viewport: { width: 1280, height: 720 } });
+  // The requests are counted with `page.route`, and the app's service worker
+  // takes control of the page from its second load on: on WebKit a request
+  // from a controlled page never reaches `page.route`, even the `/api/` ones
+  // the worker lets through. The short chat's reload then read 0 tail
+  // requests while the server answered one (2 of 2 runs, 2026-10-01); on
+  // Chromium the same requests are routed, which is why the nightly was
+  // green. The worker caches the shell and the assets, not the history, so
+  // blocking it changes nothing this file measures. The two delivery-clip
+  // tests open their own browser and do not use this fixture.
+  test.use({ serviceWorkers: "block" });
 
   let longTopic: { id: string; name: string };
   let shortTopic: { id: string; name: string };

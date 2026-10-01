@@ -777,6 +777,36 @@ export function MessageList({
   }, [pinToBottom]);
 
   /**
+   * While the reader holds the scroll, nobody takes the view to the bottom,
+   * Virtuoso included. For 100 ms after a re-render it arms a follow of its
+   * own ("scrolling to bottom due to increased size") that `shouldPin` never
+   * sees and that reads `followOutput` at arming time, when the reader was
+   * still at the bottom. A wheel up and a new row in the same frame trip it:
+   * chat-scroll.spec :271 was red 4/10 on WebKit with that `scrollTo` in the
+   * trace. Every scroll of Virtuoso goes through the scroller's `scrollTo`,
+   * so that is where a jump to the bottom is refused while `userHeld` holds
+   * (a palette jump excepted). None of our pins gets here in that state: they
+   * ask `shouldPin`, release the hold first, or stop on `userTouchedRef`.
+   */
+  useEffect(() => {
+    const el = scrollerEl;
+    if (!el) return;
+    const native = el.scrollTo.bind(el);
+    const guarded = (optionsOrX?: ScrollToOptions | number, y?: number): void => {
+      const top = typeof optionsOrX === 'object' ? optionsOrX?.top : y;
+      const toBottom = top != null && top > el.scrollTop && top >= el.scrollHeight - el.clientHeight - AT_BOTTOM_TOLERANCE_PX;
+      if (toBottom && authorityRef.current.userHeld && !jumpPending()) return;
+      if (typeof optionsOrX === 'object' || optionsOrX === undefined) native(optionsOrX);
+      else native(optionsOrX, y ?? 0);
+    };
+    el.scrollTo = guarded as typeof el.scrollTo;
+    return () => {
+      // The own property goes, and the prototype's `scrollTo` is back.
+      delete (el as { scrollTo?: unknown }).scrollTo;
+    };
+  }, [scrollerEl, jumpPending]);
+
+  /**
    * LA FRECCIA RISPONDE A UNA DOMANDA GEOMETRICA, e per questo la misura.
    *
    * Prima era `!anchored`, e sbagliava in tutte e due le direzioni. `anchored`

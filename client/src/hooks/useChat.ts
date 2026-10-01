@@ -168,6 +168,14 @@ const isContextMessage = (content: string): boolean => {
   return content.startsWith('[Chat messages since your last reply');
 };
 
+/** How `loadHistory` reads a session. */
+export interface LoadHistoryOptions {
+  /** Past the 5 s dedup: rows changed with no frame to carry them. */
+  fresh?: boolean;
+  /** The turn is known live here: it stays lit until the answer says otherwise. */
+  keepLit?: boolean;
+}
+
 export interface SendMessageOptions {
   /**
    * Fast Mode flag for this turn. Forwarded as `chatRequest.fastMode`; the
@@ -658,13 +666,19 @@ export function useChat() {
   const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // `loadHistory` è definito molto più in basso: il failsafe lo raggiunge da
   // qui senza dipendere dall'ordine di dichiarazione.
-  const loadHistoryRef = useRef<((sk: string, opts?: { fresh?: boolean }) => Promise<boolean>) | null>(null);
+  const loadHistoryRef = useRef<((sk: string, opts?: LoadHistoryOptions) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
   // The turn's end reached this window while its own SSE held the session: the
   // gate below swallows that frame, and a reply cut short must not relight on
   // a history snapshot taken before it.
   const endedDuringOwnSseRef = useRef<Set<string>>(new Set());
+  // Sessions whose own reply body has closed while its reload is still in
+  // flight, and those of them for which the gate then swallowed a frame of the
+  // turn. The reply carries nothing more by then, and the reload's snapshot can
+  // predate the frame: if the turn is still live, the frame is in neither.
+  const ownReplyClosedRef = useRef<Set<string>>(new Set());
+  const swallowedAfterReplyRef = useRef<Set<string>>(new Set());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -1341,6 +1355,7 @@ export function useChat() {
     // is the next turn's, and it never carries it.
     const passaAncheAlMittente = senderAlsoSeesFrame(event);
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
+      if (ownReplyClosedRef.current.has(sessionKey)) swallowedAfterReplyRef.current.add(sessionKey);
       if (event.type === 'stream:end') {
         finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
         endedDuringOwnSseRef.current.add(sessionKey);
@@ -2169,6 +2184,7 @@ export function useChat() {
         // reconcile against the server's authoritative copy.
         flushLiveDeltas(sessionKey);
         reader.releaseLock();
+        ownReplyClosedRef.current.add(sessionKey);
       }
 
       // Reload full history to sync server-generated IDs and branching metadata
@@ -2338,6 +2354,8 @@ export function useChat() {
       releaseSendLock(sessionKey); // Release send lock
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
+      ownReplyClosedRef.current.delete(sessionKey);
+      const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
@@ -2352,6 +2370,11 @@ export function useChat() {
       if (staleSnapshot) {
         lastHistoryFetchAtRef.current.delete(sessionKey);
         void loadHistoryRef.current?.(sessionKey);
+      } else if (liveAfterCut && swallowedAfterReply) {
+        // A frame of the live turn came while the reload was in flight and the
+        // gate dropped it: read again now that the socket's frames land, on a
+        // snapshot taken after that frame. The turn stays lit meanwhile.
+        void loadHistoryRef.current?.(sessionKey, { fresh: true, keepLit: true });
       }
     }
   }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
@@ -2680,7 +2703,7 @@ export function useChat() {
   }, [applyOlderHistory]);
   useEffect(() => registerHistoryCompleter(completeHistory), [completeHistory]);
 
-  const loadHistory = useCallback(async (sessionKey: string, opts?: { fresh?: boolean }): Promise<boolean> => {
+  const loadHistory = useCallback(async (sessionKey: string, opts?: LoadHistoryOptions): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
     if (localSSESessionsRef.current.has(sessionKey)) return true;
 
@@ -2714,9 +2737,13 @@ export function useChat() {
     try {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       if (!revalidate) setLoading(prev => ({ ...prev, [sessionKey]: true }));
-      // Clear stale streaming/thinking state before server confirms the real state
-      setStreaming(prev => ({ ...prev, [sessionKey]: false }));
-      setThinking(prev => ({ ...prev, [sessionKey]: false }));
+      // Clear stale streaming/thinking state before server confirms the real state.
+      // Not on a read of a turn this window knows is live: its Stop would blink
+      // off for the length of the request.
+      if (!opts?.keepLit) {
+        setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+        setThinking(prev => ({ ...prev, [sessionKey]: false }));
+      }
       
       // The TAIL first. The whole thread used to come in one answer, and the
       // curtain waited for it: 500-1200 ms of skeleton on the desktop's own
@@ -2833,6 +2860,10 @@ export function useChat() {
         // waits for a `stream:end` this client never saw, and the turn it
         // closed keeps its row's name, unless a turn was lit meanwhile. Fires
         // once per hydrate (HISTORY_DEDUP_MS short-circuits remounts).
+        if (opts?.keepLit) {
+          setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+          setThinking(prev => ({ ...prev, [sessionKey]: false }));
+        }
         if (!startedMeanwhile) streamMessageIdRef.current.end(sessionKey);
         drainTurnQueueRef.current?.(sessionKey);
       }
