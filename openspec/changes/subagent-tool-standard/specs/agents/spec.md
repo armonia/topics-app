@@ -235,7 +235,10 @@ SHALL return `{status: "running", agentId}`, and the result SHALL arrive through
 SUBAGENT-12.
 
 For the whole wait, the parent's turn SHALL show progress at least every 30 s,
-so that no stall watchdog closes it as idle.
+so that no stall watchdog closes it as idle. The wait is made of legs of 25 s
+(`GET …/agents/:agentId/wait`), each empty leg a progress beat; a call that
+gives up or dies hands the result over to SUBAGENT-12 (`release`, or the
+server's own deadline).
 
 #### Scenario: the foreground call returns the report
 - **GIVEN** a child whose turn ends `completed` 40 s after the spawn
@@ -251,7 +254,9 @@ so that no stall watchdog closes it as idle.
 
 A child that reported its turn and stayed idle SHALL be retired after 15
 minutes (choice 5): its PTY closed gracefully, and its row kept as `retired`
-with `claude_session_id`, model, profile, effort, cwd and branch.
+with `claude_session_id`, model, profile, effort, cwd and branch. The
+retirement passes the same gates as the idle park: a child whose pane a window
+is showing, or that holds a pending question, is not retired until those clear.
 
 `send_to_agent` on a `retired`, `stopped` or `lost` child SHALL recreate it
 with `--resume <claude_session_id>`, the same flags and the same cwd, keeping
