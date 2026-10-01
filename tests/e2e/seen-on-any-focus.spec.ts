@@ -94,6 +94,26 @@ const chatRow = (page: Page, name: string) => page.getByRole("treeitem", { name,
 const terminalRow = (page: Page, sid: string) => page.locator(`[data-terminal-row="${sid}"]`);
 const badgeOf = (surface: Locator) => surface.locator("[data-notification-count]");
 
+/** The registry's state of the newest row grouped under the terminal. */
+async function terminalRowState(request: APIRequestContext, sid: string): Promise<"none" | "seen" | "unseen"> {
+  const res = await request.get(`${BASE}/api/notifications?limit=50`, { ignoreHTTPSErrors: true });
+  const { rows } = (await res.json()) as { rows?: Array<{ groupKey: string | null; seenAt: string | null }> };
+  const row = (rows ?? []).find((x) => x.groupKey === `terminal:${sid}`);
+  return row ? (row.seenAt ? "seen" : "unseen") : "none";
+}
+
+/** The row a hook-driven claude-code terminal's banner writes: grouped under
+ *  the session, no target, and no finished mark beside it (its phase drives
+ *  attention, so `terminal:activity` never marks it). Same shape as
+ *  `recordNotificationSent` from `useCompletionNotifier`. */
+async function recordTerminalBannerRow(request: APIRequestContext, sid: string): Promise<void> {
+  const res = await request.post(`${BASE}/api/notifications`, {
+    data: { kind: "session", title: "Claude Code", body: "Turn finished", dedupeKey: `terminal:seen-${sid}-${Date.now()}`, groupKey: `terminal:${sid}`, source: "banner" },
+    ignoreHTTPSErrors: true,
+  });
+  expect(res.ok(), `POST /api/notifications ${res.status()}`).toBe(true);
+}
+
 /** Click inside the pane's BODY (not its tab): the middle of its split card,
  *  below the tab bar. */
 async function clickInside(page: Page, paneId: string): Promise<void> {
@@ -233,14 +253,47 @@ test.describe("Seen on any focus: one event clears a pane's marks everywhere", (
 
     // The terminal, focused from inside, finishes a turn in front of you.
     await clickInside(page, termPane);
+    const base = await bellNumber(page);
     inject({ type: "terminal:activity", id: term.id, busy: false, finished: true, kind: "claude-code" });
     // The sentinel: a chat that is NOT in front finishes after it. Frames are
     // applied in order, so once its mark is on, the terminal's was handled.
     inject({ type: "stream:end", sessionKey: focusKey, topicId: focusChat.id, messageId: `sentinel-${Date.now()}`, completed: true, stopReason: "end_turn" });
     await expect(tab(page, focusChat.id), "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
     await expect(badgeOf(terminalRow(page, term.id)), "the focused terminal's row kept a badge").toHaveCount(0, { timeout: 10_000 });
+    // Its banner still goes out ("notify even when focused" is on by default)
+    // and leaves a history row: about the pane in front, so never unseen on
+    // the bell and the Dock. Only the sentinel counts.
+    await expect.poll(() => terminalRowState(page.request, term.id), { timeout: 10_000, message: "the focused terminal's banner left no row" }).not.toBe("none");
+    await expect.poll(() => terminalRowState(page.request, term.id), { timeout: 10_000, message: "the focused terminal's row stays unseen" }).toBe("seen");
+    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the bell counts the terminal you are looking at" }).toBe(base + 1);
     await tab(page, focusChat.id).click();
     await expect(tab(page, focusChat.id)).toHaveAttribute("data-active", "true");
     await expect(badgeOf(tab(page, termPane)), "the focused terminal's tab kept a badge").toHaveCount(0);
+  });
+  test("SEEN-ANY-FOCUS-01b: a terminal's banner row with no finished mark goes from the bell when its tab or its row focuses it", async ({ page }) => {
+    test.setTimeout(90_000);
+    await pinAwake(page);
+    await relay(page, () => [term.id]);
+    await threeCells(page);
+    const base = await bellNumber(page);
+
+    // Its banner row lands while another cell is focused: one more on the bell.
+    await recordTerminalBannerRow(page.request, term.id);
+    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the terminal's row is not on the bell" }).toBe(base + 1);
+    // The TAB focuses it: the seen event clears the row.
+    await tab(page, termPane).click();
+    await expect(tab(page, termPane)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
+    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the tab click left the terminal's row on the bell" }).toBe(base);
+    await expect.poll(() => terminalRowState(page.request, term.id), { timeout: 10_000 }).toBe("seen");
+
+    // Away from it, a new row for the same terminal (already seen once).
+    await tab(page, focusChat.id).click();
+    await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
+    await recordTerminalBannerRow(page.request, term.id);
+    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the second row is not on the bell" }).toBe(base + 1);
+    // The sidebar ROW focuses it: the same event clears it.
+    await terminalRow(page, term.id).click();
+    await expect(tab(page, termPane)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
+    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the row click left the terminal's row on the bell" }).toBe(base);
   });
 });

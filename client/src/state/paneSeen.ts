@@ -17,6 +17,11 @@
  * every mark of it, and every surface reads those same marks: the tab, the
  * sidebar row, the project and group rollups, the bell and the Dock.
  *
+ * A terminal's history rows (grouped under `terminal:<id>`) are one of those
+ * marks on their own: a claude-code terminal driven by hooks never gets the
+ * finished mark (its phase drives attention), so its banner's row is the only
+ * thing it leaves on the bell, and the seen event has to clear it too.
+ *
  * The unread count stays on its own door (the WS `focus` ping in
  * `useWebSocket`), armed by the same focused chat with the same dwell.
  */
@@ -27,6 +32,9 @@ import { isWindowAwake } from './windowAwake';
 import { useProjectFocusStore } from './projectFocus';
 import { createPaneId, getTerminalSessionFromPaneId } from './pane/adapters/paneConfig';
 import { isUtilityPanelId } from './pane/adapters/utilityPanelId';
+import { useUnseenNotificationsStore } from './notificationUnseen';
+import { markTargetSeen } from '../lib/notify/history';
+import { TERMINAL_TARGET_KIND, terminalNotificationGroupKey } from '../../../shared/notification-log';
 
 /**
  * The subject a pane id stands for: a terminal's session id, a chat's topic id
@@ -67,21 +75,32 @@ type MarkSets = {
 };
 
 /** Does the subject carry something the seen event would clear? A subject not
- *  yet seen (its "seen" flag dropped by a new "your turn") counts too. */
-export function hasUnseenMark(s: MarkSets, id: string): boolean {
-  return !s.seenSubjects.has(id) || s.terminalFinishedIds.has(id) || s.chatFinishedTopics.has(id);
+ *  yet seen (its "seen" flag dropped by a new "your turn") counts too, and so
+ *  does an unseen history row grouped under it as a terminal
+ *  (`unseenNotificationKeys`, the bell's keys). */
+export function hasUnseenMark(s: MarkSets, id: string, unseenNotificationKeys?: ReadonlySet<string>): boolean {
+  return (
+    !s.seenSubjects.has(id) ||
+    s.terminalFinishedIds.has(id) ||
+    s.chatFinishedTopics.has(id) ||
+    !!unseenNotificationKeys?.has(terminalNotificationGroupKey(id))
+  );
 }
 
 /**
  * THE seen event: every mark of `id`, at once. The "seen" flag the fills and
  * rollups read, the terminal's finished mark (and its history rows on the
- * server, through the facade), the chat's 'done' mark (and the other windows,
- * through the seen door, `takeChatDoneSeen`).
+ * server, through the facade), a terminal's unseen history rows with no
+ * finished mark (a hook-driven claude-code terminal), the chat's 'done' mark
+ * (and the other windows, through the seen door, `takeChatDoneSeen`).
  */
 export function seeSubject(id: string): void {
   const st = useSignalsStore.getState();
   st.markSubjectSeen(id);
   if (st.terminalFinishedIds.has(id)) signalsActions.clearTerminalFinished(id);
+  else if (useUnseenNotificationsStore.getState().keys.has(terminalNotificationGroupKey(id))) {
+    markTargetSeen(TERMINAL_TARGET_KIND, id);
+  }
   seeChatFinished(id);
 }
 
@@ -97,7 +116,8 @@ export function useSeenFocusedPane(focusedPanelId: string | null): void {
   // Declared in front for the mark decisions (`isSubjectInFront`): a turn that
   // ends on it while the window is awake raises no mark at all.
   useEffect(() => (subject ? holdSubjectInFront(subject) : undefined), [subject]);
-  const unseen = useSignalsStore((s) => !!subject && hasUnseenMark(s, subject));
+  const unseenNotificationKeys = useUnseenNotificationsStore((s) => s.keys);
+  const unseen = useSignalsStore((s) => !!subject && hasUnseenMark(s, subject, unseenNotificationKeys));
   useEffect(() => {
     if (!subject || !unseen) return;
     let timer: ReturnType<typeof setTimeout> | null = null;

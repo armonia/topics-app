@@ -20,7 +20,7 @@ import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
 import { boardApi, isAgentWorking } from '../lib/board';
 import { inPageBannerAllowed, type NotifyEventKind } from '../lib/notify/pushVoice';
 import { isPushSubscribed } from '../state/pushDevice';
-import { recordNotificationSent } from '../lib/notify/history';
+import { notificationBornSeen, recordNotificationSent } from '../lib/notify/history';
 import { isSubjectInFront } from '../state/chatInView';
 import type { NotifyTarget } from '../lib/notify/notifyTarget';
 import {
@@ -312,11 +312,11 @@ export function useCompletionNotifier({
       dedupeKey: log.dedupeKey,
       groupKey: log.groupKey ?? null,
       source: 'banner',
-      // A banner about the chat the person is looking at (it goes out only
-      // with "notify even when focused") is recorded already seen. Unseen, it
-      // put +1 on the Dock and the badge until the seen dwell took it back,
-      // at every turn end of the chat in front.
-      ...(target?.kind === 'topic' && isSubjectInFront(target.id) ? { seen: true } : {}),
+      // A banner about the chat or the terminal the person is looking at (it
+      // goes out only with "notify even when focused") is recorded already
+      // seen. Unseen, it put +1 on the Dock and the badge at every turn end of
+      // the pane in front.
+      ...(notificationBornSeen(target, log.groupKey, isSubjectInFront) ? { seen: true } : {}),
     });
   }, []);
 

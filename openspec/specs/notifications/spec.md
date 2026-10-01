@@ -945,6 +945,14 @@ porta (il ping `focus`), armata dalla stessa chat a fuoco con la stessa soglia.
 - **THEN** il suo segno SHALL sparire dalla riga, dalla campanella e, lasciato
   il fuoco, dalla tab
 
+#### Scenario: la riga di banner di un terminale senza segno «finito»
+- **GIVEN** un terminale claude-code guidato dagli hook, che non riceve mai il
+  segno «finito» (la sua attenzione passa dalla fase), con una riga di banner
+  non vista raggruppata sotto `terminal:<id>`
+- **WHEN** lo si porta a fuoco dalla sua tab, o dalla sua riga della sidebar
+- **THEN** dopo la soglia la riga SHALL risultare vista e la campanella (e il
+  Dock) SHALL non contarla più, anche se il terminale era già stato visto prima
+
 ### Requirement: SEEN-ANY-FOCUS-02 — La pane a fuoco quando il suo turno finisce non resta segnata
 
 Una pane che è già quella a fuoco quando il suo turno finisce NON SHALL restare
@@ -961,3 +969,6 @@ soglia e SHALL spegnersi da sola dopo, senza bisogno di un altro gesto.
 #### Scenario: un terminale a fuoco finisce un turno
 - **WHEN** un terminale a fuoco segnala un turno finito
 - **THEN** né la riga né la tab (lasciato il fuoco) SHALL mostrare un badge per lui
+- **AND** la riga di registro del suo banner (che parte comunque con «notifica
+  anche a fuoco») SHALL nascere vista, come quella di una chat a fuoco, e la
+  campanella e il Dock SHALL non contarla

@@ -9,15 +9,18 @@
  * (`tests/e2e/seen-on-any-focus.spec.ts`).
  *
  * @covers SEEN-ANY-FOCUS-01
+ * @covers SEEN-ANY-FOCUS-02
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { focusedSubjectOf, hasUnseenMark, seeSubject, subjectOfPaneId } from "./paneSeen";
 import { signalsActions, useSignalsStore } from "./signals";
 import { takeChatDoneSeen } from "./chatInView";
+import { useUnseenNotificationsStore } from "./notificationUnseen";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
+  useUnseenNotificationsStore.getState().setKeys([]);
 });
 
 describe("the subject in front", () => {
@@ -76,5 +79,40 @@ describe("the seen event", () => {
     expect(hasUnseenMark(useSignalsStore.getState(), "again")).toBe(true);
     seeSubject("again");
     expect(hasUnseenMark(useSignalsStore.getState(), "again")).toBe(false);
+  });
+
+  test("a terminal's unseen history row is a mark even with no finished mark, and the seen event tells the registry", () => {
+    // A claude-code terminal driven by hooks never gets the finished mark
+    // (its phase drives attention), but its banner leaves a row grouped under
+    // `terminal:<id>` on the bell and the Dock. Already seen once, the subject
+    // has only that row left to clear.
+    const posted: string[] = [];
+    globalThis.fetch = mock((_url: string | URL | Request, init?: RequestInit) => {
+      posted.push(String(init?.body ?? ""));
+      return Promise.resolve(new Response("{}"));
+    }) as unknown as typeof fetch;
+    seeSubject("hooked-term");
+    posted.length = 0;
+    useUnseenNotificationsStore.getState().setKeys(["terminal:hooked-term"]);
+    const keys = useUnseenNotificationsStore.getState().keys;
+    expect(hasUnseenMark(useSignalsStore.getState(), "hooked-term", keys)).toBe(true);
+    // Another subject's row is not this one's mark.
+    expect(hasUnseenMark(useSignalsStore.getState(), "other-term-xyz-seen", keys)).toBe(true);
+    seeSubject("other-term-xyz-seen");
+    expect(hasUnseenMark(useSignalsStore.getState(), "other-term-xyz-seen", keys)).toBe(false);
+    posted.length = 0;
+
+    seeSubject("hooked-term");
+    expect(posted.map((b) => JSON.parse(b) as unknown)).toContainEqual({ targetKind: "terminal", targetId: "hooked-term" });
+  });
+
+  test("a subject with no row and no mark tells the registry nothing", () => {
+    const posted: string[] = [];
+    globalThis.fetch = mock((_url: string | URL | Request, init?: RequestInit) => {
+      posted.push(String(init?.body ?? ""));
+      return Promise.resolve(new Response("{}"));
+    }) as unknown as typeof fetch;
+    seeSubject("quiet-subject");
+    expect(posted).toEqual([]);
   });
 });

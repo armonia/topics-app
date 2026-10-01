@@ -185,6 +185,14 @@ export function terminalNotificationGroupKey(sessionId: string): string {
   return `${TERMINAL_TARGET_KIND}:${sessionId}`;
 }
 
+/** The way back: the terminal session a group key stands for, or null when the
+ *  key is not a terminal's. Reads the same prefix the birth key writes. */
+export function terminalSessionOfGroupKey(groupKey: string | null | undefined): string | null {
+  const prefix = terminalNotificationGroupKey('');
+  if (!groupKey || !groupKey.startsWith(prefix)) return null;
+  return groupKey.slice(prefix.length) || null;
+}
+
 export function defaultNotificationGroupKey(
   targetKind: NotificationTargetKind | null | undefined,
   targetId: string | null | undefined,
