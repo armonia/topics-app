@@ -35,7 +35,7 @@ import { agentBaseEnv } from "../lib/agent-env";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS } from "../lib/command-services";
-import { getListeningPorts, listenersOf, readProcessProbe } from "../lib/listening-ports";
+import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
 
 interface ScriptProcess {
   processId: string;
@@ -685,6 +685,7 @@ const commandServiceWatch = serviceWatch({
   listenersOf: async (pids) => listenersOf(pids, await getListeningPorts(SERVICE_WATCH_MIN_MS / 2), getDescendantPids),
   alive: isPidAlive,
   onChange: (row) => { if (_broadcastCtx && row.cmd) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, row.cmd); } },
+  servesHtml,
 });
 export const commandBackgroundWork = commandWorkOver(() => runningScripts.values(), commandServiceWatch.listenOf); // the chat's background line (BGVIS-07)
 /** Every chat's servers, running or just ended: the `services` of `GET /api/topics/streaming`. */

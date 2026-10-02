@@ -7,7 +7,7 @@
  * seen through these rows.
  */
 import { describe, expect, test } from "bun:test";
-import { parseLsof, parseSs } from "./listening-ports";
+import { parseLsof, parseSs, servesHtml } from "./listening-ports";
 
 describe("listening sockets", () => {
   test("lsof: one row per port, the lowest first, any address written as *", () => {
@@ -37,5 +37,28 @@ describe("listening sockets", () => {
       { port: 3000, pid: 222, command: "node", host: "*" },
       { port: 8777, pid: 12345, command: "python3", host: "127.0.0.1" },
     ]);
+  });
+
+  test("a port serves a page when / answers text/html; an API, or nothing listening, does not", async () => {
+    const page = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("<!doctype html><p>hi</p>", { headers: { "content-type": "text/html; charset=utf-8" } }) });
+    const api = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ ok: true }) });
+    try {
+      expect(await servesHtml({ host: "127.0.0.1", port: page.port! })).toBe(true);
+      expect(await servesHtml({ host: "*", port: page.port! })).toBe(true);
+      expect(await servesHtml({ host: "127.0.0.1", port: api.port! })).toBe(false);
+    } finally {
+      page.stop(true);
+      api.stop(true);
+    }
+    expect(await servesHtml({ host: "127.0.0.1", port: api.port! })).toBe(false);
+  });
+
+  test("an API whose / is a 404 written in HTML is no page: Express, Flask, Django and Rails all answer so", async () => {
+    const api = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("<!DOCTYPE html><pre>Cannot GET /</pre>", { status: 404, headers: { "content-type": "text/html; charset=utf-8" } }) });
+    try {
+      expect(await servesHtml({ host: "127.0.0.1", port: api.port! })).toBe(false);
+    } finally {
+      api.stop(true);
+    }
   });
 });

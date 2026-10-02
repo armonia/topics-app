@@ -241,3 +241,41 @@ test('in a window whose <img> cannot reach the server, a pushed version replaces
   expect((r.after as { src: string }).src).toMatch(/^blob:/);
   expect((r.after as { src: string }).src).not.toBe(r.recovered);
 });
+
+test('the icons drawn longest are asked LAST, so the server, which watches a bounded set and drops the oldest, keeps them', () => {
+  // The server watches 128 projects and drops the one asked about longest ago.
+  // The palette draws every topic's project after the sidebar: asked in the
+  // order they were first seen, the sidebar's paths went first and were the
+  // ones dropped, at every revalidation too.
+  const r = run(`
+    const v = (paths) => Object.fromEntries(paths.map((p) => [p, 'v1']));
+    seed(Object.fromEntries(['/p/side1', '/p/side2', '/p/pal1', '/p/pal2'].map((p) => [p, { s: 'has', t: Date.now(), v: true, version: 'v1' }])));
+    const sidebar = ['/p/side1', '/p/side2'].map((p) => store.subscribeProjectIcon(p, () => {}));
+    store.ensureProjectIcon('/p/side1'); store.ensureProjectIcon('/p/side2');
+    await until(() => fetches.length === 1);
+    answer(0, 200, { json: { versions: v(['/p/side1', '/p/side2']) } });
+    await flush();
+    // The palette opens: its rows draw two more projects.
+    const palette = ['/p/pal1', '/p/pal2'].map((p) => store.subscribeProjectIcon(p, () => {}));
+    store.ensureProjectIcon('/p/pal1'); store.ensureProjectIcon('/p/pal2');
+    await until(() => fetches.length === 2);
+    const opened = JSON.parse(fetches[1].init.body).paths;
+    answer(1, 200, { json: { versions: v(opened) } });
+    await flush();
+    // It closes, and the socket comes back: everything is asked again.
+    for (const off of palette) off();
+    bus.dispatchLifecycle('open');
+    bus.dispatchLifecycle('close');
+    bus.dispatchLifecycle('open');
+    await until(() => fetches.length === 3);
+    const again = JSON.parse(fetches[2].init.body).paths;
+    for (const off of sidebar) off();
+    out({ opened, again });
+  `);
+  // The palette's new paths, then the sidebar's, still on screen, at the end.
+  expect((r.opened as string[]).slice(-2).sort()).toEqual(['/p/side1', '/p/side2']);
+  expect((r.opened as string[]).slice(0, 2).sort()).toEqual(['/p/pal1', '/p/pal2']);
+  // Closed, the palette's paths go first and the sidebar's last.
+  expect((r.again as string[]).slice(0, 2).sort()).toEqual(['/p/pal1', '/p/pal2']);
+  expect((r.again as string[]).slice(-2).sort()).toEqual(['/p/side1', '/p/side2']);
+});

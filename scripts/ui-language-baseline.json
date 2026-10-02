@@ -40,7 +40,7 @@
     "client/src/components/Chat/SessionConfigPopover.tsx": 3,
     "client/src/components/Chat/TodoStrip.tsx": 2,
     "client/src/components/Chat/ToolCallRow.tsx": 5,
-    "client/src/components/Chat/ToolCards.tsx": 4,
+    "client/src/components/Chat/ToolCards.tsx": 2,
     "client/src/components/Chat/ToolGroupRow.tsx": 1,
     "client/src/components/Context/ContextInspector.tsx": 1,
     "client/src/components/Editor/EditorTabs.tsx": 4,

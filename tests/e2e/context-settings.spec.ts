@@ -380,7 +380,7 @@ test.describe("Context, Memory & Settings", () => {
 
     // Change the text size with the keyboard: 13 -> 16
     await settingsPage.fontSizeStepper.focus();
-    for (let i = 0; i < 3; i += 1) await page.keyboard.press("ArrowUp");
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press("ArrowRight");
     await expect(settingsPage.fontSizeStepper).toHaveAttribute("aria-valuenow", "16");
 
     await settingsPage.closeMenu();
@@ -407,7 +407,7 @@ test.describe("Context, Memory & Settings", () => {
     // Cleanup: restore defaults
     await settingsPage.densityRadio("comfortable").click();
     await settingsPage.fontSizeStepper.focus();
-    for (let i = 0; i < 3; i += 1) await page.keyboard.press("ArrowDown");
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press("ArrowLeft");
     await expect(settingsPage.fontSizeStepper).toHaveAttribute("aria-valuenow", "13");
     await settingsPage.closeMenu();
     await page.evaluate(() =>

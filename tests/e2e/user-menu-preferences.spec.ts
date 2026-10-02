@@ -101,13 +101,13 @@ test.describe("il menu utente: le preferenze come controlli diretti", () => {
       const start = Number(await size.getAttribute("aria-valuenow"));
       expect(start).toBe(13);
       await size.focus();
-      await page.keyboard.press("ArrowUp");
-      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight");
       await expect(size).toHaveAttribute("aria-valuenow", "15");
       await expect.poll(() => rootFontSize(page)).toBe("15px");
       // Back where it was: the settings outlive this test on the shared server.
-      await page.keyboard.press("ArrowDown");
-      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("ArrowLeft");
+      await page.keyboard.press("ArrowLeft");
       await expect(size).toHaveAttribute("aria-valuenow", "13");
       await expect.poll(() => rootFontSize(page)).toBe("13px");
     } finally {
@@ -356,6 +356,15 @@ test.describe("il menu da tastiera", () => {
       await page.keyboard.press("ArrowRight");
       await expect(page.getByTestId("appearance-theme-light")).toHaveAttribute("aria-checked", "true");
       await expect(page.getByTestId("appearance-theme-light")).toBeFocused();
+      // Down goes row by row, through the steppers too: an arrow down on the
+      // text size moves on to the chat width and leaves the size as it was.
+      const size = page.getByTestId("appearance-font-size");
+      const sizeBefore = await size.getAttribute("aria-valuenow");
+      await page.keyboard.press("ArrowDown");
+      await expect(size).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(page.getByTestId("appearance-chat-width")).toBeFocused();
+      await expect(size).toHaveAttribute("aria-valuenow", sizeBefore ?? "");
     } finally {
       await request.put("/api/ui-state/theme", { data: JSON.stringify("system"), headers: { "Content-Type": "application/json" } });
     }
