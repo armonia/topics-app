@@ -91,7 +91,7 @@ export function providersTail(snapshot: ProvidersSnapshot | null, tr: Translate)
 
 /** How many MCP servers are mounted and answering. A fleet never mounted (or
  *  mounting now) says nothing: its empty list is "not asked yet", not "none". */
-export function toolsTail(fleet: Pick<McpFleetStatus, 'enabled' | 'servers' | 'mounting' | 'mounted'> | null, tr: Translate): string | null {
+export function toolsTail(fleet: (Pick<McpFleetStatus, 'enabled' | 'servers'> & Partial<Pick<McpFleetStatus, 'mounting' | 'mounted'>>) | null, tr: Translate): string | null {
   if (!fleet) return null;
   if (!fleet.enabled) return tr('userMenu.tools.off');
   if (fleet.mounting || fleet.mounted === false) return null;
