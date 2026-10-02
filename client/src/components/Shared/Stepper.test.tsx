@@ -38,16 +38,24 @@ describe('Stepper', () => {
   });
 
   test('keys move by one step, pages by four, and the value stays in range', () => {
-    expect(stepperValue('ArrowUp', 13, RANGE)).toBe(14);
-    expect(stepperValue('ArrowDown', 13, RANGE)).toBe(12);
-    expect(stepperValue('ArrowDown', 12, RANGE)).toBe(12);
+    expect(stepperValue('ArrowRight', 13, RANGE)).toBe(14);
+    expect(stepperValue('ArrowLeft', 13, RANGE)).toBe(12);
+    expect(stepperValue('ArrowLeft', 12, RANGE)).toBe(12);
     expect(stepperValue('PageUp', 13, RANGE)).toBe(17);
     expect(stepperValue('PageUp', 16, RANGE)).toBe(18);
     expect(stepperValue('PageDown', 13, RANGE)).toBe(12);
     expect(stepperValue('Home', 15, RANGE)).toBe(12);
     expect(stepperValue('End', 15, RANGE)).toBe(18);
-    expect(stepperValue('ArrowLeft', 15, RANGE)).toBeNull();
+    expect(stepperValue('Tab', 15, RANGE)).toBeNull();
     expect(stepperValue('PageUp', 600, { min: 600, max: 1320, step: 20 })).toBe(680);
+  });
+
+  test('up and down are left to the menu: they move to the next row and never change the value', () => {
+    // Measured on the user menu: ArrowDown from the theme segment landed on the
+    // text size, and the next ArrowDown lowered it from 13 to 12 instead of
+    // moving on to the chat width.
+    expect(stepperValue('ArrowDown', 13, RANGE)).toBeNull();
+    expect(stepperValue('ArrowUp', 13, RANGE)).toBeNull();
   });
 
   test('no duration written by hand', () => {

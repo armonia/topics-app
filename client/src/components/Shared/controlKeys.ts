@@ -31,12 +31,16 @@ const PAGE_STEPS = 4;
 /**
  * The value a key moves to, clamped to the range, or `null` when the key is
  * not ours. Pure, so the keyboard contract is tested without a DOM.
+ *
+ * Right and left move one step, as they move a segment. Up and down belong to
+ * the menu the stepper sits in (they move between rows): taken here, an arrow
+ * down meant to reach the next row lowered the value instead.
  */
 export function stepperValue(key: string, value: number, { min, max, step }: StepperRange): number | null {
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   switch (key) {
-    case 'ArrowUp': return clamp(value + step);
-    case 'ArrowDown': return clamp(value - step);
+    case 'ArrowRight': return clamp(value + step);
+    case 'ArrowLeft': return clamp(value - step);
     case 'PageUp': return clamp(value + step * PAGE_STEPS);
     case 'PageDown': return clamp(value - step * PAGE_STEPS);
     case 'Home': return min;
