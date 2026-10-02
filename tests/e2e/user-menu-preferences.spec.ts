@@ -371,9 +371,9 @@ test.describe("sul telefono il menu del titolo è il menu utente", () => {
 
     const sheet = page.getByTestId("sidebar-topics-menu-panel");
     // Sign in: the account block is at the top of the title menu.
-    const email = sheet.getByTestId("account-email");
-    await expect(email).toBeVisible({ timeout: 15_000 });
-    await email.fill("someone@example.invalid");
+    const addressField = sheet.getByTestId("account-email");
+    await expect(addressField).toBeVisible({ timeout: 15_000 });
+    await addressField.fill("someone@example.invalid");
     await sheet.getByTestId("account-send-code").click();
     await sheet.getByTestId("account-code").fill("123456");
     await sheet.getByTestId("account-verify").click();
