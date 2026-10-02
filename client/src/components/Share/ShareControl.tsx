@@ -9,6 +9,7 @@ import { useToast } from '../Shared/Toast';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
 import { AgentStartControl } from './AgentStartControl';
 import { apiFetch } from '../../lib/shell/net';
+import { shareRequestError } from './shareRequest';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -213,7 +214,10 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const condividi = async (sog: Subject, level: GrantLevel = 'read') => {
     setInCorso(true);
     try {
-      const r = await apiFetch('/api/auth/shares', {
+      // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
+      // c'era `setErrore(body.error)`, che stampava la prosa italiana del
+      // server sotto un titolo inglese.
+      const err = await shareRequestError(() => apiFetch('/api/auth/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -221,16 +225,11 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
           resourceType, resourceId, level,
           subjectType: sog.subjectType, subjectId: sog.subjectId,
         }),
-      });
-      // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
-      // c'era `setErrore(body.error)`, che stampava la prosa italiana del
-      // server sotto un titolo inglese.
-      if (!r.ok) setErrore(t(await authRefusalKey(r)));
+      }));
+      // A failure stops here: `carica()` clears the error on success, so
+      // reloading after a refusal erased the message it had just written.
+      if (err) { setErrore(t(err)); return; }
       await carica();
-    } catch {
-      // Network down: `condividi` is called with `void`, so a throw here was an
-      // unhandled rejection and the person saw nothing.
-      setErrore(t(chiaveErroreAuth(undefined)));
     } finally { setInCorso(false); }
   };
 
@@ -270,10 +269,14 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
     } finally { setInCorso(false); }
   };
 
+  // Same failure path as `condividi`: these were a bare try/finally, so a
+  // refused DELETE left the row standing without a word and a network error
+  // was an unhandled rejection.
   const revocaLink = async (ref: string) => {
     setInCorso(true);
     try {
-      await apiFetch(`/api/auth/share-links?ref=${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'same-origin' });
+      const err = await shareRequestError(() => apiFetch(`/api/auth/share-links?ref=${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'same-origin' }));
+      if (err) { setErrore(t(err)); return; }
       setAppenaCreato(null);
       await carica();
     } finally { setInCorso(false); }
@@ -282,9 +285,10 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const togli = async (s: Share) => {
     setInCorso(true);
     try {
-      await apiFetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
+      const err = await shareRequestError(() => apiFetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
         method: 'DELETE', credentials: 'same-origin',
-      });
+      }));
+      if (err) { setErrore(t(err)); return; }
       await carica();
     } finally { setInCorso(false); }
   };
