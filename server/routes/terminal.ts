@@ -179,7 +179,11 @@ configureSubagentRuntime({
   branchOf: (cwd) => branchOfCwd(cwd),
   park: (child, idleMs) => {
     const s = sessions.get(child.id);
-    return !!s && tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true }).parked;
+    if (!s) return false;
+    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true });
+    // A finished child that stays up costs a CLI in RAM: say why, once in a while.
+    if (!outcome.parked) warnThrottled(`subagent:retire:${child.id}`, `[Terminal] finished sub-agent ${child.id} not retired: ${outcome.reason}`);
+    return outcome.parked;
   },
   broadcast: () => broadcastTerminalSessions(),
   handler: () => subAgentExitHandler,
