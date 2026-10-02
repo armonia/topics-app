@@ -204,9 +204,14 @@ export function CommandPalette({
     }
     setSearchLoading(true);
     setSearchFailed(false);
+    // The cleanup clears the timer but cannot recall a request already sent:
+    // an older, slower query answering last would write its results under the
+    // new one and switch the spinner off early (same fix as `FileSearch`).
+    let stale = false;
     searchTimeout.current = setTimeout(async () => {
       try {
         const data = await searchApi.search(q, 20);
+        if (stale) return;
         setSearchResults(
           data.results
             .filter((r: SearchResult) => r.topicId)
@@ -235,13 +240,17 @@ export function CommandPalette({
             })
         );
       } catch {
+        if (stale) return;
         setSearchResults([]);
         setSearchFailed(true);
       } finally {
-        setSearchLoading(false);
+        if (!stale) setSearchLoading(false);
       }
     }, 300);
-    return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
+    return () => {
+      stale = true;
+      if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    };
   }, [query, onOpenTopic, onClose]);
 
   // Fetch flat file list when palette opens with a project path. Skipped in
