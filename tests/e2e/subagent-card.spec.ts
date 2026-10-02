@@ -120,7 +120,9 @@ test.describe.serial("La card del sotto-agente", () => {
     const call = page.getByTestId("tool-call-row-spawn-undelivered");
     await expect(call).toBeVisible();
     await expect(call).toContainText("Sub-agent");
-    await call.locator("button").first().click();
+    // A sub-agent row is open by default, and its first click CLOSES it
+    // (CHAT-FOLD-01: what is shown flips, not the stored click). No click.
+    await expect(call.locator("button").first()).toHaveAttribute("aria-expanded", "true");
     const card = call.getByTestId("spawn-agent-card");
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute("data-agent-id", LOST_PROMPT_ID);
@@ -131,7 +133,7 @@ test.describe.serial("La card del sotto-agente", () => {
 
     // The finished one shows the model the child really ran.
     const done = page.getByTestId("tool-call-row-spawn-done");
-    await done.locator("button").first().click();
+    await expect(done.locator("button").first()).toHaveAttribute("aria-expanded", "true");
     await expect(done.getByTestId("spawn-agent-card")).toHaveAttribute("data-state", "finished");
     await expect(done.getByTestId("subagent-model").first()).toHaveText("claude-sonnet-5-5");
   });
@@ -141,7 +143,7 @@ test.describe.serial("La card del sotto-agente", () => {
     await openTopic(page, topicName);
     const call = page.getByTestId("tool-call-row-spawn-foreground");
     await expect(call).toBeVisible();
-    await call.locator("button").first().click();
+    await expect(call.locator("button").first()).toHaveAttribute("aria-expanded", "true");
     const card = call.getByTestId("spawn-agent-card");
     await expect(card).toHaveAttribute("data-state", "finished");
     const result = card.getByTestId("subagent-result-card");
