@@ -36,7 +36,6 @@ export function useTaskTabLoginState(contextId: string, ready: boolean): void {
     // Marcato PRIMA della fetch: due pane sullo stesso contextId (drawer +
     // workspace) monterebbero insieme e chiederebbero due iniezioni.
     applied.add(contextId);
-    let alive = true;
     apiFetch(`/api/browsers/${encodeURIComponent(contextId)}/login-state/apply`, { method: 'POST' })
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null)
@@ -46,9 +45,10 @@ export function useTaskTabLoginState(contextId: string, ready: boolean): void {
         // `{applied:false, handle:null}` invece È una risposta ("questa tab non
         // ha nessun login salvato") e resta segnata: non si ripiomba addosso al
         // server a ogni switch di tab per farsi dire di nuovo di no.
-        if (!alive) return;
+        // The rollback runs even after unmount: it touches a module-level set,
+        // not component state, and skipping it left the context marked for the
+        // whole session when the tab closed before the failure arrived.
         if (body === null) applied.delete(contextId);
       });
-    return () => { alive = false; };
   }, [contextId, ready]);
 }
