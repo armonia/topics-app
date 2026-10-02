@@ -20,9 +20,9 @@
  *    `applyChatReconciliation` / `reopenChatPane` (functional updaters
  *    inside layout, no stale-closure races).
  *
- * `initialChatsSyncedRef` is shared via `gateRefs` (single source of truth).
- * Whichever runs first (server-hydrate OR mount effect) flips the flag; the
- * other observes the flip and skips its first-run branch.
+ * `initialChatsSyncedRef` is shared via `gateRefs`: server-hydrate and the
+ * mount effect both flip it. The effect's own first sync is keyed on
+ * `firstSyncPathRef` instead, and waits until the project's topics are known.
  *
  * NOTE on args.focusedGroupId: the PLAN's documented signature lists
  * `panes` + `groups` but not `focusedGroupId`. Mirroring the original
@@ -125,6 +125,12 @@ export function useProjectChatSync(
   // populates `prevTopicIdsSetRef` at the end of that run, subsequent runs
   // see the prior snapshot and only treat genuinely-new ids as additions.
   const prevTopicIdsSetRef = useRef<Set<string>>(new Set());
+  // The project whose first sync ran with its topic list KNOWN. Until then
+  // `prevTopicIdsSetRef` is not a baseline: taken while the topics were still
+  // unknown it is empty, and the delta branch would open EVERY topic of the
+  // project as a tab - the closed ones included - and skip the saved active
+  // chat. The shared gate cannot tell: server-hydrate raises it too.
+  const firstSyncPathRef = useRef<string | null>(null);
 
   // --- topicIds: sorted list of topics belonging to this project ---
   const topicIds = useMemo(
@@ -158,13 +164,14 @@ export function useProjectChatSync(
     // archiving a project's ONLY topic leave a ghost chat pane for the rest
     // of the session: the KNOWN-archived topic could never be removed while
     // currentSet stayed empty.
+    //
+    // The SAVE is unblocked, the first sync is NOT done: with chat panes whose
+    // topics `topics` does not know yet, the list is not "this project has no
+    // topics" but "the topics have not arrived". The first sync waits for them.
     const existingChatPanes = curPanes.filter(p => p.type === 'chat');
-    if (currentSet.size === 0 && existingChatPanes.length > 0) {
-      if (!gateRefs.initialChatsSyncedRef.current) {
-        gateRefs.initialChatsSyncedRef.current = true;
-        markChatSyncDone();
-      }
-    }
+    const topicsUnknown =
+      currentSet.size === 0 && existingChatPanes.some(p => !!p.topicId && !topics[p.topicId]);
+    if (currentSet.size === 0 && existingChatPanes.length > 0) markChatSyncDone();
 
     // Remove chat panes whose topic no longer belongs in the project — but ONLY
     // when the topic is KNOWN. A chat pane whose topic is still LOADING (absent
@@ -196,8 +203,11 @@ export function useProjectChatSync(
     );
 
     // On first sync only: restore chats that were open last session +
-    // restore the saved active chat.
-    if (!gateRefs.initialChatsSyncedRef.current) {
+    // restore the saved active chat. With the topics still unknown there is
+    // nothing to restore against and no baseline to take: neither branch runs.
+    const firstSync = firstSyncPathRef.current !== projectPath;
+    if (firstSync && !topicsUnknown) {
+      firstSyncPathRef.current = projectPath;
       gateRefs.initialChatsSyncedRef.current = true;
       markChatSyncDone();
 
@@ -244,7 +254,7 @@ export function useProjectChatSync(
           };
         }
       }
-    } else {
+    } else if (!firstSync) {
       // Post-first-sync: surface topics that JUST arrived (delta vs the
       // previous topicIds snapshot) as new chat panes. This handles the
       // cross-window case where another window (Electron vs browser) creates

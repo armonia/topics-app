@@ -248,3 +248,38 @@ describe('msSinceLocalSettingsChange', () => {
     expect(msSinceLocalSettingsChange()).toBeGreaterThan(1_000_000);
   });
 });
+
+// ── A failed PUT is not lost ────────────────────────────────────────────────
+//
+// The PUT ignored both a rejection and a `!ok`. When the server came back the
+// WS reconnected, `ui-state:init` brought the OLD value and
+// `applyServerSettings` wrote it to localStorage: the user's choice rolled back
+// without any signal.
+
+describe('failed PUT', () => {
+  test('the server\'s old value does not overwrite the local one, and the PUT is sent again', async () => {
+    markSettingsHydrated();
+    g.fetch = (url, init) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+      return Promise.reject(new Error('server down'));
+    };
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
+    await Bun.sleep(1100);
+    expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(1);
+
+    g.fetch = (url, init) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+      return Promise.resolve({ ok: true });
+    };
+    // The server is back: `ui-state:init` brings the value from before.
+    expect(applyServerSettings({ fontSize: 13 })).toBeNull();
+    expect(loadSettings().fontSize).toBe(19);
+    const puts = fetchCalls.filter((c) => c.method === 'PUT');
+    expect(puts).toHaveLength(2);
+    expect((puts[1].body as AppSettings).fontSize).toBe(19);
+
+    // The resend landed: the server is the source again.
+    await Bun.sleep(0);
+    expect(applyServerSettings({ fontSize: 15 })?.fontSize).toBe(15);
+  });
+});

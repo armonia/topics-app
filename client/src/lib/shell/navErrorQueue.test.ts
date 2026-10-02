@@ -104,3 +104,27 @@ describe('pickNavError — the catch-up read after a hidden period', () => {
     expect(pickNavError([err('not a url')], { requested: 'http://good.test/', view: '' })).toBeNull();
   });
 });
+
+/**
+ * A MATCHING URL IS NOT ENOUGH: THE ERROR MUST BE NEWER THAN THE NAVIGATION.
+ * Hidden window: X fails, Y fails, then X is loaded again and works. `requested`
+ * is X, so the old X failure matched it and lit the strip over a working page.
+ * The native queue stamps each entry (`at`), the hook stamps each request.
+ */
+describe('pickNavError — an error older than the last requested navigation', () => {
+  test('X fails, Y fails, X reloads fine: nothing to show', () => {
+    const picked = pickNavError(
+      [{ ...err('http://x.test/'), at: 1_000 }, { ...err('http://y.test/'), at: 2_000 }],
+      { requested: 'http://x.test/', view: 'http://x.test/', requestedAt: 3_000 },
+    );
+    expect(picked).toBeNull();
+  });
+
+  test('a failure of the navigation still in progress is kept', () => {
+    const picked = pickNavError(
+      [{ ...err('http://x.test/'), at: 4_000 }],
+      { requested: 'http://x.test/', view: 'http://x.test/', requestedAt: 3_000 },
+    );
+    expect(picked?.url).toBe('http://x.test/');
+  });
+});

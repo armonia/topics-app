@@ -105,6 +105,11 @@ let lastLocalChange = 0;
 // e parte appena il canale è aperto. Buttarla renderebbe il gate una perdita
 // silenziosa di dati invece di una precedenza.
 let pendingPut: AppSettings | null = null;
+// The last PUT FAILED (network down, server restarting, a non-ok answer): the
+// server holds an older value than the local one. While this is true a value
+// coming from the server does not overwrite the local one - it would silently
+// roll it back on reconnect - and the PUT is sent again instead.
+let serverBehind = false;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -152,6 +157,12 @@ export function syncableSettings(settings: AppSettings): Partial<AppSettings> {
  * preferenze locali sono più fresche del nulla.
  */
 export function applyServerSettings(raw: unknown): AppSettings | null {
+  // The server is behind a local change whose PUT failed: send that again
+  // instead of taking the old value as the truth.
+  if (serverBehind) {
+    if (hydrated) putSettings(loadSettings());
+    return null;
+  }
   const sv = sanitizeSettingsPayload(raw);
   if (!sv || Object.keys(sv).length === 0) return null;
   const merged: AppSettings = { ...loadSettings(), ...sv };
@@ -182,6 +193,7 @@ export function __resetSettingsSyncState(): void {
   hydrated = false;
   lastLocalChange = 0;
   pendingPut = null;
+  serverBehind = false;
   if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
 }
 
@@ -191,7 +203,10 @@ function putSettings(settings: AppSettings): void {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(syncableSettings(settings)),
-  }).catch(() => {});
+  }).then(
+    (res) => { serverBehind = !res.ok; },
+    () => { serverBehind = true; },
+  );
 }
 
 export function saveSettings(settings: AppSettings) {
