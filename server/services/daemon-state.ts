@@ -24,8 +24,8 @@
  */
 import { homedir, uptime } from "node:os";
 import { join, sep } from "node:path";
-import { writeFileAtomic } from "../lib/atomic-write";
-import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { atomicTempPath, writeFileAtomic } from "../lib/atomic-write";
+import { linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { probePort, realProbeDeps, type PortVerdict } from "../lib/port-squatter";
 
@@ -118,18 +118,40 @@ function ensureHomeDir(): void {
   mkdirSync(logsDir(), { recursive: true });
 }
 
-/**
- * Try to read the lock file. Returns null if missing or unparseable.
- */
-function readLock(): LockFile | null {
+/** The lock file's raw text, or null if missing. */
+function readLockRaw(): string | null {
+  try { return readFileSync(lockPath(), "utf-8"); } catch { return null; }
+}
+
+/** The lock, or null if unparseable. */
+function parseLock(raw: string): LockFile | null {
   try {
-    const raw = readFileSync(lockPath(), "utf-8");
     const obj = JSON.parse(raw);
     if (typeof obj?.pid === "number" && typeof obj?.acquiredAt === "string") {
       return obj;
     }
-  } catch { /* missing or corrupt — treat as no lock */ }
+  } catch { /* corrupt — treat as no lock */ }
   return null;
+}
+
+/**
+ * Create the lock only if there is none: written complete to a temp, then
+ * `link`ed to the final name, which fails with EEXIST when the name is taken.
+ * A rename would replace it unconditionally, and a plain `wx` open would show
+ * a reader an empty file for a moment.
+ */
+function createLockExclusive(body: string): boolean {
+  const tmp = atomicTempPath(lockPath());
+  try {
+    writeFileSync(tmp, body, { flag: "wx", mode: 0o600 });
+    linkSync(tmp, lockPath());
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw err;
+  } finally {
+    try { unlinkSync(tmp); } catch { /* never created */ }
+  }
 }
 
 /**
@@ -182,22 +204,43 @@ function lockPredatesBoot(acquiredAt: string): boolean {
  */
 export function acquireLock(): LockFile {
   ensureHomeDir();
-  const existing = readLock();
-  if (existing && existing.pid !== process.pid) {
-    const alive = pidAlive(existing.pid);
-    if (alive && !lockPredatesBoot(existing.acquiredAt)) {
-      throw new LiveLockError(existing.pid);
-    }
-    const reason = alive
-      ? `pid ${existing.pid} reused across reboot`
-      : `dead pid ${existing.pid}`;
-    console.log(
-      `[Daemon] stale lock recovered (${reason}, acquiredAt ${existing.acquiredAt})`,
-    );
-  }
   const lock: LockFile = { pid: process.pid, acquiredAt: new Date().toISOString() };
-  writeFileAtomic(lockPath(), JSON.stringify(lock), { mode: 0o600 });
-  return lock;
+  const body = JSON.stringify(lock);
+  // EXCLUSIVE, not read-then-write: two servers booting on this home in the
+  // same instant both saw "no lock" (or the same dead pid), both wrote, and
+  // both opened the DB. Now only one create succeeds; a stale lock is removed
+  // and the create retried ONCE, so a competitor that wins that retry wins.
+  for (let attempt = 0; ; attempt++) {
+    if (createLockExclusive(body)) return lock;
+    const raw = readLockRaw();
+    const existing = raw === null ? null : parseLock(raw);
+    if (existing && existing.pid === process.pid) {
+      writeFileAtomic(lockPath(), body, { mode: 0o600 });
+      return lock;
+    }
+    if (existing) {
+      const alive = pidAlive(existing.pid);
+      if (alive && !lockPredatesBoot(existing.acquiredAt)) {
+        throw new LiveLockError(existing.pid);
+      }
+      if (attempt === 0) {
+        const reason = alive
+          ? `pid ${existing.pid} reused across reboot`
+          : `dead pid ${existing.pid}`;
+        console.log(
+          `[Daemon] stale lock recovered (${reason}, acquiredAt ${existing.acquiredAt})`,
+        );
+      }
+    }
+    if (attempt >= 1) {
+      throw new Error(`Could not take ${lockPath()}: it keeps being replaced by a lock that is not live.`);
+    }
+    // Remove it only if it is still the lock we judged: a competitor may have
+    // replaced it with its own (live) one in the meantime.
+    if (raw === null || readLockRaw() === raw) {
+      try { unlinkSync(lockPath()); } catch { /* already gone */ }
+    }
+  }
 }
 
 /**
