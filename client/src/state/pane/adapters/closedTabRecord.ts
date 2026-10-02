@@ -21,6 +21,7 @@ import type { Pane } from '../../../types';
 import type { ClosedTerminalMeta } from '../types';
 import { createPaneId, getTerminalSessionFromPaneId } from './paneConfig';
 import { apiFetch } from '../../../lib/shell/net';
+import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 
 /**
  * Legacy ClosedTabRecord shape. Preserved verbatim so consumers importing the
@@ -224,8 +225,38 @@ export function flushTerminalCleanups(): void {
   }
 }
 
-// Wire the flush to beforeunload and pagehide (iOS fires only the latter); the
-// second one finds the map empty.
+/**
+ * Wire the flush to beforeunload and pagehide. On a normal unload both fire,
+ * beforeunload first: its flush empties the map, so the pagehide that follows
+ * has nothing left and each pending cleanup runs ONCE. Either can also fire
+ * alone: iOS Safari fires only pagehide, and pagehide also fires when the page
+ * enters the back/forward cache, in which case the DELETE leaves early for a
+ * page that may come back (the tab is closed anyway; only the undo window is
+ * cut short). Exported so a test can drive it with its own event target.
+ */
+export function wireTerminalCleanupFlush(target: Pick<EventTarget, 'addEventListener'>): void {
+  target.addEventListener('beforeunload', flushTerminalCleanups);
+  target.addEventListener('pagehide', flushTerminalCleanups);
+}
+
+/**
+ * The cleanup a closed terminal tab schedules (see `scheduleTerminalCleanup`).
+ * After the grace window: the retrying DELETE, then the tombstone goes. With
+ * the page going away inside the window: one `keepalive` DELETE, the only
+ * request that outlives the unload, and the tombstone stays in case it does
+ * not land.
+ */
+export function closedTerminalCleanup(sessionId: string): (unloading: boolean) => void {
+  return (unloading) => {
+    if (unloading) {
+      apiFetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+      return;
+    }
+    deleteTerminalSession(sessionId);
+    clearTerminalTombstone(sessionId);
+  };
+}
+
 // `typeof window.addEventListener === 'function'` guards a partial-window test
 // environment: under `bun test` (no DOM) another test file can leave a stub
 // `globalThis.window` object without `addEventListener`, and module-load order
@@ -234,8 +265,7 @@ export function flushTerminalCleanups(): void {
 // unchanged there.
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !(window as unknown as { __termCleanupHooked?: boolean }).__termCleanupHooked) {
   (window as unknown as { __termCleanupHooked: boolean }).__termCleanupHooked = true;
-  window.addEventListener('beforeunload', flushTerminalCleanups);
-  window.addEventListener('pagehide', flushTerminalCleanups);
+  wireTerminalCleanupFlush(window);
 }
 
 /**

@@ -45,8 +45,8 @@ import {
   captureClosedTab,
   reopenClosedTab,
   scheduleTerminalCleanup,
+  closedTerminalCleanup,
   addTerminalTombstone,
-  clearTerminalTombstone,
   addBrowserTombstone,
   addViewTombstone,
   clearBrowserTombstone,
@@ -93,7 +93,6 @@ import { useProjectTerminalSync } from './useProjectTerminalSync';
 import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
 import { createTerminalSession } from '../../../lib/terminalActions';
-import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 import { dismissSubAgent } from '../../../state/endedSubAgents';
 import { useToast } from '../../Shared/Toast';
 import { useT } from '../../../hooks/useT';
@@ -697,17 +696,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             // tombstoned ids, so a reload before the cleanup timer fires
             // can no longer resurrect this terminal as a phantom pane.
             addTerminalTombstone(sessionId);
-            scheduleTerminalCleanup(record.id, 60_000, (unloading) => {
-              if (unloading) {
-                // The page is going away inside the grace window: one
-                // `keepalive` DELETE, the only request that outlives the
-                // unload. The tombstone stays, in case it does not land.
-                apiFetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
-                return;
-              }
-              deleteTerminalSession(sessionId);
-              clearTerminalTombstone(sessionId);
-            });
+            scheduleTerminalCleanup(record.id, 60_000, closedTerminalCleanup(sessionId));
           }
         } else if (pane.type === 'browser') {
           // Tear down the server-side Playwright context that backs this
