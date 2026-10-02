@@ -659,7 +659,15 @@
     "main eef665679: entry eager 1.542.237 raw / 486.821 gz against main's 1.538.455",
     "/ 485.495 (+3.782 / +1.326); critical path 2.157.045 / 646.328 against",
     "2.153.263 / 645.003. Inside 2%, numbers below unchanged; the critical path is",
-    "1,8% over its baseline after 2t, the next lane that grows it re-measures."
+    "1,8% over its baseline after 2t, the next lane that grows it re-measures.",
+    "",
+    "2026-10-01, the accordion lane (CHAT-FOLD-01) on main 5841b8574: critical path",
+    "2.167.239 raw / 648.881 gz against 2.158.539 / 646.625 (+8.700 / +2.256), entry",
+    "eager 1.549.702 / 489.166. Bought on first paint by design, since every transcript",
+    "row can be a fold: the anchor hook that keeps a clicked header still",
+    "(useDisclosureAnchor), the shared animated body (DisclosureBody), the stable",
+    "toggle label and the strip panels; no dependency, no lazy import turned static.",
+    "Critical path baseline raised to the measured value."
   ],
   "updated": "2026-10-01",
   "tolerance_pct": 2,
@@ -668,8 +676,8 @@
     "gz": 484570
   },
   "critical_path": {
-    "raw": 2119442,
-    "gz": 635047,
+    "raw": 2167239,
+    "gz": 648881,
     "files": 5
   },
   "total_assets": {
