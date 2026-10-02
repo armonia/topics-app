@@ -120,6 +120,8 @@ beforeAll(async () => {
   terminal.disconnectBridge();
   terminal._setPtyBridgeSocketPath(SOCKET_PATH);
   terminal._setAgentProfilesHome(HOME);
+  // No tracker unless a test installs one: an earlier file in the same process may have left its own.
+  terminal._setTerminalTrackerForTests(null);
   terminal.setSubAgentExitHandler((info) => { reports.push(info); });
   router = terminal.createTerminalRouter(ctx) as typeof router;
   await until("the reconcile list", () => bridge.received.some((m) => m.type === "list"), 5_000);
@@ -341,6 +343,26 @@ describe("the parent is owed a wake while its child works (SUBAGENT-12)", () => 
 });
 
 describe("a finished child is retired, and comes back with --resume (SUBAGENT-14)", () => {
+  test("a session tracker still saying «running» does not keep a finished child alive", async () => {
+    const terminal = await import("../../server/routes/terminal");
+    const { body, child } = await spawn(SONNET_CHAT, { agent_type: "scout", name: "scout-lag" });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    endTurn(child!, "Report: 2 files");
+    await until("the result", () => reportsFor(agentId).length === 1, 15_000);
+    // A tracker that missed the turn end: every other part of it is inert.
+    const lagging = new Proxy({}, {
+      get: (_t, name) => (name === "getSession" ? () => ({ phase: "running" }) : () => undefined),
+    });
+    terminal._setTerminalTrackerForTests(lagging as Parameters<typeof terminal._setTerminalTrackerForTests>[0]);
+    try {
+      await until("the retirement", () => terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 10_000);
+      expect(rowOf(agentId)?.state).toBe("retired");
+    } finally {
+      terminal._setTerminalTrackerForTests(null);
+    }
+  });
+
   test("idle after its report it is retired without a second result, and send_to_agent resumes it with the same flags", async () => {
     const terminal = await import("../../server/routes/terminal");
     const { body, child } = await spawn(SONNET_CHAT, { agent_type: "scout", name: "scout-r" });

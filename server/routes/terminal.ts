@@ -180,7 +180,7 @@ configureSubagentRuntime({
   park: (child, idleMs) => {
     const s = sessions.get(child.id);
     if (!s) return false;
-    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true });
+    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true, turnEnded: true });
     // A finished child that stays up costs a CLI in RAM: say why, once in a while.
     if (!outcome.parked) warnThrottled(`subagent:retire:${child.id}`, `[Terminal] finished sub-agent ${child.id} not retired: ${outcome.reason}`);
     return outcome.parked;
@@ -2485,6 +2485,8 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 // sessions register here so their hook-driven phase (running/tool-running)
 // becomes the solid "is it working" signal, instead of fragile pty bytes.
 let _tracker: ClaudeSessionTracker | null = null;
+/** Test seam: the tracker the park guards read (null = none), whatever an earlier file in the process installed. */
+export function _setTerminalTrackerForTests(tracker: ClaudeSessionTracker | null): void { _tracker = tracker; }
 /** The branch an isolated sub-agent stands on (WORKTREE-14) is read from its
  *  directory, and the directory is the only binding there is: no new column. A
  *  module-level reference like `_tracker` because the wake of a child after a
@@ -2635,12 +2637,12 @@ function tryParkSession(
   s: TerminalSession,
   thresholdMs: number,
   motivo: string,
-  /** The retirement of a finished sub-agent (`retireIdleChild`) is the one park a child admits. */
-  opts: { allowSubAgent?: boolean } = {},
+  /** Retiring a finished sub-agent is the one park a child admits; `turnEnded`: its own transcript says so, and the tracker's phase (which can miss a turn end) does not veto it. */
+  opts: { allowSubAgent?: boolean; turnEnded?: boolean } = {},
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
   const activity = terminalActivity.get(id);
   const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
-  const phase = state?.phase ?? null;
+  const phase = opts.turnEnded ? null : state?.phase ?? null;
   const decision = decidePark(
     {
       id,
