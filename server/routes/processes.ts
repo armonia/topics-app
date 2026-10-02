@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
