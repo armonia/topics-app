@@ -9,6 +9,10 @@
  * Reproduced by calling the `closeNow` of an EARLIER render after a reorder:
  * that is exactly the callback the countdown holds.
  *
+ * Reading from the refs let `handleClosePaneNow` memoize on stable deps, and
+ * its redo then called the `handleClosePane` of the first render: for a tab
+ * opened after mount, ⌘⇧Z after ⌘Z found no pane and did nothing.
+ *
  * @covers CMD-03
  */
 import { describe, test, expect, afterAll } from 'bun:test';
@@ -45,6 +49,7 @@ afterAll(() => {
 });
 
 const { useProjectLayout } = await import('./useProjectLayout');
+const { undo, redo } = await import('../../../contexts/UndoContext');
 type Layout = ReturnType<typeof useProjectLayout>;
 
 const view = (id: string): Pane => ({ id, type: 'file', title: id, preview: false, filePath: `/p/${id}` } as Pane);
@@ -88,6 +93,56 @@ describe('countdown close and a reorder in between', () => {
       expect(records).toHaveLength(1);
       expect(records[0].groupIndex).toBe(2);
     } finally {
+      h.unmount();
+    }
+  });
+});
+
+describe('redo of a close, for a tab opened after mount', () => {
+  test('re-enters the close pipeline instead of finding no pane', async () => {
+    const panes = [view('file:a')];
+    const group: PaneGroup = { id: 'g1', type: 'file', paneIds: ['file:a'], activePaneId: 'file:a' } as PaneGroup;
+    const box: { layout: Layout | null } = { layout: null };
+    // Stable across renders, as in ProjectWindow (useClosedTabs memoizes on []).
+    const stable = {
+      initial: { nonChatPanes: panes, openChatTopicIds: [], groups: [group], rows: [{ groupIds: ['g1'], widths: [1] }] },
+      topics: {},
+      onWSMessage: () => () => {},
+      onFocusPanel: () => {},
+      pushClosedTab: () => {},
+      removeClosedTab: () => {},
+      isSessionStreaming: () => false,
+      stopSession: async () => true,
+      onOpenPaneSettings: () => {},
+      gateRefs: { initialChatsSyncedRef: { current: true } },
+    };
+
+    function Probe() {
+      const layout = useProjectLayout({ ...stable, projectPath: '/p', focusedPanelId: null, claudeSkipPermissions: false });
+      useEffect(() => { box.layout = layout; });
+      return null;
+    }
+
+    const h = mount(createElement(Probe));
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    try {
+      box.layout!.handlers.openFile('/p/new.txt');
+      h.rerender();
+      const opened = box.layout!.state.panes.find(p => p.filePath === '/p/new.txt');
+      expect(opened).toBeTruthy();
+      box.layout!.handlers.closeNow('g1', opened!.id);
+      h.rerender();
+      await undo();
+      h.rerender();
+      expect(box.layout!.state.panes.some(p => p.id === opened!.id)).toBe(true);
+      // No provider is mounted here, so reaching the countdown shows up as the
+      // pending-action API's "enqueue called before <PendingActionProvider>".
+      console.warn = (...a: unknown[]) => { warns.push(String(a[0])); };
+      await redo();
+      expect(warns.some(w => w.includes('enqueue called before'))).toBe(true);
+    } finally {
+      console.warn = origWarn;
       h.unmount();
     }
   });

@@ -843,8 +843,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
               window.dispatchEvent(new CustomEvent('topic-unarchive-on-open', { detail: { topicId: capturedRecord.pane.topicId } }));
             }
           },
+          // Through the ref: this callback is memoized on stable deps, so the
+          // `handleClosePane` in its closure is the one from an early render,
+          // whose `panes` miss any tab opened since - redo would find no pane.
           redo: () => {
-            handleClosePane(capturedRecord.groupId, capturedRecord.pane.id);
+            handleClosePaneRef.current?.(capturedRecord.groupId, capturedRecord.pane.id);
           },
         });
       }
@@ -871,8 +874,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const nextFocus = fallbackFocusedGroupId(focusedGroupIdRef.current, nextGroups);
       if (nextFocus !== focusedGroupIdRef.current) setFocusedGroupId(nextFocus);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClosePane is declared AFTER this callback (forward const, TDZ); it is only invoked inside the redo handler at undo-stack-replay time, where it re-enters the full deferred-close pipeline and re-reads live state, so a stale closure is benign
-    [projectPath, pushClosedTab, removeClosedTab],
+    [projectPath, pushClosedTab, removeClosedTab, tr, panesRef, groupsRef, rowsRef, rowHeightsRef, focusedGroupIdRef],
   );
 
   // RECLAIM: hand a browser pane back to the topic window.
