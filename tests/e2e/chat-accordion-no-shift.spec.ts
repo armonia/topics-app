@@ -600,6 +600,31 @@ test.describe("a fold opened by hand: at the true end of the chat", () => {
     }
   }
 
+  test("a fold toggled from the keyboard keeps the focus on its header, so the next key closes it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const id = `kbd${Date.now().toString(36)}`;
+    const chat = await chatEndingWith(request, "keyboard", [
+      { role: "user", content: "run it" },
+      { role: "assistant", content: "", toolCalls: [{ id, name: "Bash", args: { command: `ls -la /tmp/${id}` }, status: "success", result: LINES(6, "output"), startedAt: now - 2000, endedAt: now - 1000 }] },
+    ]);
+    await openChat(page, request, chat.topicId);
+    const header = page.locator(`[data-testid="tool-call-row-${id}"] > button`);
+    await expect(header).toBeVisible({ timeout: 30_000 });
+    await header.focus();
+    await page.keyboard.press("Enter");
+    await expect(header).toHaveAttribute("aria-expanded", "true");
+    // The press made the pane the focused one, and the pane hands the focus
+    // to its composer 50 ms later: twenty frames outlast that.
+    await page.waitForFunction(() => new Promise((r) => {
+      let n = 0;
+      const tick = () => (++n >= 20 ? r(true) : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    }));
+    await expect(header, "the header still holds the focus").toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(header, "Space closed the fold").toHaveAttribute("aria-expanded", "false");
+  });
+
   test("closed and reopened at once at the true bottom: the header stays and the fold ends open", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
     const id = `dbl${Date.now().toString(36)}`;
