@@ -63,7 +63,7 @@ const CHROME_LEGITTIMO = new Map<string, string>([
     "velo della sidebar su mobile, sotto la sidebar stessa",
   ],
   [
-    "client/src/components/Project/ProjectSidebar.tsx :: fixed inset-0 bg-black/50 z-40",
+    "client/src/components/Project/ProjectSidebar.tsx :: fixed inset-0 bg-black/50 z-40 modal-backdrop-enter",
     "velo del drawer di progetto su mobile, sotto il drawer stesso",
   ],
 ]);
