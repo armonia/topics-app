@@ -76,11 +76,28 @@ export function spawnCardState(i: {
   return i.isRunning ? 'starting' : 'ended';
 }
 
+/** The spawn route's answer to a call it refused, as the MCP bridge words it (`server/mcp/topics-http.ts`). */
+const REFUSAL_ANSWER = /^HTTP (?:400|429): /;
+/**
+ * The spawn route's own refusal texts (`server/routes/terminal.ts`, its limits
+ * in `server/lib/subagent-runtime.ts` and its launch in `subagent-launch.ts`),
+ * for a row that keeps the text without the status line.
+ */
+const REFUSAL_TEXTS = [
+  /^sub-agent depth limit \(\d+\) reached/,
+  /^max \d+ live sub-agents per session$/,
+  /^machine-wide limit of \d+ live sub-agents reached; /,
+  /^board concurrency cap reached \(\d+\/\d+ live agents\)$/,
+  /^unknown (?:model|effort|agent_type) "/,
+];
+
 /**
  * Why the server refused a `spawn_agent` (a limit, an unknown model or
- * profile), or null when the call started a child: a failed call whose answer
- * names no agentId. The card says it as its own state, so the row does not
- * repeat it in the generic error block.
+ * profile), or null: the route answered 400 or 429, or the text is one of its
+ * refusals. Any other failure without an agentId (a turn stopped mid-call, the
+ * turn's end, a request that got no answer, a 502) is not a refusal and keeps
+ * the generic error block. The card says a refusal as its own state, so the
+ * row does not repeat it there.
  */
 export function spawnRefusal(
   detail: Extract<ToolCallDetail, { type: 'sub_agent' }>,
@@ -88,7 +105,9 @@ export function spawnRefusal(
   error: string | undefined,
 ): string | null {
   if (!isError || detail.via !== 'spawn_agent' || detail.agentId) return null;
-  return (detail.result || error || '').trim() || null;
+  const text = (detail.result || error || '').trim();
+  if (REFUSAL_ANSWER.test(text)) return text.replace(REFUSAL_ANSWER, '').trim() || null;
+  return REFUSAL_TEXTS.some((re) => re.test(text)) ? text : null;
 }
 
 /** The reason of a result in words, or null for a code this client does not know. */
