@@ -16,14 +16,15 @@
  *
  * It follows the process: a port that appears or goes, a start, an end reach
  * it through the `background:changed` push. When the server ends the row says
- * how (stopped, exit code) for a few seconds and goes.
+ * how (stopped, exit code) for a few seconds and goes; that clock is the
+ * store's (`state/runningServices.ts`), so a remount does not restart it.
  *
  * Same place and same geometry as `BackgroundWorkLine` beside it (the
  * Virtuoso `Footer` in `MessageList`), entering with the shared `reveal-in`.
  * Its own chunk: `RunningServiceRows` loads it the first time a chat has a
  * server, so the entry bundle carries only the subscription.
  */
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { ExternalLink, ScrollText, Server, Square } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { listenLabel, listenUrl, type RunningServiceSummary } from '../../../../shared/background-work';
@@ -32,9 +33,6 @@ import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
 import { OPEN_PROCESS_LOG_EVENT } from '../Layout/fileOpenScope';
-
-/** How long an ended server keeps its row on screen, saying how it ended. */
-export const SERVICE_ENDED_SHOWN_MS = 5_000;
 
 /** The rows of a chat's servers. Loaded on demand by `RunningServiceRows`: most chats never run one. */
 export default function RunningServiceList({ services, projectPath }: { services: readonly RunningServiceSummary[]; projectPath?: string }) {
@@ -47,15 +45,7 @@ function ServiceRow({ service, projectPath }: { service: RunningServiceSummary; 
   const tr = useT();
   const toast = useToast();
   const [stopping, setStopping] = useState(false);
-  const [gone, setGone] = useState(false);
   const ended = service.ended;
-  // An ended server says how for a moment, then its row goes without waiting for the next poll.
-  useEffect(() => {
-    if (!ended) return;
-    const t = setTimeout(() => setGone(true), SERVICE_ENDED_SHOWN_MS);
-    return () => clearTimeout(t);
-  }, [ended]);
-  if (gone) return null;
 
   // The server puts the page first when the command serves more than one port.
   const first = service.listen[0];
