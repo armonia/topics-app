@@ -652,8 +652,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // AND re-fire at T+3s via the enqueue-time commit closure, whose stale
       // captured state re-runs the whole close against a different layout.
       cancelPendingAction(`close-tab:${paneId}`);
-      const pane = panes.find(p => p.id === paneId);
-      const group = groups.find(g => g.id === groupId);
+      // From the refs, like the rows below: a countdown close runs the callback
+      // captured 3 s earlier, and a reorder in between left the closure's
+      // `groupIndex` stale - ⌘Z then put the tab back in the wrong slot.
+      const pane = panesRef.current.find(p => p.id === paneId);
+      const group = groupsRef.current.find(g => g.id === groupId);
       const groupIndex = group ? group.paneIds.indexOf(paneId) : 0;
 
       if (pane) {
@@ -869,7 +872,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (nextFocus !== focusedGroupIdRef.current) setFocusedGroupId(nextFocus);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClosePane is declared AFTER this callback (forward const, TDZ); it is only invoked inside the redo handler at undo-stack-replay time, where it re-enters the full deferred-close pipeline and re-reads live state, so a stale closure is benign
-    [panes, groups, projectPath, pushClosedTab, removeClosedTab],
+    [projectPath, pushClosedTab, removeClosedTab],
   );
 
   // RECLAIM: hand a browser pane back to the topic window.
