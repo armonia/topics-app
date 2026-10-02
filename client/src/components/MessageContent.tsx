@@ -572,7 +572,8 @@ const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: 
             const scroller = header?.closest('[data-virtuoso-scroller]');
             const headerOutOfSight = !collapsed && header && scroller
               && header.getBoundingClientRect().top < scroller.getBoundingClientRect().top;
-            disclose(headerOutOfSight ? e.currentTarget : header);
+            // While the Run confirmation replaces the header there is none: the button holds instead.
+            disclose(headerOutOfSight || !header ? e.currentTarget : header);
             setCollapsed(p => !p);
           }}
           className="w-full bg-app-code-bg hover:bg-app-code-bg text-indigo-300/70 hover:text-indigo-300 text-mini py-1.5 rounded-b-md border-t border-white/5 transition-colors"

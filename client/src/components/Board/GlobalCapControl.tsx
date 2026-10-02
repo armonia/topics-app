@@ -48,6 +48,7 @@
  * broadcast enters through a single door.
  */
 import { useRef, useState, type ReactNode } from 'react';
+import { Segmented } from '../Shared/Segmented';
 import { ChevronRight } from 'lucide-react';
 import { useActiveLocale, useT } from '../../hooks/useT';
 import {
@@ -99,22 +100,14 @@ export function GlobalCapControl() {
           not a checkbox "measure the machine instead": a checkbox has an implied
           default that reads as the normal case, and here neither is "normal" —
           they are two policies, and the second is opt-in on purpose. */}
-      <div className="flex gap-0.5" role="radiogroup" aria-label={tr('board.dispatch.brake')} data-testid="global-cap-brake">
-        {(['count', 'resources'] as const).map((m) => {
-          const active = brake === m;
-          return (
-            <button
-              key={m}
-              role="radio"
-              aria-checked={active}
-              data-testid={`global-cap-brake-${m}`}
-              disabled={s.saving || !s.cap}
-              onClick={() => { if (!active) void saveGlobalCap({ mode: m }); }}
-              className={`rounded px-1.5 py-0.5 text-mini ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
-            >{tr(m === 'count' ? 'board.dispatch.brakeCount' : 'board.dispatch.brakeResources')}</button>
-          );
-        })}
-      </div>
+      <Segmented
+        value={brake}
+        options={(['count', 'resources'] as const).map((m) => ({ value: m, label: tr(m === 'count' ? 'board.dispatch.brakeCount' : 'board.dispatch.brakeResources') }))}
+        onChange={(m) => { void saveGlobalCap({ mode: m }); }}
+        ariaLabel={tr('board.dispatch.brake')}
+        testId="global-cap-brake"
+        disabled={s.saving || !s.cap}
+      />
 
       {brake === 'count' ? <CountBrake /> : <ResourcesBrake />}
 
@@ -295,31 +288,23 @@ function CountBrake() {
           checkboxes ("automatic" plus "no limit") would leave a fourth reading
           — both ticked — that means nothing, and someone would have to decide
           silently which one wins. */}
-      <div className="flex gap-0.5" role="radiogroup" aria-label={tr('board.dispatch.parallel')}>
-        {(['auto', 'fixed', 'off'] as const).map((m) => {
-          const active = mode === m;
-          const label = m === 'auto' ? 'board.dispatch.parallelAuto'
-            : m === 'fixed' ? 'board.dispatch.fixed'
-            : 'board.dispatch.noLimit';
-          return (
-            <button
-              key={m}
-              role="radio"
-              aria-checked={active}
-              data-testid={`global-cap-mode-${m}`}
-              disabled={s.saving || !s.cap}
-              onClick={() => {
-                if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
-                // Leaving `auto` needs BOTH halves in one write: the mode and the
-                // number it means. Sending only `auto:false` would land on
-                // whatever stale number the row still carried.
-                void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
-              }}
-              className={`rounded px-1.5 py-0.5 text-mini ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
-            >{tr(label)}</button>
-          );
-        })}
-      </div>
+      <Segmented
+        value={mode}
+        options={(['auto', 'fixed', 'off'] as const).map((m) => ({
+          value: m,
+          label: tr(m === 'auto' ? 'board.dispatch.parallelAuto' : m === 'fixed' ? 'board.dispatch.fixed' : 'board.dispatch.noLimit'),
+        }))}
+        onChange={(m) => {
+          if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
+          // Leaving `auto` needs BOTH halves in one write: the mode and the
+          // number it means. Sending only `auto:false` would land on
+          // whatever stale number the row still carried.
+          void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
+        }}
+        ariaLabel={tr('board.dispatch.parallel')}
+        testId="global-cap-mode"
+        disabled={s.saving || !s.cap}
+      />
 
       {mode === 'fixed' && (
         <label className="flex items-center justify-between gap-3">
