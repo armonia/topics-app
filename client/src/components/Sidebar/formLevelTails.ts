@@ -16,7 +16,7 @@ import type { McpFleetStatus } from '../../../../shared/session-environment';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
 import { giorniAllaScadenza, scadenzaVicina } from '../Settings/pianoState';
 
-export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+import type { Translate } from '../../../../shared/queue-reason-text';
 
 /** The three facts of `/api/license` the Plan tail reads. */
 export interface LicensePlan {
