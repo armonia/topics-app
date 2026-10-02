@@ -23,8 +23,9 @@
  * claude-code CLI session, not an SDK one), so the terminal-tab fallbacks the
  * HTTP endpoints carry are not needed here.
  */
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { homedir } from "os";
+import { scaffoldNewProject } from "./services/project-path-resolver";
+import type { ProjectStore } from "./services/project-store";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { Topic } from "./types";
 import type { ResolvedTab } from "./lib/tab-resolver";
@@ -139,6 +140,11 @@ export interface ControlDispatchDeps extends SessionControlDeps {
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   workspaceDir: string;
+  /** Le cartelle-progetto già note: `create_project` ne deduce dove nascere,
+   *  invece di finire nel workspace. Assente ⇒ ricade sul workspace. */
+  listProjectDirs?: () => string[];
+  /** Per registrare il progetto nuovo, che fuori dal workspace nessuno ripesca. */
+  projectStore?: Pick<ProjectStore, "getByPath" | "slugify" | "create"> | null;
   /**
    * Risolve un permalink a una tab. INIETTATA e non importata: il resolver vuole
    * il DB e il registro delle pane native, e questo modulo è volutamente senza
@@ -201,14 +207,16 @@ export async function dispatchControlToolCall(
       const rawName = typeof args?.name === "string" ? args.name.trim() : "";
       const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
       if (!safeName) throw new ControlToolError("create_project: 'name' (alphanumeric) is required", "bad_args");
-      const targetDir = join(deps.workspaceDir, safeName);
       // AC-01: create means CREATE — a name collision is a 409-equivalent error,
       // never a silent bind to whatever already lives there (that's open_project).
-      if (existsSync(targetDir)) {
+      let known: string[] = [];
+      try { known = deps.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      const { dir: targetDir, exists } = scaffoldNewProject(safeName, {
+        workspaceDir: deps.workspaceDir, homeDir: homedir(), knownDirs: known, projectStore: deps.projectStore,
+      });
+      if (exists) {
         throw new ControlToolError(`project "${safeName}" already exists (use open_project to open it)`, "project_exists");
       }
-      mkdirSync(targetDir, { recursive: true });
-      writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
       deps.bindTopicToProject(topic.id, targetDir, { focus: true });
       return `created + opened project at ${targetDir}`;
     }

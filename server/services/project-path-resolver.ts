@@ -23,7 +23,7 @@
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
-import { existsSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, resolve, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
 import { projectIdForPath } from "./tasks";
@@ -223,4 +223,44 @@ export function newProjectParentDir(
     if (best !== null && (parent.length < best.length || (parent.length === best.length && parent < best))) best = parent;
   }
   return best ?? ws;
+}
+
+/**
+ * Crea la cartella di un progetto nuovo: l'UNICO punto da cui nasce un progetto
+ * per nome. Prima erano cinque copie di `join(workspace, nome)` e una sola
+ * (la board) passava da `newProjectParentDir`: il tool `create_project` delle
+ * sessioni, `/project create` e le due rotte delle topic creavano tutto dentro
+ * `~/.openclaw/workspace`, che è plumbing dell'agente (02/10: `pop-demo`).
+ *
+ * La cartella nuova viene anche REGISTRATA nello store: fuori dal workspace
+ * nessuna scansione la ripesca, e senza registrazione sparirebbe dal selettore
+ * al primo reload (vedi la rotta `/api/all-boards/projects`).
+ *
+ * `exists` = una cartella con quel nome c'è già: niente sovrascrittura, il
+ * chiamante risponde 409 o l'equivalente. Gli errori del disco salgono.
+ */
+export function scaffoldNewProject(
+  safeName: string,
+  deps: {
+    workspaceDir: string;
+    homeDir: string;
+    knownDirs: readonly string[];
+    projectStore?: Pick<ProjectStore, "getByPath" | "slugify" | "create"> | null;
+  },
+): { dir: string; exists: boolean } {
+  const dir = join(newProjectParentDir(deps.knownDirs, deps), safeName);
+  if (existsSync(dir)) return { dir, exists: true };
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "CLAUDE.md"), `# ${safeName}\n`);
+  const store = deps.projectStore;
+  if (store && !store.getByPath(dir)) {
+    // Slug già preso da un altro progetto: se ne prova uno derivato invece di
+    // lasciare la cartella orfana e invisibile.
+    const base = store.slugify(safeName);
+    for (const slug of [base, `${base}-${projectIdForPath(dir).split("-").pop()}`]) {
+      try { store.create({ name: safeName, slug, path: dir, color: null, icon: null }); break; }
+      catch { /* slug in conflitto: prova il prossimo */ }
+    }
+  }
+  return { dir, exists: false };
 }
