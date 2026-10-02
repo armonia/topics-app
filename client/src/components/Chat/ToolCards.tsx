@@ -18,6 +18,7 @@ import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { SpawnAgentCard } from './SubAgentResultCard';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from './ToolCardsFleet';
@@ -753,6 +754,8 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResul
     case 'todo':
       return <TodoCard items={detail.items} />;
     case 'sub_agent':
+      // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
+      if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} />;
       return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} isRunning={isRunning} />;
     case 'plan':
       return <PlanCard text={detail.text} />;

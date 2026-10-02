@@ -4,7 +4,7 @@
  * logic can be unit-tested without importing the terminal runtime (bridge,
  * timers, session maps).
  */
-import type { SubAgentOutcome, SubAgentReason } from '../lib/claude-subagent-transcript';
+import type { SubAgentOutcome, SubAgentReason, SubAgentResult } from '../lib/subagent-result';
 
 /** A sub-agent spawned FROM a topic chat (`parentSessionKey` = `topic:<id>`) has
  *  exited. The topics router turns this into a chat message so the conversation
@@ -21,6 +21,33 @@ export interface SubAgentExitInfo {
    *  (WORKTREE-14). Absent for a child that inherited the parent's directory,
    *  which is exactly the case where the report must not change by a byte. */
   branch?: string | null;
+  /** Which turn of the child this result closes (SUBAGENT-11); 1 when absent. */
+  turn?: number;
+  /** The model the child actually ran, read from its transcript. */
+  model?: string | null;
+  agentType?: string | null;
+  durationMs?: number | null;
+  cwd?: string;
+  /**
+   * Called once the result reached the parent chat, as a wake or as a row: the
+   * copy kept on the child's `subagents` row until then can go.
+   */
+  settle?: () => void;
+}
+
+/** The result a report carries, whatever optional fields its caller filled. */
+export function subAgentResultOf(info: SubAgentExitInfo): SubAgentResult {
+  return {
+    ...info.outcome,
+    agentId: info.childId,
+    name: info.name,
+    turn: info.turn ?? 1,
+    model: info.model ?? null,
+    agentType: info.agentType ?? null,
+    durationMs: info.durationMs ?? null,
+    cwd: info.cwd ?? '',
+    branch: info.branch ?? null,
+  };
 }
 
 /** The language the report is written in: the chat's output language, Italian unless it is English. */
@@ -47,6 +74,7 @@ const WORDS = {
         case 'exited-mid-turn': return 'uscito a metà turno';
         case 'stopped-by-parent': return 'fermato con stop_agent';
         case 'tab-closed': return 'la sua tab è stata chiusa';
+        case 'reloaded': return 'la sua tab è stata ricaricata';
         case 'swept': return "ritirato perché chi l'ha lanciato non lavora più";
         case 'terminal-lost': return 'il suo terminale non è sopravvissuto al riavvio';
       }
@@ -72,6 +100,7 @@ const WORDS = {
         case 'exited-mid-turn': return 'exited mid-turn';
         case 'stopped-by-parent': return 'stopped with stop_agent';
         case 'tab-closed': return 'its tab was closed';
+        case 'reloaded': return 'its tab was reloaded';
         case 'swept': return 'retired because its parent is no longer working';
         case 'terminal-lost': return 'its terminal did not survive the restart';
       }

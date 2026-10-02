@@ -54,6 +54,7 @@ import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicToProject } from "../lib/relocate-pane";
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
+import { requestSubagentWake } from "../services/subagent-wake";
 import { computeTopicChanges } from "../lib/topic-changes";
 import { archiveTopicFully } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
@@ -601,6 +602,9 @@ export function createTopicsRouter(
     bumpUnread: updateUnreadCount,
     resolveProvider,
     reportLanguage: () => (resolveOutputLanguage() === "en" ? "en" : "it"),
+    // The result wakes the parent chat (SUBAGENT-12); the wakes start going out
+    // once the boot has re-adopted the surviving turns (`startSubagentWakes`).
+    requestWake: requestSubagentWake,
   });
   const watchSessionForSubagents = subagents.watch;
   // La registrazione della strada B resta QUI: così il modulo non importa

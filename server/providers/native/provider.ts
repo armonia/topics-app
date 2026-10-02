@@ -636,7 +636,7 @@ export class NativeProvider implements AIProvider {
           // No workspace does not mean no tools: the two that resolve no path
           // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
           ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
-          ...(topics ? topicsToolSpecs(topics.profile, { hasProject }) : []),
+          ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
           ...(fleetAllowed ? mcpToolSpecs() : []),
         ];
       };

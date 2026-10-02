@@ -449,6 +449,26 @@ export function deriveToolDetail(
     };
   }
 
+  // Topics' own `spawn_agent`, bare (native runtime) or `mcp__topics__`: the
+  // sub-agent card, as `Agent` has, not the generic MCP one (SUBAGENT-16). The
+  // answer names the agentId and the model that really started.
+  if (c === "spawn_agent" || c.endsWith("__spawn_agent")) {
+    const agentId = result?.match(/agentId=([0-9a-f-]{36})/)?.[1];
+    const startedModel = result?.match(/ · model=([^\s·]+)/)?.[1];
+    const prompt = s(a.prompt);
+    return {
+      type: "sub_agent",
+      via: "spawn_agent",
+      ...(s(a.agent_type) ? { subAgentType: s(a.agent_type)! } : {}),
+      ...(prompt ? { description: prompt.length > 120 ? `${prompt.slice(0, 119)}…` : prompt } : {}),
+      ...(s(a.name) ? { name: s(a.name)! } : {}),
+      ...((startedModel ?? s(a.model)) ? { model: (startedModel ?? s(a.model))! } : {}),
+      ...(agentId ? { agentId } : {}),
+      actions: [],
+      ...(result ? { result } : {}),
+    };
+  }
+
   // Monitor: long-lived event watcher (Bash/ws stream). The `description` is
   // shown in every notification; a `command` or `ws.url` names the source.
   if (c === "monitor") {

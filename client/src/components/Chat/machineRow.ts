@@ -16,7 +16,7 @@ import type { MachineStopCause } from '../../../../shared/types';
 import type { useT } from '../../hooks/useT';
 export type { MachineStopCause } from '../../../../shared/types';
 
-const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit']);
+const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit', 'subagent-result']);
 
 export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null): boolean {
   if (!blocks || blocks.length === 0) return false;
@@ -42,6 +42,14 @@ export type ProcessExitBlock = Extract<ContentBlock, { kind: 'process-exit' }>;
 export function processExitOf(blocks: readonly ContentBlock[] | undefined | null): ProcessExitBlock | null {
   const b = blocks?.find((x) => x.kind === 'process-exit');
   return b && b.kind === 'process-exit' ? b : null;
+}
+
+export type SubagentResultBlock = Extract<ContentBlock, { kind: 'subagent-result' }>;
+
+/** The sub-agent results this row carries, or null (server/services/subagent-wake.ts). */
+export function subagentResultOf(blocks: readonly ContentBlock[] | undefined | null): SubagentResultBlock | null {
+  const b = blocks?.find((x) => x.kind === 'subagent-result');
+  return b && b.kind === 'subagent-result' ? b : null;
 }
 
 /** The background notice this row is, or null (server/lib/background-notice.ts). */

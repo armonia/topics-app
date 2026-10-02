@@ -68,3 +68,47 @@ contain an emoji.
 - **WHEN** the chat message is composed
 - **THEN** a closing line SHALL name that branch and how to read its commits
 - **AND** a result with no branch SHALL have no branch line
+
+### Requirement: SUBAGENT-07 — A sub-agent's exit report is its own row and does not swallow the live turn
+
+The report SHALL be durable the moment it exists: it is written at once on the
+child's `subagents` row (`pending_results`), so a restart while the parent's
+turn is still open re-sends it instead of losing it. It reaches the parent chat
+when that turn has ended, as the row of the wake (SUBAGENT-12), and the copy on
+the child's row is dropped only once the chat holds it. A report that cannot
+wake the parent is written as an ordinary assistant row at once, as before.
+
+Whatever its role, the report's row is a NEW row: the open turn writes its own
+row by id, so the report never takes over the live bubble. The client SHALL
+place it by identity — the id announced when the turn started — and never by
+position, so the rest of the answer keeps landing in its own bubble.
+
+> Changed by the implementation: the requirement used to say the report row
+> is in the database BEFORE the turn closes. With choice 3 the row is the
+> wake's `user` row, which must not cut into an open turn (SUBAGENT-12), so
+> what is persisted at once is the result on the child's row, and the chat
+> row follows the turn's end.
+
+#### Scenario: The report lands beside the live turn, which keeps filling
+- **GIVEN** a turn that announced its id and has already streamed part of its text
+- **WHEN** a persisted assistant message with a DIFFERENT id arrives
+- **THEN** it SHALL appear as a second bubble, the live one keeping the text it already had
+- **AND** the deltas that follow SHALL land in the live bubble, not appended to the report
+
+#### Scenario: The row that CLOSES the turn merges into the live bubble
+- **GIVEN** a window that received the turn's start but no content deltas — the case of a window not subscribed to the topic
+- **WHEN** a persisted assistant message arrives carrying the turn's OWN id
+- **THEN** it SHALL merge into the existing bubble, which SHALL then hold the full text
+- **AND** exactly one assistant bubble SHALL exist, bearing that id
+
+#### Scenario: A truncated preview does not shorten what the window already has
+- **GIVEN** a bubble filled from the catch-up frame with the whole text of the turn
+- **WHEN** a persisted message for that same id arrives carrying a shorter preview
+- **THEN** the text already displayed SHALL NOT be shortened
+
+#### Scenario: A report delivered under the parent's open turn is written at once and outlives that turn
+- **GIVEN** a parent turn still streaming, from which the parent stops its child
+- **WHEN** the child's end is reported
+- **THEN** the result SHALL be on the child's `subagents` row before the turn closes
+- **AND** no chat row SHALL be written while the turn is open
+- **AND** when the turn ends, the wake's row SHALL carry the result, and the turn's row SHALL hold the turn's text

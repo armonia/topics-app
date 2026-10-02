@@ -429,7 +429,8 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     if (!subAgent) throw new Error('sub_agent variant missing');
     const sig = objectSignature(subAgent);
     expect(sig.requiredKeys).toEqual(['actions', 'type']);
-    expect([...sig.optionalKeys].sort()).toEqual(['description', 'result', 'subAgentType']);
+    // `via`, `name`, `model` and `agentId` mark Topics' own `spawn_agent` (SUBAGENT-16).
+    expect([...sig.optionalKeys].sort()).toEqual(['agentId', 'description', 'model', 'name', 'result', 'subAgentType', 'via']);
   });
 });
 

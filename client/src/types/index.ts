@@ -59,7 +59,7 @@ export interface Message {
 // ToolCallDetail, ToolCall e ContentBlock erano riscritti qui riga per riga,
 // identici a `server/types.ts` a meno dei commenti, col solito "Mirrors" a
 // fare da garanzia. Ora la dichiarazione è UNA, in `shared/types.ts`.
-export type { ToolCallDetail, ToolCall, ContentBlock, TurnEndCause } from '../../../shared/types';
+export type { ToolCallDetail, ToolCall, ContentBlock, TurnEndCause, SubagentResultCard } from '../../../shared/types';
 export type { PermissionDecision, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 import type { ToolCall, ContentBlock, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 
@@ -1413,6 +1413,10 @@ export interface TerminalSessionInfo {
    *  (server restart / WS reconnect / dropped message) can't leave a session
    *  spinning forever. Absent on optimistic/cached entries → treated idle. */
   busy?: boolean;
+  /** A sub-agent's state, read by the server from its transcript and not from
+   *  PTY bytes: waiting for its prompt, working, or finished its turn. Absent
+   *  for a session that is no sub-agent, null when the server has not looked yet. */
+  subAgentPhase?: 'waiting-prompt' | 'working' | 'finished' | null;
 }
 
 // ── Pane types — single source of truth lives in state/pane/types.ts ─────────

@@ -1220,6 +1220,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       if (b.kind === 'machine-stop') continue;
       // Nor the end of a command: `MessageBubble` draws it as a service line.
       if (b.kind === 'process-exit') continue;
+      // Nor a sub-agent's results: `MessageBubble` draws them as cards.
+      if (b.kind === 'subagent-result') continue;
       if (b.kind === 'tool') {
         const marker = browserOpens.get(b.toolCall.id);
         if (marker === null) continue;
