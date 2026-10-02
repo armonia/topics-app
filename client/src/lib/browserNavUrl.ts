@@ -282,7 +282,7 @@ function sameOriginPath(s: string, origin: string): string | null {
  * `example.com:443` used to become `http://example.com:443`: plain http on the
  * TLS port, which the server rejects. The port says https even on a LAN address.
  */
-const TLS_PORTS = new Set(['443', '8443']);
+const HTTPS_ONLY_PORTS = new Set(['443', '8443']);
 
 function bareHostUrl(s: string): string {
   const asHttp = `http://${s}`;
@@ -292,7 +292,7 @@ function bareHostUrl(s: string): string {
   } catch {
     return httpsFirstUrl(asHttp);
   }
-  if (!TLS_PORTS.has(port)) return httpsFirstUrl(asHttp);
+  if (!HTTPS_ONLY_PORTS.has(port)) return httpsFirstUrl(asHttp);
   // `new URL` keeps `:443` on an http URL (it is not http's default), so the
   // https form is rebuilt and lets the parser drop the default port.
   const u = new URL(`https://${s}`);

@@ -108,7 +108,7 @@ let pendingPut: AppSettings | null = null;
 // Keys changed on this device whose PUT has not been acknowledged yet, with
 // the JSON of the value written. A PUT that answers ok clears the keys it
 // carried (unless they changed again since).
-const unackedKeys = new Map<string, string>();
+const unconfirmedKeys = new Map<string, string>();
 // The subset whose last PUT FAILED (network down, server restarting, a non-ok
 // answer): the server holds an older value for THESE keys. A value coming from
 // the server does not overwrite them - it would silently roll them back on
@@ -197,13 +197,13 @@ export function __resetSettingsSyncState(): void {
   hydrated = false;
   lastLocalChange = 0;
   pendingPut = null;
-  unackedKeys.clear();
+  unconfirmedKeys.clear();
   failedKeys.clear();
   if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
 }
 
 function putSettings(settings: AppSettings): void {
-  const carried = new Map(unackedKeys);
+  const carried = new Map(unconfirmedKeys);
   // PANE-01-ALLOWED: non-pane ui-state key (app settings: fontSize, density, notifications). Not one of the 6 legacy pane keys.
   apiFetch(`/api/ui-state/${SETTINGS_SERVER_KEY}`, { // PANE-01-ALLOWED
     method: 'PUT',
@@ -218,8 +218,8 @@ function putSettings(settings: AppSettings): void {
 function settle(carried: Map<string, string>): void {
   for (const [key, json] of carried) {
     failedKeys.delete(key);
-    // Changed again while this PUT was in flight: the newer value is still unacked.
-    if (unackedKeys.get(key) === json) unackedKeys.delete(key);
+    // Changed again while this PUT was in flight: the newer value is still unconfirmed.
+    if (unconfirmedKeys.get(key) === json) unconfirmedKeys.delete(key);
   }
 }
 
@@ -233,7 +233,7 @@ function markChangedKeys(next: AppSettings): void {
   const synced = syncableSettings(next) as Record<string, unknown>;
   for (const key of Object.keys(synced)) {
     const json = JSON.stringify(synced[key]);
-    if (json !== JSON.stringify(prev[key])) unackedKeys.set(key, json);
+    if (json !== JSON.stringify(prev[key])) unconfirmedKeys.set(key, json);
   }
 }
 

@@ -214,9 +214,9 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const condividi = async (sog: Subject, level: GrantLevel = 'read') => {
     setInCorso(true);
     try {
-      // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
-      // c'era `setErrore(body.error)`, che stampava la prosa italiana del
-      // server sotto un titolo inglese.
+      // The server sends a CODE (`shared/auth-codes.ts`), not a sentence: this
+      // used to be `setErrore(body.error)`, which printed the server's Italian
+      // prose under an English title.
       const err = await shareRequestError(() => apiFetch('/api/auth/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
