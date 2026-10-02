@@ -30,6 +30,8 @@ HOST="${WINFLEET_SSH:-$(grep -h '^HOST_SSH=' ~/.config/winfleet/config.env 2>/de
 REPO_WIN='C:\dev\topics-app'
 REPO_MAC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUN='%USERPROFILE%\.bun\bin\bun.exe'
+# What the last sync shipped, one path per line, at the root of the copy.
+MANIFEST='.topwin-shipped'
 
 if [ -z "$HOST" ]; then
   echo "PC not configured: HOST_SSH is missing from ~/.config/winfleet/config.env" >&2
@@ -37,6 +39,9 @@ if [ -z "$HOST" ]; then
 fi
 
 win() { ssh -o BatchMode=yes "$HOST" "cd /d $REPO_WIN && $*"; }
+# Repo-relative paths on stdin -> lines of forty quoted Windows paths, which
+# keeps each command line far under cmd's 8191 characters.
+win_batches() { tr '\n' '\0' | xargs -0 -n 40 sh -c 'printf "\"%s\" " "$@"; echo' _ | tr '/' '\\'; }
 
 case "${1:-help}" in
   sync)
@@ -47,9 +52,46 @@ case "${1:-help}" in
     fi
     echo "> shipping $(git -C "$REPO_MAC" rev-parse --short HEAD) to the PC..."
     ssh -o BatchMode=yes "$HOST" "if not exist $REPO_WIN mkdir $REPO_WIN" >/dev/null
-    # tar.exe has been in System32 since Windows 10 1803. It overwrites and does
-    # not delete, which is what we want: node_modules and the built bundle stay.
-    git -C "$REPO_MAC" archive --format=tar HEAD | win "tar -xf -"
+    # tar overwrites and never deletes, so a file removed from HEAD stayed on
+    # the PC forever and kept being compiled: 25 stale sources broke a build
+    # there. The list of files shipped last time lives on the PC next to them;
+    # what it has and HEAD does not is deleted, and nothing else is: an
+    # untracked file was never in the list, so node_modules, target/ and the
+    # built bundle are out of reach by construction.
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    git -C "$REPO_MAC" -c core.quotePath=false ls-tree -r --name-only HEAD | sort > "$tmp/$MANIFEST"
+    if win "if exist $MANIFEST (type $MANIFEST) else (exit 3)" > "$tmp/shipped" 2>/dev/null; then
+      tr -d '\r' < "$tmp/shipped" | sort > "$tmp/old"
+    else
+      # No list yet (a copy synced before it existed): the best guess at what
+      # was shipped is every file on the PC that some commit of this history
+      # deleted. A file git has never tracked is not in it, whatever its name.
+      echo "> no list of shipped files on the PC yet: deriving it from the history..."
+      git -C "$REPO_MAC" -c core.quotePath=false log --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u \
+        | win_batches | while IFS= read -r batch; do
+          win "(for %f in ($batch) do @if exist %f echo %~f) & exit 0"
+        done | tr -d '\r' | tr '\\' '/' | sort > "$tmp/old"
+    fi
+    comm -23 "$tmp/old" "$tmp/$MANIFEST" > "$tmp/stale"
+    if [ -s "$tmp/stale" ]; then
+      echo "> removing $(wc -l < "$tmp/stale" | tr -d ' ') file(s) no longer in HEAD:"
+      sed 's/^/  - /' "$tmp/stale"
+      # `del` of a file already gone is not an error.
+      win_batches < "$tmp/stale" | while IFS= read -r batch; do
+        win "del /f /q $batch 2>nul & exit 0"
+      done
+      # Directories the deletions left empty, deepest first; `rd` without /s
+      # refuses a directory that still holds anything, untracked files included.
+      while IFS= read -r f; do d="$(dirname "$f")"; while [ "$d" != "." ]; do echo "$d"; d="$(dirname "$d")"; done; done < "$tmp/stale" \
+        | sort -u | awk '{ print gsub("/", "/"), $0 }' | sort -rn | cut -d' ' -f2- \
+        | win_batches | while IFS= read -r batch; do
+        win "(for %d in ($batch) do @rd %d 2>nul) & exit 0"
+      done
+    fi
+    # tar.exe has been in System32 since Windows 10 1803. The list travels in
+    # the same archive, so it is replaced only together with the files it names.
+    git -C "$REPO_MAC" archive --format=tar --add-file="$tmp/$MANIFEST" HEAD | win "tar -xf -"
     echo "> bun install..."
     win "$BUN install --frozen-lockfile" || { echo "x install failed on the PC" >&2; exit 1; }
     win "cd client && $BUN install --frozen-lockfile" || { echo "x client install failed on the PC" >&2; exit 1; }
