@@ -416,20 +416,30 @@ fn rebuild_core(app: &tauri::AppHandle) -> String {
         }
         trace(app, &format!("rebuild: window looks blank ({misura})"));
     }
-    let Some(old) = app.get_webview("main") else {
-        return "rebuild: no main webview".into();
-    };
+    // NO MAIN WEBVIEW IS THE CASE TO CURE, NOT TO SKIP. Two failed builds below
+    // leave the window with none, and returning here on every later restore
+    // meant it stayed empty until the app was restarted. With nothing to close,
+    // the build runs on the config default.
+    let old = app.get_webview("main");
     // Rebuild on the page the app is ON, not on the one it booted with: when the
     // server is down the shell parks the window on its own explanation page, and
     // sending it back to index.html would hide that. Anything that is not http
     // falls back to the config default, because that is the only value a fresh
     // webview can resolve on its own.
-    let url = old.url().ok().filter(|u| matches!(u.scheme(), "http" | "https"));
+    let url = old
+        .as_ref()
+        .and_then(|w| w.url().ok())
+        .filter(|u| matches!(u.scheme(), "http" | "https"));
     let Ok(size) = win.inner_size() else {
         return "rebuild: no inner size".into();
     };
-    if let Err(e) = old.close() {
-        return format!("rebuild: close failed: {e}");
+    match &old {
+        Some(old) => {
+            if let Err(e) = old.close() {
+                return format!("rebuild: close failed: {e}");
+            }
+        }
+        None => trace(app, "rebuild: no main webview, building one"),
     }
     // Two goes. If the first build fails the window is left with no webview at
     // all, which is worse than the grey it was curing, so it is worth one retry
