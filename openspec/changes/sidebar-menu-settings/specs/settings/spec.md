@@ -6,7 +6,7 @@
 
 Il menu utente SHALL avere un livello «Aspetto» con, nell'ordine: Tema
 (segmento a tre: chiaro, scuro, sistema), Testo (passo da 12 a 18 px),
-Larghezza chat (passo da 600 a 1300 px a 20 px, con «Piena»), Densità
+Larghezza chat (passo da 600 a 1300 px a 20 px, con «Piena» come passo dopo 1300), Densità
 (segmento a due), Finestre fluttuanti (interruttore, solo nel guscio desktop),
 Lingua (la `Select` dell'app) e, in fondo, il rimando alle scorciatoie da
 tastiera.
@@ -203,7 +203,7 @@ Vista) SHALL essere nel menu del titolo, aperti come foglio con «Indietro», co
 bersagli di almeno 44 px.
 
 #### Scenario: tutto da tastiera
-- **WHEN** apro il menu dalla card, scendo con le frecce fino ad Aspetto e premo freccia destra
+- **WHEN** apro il menu dalla card, scendo con le frecce fino ad Aspetto, premo freccia destra e poi freccia giù
 - **THEN** il fuoco è sul segmento del tema
 - **AND** freccia destra cambia il tema
 
