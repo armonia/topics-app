@@ -30,14 +30,12 @@
  * rows in either host: above the things that DO something, below the things
  * that SAY something.
  */
-import { useMemo, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useMemo, useSyncExternalStore } from 'react';
 import { Globe2, Grid2x2, History, LayoutTemplate, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
 import { SubmenuItem } from '../Shared/SubmenuItem';
-import { Segmented } from '../Shared/Segmented';
 import { AppearanceLevel, type MenuPreferences } from './AppearanceLevel';
 import { NotificationsLevel } from './NotificationsLevel';
-import { PreferenceRow, SwitchRow } from './PreferenceRow';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
 import { shortcut } from '@/lib/shortcutLabel';
 import { menuRowClass } from './menuRow';
@@ -46,6 +44,13 @@ import { buildHistoryRows } from '@/lib/historyRows';
 import { pagesSnapshot, subscribeSites } from '@/state/browserSiteHistory';
 import { useClosedTabs } from '@/state/pane/adapters';
 import type { ClosedTabRecord } from '@/state/pane/adapters/closedTabRecord';
+
+// The View level's controls load the first time it opens, like the
+// Appearance and Notifications bodies.
+const ViewLevelBody = lazy(async () => {
+  const { ViewLevelBody: Body } = await import('./ViewLevelBody');
+  return { default: Body };
+});
 
 /** How many rows the quick preview shows before it hands off to «See all».
  *  Enough to answer «where was I» at a glance, not enough to turn a submenu
@@ -123,8 +128,6 @@ export function TopicsMenuItems({
     }),
     [closedTabs, pages, onReopenClosedTab, onOpenHistoryUrl],
   );
-  const { settings, onSettingChange } = preferences;
-
   return (
     <>
       {/* HOW THE APP LOOKS AND HOW IT WARNS YOU: direct controls, applied on
@@ -154,32 +157,15 @@ export function TopicsMenuItems({
           </span>
         }
       >
-        <div className="py-1">
-          <SwitchRow
-            label={tr('app.showArchived')}
-            checked={showArchived}
-            onChange={onToggleArchived}
-            testId="topics-menu-archived"
+        <Suspense fallback={<div className="h-24" />}>
+          <ViewLevelBody
+            showArchived={showArchived}
+            onToggleArchived={onToggleArchived}
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
+            preferences={preferences}
           />
-          <PreferenceRow label={tr('app.viewOrder')}>
-            <Segmented<SidebarViewMode>
-              value={viewMode}
-              onChange={onViewModeChange}
-              ariaLabel={tr('app.viewOrder')}
-              testId="topics-menu-view-mode"
-              options={[
-                { value: 'timeline', label: tr('app.viewOrderTimeline') },
-                { value: 'state', label: tr('app.viewOrderState') },
-              ]}
-            />
-          </PreferenceRow>
-          <SwitchRow
-            label={tr('settings.board.showRow')}
-            checked={settings.showBoardRow}
-            onChange={(v) => onSettingChange('showBoardRow', v)}
-            testId="topics-menu-board-row"
-          />
-        </div>
+        </Suspense>
       </SubmenuItem>
 
       {/* HOW THE WINDOW IS ARRANGED. Two commands that are each other's

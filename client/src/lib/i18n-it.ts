@@ -48,8 +48,6 @@ const IT: Dict = {
   'app.unsent.retryAll': 'Riprova tutti',
   'app.unsent.discardAll': 'Scarta tutti',
   'app.showArchived': 'Mostra archiviati',
-  'app.viewByState': 'Vista per stato',
-  'app.viewTimeline': 'Vista timeline',
   'app.resetPanels': 'Reimposta pannelli',
   'app.autoArrange': 'Disponi automaticamente',
   'app.settings': 'Impostazioni',
@@ -238,11 +236,9 @@ const IT: Dict = {
   'plan.edit.label': 'Il piano, correggibile',
   'plan.edit.hint': "Approvare manda questa versione al posto di quella scritta dall'agente. Le correzioni restano se chiudi il pannello.",
   'appearance.chatWidth': 'Larghezza chat',
-  'appearance.fullWidth': 'Piena larghezza',
   'appearance.chatWidth.aria': 'Larghezza massima della colonna di chat',
   'appearance.full': 'Piena',
   'appearance.language': 'Lingua · Language',
-  'appearance.language.blurb': "Vale per l'interfaccia e per la lingua in cui rispondono gli agenti (chat, terminale, board). Le superfici della UI non ancora tradotte restano come sono.",
   'perms.title': 'Strumenti sempre consentiti',
   'perms.blurb': 'Quando una chat chiede il permesso di usare uno strumento puoi rispondere «Consenti sempre»: la regola finisce qui e vale per tutte le chat. Tutto il resto continua a chiedere, una volta per volta.',
   'perms.empty': 'Nessuna regola. Ogni strumento che una modalità di permessi non copre viene chiesto in chat.',
@@ -481,10 +477,8 @@ const IT: Dict = {
   'notif.perm.request': 'Concedi il permesso',
   'notif.perm.openSettings': 'Apri Impostazioni di Sistema',
   'notif.muted.title': 'Silenziati',
-  'notif.muted.blurb': "Questi progetti non fanno arrivare banner né suono quando un agente finisce. Contano lo stesso nel badge dell'app: a sparire è l'interruzione, non il conteggio.",
   'notif.muted.unmute': 'Riattiva le notifiche per questo progetto',
   'notif.push.title': 'Notifiche ad app chiusa',
-  'notif.push.blurb': 'Ogni dispositivo si iscrive per conto suo e si spegne per conto suo: quello che decidi qui vale solo per lui.',
   'notif.push.enableHere': 'Attiva su questo dispositivo',
   'notif.push.whenOpen': 'Quando Topics è già aperto',
   'notif.push.oneVoice': "Una voce sola in entrambi i casi: quando parla una, l'altra tace.",
@@ -494,7 +488,6 @@ const IT: Dict = {
   'notif.push.onHere': 'Riaccendi su questo dispositivo',
   'notif.push.swFailed': 'Il service worker non si registra su questo indirizzo',
   'notif.push.swFailedHint': "Senza service worker le notifiche non arrivano. Di solito è il certificato: sull'iPhone attiva la CA locale in Impostazioni › Generali › Info › Impostazioni certificati attendibili, poi riapri Topics dalla Home e riprova.",
-  'notif.topic.blurb': "Toast in finestra quando un agente finisce (o va in errore) su un topic. Il banner di sistema si aggiunge solo se il sistema operativo lo consente. Qui sotto c'è lo stato reale.",
 
   'browser.find.placeholder': 'Trova nella pagina',
   'browser.find.caseOn': 'Maiuscole/minuscole: attivo',
@@ -653,7 +646,6 @@ const IT: Dict = {
   'palette.hint.open': 'apri',
   'palette.hint.close': 'chiudi',
   'settings.board.showRow': 'Mostra la Board nella sidebar',
-  'settings.board.showRowBlurb': 'Una riga fissa in cima alla colonna, con i progetti e i conteggi per stato.',
   'settings.turnCheckpoints.label': 'Checkpoint automatico a ogni turno',
   'settings.turnCheckpoints.blurb': "Prima di ogni turno Topics fotografa la cartella del progetto su un ref git dedicato, invisibile a log e branch: /rewind in chat rimette i file com'erano, senza detached HEAD. Torna indietro l'albero, non la conversazione. Ne tiene gli ultimi 50 per chat.",
   'settings.turnCheckpoints.saving': 'Salvataggio…',
@@ -1200,14 +1192,10 @@ const IT: Dict = {
   'settings.section.notifications': 'Notifiche',
   'settings.section.providers': 'Providers AI',
   'settings.section.tools': 'Strumenti',
-  'settings.section.profile': 'Profilo',
   // ORGANIZZAZIONE e AMICI erano il quarto e il sesto riquadro dentro
   // «Profilo»: c'erano, ma si raggiungevano solo scorrendo, e una cosa che si
   // raggiunge solo scorrendo per chi la cerca non c'e'. Adesso sono due voci.
-  'settings.section.organization': 'Organizzazione',
-  'settings.section.followers': 'Follower',
   'settings.section.privacy': 'Privacy',
-  'settings.section.devices': 'Dispositivi',
   'settings.section.plan': 'Piano',
   'settings.section.calendar': 'Calendario',
   'calendar.blurb': 'Fissa il calendario nella barra e passa il mouse sulla tessera per una piccola anteprima della tab aperta; il click continua ad aprirla.',
@@ -1248,14 +1236,9 @@ const IT: Dict = {
   'calendar.preview.alt': 'Anteprima della tab del calendario aperta',
   // Le intestazioni delle tre pagine. Una pagina senza titolo e senza una riga
   // che dica a cosa serve e' un riquadro, non una pagina.
-  'settings.page.profile.title': 'Il tuo profilo',
-  'settings.page.profile.blurb': 'Chi sei su questa macchina e fuori: le tue misure d’uso, lo stato che pubblichi, l’account.',
   'settings.page.organization.title': 'La tua organizzazione',
   'settings.page.organization.blurb': 'Il gruppo con cui condividi: nome, persone, ruoli e i progetti che gli appartengono.',
-  'settings.page.followers.title': 'Follower',
-  'settings.page.followers.blurb': 'Chi segui e chi ti segue. La relazione e\u2019 a senso unico: seguire qualcuno non lo obbliga a seguirti.',
   'settings.page.privacy.title': 'Privacy del profilo',
-  'settings.page.privacy.blurb': 'Cosa il tuo profilo pubblica agli altri. Quello che spegni qui il server non lo manda proprio.',
   // THE PROFILE HEADER, the GitHub-shaped one. The counters are buttons, so
   // their label is read aloud by whoever taps them.
   'profile.followers': 'follower',
@@ -1987,12 +1970,9 @@ const IT: Dict = {
   'identity.deletePersonConfirm': 'Cancellare «{nome}» dalla rubrica? Togliere dal gruppo è reversibile, questo no: sparisce da ogni elenco e non la si può più rimettere dentro.',
   'identity.footnote': 'Aggiungere una persona non le dà accesso a questa macchina: le dà un nome con cui condividere. Per entrare deve comunque collegare un suo dispositivo e tu approvarlo. Resterà un ospite e vedrà solo ciò che le hai condiviso. L’email è un’etichetta, non un accesso.',
   // ── L'account: agganciare un'identità remota alla persona che è già qui.
-  'account.title': 'Account',
-  'account.blurb': 'Un account serve a essere raggiunti da FUORI dalla tua rete e a ritrovare le stesse persone su un’altra installazione. Tutto ciò che fai su questa macchina e dalla tua rete di casa continua a funzionare senza.',
   'account.notLinked': 'Nessun account collegato',
   'account.emailLabel': 'Email',
   'account.emailPlaceholder': 'La tua email',
-  'account.sendCode': 'Mandami un codice',
   'account.codeLabel': 'Codice ricevuto per email',
   'account.codePlaceholder': 'Codice a 6 cifre',
   'account.codeSent': 'Abbiamo mandato un codice a {email}. Incollalo qui.',
@@ -2000,10 +1980,7 @@ const IT: Dict = {
   'account.cancel': 'Annulla',
   'account.unlink': 'Scollega',
   'account.unlinkConfirm': 'Scollegare l’account? Questa macchina continua a funzionare esattamente com’è: si perde solo la raggiungibilità da fuori rete.',
-  'account.linkedAs': 'Collegato come {email}',
-  'account.linkedTo': 'Agganciato a {nome}, la persona che era già qui.',
   'account.offline': 'Il servizio degli account non risponde adesso. Il collegamento resta valido e nulla, qui, cambia.',
-  'account.footnote': 'Collegare un account non crea una seconda persona: aggancia la tua identità remota a quella che questa installazione ha già. Non serve per installare, per il primo avvio, per usare l’app o per raggiungerla dalla tua rete.',
   // ── Il runtime degli agenti: con quale MECCANICA gira un agente, che è una
   //    domanda diversa da CHI risponde. Il numero sta nel testo perché è tutta
   //    la ragione della scelta, ed è misurato, non stimato.
@@ -2199,17 +2176,7 @@ const IT: Dict = {
   // ── I DISPOSITIVI autorizzati. Superficie migrata al dizionario insieme
   //    all'area account/gruppi: prima era interamente in italiano in chiaro,
   //    accanto a pannelli inglesi, e i due si vedevano nella stessa finestra.
-  'devices.title': 'Dispositivi autorizzati',
-  'devices.blurb': 'Ogni dispositivo diverso da questo computer deve essere autorizzato una volta. Il pallino verde segna chi è connesso adesso.',
-  'devices.loadFailed': 'Non riesco a leggere l’elenco dei dispositivi.',
-  'devices.retry': 'Riprova',
-  'devices.loading': 'Carico…',
-  'devices.none': 'Nessun altro dispositivo autorizzato. Apri Topics dal telefono sulla stessa rete e comparirà qui una richiesta da approvare.',
   'devices.youAreHere': 'stai qui',
-  'devices.thisComputerNote': 'l’accesso non passa da una sessione',
-  'devices.connectedNow': 'connesso adesso',
-  'devices.seen': 'visto {quando}',
-  'devices.fromIp': 'da {ip}',
   'devices.ofPerson': 'di {nome}',
   'devices.rename': 'Rinomina',
   'devices.newNameFor': 'Nuovo nome per {nome}',
@@ -2217,20 +2184,9 @@ const IT: Dict = {
   'devices.guestTitle': 'Vede solo ciò che gli è stato condiviso, al livello scelto per ogni scheda',
   'devices.whose': 'Di chi è?',
   'devices.you': '(tu)',
-  'devices.cancel': 'annulla',
   'devices.cancelLabel': 'Annulla',
-  'devices.otherPerson': 'è di un’altra persona',
-  'devices.revokeQuestion': 'Revocare?',
-  'devices.confirmRevoke': 'Conferma revoca',
   'devices.revokeName': 'Revoca {nome}',
   'devices.revokeTitle': 'Revoca l’accesso a questo dispositivo',
-  'devices.revokedHeading': 'Revocati',
-  'devices.revokedWhen': 'revocato {quando}',
-  'devices.when.never': 'mai',
-  'devices.when.now': 'adesso',
-  'devices.when.min': '{n} min fa',
-  'devices.when.hours': '{n} h fa',
-  'devices.when.days': '{n} g fa',
   // Qui c'erano quattro `settings.language*`: nessuna superficie le ha mai
   // chiamate. Il selettore della lingua in Impostazioni scrive le sue etichette
   // in chiaro, bilingui, perché è l'unico posto che si deve poter leggere anche
@@ -2596,7 +2552,6 @@ const IT: Dict = {
   // The same machine seen from a phone: the one the server runs on, which is
   // not «this» one to whoever is holding the phone.
   'statusBar.me.hostComputer': 'Il computer',
-  'statusBar.me.devicesManage': 'Gestisci i dispositivi',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
   // THE SUBJECT AT ZERO. The chip stays even with no group at all, and this is

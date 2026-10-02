@@ -68,7 +68,7 @@ import { SheetGrabber } from './components/Shared/SheetGrabber';
 import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
 import { useExitGhost } from './lib/exitGhost';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
-import { TopicsMenuItems } from './components/Sidebar/TopicsMenuItems';
+import { MobileIdentityMenuItems, TopicsMenuItems, prefetchTopicsMenuItems } from './components/Sidebar/topicsMenuItemsLazy';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
 
 // Tauri-on-macOS: the native traffic lights are permanent and the shell pins
@@ -138,11 +138,6 @@ const ChangelogModal = lazy(async () => {
  *  preference with no door left `AppSettings`). */
 const VOICE_LOOP_MODE = 'off' as const;
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })));
-// The phone's identity block is the body of a menu that opens on a tap: loaded with it, not at first paint.
-const MobileIdentityMenuItems = lazy(async () => {
-  const { MobileIdentityMenuItems: Body } = await import('./components/Sidebar/MobileIdentityMenuItems');
-  return { default: Body };
-});
 // Shared factory so the idle prefetch (App mount) and the `lazy()` boundary
 // resolve the SAME module — a first ⌘K then finds the chunk already parsed
 // instead of paying a ~25–40ms synchronous fetch+eval on the opening frame
@@ -694,6 +689,12 @@ function App() {
   // On the phone the title menu IS the user menu: it answers `openUserMenu`.
   const openTopicsMenu = useCallback(() => setShowTopicsMenu(true), []);
   const [topicsMenuRequest, resetTopicsMenuRequest] = useUserMenuRequest(isMobile, openTopicsMenu);
+  // The phone's title menu rows are a lazy chunk, warmed once the phone layout is up.
+  useEffect(() => {
+    if (!isMobile) return;
+    const timer = setTimeout(prefetchTopicsMenuItems, 0);
+    return () => clearTimeout(timer);
+  }, [isMobile]);
   // Claude Code session tracker — subscribes to /api/claude-hooks-driven
   // `session:state` broadcasts. Feeds the unified signals store (useSignalsSync
   // below), which derives the per-topic "needs you" attention the notification
@@ -2348,6 +2349,7 @@ function App() {
               is the only door of this chrome: two hand-written lists are two
               lists that one day answer differently - the same rule
               SIDEBAR-STATUS-01 writes for the status rows. */}
+          <Suspense fallback={null}>
           <TopicsMenuItems
             key={topicsMenuRequest.n}
             isMobile={isMobile}
@@ -2364,6 +2366,7 @@ function App() {
             onClose={() => setShowTopicsMenu(false)}
             openLevel={topicsMenuRequest.level}
           />
+          </Suspense>
           {/* THE STATE SITS AT THE BOTTOM, under the commands: above the things
               that DO something, below the things that SAY something. Same
               component on both screens, never a second copy counting the same

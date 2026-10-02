@@ -17,7 +17,6 @@ import { formatMemoryMB } from '@/lib/formatMemory';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
-import { KeptSites } from './KeptSites';
 import { VersionChip } from './VersionChip';
 import { bundleDrift } from './bundleDrift';
 import { reportLoadFailure } from '@/lib/chunkReloadGuard';
@@ -25,6 +24,12 @@ import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import type { UsageRange } from '@/hooks/useProjectUsage';
 import { apiFetch } from '../../lib/shell/net';
+
+// The sites kept live are read when the Performance level opens, not before.
+const KeptSites = lazy(async () => {
+  const { KeptSites: Body } = await import('./KeptSites');
+  return { default: Body };
+});
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_TIME__: string;
@@ -348,7 +353,9 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           <AgentLines />
           <div className="border-t border-app-border" />
           <PerfSection />
-          <KeptSites />
+          <Suspense fallback={null}>
+            <KeptSites />
+          </Suspense>
         </SubmenuItem>
 
         {/* WHAT EACH PROJECT HAS COST, in the third unit.

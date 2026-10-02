@@ -13,7 +13,7 @@ import { etichettaIdentita, type LabelIdentity } from '@/components/Sidebar/iden
 import { useIdentityPresence, type OrgWithPresence } from './useIdentityPresence';
 import { useFriendPresence, type FriendPresence } from './useFriendPresence';
 import { getSession, subscribeSession, type SessionState } from '@/lib/auth/session';
-import { readDevices as fetchDevices, type DevicesSnapshot } from '@/lib/devicesApi';
+import { readDevices as fetchDevices, type DevicesSnapshot } from '@/lib/devicesRead';
 
 /** Everything the identity block draws, read in one place. */
 export interface IdentityMenuData {
