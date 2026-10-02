@@ -36,8 +36,13 @@ variante o `scope` è un difetto.
 
 Aperto il selettore, i modelli correnti di ogni azienda presente nello snapshot
 SHALL essere visibili nello stesso pannello, senza passare da un livello
-intermedio. Le sezioni sono per azienda (Anthropic, OpenAI, Google, Altri), e
-l'intestazione di ciascuna SHALL restare in vista mentre si scorre.
+intermedio. Le sezioni sono per azienda (Anthropic, OpenAI, Google, Altri).
+
+Da 720 px di finestra in su le sezioni SHALL essere colonne affiancate, una per
+azienda, tutte in vista insieme senza scorrere il pannello di lato; una colonna
+più lunga dello spazio SHALL scorrere da sola, con l'intestazione ferma. Sotto
+i 720 px le sezioni SHALL essere una lista sola, e l'intestazione di ciascuna
+SHALL restare in vista mentre si scorre.
 
 Il pannello SHALL restare dentro il viewport. Quando le righe non ci stanno,
 SHALL scorrere solo l'area delle sezioni, e fascia, ricerca e Automatico SHALL
@@ -55,10 +60,16 @@ interruttore dentro la riga del modello, non una riga a sé.
 - **THEN** vede Opus 5.5 e GPT-6.1-Sol senza nessun altro clic
 - **AND** passare dall'uno all'altro costa un clic
 
-#### Scenario: quattro aziende in una finestra bassa
-- **GIVEN** quattro aziende pronte e una finestra alta 900 px con il composer in basso
+#### Scenario: quattro aziende su desktop
+- **GIVEN** quattro aziende pronte e una finestra di 1280 × 900 px con il composer in basso
 - **WHEN** l'utente apre il selettore
 - **THEN** il pannello sta dentro il viewport
+- **AND** le quattro intestazioni e la prima riga di ogni azienda sono visibili senza scorrere
+
+#### Scenario: quattro aziende sul telefono
+- **GIVEN** quattro aziende pronte e uno schermo largo 390 px
+- **WHEN** l'utente apre il selettore
+- **THEN** le aziende sono una lista sola nel foglio dal basso
 - **AND** scorrendo la lista l'intestazione dell'azienda in vista resta ferma
 
 #### Scenario: generazioni vecchie

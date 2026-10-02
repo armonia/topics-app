@@ -302,6 +302,16 @@ provider dello snapshot e i modelli si ripetono. Resta tutto il resto di §4.
 
 ## 4. Impaginazione (scelta 4)
 
+> **Consigliata dopo la verifica: colonne affiancate su desktop, lista sul
+> telefono.** La richiesta chiede di vedere insieme i modelli di aziende
+> diverse; le misure qui sotto (§4.2) dicono che la lista unica lo fa solo fino
+> a due o tre aziende, e su questo Mac possono essere quattro. Le colonne:
+> pannello di circa 700 px, una colonna per azienda larga almeno 160 px,
+> ciascuna scorre da sola con l'intestazione ferma; ricerca, fascia e
+> Automatico sopra tutte; frecce su e giù dentro la colonna, sinistra e destra
+> fra le colonne. Sotto i 720 px resta la lista descritta in §4.1. Il resto di
+> questa sezione descrive la lista, che è anche la forma del telefono.
+
 ### 4.1 Anatomia, dall'alto
 
 1. **Fascia «Esegui in Topics»** (§5). Nella `compact` c'è sempre; nella
