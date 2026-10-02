@@ -549,8 +549,8 @@ export const filesApi = {
   async content(path: string): Promise<string> {
     const response = await apiFetch(`${API_BASE}/files/content?path=${encodeURIComponent(path)}`);
     if (!response.ok) {
-      const text = await response.text();
-      throw new ApiError(response.status, text || response.statusText);
+      const { message, extra } = readErrorBody(await response.text(), response.statusText);
+      throw new ApiError(response.status, message, extra);
     }
     return response.text();
   },
@@ -672,8 +672,8 @@ export const gitApi = {
       `${API_BASE}/git/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}`
     );
     if (!response.ok) {
-      const text = await response.text();
-      throw new ApiError(response.status, text || response.statusText);
+      const { message, extra } = readErrorBody(await response.text(), response.statusText);
+      throw new ApiError(response.status, message, extra);
     }
     return response.text();
   },
@@ -750,8 +750,8 @@ export const gitApi = {
       `${API_BASE}/git/show?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}${q}`
     );
     if (!response.ok) {
-      const text = await response.text();
-      throw new ApiError(response.status, text || response.statusText);
+      const { message, extra } = readErrorBody(await response.text(), response.statusText);
+      throw new ApiError(response.status, message, extra);
     }
     return response.text();
   },
