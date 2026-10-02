@@ -56,3 +56,14 @@ Se esce non-zero, ci si ferma qui.
 - `popoverRegistry`: un selettore dentro un livello aperto da una riga del menu chiudeva il menu (il «nonno»), perché il suo trigger non sta nel pannello del menu ma nel livello. Ora il parente si cerca lungo la catena dei livelli aperti, in `popoversToClose` e in `descendantPopoverNodes` (test in `popoverRegistry.test.ts`).
 - Larghezza chat: «Piena» è il passo dopo 1300, all'estremo del «+».
 - Extra deciso a parte: il cassetto di progetto del telefono entra con `.drawer-enter` e esce con la copia `drawer` di `lib/exitGhost`; tolto dalle eccezioni di `floatingSurfaces.test.ts`.
+
+## 6. Modifica del 02/10: tutto nel menu (scelte 1 e 2)
+
+- [x] 6.1 Server: `subscriptionType` e `rateLimitTier` dalle credenziali della CLI, come due etichette nella riga `claude-code` dello snapshot dei provider (`server/providers/claude/subscription.ts`); test che il file di credenziali vero non lascia un token nello snapshot serializzato (USERMENU-10).
+- [x] 6.2 `/api/mcp/fleet?peek=1`: quel che è montato, senza montare, con `mounted` per distinguere «nessuno» da «non ancora».
+- [x] 6.3 `Sidebar/formLevelTails.ts` con i test: le code di Piano, Provider AI, Strumenti, Calendario, Nodi, e la riga della finestra di 5 ore (USERMENU-10).
+- [x] 6.4 `Sidebar/FormLevel.tsx` (400 px, intestazione fissa, corpo che scorre, Tab nel livello, rete d'errore) e `Sidebar/FormLevels.tsx` (i cinque livelli, corpi caricati alla prima apertura); Piano sotto l'account, Nodi dopo Dispositivi, Provider AI, Strumenti e Calendario sopra le preferenze.
+- [x] 6.5 Un menu che ospita un modulo: `useMenuKeyboard` e `SubmenuItem` lasciano i tasti al campo; `ConfirmInsidePopoverContext` e `shelterOpenPopovers` tengono il menu aperto sotto una conferma chiesta da dentro.
+- [x] 6.6 Via `GlobalSettings.tsx`, `Settings/sections.ts`, `lib/openSettings.ts`, `topics:open-settings`, la riga Impostazioni e `showSettings`; ⌘, e la pill della palette aprono il menu col fuoco sulla prima riga; l'avviso dei limiti e il selettore del modello aprono Provider AI, i Dispositivi aprono Nodi.
+- [x] 6.7 E2E che entravano dal pannello cambiano porta; nuovo `tests/e2e/user-menu-forms.spec.ts` (code, un campo che tiene ogni tasto, Escape che chiude solo il livello, `Select` e conferma che non chiudono il menu, ⌘,, campanello, foglio a 390), con il video.
+- [x] 6.8 Screenshot chiaro e scuro, desktop e telefono: `screenshots/proposal-menu-all-*.png`.

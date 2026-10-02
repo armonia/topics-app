@@ -1,8 +1,8 @@
 ## Da decidere
 
 Menu utente e Impostazioni: 5 scelte prima del codice.
-1. Aspetto, Notifiche, Vista e Dispositivi diventano controlli diretti dentro il menu utente (interruttori, segmenti, passi, applicati subito); nel pannello Impostazioni restano solo i moduli da compilare (provider AI, strumenti MCP, calendario, piano, nodi: aggiungere una macchina con indirizzo e codice, e le richieste da altri computer), perché chiavi API, URL, codici e token non si scrivono bene in un livello largo 288 px (o: tutto nel menu, anche i moduli, in livelli lunghi che scorrono).
-2. Quel che resta si chiama ancora Impostazioni, si apre con ⌘, o dall'ultima riga del menu ed è sempre la finestra sopra l'app, perché si apre poche volte e ⌘, è l'abitudine di ogni app Mac (o: diventa una tab come Profilo, da tenere accanto alla chat mentre provi un provider).
+1. Tutto nel menu, anche i moduli (scelta cambiata il 02/10, testo in `.openspec.yaml`, `modifiche`): Aspetto, Notifiche, Vista e Dispositivi sono controlli diretti, applicati subito; Provider AI, Strumenti, Calendario, Piano e Nodi sono livelli più larghi (400 px) con l'intestazione fissa e il corpo che scorre, perché ogni impostazione ha così una casa sola e la si trova dove si guarda già; ogni riga dice in coda come sta (Piano «Gratuito», Provider AI «Claude Code · Max 20x»), così la domanda di tutti i giorni ha risposta senza aprire niente (o, la scelta del 01/10: i cinque moduli in una finestra Impostazioni a parte, perché chiavi e URL si scrivono meglio in una finestra larga).
+2. Niente riga Impostazioni e niente finestra: ⌘, e la pill della palette aprono il menu utente col fuoco sulla prima riga, e ogni rimando che portava a una pagina del pannello (avviso dei limiti, selettore del modello, richieste dai Dispositivi) apre il livello giusto, perché un tasto che porta a un secondo elenco è il doppione che la richiesta chiede di togliere (o, la scelta del 01/10: Impostazioni resta la finestra sopra l'app, aperta da ⌘, e dall'ultima riga del menu).
 3. Chi sei sta in un posto solo, la tab Profilo: dalle Impostazioni escono Profilo, Seguaci e Organizzazione, e la tab prende anche quel che oggi c'è solo lì (la scheda Persone per trovare chi seguire; un pannello «Fuori da Topics» con cifre, banner, pagina pubblica con Pubblica, Revoca e costo, presenza Discord); accedi/esci resta solo in cima al menu utente, che sul telefono entra in cima al menu del titolo con amici, gruppi e dispositivi, perché oggi le stesse cose si cambiano da due o tre porte con nomi diversi e sul telefono account e dispositivi stanno solo nelle Impostazioni (o: il contrario, l'identità resta nelle Impostazioni e la tab Profilo torna solo da leggere).
 4. I dispositivi si gestiscono nel loro livello del menu, su desktop e telefono: rinomina e revoca sulla riga con conferma in linea, «di chi è» in un livello della riga (solo se le persone sono più di una), i revocati in un livello sotto, perché oggi l'elenco è disegnato due volte e il gesto che conta sta dietro «Gestisci», che apre l'altra copia (o: il livello resta un elenco da leggere e «Gestisci» continua ad aprire le Impostazioni).
 5. L'ingranaggio del campanello apre il menu utente sul livello Notifiche, unica casa di tutte le preferenze delle notifiche (i tre interruttori, il permesso dei banner di sistema col suo tasto, l'accesso al disco per «Non disturbare», questo dispositivo con ricevi, «quando Topics è già aperto» e disattiva qui, gli altri dispositivi, i progetti silenziati), perché tutte le preferenze stanno così nello stesso menu (o: vivono nel pannello del campanello, accanto alla cronologia, e il menu utente non le ha).
@@ -12,15 +12,19 @@ ok / ok ma 2 no
 
 ---
 
-# Il menu utente diventa il posto delle preferenze, e le Impostazioni tengono solo i moduli
+# Il menu utente diventa il posto di ogni impostazione
 
-Richiesta di Attilio del 01/10 (testo in `.openspec.yaml`).
+Richiesta di Attilio del 01/10 (testo in `.openspec.yaml`). Il 02/10 ha
+cambiato le scelte 1 e 2: anche i moduli entrano nel menu, e la riga e la
+finestra Impostazioni spariscono (`modifiche` in `.openspec.yaml`; sotto,
+«Modifica del 02/10»). Il resto di questa pagina racconta la proposta del
+01/10 com'era: dove dice «pannello Impostazioni», oggi c'è un livello del menu.
 
 ## Dove cambiarla
 
 | # | Dove cambiarla |
 |---|----------------|
-| 1 | `USERMENU-01`, `USERMENU-06`; design §1 |
+| 1 | `USERMENU-01`, `USERMENU-06`, `USERMENU-10`; design §1 |
 | 2 | `USERMENU-06`; design §5 |
 | 3 | `USERMENU-05`, `USERMENU-09`; `SETORG-01`, `APPSET-03`, `APPSET-05` (modificati); design §4, §7 |
 | 4 | `USERMENU-04`, `USERMENU-09`; design §3, §7 |
@@ -174,7 +178,8 @@ dell'identità (un componente, due host, come già `TopicsMenuItems`):
 - **Pannelli, Cronologia** come oggi.
 - **Impostazioni** ⌘, : Provider AI, Strumenti, Calendario, Piano, Nodi
   (aggiungi un nodo con indirizzo e codice, MACHINE-02; le richieste da altri
-  computer). Nient'altro.
+  computer). Nient'altro. *Superato il 02/10: questi cinque sono livelli del
+  menu e la riga non c'è più (sotto).*
 - **Sistema, Versione, Riavvia** come oggi; Sistema, Prestazioni guadagna i
   siti sempre attivi con «Togli».
 
@@ -233,3 +238,50 @@ Server: nessuno.
 Specs: `settings` (USERMENU-01…09 aggiunti; SETORG-01, APPSET-03, APPSET-05
 modificati); `notifications` (NOTIF-PERM-01 modificato: la casa del permesso
 passa dal pannello Impostazioni al livello Notifiche, il comportamento resta).
+
+## Modifica del 02/10: tutto nel menu
+
+Richiesta: «vedo ancora cose che possono essere messe direttamente nel menu
+utente, come provider, calendario etc.. meglio evitarlo proprio il tasto
+secondo me. inoltre lavorare al top su ui ux, ad esempio su piano nel menu
+utente si può mostrare direttamente il piano che ha anche l'utente.»
+
+Il menu utente, dall'alto, separato in gruppi dalle linee sottili che ha già:
+
+- **Account**, e subito sotto **Piano** («Gratuito», «Team · 5 posti»; a
+  trenta giorni dalla scadenza «· scade tra 12 g» in ambra): cosa sei e cosa
+  paghi.
+- **Amici, Gruppi**, come prima.
+- **Dispositivi**, poi **Nodi** («2 nodi», e un badge con le richieste da
+  altri computer, che aspettano una risposta): le macchine insieme. La riga
+  delle richieste nel livello Dispositivi apre il livello Nodi.
+- **Provider AI** («Claude Code · Max 20x»), **Strumenti** («3 attivi»),
+  **Calendario** («Collegato», «In pausa», «Non collegato»): su cosa gira
+  l'app e cosa raggiunge. Dentro Provider AI, in cima, l'abbonamento Claude e
+  la finestra di 5 ore già usata («al 42% · riparte alle 20:49»), letti
+  insieme.
+- **Aspetto, Notifiche, Vista, Pannelli, Cronologia**, poi Sistema, come
+  prima.
+
+I cinque moduli sono livelli larghi 400 px (mai più della finestra meno i
+margini), con l'intestazione fissa (nome e chiudi) e il corpo che scorre sotto
+la stessa altezza massima del menu; sul telefono sono fogli dal basso a tutta
+larghezza. Dentro un livello un campo tiene ogni tasto (frecce, Home, End,
+Invio), Escape in un campo chiude solo il livello, Tab resta nel livello, e
+una conferma chiesta da lì («Togli la licenza?») o la lista di una `Select`
+non chiudono il menu.
+
+Le code si leggono solo a menu aperto, una volta per apertura e di nuovo
+quando un livello si chiude (nessun polling a menu chiuso): `/api/license`,
+lo snapshot dei provider (già tenuto vivo dal socket), `/api/mcp/fleet?peek=1`
+(che non monta la flotta), `/api/app-settings`, `/api/machines` e le
+richieste dei nodi. L'abbonamento Claude esce dal server come due etichette
+(`subscriptionType`, `rateLimitTier`), mai la credenziale
+(`server/providers/claude/subscription.ts`, con il test che lo prova).
+
+Escono `GlobalSettings.tsx`, `Settings/sections.ts`, `lib/openSettings.ts` e
+l'evento `topics:open-settings`; ⌘, apre il menu col fuoco sulla prima riga.
+Restano come sono le impostazioni della board e quelle della singola chat.
+
+Screenshot (WebKit, server di test isolato), chiaro e scuro:
+`screenshots/proposal-menu-all-*.png`.

@@ -1,4 +1,4 @@
-# Settings: le preferenze nel menu utente, i moduli nelle Impostazioni
+# Settings: ogni impostazione nel menu utente
 
 ## ADDED Requirements
 
@@ -18,9 +18,6 @@ copre la chat e il cambio si vede dal vivo.
 
 La riga del livello SHALL dire in coda come sta (per esempio «Sistema · 13
 px»), come già fa Vista.
-
-Nessuna preferenza che chiede di scrivere una chiave, un URL o un token SHALL
-stare nel menu.
 
 #### Scenario: cambiare tema dal menu
 - **GIVEN** il tema `system`
@@ -118,7 +115,7 @@ vuoto.
 I dispositivi revocati SHALL stare in un livello figlio «Revocati», presente
 solo se ce n'è almeno uno. Ogni revocato SHALL dire quando è stato revocato. Il livello NON SHALL avere una riga che apre
 un'altra copia dell'elenco. Le richieste dei computer remoti, se ci sono, SHALL
-comparire in cima come una riga che apre Impostazioni, Nodi.
+comparire in cima come una riga che apre il livello Nodi del menu utente.
 
 #### Scenario: revocare dal menu
 - **GIVEN** un telefono appaiato
@@ -146,14 +143,14 @@ comparire in cima come una riga che apre Impostazioni, Nodi.
 - **THEN** la riga dice che il telefono è della seconda
 
 #### Scenario: niente seconda copia
-- **THEN** il pannello Impostazioni non contiene l'elenco dei dispositivi
-- **AND** la voce Nodi del pannello contiene `settings-node-pair`
+- **THEN** il livello Nodi del menu utente non contiene l'elenco dei dispositivi
+- **AND** contiene `settings-node-pair`
 
 ### Requirement: USERMENU-05 — Chi sei sta nella tab Profilo, l'account in cima al menu
 
-Il pannello Impostazioni NON SHALL avere le voci Profilo, Seguaci e
-Organizzazione. Nome, foto, bio, amici, seguaci, seguiti, privacy e
-organizzazione SHALL cambiarsi dalla tab Profilo.
+Il menu utente NON SHALL avere livelli Profilo, Seguaci o Organizzazione da
+compilare. Nome, foto, bio, amici, seguaci, seguiti, privacy e organizzazione
+SHALL cambiarsi dalla tab Profilo.
 
 Ciò che oggi sta SOLO in quelle voci SHALL avere una casa nella tab prima che
 le voci escano:
@@ -170,8 +167,8 @@ account in cima al menu utente, che sul telefono sta in cima al menu del titolo
 (USERMENU-09). Ogni collegamento che oggi apre una voce tolta SHALL aprire la
 stessa pagina nella tab Profilo.
 
-#### Scenario: un collegamento vecchio
-- **WHEN** qualcosa chiama `openSettings('organization')`
+#### Scenario: un collegamento alla pagina dell'organizzazione
+- **WHEN** qualcosa chiede la pagina dell'organizzazione (`apriProfilo('organization')`)
 - **THEN** si apre la tab Profilo sulla pagina dell'organizzazione
 
 #### Scenario: la pagina pubblica ha una casa
@@ -184,27 +181,56 @@ stessa pagina nella tab Profilo.
 - **THEN** c'è `list-people`
 
 #### Scenario: l'account una volta, su tutti e due gli schermi
-- **THEN** né il pannello Impostazioni né la tab Profilo hanno un campo per accedere
+- **THEN** la tab Profilo non ha un campo per accedere
 - **AND** il blocco account del menu utente ce l'ha, a 1400x900 nella card e a 390x844 nel menu del titolo
 
-### Requirement: USERMENU-06 — Ogni preferenza ha una porta, e le Impostazioni tengono solo i moduli
+### Requirement: USERMENU-06 — Ogni impostazione ha una casa sola, il menu utente
 
-Ogni chiave di `AppSettings` e ogni preferenza dell'interfaccia SHALL essere
-modificabile da esattamente UNA superficie; i comandi (pannelli, cronologia) e
-le scorciatoie da tastiera verso la stessa superficie non contano come porte.
-Un test unitario SHALL elencare le chiavi di `AppSettings` e fallire se una
-chiave non ha una casa dichiarata o ne ha due.
+Ogni chiave di `AppSettings`, ogni preferenza dell'interfaccia e ogni modulo
+da compilare SHALL stare in esattamente UNA superficie, il menu utente (la
+card in fondo alla colonna sul desktop, il menu del titolo sul telefono); i
+comandi (pannelli, cronologia) e le scorciatoie da tastiera verso la stessa
+superficie non contano come porte. Un test unitario SHALL elencare le chiavi
+di `AppSettings` e fallire se una chiave non ha una casa dichiarata o ne ha due.
 
-Il pannello Impostazioni SHALL avere esattamente le voci Provider AI,
-Strumenti, Calendario, Piano, Nodi (aggiungere un nodo, MACHINE-02, e le
-richieste da altri computer), e SHALL aprirsi con ⌘, e dalla
-riga «Impostazioni» del menu utente. Una preferenza senza controllo SHALL
-uscire da `AppSettings` (oggi `voiceMode`); una che si aggiunge SHALL anche
-togliersi (oggi `keepLiveSites`, da Sistema, Prestazioni).
+NON SHALL esistere un pannello o una finestra Impostazioni, né una riga del
+menu che ne apra uno. I moduli Provider AI, Strumenti, Calendario, Piano e Nodi
+(aggiungere un nodo, MACHINE-02, e le richieste da altri computer) SHALL essere
+livelli del menu utente: larghi 400 px e mai più della finestra meno i
+margini, con l'intestazione fissa e il corpo che scorre sotto l'altezza massima
+del menu; sul telefono fogli dal basso a tutta larghezza.
 
-#### Scenario: le voci del pannello
+Un livello con un modulo SHALL comportarsi da modulo: ogni tasto battuto in un
+campo (lettere, spazio, frecce, Home, End, Invio) SHALL arrivare al campo;
+Escape in un campo SHALL chiudere solo quel livello; Tab SHALL restare nel
+livello; una conferma chiesta dal livello e la lista di una `Select` aperta da
+lì NON SHALL chiudere il menu.
+
+⌘, e la pill della palette SHALL aprire il menu utente con il fuoco sulla
+prima riga. Ogni rimando che apriva una pagina del pannello SHALL aprire il
+livello corrispondente (`openUserMenu`): l'avviso dei limiti del piano e il
+selettore del modello aprono Provider AI, la riga delle richieste dei
+Dispositivi apre Nodi. Una preferenza senza controllo SHALL uscire da `AppSettings` (oggi
+`voiceMode`); una che si aggiunge SHALL anche togliersi (oggi `keepLiveSites`,
+da Sistema, Prestazioni).
+
+#### Scenario: ⌘, apre il menu
 - **WHEN** premo ⌘,
-- **THEN** il pannello elenca cinque voci, nell'ordine Provider AI, Strumenti, Calendario, Piano, Nodi
+- **THEN** è aperto il menu utente con il fuoco sulla riga dell'account
+- **AND** non esiste nessun elemento `settings-panel` né `topics-menu-settings`
+- **AND** il menu ha le righe Piano, Nodi, Provider AI, Strumenti, Calendario
+
+#### Scenario: un campo dentro un livello
+- **GIVEN** il livello Provider AI aperto e il campo della chiave di un provider
+- **WHEN** scrivo una chiave e premo frecce, Home, End e poi Invio
+- **THEN** ogni carattere è nel campo, il fuoco non lo lascia e la chiave parte al server
+- **WHEN** premo Escape nel campo
+- **THEN** si chiude il livello e il menu resta aperto
+
+#### Scenario: una conferma dal livello
+- **GIVEN** una licenza team e il livello Piano aperto
+- **WHEN** premo «Togli la licenza» e poi «Annulla» nella conferma
+- **THEN** il livello e il menu sono ancora aperti
 
 #### Scenario: una chiave senza casa
 - **GIVEN** una chiave aggiunta ad `AppSettings` senza una casa dichiarata
@@ -217,9 +243,9 @@ giù, Home ed End. Nei livelli di preferenze il segmento SHALL essere un
 `radiogroup` (frecce sinistra e destra cambiano e applicano), il passo uno
 `spinbutton`, l'interruttore `role="switch"`.
 
-Sotto 768 px i livelli del menu utente (Dispositivi, Aspetto, Notifiche,
-Vista) SHALL essere nel menu del titolo, aperti come foglio con «Indietro», con
-bersagli di almeno 44 px.
+Sotto 768 px i livelli del menu utente (Piano, Dispositivi, Nodi, Provider AI,
+Strumenti, Calendario, Aspetto, Notifiche, Vista) SHALL essere nel menu del
+titolo, aperti come foglio a tutta larghezza, con bersagli di almeno 44 px.
 
 #### Scenario: tutto da tastiera
 - **WHEN** apro il menu dalla card, scendo con le frecce fino ad Aspetto, premo freccia destra e poi freccia giù
@@ -261,6 +287,46 @@ sia sul telefono.
 - **THEN** in cima c'è il blocco account con il campo per accedere
 - **AND** dal livello Dispositivi revoco l'altro dispositivo con la conferma in linea
 
+### Requirement: USERMENU-10 — La riga di un modulo dice come sta, senza aprire niente
+
+Le righe Piano, Provider AI, Strumenti, Calendario e Nodi del menu utente SHALL
+dire in coda come stanno adesso, brevi e in cifre tabellari, come la coda di
+Vista:
+
+- Piano: il piano di Topics da `/api/license`, «Gratuito» o «Team · N posti»;
+  quando la scadenza è entro trenta giorni (`scadenzaVicina`) SHALL aggiungere
+  «scade tra N g» o «scaduto», nel tono di avviso;
+- Provider AI: il provider predefinito e, quando è Claude Code e il piano è
+  noto, l'abbonamento Claude («Claude Code · Max 20x»). Il server SHALL esporre
+  dell'abbonamento solo due etichette (`subscriptionType`, `rateLimitTier`),
+  mai un token né il percorso delle credenziali; un tipo che il client non
+  conosce NON SHALL essere nominato. Dentro il livello, in cima, l'abbonamento
+  SHALL stare insieme alla finestra di 5 ore già usata;
+- Strumenti: quanti server MCP rispondono, o «Nessuno»; senza montare la flotta
+  (`?peek=1`), e senza dire «Nessuno» quando la flotta non è ancora montata;
+- Calendario: «Collegato», «In pausa» o «Non collegato»;
+- Nodi: quanti nodi; le richieste da altri computer SHALL essere un badge con
+  il numero.
+
+Le code SHALL leggersi solo a menu aperto (nessun polling a menu chiuso) e di
+nuovo quando il loro livello si chiude, così un cambio fatto dentro si vede
+subito. Le parole SHALL venire da funzioni pure con test, nelle due lingue.
+
+#### Scenario: il piano senza aprire niente
+- **GIVEN** il piano gratuito
+- **WHEN** apro il menu utente
+- **THEN** la riga Piano dice «Gratuito» senza aprire il suo livello
+
+#### Scenario: il piano Claude
+- **GIVEN** Claude Code predefinito e le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`
+- **WHEN** apro il menu utente
+- **THEN** la riga Provider AI dice «Claude Code · Max 20x»
+- **AND** lo snapshot dei provider serializzato non contiene nessun token
+
+#### Scenario: la scadenza vicina
+- **GIVEN** una licenza team da 5 posti che scade fra 12 giorni
+- **THEN** la riga Piano dice «Team · 5 posti · scade tra 12 g» nel tono di avviso
+
 ## MODIFIED Requirements
 
 ### Requirement: SETORG-01 — Le impostazioni parlano italiano, e i gruppi si trovano da lì
@@ -269,19 +335,19 @@ Segnalato: le impostazioni non erano ben divise, i gruppi non si vedevano, e nel
 profilo era accorpata la possibilità di aggiungere altre persone, che lì non ha
 senso, perché il profilo è di una persona sola.
 
-Il pannello Impostazioni e i livelli di preferenze del menu utente SHALL essere
-nella lingua dell'interfaccia.
+Le righe e i livelli del menu utente, moduli compresi, SHALL essere nella
+lingua dell'interfaccia.
 
 Il banner da mettere in un documento condiviso SHALL essere copiabile, già
 pronto, dalla tab Profilo.
 
 I GRUPPI SHALL trovarsi dal menu utente (livello Gruppi) e amministrarsi dalla
-tab Profilo, pagina dell'organizzazione. Il pannello Impostazioni NON SHALL
-averne una copia.
+tab Profilo, pagina dell'organizzazione. Il menu utente NON SHALL averne una
+seconda copia.
 
 #### Scenario: il menu delle impostazioni
 - **GIVEN** la lingua predefinita
-- **THEN** le voci del pannello e dei livelli SHALL leggersi in quella lingua
+- **THEN** le righe e i livelli del menu utente SHALL leggersi in quella lingua
 
 #### Scenario: i gruppi
 - **GIVEN** il menu utente aperto
@@ -294,7 +360,7 @@ Profilo e il livello Dispositivi del menu utente. Erano una voce sola:
 l'identificativo diceva `devices` mentre l'etichetta diceva «Profilo».
 
 Ogni collegamento diretto SHALL atterrare sulla PROPRIA superficie:
-`openSettings('devices')` apre il menu utente sul livello Dispositivi,
+`openUserMenu('devices')` apre il menu utente sul livello Dispositivi,
 `apriProfilo('profile')` la tab Profilo.
 
 La superficie attiva SHALL essere leggibile dalla marcatura di accessibilità
@@ -308,7 +374,7 @@ che già scrive (`aria-expanded` sulla riga del livello, la tab attiva).
 
 Le pagine dell'identità (profilo, chi segue, persone da seguire, riservatezza,
 fuori da Topics, organizzazione) SHALL essere raggiungibili con un gesto dalla
-tab Profilo, ciascuna con il suo titolo. Il pannello Impostazioni NON SHALL contenerne nessuna.
+tab Profilo, ciascuna con il suo titolo. Il menu utente NON SHALL contenerne nessuna.
 
 Nessuna voce SHALL essere ripetuta, e ognuna SHALL avere la propria etichetta.
 

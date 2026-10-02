@@ -89,7 +89,7 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(page.getByTestId("settings-panel")).toHaveCount(0);
   });
 
-  test("USERMENU-06: un modulo dentro il menu si comporta da modulo", async ({ page, request }) => {
+  test("USERMENU-06a: un modulo dentro il menu si comporta da modulo", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
     await claudeMaxMachine(page);
     // A five-hour window at 42%, as the CLI would report it: the level puts it

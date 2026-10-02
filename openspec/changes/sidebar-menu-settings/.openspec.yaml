@@ -4,3 +4,7 @@ creato: 2026-10-01
 richiesta: "comunque dovremmo animare bene ogni funzionalita in maneira minimal moderna sobria e non invasiva (ad esempio dropdowns, anche dell'utente della sidebar). Basico: di quest'ultimo, lavoriamo ancora di più sulla parte di esperienza. In particolare, vedo che tutte le impostazioni, in realtà, si potrebbero esplodere direttamente nella sidebar o alcune cose già ci sono all'interno della sidebar. Forse vanno gestite le relative impostazioni in maniera diversa e migliore in termini di UI/UX nella relativa sezione già presente in questo dropdown della sidebar, rimuovendo inuttili ripetizioni e cose ridondanti."
 approvato: 2026-10-01 17:11
 risposta: "vai con tutte le migliori soluzione solide usabili comprensibili facili leggibili scalabili pulite complete ma sintetiche"
+modifiche:
+  - data: "2026-10-02"
+    scelte: [1, 2]
+    risposta: "vedo ancora cose che possono essere messe direttamente nel menu utente, come proviedr calednario etc.. meglio evitarlo proprio il tasto secondo me. inoltre lavorre al top su ui ux ad esempio su piano nel menu utente si può mostrare direttamente il piano che ha anche l'utente."
