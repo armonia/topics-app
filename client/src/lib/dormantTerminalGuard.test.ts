@@ -173,3 +173,34 @@ describe('dormantTerminalGuard, real fetcher', () => {
     }
   });
 });
+
+/**
+ * A FAILED BOOT READ IS NOT AN EMPTY LIST. Raising `loaded` with no dormant ids
+ * after a failed GET let the prune drop every parked tab not seen in the roster
+ * (a reload while the server restarts), and the read was never asked again.
+ */
+describe('dormantTerminalGuard, failed initial read', () => {
+  test('stays unloaded and asks again until the list answers', async () => {
+    let calls = 0;
+    let updates = 0;
+    const guard = createDormantTerminalGuard({
+      onUpdate: () => { updates++; },
+      retryBaseMs: 1,
+      fetcher: async () => {
+        calls++;
+        if (calls === 1) throw new Error('server restarting');
+        return ['P'];
+      },
+    });
+    guard.load();
+    await settle();
+    expect(guard.loaded).toBe(false);
+    expect(updates).toBe(0);
+    await new Promise<void>(resolve => setTimeout(resolve, 20));
+    expect(calls).toBe(2);
+    expect(guard.loaded).toBe(true);
+    expect(guard.dormantIds.has('P')).toBe(true);
+    expect(updates).toBe(1);
+    guard.dispose();
+  });
+});
