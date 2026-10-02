@@ -220,7 +220,12 @@
     "01/10, the human board routes (`/api/boards/:projectId/...`) move out of createTasksRouter as one block:",
     "server/routes/tasks.ts 4952 -> 3981 and the new server/routes/tasks-board.ts at 1197. Not split further on",
     "purpose: 1062 of those lines are ONE route function body moved unchanged, and cutting it means touching its",
-    "logic. Recorded by hand, these two rows only."
+    "logic. Recorded by hand, these two rows only.",
+  "02/10, a run from the chat that a restart loses closes at its last output, not at its start: the boot",
+  "deletes the log of every process the registry does not know, so its time now goes on the command_runs row",
+  "while the run prints. server/routes/processes.ts 2207 on main -> 2213: +3 the stat of the log as a second",
+  "source, +1 the port of a server's page, +2 the call in the once-a-second tail; the throttle and the write",
+  "live in lib/command-runs.ts. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -394,7 +399,7 @@
 
     "server/routes/outbound.test.ts": 972,
 
-    "server/routes/processes.ts": 2090,
+    "server/routes/processes.ts": 2213,
 
     "server/routes/tasks-board.ts": 1197,
     "server/routes/tasks.test.ts": 2697,

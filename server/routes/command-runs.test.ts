@@ -334,7 +334,7 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     const id = `gone-row-${seq}`;
     insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
     // What the registry wrote while the run printed, before the server went down and the boot swept its log.
-    noteRunOutput(ctx.db, id, lastOutput);
+    noteRunOutput(ctx.db, id, Date.parse(lastOutput));
     const [run] = await runs(topic, messageId);
     expect(run).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput });
     expect(Date.parse(run!.endedAt!) - Date.parse(run!.startedAt)).toBe(450_000);

@@ -69,13 +69,27 @@ export function closeRun(db: Database, id: string, end: {
   return res.changes > 0;
 }
 
+/** How often a run writes the time of its output on its row: the error of its `unknown` end. */
+const OUTPUT_NOTE_MS = 5_000;
+/** When each running run last wrote that time (ms). */
+const outputNotedAt = new Map<string, number>();
+
 /**
- * The run printed at `at`: kept on its row while it is `running`, so the
- * moment it was last known alive survives a restart that takes its log with it
- * (migration `20261002192446-command-runs-last-output.sql`).
+ * The run printed at `now`: kept on its row while it is `running`, at most
+ * every `OUTPUT_NOTE_MS`. The boot after a restart deletes the log of every
+ * process the registry does not know, and with it the log's own time; the row
+ * is what says when a run lost with the server was last alive (migration
+ * `20261002192446-command-runs-last-output.sql`).
  */
-export function noteRunOutput(db: Database, id: string, at: string): void {
-  db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ? AND status = 'running'").run(at, id);
+export function noteRunOutput(db: Database, id: string, now = Date.now()): void {
+  const last = outputNotedAt.get(id);
+  if (last !== undefined && now - last < OUTPUT_NOTE_MS) return;
+  outputNotedAt.set(id, now);
+  try {
+    db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ? AND status = 'running'").run(new Date(now).toISOString(), id);
+  } catch (err) {
+    console.warn(`[command-runs] noting the output of ${id} failed:`, err);
+  }
 }
 
 /** When the run of `id` last printed, as its row says; null when it never did, or is gone. */
@@ -124,6 +138,7 @@ export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">,
   const status: Exclude<RunStatus, "running"> = row.stopped ? "stopped"
     : row.exitCode === undefined ? "unknown"
     : row.exitCode === 0 ? "done" : "error";
+  outputNotedAt.delete(row.processId);
   const { output, droppedLines } = tailForStorage(row.output, row.droppedLines ?? 0);
   try {
     const closed = closeRun(ctx.db, row.processId, {
