@@ -42,6 +42,13 @@ import { LevelCloseContext } from './levelClose';
  * closes it: Escape, a press outside, or another level opening at the same
  * depth. A level opened by hover alone still closes on hover-out.
  *
+ * USING A LEVEL PINS IT TOO. A press or a key inside a level opened by hover
+ * is the same decision as the click on its row: the level now holds a form
+ * half filled, or has asked a question. Left unpinned, the pointer drifting
+ * off it threw the typed key away, and a confirmation (portalled outside the
+ * level's React tree, so moving onto it is a `pointerleave`) closed the level
+ * before it could be answered.
+ *
  * ONE LEVEL PER DEPTH. Pinning without this rule leaves two panels side by
  * side, both claiming to belong to the same host. Every level provides its own
  * registry to whatever it contains, so "siblings" means the rows of ONE panel
@@ -257,6 +264,9 @@ export function SubmenuItem({
     scheduleClose();
   };
 
+  // See «using a level pins it too» above.
+  const pin = () => { pinned.current = true; };
+
   const onTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowRight') {
       e.preventDefault();
@@ -277,6 +287,7 @@ export function SubmenuItem({
   // half-typed value away.
   const onLevelKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation();
+    pinned.current = true;
     if (e.key === 'ArrowLeft' && !isTypingSurface(e.target)) {
       e.preventDefault();
       close();
@@ -322,7 +333,7 @@ export function SubmenuItem({
           ariaLabel={ariaLabel ?? label}
           testId={testId ? `${testId}-menu` : undefined}
         >
-          <div onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
+          <div onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} onPointerDown={pin}>
             <SiblingContext.Provider value={nested}>
               <LevelCloseContext.Provider value={close}>
                 <HostWidthContext.Provider value={levelWidth}>{children}</HostWidthContext.Provider>

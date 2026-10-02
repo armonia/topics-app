@@ -204,7 +204,9 @@ Un livello con un modulo SHALL comportarsi da modulo: ogni tasto battuto in un
 campo (lettere, spazio, frecce, Home, End, Invio) SHALL arrivare al campo;
 Escape in un campo SHALL chiudere solo quel livello; Tab SHALL restare nel
 livello; una conferma chiesta dal livello e la lista di una `Select` aperta da
-lì NON SHALL chiudere il menu.
+lì NON SHALL chiudere il menu. Un livello aperto col passaggio del mouse SHALL
+restare aperto, quando il puntatore se ne va, appena lo si usa (un clic o un
+tasto dentro): la sua conferma e una chiave scritta a metà non SHALL perdersi.
 
 ⌘, e la pill della palette SHALL aprire il menu utente con il fuoco sulla
 prima riga. Ogni rimando che apriva una pagina del pannello SHALL aprire il
@@ -231,6 +233,14 @@ da Sistema, Prestazioni).
 - **GIVEN** una licenza team e il livello Piano aperto
 - **WHEN** premo «Togli la licenza» e poi «Annulla» nella conferma
 - **THEN** il livello e il menu sono ancora aperti
+
+#### Scenario: un livello aperto al passaggio del mouse, poi usato
+- **GIVEN** il livello Piano aperto solo passando col mouse sulla sua riga, senza clic
+- **WHEN** premo «Togli la licenza» e porto il mouse su «Annulla» nella conferma
+- **THEN** il livello è ancora aperto dietro la conferma
+- **GIVEN** il livello Provider AI aperto solo passando col mouse
+- **WHEN** scrivo una chiave a metà e il mouse esce dal livello
+- **THEN** il livello è ancora aperto e la chiave è ancora nel campo
 
 #### Scenario: una chiave senza casa
 - **GIVEN** una chiave aggiunta ad `AppSettings` senza una casa dichiarata
@@ -296,8 +306,9 @@ Vista:
 - Piano: il piano di Topics da `/api/license`, «Gratuito» o «Team · N posti»;
   quando la scadenza è entro trenta giorni (`scadenzaVicina`) SHALL aggiungere
   «scade tra N g» o «scaduto», nel tono di avviso;
-- Provider AI: il provider predefinito e, quando è Claude Code e il piano è
-  noto, l'abbonamento Claude («Claude Code · Max 20x»). Il server SHALL esporre
+- Provider AI: il provider predefinito e, quando gira sull'abbonamento Claude
+  (Claude Code, o Topics, il runtime predefinito, che entra con le stesse
+  credenziali) e il piano è noto, l'abbonamento («Topics · Max 20x»). Il server SHALL esporre
   dell'abbonamento solo due etichette (`subscriptionType`, `rateLimitTier`),
   mai un token né il percorso delle credenziali; un tipo che il client non
   conosce NON SHALL essere nominato. Dentro il livello, in cima, l'abbonamento
@@ -318,9 +329,9 @@ subito. Le parole SHALL venire da funzioni pure con test, nelle due lingue.
 - **THEN** la riga Piano dice «Gratuito» senza aprire il suo livello
 
 #### Scenario: il piano Claude
-- **GIVEN** Claude Code predefinito e le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`
+- **GIVEN** il runtime predefinito (Topics) e le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`
 - **WHEN** apro il menu utente
-- **THEN** la riga Provider AI dice «Claude Code · Max 20x»
+- **THEN** la riga Provider AI dice «Topics · Max 20x»
 - **AND** lo snapshot dei provider serializzato non contiene nessun token
 
 #### Scenario: la scadenza vicina

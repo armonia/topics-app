@@ -7,7 +7,10 @@
  * plan and nodes are levels of the menu. What a regression would break first:
  *
  *  · the rows answer without opening anything: Plan says «Gratuito», AI
- *    providers says the provider and the Claude plan it runs on;
+ *    providers says the provider and the Claude plan it runs on, with the
+ *    default runtime too;
+ *  · a level opened by HOVER, once used (a press, a key), stays when the
+ *    pointer leaves it: for its own confirmation, and with a half-typed key;
  *  · a form inside a menu still behaves like a form: every key typed into a
  *    field lands there (letters, space, Home, End, arrows, Enter), Escape in
  *    the field closes only the level, a selector's list and a confirmation
@@ -36,17 +39,28 @@ test.use({ video: "on" });
 
 type Snapshot = { providers: Array<Record<string, unknown> & { name: string }>; defaultProvider: string | null };
 
-/** The snapshot as the server would send it on a machine signed in to Claude Max 20x. */
+/**
+ * The snapshot as the server would send it on a machine signed in to Claude
+ * Max 20x, with the default runtime: `topics` (`DEFAULT_AGENT_RUNTIME`), which
+ * signs in with the same credentials as the claude CLI, so both rows carry the
+ * plan. The default stays `topics` on purpose: a fixture that made Claude Code
+ * the default hid a tail that never named the plan for most people.
+ */
 function withClaudePlan(snapshot: Snapshot): Snapshot {
-  const others = snapshot.providers.filter((p) => p.name !== "claude-code").map((p) => ({ ...p, isDefault: false }));
-  const own = snapshot.providers.find((p) => p.name === "claude-code");
-  const claude = {
+  const subscription = { type: "max", tier: "default_claude_max_20x" };
+  const claudeRow = (name: string, label: string, isDefault: boolean) => ({
     status: "ready", models: [], requirements: [], fetchedAt: new Date().toISOString(),
-    ...own,
-    name: "claude-code", label: "Claude Code", isDefault: true,
-    subscription: { type: "max", tier: "default_claude_max_20x" },
+    ...snapshot.providers.find((p) => p.name === name),
+    name, label, isDefault, subscription,
+  });
+  const others = snapshot.providers
+    .filter((p) => p.name !== "claude-code" && p.name !== "topics")
+    .map((p) => ({ ...p, isDefault: false }));
+  return {
+    ...snapshot,
+    defaultProvider: "topics",
+    providers: [claudeRow("topics", "Topics", true), claudeRow("claude-code", "Claude Code", false), ...others],
   };
-  return { ...snapshot, defaultProvider: "claude-code", providers: [claude, ...others] };
 }
 
 async function claudeMaxMachine(page: Page) {
@@ -81,7 +95,7 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
 
     await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 15_000 });
     await expect(menu.getByTestId("topics-menu-plan-tail")).not.toHaveAttribute("data-warn", "true");
-    await expect(menu.getByTestId("topics-menu-providers-tail")).toHaveText("Claude Code · Max 20x", { timeout: 15_000 });
+    await expect(menu.getByTestId("topics-menu-providers-tail")).toHaveText("Topics · Max 20x", { timeout: 15_000 });
     await expect(menu.getByTestId("topics-menu-calendar-tail")).toHaveText(/Collegato|In pausa|Non collegato/, { timeout: 15_000 });
     await expect(menu.getByTestId("topics-menu-nodes-tail")).toBeVisible({ timeout: 15_000 });
     // The old door and the old window: gone.
@@ -200,6 +214,73 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(page.getByTestId("notification-history-panel")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("notification-settings-button").click();
     await expect(page.getByTestId("topics-menu-notifications-menu")).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe("un livello aperto col passaggio del mouse, una volta usato, resta", () => {
+  /** Open a level the way a mouse does, by resting on its row: no click, so
+   *  nothing pinned it yet. */
+  async function hoverOpen(page: Page, row: string) {
+    await openProfileMenu(page);
+    await page.getByTestId(`topics-menu-${row}`).hover();
+    const level = page.getByTestId(`topics-menu-${row}-menu`);
+    await expect(level).toBeVisible({ timeout: 10_000 });
+    return level;
+  }
+
+  /** Move the mouse to the middle of `target` in steps, then press there. */
+  async function pressAt(page: Page, target: ReturnType<Page["getByTestId"]>) {
+    const box = await target.boundingBox();
+    if (!box) throw new Error("target has no box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+
+  test("USERMENU-06d: la conferma chiesta da un livello aperto al passaggio non lo chiude", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    const expiresAt = Date.now() + 12 * 86_400_000 + 3_600_000;
+    await page.route("**/api/license", async (route) => {
+      if (route.request().method() !== "GET") { await route.fallback(); return; }
+      await route.fulfill({ json: { plan: "team", seats: 5, remoteAccess: true, expiresAt, reason: "valid", installationId: "inst-e2e" } });
+    });
+    await goToApp(page);
+    const level = await hoverOpen(page, "plan");
+    await pressAt(page, level.getByRole("button", { name: "Togli la licenza" }));
+    const dialog = page.getByRole("dialog", { name: "Togli la licenza" });
+    await expect(dialog).toBeVisible();
+    // The dialog lives outside the level: reaching its button leaves the level.
+    const cancel = dialog.getByRole("button", { name: "Annulla" });
+    const box = await cancel.boundingBox();
+    if (!box) throw new Error("Annulla has no box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+    // Longer than the hover grace (150 ms), which used to take the level away.
+    await page.waitForTimeout(400);
+    await expect(level).toBeVisible();
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(dialog).toHaveCount(0);
+    await expect(level).toBeVisible();
+  });
+
+  test("USERMENU-06e: una chiave scritta in un livello aperto al passaggio resta quando il mouse se ne va", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    await goToApp(page);
+    const level = await hoverOpen(page, "providers");
+    const setup = level.getByTestId("api-provider-setup-openai");
+    await expect(setup).toBeVisible({ timeout: 15_000 });
+    await pressAt(page, setup.getByRole("button").first());
+    const field = level.getByTestId("api-key-form-openai").locator("input");
+    await pressAt(page, field);
+    await page.keyboard.type("sk-typed-half");
+    await expect(field).toHaveValue("sk-typed-half");
+    // The pointer drifts off the level; the focus stays in the field.
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("no viewport");
+    await page.mouse.move(viewport.width - 20, viewport.height / 2, { steps: 8 });
+    await page.waitForTimeout(400);
+    await expect(level).toBeVisible();
+    await expect(field).toHaveValue("sk-typed-half");
   });
 });
 
