@@ -7,25 +7,27 @@ archiviata prima di questa.
 
 ### Requirement: AICTRL-01 — L'instradamento leggero e' uno switch a se', e non sovrascrive niente
 
-L'interruttore «Esegui in Topics», in una fascia **sopra** il selettore, dice se
-i turni passano dal motore di Topics. Non è una voce della lista dei provider, e
-cambiarlo **non** altera il provider né il modello selezionati.
+L'interruttore «Esegui in Topics», in una fascia **sopra** il selettore, SHALL
+dire se i turni passano dal motore di Topics. Non è una voce della lista dei
+provider, e cambiarlo SHALL NOT alterare il provider né il modello selezionati.
 
-**Il valore mai scritto vale acceso** (MSEL-06). Nessun dato viene riscritto per
-questo.
+**Il valore mai scritto vale acceso per le chat, spento per le card e per il
+default della board** (MSEL-06). Nessun dato viene riscritto per questo.
 
 **Cosa significano le due posizioni:**
 
-- **Acceso.** Il turno passa dal motore di Topics **quando il bersaglio è
-  instradabile**: un provider della famiglia Claude con un modello che il
-  motore serve, oppure Automatico con il motore pronto. Altrimenti il turno va
-  **diretto** sul bersaglio, e la strada è dichiarata sulla riga del modello,
-  nella fascia e sul turno.
+- **Acceso.** Prima si risolve il bersaglio come a interruttore spento:
+  Automatico diventa il default. Poi il turno passa dal motore di Topics
+  **quando quel bersaglio è instradabile**, cioè un provider della famiglia
+  Claude con un modello che il motore serve. Altrimenti il turno va **diretto**
+  sul bersaglio, e la strada è dichiarata sulla riga del modello, nella fascia e
+  sul turno.
 - **Spento.** Esecuzione **diretta** sul provider e sul modello selezionati.
 
 **L'interruttore non è mai un no-op silenzioso.** Se è acceso e il turno va
 diretto, l'interfaccia lo dice prima dell'invio, con il motivo. L'interruttore
-non blocca l'invio e non parcheggia le card.
+non blocca l'invio e non parcheggia una card perché il suo bersaglio non è
+instradabile.
 
 #### Scenario: cambiare instradamento non tocca la scelta sotto
 - **GIVEN** un provider e un modello selezionati
@@ -39,11 +41,17 @@ non blocca l'invio e non parcheggia le card.
 - **THEN** il turno passa dal motore di Topics, verso quel modello
 - **AND** la scelta resta invariata nell'interfaccia
 
-#### Scenario: acceso con Automatico
-- **GIVEN** il provider su **Automatico** e il motore pronto
+#### Scenario: acceso con Automatico e default Claude
+- **GIVEN** il provider su **Automatico**, il default su Claude Code e il motore pronto
 - **WHEN** l'interruttore è acceso
-- **THEN** Topics sceglie secondo le proprie regole
+- **THEN** il turno passa dal motore di Topics
 - **AND** il modello concreto scelto resta visibile
+
+#### Scenario: acceso con Automatico e default Codex
+- **GIVEN** il provider su **Automatico** e il default su Codex
+- **WHEN** l'interruttore è acceso
+- **THEN** il turno va diretto su Codex, come a interruttore spento
+- **AND** la fascia dice «diretto» con il motivo
 
 #### Scenario: acceso con un provider non instradabile
 - **GIVEN** Codex, o un'API, o Gemini
@@ -63,8 +71,8 @@ non blocca l'invio e non parcheggia le card.
 
 ### Requirement: AICTRL-02 — Ogni provider dello snapshot e' rappresentato, con il suo stato
 
-Il selettore rappresenta **ogni** provider presente nello snapshot. I modelli
-dei provider `ready` si possono selezionare. Quelli dei provider non-`ready`
+Il selettore SHALL rappresentare **ogni** provider presente nello snapshot. I
+modelli dei provider `ready` si possono selezionare. Quelli dei provider non-`ready`
 sono **visibili con il motivo** ma disabilitati, e l'azione «Apri impostazioni»
 è a portata. Nessuna integrazione inventata: l'elenco è quello dello snapshot.
 

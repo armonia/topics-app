@@ -39,6 +39,10 @@ SHALL essere visibili nello stesso pannello, senza passare da un livello
 intermedio. Le sezioni sono per azienda (Anthropic, OpenAI, Google, Altri), e
 l'intestazione di ciascuna SHALL restare in vista mentre si scorre.
 
+Il pannello SHALL restare dentro il viewport. Quando le righe non ci stanno,
+SHALL scorrere solo l'area delle sezioni, e fascia, ricerca e Automatico SHALL
+restare ferme.
+
 Le generazioni non correnti SHALL stare in una riga «Altri modelli (n)» in fondo
 alla loro sezione, che si apre sul posto.
 
@@ -50,6 +54,12 @@ interruttore dentro la riga del modello, non una riga a sé.
 - **WHEN** l'utente apre il selettore
 - **THEN** vede Opus 5.5 e GPT-6.1-Sol senza nessun altro clic
 - **AND** passare dall'uno all'altro costa un clic
+
+#### Scenario: quattro aziende in una finestra bassa
+- **GIVEN** quattro aziende pronte e una finestra alta 900 px con il composer in basso
+- **WHEN** l'utente apre il selettore
+- **THEN** il pannello sta dentro il viewport
+- **AND** scorrendo la lista l'intestazione dell'azienda in vista resta ferma
 
 #### Scenario: generazioni vecchie
 - **GIVEN** Codex con `gpt-5.5` fuori dalla generazione corrente
@@ -82,7 +92,9 @@ Ogni riga SHALL mostrare:
 Nella variante `full` SHALL mostrare anche la descrizione, quando il catalogo ne
 ha una. Un modello con data di ritiro SHALL dirla.
 
-La finestra dichiarata dal provider SHALL battere la tabella statica.
+La finestra dichiarata dal provider (`modelContextWindows`, già nello snapshot)
+SHALL battere la tabella statica. Codex SHALL dichiarare `context_window` della
+sua cache.
 
 Una riga non utilizzabile SHALL restare visibile e disabilitata, con il motivo e
 l'azione «Apri impostazioni». Un valore salvato che non è più nel catalogo
@@ -122,24 +134,33 @@ senza un sottomenu. Il valore salvato SHALL restare `provider` più `model`.
 
 ### Requirement: MSEL-06: «Esegui in Topics» è acceso dove si può
 
-La preferenza SHALL valere acceso quando non è mai stata scritta (`null`), per
-chat, card e default della board, e anche per i record già esistenti. Nessun
-dato SHALL essere riscritto.
+La preferenza mai scritta (`null`) SHALL valere acceso per le chat, anche per
+quelle che esistono già, e spenta per le card e per il default della board.
+Nessun dato SHALL essere riscritto per questo. Il default per ambito SHALL
+stare in una costante sola (`TOPICS_ROUTING_DEFAULT`).
 
-Con la preferenza accesa, un turno SHALL passare dal motore di Topics quando il
-suo bersaglio è instradabile. Quando non lo è (un provider fuori dalla famiglia
-Claude, un modello che il motore non serve, il motore non connesso), il turno
-SHALL andare diretto e la strada SHALL essere dichiarata sulla riga, nella
-fascia e sul turno. La preferenza SHALL NOT bloccare l'invio né parcheggiare
-una card.
+Con la preferenza accesa, il bersaglio SHALL essere risolto prima come a
+preferenza spenta (Automatico diventa il default), e solo dopo si decide la
+strada. Il turno SHALL passare dal motore di Topics quando quel bersaglio è
+instradabile. Quando non lo è (un provider fuori dalla famiglia Claude, un
+modello che il motore non serve, il motore non connesso), il turno SHALL andare
+diretto, e la strada SHALL essere dichiarata sulla riga, nella fascia e sul
+turno. La preferenza SHALL NOT bloccare l'invio, e SHALL NOT parcheggiare una
+card perché il suo bersaglio non è instradabile.
 
 Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
 
 #### Scenario: chat esistente su Claude Code, mai toccata
-- **GIVEN** una chat con `provider: claude-code`, modello servito dal motore, preferenza `null`
+- **GIVEN** una chat con `provider: claude-code`, un modello servito dal motore, preferenza `null`
 - **WHEN** parte il turno successivo
 - **THEN** il turno passa dal motore di Topics
 - **AND** un turno già in volo non cambia strada
+
+#### Scenario: chat in Automatico con un default esplicito su Codex
+- **GIVEN** una chat in Automatico, preferenza `null`, e il default delle Impostazioni su `codex`
+- **WHEN** l'utente invia
+- **THEN** il turno va diretto su Codex, come a preferenza spenta
+- **AND** la fascia dice «diretto»
 
 #### Scenario: chat su Codex
 - **GIVEN** una chat con `provider: codex`, preferenza `null` o accesa
@@ -147,20 +168,37 @@ Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
 - **THEN** il turno parte, diretto su Codex
 - **AND** il turno porta «via Codex»
 
-#### Scenario: Automatico delle card
-- **GIVEN** una card in Automatico, preferenza `null`, Claude Code e Codex pronti
+#### Scenario: card mai toccata
+- **GIVEN** una card con preferenza `null` e il default della board `null`, su `claude-code:claude-opus-5-5`
+- **WHEN** il dispatcher la avvia
+- **THEN** la card gira su Claude Code diretto, come oggi
+
+#### Scenario: card Codex con la preferenza accesa
+- **GIVEN** una card `codex:gpt-6.1-sol` con la preferenza accesa
+- **WHEN** il dispatcher crea il suo topic
+- **THEN** il topic nasce e il turno va diretto su Codex
+- **AND** la card non si parcheggia
+
+#### Scenario: Automatico delle card con la preferenza accesa
+- **GIVEN** una card in Automatico con la preferenza accesa, Claude Code e Codex pronti, il motore pronto
 - **WHEN** il dispatcher sceglie il modello
 - **THEN** i modelli Codex sono tra i candidati
 - **AND** se vince un modello Claude, il turno passa dal motore di Topics
+- **AND** il giudice del classificatore è un modello servito dal motore
 
-#### Scenario: sessione riusata
-- **GIVEN** una card con preferenza `null` che riusa la sessione di un'altra card, anch'essa `null`, su Claude Code
+#### Scenario: sessione riusata con uno 0 scritto
+- **GIVEN** una card con preferenza `null` (e default della board `null`) che riusa la sessione di un'altra card, dispacciata a interruttore spento, che contiene 0
 - **WHEN** il dispatcher la avvia
-- **THEN** la card non si parcheggia per un conflitto di strada
+- **THEN** la card adotta la strada della sessione e non si parcheggia
+
+#### Scenario: sessione riusata con una preferenza esplicita diversa
+- **GIVEN** una card con preferenza `true` che riusa una sessione che contiene 0
+- **WHEN** il dispatcher la avvia
+- **THEN** la card si parcheggia con il motivo del riuso, come oggi
 
 #### Scenario: una lettura sola
 - **GIVEN** una preferenza `null` e lo stesso bersaglio
-- **THEN** menu, cancello d'invio, resolver della chat, dispatcher e picker automatico danno la stessa strada
+- **THEN** menu, cancello d'invio, resolver della chat, identità del topic dispacciato, dispatcher e picker automatico danno la stessa strada
 
 ### Requirement: MSEL-07: La preferenza si vede e si spiega in una riga
 
@@ -170,7 +208,10 @@ In cima al pannello SHALL esserci una fascia con:
 - una riga di spiegazione leggibile senza passare col mouse, anche sul telefono.
 
 La riga SHALL dire cosa fa (Claude gira dentro Topics col tuo abbonamento,
-senza aprire Claude Code) e cosa resta fuori (GPT e Gemini restano diretti).
+senza aprire un processo Claude Code per chat) e cosa resta fuori (GPT e Gemini
+restano diretti). La riga SHALL NOT promettere né la stessa quota né meno
+memoria: la quota è la stessa solo con MSEL-11, e per jcode la memoria non
+cambia.
 
 Quando il valore attuale va diretto pur con la preferenza accesa, la fascia
 SHALL dire perché.
@@ -207,19 +248,39 @@ attuale passa da Topics.
 
 ### Requirement: MSEL-09: Il catalogo porta i metadati per modello
 
-Lo snapshot SHALL portare, per modello e quando la fonte li ha: etichetta,
-descrizione, finestra di contesto, data di ritiro, sostituto e generazione
-(corrente o vecchia). Nessun metadato SHALL essere scritto a mano nel client.
+Lo snapshot SHALL portare in `modelInfo`, per modello e quando la fonte li ha:
+etichetta, descrizione, data di ritiro, sostituto e generazione (corrente o
+vecchia). La finestra di contesto SHALL passare dal campo che esiste già,
+`modelContextWindows`. Nessun metadato SHALL essere scritto a mano nel client.
 
 #### Scenario: Codex
 - **GIVEN** la cache di Codex con `description`, `context_window` e `upgrade`
-- **THEN** lo snapshot di Codex li porta in `modelInfo`
+- **THEN** lo snapshot di Codex porta descrizione e ritiro in `modelInfo`
+- **AND** porta `context_window` in `modelContextWindows`
 
 ### Requirement: MSEL-10: Anche `/model` legge lo stesso catalogo
 
-Lo slash command `/model` SHALL proporre i modelli del catalogo di
-`ModelSelector` mentre si scrive, con le stesse etichette e lo stesso motore.
+`/model <id>` scrive solo il modello della chat, non il motore. Lo slash
+command SHALL quindi proporre, mentre si scrive, i modelli del catalogo di
+`ModelSelector` che il motore attuale della chat esegue, con le stesse
+etichette. Per cambiare motore si usa il selettore.
 
 #### Scenario: completare `/model`
+- **GIVEN** una chat su Claude Code
 - **WHEN** l'utente scrive `/model op`
-- **THEN** vede Opus 5.5 con il suo motore
+- **THEN** vede Opus 5.5 e gli altri Opus di Claude Code
+- **AND** non vede modelli di altri motori
+
+### Requirement: MSEL-11: Il motore passa dallo stesso indirizzo di Claude Code
+
+Il motore di Topics SHALL mandare le richieste all'indirizzo che userebbe una
+sessione Claude Code lanciata da Topics: prima `ANTHROPIC_BASE_URL` del
+processo, poi l'`env` di `~/.claude/settings.json`, infine
+`https://api.anthropic.com`. Se quell'indirizzo non risponde, il motore SHALL
+NOT ripiegare in silenzio sull'API diretta: l'errore SHALL nominare
+l'indirizzo provato.
+
+#### Scenario: un proxy degli account configurato
+- **GIVEN** `~/.claude/settings.json` con `env.ANTHROPIC_BASE_URL` = `http://127.0.0.1:3336`
+- **WHEN** il motore manda un turno
+- **THEN** la richiesta va a `http://127.0.0.1:3336/v1/messages`

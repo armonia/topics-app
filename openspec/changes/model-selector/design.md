@@ -10,15 +10,19 @@ lavoro, lo dice.
 ### 1.1 Cosa c'è oggi
 
 `AiExecutionMenuOptions` è già l'unico corpo del menu, ma ogni chiamante gli
-mette attorno un `Menu` con la sua larghezza, la sua intestazione e il suo
+mette attorno un `Menu` con il suo `minWidth`, la sua intestazione e il suo
 adattatore:
 
-| Chiamante | Larghezza | Adattatore |
+| Chiamante | `minWidth` passato | Adattatore |
 |---|---|---|
 | `ProviderModelPicker.tsx:142` | 320 | nessuno |
 | `FloatingTaskComposer.tsx:648` | 170 | `TaskModelMenuOptions` |
 | `TaskDetail.tsx:2301` | 200 | `TaskModelMenuOptions` |
 | `BoardSettingsPanel.tsx:131` | 240 | `TaskModelMenuOptions` |
+
+I quattro `minWidth` non hanno effetto. Il pannello interno è fisso a
+`w-[min(22rem,calc(100vw-1rem))]` (`AiExecutionMenuOptions.tsx:192,281`),
+quindi tutte e quattro le superfici sono larghe 352 px.
 
 Fuori da tutto questo restano la `<Select>` di `TopicSettingsModal.tsx:654` e
 `/model`.
@@ -28,8 +32,8 @@ Fuori da tutto questo restano la `<Select>` di `TopicSettingsModal.tsx:654` e
 `client/src/components/Shared/ModelSelector/` contiene:
 
 - `ModelSelector.tsx`: il trigger e il pannello. Il `Menu` lo possiede lui,
-  così larghezza, posizione e foglio da telefono non si decidono più nel
-  chiamante.
+  così larghezza, altezza, posizione e foglio da telefono non si decidono più
+  nel chiamante.
 - `ModelList.tsx`: fascia, ricerca, Automatico e sezioni. È il corpo comune.
 - `useModelCatalog.ts`: dallo snapshot ricava le righe (modello, azienda,
   motori, metadati). È logica pura, testata con `bun:test`.
@@ -56,7 +60,7 @@ toccare i dati.
 
 | Variante | Dove | Forma | Perché diversa |
 |---|---|---|---|
-| `compact` | composer chat, composer card, cassetto card | trigger a chip, pannello ancorato largo 22rem (352 px), foglio dal basso sotto 768 px | si sceglie mentre si scrive: conta arrivarci in un gesto |
+| `compact` | composer chat, composer card, cassetto card | trigger a chip, pannello ancorato largo 22rem (352 px, come oggi), foglio dal basso sotto 768 px | si sceglie mentre si scrive: conta arrivarci in un gesto |
 | `full` | default della board, impostazioni della chat, modello di default per provider in Impostazioni | trigger largo come un campo; il pannello è lo stesso, ma ogni riga mostra per intero anche la descrizione | si sceglie una volta per tante chat: c'è spazio e conviene leggere |
 | `chip` | card della board, intestazione del cassetto | etichetta «Opus 5.5 · via Topics», di sola lettura; il clic apre la `compact` se la sessione non è assegnata | sulla card si legge e basta (MP-TASK-03) |
 
@@ -65,11 +69,11 @@ Le differenze di `scope` sono utili e restano:
   (EFFORTUI-01 la vuole leggibile nel momento della scelta);
 - `task`: solo i motori con `coding-tasks` (`taskExecutionOptions`,
   `task-coding-models.ts:82`), con «Automatico in Codex» (`withinEngine`)
-  tranne jcode, e la fascia giudica il default della board quando la card è in
-  Automatico.
+  tranne jcode. Quando la card è in Automatico, la fascia giudica il default
+  della board.
 
-Le differenze accidentali spariscono: larghezze, intestazioni, `autoIcon`
-ignorato, provider «disabilitati» ma cliccabili.
+Le differenze accidentali spariscono: i `minWidth` morti, le intestazioni,
+l'`autoIcon` ignorato, i provider «disabilitati» ma cliccabili.
 
 ## 2. «Esegui in Topics»: acceso dove si può
 
@@ -77,6 +81,8 @@ ignorato, provider «disabilitati» ma cliccabili.
 
 ```ts
 // shared/task-coding-models.ts
+export const TOPICS_ROUTING_DEFAULT = { chat: true, task: false } as const; // scelta 2: qui e solo qui
+
 export type TopicsRoute =
   | { via: 'topics' }
   | { via: 'direct'; reason: 'off' | 'family' | 'model' | 'engine-down' }
@@ -84,80 +90,173 @@ export type TopicsRoute =
 
 export function topicsRoute(
   stored: boolean | null | undefined,   // la colonna: null = mai toccata
-  target: { provider: string | null; model: string | null },
+  target: { provider: string | null; model: string | null }, // già risolto: vedi sotto
   snapshot: ProvidersSnapshot | null,
+  scope: 'chat' | 'task',
 ): TopicsRoute
 ```
 
-- **Preferenza**: `stored ?? true`. Il default acceso sta qui e solo qui.
-  Il prefisso legacy `topics:<model>` resta acceso come oggi (AICTRL-04).
-- **Preferenza spenta**: `direct/off`.
-- **Automatico** (`provider` nullo): `topics` se il motore è `ready`,
-  `pending` se è `loading`, altrimenti `direct/engine-down`.
-- **Provider esplicito fuori dalla famiglia** (Codex, `claude` API, `openai`,
-  ACP non jcode, OpenClaw, endpoint): `direct/family`.
-- **Modello che il motore non serve** (`isTopicsModelServed`): `direct/model`.
-- **Motore assente o non connesso**: `direct/engine-down`, oppure `pending`
-  se è in scoperta.
-- Altrimenti `topics`.
+La regola, in ordine:
 
-`topicsRoutingAvailable`, `effectiveTopicsRouting`, `resolveTopicProvider`,
-`taskProviderForModel`, `topicsRoutingBlocked` e `reusedSessionRouteConflict`
-leggono tutti questa funzione. Oggi ognuno ha il suo `!!`, `?? false` o `if`.
-Il test che lo garantisce elenca i chiamanti (tasks 1.2).
+1. **Preferenza.** Vale `stored ?? TOPICS_ROUTING_DEFAULT[scope]`. Il
+   prefisso legacy `topics:<model>` resta acceso come oggi (AICTRL-04).
+2. **Preferenza spenta.** La strada è `direct/off`.
+3. **Il bersaglio si risolve prima della strada,** come a interruttore spento:
+   - in chat, Automatico diventa `getDefaultProvider()`;
+   - su una card, Automatico diventa il modello che sceglie il classificatore,
+     oppure Codex se il default dello snapshot è Codex (`task-coding-models.ts:240`).
+
+   Oggi Automatico più acceso salta il default e va sul motore
+   (`resolve-topic-provider.ts:40-56`, `task-coding-models.ts:232-239`). Così
+   un default esplicito su Codex o sulle API (`providers/index.ts:184-188`)
+   resta dov'è. Il prezzo: chi oggi ha acceso a mano l'interruttore, sta in
+   Automatico e ha il default su Codex, torna su Codex diretto. La fascia lo
+   dice.
+4. **Provider fuori dalla famiglia Claude** (Codex, l'API `claude`, `openai`,
+   gli ACP che non sono jcode, OpenClaw, gli endpoint): `direct/family`.
+5. **Modello che il motore non serve** (`isTopicsModelServed`): `direct/model`.
+6. **Motore assente o non connesso:** `direct/engine-down`, oppure `pending` se
+   è in scoperta.
+7. Altrimenti `topics`.
+
+**Chi legge la preferenza.** L'elenco è chiuso. L'ha prodotto
+`git grep -nE "topicsRouting" -- server shared client/src server.ts ':!*.test.*'`
+il 02/10: 33 file. Ogni riga è o un lettore, o un passaggio che copia il valore
+senza interpretarlo.
+
+I lettori. Tutti passano da `topicsRoute`, nessuno tiene il suo `!!`,
+`?? false` o `if`:
+
+| Lettore | Dove | Cosa cambia |
+|---|---|---|
+| `effectiveTopicsRouting` | `shared/task-coding-models.ts:193-196` | il `null` legge `TOPICS_ROUTING_DEFAULT[scope]` |
+| `topicsRoutingAvailable` | `task-coding-models.ts:178` | diventa `topicsRoute(...).via === 'topics'` |
+| `taskProviderForModel` | `task-coding-models.ts:222-239` | niente `TopicsRoutingUnavailableError`; Automatico risolve prima il bersaglio |
+| `reusedSessionRouteConflict`, `taskModelMatchesSession` | `task-coding-models.ts:266-292` | regola del riuso, §2.3 |
+| `resolveTopicProvider` | `server/providers/resolve-topic-provider.ts:40-58` | `direct` va sul ramo di oggi «spento», scope `chat` |
+| `resolveDispatchTopicIdentity` | `server/services/dispatch-topic-identity.ts:34-51` | **esce il cancello duro di `:39-42`**, che oggi parcheggerebbe ogni card `codex:` con la preferenza accesa; `executor` è `topics` solo se la strada è `topics` |
+| `dispatchTopicBinding` | `dispatch-topic-identity.ts:61-70` | il provider di un topic in Automatico è quello di `topicsRoute`, non `topicsRouting ? 'topics' : default` |
+| `pickAutomaticTaskModel` | `server/services/task-auto-model.ts:90-91,125` | §2.2 |
+| dispatcher | `server/services/task-dispatcher.ts:1621-1627`, `:5405-5408` | conserva il `null` fino al riuso (§2.3), poi `topicsRoute` con scope `task` |
+| cancello d'invio e interruttori della board | `client/src/lib/topicsRoutingGate.ts:7-70` | `topicsRoutingBlocked` resta solo per il legacy `provider: 'topics'` con il motore giù |
+| picker della chat | `client/src/components/Chat/ProviderModelPicker.tsx:164` | `!!topicsRouting` diventa `topicsRoute(..., 'chat')` |
+
+I passaggi copiano il valore com'è, `null` compreso, e non cambiano:
+- `topic-provider-resolver.ts:26`, che chiama `resolveTopicProvider`;
+- `session-control-core.ts:227`;
+- `routes/fork.ts:107`, cioè `parent.topicsRouting ?? null`;
+- `utils.ts:650`, `tasks.ts:3653,3955`, `routes/topics.ts:1718-1724`,
+  `routes/tasks-board.ts:383`, `routes/task-patch.ts:127`.
+
+Una fork di una chat `null` resta `null`, e quindi accesa come la madre.
 
 ### 2.2 Cosa cambia per chi la chiama
 
 - **Chat** (`resolve-topic-provider.ts`):
   - `topics` restituisce il motore nativo;
   - `direct` passa al ramo di oggi «interruttore spento»;
-  - `TopicsRoutingIncompatibleError` resta solo per `provider: 'topics'`
-    legacy con il motore giù, perché lì non c'è nessun «diretto» verso cui
-    andare. Il 409, il banner rosso e il bottone di invio disabilitato
-    (`ChatInput.tsx:426, 1532, 1766`) spariscono con
+  - `TopicsRoutingIncompatibleError` resta solo per il legacy
+    `provider: 'topics'` con il motore giù, perché lì non c'è nessun «diretto»
+    verso cui andare. Il 409, il banner rosso e il bottone di invio disabilitato
+    (`ChatInput.tsx:426, 1532, 1766`) spariscono, insieme a
     `chat.topicsRouting.blocked`.
-- **Card** (`taskProviderForModel`): `topics` restituisce `'topics'`, `direct`
-  il provider come oggi a interruttore spento, `pending` lancia
-  `TaskProviderPendingError('topics')`. Non c'è più `TopicsRoutingUnavailableError`
-  per famiglia o modello.
-- **Automatico delle card** (`task-auto-model.ts:90`): la scheda non filtra più
-  per instradabilità, così i GPT restano candidati. Dopo la scelta, la strada
-  del modello scelto passa da `topicsRoute`. Il classificatore gira sul motore
-  quando la preferenza è accesa e il motore è `ready`, come oggi con
-  l'interruttore acceso (`:118-121`).
+- **Card** (`taskProviderForModel`, `resolveDispatchTopicIdentity`): `topics`
+  restituisce `'topics'`, `direct` restituisce il provider come oggi a
+  interruttore spento, `pending` lancia `TaskProviderPendingError('topics')`.
+  `TopicsRoutingUnavailableError` non esiste più per famiglia o modello.
+- **Automatico delle card** (`task-auto-model.ts:90`). La scheda non filtra
+  più per instradabilità, così i GPT restano candidati. Dopo la scelta, la
+  strada del modello scelto passa da `topicsRoute`.
+- **Il giudice del classificatore** (`task-auto-plan.ts:35`). Oggi è il primo
+  modello «affordable» nell'ordine della scheda. Con i GPT di nuovo nella
+  scheda può essere `gpt-6-luna` («Fast and affordable», misurato sulla
+  cache), cioè un `codex exec` per ogni card. Quindi: con la preferenza accesa
+  e il motore `ready`, il giudice si sceglie solo tra i modelli che il motore
+  serve, e gira sul motore come oggi (`task-auto-model.ts:121-125`). Altrimenti
+  resta come oggi.
 - **Il turno dice da dove è passato.** L'etichetta del modello sul turno (già
-  conservata, MP-TASK-05) prende «via Topics» o «via Codex». Questo è ciò che
-  impedisce il no-op silenzioso che AICTRL-01 vieta: ora non si blocca, ma si
-  dichiara sempre.
+  conservata, MP-TASK-05) prende «via Topics» o «via Codex». È questo che evita
+  il no-op silenzioso vietato da AICTRL-01: il turno non si blocca più, ma la
+  strada si dichiara sempre.
 
 ### 2.3 Dati esistenti e sessioni riusate (scelta 2)
 
-Una colonna `null` si legge accesa. Il DB non cambia (AICTRL-04).
+Il DB non cambia (AICTRL-04). Cosa contiene oggi:
+- **Chat**: `null`, salvo chi ha toccato l'interruttore.
+- **Topic delle card dispacciate dopo il 22/09**: un booleano esplicito.
+  `resolveDispatchTopicIdentity` scrive il valore effettivo
+  (`dispatch-topic-identity.ts:34,49` → `server.ts:1862,1870` →
+  `utils.ts:650`), cioè 0 per ogni card dispacciata a interruttore spento.
+- **Topic delle card dispacciate prima del 22/09**: `null`, perché la colonna è
+  nata senza backfill.
+
+Le regole:
 
 - **Chat fissata su Claude Code o jcode, mai toccata.** Dal turno successivo
   va sul motore. La storia arriva dal chiamante (`native/provider.ts:11-16`),
-  quindi la conversazione continua. Si perde la sopravvivenza al riavvio:
-  questo è il prezzo detto nella scelta 2. Un turno già in volo non cambia
-  strada (AICTRL-04, scenario del turno in volo).
-- **Card che riusa una sessione.** `reusedSessionRouteConflict` confronta la
-  strada effettiva delle due parti, calcolata da `topicsRoute` con la stessa
-  lettura del `null`, non più `!!session.topicsRouting`. Senza questo, una
-  sessione `null` di ieri (letta spenta) e una card `null` di oggi (letta
-  accesa) si parcheggerebbero a vicenda (`task-dispatcher.ts:2978`). C'è un
-  test apposta (tasks 1.3).
+  quindi la conversazione continua. Si perde la sopravvivenza al riavvio: è il
+  prezzo detto nella scelta 2. Un turno già in volo non cambia strada
+  (AICTRL-04, scenario del turno in volo).
+- **Chat in Automatico.** Cambia strada solo se il suo default è Claude Code o
+  jcode (§2.1, punto 3). Con il default `topics`, che su questo Mac è il
+  default del runtime, gira già sul motore.
+- **Card mai toccata, con il default della board mai toccato.** Scope `task`,
+  quindi spenta come oggi. Il dispatcher continua a scrivere il valore
+  effettivo sul topic nuovo.
+- **Card che riusa una sessione.** Oggi una card si parcheggia se il suo
+  valore effettivo è diverso dal `!!` della sessione (`task-coding-models.ts:272-273`,
+  `task-dispatcher.ts:2975-2985`). La regola nuova:
+  - se la preferenza della card e del default della board non è mai stata
+    scritta (`null`), la card **adotta** la strada della sessione e non si
+    parcheggia: non sta difendendo un valore che nessuno ha scelto;
+  - se è esplicita e la strada effettiva è diversa, si parcheggia come oggi,
+    con lo stesso motivo;
+  - una sessione con `null` (le card di prima del 22/09) si legge con lo scope
+    `task`. Prima del turno il dispatcher ci scrive il valore effettivo, come
+    `createTopic` fa per una sessione nuova, così `resolveTopicProvider` non la
+    legge con lo scope `chat`.
 
-**Con l'alternativa** (solo le nuove): `topicsRoute` tiene `stored ?? false`,
-e alla creazione di chat e card si scrive `true` (`createTopic`,
-`task-dispatcher.ts:122`; `FloatingTaskComposer.tsx:145` parte da `true`). Il
-resto è uguale.
+  Per questo il dispatcher conserva il `null` fino al controllo del riuso
+  (`task-dispatcher.ts:5405-5408` oggi lo fa diventare booleano subito).
+
+**Con l'alternativa** (anche le card): `TOPICS_ROUTING_DEFAULT.task` diventa
+`true`. La regola del riuso resta la stessa: con l'alternativa, è lei che evita
+il parcheggio di ogni card `null` su una sessione che contiene 0. Il prezzo del
+riavvio si moltiplica per le card Claude in volo. Le card Claude Code esplicite
+(`task-coding-models.ts:226`) e quelle in Automatico che scelgono un bersaglio
+Claude Code (`task-auto-model.ts:91,125`) passano dal broker, dove il turno
+sopravvive al SIGTERM (`claude-code.ts:1640-1652`), al motore, dove viene
+annullato e poi rimandato (§8).
 
 ### 2.4 Alternativa scartata nel design: acceso rigido per tutti
 
 Basterebbe `stored ?? true` dentro le funzioni di oggi. Si bloccherebbero le
-chat fissate su Codex, sulle API, su Gemini e su OpenClaw, l'Automatico delle
-card perderebbe i GPT (`task-auto-model.ts:90`), e il primo messaggio
-dopo l'aggiornamento sarebbe un banner rosso. È la scelta 1 «o:»: se viene
-scelta, §2.2 non si fa e la fascia mostra il blocco invece di «diretto».
+chat fissate su Codex, sulle API, su Gemini e su OpenClaw. Ogni card `codex:`
+si parcheggerebbe (`dispatch-topic-identity.ts:39-42`). L'Automatico delle card
+perderebbe i GPT (`task-auto-model.ts:90`). Il primo messaggio dopo
+l'aggiornamento sarebbe un banner rosso. È la scelta 1 «o:». Se viene scelta,
+§2.2 non si fa, e la fascia mostra il blocco invece di «diretto».
+
+### 2.5 Il motore passa dallo stesso proxy di Claude Code
+
+Le sessioni Claude Code lanciate da Topics hanno
+`--setting-sources user,project,local` (`server/providers/claude/args.ts:328`),
+quindi leggono l'`env` di `~/.claude/settings.json`. Su questo Mac lì c'è
+`ANTHROPIC_BASE_URL=http://127.0.0.1:3336` (misurato). Su quella porta ascolta
+il cambia-account (`~/.claude/account-switcher/dashboard.mjs`), con
+`autoSwitch: true` e 2 account (misurato). Il motore invece manda tutto a
+`API_URL = "https://api.anthropic.com/v1/messages"` (`native/agent-loop.ts:53`),
+con la credenziale «Claude Code-credentials» del Portachiavi
+(`native/auth.ts:139`).
+
+Il motore legge l'indirizzo con lo stesso ordine della CLI: prima la variabile
+di processo `ANTHROPIC_BASE_URL`, poi l'`env` di `~/.claude/settings.json`,
+infine il valore di oggi. Se l'indirizzo non è raggiungibile non ripiega
+sull'API diretta in silenzio: l'errore dice quale indirizzo ha provato.
+
+Prima del codice, una misura (tasks 1.5): una richiesta del motore attraverso
+il proxy risponde 200. Se non risponde, questa sezione si ferma, e la scelta 2
+aggiunge il prezzo «un account solo invece della rotazione».
 
 ## 3. Una riga per modello, divisa per azienda (scelta 3)
 
@@ -220,19 +319,41 @@ provider dello snapshot e i modelli si ripetono. Resta tutto il resto di §4.
 5. **«Altri modelli (n)»** in fondo a ogni sezione: una riga che apre sul
    posto le generazioni vecchie. La ricerca le include sempre.
 
+Fascia, ricerca e Automatico non scorrono. Scorre solo l'area delle sezioni,
+che è il contenitore delle intestazioni sticky.
+
 ### 4.2 Misure
 
 | | Desktop | Telefono (< 768 px) |
 |---|---|---|
-| Contenitore | `Menu` ancorato, `w-[min(22rem,calc(100vw-1rem))]` | foglio dal basso di `Menu` (`Menu.tsx:197-265`), larghezza piena |
-| Altezza massima | `calc(100dvh - 3rem)` come oggi (`Menu.tsx:249`) | 85dvh, `overscroll-behavior: contain` |
+| Contenitore | `Menu` ancorato, `w-[min(22rem,calc(100vw-1rem))]` | il foglio dal basso di `Menu` (`Menu.tsx:197-265`), largo quanto lo schermo |
+| Altezza massima | **nuova**: lo spazio libero dal lato in cui `Menu` apre il pannello, meno 16 px | quella di `Menu`, `calc(100dvh - 3rem)` (`Menu.tsx:249`) |
+| Scorrimento | **nuovo**: area delle sezioni con `overflow-y: auto` e `overscroll-behavior: contain` | lo stesso, dentro il foglio |
 | Riga | 28 px (`POPOVER_ITEM`) | 44 px (`coarse:py-3`) |
 | Colonne della riga | nome · finestra · via · spunta | nome · via · spunta; la finestra va sotto il nome |
 
-Stima sul catalogo di questo Mac, non misurata a schermo: fascia 56 + ricerca
-40 + Automatico 36 + 2 intestazioni da 24 + 8 righe da 28 + 2 «Altri» da 28,
-cioè circa 460 px. Gemini e OpenClaw aggiungono una sezione ciascuno, con
-elenco non misurato (serve lo snapshot vivo, :3333 vietata).
+Oggi il popover da desktop non ha né altezza massima né scorrimento
+(`Menu.tsx:252-262`). Il tetto e l'`overflow` esistono solo nel ramo telefono
+(`:246-250`), e stanno in uno stile inline apposta (`:230-240`): una classe
+messa dal chiamante non li cambia. Quindi:
+- su desktop il tetto lo calcola `ModelSelector`, dallo stesso rettangolo del
+  trigger che `Menu` usa per decidere se aprire sopra o sotto
+  (`computeMenuPosition`, `Menu.tsx:127-130`, da `lib/popoverPosition`);
+- sul telefono si tiene il `calc(100dvh - 3rem)` di `Menu`, e niente 85dvh.
+
+Altezze misurate nel mockup, con le righe da 28 px:
+
+| Caso | Altezza |
+|---|---|
+| 2 aziende più il riquadro Google «non pronto», chiaro | 585 px |
+| 2 aziende, scuro | 532 px |
+| ogni azienda in più con 4 righe correnti e «Altri» | circa +160 px |
+| 4 aziende (stima: Gemini, jcode e OpenClaw sono installati su questo Mac) | circa 850-900 px |
+
+I modelli di Gemini e di OpenClaw non li ho misurati: serve lo snapshot vivo
+su :3333, che è vietata. In una finestra alta 900 px, con il composer in basso,
+il pannello si apre sopra il trigger e ha circa 700 px. Da 3-4 aziende in su
+la lista scorre, con le intestazioni ferme.
 
 ### 4.3 Correnti e «Altri modelli»
 
@@ -244,22 +365,28 @@ elenco non misurato (serve lo snapshot vivo, :3333 vietata).
   `priority` della cache: 6.1-Sol, 6-Astra, 6-Sol, 6-Luna. 5.6-Sol, 5.6-Terra,
   5.6-Luna e 5.5 vanno in «Altri», e 5.5 porta «si ritira il 14/10».
 - **Senza ordine noto** (ACP, endpoint): tutti correnti.
-- **1M.** `claude-x[1m]` e `claude-x` diventano una riga sola con un
-  interruttore «1M» a destra del nome, se la variante esiste. La finestra
-  mostrata segue l'interruttore. Il valore salvato resta l'id vero. Righe
-  Anthropic da 11 a 7, prima di piegare.
+- **1M.** `claude-x[1m]` e `claude-x` diventano una riga sola, con un
+  interruttore «1M» a destra del nome se la variante esiste. La finestra
+  mostrata segue l'interruttore. Il valore salvato resta l'id vero. Prima di
+  piegare le generazioni vecchie, le righe Anthropic passano da 11 a 7.
 
 ### 4.4 Ricerca
 
-È un confronto per sottostringa, senza distinguere maiuscole e accenti, su:
+È un confronto per sottostringa, senza distinguere maiuscole e accenti, su
 etichetta, id, azienda, nome del motore e descrizione. Più parole vanno tutte
 trovate. Niente libreria fuzzy (MP-TASK-07, nessuna dipendenza). Con meno di
 40 righe la lista non si virtualizza (HERO: la virtualizzazione non risolve un
 problema che qui non c'è).
 
 **Con l'alternativa** (colonne): sopra i 720 px di viewport il pannello è largo
-`min(44rem, 100vw - 2rem)` e ogni azienda è una colonna; sotto, si torna a
-§4.1. Sono due impaginazioni da mantenere e testare.
+`min(44rem, 100vw - 2rem)` e ogni azienda è una colonna di circa 176 px. È alto
+circa 300 px e mostra tutte le aziende insieme fino a 4. Sotto i 720 px si torna
+a §4.1. Le frecce scendono dentro una colonna, e `←` `→` passano da una
+colonna all'altra; la scelta del motore dentro la riga va quindi su un altro
+tasto. Sono due impaginazioni da tenere e da testare. È la forma più vicina a
+T3 Code. In pingdotgg/t3code#2153 (verificato con `gh`) T3 Code ha tolto i
+sottomenu per provider perché «cumbersome», e li ha sostituiti con una colonna
+di provider, una lista con ricerca e i preferiti.
 
 ## 5. La fascia «Esegui in Topics» (scelta 5)
 
@@ -268,11 +395,17 @@ problema che qui non c'è).
 | Chiave | it | en |
 |---|---|---|
 | `ai.selector.routing` | Esegui in Topics | Run in Topics |
-| `ai.selector.routingLine` | Claude gira dentro Topics col tuo abbonamento, senza aprire Claude Code: stessa quota, meno memoria. GPT e Gemini restano diretti. | Claude runs inside Topics on your subscription, without starting Claude Code: same quota, less memory. GPT and Gemini stay direct. |
+| `ai.selector.routingLine` | Claude gira dentro Topics col tuo abbonamento, senza aprire un processo Claude Code per chat. GPT e Gemini restano diretti. | Claude runs inside Topics on your subscription, without starting a Claude Code process per chat. GPT and Gemini stay direct. |
 | `ai.selector.route.topics` | via Topics | via Topics |
 | `ai.selector.route.direct.family` | Questo modello va diretto: {engine} non passa da Topics. | This model runs direct: {engine} does not go through Topics. |
 | `ai.selector.route.direct.model` | Questo modello va diretto: Topics non lo serve ancora. | This model runs direct: Topics does not serve it yet. |
 | `ai.selector.route.direct.engineDown` | Il motore di Topics non è connesso: per ora va diretto. | The Topics engine is not connected: running direct for now. |
+
+La riga non dice «stessa quota» né «meno memoria».
+- La quota è la stessa solo con §2.5.
+- La memoria cala per Claude Code («~206 MB misurati» a sessione,
+  `native/auth.ts:7-8`; il commento di `acp/agents.ts:35` dice ~790), ma non
+  per jcode, che costa 0,58 MB a sessione (`acp/agents.ts:35-38`).
 
 `ai.selector.routingHint`, `routingUnavailable` e `chat.topicsRouting.blocked`
 escono dai dizionari.
@@ -285,7 +418,7 @@ escono dai dizionari.
 | acceso, il modello scelto va diretto | `--bg-inset` | `route.direct.*` in ambra (`--color-accent-warning`) |
 | spento | `--bg-inset` | `routingLine` in `--text-muted` |
 
-L'interruttore è un vero `role="switch"`, largo 28 px, che si clicca su tutta la
+L'interruttore è un vero `role="switch"`, largo 28 px, e si clicca su tutta la
 fascia. Non è mai disabilitato: spegnere e accendere vale sempre, perché nessuno
 dei due stati blocca.
 
@@ -298,13 +431,25 @@ board, «· via Topics» fa parte del testo.
 
 ## 6. I metadati del catalogo
 
-`ProviderSnapshotEntry` impara un campo opzionale:
+**La finestra di contesto non chiede niente di nuovo.** Il campo esiste già:
+`ProviderSnapshotEntry.modelContextWindows` (`shared/types.ts:541`). Lo
+riempie `snapshot-manager.ts:171-172` da `contextWindows()` del provider, il
+menu lo legge (`AiExecutionMenuOptions.tsx:85`), e `contextWindowFor(model,
+declared)` lo fa già vincere sulla tabella (`shared/context-window.ts:168-174`).
+Manca solo che Codex lo dichiari: `CodexProvider.contextWindows()` legge
+`context_window` dalla cache, come fa `openai-compatible.ts:134` per gli
+endpoint. I GPT passano così da 400k e ≈1M a 272k.
+
+Si mostra `context_window` (272000) e non `max_context_window`, che vale 872000
+per tutti tranne `gpt-5.5` (misurato): la finestra con cui Codex lavora di
+default è la prima.
+
+**Gli altri metadati** entrano in un campo opzionale:
 
 ```ts
 modelInfo?: Record<string, {
   label?: string;          // display_name della cache Codex
   description?: string;    // una riga, già tagliata a 400 caratteri in codex/models.ts:22
-  contextWindow?: number;  // dichiarata: batte la tabella di shared/context-window.ts
   retiresAt?: string;      // ISO, da `upgrade.retirement_at`
   replacement?: string;    // `upgrade.model`
   generation?: 'current' | 'older';
@@ -313,43 +458,50 @@ modelInfo?: Record<string, {
 
 - **Codex**: tutto dalla cache (`readCodexModels`, già letta). Oggi
   `codex.ts:1353-1362` la riduce agli slug.
-- **Claude Code**: soltanto `generation` (da `newestOfFamily`). Niente
-  descrizioni scritte a mano: il catalogo a mano di `CommandMenu` è stato
-  tolto apposta (`Shared/CommandMenu.tsx:12-24`).
-- **ACP ed endpoint**: le finestre che già dichiarano (`modelContextWindows`)
-  confluiscono qui.
+- **Claude Code**: soltanto `generation`, da `newestOfFamily`. Niente
+  descrizioni scritte a mano: il catalogo a mano di `CommandMenu` è stato tolto
+  apposta (`Shared/CommandMenu.tsx:12-24`).
 
-`contextWindowFor(model, declared)` riceve `modelInfo[model].contextWindow`.
-Così i GPT passano da 400k e ≈1M a 272k (misurato sulla cache).
-
-## 7. Tastiera e telefono
+## 7. Tastiera, telefono e `/model`
 
 - ⌘⇧M (libero in `shared/shortcuts.ts`, misurato) apre il selettore del
-  composer che ha il fuoco. Lo stesso tasto lo richiude. La scorciatoia è
+  composer che ha il fuoco, e lo stesso tasto lo richiude. La scorciatoia è
   registrata nel catalogo delle scorciatoie, quindi resta rimappabile.
-- Il fuoco parte dalla ricerca. `↓` entra nella lista e le frecce attraversano
+- Il fuoco parte dalla ricerca. `↓` entra nella lista. Le frecce attraversano
   fascia, Automatico, righe e «Altri» senza fermarsi alle intestazioni
-  (`useMenuKeyboard`, che salta i non navigabili). Invio sceglie e chiude. `→`
-  su una riga con più motori apre il segmento «via», `←` lo chiude. Spazio
-  sulla fascia commuta. Esc chiude e il fuoco torna al trigger (MP-TASK-07).
-- Lettore di schermo: `role="listbox"`, intestazioni `role="presentation"`
-  con `aria-label` sul gruppo (`role="group"`), riga `role="option"` con
-  `aria-describedby` sulla descrizione.
-- Telefono: il foglio di `Menu` con la maniglia; righe da 44 px; la ricerca
-  resta in cima e non scorre con la lista.
+  (`useMenuKeyboard`, che salta ciò che non si naviga).
+- Invio sceglie e chiude. `→` su una riga con più motori apre il segmento «via»,
+  `←` lo chiude. Spazio sulla fascia la commuta. Esc chiude e riporta il fuoco
+  al trigger (MP-TASK-07).
+- Lettore di schermo:
+  - `role="listbox"` sulla lista;
+  - le intestazioni hanno `role="presentation"`, e l'`aria-label` sta sul
+    gruppo (`role="group"`);
+  - ogni riga ha `role="option"` e `aria-describedby` sulla descrizione.
+- Telefono: il foglio di `Menu` con la maniglia, righe da 44 px, e la ricerca
+  ferma in cima mentre la lista scorre.
+- `/model <id>` scrive solo `topic.model` (`ChatPane.tsx:1042` →
+  `commandApi.setModel`), quindi il motore non può viaggiare con lui. Il
+  completamento propone solo i modelli del motore attuale della chat. Per
+  cambiare motore si apre il selettore.
 
 ## 8. Rischi
 
-- **Il turno nativo e il riavvio.** Con la scelta 2 consigliata, le chat
-  fissate su Claude Code passano a una strada che non sopravvive al riavvio.
-  Va misurato prima del codice se `gracefulShutdown` aspetta i turni nativi
-  (tasks 1.5). Se non li aspetta, il rimedio sta in un'altra change: questa
-  dichiara il prezzo, non lo nasconde.
+- **Il turno nativo e il riavvio.** Non serve misurarlo, lo dice il codice.
+  `gracefulShutdown` (`server.ts:6698`) chiama `stopAllProviders` (`:6771`).
+  Lì `stop()` del motore annulla ogni turno vivo con causa `server-shutdown`
+  (`native/provider.ts:288-301`). Al boot `riprendiTurniInterrotti` lo rimanda
+  (`server.ts:5713`), e il turno si paga di nuovo. Su questo Mac succede a ogni
+  salvataggio sotto `server/` (`TOPICS_SERVER_WATCH`, `~/.topics-server-env:18`).
+  Con la scelta 2 consigliata il prezzo resta alle chat che cambiano strada
+  (§2.3). Rimediare sta in un'altra change: questa dichiara il prezzo, non lo
+  nasconde.
+- **Il proxy degli account** (§2.5). Se il motore non passa da :3336, chi
+  cambia strada lascia la rotazione dei 2 account per uno solo. Le chat in
+  Automatico sul motore lo pagano già oggi.
 - **Due change non archiviate.** AICTRL e MP-TASK-04/07 vivono in
   `ai-control-hierarchy-topics-switch` e `general-auto-model-ui`. Il delta qui
   le MODIFICA, quindi l'archiviazione va fatta in quest'ordine: quelle due,
   poi questa.
-- **Test che fissano il vecchio comportamento.** Gli E2E e gli unit sul
-  blocco a interruttore acceso (`topicsRoutingGate.test.ts` e gli spec che
-  cercano `ai-selector-topics-routing` disabilitato) vanno riscritti sul nuovo
-  contratto, non cancellati. L'elenco è in tasks 1.6.
+- **Test che fissano il vecchio comportamento.** Sono 14 file (tasks 1.6).
+  Vanno riscritti sul nuovo contratto, non cancellati.
