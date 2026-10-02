@@ -327,6 +327,23 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     expect(byBlock.get(1)).toMatchObject({ status: "unknown", exitCode: null, endedAt: startedAt });
   });
 
+  test("a run the registry no longer knows whose exit file is still there closes from it: its code, its time, its output", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const startedAt = "2026-09-01T10:00:00.000Z";
+    const id = `gone-exit-${seq}`;
+    insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "make", cwd: PROJECT, startedAt, authorDeviceId: null });
+    const log = logPathOf(id);
+    const exit = log.replace(/\.log$/, ".exit");
+    mkdirSync(dirname(log), { recursive: true });
+    writeFileSync(log, "built\nall fine\n");
+    writeFileSync(exit, "0\n");
+    const exitedAt = new Date("2026-09-01T10:03:00.000Z");
+    utimesSync(exit, exitedAt, exitedAt);
+    const [run] = await runs(topic, messageId);
+    expect(run).toMatchObject({ status: "done", exitCode: 0, endedAt: exitedAt.toISOString(), output: "built\nall fine" });
+  });
+
   test("after a restart the log of a run the registry forgot is gone: the row's last persisted output closes it, not its start", async () => {
     const topic = newTopic();
     const messageId = reply(topic);
@@ -399,6 +416,46 @@ describe("across a reload of the server", () => {
     expect(run).toMatchObject({ runId: started.runId, status: "error", exitCode: 5, output: "fine" });
     expect(Date.parse(run.endedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
     expect(Date.parse(run.endedAt)).toBeLessThanOrEqual(deadAt);
+  }, 40_000);
+
+  test("eleven runs ended while the server was down: the boot closes every one from its exit file, the oldest too", async () => {
+    const dir = freshState();
+    // One more than the registry keeps among its recent rows: closing them at boot must not evict one first.
+    const messageIds = Array.from({ length: 11 }, (_, k) => `m-eleven-${k}`);
+    const started = life(dir, "start", messageIds.join(","), "sleep 1; echo fine") as { runs: Array<{ runId: string; pid: number }> };
+    expect(started.runs).toHaveLength(11);
+    await until(() => started.runs.every((r) => !alive(r.pid)), 20_000);
+    const scripts = join(dir, ".state", "scripts");
+    expect(started.runs.every((r) => existsSync(join(scripts, `${r.runId}.exit`)))).toBe(true);
+    const { runs } = life(dir, "boot", messageIds.join(","), started.runs.map((r) => r.runId).join(","));
+    expect(runs).toEqual(started.runs.map((r) => expect.objectContaining({ runId: r.runId, status: "done", exitCode: 0, output: "fine" })));
+    for (const run of runs) expect(Date.parse(run.endedAt)).toBeGreaterThan(Date.parse(run.startedAt));
+    // Closed first, swept after: the files of a run closed at this boot are still there.
+    expect(started.runs.every((r) => existsSync(join(scripts, `${r.runId}.exit`)) && existsSync(join(scripts, `${r.runId}.log`)))).toBe(true);
+  }, 60_000);
+
+  test("it ended over a week ago with the server off: the boot closes it from its files, which go only at the next sweep", async () => {
+    const dir = freshState();
+    const started = life(dir, "start", "m-week", "sleep 1; echo fine");
+    await until(() => !alive(started.pid));
+    const files = [".exit", ".log"].map((ext) => join(dir, ".state", "scripts", `${started.runId}${ext}`));
+    expect(files.every((f) => existsSync(f))).toBe(true);
+    // Started and ended eight days ago: past the seven days the boot's sweep keeps.
+    const endedAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 8 * 86_400_000);
+    const startedAt = new Date(endedAt.getTime() - 60_000).toISOString();
+    const stateFile = join(dir, ".state", "scripts.json");
+    const state = JSON.parse(readFileSync(stateFile, "utf8")) as { running: Array<{ startedAt: string }> };
+    for (const r of state.running) r.startedAt = startedAt;
+    writeFileSync(stateFile, JSON.stringify(state));
+    const db = new Database(join(dir, "topics.db"));
+    db.prepare("UPDATE command_runs SET started_at = ? WHERE id = ?").run(startedAt, started.runId);
+    db.close();
+    for (const f of files) utimesSync(f, endedAt, endedAt);
+    const { run } = life(dir, "boot", "m-week", started.runId);
+    expect(run).toMatchObject({ runId: started.runId, status: "done", exitCode: 0, output: "fine", endedAt: endedAt.toISOString() });
+    expect(files.every((f) => existsSync(f))).toBe(true);
+    life(dir, "boot", "m-week", started.runId);
+    expect(files.some((f) => existsSync(f))).toBe(false);
   }, 40_000);
 
   /** The machine goes down under a running command: the command and its wrapper die at once, no exit file. */

@@ -20,7 +20,7 @@
 import type { AppContext } from "../types";
 import { hasCommandShell } from "../lib/command-process";
 import { agentWorkspaceForSession } from "../lib/agent-workspace";
-import { closeRun, insertRun, latestRuns, runLastOutputAt } from "../lib/command-runs";
+import { insertRun, latestRuns } from "../lib/command-runs";
 import { isCommandCut } from "../../shared/cut-fence";
 import { decodeCol } from "../../shared/message-blob";
 
@@ -29,8 +29,8 @@ export interface CommandRunRegistry {
   start(o: { cwd: string; command: string; sessionKey: string; topicId: string | null }): { processId: string; startedAt: string } | null;
   /** Where the registry stands with a run: still running, ended (its row is closed now), or no longer known. */
   reconcile(runId: string): "running" | "ended" | "gone";
-  /** When the run's output was last written, as an ISO time; null when its log is gone too. */
-  lastOutputAt(runId: string): string | null;
+  /** Close the row of a run the registry no longer has, from what its exit file and its log still say. */
+  closeLost(runId: string, startedAt: string): void;
   /** Stop a run the registry has. */
   kill(runId: string): void;
 }
@@ -65,19 +65,12 @@ export function createCommandRunsRoute(ctx: AppContext, registry: CommandRunRegi
       const messageId = url.searchParams.get("messageId") ?? "";
       if (!messageId) return json({ error: "messageId is required" }, 400);
       // A run still `running` whose process the registry no longer has (killed
-      // with the server, never re-adopted): unknown, not running forever. It
-      // ended at the last moment it is known to have lived, its last output or
-      // its start, not when this GET happened to notice it. The row's time
-      // first: a normal restart deletes the log of every process the registry
-      // does not know, so the log's own time is there only when no boot ran.
+      // with the server, never re-adopted, or dropped from its recent rows):
+      // not running forever. Its exit file, when still there, says how and
+      // when it ended; without one it is unknown, ended at the last moment it
+      // is known to have lived (`closeLostRun`), not when this GET noticed it.
       for (const run of latestRuns(ctx.db, sessionKey, messageId)) {
-        if (run.status === "running" && registry.reconcile(run.runId) === "gone") {
-          const known = [runLastOutputAt(ctx.db, run.runId), registry.lastOutputAt(run.runId)]
-            .filter((t): t is string => !!t && Date.parse(t) > Date.parse(run.startedAt))
-            .sort((a, b) => Date.parse(b) - Date.parse(a));
-          const endedAt = known[0] ?? run.startedAt;
-          closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt, output: "", droppedLines: 0 });
-        }
+        if (run.status === "running" && registry.reconcile(run.runId) === "gone") registry.closeLost(run.runId, run.startedAt);
       }
       return json({ runs: latestRuns(ctx.db, sessionKey, messageId) });
     }

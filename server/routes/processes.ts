@@ -27,7 +27,7 @@ import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
-import { closeRegistryRun, noteRunOutput } from "../lib/command-runs";
+import { closeLostRun, closeRegistryRun, noteRunOutput } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
@@ -346,7 +346,10 @@ function loadState() {
     }
     for (const sp of endedCommands) finishCommand(sp, { foundDead: true });
 
-    // Cleanup old log files for completed processes older than 7 days
+    // Cleanup old log files for completed processes older than 7 days. Not
+    // those of a command closed at this boot, however old (the server was off
+    // a week): they go at the next sweep, once its row is closed.
+    const closedNow = new Set(endedCommands.map((sp) => sp.processId));
     try {
       const scriptsDir = join(getPersistDir(), "scripts");
       if (existsSync(scriptsDir)) {
@@ -357,7 +360,7 @@ function loadState() {
           if (!file.endsWith('.log') && !file.endsWith('.exit')) continue;
           const processId = file.replace(/\.(log|exit)$/, '');
           // Keep logs for running processes
-          if (runningScripts.has(processId)) continue;
+          if (runningScripts.has(processId) || closedNow.has(processId)) continue;
           // Check if recent and not old
           const recent = recentScripts.find(s => s.processId === processId);
           if (recent?.completedAt && (now - new Date(recent.completedAt).getTime()) < SEVEN_DAYS) continue;
@@ -552,12 +555,22 @@ function flushPendingLine(sp: ScriptProcess) {
 function addToRecent(sp: ScriptProcess) {
   flushPendingLine(sp);
   recentScripts.unshift(sp);
-  // The oldest row goes, unless it still owes its topic a wake: `scripts.json`
-  // persists only these rows, so a pruned owed row lost its wake at the next
-  // reload. Scripts and every agent's shells end here too, and ten endings go
-  // by fast. The row is pruned normally once its wake has settled.
+  trimRecent();
+}
+
+/**
+ * The oldest rows past MAX_RECENT go, but not one that still owes its topic a
+ * wake (`scripts.json` persists only these rows, so a pruned owed row lost its
+ * wake at the next reload; scripts and every agent's shells end here too, and
+ * ten endings go by fast), nor a person's run before the router has a
+ * database to close its `command_runs` row in: more than ten found dead at one
+ * boot evicted the oldest unclosed, and its row then closed as unknown. Both
+ * are pruned normally once settled.
+ */
+function trimRecent(): void {
   for (let i = recentScripts.length - 1; recentScripts.length > MAX_RECENT && i >= 0; i--) {
-    if (!recentScripts[i]!.cmd?.wake) recentScripts.splice(i, 1);
+    const sp = recentScripts[i]!;
+    if (!sp.cmd?.wake && !(isPersonRun(sp) && !_broadcastCtx)) recentScripts.splice(i, 1);
   }
 }
 
@@ -1652,8 +1665,10 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
   _broadcastCtx = ctx; // store for pollPidExit callbacks
-  // The people's runs that ended before there was a database to close their row in (boot).
+  // The people's runs that ended before there was a database to close their row in (boot):
+  // every one closed first, the rows past MAX_RECENT dropped after.
   for (const sp of recentScripts) if (isPersonRun(sp)) settlePersonRun(sp);
+  if (recentScripts.length > MAX_RECENT) { trimRecent(); saveState(); }
 
   async function readJSON(req: Request): Promise<any> {
     try { return await req.json(); } catch { return null; }
@@ -1944,9 +1959,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       settlePersonRun(sp);
       return "ended";
     },
-    lastOutputAt(runId) {
-      try { return statSync(logPathOf(runId)).mtime.toISOString(); } catch { return null; }
-    },
+    closeLost: (runId, startedAt) => closeLostRun(ctx, { processId: runId, startedAt, exitPath: exitPathOf(runId), logPath: logPathOf(runId) }),
     kill(runId) { const sp = runningScripts.get(runId); if (sp) killRunningScript(sp); },
   });
 

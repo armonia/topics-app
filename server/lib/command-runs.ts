@@ -12,6 +12,8 @@
 import type { Database } from "bun:sqlite";
 import type { AppContext } from "../types";
 import type { CommandRun, RunStatus } from "../../shared/command-runs";
+import { endedWhileAway, readExitCode } from "./command-process";
+import { readFileEnd } from "./file-tail";
 
 /** The most of a run's output kept in its row: the end, where a command says how it went. */
 export const RUN_OUTPUT_MAX_BYTES = 256 * 1024;
@@ -157,4 +159,23 @@ export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">,
   } catch (err) {
     console.warn(`[command-runs] closing the run ${row.processId} failed:`, err);
   }
+}
+
+/**
+ * Close the row of a run the registry no longer has (`GET`, `reconcile` says
+ * `gone`) from what its files still say: the exit file's code and time, the
+ * end of its log. Without an exit file it is unknown, ended at its log's last
+ * write, or at the row's last output when the log is gone too (a normal boot
+ * sweeps the logs of the processes it does not know), never before its start.
+ */
+export function closeLostRun(ctx: Pick<AppContext, "db" | "broadcastToAll">, run: {
+  processId: string; startedAt: string; exitPath: string; logPath: string;
+}): void {
+  let lines: string[] = [];
+  try { lines = readFileEnd(run.logPath, RUN_OUTPUT_MAX_BYTES)?.text.split("\n") ?? []; } catch { /* no log: no output */ }
+  if (lines.at(-1) === "") lines.pop();
+  closeRegistryRun(ctx, {
+    processId: run.processId, stopped: false, exitCode: readExitCode(run.exitPath) ?? undefined,
+    completedAt: endedWhileAway(run.exitPath, run.logPath, run.startedAt), output: lines,
+  });
 }
