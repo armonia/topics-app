@@ -129,3 +129,35 @@ describe('historyFromCache: the socket is read from the bus, not from a status',
     n.unmount();
   });
 });
+
+/**
+ * THE FIRST READER CAN ARRIVE AFTER THE SOCKET OPENED. The store wired itself
+ * to the bus on the first subscribe, and the bus does not replay the current
+ * state: a window that started with no chat and opened one later had the
+ * socket shut forever (until a reconnect), and the notice never spoke. Fresh
+ * module instance: `wired` is module state, and other tests here already
+ * wired the shared one.
+ */
+describe('historyFromCache: a reader that mounts after the socket opened', () => {
+  test('sees the socket open without waiting for a reconnect', async () => {
+    const late = await import(`./historyFromCache?late=${Math.random()}`) as typeof import('./historyFromCache');
+    dispatchLifecycle('open');
+    try {
+      late.markHistoryFromCache('topic:late');
+      const box = { shown: false };
+      const Probe = (): null => {
+        const shown = late.useServedFromCache('topic:late');
+        useEffect(() => { box.shown = shown; });
+        return null;
+      };
+      const h = mount(createElement(Probe));
+      // React reads the snapshot again once it has subscribed; this harness
+      // does not, so the next render stands in for that read.
+      h.rerender();
+      expect(box.shown).toBe(true);
+      h.unmount();
+    } finally {
+      dispatchLifecycle('close');
+    }
+  });
+});
