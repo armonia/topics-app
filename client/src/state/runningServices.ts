@@ -52,7 +52,8 @@ let expiryTimer: ReturnType<typeof setTimeout> | null = null;
 function withinEndedWindow(rows: ReadonlyArray<TopicServices> | undefined, seen: Map<string, number>, now: number): TopicServices[] {
   const carried = new Set<string>();
   const out: TopicServices[] = [];
-  for (const row of Array.isArray(rows) ? rows : []) {
+  const list: ReadonlyArray<TopicServices> = Array.isArray(rows) ? rows : [];
+  for (const row of list) {
     if (!row || !Array.isArray(row.services)) continue;
     const services = row.services.filter((s) => {
       if (!s.ended) return true;
