@@ -31,6 +31,13 @@ import { GlobalOnlySettingsPanel, GlobalSettingsSection } from './BoardSettingsS
 import { adoptChecksFloor, adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
 import type { DispatchCapacity } from '../../lib/board';
 
+/** The `data-testid` of every radio drawn as checked, whatever the order of its attributes. */
+function checkedRadios(html: string): string[] {
+  return (html.match(/<button[^>]*role="radio"[^>]*>/g) ?? [])
+    .filter((tag) => tag.includes('aria-checked="true"'))
+    .map((tag) => tag.match(/data-testid="([^"]+)"/)?.[1] ?? '');
+}
+
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   recommended: 4,
   cores: 12,
@@ -157,7 +164,7 @@ describe('what the control draws', () => {
   /** The chosen one of the THREE count states, by test id. There are two radio
    *  groups now (which brake, then which count state), so a bare count of
    *  `aria-checked="true"` would say two and mean nothing. */
-  const chosenState = (html: string) => html.match(/aria-checked="true" data-testid="global-cap-mode-[a-z]+"/g) ?? [];
+  const chosenState = (html: string) => checkedRadios(html).filter((id) => id.startsWith('global-cap-mode-'));
 
   test('the three modes are three, and exactly one is chosen', () => {
     adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 0 });
@@ -205,7 +212,7 @@ describe('the brake by budget', () => {
     // slider would be a promise the dispatcher on that server cannot keep.
     adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5 });
     const html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('aria-checked="true" data-testid="global-cap-brake-count"');
+    expect(checkedRadios(html)).toContain('global-cap-brake-count');
     expect(html).not.toContain('data-testid="global-cap-budget-slider"');
     expect(html).toContain('data-testid="global-cap-max"');
   });
@@ -214,7 +221,7 @@ describe('the brake by budget', () => {
     resources();
     adoptDispatchCapacity(machine({ running: 3 }));
     const html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('aria-checked="true" data-testid="global-cap-brake-resources"');
+    expect(checkedRadios(html)).toContain('global-cap-brake-resources');
     expect(html).not.toContain('data-testid="global-cap-max"');
     expect(html).not.toContain('data-testid="global-cap-mode-');
     expect(html).toContain('data-testid="global-cap-budget-slider"');
