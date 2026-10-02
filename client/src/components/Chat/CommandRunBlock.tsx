@@ -18,6 +18,9 @@ import { Spinner } from '../Shared/Spinner';
 import { ansiLines, plainLines, type AnsiSpan } from './ansiSpans';
 import { refreshMessageRuns, subscribeRunOutput } from './commandRunStore';
 import { formatRunDuration, runDraftText, shortenHome } from './commandRunText';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
+import { StableToggleLabel } from './StableToggleLabel';
 
 /** A finished output longer than this shows its last lines and a «Show all». */
 const FINISHED_TAIL_LINES = 20;
@@ -58,6 +61,8 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
   const [pending, setPending] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const boxRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const disclose = useDisclosureToggle();
   const followRef = useRef(true);
 
   // The output while it runs: the registry's cursor, read once a second and
@@ -144,7 +149,7 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
       aria-label={tr('run.label')}
       className={`mt-1 rounded-md bg-app-code-bg text-gray-100 overflow-hidden border-l-2 ${failed ? 'border-red-500' : 'border-transparent'}`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-2.5 py-1 border-b border-white/5">
+      <div ref={headerRef} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2 min-w-0 text-mini">
           {running ? <Spinner size="xs" />
             : <span aria-hidden className={`inline-block w-1.5 h-1.5 rounded-full ${run.status === 'done' ? 'bg-emerald-400' : failed ? 'bg-red-500' : 'bg-gray-500'}`} />}
@@ -164,34 +169,35 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
               <button type="button" className={action} onClick={() => { void copyOutput(); }}><Copy size={10} /> {tr('run.copyOutput')}</button>
               <button type="button" className={action} onClick={sendToAgent} title={tr('run.sendToAgentTitle')} data-testid="command-run-send"><Send size={10} /> {tr('run.sendToAgent')}</button>
               <button type="button" className={action} onClick={onOpenTerminal} aria-label={tr('code.openInTerminal')} title={tr('code.openInTerminalTitle')}><SquareTerminal size={11} /></button>
-              <button type="button" className={action} onClick={() => setHidden((h) => !h)} aria-expanded={!hidden}>
-                {hidden ? <><ChevronDown size={10} /> {tr('run.show')}</> : <><ChevronUp size={10} /> {tr('run.hide')}</>}
+              {/* The run's header is the fold's header (CHAT-FOLD-01): it stays
+                  put and the output opens or closes under it. */}
+              <button type="button" className={action} onClick={() => { disclose(headerRef.current); setHidden((h) => !h); }} aria-expanded={!hidden}>
+                {hidden ? <ChevronDown size={10} /> : <ChevronUp size={10} />}
+                <StableToggleLabel open={!hidden} show={tr('run.show')} hide={tr('run.hide')} />
               </button>
             </>
           )}
         </div>
       </div>
-      {!hidden && (
-        <>
-          {!running && lines.length > FINISHED_TAIL_LINES && !showAll && (
-            <button type="button" onClick={() => setShowAll(true)} className="w-full text-left px-2.5 py-1 text-mini text-indigo-300/70 hover:text-indigo-300 border-b border-white/5">
-              {tr('run.showAll', { n: lines.length })}
-            </button>
-          )}
-          {run.droppedLines > 0 && (showAll || lines.length <= FINISHED_TAIL_LINES) && (
-            <div className="px-2.5 pt-1 text-micro text-gray-500">{tr('run.dropped', { n: run.droppedLines })}</div>
-          )}
-          <div
-            ref={boxRef}
-            onScroll={onScroll}
-            tabIndex={0}
-            data-testid="command-run-output"
-            className={`px-2.5 py-1.5 font-mono text-prose leading-[1.5] whitespace-pre overflow-x-auto ${running ? 'max-h-[24em] overflow-y-auto' : ''}`}
-          >
-            {shown.length ? shown.map((spans, i) => <Line key={i} spans={spans} />) : <div className="text-gray-500">{running ? ' ' : tr('run.noOutput')}</div>}
-          </div>
-        </>
-      )}
+      <DisclosureBody open={!hidden}>
+        {!running && lines.length > FINISHED_TAIL_LINES && !showAll && (
+          <button type="button" onClick={() => { disclose(headerRef.current); setShowAll(true); }} className="w-full text-left px-2.5 py-1 text-mini text-indigo-300/70 hover:text-indigo-300 border-b border-white/5">
+            {tr('run.showAll', { n: lines.length })}
+          </button>
+        )}
+        {run.droppedLines > 0 && (showAll || lines.length <= FINISHED_TAIL_LINES) && (
+          <div className="px-2.5 pt-1 text-micro text-gray-500">{tr('run.dropped', { n: run.droppedLines })}</div>
+        )}
+        <div
+          ref={boxRef}
+          onScroll={onScroll}
+          tabIndex={0}
+          data-testid="command-run-output"
+          className={`px-2.5 py-1.5 font-mono text-prose leading-[1.5] whitespace-pre overflow-x-auto ${running ? 'max-h-[24em] overflow-y-auto' : ''}`}
+        >
+          {shown.length ? shown.map((spans, i) => <Line key={i} spans={spans} />) : <div className="text-gray-500">{running ? ' ' : tr('run.noOutput')}</div>}
+        </div>
+      </DisclosureBody>
     </div>
   );
 });

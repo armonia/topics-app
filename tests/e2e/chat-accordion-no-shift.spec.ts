@@ -192,6 +192,28 @@ const KINDS: Kind[] = [
     opened: (page, tag) => page.getByText(`const v39 = 39; // ${tag}`),
   },
   {
+    // Three openings of one browser context are one marker (CHAT-BROWSER-01):
+    // its «3 pages» list is a fold under the marker's row.
+    name: "browser-pages",
+    seed: (tag) => [{
+      role: "assistant",
+      content: `Pages ${tag}`,
+      blocks: [
+        ...["a", "b", "c"].map((p) => ({
+          kind: "tool",
+          toolCall: {
+            id: `${tag}-bp-${p}`, name: "mcp__topics__open_browser_pane", args: { url: `https://example.com/${tag}/${p}` }, status: "success",
+            result: `Opened browser pane at https://example.com/${tag}/${p} (title: Page ${p} ${tag}) [contextId: ctx-${tag}]`,
+          },
+        })),
+        { kind: "text", text: `Pages ${tag}: three pages opened.` },
+      ],
+    }],
+    click: (tag) => `msg:Pages ${tag}|[data-testid="browser-open-marker-pages"]`,
+    fold: (tag) => `msg:Pages ${tag}|[data-testid="browser-open-marker"]`,
+    opened: (page, tag) => page.locator('[data-testid="chat-message"]', { hasText: `Pages ${tag}` }).getByTestId("browser-open-marker-page-list"),
+  },
+  {
     name: "compaction-recap",
     seed: (tag) => [{
       role: "assistant",

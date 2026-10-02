@@ -21,6 +21,8 @@ import { usePaneStore } from '../../state/pane/store';
 import { subscribeTaskTabs } from '../../state/taskBrowserTabs';
 import { pageHost } from '../../../../shared/tool-detail';
 import { browserPageLabel } from './toolDetail';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
 import { useChatTopicId } from './chatTopicContext';
 import {
   browserMarkerState,
@@ -95,6 +97,7 @@ export const BrowserOpenMarker = memo(function BrowserOpenMarker({ marker }: { m
   const go = useGoToPage(marker);
   const place = useBrowserPlace(marker.contextId || topicId, topicId);
   const [listOpen, setListOpen] = useState(false);
+  const disclose = useDisclosureToggle();
   const page = currentPage(marker);
   const title = markerTitle(marker);
   const host = pageHost(page.url);
@@ -131,7 +134,7 @@ export const BrowserOpenMarker = memo(function BrowserOpenMarker({ marker }: { m
         {marker.pages.length > 1 && (
           <button
             type="button"
-            onClick={() => setListOpen((v) => !v)}
+            onClick={(e) => { disclose(e.currentTarget); setListOpen((v) => !v); }}
             aria-expanded={listOpen}
             data-testid="browser-open-marker-pages"
             className="flex-shrink-0 inline-flex items-center gap-1 py-1 coarse:min-h-11 text-mini text-app-text-muted hover:text-app-text transition-colors"
@@ -141,7 +144,9 @@ export const BrowserOpenMarker = memo(function BrowserOpenMarker({ marker }: { m
           </button>
         )}
       </div>
-      {listOpen && (
+      {/* The list unrolls under the row like every fold of the transcript:
+          the row stays where the click found it (CHAT-FOLD-01). */}
+      <DisclosureBody open={listOpen}>
         <ol data-testid="browser-open-marker-page-list" className="ml-[22px] mb-1 space-y-0.5 text-mini text-app-text-secondary">
           {marker.pages.map((p) => (
             <li key={p.toolCallId} className="flex items-center gap-2 min-w-0">
@@ -150,7 +155,7 @@ export const BrowserOpenMarker = memo(function BrowserOpenMarker({ marker }: { m
             </li>
           ))}
         </ol>
-      )}
+      </DisclosureBody>
     </div>
   );
 });
