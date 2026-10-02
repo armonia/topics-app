@@ -99,7 +99,7 @@ function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefi
  */
 function wrappedCommandAt(name: string, words: string[], i: number): number | null {
   if (WRAPPERS.has(name)) {
-    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name], name === 'env' ? (w) => ASSIGNMENT.test(w) : undefined);
+    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name], name === 'env' ? (w) => ASSIGNMENT.test(unquote(w)) : undefined);
     // `timeout 10 cmd`: the duration comes before the command.
     return name === 'timeout' || name === 'gtimeout' ? at + 1 : at;
   }
@@ -124,7 +124,8 @@ function scanWords(words: string[], add: (kind: RiskKind, text: string) => void)
   let i = 0;
   // Leading reserved words, assignments and wrappers: what runs is the command after them.
   for (;;) {
-    while (i < words.length && (ASSIGNMENT.test(words[i]!) || LEADING_RESERVED.has(words[i]!))) i++;
+    // Read without its quotes: in `bash -c "FOO=1 rm -rf x"` the payload's first word is `"FOO=1`.
+    while (i < words.length && (ASSIGNMENT.test(unquote(words[i]!)) || LEADING_RESERVED.has(unquote(words[i]!)))) i++;
     const name = commandName(words[i] ?? '');
     const next = wrappedCommandAt(name, words, i);
     if (next === null) break;

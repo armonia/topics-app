@@ -120,6 +120,33 @@ describe('commandRisk: the second step', () => {
     });
   }
 
+  // A payload that opens with an assignment: the quote in front of `FOO=1`
+  // must not make it pass for the command's name.
+  for (const [wrapper, wrap] of wrappers) {
+    test(`behind ${wrapper}, a destructive form after assignments asks`, () => {
+      for (const [form, kind] of destructive) {
+        for (const command of [wrap(`FOO=1 ${form}`), wrap(`A=1 B=2 ${form}`)]) {
+          expect({ command, kinds: kinds(command) }).toEqual({ command, kinds: expect.arrayContaining([kind]) });
+        }
+      }
+    });
+  }
+
+  test('the three payloads the review found ask', () => {
+    expect(kinds('bash -c "FOO=1 rm -rf x"')).toContain('rm');
+    expect(kinds('ssh host "FOO=1 rm -rf x"')).toContain('rm');
+    expect(kinds("sh -c 'A=1 B=2 git push --force'")).toContain('git-push-force');
+  });
+
+  test('an everyday payload after assignments asks nothing', () => {
+    for (const c of [
+      'bash -c "FOO=1 bun run build"', 'ssh host "NODE_ENV=production bun run build"', "sh -c 'A=1 B=2 git status'",
+      "eval 'X=1 ls -la'", 'sudo -u deploy sh -c "PORT=3000 bun start"', 'echo "FOO=1 rm -rf x"',
+    ]) {
+      expect({ c, confirm: commandRisk(c).confirm.filter((r) => r.kind !== 'sudo') }).toEqual({ c, confirm: [] });
+    }
+  });
+
   test('a wrapper around a harmless command, or handing harmless text, asks nothing', () => {
     for (const c of [
       'ssh host uptime', 'ssh -t host', 'ssh host "git push"', 'ssh host \'echo "rm -rf x"\'',
