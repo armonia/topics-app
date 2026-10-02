@@ -683,6 +683,17 @@ export class AcpProvider implements AIProvider {
     } catch (err) {
       if (state) state.promptInFlight = false;
       const info = classifyTurnError(err, state?.aborting ?? "provider-error");
+      // The cap closes the turn, not the prompt: without a cancel the agent
+      // keeps running tools for a turn the chat shows as over, and its updates
+      // keep landing in this closed turn's row. Cancel it the way `abort` does
+      // and detach this handler; the next prompt still waits for its answer.
+      if (state?.prompt && errText(err) === "ACP_PROMPT_TIMEOUT") {
+        if (!state.aborting) {
+          state.aborting = "wall-clock";
+          this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
+        }
+        if (state.handler === handler) state.handler = undefined;
+      }
       if (info.end === "cancelled") {
         handler.onAborted?.({ result: state?.fullText ?? "", turnEnd: info });
       } else {

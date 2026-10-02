@@ -295,6 +295,33 @@ describe("stop e morte", () => {
     expect(rec.aborted[0]!.turnEnd).toEqual({ end: "cancelled" });
   });
 
+  test("a turn past the 30-minute cap cancels the prompt still running in the agent", async () => {
+    // The cap closed the turn in error and left the prompt alive in the agent:
+    // no `session/cancel`, so it kept running tools for a turn the chat showed
+    // as over, and its updates kept landing in that closed turn's row.
+    const realSetTimeout = globalThis.setTimeout;
+    const PROMPT_CAP_MS = 30 * 60 * 1000;
+    globalThis.setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) =>
+      realSetTimeout(fn, ms === PROMPT_CAP_MS ? 300 : ms, ...rest)) as typeof setTimeout;
+    try {
+      const provider = makeProvider();
+      const rec = recorder();
+      const turn = provider.sendChat("topic:cap", "SLOW LINGER", rec.handler);
+      await untilSlowStarted(rec);
+      await turn;
+      expect(rec.errors.join("\n")).toContain("ACP_PROMPT_TIMEOUT");
+      const state = (provider as unknown as { sessions: Map<string, { prompt?: Promise<unknown> }> }).sessions.get("topic:cap")!;
+      // The agent answers the cancel (after its tail): the prompt settles.
+      const deadline = Date.now() + 3_000;
+      while (state.prompt && Date.now() < deadline) await Bun.sleep(10);
+      expect(state.prompt).toBeUndefined();
+      // The tail of a turn already closed in error does not reach its row.
+      expect(rec.full).not.toContain("linger:tail");
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
   test("il processo che muore a metà turno diventa un errore, non una promise appesa", async () => {
     const provider = makeProvider();
     const rec = recorder();
