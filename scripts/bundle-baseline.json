@@ -667,17 +667,41 @@
     "row can be a fold: the anchor hook that keeps a clicked header still",
     "(useDisclosureAnchor), the shared animated body (DisclosureBody), the stable",
     "toggle label and the strip panels; no dependency, no lazy import turned static.",
-    "Critical path baseline raised to the measured value."
+    "Critical path baseline raised to the measured value.",
+    "",
+    "2026-10-02 (CHAT-RUN, Run under a code block): re-measured, as asked above.",
+    "Parent commit 5841b8574 built clean: entry 1.542.745 / 487.006, critical path",
+    "2.158.539 / 646.614 (3.292 raw / 1.134 gz under its ceiling). With the change:",
+    "entry 1.556.136 / 491.699 (+13.391 / +4.693), critical path 2.172.609 / 651.375",
+    "(+14.070 / +4.761). Bought by what a code block of a reply needs before any",
+    "click: the label and risk reading of the command (runnableCommand,",
+    "commandRisk), the per-reply run store, the Run / Open in terminal controls and",
+    "the confirm strip, the paste-on-first-screen of a new shell, and the it",
+    "strings. The run's output reader (CommandRunBlock, ansiSpans, the draft text)",
+    "is a lazy chunk loaded the first time a block has a run; eager it cost +2.772",
+    "gz more. Written below: critical path 2.172.609 / 651.375. Entry and total",
+    "assets inside 2%, unchanged.",
+    "",
+    "2026-10-02, integra/tornata2w-1002 (five lanes on main e0e0a7ddb): entry eager",
+    "over its ceiling, measured with build:client after each merge. main 1.549.702",
+    "/ 489.158 (already +13.156 raw over the written number); browser-open marker",
+    "+8.446 / +2.437 (the marker row and where the page lives now, on every turn);",
+    "command run +15.188 / +5.426 (as its note above); sub-agent cards +8.134 /",
+    "+2.348 (result and spawn cards, the ended sub-agents store); sidebar menu",
+    "-2.520 / -253; the two folds made standard +85 / +35. Each lane alone was",
+    "inside 2%, together +42.489 / +14.581 over the written entry. Entry raised to",
+    "the measured 1.579.035 / 499.151. Critical path 2.197.697 / 658.971 and total",
+    "assets 8.535.422 are inside 2% and stay as written."
   ],
-  "updated": "2026-10-01",
+  "updated": "2026-10-02",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1536546,
-    "gz": 484570
+    "raw": 1579035,
+    "gz": 499151
   },
   "critical_path": {
-    "raw": 2167239,
-    "gz": 648881,
+    "raw": 2172609,
+    "gz": 651375,
     "files": 5
   },
   "total_assets": {

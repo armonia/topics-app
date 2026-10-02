@@ -27,6 +27,12 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
     // Set busy_timeout FIRST so subsequent PRAGMAs wait instead of failing
     // with SQLITE_BUSY_RECOVERY when the WAL is being checkpointed
     db.run("PRAGMA busy_timeout = 10000");
+    // Only takes effect before the first table exists; an existing file keeps
+    // its mode until a full VACUUM (scripts/enable-incremental-vacuum.ts).
+    // INCREMENTAL lets the idle server give free pages back to the disk
+    // (server/lib/db-incremental-vacuum.ts) without moving pages inside the
+    // writer's commit, which is what FULL would do.
+    if (isNew) db.run("PRAGMA auto_vacuum = INCREMENTAL");
     db.run("PRAGMA journal_mode = WAL");
     db.run("PRAGMA foreign_keys = ON");
     db.run("PRAGMA synchronous = NORMAL");

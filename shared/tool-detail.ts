@@ -131,18 +131,92 @@ export function goalStepsAsTodo(args: unknown): ToolCallDetail | null {
   return items.length > 0 ? { type: "todo", items } : null;
 }
 
+/** The tools that open a page in the in-app browser, under the names they travel with. */
+const OPEN_PANE_NAMES = new Set(["open_browser_pane", "mcp__topics__open_browser_pane"]);
+const BROWSER_OPEN_NAMES = new Set(["browser_open", "mcp__topics__browser_open"]);
+
+/** The outcome line of `open_browser_pane` (`server/mcp/topics-mcp-server.ts`),
+ *  wherever a port warning pushed it. The title is lazy so a `)` inside it stays. */
+const OPEN_PANE_OUTCOME = /^(Opened browser pane|Browser context ready) at (\S+)(?: \(title: (.*?)\))?(?= \u2014 |\s*\[contextId:|$)/m;
+const OPENED_CONTEXT = /\[contextId: ([^\]\s]+)\]\s*$/;
+/** The warning a non-fatal opening (a task chat's) puts ahead of its outcome
+ *  when the page never loaded (`server/routes/browser-open-pane-flow.ts`). */
+const NAVIGATION_FAILED = /^navigation failed: /m;
+
+/** `host[:port]` of a URL, or the URL itself when it does not parse. */
+export function pageHost(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * A successful opening of a page, as the chat marker draws it (CHAT-BROWSER-01).
+ *
+ * Null when it is not one: no url to point at, a call the caller knows failed,
+ * or a result that is not the tool's success shape (an `HTTP 502`, a `{error}`,
+ * a validation message). A row with NO result at all still counts: stored rows
+ * older than the result capture only have `args.url`, and they did open.
+ */
+function browserOpenDetail(c: string, a: Record<string, unknown>, result: string | undefined): ToolCallDetail | null {
+  const url = s(a.url);
+  if (!url) return null;
+  const name = s(a.name)?.trim();
+  const base = { type: "browser" as const, url, ...(name ? { name } : {}) };
+  if (!result) return base;
+  if (OPEN_PANE_NAMES.has(c)) {
+    const m = OPEN_PANE_OUTCOME.exec(result);
+    if (!m) return null;
+    // The context is ready but the page is not: nothing was opened to point at.
+    if (NAVIGATION_FAILED.test(result.slice(0, m.index))) return null;
+    const contextId = OPENED_CONTEXT.exec(result)?.[1];
+    return {
+      ...base,
+      ...(m[3] ? { title: m[3] } : {}),
+      ...(contextId ? { contextId } : {}),
+      visible: m[1] === "Opened browser pane",
+      result,
+    };
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = asRecord(JSON.parse(result));
+  } catch {
+    return null;
+  }
+  if (body.error !== undefined || !s(body.url)) return null;
+  return {
+    ...base,
+    // The final URL after a redirect: it is the page the agent is looking at.
+    url: s(body.url)!,
+    ...(s(body.title) ? { title: s(body.title)! } : {}),
+    ...(s(body.contextId) ? { contextId: s(body.contextId)! } : {}),
+    result,
+  };
+}
+
 /**
  * Build a `ToolCallDetail` from a tool name + args. Result string optional:
  * the caller passes it on tool_result events to enrich `output`/`content`/
- * `result` fields per detail kind.
+ * `result` fields per detail kind. `failed` is for a caller that knows the
+ * call errored: no kind may then claim it produced something (a browser
+ * opening that failed opened nothing).
  */
 export function deriveToolDetail(
   name: string,
   args: Record<string, unknown> | undefined,
   result?: string,
+  opts?: { failed?: boolean },
 ): ToolCallDetail {
   const c = canon(name);
   const a = asRecord(args);
+
+  if (!opts?.failed && (OPEN_PANE_NAMES.has(c) || BROWSER_OPEN_NAMES.has(c))) {
+    const opened = browserOpenDetail(c, a, result);
+    if (opened) return opened;
+  }
 
   if (isGoalStepsTool(name)) {
     const todo = goalStepsAsTodo(a);
@@ -370,6 +444,26 @@ export function deriveToolDetail(
       type: "sub_agent",
       ...(s(a.subagent_type) ? { subAgentType: s(a.subagent_type)! } : {}),
       ...(s(a.description) ? { description: s(a.description)! } : {}),
+      actions: [],
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Topics' own `spawn_agent`, bare (native runtime) or `mcp__topics__`: the
+  // sub-agent card, as `Agent` has, not the generic MCP one (SUBAGENT-16). The
+  // answer names the agentId and the model that really started.
+  if (c === "spawn_agent" || c.endsWith("__spawn_agent")) {
+    const agentId = result?.match(/agentId=([0-9a-f-]{36})/)?.[1];
+    const startedModel = result?.match(/ · model=([^\s·]+)/)?.[1];
+    const prompt = s(a.prompt);
+    return {
+      type: "sub_agent",
+      via: "spawn_agent",
+      ...(s(a.agent_type) ? { subAgentType: s(a.agent_type)! } : {}),
+      ...(prompt ? { description: prompt.length > 120 ? `${prompt.slice(0, 119)}…` : prompt } : {}),
+      ...(s(a.name) ? { name: s(a.name)! } : {}),
+      ...((startedModel ?? s(a.model)) ? { model: (startedModel ?? s(a.model))! } : {}),
+      ...(agentId ? { agentId } : {}),
       actions: [],
       ...(result ? { result } : {}),
     };

@@ -566,8 +566,7 @@
     ],
     "client/src/components/Project/ProcessLogPane.tsx": [
       "preRef",
-      "rec",
-      "stripAnsi"
+      "rec"
     ],
     "client/src/components/Project/ProjectSidebar.tsx": [
       "comandi",
@@ -595,17 +594,6 @@
     "client/src/components/Project/projectSidebarHeights.ts": [
       "SEZIONI",
       "capSezione"
-    ],
-    "client/src/components/Settings/AccountSection.tsx": [
-      "bottone"
-    ],
-    "client/src/components/Settings/DevicesSection.tsx": [
-      "attivi",
-      "giorni",
-      "quando",
-      "revoca",
-      "revocati",
-      "riprova"
     ],
     "client/src/components/Settings/DiscordSection.tsx": [
       "Anteprima",
@@ -702,12 +690,6 @@
       "postiValidi",
       "scadenzaVicina",
       "siPuoComprare"
-    ],
-    "client/src/components/Settings/sections.test.ts": [
-      "CHIAVI",
-      "chiave",
-      "chiavi",
-      "mancanti"
     ],
     "client/src/components/Share/GuestView.tsx": [
       "vuoto"
@@ -5225,10 +5207,6 @@
     "server/utils/executable.ts": [
       "semver"
     ],
-    "server/utils/path-env.ts": [
-      "ANSI_RE",
-      "stripAnsi"
-    ],
     "server/utils/worktree-naming.ts": [
       "adj"
     ],
@@ -6754,7 +6732,6 @@
       "origine",
       "pannello",
       "parola",
-      "profilo",
       "testi",
       "voci"
     ],

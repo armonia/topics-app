@@ -1,0 +1,7 @@
+{"type": "mode", "mode": "default"}
+{"type": "user", "cwd": "/p/app", "timestamp": "2026-09-29T10:00:00.000Z", "message": {"role": "user", "content": "Map every caller of deliverExit."}}
+{"type": "assistant", "timestamp": "2026-09-29T10:00:05.000Z", "message": {"model": "claude-sonnet-5-5", "role": "assistant", "stop_reason": "tool_use", "content": [{"type": "text", "text": "Reading the routes first."}, {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/p/app/x.ts"}}]}}
+{"type": "user", "timestamp": "2026-09-29T10:00:06.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}
+{"type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"}
+{"type": "user", "isCompactSummary": true, "isVisibleInTranscriptOnly": true, "timestamp": "2026-09-29T10:20:00.000Z", "message": {"role": "user", "content": "This session is being continued from a previous conversation that ran out of context. Summary: mapping the callers of deliverExit."}}
+{"type": "assistant", "timestamp": "2026-09-29T10:20:30.000Z", "message": {"model": "claude-sonnet-5-5", "role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "Callers: 3 files."}]}}

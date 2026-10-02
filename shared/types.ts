@@ -709,6 +709,18 @@ export type ToolCallDetail =
       actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
       /** Final result text (set when sub-agent completes). */
       result?: string;
+      /**
+       * Set when the call is Topics' `spawn_agent` (SUBAGENT-16): the child
+       * is a pane of its own, so the card reads its live state from the
+       * roster and its result from the chat's `subagent-result` rows.
+       */
+      via?: 'spawn_agent';
+      /** The name the parent chose. */
+      name?: string;
+      /** The model asked for, or the one the answer says started. */
+      model?: string;
+      /** The child's id, read from the answer: what joins the card to its roster entry and results. */
+      agentId?: string;
     }
   | { type: 'plan'; text: string }
   | { type: 'mcp'; server: string; tool: string; args?: Record<string, unknown>; result?: string }
@@ -740,6 +752,11 @@ export type ToolCallDetail =
   /** `AskUserQuestion`: a question put TO the person reading. Rendering it as
    *  JSON hid the one tool whose whole purpose is to be read by a human. */
   | { type: 'ask_user'; questions: Array<{ question: string; header?: string; options?: string[] }>; result?: string }
+  /** The agent opened a page in the in-app browser (`open_browser_pane`,
+   *  `browser_open`), and it worked. Drawn as a marker that stays in sight and
+   *  brings the page back (CHAT-BROWSER-01). `contextId` is absent on rows older
+   *  than BROWSER-CHAT-05; `visible: false` = loaded but on no screen. */
+  | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; result?: string }
   | { type: 'unknown'; raw: { args?: Record<string, unknown>; result?: string } };
 
 export interface ToolCall {
@@ -1098,7 +1115,36 @@ export type ContentBlock =
    * null when the process ended without recording one; `label` is the
    * command's short label, the one the Processes panel shows.
    */
-  | { kind: 'process-exit'; processId: string; exitCode: number | null; label: string };
+  | { kind: 'process-exit'; processId: string; exitCode: number | null; label: string }
+  /**
+   * THIS ROW CARRIES THE RESULTS OF `spawn_agent` CHILDREN, not words anybody
+   * typed (server/services/subagent-wake.ts). A `user` row when it wakes the
+   * parent chat, an `assistant` row when the parent could not be woken; either
+   * way the chat draws one card per result (SUBAGENT-12, SUBAGENT-16).
+   */
+  | { kind: 'subagent-result'; results: SubagentResultCard[] };
+
+/**
+ * One turn of one sub-agent, as its card shows it. `reason.code` is one of the
+ * codes of `server/lib/subagent-result.ts`; a code this client does not know
+ * falls back to the status alone.
+ */
+export interface SubagentResultCard {
+  agentId: string;
+  /** The name the parent chose. */
+  name: string;
+  turn: number;
+  status: 'completed' | 'failed' | 'stopped' | 'undelivered' | 'lost';
+  /** `text` is the last line seen of a cut turn, not an outcome. */
+  partial: boolean;
+  text: string;
+  reason?: { code: string; detail?: string; exitCode?: number };
+  /** The model the child actually ran. */
+  model?: string;
+  agentType?: string;
+  durationMs?: number;
+  branch?: string;
+}
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

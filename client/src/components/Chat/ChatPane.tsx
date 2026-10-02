@@ -38,6 +38,7 @@ import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { TaskCardStrip } from './TaskCardStrip';
 import { TaskWorkFoldContext } from './taskWorkFoldContext';
+import { ChatTopicContext } from './chatTopicContext';
 import { useTopicTask } from '../../state/taskSessions';
 import { ChangedFilesStrip } from './ChangedFilesStrip';
 import { UnsentStrip } from './UnsentStrip';
@@ -206,16 +207,22 @@ function ChatPaneComponent({
    * localStorage senza comparire mai. Il fuoco va con essa: il testo è davanti
    * a chi lo deve mandare, e a mandarlo è lui.
    */
+  //
+  // `mode: 'append'` adds the text at the end of the draft instead of replacing
+  // it: «Send to agent» under a command run (CHAT-RUN-04), which names the chat
+  // by its `sessionKey`, the one id a message knows. Nothing is sent.
   useEffect(() => {
     const onSeed = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { topicId?: string; text?: string } | undefined;
-      if (!detail || detail.topicId !== topic.id || !detail.text) return;
-      setMessage(detail.text);
+      const detail = (e as CustomEvent).detail as { topicId?: string; sessionKey?: string; text?: string; mode?: 'replace' | 'append' } | undefined;
+      if (!detail?.text || (detail.topicId !== topic.id && detail.sessionKey !== topic.sessionKey)) return;
+      const text = detail.text;
+      if (detail.mode === 'append') setMessage((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${text}` : text));
+      else setMessage(text);
       requestAnimationFrame(() => textareaRef.current?.focus());
     };
     window.addEventListener('topics:seed-composer', onSeed);
     return () => window.removeEventListener('topics:seed-composer', onSeed);
-  }, [topic.id]);
+  }, [topic.id, topic.sessionKey]);
   const [pendingImages, setPendingImages] = useState<{ dataUrl: string; mimeType: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
@@ -1705,7 +1712,9 @@ function ChatPaneComponent({
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
+      <ChatTopicContext.Provider value={topic.id}>
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      </ChatTopicContext.Provider>
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it

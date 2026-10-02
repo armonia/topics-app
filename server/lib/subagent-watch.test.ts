@@ -18,6 +18,7 @@ import { join } from "path";
 import { createSubagentWatcher, extractTextContent, type SubagentWatcher } from "./subagent-watch";
 import type { Topic, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
+import type { SubagentWakeRequest } from "../services/subagent-wake";
 
 const SESSION_KEY = "topic:abc123";
 const TOPIC_ID = "topic-abc123";
@@ -252,5 +253,68 @@ describe("deliverExit - the report of a spawn_agent child", () => {
     watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c2", name: "lane-a", outcome, exitCode: 0 });
     watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c2", name: "lane-a", outcome, exitCode: 0 });
     expect(appended).toHaveLength(1);
+  });
+});
+
+describe("deliverExit - one report per turn, and the wake (SUBAGENT-11, SUBAGENT-12)", () => {
+  const completed = { status: "completed" as const, partial: false, text: "Report: 3 files" };
+
+  function watcherWith(requestWake?: (r: SubagentWakeRequest) => void) {
+    const topic = { id: TOPIC_ID, sessionKey: SESSION_KEY, name: "Chat" } as unknown as Topic;
+    const rows: Array<{ content: string; blocks?: unknown }> = [];
+    const watcher = createSubagentWatcher({
+      gatewayUrl: "http://gateway.invalid",
+      gatewayToken: "t",
+      getTopicById: () => topic,
+      getTopicBySessionKey: () => topic,
+      saveSingleTopic: () => {},
+      appendLocalMessage: (_sk, _role, content, _autore, blocks) => {
+        rows.push({ content, blocks });
+        return { id: `m${rows.length}`, role: "assistant", content, timestamp: "" } as StoredMessage;
+      },
+      broadcastToAll: () => {},
+      bumpUnread: () => {},
+      resolveProvider: () => ({ name: "anthropic" }) as unknown as AIProvider,
+      pollIntervalMs: 60_000,
+      ...(requestWake ? { requestWake } : {}),
+    });
+    live = watcher;
+    return { watcher, rows };
+  }
+
+  it("a child steered into a second turn reports it too", () => {
+    const { watcher, rows } = watcherWith();
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c3", name: "scout", outcome: completed, exitCode: null, turn: 1 });
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c3", name: "scout", outcome: completed, exitCode: null, turn: 2 });
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c3", name: "scout", outcome: completed, exitCode: null, turn: 2 });
+    expect(rows).toHaveLength(2);
+  });
+
+  it("an early 'never arrived' does not swallow the turn's real end", () => {
+    const { watcher, rows } = watcherWith();
+    const undelivered = { status: "undelivered" as const, partial: false, text: "", reason: { code: "no-prompt" as const } };
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c4", name: "scout", outcome: undelivered, exitCode: null, turn: 1 });
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c4", name: "scout", outcome: completed, exitCode: null, turn: 1 });
+    expect(rows).toHaveLength(2);
+  });
+
+  it("the row carries the card block, under the name the parent chose", () => {
+    const { watcher, rows } = watcherWith();
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c5", name: "foglio-tab", outcome: completed, exitCode: null, model: "claude-sonnet-5-5" });
+    expect(rows[0]!.content.startsWith('**Sotto-agente "foglio-tab", esito:**')).toBe(true);
+    expect(rows[0]!.blocks).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId: "c5", name: "foglio-tab", status: "completed", model: "claude-sonnet-5-5" })] }]);
+  });
+
+  it("with the wake wired the result goes there, and no row is written at once", () => {
+    const asked: SubagentWakeRequest[] = [];
+    let settled = 0;
+    const { watcher, rows } = watcherWith((r) => asked.push(r));
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c6", name: "scout", outcome: completed, exitCode: null, settle: () => { settled++; } });
+    expect(rows).toHaveLength(0);
+    expect(asked.map((r) => [r.parentSessionKey, r.result.agentId, r.result.turn])).toEqual([[SESSION_KEY, "c6", 1]]);
+    asked[0]!.writeRow();
+    asked[0]!.settle();
+    expect(rows).toHaveLength(1);
+    expect(settled).toBe(1);
   });
 });

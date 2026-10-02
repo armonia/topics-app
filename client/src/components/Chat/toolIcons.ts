@@ -33,6 +33,7 @@ export function iconForDetail(detail: ToolCallDetail): LucideIcon {
     case 'agent_control': return Users;
     case 'artifact': return LayoutTemplate;
     case 'ask_user': return MessageCircleQuestion;
+    case 'browser': return Globe;
     case 'unknown': return Wrench;
   }
 }

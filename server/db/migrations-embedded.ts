@@ -177,6 +177,8 @@ import m20260928203249_chat_forks from "./migrations/20260928203249-chat-forks.s
 import m20260930131539_owed_answers from "./migrations/20260930131539-owed-answers.sql" with { type: "text" };
 import m20260930195818_tasks_done_recency_index from "./migrations/20260930195818-tasks-done-recency-index.sql" with { type: "text" };
 import m20260930200938_message_tool_outputs from "./migrations/20260930200938-message-tool-outputs.sql" with { type: "text" };
+import m20261001203100_subagents from "./migrations/20261001203100-subagents.sql" with { type: "text" };
+import m20261001220421_command_runs from "./migrations/20261001220421-command-runs.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -358,4 +360,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260930131539, name: "20260930131539-owed-answers.sql", sql: m20260930131539_owed_answers },
   { version: 20260930195818, name: "20260930195818-tasks-done-recency-index.sql", sql: m20260930195818_tasks_done_recency_index },
   { version: 20260930200938, name: "20260930200938-message-tool-outputs.sql", sql: m20260930200938_message_tool_outputs },
+  { version: 20261001203100, name: "20261001203100-subagents.sql", sql: m20261001203100_subagents },
+  { version: 20261001220421, name: "20261001220421-command-runs.sql", sql: m20261001220421_command_runs },
 ];

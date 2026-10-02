@@ -11,6 +11,11 @@ SHALL lanciare `command` con `startCommandProcess`
 - `messageId` SHALL essere un messaggio di quella sessione, `role = 'assistant'`,
   non `partial`: altrimenti 404 (non esiste o è di un'altra sessione) o 409
   (ancora in streaming), e nessun processo parte. `command` vuoto: 400.
+- `command` NON SHALL essere il testo del fence che un testo della risposta
+  (`content` o un blocco `text` della timeline) lascia aperto
+  (`isCommandCut`, `shared/cut-fence.ts`): Stop, il riavvio e l'errore del
+  provider chiudono la riga con `partial = 0` e il testo troncato. Altrimenti
+  409 `command_cut`, e nessun processo parte.
 - La cartella SHALL essere quella in cui gira il Bash dell'agente della
   sessione: worktree pronta, poi progetto (`getTopicWorkspaceForSession`,
   `server/providers/claude-code.ts:592`), poi `defaultWorkspace`, poi `HOME`.
@@ -24,6 +29,12 @@ SHALL lanciare `command` con `startCommandProcess`
   cambio di stato di un'esecuzione SHALL produrre un frame
   `command-run:updated { sessionKey, messageId, runId, status }`.
 - Su un sistema senza shell POSIX la route SHALL rispondere 501.
+- Un'esecuzione di una persona NON SHALL essere visibile agli strumenti di
+  processo dell'agente: `GET /api/sessions/:sessionKey/scripts` non la elenca, e
+  `…/scripts/:id/output`, `…/wait`, `…/stop` rispondono 404. Il pannello Processi
+  della persona (`GET /api/scripts`) la mostra. Senza questo l'output (anche una
+  password stampata) arriverebbe al modello da `read_process_output` senza
+  passare dalla bozza (CHAT-RUN-04).
 - La route e il frame SHALL restare chiusi agli ospiti: il percorso resta fuori
   da `isGuestAllowedPath` (`server/lib/grants.ts:101`) e il tipo di frame fuori
   da `GUEST_SAFE_FRAMES` (`grants.ts:203`).
@@ -47,6 +58,12 @@ risolta. `command` e `/send` restano cancellati come oggi.
 #### Scenario: un messaggio in streaming non si esegue
 - **GIVEN** una risposta con `partial = 1`
 - **THEN** la route risponde 409 e nessun processo parte
+
+#### Scenario: un comando troncato dal riavvio non si esegue
+- **GIVEN** una risposta con `partial = 0`, `end_reason = 'cut-by-restart'` (o `'stopped'`) che finisce con `` ```bash\necho cut ./bui `` senza il fence di chiusura
+- **WHEN** `POST` con `command: "echo cut ./bui"`
+- **THEN** la route risponde 409 `command_cut` e nessun processo parte
+- **AND** un blocco della stessa risposta chiuso prima del taglio parte (200)
 
 #### Scenario: nessuno viene svegliato
 - **GIVEN** un'esecuzione di `exit 0` finita

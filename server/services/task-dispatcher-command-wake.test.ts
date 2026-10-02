@@ -72,7 +72,7 @@ function freshDb(): Database {
  * The session's side, as the host's probes read it; `tokens`, its transcript's
  * billable count; `lastRowAt`, when its last chat row was written.
  */
-interface Session { owed: boolean; busy: boolean; tokens?: number; lastRowAt?: number }
+interface Session { owed: boolean; busy: boolean; tokens?: number; lastRowAt?: number; childOwed?: boolean }
 
 function reading(billableTokens: number): SessionUsage {
   return { inputTokens: billableTokens, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens };
@@ -96,6 +96,7 @@ function bench(session: Session) {
     runTurn: (_sessionKey, content) =>
       new Promise<TurnEndInfo | void>((res) => { turns.push(content); endTurn = res; }),
     awaitsCommandWake: () => session.owed,
+    awaitsSubagentWake: () => session.childOwed === true,
     isSessionBusy: () => session.busy,
     lastSessionRowAt: () => session.lastRowAt ?? null,
     getSessionUsage: () => reading(session.tokens ?? 0),
@@ -385,5 +386,42 @@ describe("a card whose agent ended its turn on a running run_command", () => {
     expect(b.task().dispatchAttempts).toBe(1);
     expect(b.task().dispatchState).toBe("queued");
     next.shutdown();
+  });
+});
+
+/**
+ * The same wait for a `spawn_agent` child: the kickoff tells a card agent that
+ * its child's result wakes the session, so a turn ended on a working child is
+ * not an interrupted one. Before, it was nudged and parked «failed» after two
+ * ends while the child still worked (SUBAGENT-12).
+ */
+describe("a card whose agent ended its turn on a working spawn_agent child", () => {
+  it("is not nudged, spends no attempt, and says it waits for the sub-agent", async () => {
+    const session = { owed: false, busy: false, childOwed: true };
+    const b = await endedOnCommand(session);
+    await polls(b, 3);
+    expect(b.turns.length).toBe(1);
+    expect(b.task().dispatchAttempts).toBe(1);
+    expect(b.task().status).toBe("in_progress");
+    expect(b.task().dispatchState).not.toBe("failed");
+    expect(b.notes().filter((n) => n.includes("sotto-agente")).length).toBe(1);
+    expect(b.notes().some((n) => n.includes("run_command"))).toBe(false);
+    b.dispatcher.shutdown();
+  });
+
+  it("waits through the turn the child's result opens, then continues as after any turn", async () => {
+    const session = { owed: false, busy: false, childOwed: true };
+    const b = await endedOnCommand(session);
+    // The child's result woke the session: its turn runs.
+    session.childOwed = false;
+    session.busy = true;
+    await polls(b, 2);
+    expect(b.turns.length).toBe(1);
+    session.busy = false;
+    await polls(b, 1);
+    expect(b.turns.length).toBe(2);
+    expect(b.task().dispatchAttempts).toBe(2);
+    expect(b.task().status).toBe("in_progress");
+    b.dispatcher.shutdown();
   });
 });

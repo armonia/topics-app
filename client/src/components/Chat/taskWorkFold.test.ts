@@ -1,5 +1,6 @@
 /**
  * @covers CHAT-TOOL-06
+ * @covers CHAT-BROWSER-01
  *
  * The partition a task chat is folded by: what a person reads to decide, and
  * what only proves the work. Pure, so the boundaries can be stated one by one
@@ -144,6 +145,22 @@ describe('summarizeWork', () => {
       msg({ toolCalls: [tc({ name: 'Bash', startedAt: 1300, endedAt: 4000 })] }),
     ]);
     expect(summary.durationMs).toBe(3000);
+  });
+
+  // CHAT-BROWSER-01: the accordion folds whole messages and never reorders, so
+  // the pages opened inside the folded stretch surface on its summary line.
+  test('collects the pages the agent opened, one per context, failed ones left out', () => {
+    const open = (url: string, name: string, ctx: string, status: ToolCall['status'] = 'success') => tc({
+      name: 'mcp__topics__open_browser_pane',
+      args: { url, name },
+      status,
+      result: status === 'success' ? `Opened browser pane at ${url} [contextId: ${ctx}]` : 'navigation failed',
+    });
+    const summary = summarizeWork([
+      msg({ toolCalls: [tc({ name: 'Read' }), open('https://darkroom.test/', 'Darkroom', 'task-1-ndarkroom')] }),
+      msg({ toolCalls: [open('https://darkroom.test/x', 'Darkroom', 'task-1-ndarkroom'), open('http://localhost:1/', 'Broken', 'task-1-nbroken', 'error')] }),
+    ]);
+    expect(summary.browsers.map((m) => m.pages.map((p) => p.name))).toEqual([['Darkroom', 'Darkroom']]);
   });
 
   test('no actions, no numbers', () => {

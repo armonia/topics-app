@@ -81,8 +81,10 @@ const PROJECT_BOUND_TOOLS = new Set(["run_script", "run_command"]);
  * La tabella MCP usa `inputSchema`, l'API di Anthropic `input_schema`: è
  * l'unica differenza, e si traduce qui invece di duplicare le descrizioni.
  */
-export function topicsToolSpecs(profile?: string, opts: { hasProject?: boolean } = {}): ToolSpec[] {
-  return toolsForProfile(profile).filter((t) => opts.hasProject !== false || !PROJECT_BOUND_TOOLS.has(t.name)).map((t) => ({
+export function topicsToolSpecs(profile?: string, opts: { hasProject?: boolean; cwd?: string | null } = {}): ToolSpec[] {
+  // `cwd`: the profiles `spawn_agent` lists are the user's and this project's,
+  // not those of the directory the server happens to run in.
+  return toolsForProfile(profile, process.platform, { cwd: opts.cwd ?? null }).filter((t) => opts.hasProject !== false || !PROJECT_BOUND_TOOLS.has(t.name)).map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.inputSchema as ToolSpec["input_schema"],

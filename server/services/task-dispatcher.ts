@@ -526,6 +526,12 @@ export interface DispatcherDeps {
    * instead of being nudged. Absent: never.
    */
   awaitsCommandWake?: (sessionKey: string) => boolean;
+  /**
+   * A `spawn_agent` child of this session will wake it: a turn of it is open,
+   * or its result waits for the chat (`lib/subagent-runtime.ts`
+   * `subagentWakeOwed`). Read like `awaitsCommandWake`. Absent: never.
+   */
+  awaitsSubagentWake?: (sessionKey: string) => boolean;
   /** A turn in flight on the session that the dispatcher did not start: a command's wake, a person's message (`activeStreams`). */
   isSessionBusy?: (sessionKey: string) => boolean;
   /**
@@ -1868,8 +1874,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   const commandWaits = new Map<string, { sessionKey: string; since: number }>();
 
+  /** What will wake the session on its own: a command, a sub-agent, or nothing. */
+  function wakeOwedBy(sessionKey: string): "command" | "subagent" | null {
+    try { if (deps.awaitsCommandWake?.(sessionKey) === true) return "command"; } catch { /* not owed */ }
+    try { if (deps.awaitsSubagentWake?.(sessionKey) === true) return "subagent"; } catch { /* not owed */ }
+    return null;
+  }
   function commandWakeOwed(sessionKey: string): boolean {
-    try { return deps.awaitsCommandWake?.(sessionKey) === true; } catch { return false; }
+    return wakeOwedBy(sessionKey) !== null;
   }
 
   /**
@@ -2782,7 +2794,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // passare il lavoro. La riga dice anche cosa fare quando lo strumento
         // dice di no, perché un rifiuto senza ripiego scritto diventa un agente
         // che si ferma.
-        "- THIS SESSION IS WHERE YOU DECIDE, not where you work. Long work (exploring an area of the code, trying a route, running a suite) goes to a separate session: spawn_agent(prompt=<a complete, self-sufficient mandate>, cwd=<this working directory>) → read_agent(agent_id=…, since=…) for the outcome → send_to_agent to correct it → stop_agent when it is done. In YOUR thread keep only the goal, the choices made and why, the questions, the delivery: NOT the logbook. A thread you can read in thirty seconds is worth more than a complete one nobody opens.",
+        "- THIS SESSION IS WHERE YOU DECIDE, not where you work. Long work (exploring an area of the code, trying a route, running a suite) goes to a separate session: spawn_agent(prompt=<a complete, self-sufficient mandate>, cwd=<this working directory>) → its result wakes this session when its turn ends (read_agent(agent_id=…, since=…) only to look at it before that) → send_to_agent to correct it → stop_agent when it is done. In YOUR thread keep only the goal, the choices made and why, the questions, the delivery: NOT the logbook. A thread you can read in thirty seconds is worth more than a complete one nobody opens.",
         "- Child sessions count against the board's concurrency cap like anyone else, and what they spend is billed to THIS card. A child does not open more children. If spawn_agent answers that the cap is full, that is not an error to work around: do that piece yourself, or wait.",
         // Il divieto è anche un CANCELLO vero (hook PreToolUse su Read, vedi
         // `blockImageReads` in providers/claude/args.ts): scritto qui restava un
@@ -3975,10 +3987,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Ended on a command that will wake it: no nudge, no attempt, see `commandWaits`.
         if (!afterCommandWait && awaitCommandWake(cur)) {
           const capHours = Math.round(BACKGROUND_WORK_CAP_MS / 3_600_000);
+          const waker = wakeOwedBy("topic:" + cur.assignedTopicId.slice(0, 8)) === "subagent"
+            ? "un sotto-agente lanciato con spawn_agent"
+            : "un comando lanciato con run_command";
           try {
             deps.svc.addComment({
               taskId, author: "system", kind: "service",
-              content: `${describeTurnEnd(end)}: un comando lanciato con run_command sveglierà la sessione. La card aspetta quella sveglia (al massimo ${capHours} ore di silenzio), nessun tentativo consumato.`,
+              content: `${describeTurnEnd(end)}: ${waker} sveglierà la sessione. La card aspetta quella sveglia (al massimo ${capHours} ore di silenzio), nessun tentativo consumato.`,
             });
           } catch { /* best-effort */ }
           return;

@@ -23,6 +23,7 @@
  */
 
 import type { ContentBlock } from "../types";
+import type { SubagentResultCard } from "../../shared/types";
 import { decodeCol } from "../../shared/message-blob";
 import { MACHINE_ROW_KINDS } from "../../shared/prompt-number";
 
@@ -45,6 +46,20 @@ export interface UserRowOrigin {
   repeats?: readonly ContentBlock[];
   /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
   processExit?: unknown;
+  /** The sub-agent results this row wakes the chat with (`services/subagent-wake.ts`). */
+  subagentResults?: unknown;
+}
+
+const SUBAGENT_STATUSES = new Set(["completed", "failed", "stopped", "undelivered", "lost"]);
+
+/** The well-formed cards of a `subagentResults` body field; anything else is dropped. */
+function subagentCards(raw: unknown): SubagentResultCard[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((r): r is SubagentResultCard => {
+    const c = r as Partial<SubagentResultCard> | null;
+    return !!c && typeof c.agentId === "string" && typeof c.name === "string" && typeof c.turn === "number"
+      && typeof c.status === "string" && SUBAGENT_STATUSES.has(c.status) && typeof c.text === "string";
+  });
 }
 
 /**
@@ -80,6 +95,8 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
       label: typeof exit.label === "string" ? exit.label : "",
     });
   }
+  const cards = subagentCards(origin.subagentResults);
+  if (cards.length) blocks.push({ kind: "subagent-result", results: cards });
   // A row that says who wrote it keeps its own word: a real dispatch carries
   // its own ids. Only a bare resend takes the marks of the row it repeats.
   if (!blocks.length && origin.repeats) {

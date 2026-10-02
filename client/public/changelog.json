@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.426",
+    "version": "2.2.427",
     "date": "2026-10-02",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Registra MessageList a 2379 righe e il critical path con gli accordion fermi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.426",
+    "date": "2026-10-01",
     "sections": {
       "new": [],
       "fixes": [],
@@ -12,6 +28,42 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Misura gli accordion dove la spec non arrivava: comando, obiettivo, fondo vero, lista aperta mentre l'agente scrive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le pieghe restanti non spostano piu' la chat: comando, obiettivo, strisce, riapertura veloce, spazio in fondo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il messaggio di file illeggibile del /comando passa dai cataloghi, e la spec non dorme",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.425",
+    "date": "2026-10-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Misura lo scatto degli accordion della chat: header, riga sopra e corpo, frame per frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un accordion aperto a mano non sposta la chat: l'header resta fermo, il corpo si srotola sotto",
+          "en": "",
+          "scope": null
         }
       ]
     }

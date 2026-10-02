@@ -43,22 +43,20 @@
  * disagree. The card says that number wherever it says one: the pill, the
  * working digit in the menu's tail and the tooltip's phrase.
  */
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
-import { getSession, subscribeSession, type SessionState } from '@/lib/auth/session';
-import { etichettaIdentita } from './identityLabel';
-import { useIdentityPresence } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { presenceSummary } from '../../../../shared/presence-phrase';
 import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
 import { chipClass } from './identityChip';
 import { PALLINO_OK } from './chromeSignals';
-import type { DeviceList, LiveDevice, SidebarCommands } from './ProfileMenu';
+import type { SidebarCommands } from './ProfileMenu';
 import { ProfileMenu, prefetchProfileMenu } from './profileMenuLazy';
+import { useIdentityMenuData, type IdentityMenuData } from '@/hooks/useIdentityMenuData';
+import { OPEN_USER_MENU_EVENT, type OpenUserMenuDetail, type UserMenuRequest } from '@/lib/openUserMenu';
 import { TopicsLoadDot } from './TopicsLoadDot';
 import { friendChips, firstName } from './friendChips';
-import { useFriendPresence } from '@/hooks/useFriendPresence';
 import { workSignals } from './workSignals';
 import { activeAgentCount, useActiveAgentRows, useAgentActivityCounts } from '@/state/signals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -66,18 +64,15 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
 import { useLocale, useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
-import { apiFetch } from '../../lib/shell/net';
 
-export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
-  onOpenDevices?: () => void;
+export function IdentityBlock({ commands, alarm = false }: {
   commands: SidebarCommands;
   /** Something that cannot wait behind a gesture: the websocket is down, or
    *  there is a notice on the data. It rides on the card's dot. */
   alarm?: boolean;
 }) {
-  const presence = useIdentityPresence();
-  const friends = useFriendPresence();
-  const chips = friendChips(friends.rows);
+  const identity = useIdentityMenuData();
+  const chips = friendChips(identity.friends.rows);
   return (
     // ONE INSET ON ALL THREE SIDES. This is the last thing in the column, so
     // its bottom gap is read against its own left and right gaps, side by side,
@@ -89,13 +84,7 @@ export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
       style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }}
     >
       <FriendChipsRow chips={chips} />
-      <UserCard
-        presence={presence}
-        friends={friends}
-        commands={commands}
-        onOpenDevices={onOpenDevices}
-        alarm={alarm}
-      />
+      <UserCard identity={identity} commands={commands} alarm={alarm} />
     </div>
   );
 }
@@ -171,21 +160,19 @@ function FriendChipsRow({ chips }: { chips: ReturnType<typeof friendChips> }) {
  * that have to be true without opening anything - you are signed in, as whom,
  * and the machine is fine - and it opens the one menu that holds the rest.
  */
-function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
-  presence: ReturnType<typeof useIdentityPresence>;
-  friends: ReturnType<typeof useFriendPresence>;
+function UserCard({ identity, commands, alarm }: {
+  identity: IdentityMenuData;
   commands: SidebarCommands;
-  onOpenDevices?: () => void;
   alarm: boolean;
 }) {
   const tr = useT();
   const locale = useLocale();
-  // `getSession`, not «loading»: the store may already know (last answer kept
-  // on this device), and a first frame without the card is the shift the cache
-  // exists to remove.
-  const [session, setSession] = useState<SessionState>(getSession);
-  const [devices, setDevices] = useState<DeviceList | null>(null);
+  const { session, who, readDevices } = identity;
   const [open, setOpen] = useState(false);
+  // A level asked for from elsewhere (the bell's gear, an old deep link): the
+  // menu remounts on every request so the level opens even when it is asked
+  // for twice in a row (`lib/openUserMenu`).
+  const [request, setRequest] = useState<UserMenuRequest>({ level: null, n: 0 });
   const [card, setCard] = useState<HTMLButtonElement | null>(null);
   const { counts } = usePresenceSummary();
   const roster = useTerminalSessions();
@@ -203,37 +190,16 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
       ? tr('statusBar.signals.withBackgroundOne')
       : tr('statusBar.signals.withBackgroundMany', { n: activeAgents, b: agentRows.background.length });
   const load = useLoad();
-  useEffect(() => subscribeSession(setSession), []);
-
-  const who = etichettaIdentita(presence.io, session);
-
-  const readDevices = useCallback(async () => {
-    try {
-      const r = await apiFetch('/api/auth/devices', { credentials: 'same-origin' });
-      if (!r.ok) return;
-      const b = await r.json() as {
-        thisComputer?: { current: boolean };
-        devices?: Array<LiveDevice & { revokedAt: number | null }>;
-      };
-      setDevices({
-        computer: b.thisComputer ?? null,
-        paired: (b.devices ?? []).filter((d) => d.revokedAt === null),
-      });
-    } catch { /* transient: the card keeps no list rather than lie about one */ }
-  }, []);
 
   useEffect(() => {
-    const ask = () => { void readDevices(); };
-    // After the first paint: nobody needs the device count in the first frame,
-    // and a synchronous state write on mount is what `set-state-in-effect` flags.
-    const first = setTimeout(ask, 0);
-    window.addEventListener('topics:auth-pair-resolved', ask);
-    window.addEventListener('topics:auth-device-revoked', ask);
-    return () => {
-      clearTimeout(first);
-      window.removeEventListener('topics:auth-pair-resolved', ask);
-      window.removeEventListener('topics:auth-device-revoked', ask);
+    const onRequest = (e: Event) => {
+      const level = (e as CustomEvent<OpenUserMenuDetail>).detail?.level ?? null;
+      readDevices();
+      setRequest((r) => ({ level, n: r.n + 1 }));
+      setOpen(true);
     };
+    window.addEventListener(OPEN_USER_MENU_EVENT, onRequest);
+    return () => window.removeEventListener(OPEN_USER_MENU_EVENT, onRequest);
   }, [readDevices]);
 
   if (session.status !== 'paired') return null;
@@ -277,7 +243,10 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
         // event, and the devices row counts the connected ones in its tail:
         // a list read once at mount would show a stale count.
         onClick={() => {
-          if (!open) void readDevices();
+          if (!open) {
+            readDevices();
+            setRequest((r) => ({ level: null, n: r.n }));
+          }
           setOpen((v) => !v);
         }}
         onPointerEnter={prefetchProfileMenu}
@@ -336,16 +305,13 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
       {open && (
         <Suspense fallback={null}>
           <ProfileMenu
+            key={request.n}
             anchorEl={card}
             onClose={() => setOpen(false)}
-            who={who}
-            devices={devices}
-            onReadDevices={readDevices}
-            orgs={presence.orgs}
-            friends={friends}
+            identity={identity}
             signals={signals}
             commands={commands}
-            onOpenDevices={onOpenDevices}
+            openLevel={request.level}
           />
         </Suspense>
       )}

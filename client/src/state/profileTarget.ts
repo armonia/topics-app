@@ -36,7 +36,7 @@
  * the pane's dropdown is now the only Privacy surface) while it must stay
  * here untouched — the pane's dropdown did not move.
  */
-export type PageProfile = 'profile' | 'followers' | 'privacy' | 'organization';
+export type PageProfile = 'profile' | 'followers' | 'privacy' | 'organization' | 'people' | 'outside';
 
 export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';
 

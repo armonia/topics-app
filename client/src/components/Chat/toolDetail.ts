@@ -12,9 +12,15 @@
 
 import type { ToolCall, ToolCallDetail } from '../../types';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
-import { deriveToolDetail, goalStepsAsTodo, isGoalStepsTool, isSetGoalTool } from '../../../../shared/tool-detail';
+import { deriveToolDetail, goalStepsAsTodo, isGoalStepsTool, isSetGoalTool, pageHost } from '../../../../shared/tool-detail';
 
 export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
+  // A failed call opened nothing. The SDK path keeps the detail it built at
+  // tool start (no result yet, so `browser`), and a marker over an error would
+  // say the page is there when it is not.
+  if (tc.status === 'error' && tc.detail?.type === 'browser') {
+    return deriveToolDetail(tc.name, { ...tc.args, url: tc.detail.url }, tc.result, { failed: true });
+  }
   if (tc.detail) {
     // v3 foundations NORM-01: validate server-emitted detail at the renderer
     // boundary. On schema drift / malformed payload, fall back to client-side
@@ -27,6 +33,13 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
       const todo = goalStepsAsTodo(result.data.args);
       if (todo) return todo;
     }
+    // Same for the browser openings stored before they had a type of their own
+    // (CHAT-BROWSER-03): the url is in `detail.args` when history trimmed `args`.
+    if (result.ok && result.data.type === 'mcp') {
+      const browser = deriveToolDetail(tc.name, { ...result.data.args, ...tc.args }, tc.result ?? result.data.result,
+        { failed: tc.status === 'error' });
+      if (browser.type === 'browser') return browser;
+    }
     // A detail the server could not type is now KEPT as `unknown` instead of
     // being deleted (server/utils.ts), so nothing is lost on the wire. The
     // renderer still prefers what it can derive from the tool NAME: a generic
@@ -34,14 +47,14 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
     // degradation would trade a dropped detail for a permanently generic row.
     if (result.ok && result.data.type !== 'unknown') return result.data;
     if (result.ok) {
-      const derived = deriveToolDetail(tc.name, tc.args, tc.result);
+      const derived = deriveToolDetail(tc.name, tc.args, tc.result, { failed: tc.status === 'error' });
       return derived.type === 'unknown' ? result.data : derived;
     }
     if (import.meta.env.DEV) {
       console.warn(`[toolDetail] Invalid detail for ${tc.name}: ${result.error}`);
     }
   }
-  return deriveToolDetail(tc.name, tc.args, tc.result);
+  return deriveToolDetail(tc.name, tc.args, tc.result, { failed: tc.status === 'error' });
 }
 
 /**
@@ -135,6 +148,7 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       };
     }
     case 'sub_agent':
+      if (detail.via === 'spawn_agent') return { name: 'Sub-agent', summary: detail.name ?? detail.description };
       return {
         name: detail.subAgentType ?? 'Task',
         summary: detail.description,
@@ -179,11 +193,20 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'ask_user':
       // The question itself: the one tool whose purpose is to be read.
       return { name: 'AskUserQuestion', summary: detail.questions[0]?.question };
+    case 'browser':
+      // The page, the way the marker names it; the whole URL on hover.
+      return { name: 'Browser', summary: browserPageLabel(detail), tooltip: detail.url };
     case 'unknown':
       // A bare "Tool" row is unreadable — surface the provider's actual tool
       // name plus a scalar-args digest so the collapsed row stands on its own.
       return { name: rawName || 'Tool', summary: summarizeArgs(detail.raw.args) };
   }
+}
+
+/** What a browser opening is called: the agent's name for the tab, else the
+ *  page's title, else its host. */
+export function browserPageLabel(detail: { url: string; name?: string; title?: string }): string {
+  return detail.name || detail.title || pageHost(detail.url);
 }
 
 /** Oltre questa lunghezza il percorso si accorcia IN MEZZO. */

@@ -22,6 +22,7 @@ import { useT } from '../../hooks/useT';
 import { restartTerminalSession } from '../../lib/terminalReload';
 import { postTerminalResize } from '../../lib/terminalRosterRetry';
 import { copyText } from '../../lib/clipboard';
+import { hasPendingTerminalPaste, pasteDecision, takePendingTerminalPaste } from '../../lib/pendingTerminalPaste';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
 import { causeClock, dormantCause } from './dormantCause';
@@ -232,6 +233,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // saying the session is gone, so a successful reattach can correct it.
   const sayRef = useRef(t);
   useEffect(() => { sayRef.current = t; }, [t]);
+  // Same reason as `sayRef`: the pending paste below is decided inside the
+  // sessionId-keyed mount effect, and a toast may have to say why it did not paste.
+  const toastRef = useRef(toast);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
   const expiredShownRef = useRef(false);
   const reconnectRef = useRef<(() => void) | null>(null);
   useEffect(() => { staleRef.current = stale; }, [stale]);
@@ -475,8 +480,29 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // Ogni byte del PTY passa da qui, mai da `term.write` diretto: il coalescer
     // decide se ridisegnare subito o accumulare, e scavalcarlo romperebbe
     // l'ordine dei byte (quindi lo stato ANSI) contro l'arretrato in coda.
+    // «Open in terminal» from a code block left a command for this new shell
+    // (CHAT-RUN-05): typed at its first screen, never run. Pasted as soon as
+    // the shell has asked for bracketed paste (zsh does with its prompt);
+    // a shell that never asks gets it after a short wait, and then a text
+    // of several lines goes to the clipboard instead, because each newline
+    // would be an Enter.
+    let pasteFallback: ReturnType<typeof setTimeout> | null = null;
+    const pasteWhenReady = () => {
+      if (!hasPendingTerminalPaste(sessionId)) return;
+      if (term.modes.bracketedPasteMode) {
+        const text = takePendingTerminalPaste(sessionId);
+        if (text) term.paste(text);
+        return;
+      }
+      pasteFallback ??= setTimeout(() => {
+        const text = takePendingTerminalPaste(sessionId);
+        if (!text) return;
+        if (pasteDecision(text, term.modes.bracketedPasteMode) === 'paste') term.paste(text);
+        else void copyText(text).then(() => toastRef.current.info(sayRef.current('run.pasteCopied'), 6000));
+      }, 1500);
+    };
     const coalescer = createWriteCoalescer({
-      write: (chunk) => term.write(chunk),
+      write: (chunk) => term.write(chunk, pasteWhenReady),
       isWatched: () => isWatchedRef.current,
       hasLayout: () => hasLayoutRef.current,
       flushMs: () => (isVisibleRef.current ? VISIBLE_FLUSH_MS : BACKGROUND_FLUSH_MS),
@@ -867,6 +893,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       intentionalClose = true;
       captureRef.current();
       clearTimeout(retryTimer);
+      if (pasteFallback) clearTimeout(pasteFallback);
       // The pane is going away: held input goes with it, otherwise it would be
       // delivered by whatever pane attaches to this session next.
       inputQueue.clear();

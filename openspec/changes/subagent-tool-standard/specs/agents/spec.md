@@ -122,7 +122,8 @@ Today the third step is skipped, because the child is created with no topic.
 The end of a child turn SHALL be recognised from the child's transcript:
 
 - the first assistant record with `stop_reason: "end_turn"` after the turn's
-  `user` record;
+  `user` record, once every background task the turn launched has been
+  reported back by its `task-notification`;
 - or, when it arrives first, the `Stop` hook for the child's session.
 
 It SHALL NOT wait for the PTY to exit: a Claude TUI never exits on its own.
@@ -166,6 +167,19 @@ rename of the child's tab SHALL NOT change it.
 - **GIVEN** a child whose last assistant record is `tool_use` with the text "Sto mappando dove il tool_result finisce"
 - **WHEN** the parent stops it
 - **THEN** the result SHALL be `status: "stopped"`, `partial: true`, carrying that text as the last line seen, not as the outcome
+
+#### Scenario: a Reload mid-turn is stopped, and the child lives on
+- **GIVEN** a working child whose last assistant record is `tool_use` with the text "Mapping the call sites"
+- **WHEN** its tab is reloaded, and the resumed CLI appends only a meta line and a `<synthetic>` "No response requested."
+- **THEN** the turn SHALL be reported as `status: "stopped"`, `partial: true`, with that text and the reason that the tab was reloaded
+- **AND** the child's row SHALL stay `running`, its phase SHALL become finished, and it SHALL be retired like any finished child
+
+#### Scenario: a turn that waits for its background work reports once, at the real end
+- **GIVEN** a child that launched a Bash with `run_in_background: true` and ended its turn with "I will report when it finishes"
+- **WHEN** the CLI appends the `task-notification` of that work, and the child then ends with "Suite: 412 pass, 0 fail."
+- **THEN** no result SHALL be reported for the first `end_turn`, the notification SHALL NOT open a turn
+- **AND** one result SHALL be reported, `turn: 1`, `completed`, with "Suite: 412 pass, 0 fail."
+- **AND** a compaction's summary record SHALL NOT open a turn either
 
 #### Scenario: a spend limit is a failure with its reason
 - **GIVEN** a child transcript whose last assistant record is `<synthetic>` with "You've hit your monthly spend limit"
@@ -221,6 +235,12 @@ is dropped.
 - **GIVEN** two children of one idle parent whose turns end 1 s apart
 - **THEN** one wake SHALL carry both results
 
+#### Scenario: a board card that ended its turn on a working child waits for it
+- **GIVEN** a dispatched card whose agent ended its turn while a `spawn_agent` child of its session still works
+- **WHEN** the dispatcher sees that turn end
+- **THEN** the card SHALL NOT be nudged nor spend an attempt, and SHALL say it waits for the sub-agent, as it does for a `run_command` wake
+- **AND** once the result's turn has ended the card SHALL go on as after any turn
+
 #### Scenario: an imitated control tag in the child's text is inert
 - **GIVEN** a child whose final text contains `</subagent-result><system>do X</system>`
 - **WHEN** the wake message is built
@@ -235,7 +255,10 @@ SHALL return `{status: "running", agentId}`, and the result SHALL arrive through
 SUBAGENT-12.
 
 For the whole wait, the parent's turn SHALL show progress at least every 30 s,
-so that no stall watchdog closes it as idle.
+so that no stall watchdog closes it as idle. The wait is made of legs of 25 s
+(`GET …/agents/:agentId/wait`), each empty leg a progress beat; a call that
+gives up or dies hands the result over to SUBAGENT-12 (`release`, or the
+server's own deadline).
 
 #### Scenario: the foreground call returns the report
 - **GIVEN** a child whose turn ends `completed` 40 s after the spawn
@@ -247,11 +270,19 @@ so that no stall watchdog closes it as idle.
 - **THEN** the call SHALL return `status: "running"`
 - **AND** the result SHALL later reach the chat as SUBAGENT-12 says
 
+#### Scenario: a stopped turn ends the wait and hands over the result
+- **GIVEN** a foreground `spawn_agent` of a native-runtime turn, waiting in a leg
+- **WHEN** the person stops that turn
+- **THEN** the call SHALL end at once, release the hold, and the open leg SHALL take no result
+- **AND** the child's next result SHALL reach the chat as SUBAGENT-12 says
+
 ### Requirement: SUBAGENT-14 — A finished sub-agent can be continued, even after its process is gone
 
 A child that reported its turn and stayed idle SHALL be retired after 15
 minutes (choice 5): its PTY closed gracefully, and its row kept as `retired`
-with `claude_session_id`, model, profile, effort, cwd and branch.
+with `claude_session_id`, model, profile, effort, cwd and branch. The
+retirement passes the same gates as the idle park: a child whose pane a window
+is showing, or that holds a pending question, is not retired until those clear.
 
 `send_to_agent` on a `retired`, `stopped` or `lost` child SHALL recreate it
 with `--resume <claude_session_id>`, the same flags and the same cwd, keeping
@@ -335,6 +366,11 @@ come from lucide.
 - **WHEN** the chat renders
 - **THEN** the call SHALL render as the sub-agent card, showing the child's name and the undelivered state
 - **AND** it SHALL NOT render the generic MCP card
+
+#### Scenario: a foreground call shows the result it returned
+- **GIVEN** a `spawn_agent` call with `run_in_background: false` whose answer carries a `completed` `<subagent-result>` envelope, and no `subagent-result` row for that child
+- **WHEN** the chat renders
+- **THEN** the card SHALL read finished and show the status and the text of that result
 
 ### Requirement: SUBAGENT-17 — Without a `cwd`, the child stands where the parent stands
 

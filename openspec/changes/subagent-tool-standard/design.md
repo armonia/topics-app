@@ -145,9 +145,13 @@ del runtime nativo chiude un turno dopo «nessuna attività per 3 minuti»: è
 successo in c82359c1, e la regola è che la nostra attesa non è uno stallo.
 Quindi l'attesa emette un battito di progresso del tool almeno ogni 30 s.
 
-La fetch del bridge (`callSpawnAgent`, `topics-mcp-server.ts:1299-1324`)
-riceve un timeout di 11 minuti in primo piano. Oggi vale 240 s solo con
-worktree.
+Implementato a gambe, non con una fetch sola da 11 minuti: `callSpawnAgent`
+chiama `GET /agents/:agentId/wait?legMs=25000` finché l'esito arriva o scadono i
+10 minuti, emette un battito per ogni gamba vuota e alla fine manda
+`release=1`. Il server trattiene gli esiti di un figlio in primo piano (così lo
+stesso turno non sveglia anche la chat) fino al rilascio o alla sua scadenza, e
+quello che tiene ancora va per la strada del §5: un MCP morto a metà attesa non
+perde niente. Ogni gamba ha la sua fetch, con un timeout di gamba + 15 s.
 
 ## §7 Ritiro e ripresa
 
@@ -163,6 +167,11 @@ Un figlio che ha riportato il suo turno ed è inattivo si ritira dopo 15 minuti
 `--resume <claude_session_id>`, gli stessi flag e la stessa cartella, e poi
 consegna l'input. Il figlio mantiene lo stesso `agentId`, così il padre non
 deve imparare un id nuovo.
+
+La tabella tiene anche `name`, `cwd`, `claude_session_id`, `reported_at`,
+`pending_results` e `created_at`: dopo uno stop la riga di `terminal_sessions`
+viene cancellata, e senza queste colonne la ripresa non avrebbe da dove
+ripartire (implementazione, 01/10).
 
 Oltre 24 h dalla fine, la riga esce da `list_agents` e la ripresa risponde 410
 con il motivo. Il transcript resta su disco. Questo spazza anche le righe figlie

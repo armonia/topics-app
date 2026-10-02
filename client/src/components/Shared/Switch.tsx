@@ -6,6 +6,7 @@ interface SwitchProps {
   label: string;
   disabled?: boolean;
   className?: string;
+  testId?: string;
 }
 
 /**
@@ -24,7 +25,7 @@ interface SwitchProps {
  * - il pallino ha un anello proprio (`ring-black/10`). Il bianco pieno non ha
  *   un bordo suo, e su una pista chiara serve un contorno per esistere.
  */
-export function Switch({ checked, onChange, label, disabled, className = '' }: SwitchProps) {
+export function Switch({ checked, onChange, label, disabled, className = '', testId }: SwitchProps) {
   return (
     <button
       type="button"
@@ -32,6 +33,7 @@ export function Switch({ checked, onChange, label, disabled, className = '' }: S
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
+      data-testid={testId}
       onClick={() => onChange(!checked)}
       // Sotto il dito il BOTTONE diventa 44×44 e la pista resta 36×20 al suo
       // centro: il disegno dell'interruttore non cambia di un pixel, ma il
@@ -66,7 +68,7 @@ export function SwitchTrack({ checked }: { checked: boolean }) {
       }`}
     >
       <span
-        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm ring-1 ring-black/10 control-slide ${
           checked ? 'translate-x-4' : 'translate-x-0'
         }`}
       />

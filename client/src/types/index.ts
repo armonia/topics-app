@@ -59,7 +59,7 @@ export interface Message {
 // ToolCallDetail, ToolCall e ContentBlock erano riscritti qui riga per riga,
 // identici a `server/types.ts` a meno dei commenti, col solito "Mirrors" a
 // fare da garanzia. Ora la dichiarazione è UNA, in `shared/types.ts`.
-export type { ToolCallDetail, ToolCall, ContentBlock, TurnEndCause } from '../../../shared/types';
+export type { ToolCallDetail, ToolCall, ContentBlock, TurnEndCause, SubagentResultCard } from '../../../shared/types';
 export type { PermissionDecision, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 import type { ToolCall, ContentBlock, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 
@@ -1413,6 +1413,10 @@ export interface TerminalSessionInfo {
    *  (server restart / WS reconnect / dropped message) can't leave a session
    *  spinning forever. Absent on optimistic/cached entries → treated idle. */
   busy?: boolean;
+  /** A sub-agent's state, read by the server from its transcript and not from
+   *  PTY bytes: waiting for its prompt, working, or finished its turn. Absent
+   *  for a session that is no sub-agent, null when the server has not looked yet. */
+  subAgentPhase?: 'waiting-prompt' | 'working' | 'finished' | null;
 }
 
 // ── Pane types — single source of truth lives in state/pane/types.ts ─────────
@@ -1611,20 +1615,6 @@ export interface AppSettings {
    * vero: lì il vuoto è informazione.
    */
   showBoardRow: boolean;
-  /**
-   * The voice loop board: when a task reaches review, the app announces it
-   * out loud and — outside `off` — opens the mic for a spoken reply (approve
-   * / feedback / close).
-   *
-   *  · `off` (default) — no announcement, no mic opened on its own.
-   *  · `always` — every `task:review-ready` is announced and, right after,
-   *    the app listens for the reply.
-   *  · `wake-word` — still announces, but the reply is only recorded if the
-   *    transcript contains the activation phrase (see
-   *    `lib/voice/wakeWord.ts`): the mic stays on at low commitment instead
-   *    of opening itself after every announcement.
-   */
-  voiceMode: 'off' | 'always' | 'wake-word';
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli

@@ -1,5 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
-import { openProfileMenu } from "../helpers/open-perf-panel";
+import { closeProfileMenu, openProfileMenu } from "../helpers/open-perf-panel";
+import { openUserMenuLevel } from "../helpers/user-menu";
 
 export class SettingsPage {
   constructor(private page: Page) {}
@@ -97,10 +98,6 @@ export class SettingsPage {
     return this.panel.locator("xpath=..");
   }
 
-  get themeButtons() {
-    return this.panel.locator('button:has-text("Light"), button:has-text("Dark"), button:has-text("System")');
-  }
-
   /**
    * Chiude il pannello dal velo, come fa l'utente cliccando fuori.
    * L'angolo in alto a sinistra è sempre fuori dalla card (centrata,
@@ -111,24 +108,38 @@ export class SettingsPage {
     await this.panel.waitFor({ state: "hidden", timeout: 10_000 });
   }
 
+  // --- The appearance controls, which live in the user menu now ---
+
   /**
-   * Dal 27ccc796 («…la misura di lettura») il pannello ha DUE `input[type=range]`:
-   * corpo del testo e "Larghezza chat". Si punta quello giusto per il suo nome,
-   * non per posizione — `.first()` seguirebbe l'ordine visivo della sezione.
+   * Opens the user menu's Appearance level: theme, text size, chat width and
+   * density moved there from the panel (`sidebar-menu-settings`), as direct
+   * controls applied on change. Hands back the level.
    */
-  get fontSizeSlider() {
-    return this.panel.getByRole("slider", { name: "Font Size" });
+  async openAppearance() {
+    return openUserMenuLevel(this.page, "appearance");
   }
 
-  /** L'altro cursore della sezione Aspetto: il tetto della colonna di chat. */
-  get chatWidthSlider() {
-    return this.panel.getByRole("slider", {
-      name: "Larghezza massima della colonna di chat",
-    });
+  /** Closes the user menu, one level per Escape. */
+  async closeMenu() {
+    await closeProfileMenu(this.page);
   }
 
-  get messageDensityButtons() {
-    return this.panel.locator('button:has-text("Comfortable"), button:has-text("Compact")');
+  themeRadio(mode: "light" | "dark" | "system") {
+    return this.page.getByTestId(`appearance-theme-${mode}`);
+  }
+
+  densityRadio(density: "compact" | "comfortable") {
+    return this.page.getByTestId(`appearance-density-${density}`);
+  }
+
+  /** The text size, a spinbutton: arrows move it one step. */
+  get fontSizeStepper() {
+    return this.page.getByTestId("appearance-font-size");
+  }
+
+  /** The other stepper of the level: the ceiling of the chat column. */
+  get chatWidthStepper() {
+    return this.page.getByTestId("appearance-chat-width");
   }
 }
 

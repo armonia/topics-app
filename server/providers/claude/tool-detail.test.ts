@@ -600,3 +600,84 @@ describe("parity with the CLI's tools", () => {
     expect(deriveToolDetail("update_goal_steps", { steps: [{ content: "a", status: "deleted" }] }).type).toBe("mcp");
   });
 });
+
+/**
+ * The agent's own browser openings become a typed `browser` detail
+ * (CHAT-BROWSER-03), so the chat can draw them as a marker instead of a
+ * generic MCP row. Only a SUCCESSFUL opening: a failed one opened nothing.
+ */
+describe("deriveToolDetail — browser openings", () => {
+  const OPENED = "Opened browser pane at http://localhost:5173/ (title: Vite App) [contextId: topic-1]";
+
+  test("open_browser_pane under all its names, with url, title and context read back", () => {
+    for (const name of ["open_browser_pane", "mcp__topics__open_browser_pane"]) {
+      expect(deriveToolDetail(name, { url: "http://localhost:5173/" }, OPENED)).toEqual({
+        type: "browser", url: "http://localhost:5173/", title: "Vite App", contextId: "topic-1", visible: true, result: OPENED,
+      });
+    }
+  });
+
+  test("the name the agent gave the tab travels, and an off-screen opening says so", () => {
+    const text = "Browser context ready at https://app.test/ (title: App) — but NO visible pane is mounted. [contextId: task-12345678-napp]";
+    expect(deriveToolDetail("open_browser_pane", { url: "https://app.test/", name: "App" }, text)).toMatchObject({
+      type: "browser", url: "https://app.test/", name: "App", contextId: "task-12345678-napp", visible: false,
+    });
+  });
+
+  test("a port warning in front of the outcome does not hide it", () => {
+    const text = `⚠ Port 3333 is served by another project\n${OPENED}`;
+    expect(deriveToolDetail("open_browser_pane", { url: "http://localhost:5173/" }, text)).toMatchObject({ type: "browser", contextId: "topic-1" });
+  });
+
+  test("an old row: no result at all, or a result without a context", () => {
+    expect(deriveToolDetail("open_browser_pane", { url: "http://127.0.0.1:3535/p/profilo" })).toEqual({
+      type: "browser", url: "http://127.0.0.1:3535/p/profilo",
+    });
+    const old = "Opened browser pane at https://example.com/ (title: Example Domain)";
+    expect(deriveToolDetail("open_browser_pane", { url: "https://example.com/" }, old)).toEqual({
+      type: "browser", url: "https://example.com/", title: "Example Domain", visible: true, result: old,
+    });
+  });
+
+  test("browser_open reads its JSON result, with the redirect's final URL", () => {
+    const json = JSON.stringify({ url: "https://example.com/final", title: "Example", snapshot: "", contextId: "ctx-9" });
+    for (const name of ["browser_open", "mcp__topics__browser_open"]) {
+      expect(deriveToolDetail(name, { url: "https://example.com" }, json)).toEqual({
+        type: "browser", url: "https://example.com/final", title: "Example", contextId: "ctx-9", result: json,
+      });
+    }
+  });
+
+  test("a failed opening stays the MCP row it always was", () => {
+    const failures: Array<[string, string]> = [
+      ["open_browser_pane", 'topics-app HTTP 502: {"error":"navigation failed: goto: net::ERR_CONNECTION_REFUSED"}'],
+      ["mcp__topics__open_browser_pane", "open_browser_pane: 'url' (string) is required"],
+      ["browser_open", JSON.stringify({ error: "goto: net::ERR_CONNECTION_REFUSED" })],
+    ];
+    for (const [name, result] of failures) {
+      expect(deriveToolDetail(name, { url: "http://localhost:1/" }, result).type).toBe("mcp");
+    }
+    // A task chat's opening does not fail the call (`navigationFatal: false`):
+    // the context is ready, but the page never loaded. The warning that says
+    // so leads the outcome line, and it is what decides.
+    const OUTCOME = "Browser context ready at http://localhost:5999/ (title: App) \u2014 but NO visible pane is mounted. [contextId: task-12345678-app]";
+    for (const warning of [
+      "navigation failed: goto: net::ERR_CONNECTION_REFUSED",
+      "navigation failed: goto: net::ERR_CONNECTION_REFUSED \u26a0 Nothing answers on port 5999 right now.",
+      'navigation failed: the pane is still on about:blank: "http://localhost:5999/" never loaded. Nothing was shown to the user.',
+    ]) {
+      expect(deriveToolDetail("mcp__topics__open_browser_pane", { url: "http://localhost:5999/", name: "App" }, `${warning}\n${OUTCOME}`).type).toBe("mcp");
+    }
+    // The caller knows it failed even when the text does not say so.
+    expect(deriveToolDetail("open_browser_pane", { url: "http://localhost:1/" }, OPENED, { failed: true }).type).toBe("mcp");
+  });
+
+  test("without a url there is nothing to point at", () => {
+    expect(deriveToolDetail("open_browser_pane", {}).type).toBe("mcp");
+  });
+
+  test("the detail passes the wire schema", () => {
+    const d = deriveToolDetail("open_browser_pane", { url: "http://localhost:5173/", name: "App" }, OPENED);
+    expect(parseToolCallDetail(d).ok).toBe(true);
+  });
+});

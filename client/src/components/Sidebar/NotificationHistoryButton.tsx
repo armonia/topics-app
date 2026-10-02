@@ -10,7 +10,8 @@
  *      suo task, un messaggio apre la sua chat). Senza questo la cronologia è
  *      un elenco di rimpianti: ti dice che è successo qualcosa e ti lascia a
  *      cercarlo;
- *   3. il tasto delle IMPOSTAZIONI, che porta dove si decide cosa arriva e come.
+ *   3. the PREFERENCES gear, which opens the user menu on its Notifications
+ *      level: the one home of what arrives and how (USERMENU-03).
  *
  * La lista comincia VUOTA il giorno in cui si accende, e lo dice: il registro
  * (migration 102) è un dato NUOVO, non una vista su qualcosa che c'era già:
@@ -36,18 +37,16 @@ import { useUnseenNotificationsStore } from '../../state/notificationUnseen';
 import { waitingSubjects, type ChromeSubject } from '../../state/attentionTotal';
 import { notificationTargetUrl } from '../../../../shared/notification-log';
 import { openDeepLinkInApp } from '../../lib/deepLinkEntry';
+import { openUserMenu } from '../../lib/openUserMenu';
 
 const PANEL_W = 320;
 
 export function NotificationHistoryButton({
   onWSMessage,
-  onOpenSettings,
   isMobile = false,
   className = '',
 }: {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
-  /** Porta alle preferenze delle notifiche (per dispositivo). */
-  onOpenSettings: () => void;
   isMobile?: boolean;
   className?: string;
 }) {
@@ -170,7 +169,7 @@ export function NotificationHistoryButton({
           <div className="flex items-center justify-between px-3 py-2 border-b border-app-border flex-shrink-0">
             <span className="text-compact font-semibold text-app-text">{tr('notifications.panelTitle')}</span>
             <button
-              onClick={() => { setOpen(false); onOpenSettings(); }}
+              onClick={() => { setOpen(false); openUserMenu('notifications'); }}
               className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors cursor-pointer"
               title={tr('notifications.settings')}
               aria-label={tr('notifications.settings')}

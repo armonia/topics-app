@@ -38,13 +38,22 @@ export const TopicBrowserWindow: ComponentType<ComponentProps<typeof Window>> = 
 // Destructured, not handed around whole: a bare `import()` is opaque to knip
 // and would make every export of the store immortal.
 const loadStore = async () => {
-  const { getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded, topicBrowserWindow } = await import(
-    '../../state/topicBrowserWindow'
-  );
-  return { getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded, topicBrowserWindow };
+  const {
+    getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded, topicBrowserWindow,
+    findTopicHoldingSheet, findTopicOwningPromoted,
+  } = await import('../../state/topicBrowserWindow');
+  return {
+    getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded, topicBrowserWindow,
+    findTopicHoldingSheet, findTopicOwningPromoted,
+  };
 };
 let storePromise: ReturnType<typeof loadStore> | null = null;
 const store = () => (storePromise ??= loadStore());
+
+/** The window store, for eager code that has to ASK it something (where a page
+ *  lives, for the chat's browser markers). Same lazy chunk, same promise. */
+export const loadTopicWindowStore = store;
+export type TopicWindowStore = Awaited<ReturnType<typeof loadStore>>;
 
 /** What the eager side knows about a topic's window: enough to lay out around
  *  it, not enough to draw it. */

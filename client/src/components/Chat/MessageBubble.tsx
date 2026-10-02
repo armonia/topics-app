@@ -1,7 +1,8 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2, GitBranch } from 'lucide-react';
-import { backgroundNoticeOf, processExitOf } from './machineRow';
+import { backgroundNoticeOf, processExitOf, subagentResultOf } from './machineRow';
+import { SubAgentResultRow } from './SubAgentResultCard';
 import { ProcessExitRow } from './ProcessExitRow';
 import { BackgroundNoticeLine } from './BackgroundNoticeLine';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
@@ -318,6 +319,12 @@ export const MessageBubble = memo(function MessageBubble({
   const processExit = processExitOf(msg.blocks);
   if (processExit) return <ProcessExitRow messageId={msg.id} block={processExit} content={msg.content} />;
 
+  // The results of the sub-agents this chat spawned: cards, whether the row
+  // woke the chat (`user`) or could not (`assistant`). See
+  // server/services/subagent-wake.ts.
+  const subagentResult = subagentResultOf(msg.blocks);
+  if (subagentResult) return <SubAgentResultRow messageId={msg.id} block={subagentResult} />;
+
   return (
     <div
       // Riga del messaggio identificabile per RUOLO e per id: senza, contare "le
@@ -512,6 +519,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onPlanDecision={onPlanDecision}
                 sessionKey={topic.sessionKey}
                 messageId={msg.id}
+                runnable
               />
               </FoldWork>
             </div>

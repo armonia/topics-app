@@ -591,6 +591,15 @@ export function applyTaskTabOpen(taskId: string, contextId: string, url: string,
   taskBrowserTabs.upsertTab(taskId, contextId, url, title, titleSource);
 }
 
+/** The task whose drawer holds this page as a tab (parked included), if any is loaded. */
+export function findTaskOwningTab(contextId: string): string | null {
+  if (!contextId) return null;
+  for (const [taskId, state] of cache) {
+    if (state.tabs.some((t) => t.contextId === contextId)) return taskId;
+  }
+  return null;
+}
+
 export function subscribeTaskTabs(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };

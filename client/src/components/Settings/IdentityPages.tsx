@@ -1,32 +1,18 @@
 /**
- * THE IDENTITY PAGES, in one place.
+ * THE ORGANISATION PAGE, with its title.
  *
- * The same pages were drawn in two places, the Settings panel and the standalone
- * "Profile" pane, and the two lists had already drifted: the account and the
- * organisation projects only ever showed up in the panel. Two copies of a screen
- * are two screens that answer the same question differently; here the source is
- * one and the two hosts show it.
+ * It used to be one of three identity pages drawn in two hosts (the Settings
+ * panel and the Profile tab). The Profile tab is now the one host of who you
+ * are (USERMENU-05): the profile and the followers are its own header and
+ * panels, and this page is what the tab shows for the group you administer.
  *
- * Each page has a TITLE and a line saying what it is for. That is not
- * decoration: it is what tells a page apart from a box in the middle of a
- * scroll. When you open "Privacy" you have to READ that you are in privacy, not
- * deduce it from a column of switches.
- *
- * THE ORGANISATION IS STILL HERE, and it is no longer part of the identity: it
- * is administration (`SETTINGS_SECTIONS`), it is not who you are
- * (`IDENTITY_SECTIONS`). The data model behind it did not move an inch, because
- * it is what carries grants and project visibility.
+ * The page has a TITLE and a line saying what it is for: that is what tells a
+ * page apart from a box in the middle of a scroll.
  */
 import { useState, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
-import { ProfileStatsSection } from './ProfileStatsSection';
-import { DiscordSection } from './DiscordSection';
-import { AccountSection } from './AccountSection';
 import { IdentitySection } from './IdentitySection';
 import { OrgProjectsSection } from './OrgProjectsSection';
-import { FollowersSection } from '../Profile/FollowersSection';
-import { ProfileHeader } from '../Profile/ProfileHeader';
-import { useSelf } from '../Profile/useSelf';
 
 function PageHeader({ title, blurb }: { title: string; blurb: string }) {
   return (
@@ -49,39 +35,6 @@ function Page({ testid, titleKey, blurbKey, children }: {
       <PageHeader title={t(titleKey)} blurb={t(blurbKey)} />
       {children}
     </div>
-  );
-}
-
-/**
- * WHO YOU ARE. The header comes FIRST and there is no page title above it: a
- * heading reading "Your profile" over a photograph of you is a caption on a
- * mirror. The boxes that follow are the configuration, which is a different
- * question from "who is this", and they were the only answer for too long.
- */
-export function ProfilePage() {
-  const { me, update } = useSelf();
-  return (
-    <div className="space-y-6" data-testid="settings-page-profile">
-      {me && <ProfileHeader persona={me} onChanged={update} />}
-      <ProfileStatsSection />
-      {/* The status published outside comes right after the figures it
-          publishes: it is the same material, seen by whoever is not here. */}
-      <DiscordSection />
-      <AccountSection />
-    </div>
-  );
-}
-
-/** WHO IS AROUND YOU, and in which direction. */
-export function FollowersPage() {
-  return (
-    <Page
-      testid="settings-page-followers"
-      titleKey="settings.page.followers.title"
-      blurbKey="settings.page.followers.blurb"
-    >
-      <FollowersSection />
-    </Page>
   );
 }
 

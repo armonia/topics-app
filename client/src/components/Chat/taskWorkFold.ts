@@ -32,6 +32,7 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { blocksOf } from './coalesceToolRun';
 import { resolveToolDetail } from './toolDetail';
 import { isActiveTool, summarizeToolGroup, type ToolGroupSummary } from './toolGrouping';
+import { coalesceBrowserOpens, type BrowserMarker } from './browserOpens';
 
 /** One stretch of the transcript, once a turn is split by what it is FOR. */
 export type TurnSegment =
@@ -96,6 +97,8 @@ export interface WorkSummary extends ToolGroupSummary {
   files: string[];
   /** Sub-agents started in the stretch: they are work of their own size. */
   subAgents: number;
+  /** Pages the agent opened, one per context (CHAT-BROWSER-01). */
+  browsers: BrowserMarker[];
 }
 
 /** Paths a single call wrote, if it wrote any. */
@@ -120,7 +123,8 @@ export function summarizeTools(tools: ToolCall[]): WorkSummary {
     if (path && !files.includes(path)) files.push(path);
     if (resolveToolDetail(tc).type === 'sub_agent') subAgents++;
   }
-  return { ...summarizeToolGroup(tools), files, subAgents };
+  const browsers = [...coalesceBrowserOpens(tools).values()].filter((m): m is BrowserMarker => m !== null);
+  return { ...summarizeToolGroup(tools), files, subAgents, browsers };
 }
 
 /** `src/a.ts` -> `a.ts`. The basename is what identifies a file in one line. */

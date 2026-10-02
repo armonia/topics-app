@@ -7,7 +7,7 @@ import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
-import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage, isProviderHeld } from "./server/lib/provider-hold";
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
@@ -70,6 +70,7 @@ import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-a
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { probePort, verdictMessage, realProbeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
+import { runIncrementalVacuum, INCREMENTAL_VACUUM_EVERY_MS } from "./server/lib/db-incremental-vacuum";
 import { startLoopLagSampler } from "./server/lib/loop-lag-sampler";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { nativeHistorySource } from "./server/providers/native/history-source";
@@ -171,6 +172,8 @@ import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
 import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
+import { startSubagentWakes } from "./server/services/subagent-wake";
+import { subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
@@ -1998,6 +2001,8 @@ const taskDispatcher = createTaskDispatcher({
   // A card whose turn ends on a `run_command` waits for its wake, as a goal does
   // (`goal-continuation.ts`), and for the turn that wake opens.
   awaitsCommandWake: (sessionKey) => commandWakeState(sessionKey) !== "none",
+  // The same for a `spawn_agent` child: the kickoff tells the card agent its result wakes the session.
+  awaitsSubagentWake: (sessionKey) => subagentWakeOwed(sessionKey),
   isSessionBusy: (sessionKey) => activeStreams.has(sessionKey),
   // After a restart that wait starts again from the session's last row, not
   // from the boot: this machine reloads the server at every save in server/.
@@ -5687,6 +5692,20 @@ void survivingTurnsAdopted
     isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
     log: (m) => console.log(`[process-exit] ${m}`),
   }));
+// The results of `spawn_agent` children wake their parent chats on the same
+// condition, and for the same reason (SUBAGENT-12).
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startSubagentWakes({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[subagent-wake] ${m}`),
+  }));
 survivingTurnsAdopted
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
@@ -6637,6 +6656,24 @@ const idleGcTimer = setInterval(() => {
 idleGcTimer.unref?.();
 
 /**
+ * Free database pages go back to the disk while nothing is working.
+ *
+ * The predicate is the restart gate's own (`whatIsStillWorking`): whatever
+ * would hold a restart holds a step of this too, and the round asks again
+ * before every step. Bounds and measurements are in
+ * `server/lib/db-incremental-vacuum.ts`. Until the one-time conversion in
+ * start-prod.sh has run, `auto_vacuum` is NONE and every round is a no-op.
+ */
+const incrementalVacuumTimer = setInterval(() => {
+  runIncrementalVacuum({
+    db: ctx.db,
+    busy: async () => (await whatIsStillWorking()).busy,
+    log: (line) => console.log(line),
+  }).catch((err) => console.warn("[incremental-vacuum] round skipped:", (err as Error).message));
+}, INCREMENTAL_VACUUM_EVERY_MS);
+incrementalVacuumTimer.unref?.();
+
+/**
  * WHEN THIS PROCESS STOPS ANSWERING, ONE LINE SAYS WHAT WAS TRUE OF IT.
  *
  * The `[HTTP]` line above measures a request from the moment the loop is free
@@ -6677,6 +6714,7 @@ async function gracefulShutdown(signal: string) {
   clearInterval(landingAuditTimer);
   clearInterval(relayLicenzaTimer);
   clearInterval(idleGcTimer);
+  clearInterval(incrementalVacuumTimer);
   clearInterval(loopLagTimer);
   stopToolOutputBackfill();
   // A process left STOPped by the governor is a process nobody will ever

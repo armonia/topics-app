@@ -6,7 +6,7 @@ import { randomBytes } from "crypto";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
-import { autoNameClaudeSession } from "./terminal";
+import { autoNameClaudeSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
 
 /**
@@ -153,6 +153,11 @@ export function createClaudeHooksRouter(
         // Keep a Claude Code chat's tab label tracking its topic: on the first
         // prompt and at each turn boundary, re-derive the auto-name from the
         // session transcript. Best-effort — never blocks or breaks the response.
+        // A sub-agent's turn may have just ended: its transcript is read now
+        // instead of at the next tick of the watch (SUBAGENT-11).
+        if (payload.hook_event_name === "Stop") {
+          try { noteSubAgentStopHook(payload.session_id); } catch { /* best-effort */ }
+        }
         if (payload.hook_event_name === "UserPromptSubmit" || payload.hook_event_name === "Stop") {
           try {
             autoNameClaudeSession(

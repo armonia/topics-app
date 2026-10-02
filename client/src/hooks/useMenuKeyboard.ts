@@ -25,7 +25,11 @@ import { useCallback } from 'react';
 /** Righe realmente focalizzabili. I `<button>` entrano senza dover dichiarare
  *  un role, così i menu esistenti diventano navigabili senza modifiche. */
 const ITEM_SELECTOR =
-  '[role="menuitem"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), button:not([disabled])';
+  '[role="menuitem"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), [role="spinbutton"], '
+  // A radio group is one stop (its checked radio), and a control's own
+  // helper buttons (`data-roving-skip`, the stepper's minus and plus) are
+  // reached through the control, never by the arrows of the menu.
+  + 'button:not([disabled]):not([data-roving-skip]):not([role="radio"][aria-checked="false"])';
 
 /** L'attributo che una riga usa per dichiarare la propria lettera. */
 export const MNEMONIC_ATTR = 'data-mnemonic';

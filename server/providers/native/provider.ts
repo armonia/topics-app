@@ -33,7 +33,8 @@ import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
-import { getTopicWorkspaceForSession, topicsAppBaseUrl } from "../claude-code";
+import { topicsAppBaseUrl } from "../claude-code";
+import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import type {
   AbortReason,
   AIProvider,
@@ -635,7 +636,7 @@ export class NativeProvider implements AIProvider {
           // No workspace does not mean no tools: the two that resolve no path
           // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
           ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
-          ...(topics ? topicsToolSpecs(topics.profile, { hasProject }) : []),
+          ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
           ...(fleetAllowed ? mcpToolSpecs() : []),
         ];
       };

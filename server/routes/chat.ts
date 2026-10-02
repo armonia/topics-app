@@ -573,7 +573,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const isWoken = body.mode === "woken";
       const adottaTurnoVivo = isReattach || isWoken;
       // Typed by a person, not produced by the machine (goal nudge, dispatch, wake, resume).
-      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt;
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !body.subagentResults && !resumeAttempt;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
@@ -694,7 +694,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
           userRowMarks({
-            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit,
+            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit, subagentResults: body.subagentResults,
             repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),
           }),
         );
@@ -2561,7 +2561,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 pendingAsk: askingPlanApproval || interrupted.length > 0 || sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
                 ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
                 fromHuman: sentByPerson,
-                woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own
+                woken: isWoken || !!body.processExit || !!body.subagentResults, // a command's or a sub-agent's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };
@@ -2834,9 +2834,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     // state updates happen consistently. Same surface as the existing
                     // onToolResult callback below.
                     const browserEndedAt = Date.now();
+                    // The start-time detail only knows the requested URL. The
+                    // result says where the page landed, under which context, and
+                    // whether it opened at all: a native pane RESOLVES `{error}`
+                    // instead of throwing, so this is the only place a failed
+                    // `browser_open` shows up (CHAT-BROWSER-01).
+                    const failed = !!result && typeof result === 'object' && 'error' in result;
+                    const browserDetail = deriveToolDetail(name, args, resultStr, { failed });
                     updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt }, ownMirrored);
-                    updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
-                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
+                    updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt, detail: browserDetail });
+                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, detail: browserDetail, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
                     settleTrackedTool(toolCallId);
 
@@ -3096,7 +3103,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               for (let i = blocks.length - 1; i >= 0; i--) {
                 const b = blocks[i];
                 if (b.kind === "tool" && b.toolCall.id === toolCallId) {
-                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result);
+                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result, { failed: !!isError });
                   break;
                 }
               }

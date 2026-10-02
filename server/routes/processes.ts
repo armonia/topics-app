@@ -27,6 +27,8 @@ import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
+import { closeRegistryRun } from "../lib/command-runs";
+import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
@@ -123,7 +125,16 @@ interface CommandMeta {
   wake: boolean;
   /** Stopped from the panel or with `stop_process`: «stopped», no wake. */
   stopped?: boolean;
+  /**
+   * `person`: run by a person from the chat (Run under a code block), never
+   * by the agent. It wakes nobody, the agent's process tools do not see it,
+   * and its end closes its row in `command_runs` (CMDRUN-05, CMDRUN-06).
+   */
+  origin?: "person";
 }
+
+/** A run a person started from the chat: kept out of everything the agent reads. */
+const isPersonRun = (sp: ScriptProcess) => sp.cmd?.origin === "person";
 
 // Serializable subset for persistence
 interface PersistedScript {
@@ -661,6 +672,12 @@ function finishCommand(sp: ScriptProcess): void {
   // An ended server keeps its addresses while the chat says how it ended, then they go.
   if (commandServiceWatch.listenOf(sp.processId)) setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
   if (cmd.wake) requestWakeFor(sp);
+  if (cmd.origin === "person") settlePersonRun(sp);
+}
+
+/** A person's run ended: its row in `command_runs` closes (`closeRegistryRun`), once the router has a database. */
+function settlePersonRun(sp: ScriptProcess): void {
+  if (_broadcastCtx && sp.status !== "running" && sp.cmd) closeRegistryRun(_broadcastCtx, { ...sp, stopped: !!sp.cmd.stopped });
 }
 /** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
 const commandServiceWatch = serviceWatch({
@@ -749,13 +766,19 @@ function settleWakeReadInTurn(sp: ScriptProcess, sessionKey: string, db: AppCont
 function startCommandProcess(o: {
   projectPath: string; cwd: string; command: string; description?: unknown;
   sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"];
+  origin?: "person";
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
   const processId = crypto.randomUUID();
   const argv = commandArgv(o.command, exitPathOf(processId));
   if (!argv) return null; // no POSIX shell here (Windows)
   // The environment of the agent's own Bash, not the server's: its secrets
   // would reach the log, the panel and the wake row (`lib/agent-env.ts`).
-  const env = augmentEnv(agentBaseEnv(), { FORCE_COLOR: "0", NO_COLOR: "1" });
+  // Colours off for the agent, whose output goes to a model; on for a person,
+  // whose output is drawn under the block with its colours.
+  const env = augmentEnv(agentBaseEnv(), o.origin === "person"
+    ? { FORCE_COLOR: "1", CLICOLOR_FORCE: "1" }
+    : { FORCE_COLOR: "0", NO_COLOR: "1" });
+  if (o.origin === "person") delete env.NO_COLOR;
   // And the core quota that Bash gets when the session is a board card's
   // (`providers/claude-code.ts`): the board sends its builds, tests and
   // installs here. A chat's session gets none, and `env` stays as it is.
@@ -772,7 +795,7 @@ function startCommandProcess(o: {
     processId, scriptName: commandLabel(o.command, o.description), command: o.command, projectPath: o.projectPath,
     status: "running", pid: proc.pid, pidLstart: pidStartTime(proc.pid), startedAt: new Date().toISOString(),
     output: [], outputBytes: 0, proc, source: "command",
-    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId },
+    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId, ...(o.origin ? { origin: o.origin } : {}) },
   };
   runningScripts.set(processId, sp);
   followLog(sp, logPath, 0);
@@ -1625,6 +1648,8 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
   _broadcastCtx = ctx; // store for pollPidExit callbacks
+  // The people's runs that ended before there was a database to close their row in (boot).
+  for (const sp of recentScripts) if (isPersonRun(sp)) settlePersonRun(sp);
 
   async function readJSON(req: Request): Promise<any> {
     try { return await req.json(); } catch { return null; }
@@ -1772,7 +1797,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
   /** Build the `{ scripts }` payload, optionally filtered to one project path. */
   async function serializeScripts(filterCwd?: string): Promise<{ scripts: any[] }> {
-    const match = (sp: ScriptProcess) => !filterCwd || sp.projectPath === filterCwd;
+    // Scoped to a session = the agent asking (`list_processes`): a person's run is not its to see.
+    const match = (sp: ScriptProcess) => !filterCwd || (sp.projectPath === filterCwd && !isPersonRun(sp));
     const running = Array.from(runningScripts.values()).filter(match);
     // One batched port lookup for all running pids (shared lsof + ps snapshot,
     // single pass over the cached port list) instead of per-process.
@@ -1904,6 +1930,19 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     return true;
   }
 
+  // Run under a code block of a reply (`routes/command-runs.ts`): this registry runs it.
+  const commandRunsRoute = createCommandRunsRoute(ctx, {
+    start: (o) => startCommandProcess({ projectPath: o.cwd, ...o, wake: false, origin: "person", db: ctx.db }),
+    reconcile(runId) {
+      const sp = getScript(runId);
+      if (!sp) return "gone";
+      if (sp.status === "running") return "running";
+      settlePersonRun(sp);
+      return "ended";
+    },
+    kill(runId) { const sp = runningScripts.get(runId); if (sp) killRunningScript(sp); },
+  });
+
   return async function processesRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // POST /api/scripts/run — start a script (UI endpoint, ungated)
@@ -2003,6 +2042,9 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    const runs = await commandRunsRoute(req, url, pathname, method);
+    if (runs) return runs;
+
     // GET /api/scripts — list running + recent, with per-process ports
     if (method === "GET" && pathname === "/api/scripts") {
       // Qualcuno sta guardando: la rilevazione torna alla cadenza piena, cosi'
@@ -2064,7 +2106,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const r = resolveSessionCwd(sessionKey);
         if ("error" in r) return r.error;
         const sp = getScript(m[2]);
-        if (!sp || sp.projectPath !== r.path) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
           return json({ error: "Process not found in this project" }, 404);
         }
         const offset = parseInt(url.searchParams.get("offset") || "0", 10);
@@ -2093,7 +2135,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if ("error" in r) return r.error;
         const id = decodeURIComponent(m[2]);
         const sp = getScript(id) ?? getScript(shellProcessKey(sessionKey, id));
-        if (!sp || sp.projectPath !== r.path) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
           return json({ error: "Process not found in this project" }, 404);
         }
 
@@ -2150,7 +2192,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const r = resolveSessionCwd(decodeURIComponent(m[1]));
         if ("error" in r) return r.error;
         const sp = runningScripts.get(m[2]);
-        if (!sp || sp.projectPath !== r.path) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
           return json({ error: "Process not found in this project or already stopped" }, 404);
         }
         if (!killRunningScript(sp)) {

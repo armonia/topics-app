@@ -57,7 +57,7 @@ cambio di persistenza, di `blocks`, di frame WS.
   diventano un segno solo, alla posizione della prima, che mostra l'ultima pagina e
   «N pagine». Aperto, elenca le pagine in ordine (titolo o dominio, ora). Due
   contesti diversi restano due segni. È una funzione pura su `ToolCall[]`
-  (`browserOpenMarker.ts`), testata da sola.
+  (`browserOpens.ts`), testata da sola.
 
 ## 4. Il clic: `focusBrowserContext`
 

@@ -5,8 +5,9 @@
  * The motion of a menu, a popover, a dialog or a tooltip is not written per
  * component: the entrance rides on the shared styles (`POPOVER_SURFACE`,
  * `POPOVER_PANEL`, `POPOVER_SHEET`, `MODAL_OVERLAY`, `MODAL_BACKDROP`,
- * `MODAL_PAGE_CONTAINER`, or the `popover-enter` / `modal-backdrop-enter`
- * classes they carry) and the exit is `useExitGhost` (lib/exitGhost). A
+ * `MODAL_PAGE_CONTAINER`, or the `popover-enter` / `modal-backdrop-enter` /
+ * `drawer-enter` classes they carry) and the exit is `useExitGhost`
+ * (lib/exitGhost). A
  * surface that hand-rolls its card gets neither, and nothing shows it until
  * somebody watches it pop: the file tree's context menu and the floating
  * browser window's add menu were two such cards, found by reading the source.
@@ -31,7 +32,7 @@ const SRC = join(import.meta.dir, '..');
 
 /** The styles that carry the shared entrance. */
 const ENTERING =
-  /\b(?:POPOVER_SURFACE|POPOVER_PANEL|POPOVER_SHEET|MODAL_OVERLAY|MODAL_BACKDROP|MODAL_PAGE_CONTAINER)\b|(?<![\w-])(?:popover-enter|modal-backdrop-enter|bottom-sheet)(?![\w-])/;
+  /\b(?:POPOVER_SURFACE|POPOVER_PANEL|POPOVER_SHEET|MODAL_OVERLAY|MODAL_BACKDROP|MODAL_PAGE_CONTAINER)\b|(?<![\w-])(?:popover-enter|modal-backdrop-enter|bottom-sheet|drawer-enter)(?![\w-])/;
 /** The shared primitives that own both the entrance and the exit. */
 const SHARED_PRIMITIVE =
   /<(?:Menu|DropdownPortal|ContextMenuPortal|SubmenuItem|Select|SuggestionMenu|ConfirmDialog|PresencePopover)\b/;
@@ -49,8 +50,6 @@ const NOT_A_FLOATING_SURFACE: Record<string, string> = {
   'components/Shared/SidebarUpdateBanner.tsx': 'a status row portalled into its slot, in flow',
   'components/Browser/SelectElementOverlay.tsx': 'the highlight box that follows the picked element',
   'components/Browser/RemoteBrowserPanel.tsx': 'the screencast pane; its dialog is ForgetSiteDialog (ConfirmDialog)',
-  'components/Project/ProjectSidebar.tsx':
-    'the rail strip portalled into the tab bar; the phone drawer is a known gap with no shared slide-out yet',
 };
 
 /** Direct users of an entering style whose exit is not theirs to play. */

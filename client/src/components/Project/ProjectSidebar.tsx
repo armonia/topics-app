@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
@@ -812,6 +813,15 @@ export function ProjectSidebar({
     document.body.style.userSelect = 'none';
   }, [bottomHeights, expandedSections.files]);
 
+  // The phone's drawer and its scrim leave as they came (lib/exitGhost): the
+  // drawer slides back out to the left, the scrim fades, instead of both
+  // vanishing in one frame when the drawer closes.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const drawerScrimRef = useRef<HTMLDivElement>(null);
+  const drawerOpen = isMobile && !effectiveCollapsed;
+  useExitGhost(drawerRef, drawerOpen, 'drawer');
+  useExitGhost(drawerScrimRef, drawerOpen, 'modal');
+
   if (effectiveCollapsed) {
     const open = (section: SectionId) => () => {
       onToggleCollapse();
@@ -949,14 +959,15 @@ export function ProjectSidebar({
   if (isMobile) {
     return createPortal(
       <>
-        <div className="fixed inset-0 bg-black/50 z-40" onClick={onToggleCollapse} aria-hidden="true" />
+        <div ref={drawerScrimRef} className="fixed inset-0 bg-black/50 z-40 modal-backdrop-enter" onClick={onToggleCollapse} aria-hidden="true" />
         <div
+          ref={drawerRef}
           // Stessa ancora della variante desktop: le due non convivono mai (il
           // ramo è esclusivo), e portare lo stesso nome fa sì che la ritaratura
           // dei token del chrome in index.css — agganciata a QUESTO selettore —
           // valga anche sul telefono, dove il fondo è identico.
           data-testid="project-sidebar"
-          className="chrome-glass fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg"
+          className="chrome-glass drawer-enter fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg"
           // IL FONDO SI FERMA SOPRA L'HOME INDICATOR. Il pannello è
           // `inset-y-0`, quindi la sua ultima riga finiva sotto il trattino:
           // uno spazio da cui non si può toccare niente, occupato da qualcosa

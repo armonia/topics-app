@@ -21,6 +21,8 @@
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { openProfileMenu } from "./helpers/open-perf-panel";
+import { openOwnProfile, openUserMenuLevel } from "./helpers/user-menu";
 
 hermetic(test);
 
@@ -59,10 +61,10 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await page.keyboard.press("Meta+Comma");
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible({ timeout: 10000 });
-    await pannello.locator("nav button", { hasText: /^Profilo$/ }).click();
+    // The banner is in the Profile tab's «Outside Topics» panel, with the
+    // figures it shows (SETORG-01: copyable, ready, from the Profile tab).
+    await openOwnProfile(page, "outside");
+    const pannello = page.getByTestId("profile-outside-panel");
 
     const copia = pannello.getByTestId("profile-banner-copy");
     await expect(copia, "deve esserci un gesto per copiare il banner").toBeVisible({ timeout: 10000 });
@@ -94,55 +96,52 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     await expect(copia).toHaveText(/Copiato/, { timeout: 3000 });
   });
 
-  test("SET-ORG: le organizzazioni si trovano dalle impostazioni", async ({ page }) => {
+  test("SET-ORG: i gruppi si trovano dal menu utente e si amministrano dalla tab Profilo", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    // THE PANEL HAS NO COPY. The organisation page used to be an entry of the
+    // panel AND the page the Profile tab opened from «Manage»: the same page
+    // in two hosts. The panel keeps the forms only.
     await page.keyboard.press("Meta+Comma");
     const pannello = page.locator('[data-testid="settings-panel"]');
     await expect(pannello).toBeVisible({ timeout: 10000 });
+    await expect(pannello.locator("nav button", { hasText: /^Organizzazione$/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(pannello).toHaveCount(0);
 
-    // LA PORTA HA IL NOME SCRITTO SOPRA. Il criterio di questo caso e' sempre
-    // stato «le organizzazioni SI TROVANO», non «stanno in quella schermata
-    // li'»: alle organizzazioni non mancava una funzione, mancava una voce con
-    // scritto dove porta. Prima erano in fondo a «Profilo» e questo caso ce le
-    // cercava; adesso hanno una voce loro, che e' la risposta migliore alla
-    // stessa domanda. Il nome e' in italiano — «Organizzazione», non
-    // «Organization» — perche' e' l'altra meta' di cio' che questo file misura.
-    const org = pannello.locator("nav button", { hasText: /^Organizzazione$/ });
-    await expect(org, "deve esistere una voce «Organizzazione»").toBeVisible({ timeout: 5000 });
-    await org.click();
+    // THE DOOR HAS ITS NAME ON IT: the Groups level of the user menu, and
+    // «Manage» at its foot opens the organisation page in the Profile tab.
+    await openProfileMenu(page);
+    await page.getByTestId("profile-menu-orgs").click();
+    const level = page.getByTestId("profile-menu-orgs-menu");
+    await expect(level).toBeVisible({ timeout: 10000 });
+    await level.getByTestId("org-open-manage").click();
 
-    // E dietro ci sono davvero, chiamate per nome: una voce che apre una
-    // pagina vuota sposterebbe il problema invece di chiuderlo.
+    // And behind it they really are, called by name: a door that opens an
+    // empty page would move the problem instead of closing it.
+    const pagina = page.getByTestId("profile-pane").getByTestId("settings-page-organization");
+    await expect(pagina).toBeVisible({ timeout: 15000 });
     await expect(
-      pannello.getByTestId("identity-orgs"),
-      "le organizzazioni devono avere un blocco riconoscibile dietro la loro voce",
+      pagina.getByTestId("identity-orgs"),
+      "le organizzazioni devono avere un blocco riconoscibile dietro la loro porta",
     ).toBeVisible({ timeout: 10000 });
-
-    // E la voce «Profilo» resta, con la sua materia: le due schermate non si
-    // sono fuse, si sono separate.
-    const profilo = pannello.locator("nav button", { hasText: /^Profilo$/ });
-    await expect(profilo, "deve esistere anche una voce «Profilo»").toBeVisible({ timeout: 5000 });
   });
 
   // SET-NOTIF-DISABLED: with the notifications master OFF, the children must be
   // REALLY disabled (out of the tab order, Space inert, state exposed to AT),
   // not just dimmed behind an `opacity/pointer-events` veil that left the button
   // switchable from the keyboard.
-  test("SET-NOTIF-DISABLED: con le notifiche spente «Play sound» è disattivato", async ({ page }) => {
+  test("SET-NOTIF-DISABLED: con le notifiche spente «Suono» è disattivato", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await page.keyboard.press("Meta+Comma");
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible({ timeout: 10000 });
+    // The Notifications level of the user menu (localised: «Notifiche»).
+    const level = await openUserMenuLevel(page, "notifications");
 
-    // Sezione Notifiche (etichetta localizzata: /Notif/i copre «Notifiche»).
-    await pannello.locator("nav button", { hasText: /Notif/i }).click();
-
-    const master = pannello.getByRole("switch", { name: "Enable notifications" });
-    const playSound = pannello.getByRole("switch", { name: "Play sound" });
+    const master = level.getByTestId("notif-enabled");
+    const playSound = level.getByTestId("notif-sound");
     await expect(master).toBeVisible({ timeout: 5000 });
 
     // Switch the master off if it is on (the DB default may be on).
@@ -153,5 +152,9 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
 
     // The child is disabled: `disabled` reaches all the way to the <button role=switch>.
     await expect(playSound).toBeDisabled();
+
+    // Back on: the setting outlives this test on the shared server.
+    await master.click();
+    await expect(master).toHaveAttribute("aria-checked", "true");
   });
 });

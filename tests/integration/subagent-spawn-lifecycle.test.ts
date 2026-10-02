@@ -13,16 +13,13 @@
  * `os.homedir()` is fixed per process under Bun, so the cwd is a throwaway
  * test directory and its project folder is removed afterwards (the same
  * precedent as `server/lib/claude-transcript-path.test.ts`).
- * @covers SUBAGENT-04, SUBAGENT-05, SUBAGENT-07, SUBAGENT-17
+ * @covers SUBAGENT-04, SUBAGENT-05, SUBAGENT-07, SUBAGENT-12, SUBAGENT-17
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as net from "node:net";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
-import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
+import { startFakeClaudeBridge, type FakeBridge, type FakeChild } from "./helpers/fake-claude-bridge";
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
@@ -35,113 +32,10 @@ const PARENT = `topic:${TOPIC_ID}`;
 const TOKEN = "subagent-life-token";
 const LONG_PROMPT = "Sei il sotto-agente foglio-tab: rendi BrowserTabSheet l'unica chrome del foglio e riporta i file toccati. ".repeat(40);
 
-interface FakeChild { cwd: string; sessionId: string; typed: string; promptWrites: number; enters: number; acceptFromEnter: number }
-
-/** The fake bridge, playing the CLI: what it received, and each child's state. */
-interface FakeBridge {
-  received: Array<{ type?: string; id?: string; cwd?: string; args?: string[]; data?: string }>;
-  children: Map<string, FakeChild>;
-  /** Enter that makes the NEXT spawned child write its prompt record (1 = the first). */
-  nextAcceptFromEnter: number;
-  /** Drop every connection, as a bridge that died does; `list` then answers empty. */
-  dropAll(): void;
-  close(): Promise<void>;
-}
-
-/**
- * The transcript folders this file CREATED, and only those, are removed at the
- * end. A cwd outside the test root is refused outright: on the code before the
- * fix the child landed in `$HOME`, whose folder holds the owner's real sessions
- * and memory, and a cleanup that removed "the folder it wrote in" deleted it
- * (it happened once while proving this test red, 29/09).
- */
-const createdTranscriptDirs = new Set<string>();
-const insideTestRoot = (cwd: string) =>
-  [ROOT, fs.realpathSync(ROOT)].some((root) => cwd === root || cwd.startsWith(`${root}/`));
-function transcriptFile(cwd: string, sessionId: string): string | null {
-  if (!insideTestRoot(cwd)) return null;
-  const dir = join(homedir(), ".claude", "projects", claudeProjectDirName(cwd));
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    createdTranscriptDirs.add(dir);
-  }
-  return join(dir, `${sessionId}.jsonl`);
-}
-const record = (o: unknown) => JSON.stringify(o) + "\n";
-function append(child: FakeChild, o: unknown): void {
-  const file = transcriptFile(child.cwd, child.sessionId);
-  if (file) fs.appendFileSync(file, record(o));
-}
-
-function startFakeBridge(): Promise<FakeBridge> {
-  try { fs.unlinkSync(SOCKET_PATH); } catch { /* not there */ }
-  const sockets = new Set<net.Socket>();
-  let pid = 7000;
-  const bridge: FakeBridge = {
-    received: [],
-    children: new Map(),
-    nextAcceptFromEnter: 1,
-    dropAll() { for (const s of sockets) s.destroy(); },
-    close() {
-      return new Promise((resolve) => { for (const s of sockets) s.destroy(); server.close(() => resolve()); });
-    },
-  };
-  const reply = (socket: net.Socket, o: unknown) => { try { socket.write(JSON.stringify(o) + "\n"); } catch { /* closed */ } };
-  const server = net.createServer((socket) => {
-    sockets.add(socket);
-    socket.on("close", () => sockets.delete(socket));
-    socket.on("error", () => { /* the server closes when it wants */ });
-    createInterface({ input: socket }).on("line", (line) => {
-      let msg: FakeBridge["received"][number];
-      try { msg = JSON.parse(line); } catch { return; }
-      bridge.received.push(msg);
-      const id = msg.id ?? "";
-      if (msg.type === "list") reply(socket, { type: "list", sessions: [] });
-      else if (msg.type === "ping") reply(socket, { type: "pong" });
-      else if (msg.type === "create") {
-        const args = msg.args ?? [];
-        const flag = args.indexOf("--session-id") >= 0 ? args.indexOf("--session-id") : args.indexOf("--resume");
-        const child: FakeChild = {
-          cwd: msg.cwd ?? "", sessionId: flag >= 0 ? args[flag + 1]! : "", typed: "", promptWrites: 0, enters: 0,
-          acceptFromEnter: bridge.nextAcceptFromEnter,
-        };
-        bridge.children.set(id, child);
-        const file = transcriptFile(child.cwd, child.sessionId);
-        // Today's CLI creates its transcript at start-up, before any prompt.
-        if (file && !fs.existsSync(file)) {
-          append(child, { type: "mode", mode: "default" });
-          append(child, { type: "permission-mode", permissionMode: "bypassPermissions" });
-          append(child, { type: "system", subtype: "informational", content: "AGENTS.md loaded" });
-        }
-        reply(socket, { type: "created", id, pid: pid++ });
-      } else if (msg.type === "buffer") {
-        const child = bridge.children.get(id);
-        const screen = child?.typed
-          ? "╭──────────╮\n│ > [Pasted text #1 +40 lines] │\n╰──────────╯"
-          : "╭──────────╮\n│ >          │\n╰──────────╯\n Welcome to Claude Code";
-        reply(socket, { type: "buffer", id, data: Buffer.from(screen).toString("base64") });
-      } else if (msg.type === "write") {
-        const child = bridge.children.get(id);
-        if (!child) return;
-        if (msg.data === "\r") {
-          child.enters += 1;
-          if (child.typed && child.enters >= child.acceptFromEnter) {
-            append(child, { type: "user", cwd: child.cwd, message: { role: "user", content: child.typed } });
-            child.typed = "";
-          }
-        } else {
-          child.typed += msg.data ?? "";
-          child.promptWrites += 1;
-        }
-      } else if (msg.type === "kill") {
-        setTimeout(() => reply(socket, { type: "exit", id, exitCode: 0 }), 20);
-      }
-    });
-  });
-  return new Promise((resolve) => server.listen(SOCKET_PATH, () => resolve(bridge)));
-}
-
 let bridge: FakeBridge;
+const transcriptFile = (cwd: string, sessionId: string) => bridge.transcriptFile(cwd, sessionId);
+const append = (child: FakeChild, o: unknown) => bridge.append(child, o);
+
 let ctx: AppContext;
 let router: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
 const reports: SubAgentExitInfo[] = [];
@@ -173,6 +67,7 @@ async function spawn(name: string, prompt = LONG_PROMPT): Promise<{ agentId: str
   const body = await res.json() as { agentId: string; cwd: string };
   return { ...body, child: bridge.children.get(body.agentId)! };
 }
+const stateOf = (agentId: string) => (ctx.db.query("SELECT state FROM subagents WHERE id = ?").get(agentId) as { state: string } | null)?.state;
 const reportsFor = (agentId: string) => reports.filter((r) => r.childId === agentId);
 const hasPrompt = (child: FakeChild) => {
   const file = transcriptFile(child.cwd, child.sessionId);
@@ -188,7 +83,7 @@ beforeAll(async () => {
   // A path that exists: the bridge is fake, so nothing ever runs it.
   process.env.CLAUDE_BIN = "/bin/echo";
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
-  bridge = await startFakeBridge();
+  bridge = await startFakeClaudeBridge(ROOT, SOCKET_PATH);
   ctx = await createTestAppContext();
   const now = new Date().toISOString();
   ctx.saveSingleTopic({
@@ -213,7 +108,7 @@ afterAll(async () => {
   delete process.env.CLAUDE_BIN;
   delete process.env.GATEWAY_TOKEN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
-  for (const dir of createdTranscriptDirs) fs.rmSync(dir, { recursive: true, force: true });
+  bridge?.cleanup();
   await cleanupTestDataDir(ROOT);
 });
 
@@ -252,23 +147,30 @@ describe("spawn_agent from a chat", () => {
       status: "stopped", partial: true, text: "Sto mappando dove il tool_result finisce",
       reason: { code: "stopped-by-parent" },
     });
+    expect(stateOf(agentId)).toBe("stopped");
   }, 30_000);
 
-  test("a Reload is not the child's end; closing its tab later reports it once, as closed", async () => {
+  test("a Reload ends the open turn as stopped, not the child; closing its tab later reports the next turn once, as closed", async () => {
     const { agentId, child } = await spawn("dnd-audit", "Audit del drag-and-drop degli split.");
     await until("the prompt record", () => hasPrompt(child));
     append(child, { type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Leggo PanelGrid" }] } });
-    // The Reload kills the PTY and relaunches it under the same id. Its exit
-    // used to be reported, and the dedup by id then swallowed the real end.
+    // The Reload kills the PTY and relaunches it under the same id with
+    // `--resume`, which does not go on with the cut turn: that turn ends here.
     expect((await call(`/api/terminal/sessions/${agentId}/reload`, "POST")).status).toBe(200);
+    const [cut] = await until("the reload's report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 10_000);
+    expect(cut!.outcome).toEqual({ status: "stopped", partial: true, text: "Leggo PanelGrid", reason: { code: "reloaded" } });
+    expect(stateOf(agentId)).toBe("running");
+    // The child lives on and is given a second turn.
+    const resumed = bridge.children.get(agentId)!;
+    append(resumed, { type: "user", message: { role: "user", content: "Ora gli split annidati." } });
+    append(resumed, { type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "text", text: "Leggo SplitPane" }] } });
     // A person closes the tab: retired before the bridge's exit frame, which
     // used to leave the chat with no report at all.
     expect((await call(`/api/terminal/sessions/${agentId}`, "DELETE")).status).toBe(200);
-    const [report] = await until("the report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 10_000);
-    expect(report!.outcome).toEqual({ status: "stopped", partial: true, text: "Leggo PanelGrid", reason: { code: "tab-closed" } });
-    // A report of the Reload would have started earlier on the same schedule,
-    // so it would already be here.
-    expect(reportsFor(agentId)).toHaveLength(1);
+    await until("the close's report", () => reportsFor(agentId).length > 1, 10_000);
+    expect(reportsFor(agentId)[1]).toMatchObject({ turn: 2, outcome: { status: "stopped", partial: true, text: "Leggo SplitPane", reason: { code: "tab-closed" } } });
+    expect(stateOf(agentId)).toBe("stopped");
+    expect(reportsFor(agentId)).toHaveLength(2);
   }, 30_000);
 
   test("a built-in Agent id gets a 404 that says so", async () => {
@@ -285,14 +187,18 @@ describe("spawn_agent from a chat", () => {
     bridge.dropAll();
     const [report] = await until("the report", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
     expect(report!.outcome).toEqual({ status: "lost", partial: true, text: "Lancio la build", reason: { code: "terminal-lost" } });
+    // The row says so too: a lost child holds no slot, and can be resumed (SUBAGENT-14).
+    expect(stateOf(agentId)).toBe("lost");
   }, 30_000);
 
-  test("a stop from inside the parent's open turn is written at once, and the turn's end leaves that row alone", async () => {
-    // The real wiring: the topics router registers the watcher that writes the
-    // report into the parent chat. The collector goes back in `finally`.
+  test("a stop from inside the parent's open turn is kept at once, and wakes the parent when that turn ends", async () => {
+    // The real wiring: the topics router registers the watcher that hands the
+    // result to the wake, and the wake posts it through the real chat route.
+    // The collector goes back in `finally`.
     const terminal = await import("../../server/routes/terminal");
     const { createTopicsRouter } = await import("../../server/routes/topics");
     const { createChatRouter } = await import("../../server/routes/chat");
+    const { startSubagentWakes, _resetSubagentWakes } = await import("../../server/services/subagent-wake");
     createTopicsRouter(ctx);
     let turn: StreamHandler | undefined;
     const provider = {
@@ -322,9 +228,12 @@ describe("spawn_agent from a chat", () => {
       browserNavigatedTopics: new Set<string>(),
       WORKSPACE_DIR: join(ROOT, "ws"),
     } as never);
-    const rows = () => ctx.db.query(
-      "SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order, rowid",
-    ).all(PARENT) as Array<{ id: string; content: string }>;
+    startSubagentWakes({
+      route: chat, isBusy: (sk) => ctx.activeStreams.has(sk), canWake: () => "wake", debounceMs: 50, pollMs: 50, endGraceMs: 100,
+    });
+    const rows = (role: "user" | "assistant") => ctx.db.query(
+      `SELECT id, content, blocks FROM messages WHERE session_key = ? AND role = '${role}' ORDER BY sort_order, rowid`,
+    ).all(PARENT) as Array<{ id: string; content: string; blocks: string | null }>;
     try {
       const url = new URL("http://h/api/chat");
       const res = await chat(new Request(url, {
@@ -335,7 +244,8 @@ describe("spawn_agent from a chat", () => {
       expect(res?.status).toBe(200);
       res?.body?.cancel().catch(() => {});
       const handler = await until("the parent's turn", () => turn);
-      const turnRowId = rows().at(-1)!.id;
+      turn = undefined;
+      const turnRowId = rows("assistant").at(-1)!.id;
       let text = "";
       for (let i = 1; i <= 12; i++) { const d = `Fermo lo scout ${i}. `; text += d; handler.onTextDelta(d, text); }
 
@@ -344,20 +254,31 @@ describe("spawn_agent from a chat", () => {
       append(child, { type: "assistant", message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "Found 2 call sites" }] } });
       expect((await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/${agentId}/stop`, "POST")).status).toBe(200);
 
-      // Was held in a timer until the turn closed (up to 30 minutes), and a
-      // restart in between lost it: `/stop` had already deleted the child's row.
-      const report = await until("the report row, under the open turn", () =>
-        rows().find((r) => r.id !== turnRowId && r.content.includes("scout-open-turn")), 10_000);
+      // Kept at once on the child's row, while the turn is still open: a
+      // restart now would send it again instead of losing it (SUBAGENT-07).
+      const pending = await until("the result kept on the sub-agent's row", () => {
+        const r = ctx.db.query("SELECT pending_results FROM subagents WHERE id = ?").get(agentId) as { pending_results: string | null } | null;
+        return r?.pending_results ?? undefined;
+      }, 10_000);
+      expect(JSON.parse(pending)[0]).toMatchObject({ agentId, status: "completed", text: "Found 2 call sites" });
       expect(ctx.activeStreams.has(PARENT)).toBe(true);
-      expect(report.content).toContain("Found 2 call sites");
+      // ...and not yet in the chat: a busy parent is not interrupted (SUBAGENT-12).
+      await new Promise((r) => setTimeout(r, 300));
+      expect(rows("user").some((r) => r.content.includes("scout-open-turn"))).toBe(false);
 
       handler.onDone({ content: [{ type: "text", text: text + "Fatto." }] } as never);
-      await until("the turn to close", () => !ctx.activeStreams.has(PARENT), 10_000);
-      const after = rows();
-      expect(after.find((r) => r.id === report.id)?.content).toBe(report.content);
-      expect(after.find((r) => r.id === turnRowId)?.content).toContain("Fermo lo scout 12.");
+      // The turn's end wakes the parent: one marked user row, carrying the card.
+      const wake = await until("the wake row", () => rows("user").find((r) => r.content.includes('agent="scout-open-turn"')), 15_000);
+      expect(wake.content).toContain("Found 2 call sites");
+      expect(JSON.parse(wake.blocks!)).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId, name: "scout-open-turn", status: "completed" })] }]);
+      expect(rows("assistant").find((r) => r.id === turnRowId)?.content).toContain("Fermo lo scout 12.");
+      await until("the pending copy dropped", () => {
+        const r = ctx.db.query("SELECT pending_results FROM subagents WHERE id = ?").get(agentId) as { pending_results: string | null };
+        return r.pending_results === null;
+      }, 5_000);
     } finally {
+      _resetSubagentWakes();
       terminal.setSubAgentExitHandler((info) => { reports.push(info); });
     }
-  }, 40_000);
+  }, 60_000);
 });

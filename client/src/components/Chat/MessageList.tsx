@@ -1934,7 +1934,8 @@ export function MessageList({
     prevSendLenRef.current = filteredMessages.length;
     if (!grew) return;
     const last = filteredMessages[filteredMessages.length - 1];
-    if (last?.role !== 'user') return;
+    // A sub-agent result or a process exit lands as a `user` row too: not a send.
+    if (last?.role !== 'user' || isMachineRow(last.blocks)) return;
     // Inviare È l'intento di seguire la risposta: la transizione `user-sent`
     // riancora anche una vista che l'utente aveva portato indietro a leggere.
     disclosure.release(); disclosure.clearSlack(scrollerElRef.current);

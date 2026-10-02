@@ -40,6 +40,9 @@ import { OrganizationPage } from '../Settings/IdentityPages';
 function panelFor(pagina: PageProfile | undefined): ProfilePanel {
   if (pagina === 'privacy') return 'privacy';
   if (pagina === 'followers') return 'friends';
+  // The two panels that came from the Settings panel (USERMENU-05).
+  if (pagina === 'people') return 'people';
+  if (pagina === 'outside') return 'outside';
   return null;
 }
 
