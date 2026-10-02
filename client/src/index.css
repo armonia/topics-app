@@ -2869,6 +2869,13 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   animation: popoverIn var(--motion-instant) var(--ease-standard) both;
 }
 
+/* A control that answers a click slides in the time a menu takes to open: the
+ * knob of a switch, the indicator of a segmented control (USERMENU-08). The
+ * global reduced-motion rule below zeroes it with everything else. */
+.control-slide {
+  transition: transform var(--motion-instant) var(--ease-standard);
+}
+
 /* The modal veil fades in with its panel instead of landing at full opacity
  * on the first frame. Rides on `MODAL_OVERLAY` and `MODAL_BACKDROP`. */
 @keyframes modalBackdropIn {
