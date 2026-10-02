@@ -29,6 +29,7 @@ Se esce non-zero, ci si ferma qui.
 - [x] 3.2 `Sidebar/NotificationsLevel.tsx`: gli interruttori, `NativeBannerStatus` e `FocusGateStatus` spostati da `NotificationsSection.tsx`, `PushDevices` diviso nei livelli «Questo dispositivo» e «Altri dispositivi» con gli stessi `data-testid`, i progetti silenziati; ingranaggio del campanello verso `topics:open-user-menu`.
 - [x] 3.3 Vista: `Shared/Switch` per Archiviati, segmento per l'ordine, Riga della board.
 - [x] 3.4 Dispositivi: `lib/devicesApi.ts` estratto da `Settings/DevicesSection.tsx`; rinomina, revoca e «Di chi è» (solo con più persone) nel livello; livello figlio «Revocati»; riga delle richieste remote verso Impostazioni, Nodi.
+  Aggiunto dopo la verifica: la pagina tolta mostrava, per ogni dispositivo, quando era stato visto e il primo IP, per ogni revocato quando, e un errore di lettura con «Riprova». Il livello li aveva persi. Ora ogni riga ha la seconda riga «visto 3 h fa · da 192.168.1.4» (o «connesso adesso»), ogni revocato «revocato 2 g fa» (`lib/deviceAudit.ts`), e una lettura fallita mostra `devices-load-failed` con `devices-retry` (USERMENU-04, requisito esteso nel delta; test in `user-menu-preferences.spec.ts` e `lib/deviceAudit.test.ts`).
 - [x] 3.5 Sistema, Prestazioni: i siti sempre attivi con «Togli».
 
 ## 4. Togliere i doppioni

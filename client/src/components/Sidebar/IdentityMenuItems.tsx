@@ -53,6 +53,7 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
       <OrgsSection orgs={data.orgs} width={width} onClose={onClose} />
       <DevicesLevel
         devices={data.devices}
+        failed={data.devicesFailed}
         width={width}
         onReadDevices={data.readDevices}
         onClose={onClose}

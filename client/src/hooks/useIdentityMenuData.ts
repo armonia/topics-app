@@ -23,6 +23,8 @@ export interface IdentityMenuData {
   friends: FriendPresence;
   /** `null` until the route has answered once. */
   devices: DevicesSnapshot | null;
+  /** The last read did not answer. The list (if any) is the one before. */
+  devicesFailed: boolean;
   /** Asks the device route again. Stable. */
   readDevices: () => void;
 }
@@ -40,11 +42,14 @@ export function useIdentityMenuData(): IdentityMenuData {
   // exists to remove.
   const [session, setSession] = useState<SessionState>(getSession);
   const [devices, setDevices] = useState<DevicesSnapshot | null>(null);
+  const [devicesFailed, setDevicesFailed] = useState(false);
   useEffect(() => subscribeSession(setSession), []);
 
   const readDevices = useCallback(() => {
     void fetchDevices().then((snapshot) => {
-      // Transient failure: keep the last list rather than lie about one.
+      // Transient failure: keep the last list rather than lie about one, and
+      // say that the read failed, so an empty level is never silent.
+      setDevicesFailed(snapshot === null);
       if (snapshot) setDevices(snapshot);
     });
   }, []);
@@ -66,6 +71,7 @@ export function useIdentityMenuData(): IdentityMenuData {
     orgs: presence.orgs,
     friends,
     devices,
+    devicesFailed,
     readDevices,
   };
 }

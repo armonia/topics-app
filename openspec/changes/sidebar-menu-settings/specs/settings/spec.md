@@ -109,8 +109,14 @@ Quando le persone sono più di una, ogni riga SHALL avere anche «Di chi è»: u
 livello con le persone come scelta, che sposta il dispositivo sulla persona
 scelta con la stessa route di oggi. Con una persona sola NON SHALL comparire.
 
+Ogni dispositivo appaiato SHALL dire, sotto il nome, quando è stato visto
+l'ultima volta (o che è connesso adesso) e da quale IP si è appaiato: questo
+elenco è l'unico posto in cui si nota un accesso che non si riconosce. Se
+l'elenco non si legge, il livello SHALL dirlo con «Riprova» invece di restare
+vuoto.
+
 I dispositivi revocati SHALL stare in un livello figlio «Revocati», presente
-solo se ce n'è almeno uno. Il livello NON SHALL avere una riga che apre
+solo se ce n'è almeno uno. Ogni revocato SHALL dire quando è stato revocato. Il livello NON SHALL avere una riga che apre
 un'altra copia dell'elenco. Le richieste dei computer remoti, se ci sono, SHALL
 comparire in cima come una riga che apre Impostazioni, Nodi.
 
@@ -120,6 +126,19 @@ comparire in cima come una riga che apre Impostazioni, Nodi.
 - **THEN** la riga chiede conferma e il fuoco è su «Annulla»
 - **WHEN** confermo
 - **THEN** il telefono passa nel livello «Revocati»
+
+#### Scenario: quando e da dove
+- **GIVEN** un telefono visto tre ore fa, appaiato da 192.168.1.4, e un tablet revocato due giorni fa
+- **WHEN** apro il livello «Dispositivi»
+- **THEN** la riga del telefono dice «visto 3 h fa · da 192.168.1.4»
+- **AND** nel livello «Revocati» il tablet dice «revocato 2 g fa»
+
+#### Scenario: elenco che non si legge
+- **GIVEN** la route dei dispositivi non risponde
+- **WHEN** apro il livello «Dispositivi»
+- **THEN** il livello dice che non riesce a leggere l'elenco e offre «Riprova»
+- **WHEN** la route torna a rispondere e premo «Riprova»
+- **THEN** compare l'elenco
 
 #### Scenario: di chi è
 - **GIVEN** due persone e un telefono attribuito alla prima

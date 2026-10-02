@@ -14,6 +14,11 @@
  *
  * READ AGAIN ON OPEN. A phone connecting sends no event, and this level shows
  * live dots, not a bare count.
+ *
+ * EVERY ROW CARRIES ITS AUDIT LINE (`deviceAudit`): when it was last seen and
+ * from which address it paired; a revoked row says when. This list is the only
+ * place where an access you do not recognise shows up. A read that fails says
+ * so, with a retry, instead of leaving the level empty.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Monitor, Pencil, Server, Smartphone, Trash2, Users } from 'lucide-react';
@@ -26,7 +31,8 @@ import type { DevicePerson, DevicesSnapshot, PairedDevice } from '@/lib/devicesR
 import { delegatedRequests, listLocalDelegatedRequests } from '../Settings/delegatedMachineAccess';
 import { openSettings } from '@/lib/openSettings';
 import { apiFetch } from '@/lib/shell/net';
-import { useT } from '@/hooks/useT';
+import { deviceRevokedLine, deviceSeenLine } from '@/lib/deviceAudit';
+import { useActiveLocale, useT } from '@/hooks/useT';
 
 const ROW = 'flex items-center gap-2 px-3 py-1 text-mini coarse:min-h-11 coarse:text-compact';
 const ICON_BUTTON = 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:h-11 coarse:w-11';
@@ -44,9 +50,11 @@ async function pendingRemoteRequests(): Promise<number> {
   }
 }
 
-export function DevicesLevel({ devices, width, onReadDevices, onClose, defaultOpen = false }: {
+export function DevicesLevel({ devices, failed = false, width, onReadDevices, onClose, defaultOpen = false }: {
   /** `null` until the route has answered once. */
   devices: DevicesSnapshot | null;
+  /** The last read did not answer. */
+  failed?: boolean;
   /** The host panel's width: the level's floor and its ceiling. */
   width: number;
   /** Asks the route again. Stable: the level calls it on open. */
@@ -55,6 +63,7 @@ export function DevicesLevel({ devices, width, onReadDevices, onClose, defaultOp
   defaultOpen?: boolean;
 }) {
   const tr = useT();
+  const locale = useActiveLocale();
   const [remote, setRemote] = useState(0);
   // Stable, because `SubmenuItem` reports from an effect keyed on it.
   const onOpenChange = useCallback((open: boolean) => {
@@ -109,6 +118,19 @@ export function DevicesLevel({ devices, width, onReadDevices, onClose, defaultOp
       {refusal && (
         <p data-testid="devices-error" role="alert" className="px-3 py-1 text-mini leading-snug text-red-700 dark:text-red-400">{refusal}</p>
       )}
+      {failed && (
+        <div data-testid="devices-load-failed" role="alert" className={ROW}>
+          <span className="min-w-0 flex-1 leading-snug text-red-700 dark:text-red-400">{tr('devices.loadFailed')}</span>
+          <button
+            type="button"
+            data-testid="devices-retry"
+            onClick={onReadDevices}
+            className={`${TEXT_BUTTON} text-app-text hover:bg-app-hover`}
+          >
+            {tr('devices.retry')}
+          </button>
+        </div>
+      )}
       {devices && (
         <div className="max-h-[280px] overflow-y-auto py-1">
           {computer && (
@@ -122,7 +144,7 @@ export function DevicesLevel({ devices, width, onReadDevices, onClose, defaultOp
             </div>
           )}
           {active.map((d) => (
-            <DeviceRow key={d.id} device={d} people={people} run={run} />
+            <DeviceRow key={d.id} device={d} people={people} locale={locale} run={run} />
           ))}
           {active.length === 0 && (
             <div data-testid="devices-none" className="px-3 py-1 text-mini text-app-text-muted">{tr('statusBar.me.devicesNone')}</div>
@@ -141,6 +163,7 @@ export function DevicesLevel({ devices, width, onReadDevices, onClose, defaultOp
                 <div key={d.id} data-testid="device-revoked-row" className={`${ROW} text-app-text-muted`}>
                   <Smartphone size={12} className="flex-shrink-0 opacity-50" />
                   <span className="min-w-0 flex-1 truncate line-through">{d.name}</span>
+                  <span data-testid="device-revoked-when" className="flex-shrink-0 text-micro">{deviceRevokedLine(d, tr, locale)}</span>
                 </div>
               ))}
             </div>
@@ -157,9 +180,10 @@ export function DevicesLevel({ devices, width, onReadDevices, onClose, defaultOp
  * Every state keeps the row's height, so the level does not jump under the
  * pointer while it changes.
  */
-function DeviceRow({ device: d, people, run }: {
+function DeviceRow({ device: d, people, locale, run }: {
   device: PairedDevice;
   people: DevicePerson[];
+  locale: string;
   run: (gesture: Promise<string | null>) => Promise<boolean>;
 }) {
   const tr = useT();
@@ -277,7 +301,10 @@ function DeviceRow({ device: d, people, run }: {
             </span>
           )}
         </span>
-        {owner && <span data-testid="device-owner" className="block truncate text-micro text-app-text-muted">{tr('devices.ofPerson', { nome: owner.name })}</span>}
+        <span className="block truncate text-micro text-app-text-muted">
+          <span data-testid="device-seen">{deviceSeenLine(d, tr, locale)}</span>
+          {owner && <> · <span data-testid="device-owner">{tr('devices.ofPerson', { nome: owner.name })}</span></>}
+        </span>
       </span>
       {d.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
       <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${d.connected ? PALLINO_OK : 'bg-app-text-muted/40'}`} />

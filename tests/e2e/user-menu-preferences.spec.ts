@@ -247,6 +247,42 @@ test.describe("il menu utente: i dispositivi si gestiscono dove si vedono", () =
     await expect(page.getByTestId("devices-revoked-level-menu").getByTestId("device-revoked-row")).toContainText("Telefono di Anna");
   });
 
+  test("USERMENU-04: ogni riga dice quando è stata vista e da dove, un revocato quando, e una lettura fallita lo dice con Riprova", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-04" });
+    const minute = 60_000;
+    const now = Date.now();
+    const devices = [
+      { id: "dev-away", name: "Telefono lontano", revokedAt: null, connected: false, current: false, role: "owner",
+        person: null, lastSeenAt: now - (3 * 60 + 5) * minute, firstIp: "::ffff:192.168.1.4" },
+      { id: "dev-gone", name: "Tablet perso", revokedAt: now - (2 * 24 * 60 + 60) * minute, connected: false, current: false,
+        role: "owner", person: null, lastSeenAt: null, firstIp: null },
+    ];
+    // The route fails until the test lets it answer: the level has to say so.
+    let answers = false;
+    await page.route("**/api/auth/devices", (route) => answers
+      ? route.fulfill({
+        ...JSON_OK,
+        body: JSON.stringify({ thisComputer: { name: "Questo computer", current: true }, devices, people: [{ id: "p-1", name: "Proprietario", owner: true }] }),
+      })
+      : route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "down" }) }));
+    await goToApp(page);
+    const level = await openUserMenuLevel(page, "devices");
+    const failed = level.getByTestId("devices-load-failed");
+    await expect(failed).toContainText("Non riesco a leggere l’elenco dei dispositivi.", { timeout: 10_000 });
+
+    answers = true;
+    await failed.getByTestId("devices-retry").click();
+    await expect(failed).toHaveCount(0, { timeout: 10_000 });
+    const away = level.getByTestId("device-row").nth(1);
+    await expect(away.getByTestId("device-name")).toHaveText("Telefono lontano");
+    await expect(away.getByTestId("device-seen")).toHaveText("visto 3 h fa · da 192.168.1.4");
+
+    await level.getByTestId("devices-revoked-level").click();
+    const revoked = page.getByTestId("devices-revoked-level-menu").getByTestId("device-revoked-row");
+    await expect(revoked).toContainText("Tablet perso");
+    await expect(revoked.getByTestId("device-revoked-when")).toHaveText("revocato 2 g fa");
+  });
+
   test("USERMENU-06: le Impostazioni hanno cinque voci, e Nodi ha l'aggiunta di un nodo ma non l'elenco dei dispositivi", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
     await goToApp(page);
