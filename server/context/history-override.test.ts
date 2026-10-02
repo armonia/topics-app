@@ -29,6 +29,7 @@ function msg(id: string, role: "user" | "assistant", content: string): StoredMes
 function makeCtx(opts: { topic: Topic; dbMessages: StoredMessage[]; projectDir?: string }): AppContext {
   return {
     BASE_DIR: ROOT,
+    STATE_DIR: ROOT,
     OPENCLAW_DIR: join(ROOT, "openclaw"),
     getTopicBySessionKey: (sk: string) => (opts.topic.sessionKey === sk ? opts.topic : null),
     loadLocalMessages: () => opts.dbMessages,

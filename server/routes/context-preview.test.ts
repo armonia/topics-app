@@ -67,6 +67,7 @@ const topicsData: TopicsData = { topics: { [topic.id]: topic } };
 
 const ctx = {
   BASE_DIR: baseDir,
+  STATE_DIR: baseDir,
   OPENCLAW_DIR: openclawDir,
   getTopicById: (id: string) => (id === topic.id ? topic : null),
   getTopicBySessionKey: (sk: string) => (sk === topic.sessionKey ? topic : null),

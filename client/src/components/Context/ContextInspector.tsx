@@ -71,7 +71,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   // fatto. L'hook è condiviso, quindi i due numeri non possono divergere.
   const live = useRealContext(topic.sessionKey ?? null, onMessage);
   const { data: openclawData } = useOpenClawContext();
-  const { saveTopicMemory, saveGlobalMemory } = useMemory(topic.id, { onMessage });
+  const { saveTopicMemory } = useMemory(topic.id, { onMessage });
   const toast = useToast();
 
   const [browsingMemoryTree, setBrowsingMemoryTree] = useState(false);
@@ -102,13 +102,11 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   const handleEditSource = useCallback(async (sourceId: string, content: string) => {
     if (sourceId === 'memory:topic') {
       await saveTopicMemory(content);
-    } else if (sourceId === 'memory:global') {
-      await saveGlobalMemory(content);
     } else if (sourceId === 'prompt:system') {
       await onUpdateTopic(topic.id, { systemPrompt: content });
     }
     setTimeout(reload, 300);
-  }, [topic.id, saveTopicMemory, saveGlobalMemory, onUpdateTopic, reload]);
+  }, [topic.id, saveTopicMemory, onUpdateTopic, reload]);
 
   const handleBrowseMemory = useCallback(() => {
     setBrowsingMemoryTree(true);

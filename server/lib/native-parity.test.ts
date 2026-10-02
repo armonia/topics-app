@@ -12,7 +12,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  readUserRules, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
+  readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
 
 let home: string;
@@ -40,6 +40,35 @@ describe("readUserRules", () => {
   it("un import che non esiste resta scritto com'era invece di sparire", () => {
     writeFileSync(join(home, ".claude", "CLAUDE.md"), "@~/manca.md\n");
     expect(readUserRules(home)).toContain("@~/manca.md");
+  });
+});
+
+describe("le regole vengono dall'hub ~/.agents quando c'e'", () => {
+  it("legge ~/.agents/AGENTS.md e non CLAUDE.md: una copia sola, quella che leggono gli altri harness", () => {
+    writeFileSync(join(home, ".claude", "CLAUDE.md"), "regola vecchia\n@~/.claude/TOOLS.md\n");
+    writeFileSync(join(home, ".claude", "TOOLS.md"), "usa trash, non rm");
+    mkdirSync(join(home, ".agents"), { recursive: true });
+    writeFileSync(join(home, ".agents", "AGENTS.md"), "regola dall'hub\nusa trash, non rm\n<!-- attention-span:start -->stile<!-- attention-span:end -->\n");
+    const rules = readUserRulesSource(home)!;
+    expect(rules.path).toBe(join(home, ".agents", "AGENTS.md"));
+    expect(rules.content).toContain("regola dall'hub");
+    expect(rules.content).toContain("attention-span:start");
+    // Niente doppione: CLAUDE.md non viene aggiunto sopra l'hub.
+    expect(rules.content).not.toContain("regola vecchia");
+  });
+
+  it("senza hub ricade su CLAUDE.md, cosi' una macchina senza ~/.agents non perde le regole", () => {
+    writeFileSync(join(home, ".claude", "CLAUDE.md"), "regola locale\n");
+    expect(readUserRulesSource(home)).toEqual({ path: join(home, ".claude", "CLAUDE.md"), content: "regola locale\n" });
+  });
+
+  it("le skill vengono dall'hub, che e' la fonte di ~/.claude/skills", () => {
+    const dir = join(home, ".agents", "skills", "dall-hub");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: dall-hub\ndescription: viene dall'hub\n---\n");
+    mkdirSync(join(home, ".claude", "skills", "solo-locale"), { recursive: true });
+    writeFileSync(join(home, ".claude", "skills", "solo-locale", "SKILL.md"), "---\nname: solo-locale\ndescription: x\n---\n");
+    expect(listSkills(home).map((s) => s.name)).toEqual(["dall-hub"]);
   });
 });
 

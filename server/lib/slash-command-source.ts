@@ -37,8 +37,17 @@ export function commandDirs(home = homedir(), cwd = process.cwd()): string[] {
   return [join(home, ".claude", "commands"), join(cwd, ".claude", "commands")];
 }
 
-/** Le cartelle delle skill, in ordine di precedenza. */
+/**
+ * Le cartelle delle skill, in ordine di precedenza.
+ *
+ * L'hub `~/.agents/skills` è la fonte unica che Claude Code, Codex, jcode e
+ * OpenClaw leggono già (`~/.claude/skills` è un suo link): se c'è, è l'unica
+ * cartella. Le due storiche restano solo per una macchina senza hub, dove
+ * altrimenti l'elenco sparirebbe del tutto.
+ */
 export function skillDirs(home = homedir()): string[] {
+  const hub = join(home, ".agents", "skills");
+  if (existsSync(hub)) return [hub];
   return [join(home, ".claude", "skills"), join(home, "jarvis", "skills-marketplace", "skills")];
 }
 
