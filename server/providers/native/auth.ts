@@ -97,6 +97,9 @@ export interface OAuthCredentials {
   expiresAt: number;
   scopes?: string[];
   subscriptionType?: string;
+  /** The CLI's rate-limit tier, e.g. `default_claude_max_20x`: it says which
+   *  Max a `max` subscription is. Read for the user menu, never sent as is. */
+  rateLimitTier?: string;
 }
 
 /** Dove cerchiamo le credenziali, in ordine di preferenza. */
@@ -312,6 +315,7 @@ function parseAnyFormat(raw: unknown): OAuthCredentials | null {
       expiresAt: Number(cc.expiresAt) || 0,
       scopes: cc.scopes,
       subscriptionType: cc.subscriptionType,
+      rateLimitTier: cc.rateLimitTier,
     };
   }
 
@@ -488,6 +492,7 @@ export async function refreshCredentials(current: OAuthCredentials): Promise<OAu
     expiresAt: Date.now() + Number(out.expires_in ?? 28800) * 1000,
     scopes: typeof out.scope === "string" ? out.scope.split(" ") : current.scopes,
     subscriptionType: current.subscriptionType,
+    rateLimitTier: current.rateLimitTier,
   };
 }
 

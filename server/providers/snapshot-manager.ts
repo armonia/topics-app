@@ -173,6 +173,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         requirements,
         lastError: diag?.lastError,
         effortTier: provider.effortTier?.(),
+        subscription: provider.subscription?.() ?? undefined,
         fetchedAt: new Date().toISOString(),
       };
     } catch (err) {
