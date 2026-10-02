@@ -11,7 +11,8 @@
  * @covers CMDRUN-05, CMDRUN-06
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, realpathSync, utimesSync, writeFileSync } from "fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, utimesSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import type { AppContext, Topic } from "../types";
@@ -387,12 +388,52 @@ describe("across a reload of the server", () => {
     expect(run).toMatchObject({ runId: started.runId, status: "done", exitCode: 0, output: "fine" });
   }, 40_000);
 
-  test("it ended while the server was down: the boot closes the row from the exit file", async () => {
+  test("it ended while the server was down: the boot closes the row from the exit file, at the time the exit file was written", async () => {
     const dir = freshState();
-    const started = life(dir, "start", "m-down", "echo fine; exit 5");
+    // Long enough to end after the life that started it is gone, so that the boot is what closes it.
+    const started = life(dir, "start", "m-down", "sleep 1; echo fine; exit 5");
     await until(() => !alive(started.pid));
+    const deadAt = Date.now();
+    await Bun.sleep(1_200); // the server stays down a while: the boot is not when it ended
     const { run } = life(dir, "boot", "m-down", started.runId);
     expect(run).toMatchObject({ runId: started.runId, status: "error", exitCode: 5, output: "fine" });
+    expect(Date.parse(run.endedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect(Date.parse(run.endedAt)).toBeLessThanOrEqual(deadAt);
+  }, 40_000);
+
+  /** The machine goes down under a running command: the command and its wrapper die at once, no exit file. */
+  async function machineDies(dir: string, messageId: string, command: string): Promise<{ runId: string; diedAt: number }> {
+    const started = life(dir, "start", messageId, command);
+    const log = join(dir, ".state", "scripts", `${started.runId}.log`);
+    await until(() => { try { return readFileSync(log, "utf8").includes("one"); } catch { return false; } });
+    const diedAt = Date.now();
+    process.kill(-started.pid, "SIGKILL");
+    await until(() => !alive(started.pid));
+    expect(existsSync(join(dir, ".state", "scripts", `${started.runId}.exit`))).toBe(false);
+    await Bun.sleep(1_200); // down a while: what the next boot sees is not when the command died
+    return { runId: started.runId, diedAt };
+  }
+
+  test("the machine went down mid-run: the boot closes it as unknown at its last output, not at the boot", async () => {
+    const dir = freshState();
+    const { runId, diedAt } = await machineDies(dir, "m-crash", "echo one; sleep 600");
+    const { run } = life(dir, "boot", "m-crash", runId);
+    expect(run).toMatchObject({ runId, status: "unknown", exitCode: null });
+    expect(Date.parse(run.endedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect(Date.parse(run.endedAt)).toBeLessThanOrEqual(diedAt);
+  }, 40_000);
+
+  test("the machine went down mid-run and its log is gone: the row's last output closes it, not the boot", async () => {
+    const dir = freshState();
+    const { runId } = await machineDies(dir, "m-crash-nolog", "echo one; sleep 600");
+    const db = new Database(join(dir, "topics.db"));
+    const { started_at } = db.query("SELECT started_at FROM command_runs WHERE id = ?").get(runId) as { started_at: string };
+    const lastOutput = new Date(Date.parse(started_at) + 1_000).toISOString();
+    db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ?").run(lastOutput, runId);
+    db.close();
+    unlinkSync(join(dir, ".state", "scripts", `${runId}.log`));
+    const { run } = life(dir, "boot", "m-crash-nolog", runId);
+    expect(run).toMatchObject({ runId, status: "unknown", exitCode: null, endedAt: lastOutput });
   }, 40_000);
 });
 

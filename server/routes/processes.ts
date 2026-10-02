@@ -26,7 +26,7 @@ import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
-import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
+import { commandArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
 import { closeRegistryRun, noteRunOutput } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
@@ -344,7 +344,7 @@ function loadState() {
         }
       }
     }
-    for (const sp of endedCommands) finishCommand(sp);
+    for (const sp of endedCommands) finishCommand(sp, { foundDead: true });
 
     // Cleanup old log files for completed processes older than 7 days
     try {
@@ -652,7 +652,7 @@ function tickTails(): void {
  * file the wrapper wrote, «stopped» after a Stop, and neither means unknown,
  * never «done».
  */
-function finishCommand(sp: ScriptProcess): void {
+function finishCommand(sp: ScriptProcess, how: { foundDead?: boolean } = {}): void {
   const cmd = sp.cmd;
   if (!cmd || sp.status !== "running") return;
   pumpTail(sp); // the last lines it wrote before exiting
@@ -661,7 +661,8 @@ function finishCommand(sp: ScriptProcess): void {
   if (cmd.stopped) { sp.status = "error"; sp.exitCode = -1; }
   else if (code === null) { sp.status = "error"; sp.exitCode = undefined; }
   else { sp.status = code === 0 ? "done" : "error"; sp.exitCode = code; }
-  sp.completedAt = new Date().toISOString();
+  // Found dead at boot it ended while the server was down: the boot is not when.
+  sp.completedAt = how.foundDead ? endedWhileAway(exitPathOf(sp.processId), logPathOf(sp.processId), sp.startedAt) : new Date().toISOString();
   sp.proc = null;
   runningScripts.delete(sp.processId);
   addToRecent(sp);

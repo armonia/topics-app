@@ -141,9 +141,15 @@ export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">,
   outputNotedAt.delete(row.processId);
   const { output, droppedLines } = tailForStorage(row.output, row.droppedLines ?? 0);
   try {
+    let endedAt = row.completedAt ?? new Date().toISOString();
+    // With no exit code it ended when it was last known alive, and the row may
+    // know a later output than the registry: the machine went down with it and
+    // its log is gone. A live end is now, after any output the row has.
+    const lastOutput = status === "unknown" ? runLastOutputAt(ctx.db, row.processId) : null;
+    if (lastOutput && Date.parse(lastOutput) > Date.parse(endedAt)) endedAt = lastOutput;
     const closed = closeRun(ctx.db, row.processId, {
       status, exitCode: status === "done" || status === "error" ? row.exitCode ?? null : null,
-      endedAt: row.completedAt ?? new Date().toISOString(), output, droppedLines,
+      endedAt, output, droppedLines,
     });
     if (!closed) return;
     const owner = runOwner(ctx.db, row.processId);

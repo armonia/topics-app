@@ -56,6 +56,19 @@ export function readExitCode(exitPath: string): number | null {
 }
 
 /**
+ * When a command found dead at boot ended. It ended while the server was down,
+ * and the boot is not when: the exit file is written as it exits, and without
+ * one (the machine went down with it) its log was last written when it last
+ * lived. Never before its start, which is what is left when neither is there.
+ */
+export function endedWhileAway(exitPath: string, logPath: string, startedAt: string): string {
+  const mtimeOf = (path: string) => { try { return statSync(path).mtimeMs; } catch { return null; } };
+  const at = mtimeOf(exitPath) ?? mtimeOf(logPath);
+  const start = Date.parse(startedAt);
+  return new Date(at !== null && at > start ? at : start).toISOString();
+}
+
+/**
  * Where the command runs: `cwd` resolved against the project root (relative,
  * or absolute but inside it), symlinks resolved on both sides, and it has to
  * be an existing directory. Null otherwise, and the route answers 400 without
