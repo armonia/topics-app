@@ -132,6 +132,40 @@ describe('commandRisk: the second step', () => {
     });
   }
 
+  // An assignment whose quoted value holds a space spans more than one word:
+  // the word after `FOO="a` is still the value, not the command's name.
+  for (const [wrapper, wrap] of wrappers) {
+    const outer = wrap('X');
+    if (outer.includes('"') && outer.includes("'")) continue; // no third quote to put inside both
+    const q = outer.includes('"') ? "'" : '"';
+    test(`behind ${wrapper}, a destructive form after a quoted assignment with spaces asks`, () => {
+      for (const [form, kind] of destructive) {
+        for (const command of [wrap(`FOO=${q}a b${q} ${form}`), wrap(`GIT_SSH_COMMAND=${q}ssh -i k${q} A=${q}1 2 3${q} ${form}`)]) {
+          expect({ command, kinds: kinds(command) }).toEqual({ command, kinds: expect.arrayContaining([kind]) });
+        }
+      }
+    });
+  }
+
+  test('the quoted assignments the review found ask', () => {
+    expect(kinds('GIT_SSH_COMMAND="ssh -i ~/.ssh/k" git push --force origin main')).toContain('git-push-force');
+    expect(kinds('FOO="a b" rm -rf x')).toContain('rm');
+    expect(kinds("FOO='a b' rm -rf x")).toContain('rm');
+    expect(kinds('env VAR="a b" rm -rf x')).toContain('rm');
+    expect(kinds('bash -c "FOO=\'a b\' rm -rf x"')).toContain('rm');
+    // A quote that never closes: the next word is read as the command, not skipped with the rest.
+    expect(kinds('FOO="a rm -rf x')).toContain('rm');
+  });
+
+  test('an everyday command after a quoted assignment with spaces asks nothing', () => {
+    for (const c of [
+      'GIT_SSH_COMMAND="ssh -i ~/.ssh/k" git push origin main', 'FOO="a b" ls -la', "MSG='hello world' bun run build",
+      'env MSG="a b" bun run build', "bash -c \"MSG='hello world' echo ok\"", 'FOO="a" ls',
+    ]) {
+      expect({ c, confirm: commandRisk(c).confirm }).toEqual({ c, confirm: [] });
+    }
+  });
+
   test('the three payloads the review found ask', () => {
     expect(kinds('bash -c "FOO=1 rm -rf x"')).toContain('rm');
     expect(kinds('ssh host "FOO=1 rm -rf x"')).toContain('rm');

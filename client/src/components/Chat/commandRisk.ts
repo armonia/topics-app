@@ -15,9 +15,11 @@
  * (`sudo`, `env`, `xargs`, `timeout`, `caffeinate`...). A command handed over
  * as text is read too: the payload of `sh -c`/`bash -c`/`zsh -c`, of `eval`
  * and of `ssh host` (a command run on another machine is no less destructive).
- * Quotes are not parsed, and only a command's own name is looked at: `echo
- * "rm -rf x"` asks nothing, while in `bash -c "rm -rf x"` the quote before
- * `rm` is dropped like any other, so the payload reads as the command it is.
+ * Quotes are not parsed but in the value of a leading assignment, which may
+ * span words (`FOO="a b" rm -rf x`), and only a command's own name is looked
+ * at: `echo "rm -rf x"` asks nothing, while in `bash -c "rm -rf x"` the quote
+ * before `rm` is dropped like any other, so the payload reads as the command
+ * it is.
  */
 
 export type RiskKind =
@@ -84,13 +86,45 @@ const commandName = (w: string) => unquote(w).replace(/^\\/, '').split('/').pop(
 const isShortFlag = (w: string) => /^-[A-Za-z]+$/.test(w);
 const shortHas = (w: string, letters: string) => isShortFlag(w) && [...letters].some((l) => w.includes(l));
 
+/** The quote still open at the end of `text`, read with `open` already open. */
+function openQuoteAfter(text: string, open: string | null): string | null {
+  for (let k = 0; k < text.length; k++) {
+    const c = text[k]!;
+    if (open === "'") { if (c === "'") open = null; continue; }
+    if (c === '\\') { k++; continue; }
+    if (open === '"') { if (c === '"') open = null; continue; }
+    if (c === '"' || c === "'") open = c;
+  }
+  return open;
+}
+
+/**
+ * Past the assignment at `i`, or null when `words[i]` is not one. A value
+ * quoted across a space (`FOO="a b"`, `GIT_SSH_COMMAND="ssh -i k"`) spans the
+ * words up to the one that closes its quote: the word after `FOO="a` is still
+ * the value, not the command. A quote that never closes spans nothing, and the
+ * next word is read as the command. The quotes in front of the name are not
+ * the value's: in `bash -c "FOO='a b' rm -rf x"` the payload's first word is
+ * `"FOO='a`.
+ */
+function pastAssignment(words: string[], i: number): number | null {
+  const word = (words[i] ?? '').replace(/^['"]+/, '');
+  if (!ASSIGNMENT.test(word)) return null;
+  let open = openQuoteAfter(word.slice(word.indexOf('=') + 1), null);
+  let j = i + 1;
+  while (open && j < words.length) open = openQuoteAfter(words[j++]!, open);
+  return open ? i + 1 : j;
+}
+
 /** Past the options of the wrapper at `i`, and those that take a value with them. */
-function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefined, alsoSkip?: (w: string) => boolean): number {
-  while (i < words.length && (words[i]!.startsWith('-') || alsoSkip?.(words[i]!))) {
+function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefined, assignments = false): number {
+  for (;;) {
+    const past = assignments ? pastAssignment(words, i) : null;
+    if (past !== null) { i = past; continue; }
+    if (i >= words.length || !words[i]!.startsWith('-')) return i;
     if (valueOpts?.has(words[i]!)) i++;
     i++;
   }
-  return i;
 }
 
 /**
@@ -99,7 +133,7 @@ function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefi
  */
 function wrappedCommandAt(name: string, words: string[], i: number): number | null {
   if (WRAPPERS.has(name)) {
-    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name], name === 'env' ? (w) => ASSIGNMENT.test(unquote(w)) : undefined);
+    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name], name === 'env');
     // `timeout 10 cmd`: the duration comes before the command.
     return name === 'timeout' || name === 'gtimeout' ? at + 1 : at;
   }
@@ -124,8 +158,13 @@ function scanWords(words: string[], add: (kind: RiskKind, text: string) => void)
   let i = 0;
   // Leading reserved words, assignments and wrappers: what runs is the command after them.
   for (;;) {
-    // Read without its quotes: in `bash -c "FOO=1 rm -rf x"` the payload's first word is `"FOO=1`.
-    while (i < words.length && (ASSIGNMENT.test(unquote(words[i]!)) || LEADING_RESERVED.has(unquote(words[i]!)))) i++;
+    for (;;) {
+      // Read without its quotes: in `bash -c "FOO=1 rm -rf x"` the payload's first word is `"FOO=1`.
+      if (i < words.length && LEADING_RESERVED.has(unquote(words[i]!))) { i++; continue; }
+      const past = pastAssignment(words, i);
+      if (past === null) break;
+      i = past;
+    }
     const name = commandName(words[i] ?? '');
     const next = wrappedCommandAt(name, words, i);
     if (next === null) break;
