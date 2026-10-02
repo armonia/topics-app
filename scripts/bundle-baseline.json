@@ -680,13 +680,24 @@
     "strings. The run's output reader (CommandRunBlock, ansiSpans, the draft text)",
     "is a lazy chunk loaded the first time a block has a run; eager it cost +2.772",
     "gz more. Written below: critical path 2.172.609 / 651.375. Entry and total",
-    "assets inside 2%, unchanged."
+    "assets inside 2%, unchanged.",
+    "",
+    "2026-10-02, integra/tornata2w-1002 (five lanes on main e0e0a7ddb): entry eager",
+    "over its ceiling, measured with build:client after each merge. main 1.549.702",
+    "/ 489.158 (already +13.156 raw over the written number); browser-open marker",
+    "+8.446 / +2.437 (the marker row and where the page lives now, on every turn);",
+    "command run +15.188 / +5.426 (as its note above); sub-agent cards +8.134 /",
+    "+2.348 (result and spawn cards, the ended sub-agents store); sidebar menu",
+    "-2.520 / -253; the two folds made standard +85 / +35. Each lane alone was",
+    "inside 2%, together +42.489 / +14.581 over the written entry. Entry raised to",
+    "the measured 1.579.035 / 499.151. Critical path 2.197.697 / 658.971 and total",
+    "assets 8.535.422 are inside 2% and stay as written."
   ],
   "updated": "2026-10-02",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1536546,
-    "gz": 484570
+    "raw": 1579035,
+    "gz": 499151
   },
   "critical_path": {
     "raw": 2172609,
