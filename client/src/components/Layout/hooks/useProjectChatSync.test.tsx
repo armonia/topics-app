@@ -74,7 +74,7 @@ describe('useProjectChatSync, topics that arrive after the layout', () => {
     // it took an EMPTY baseline and the delta branch then opened every
     // non-archived topic of the project as a tab when the list arrived.
     const term: Pane = { id: 'terminal:t1', type: 'terminal', title: 'zsh', preview: false } as Pane;
-    const group: PaneGroup = { id: 'g1', type: 'terminal', paneIds: [term.id], activePaneId: term.id } as PaneGroup;
+    const group: PaneGroup = { id: 'g1', type: 'utility', paneIds: [term.id], activePaneId: term.id } as PaneGroup;
     const applied: ChatReconciliation[] = [];
     let topics: Record<string, Topic> = {};
     let topicsPending = true;
@@ -85,7 +85,7 @@ describe('useProjectChatSync, topics that arrive after the layout', () => {
         projectPath: PROJECT,
         topics,
         topicsPending,
-        initial: { nonChatPanes: [], openChatTopicIds: [], activeChatTopicId: null },
+        initial: { nonChatPanes: [], openChatTopicIds: [], activeChatTopicId: undefined },
         panes: [term],
         groups: [group],
         focusedGroupId: group.id,
