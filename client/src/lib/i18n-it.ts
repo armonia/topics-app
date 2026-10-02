@@ -69,6 +69,8 @@ const IT: Dict = {
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
   'tool.runningTail.more': "Sopra c'è altro output",
+  'tool.result.showAll': 'Mostra tutto ({size})',
+  'tool.result.showLess': 'Mostra meno',
   'kpi.noSource': 'Dato non disponibile: nessuna fonte per questa metrica',
   'dev.newerBuild': 'Build più recente pronta',
   'dev.chunkFailed': "Una parte dell'app non si è caricata: questa finestra è su una build vecchia",

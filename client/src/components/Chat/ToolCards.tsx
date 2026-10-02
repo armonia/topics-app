@@ -26,6 +26,7 @@ import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
+import { useDisclosureToggle } from './transcriptDisclosure';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 import { skillInstructions } from './toolCardBody';
 import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
@@ -475,10 +476,17 @@ export function McpCard({ args, result }: {
  * Result <pre> that collapses multi-MB bodies behind a "show all" toggle so a
  * pathological tool output never lays out megabytes of text inline. Shared by
  * every result-bearing card; preserves the `tool-call-result` test hook.
+ *
+ * The toggle is a fold like every other one in the transcript (CHAT-FOLD-01):
+ * it tells the transcript before the text changes, so the control stays where
+ * it was clicked. Nothing opens or closes under it (the box keeps its cap and
+ * only its content changes), hence no `DisclosureBody`, as for a code block.
  */
 export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' }: {
   text: string; testId?: string; maxH?: string;
 }) {
+  const tr = useT();
+  const disclose = useDisclosureToggle();
   const [expanded, setExpanded] = useState(false);
   // I messaggi VECCHI portano il risultato ancora nella forma grezza del filo —
   // l'array di blocchi serializzato — perché l'adapter non sapeva leggerlo
@@ -497,10 +505,12 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
       {oversized && (
         <button
           type="button"
-          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          data-testid={`${testId}-toggle`}
+          onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}
           className="text-mini text-blue-500 hover:underline"
         >
-          {expanded ? 'Mostra meno' : `Mostra tutto (${formatBytes(length)})`}
+          {expanded ? tr('tool.result.showLess') : tr('tool.result.showAll', { size: formatBytes(length) })}
         </button>
       )}
     </div>

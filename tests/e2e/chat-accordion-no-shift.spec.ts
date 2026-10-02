@@ -65,6 +65,10 @@ type Kind = {
   opened: (page: Page, tag: string) => Locator;
   /** Runs once the chat exists, before it is opened (a goal, a command file). */
   setup?: (request: APIRequestContext, topicId: string) => Promise<void>;
+  /** Reaches the control first, once the instance is in sight (a toggle inside a tool's body). */
+  prepare?: (page: Page, tag: string) => Promise<void>;
+  /** The toggle swaps content in a box that keeps its height: the fold must NOT change height. */
+  sameHeight?: boolean;
 };
 
 const LINES = (n: number, what: string) => Array.from({ length: n }, (_, i) => `${what} line ${i + 1}`).join("\n");
@@ -116,6 +120,28 @@ const KINDS: Kind[] = [
     click: (tag) => `[data-testid="tool-call-row-${tag}-l1"] > button`,
     fold: (tag) => `[data-testid="tool-call-row-${tag}-l1"]`,
     opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-l1"]`).getByText("lazy line 16"),
+  },
+  {
+    // A tool output past the inline budget (CHAT-PERF-01): «Show all» swaps the
+    // text inside a box that keeps its cap, inside a tool row opened first.
+    name: "tool-result-clamp",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: `${tag}-c1`, name: "mcp__probe__dump", args: { what: tag }, status: "success",
+        detail: { type: "mcp", server: "probe", tool: "dump", args: { what: tag }, result: LINES(2400, `dump ${tag}`) },
+        startedAt: now - 2000, endedAt: now - 1000,
+      }],
+    }],
+    click: (tag) => `[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"]`,
+    fold: (tag) => `[data-testid="tool-call-row-${tag}-c1"]`,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"][aria-expanded="true"]`),
+    prepare: async (page, tag) => {
+      await locate(page, `[data-testid="tool-call-row-${tag}-c1"] > button`).click();
+      await expect(locate(page, `[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"]`)).toBeVisible({ timeout: 10_000 });
+    },
+    sameHeight: true,
   },
   {
     name: "turn-work",
@@ -457,6 +483,14 @@ test.describe("a fold opened by hand does not move the transcript", () => {
       await installProbe(page);
       await openChat(page, request, chat.topicId);
       const sc = scrollerOf(page);
+      if (kind.prepare) {
+        await expect(locate(page, kind.fold(chat.last))).toBeVisible({ timeout: 30_000 });
+        await kind.prepare(page, chat.last);
+        // Back to the end: the bottom case starts from a chat that follows its output.
+        const box = (await sc.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 600);
+      }
       const lastClick = locate(page, kind.click(chat.last));
       await expect(lastClick).toBeVisible({ timeout: 30_000 });
 
@@ -483,6 +517,10 @@ test.describe("a fold opened by hand does not move the transcript", () => {
 
       // IN THE MIDDLE: wheeled up to an older instance (for a docked strip:
       // the same strip, the transcript read two screens up).
+      if (kind.prepare) {
+        await wheelToMiddle(page, kind.fold(chat.mid));
+        await kind.prepare(page, chat.mid);
+      }
       await wheelToMiddle(page, kind.docked ? `msg:Reply 9` : (kind.header ?? kind.click)(chat.mid).split(";;")[0]!);
       const residual = await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
       expect(residual, "the middle case is away from the bottom").toBeGreaterThan(300);
@@ -504,7 +542,8 @@ test.describe("a fold opened by hand does not move the transcript", () => {
 
       for (const m of results) {
         if (kind.docked) continue;
-        expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the fold did change height`).toBeGreaterThan(10);
+        if (kind.sameHeight) expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the box kept its height`).toBeLessThanOrEqual(1);
+        else expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the fold did change height`).toBeGreaterThan(10);
       }
       expect([...results.flatMap((m) => faults(m, !!kind.docked)), ...covered], "the clicked header and everything above it stay put, the newest row in sight").toEqual([]);
     });
