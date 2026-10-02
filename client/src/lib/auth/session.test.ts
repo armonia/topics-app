@@ -137,6 +137,17 @@ describe('sessione · il RUOLO cambia a parità di nome', () => {
     expect(s.status === 'paired' && s.role).toBe('guest');
   });
 
+  it('un 502 del proxy non è «non appaiato», un 401 sì', async () => {
+    // A proxy in front of a restarting server answers 502: unmounting the app
+    // for the pairing screen would send a paired device to pair again.
+    globalThis.fetch = (async () => new Response('Bad Gateway', { status: 502 })) as unknown as typeof fetch;
+    await refreshSession();
+    expect(getSession().status).toBe('loading');
+    globalThis.fetch = (async () => new Response('', { status: 401 })) as unknown as typeof fetch;
+    await refreshSession();
+    expect(getSession().status).toBe('unpaired');
+  });
+
   it('la rete giù non è «non appaiato»', async () => {
     globalThis.fetch = (async () => { throw new Error("rete giù"); }) as unknown as typeof fetch;
     await refreshSession();
