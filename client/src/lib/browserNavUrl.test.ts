@@ -235,6 +235,16 @@ describe('httpsFirstUrl', () => {
     expect(normalizeUrl('http://localhost:3000/')).toBe('http://localhost:3000/');
     expect(normalizeUrl('http://127.0.0.1:5173/app')).toBe('http://127.0.0.1:5173/app');
   });
+
+  it('a bare host typed without a scheme follows the same rule', () => {
+    // `.local`, a LAN address and a dev-server port do not speak TLS: forcing
+    // https on them left the pane blank.
+    expect(normalizeUrl('myserver.local')).toBe('http://myserver.local');
+    expect(normalizeUrl('192.168.1.5:3000')).toBe('http://192.168.1.5:3000');
+    expect(normalizeUrl('10.0.0.2/admin')).toBe('http://10.0.0.2/admin');
+    // A public domain still goes to https.
+    expect(normalizeUrl('github.com/x')).toBe('https://github.com/x');
+  });
 });
 
 describe('un riferimento a un file di questo server', () => {
