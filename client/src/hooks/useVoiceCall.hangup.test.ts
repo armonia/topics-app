@@ -62,31 +62,31 @@ afterEach(() => {
 
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0)); };
 
+function drive() {
+  const sent: string[] = [];
+  let current: ReturnType<typeof useVoiceCall> | undefined;
+  function Probe(): null {
+    const call = useVoiceCall(async (c) => { sent.push(c); return true; }, [], false);
+    React.useEffect(() => { current = call; });
+    return null;
+  }
+  harness = mount(React.createElement(Probe));
+  return { sent, api: () => current! };
+}
+
 describe('useVoiceCall · hanging up', () => {
   test('the half sentence recorded before «end» is not sent to the agent', async () => {
-    const sent: string[] = [];
-    let api: ReturnType<typeof useVoiceCall> | undefined;
-    function Probe(): null {
-      api = useVoiceCall(async (c) => { sent.push(c); return true; }, [], false);
-      return null;
-    }
-    harness = mount(React.createElement(Probe));
-    api!.startCall();
+    const { sent, api } = drive();
+    api().startCall();
     await settle();
-    api!.endCall();
+    api().endCall();
     await settle();
     expect(sent).toEqual([]);
   });
 
   test('a turn closed while the call is on is still sent', async () => {
-    const sent: string[] = [];
-    let api: ReturnType<typeof useVoiceCall> | undefined;
-    function Probe(): null {
-      api = useVoiceCall(async (c) => { sent.push(c); return true; }, [], false);
-      return null;
-    }
-    harness = mount(React.createElement(Probe));
-    api!.startCall();
+    const { sent, api } = drive();
+    api().startCall();
     await settle();
     FakeRecorder.last!.stop();
     await settle();
