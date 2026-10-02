@@ -116,6 +116,43 @@ describe("command-services", () => {
     expect(out[0]!.services[0]!.ended).toEqual({ at: NOW, exitCode: null, stopped: false });
   });
 
+  test("Open goes to the port that serves the page, not the lowest: a frontend and its API in one command", async () => {
+    // `concurrently "vite" "node api.js"`: the API on 3000, the page on 5173.
+    // Opened by the lowest port, the row showed the API's JSON.
+    let answer = new Map<number, ListenAddress[]>();
+    let pages = new Set<number>();
+    const probed: number[] = [];
+    const rows = [row("srv")];
+    const watch = serviceWatch({
+      rows: () => rows,
+      listenersOf: async () => answer,
+      alive: () => true,
+      onChange: () => {},
+      servesHtml: async (a) => { probed.push(a.port); return pages.has(a.port); },
+    });
+    pages = new Set([5173]);
+    answer = new Map([[rows[0]!.pid!, [at(3000), at(5173)]]]);
+    expect(await watch.tick()).toBe(true);
+    expect(watch.listenOf("srv")!.map((a) => a.port)).toEqual([5173, 3000]);
+    // Asked once per set of ports, not at every pass.
+    expect(await watch.tick()).toBe(false);
+    expect(probed.sort()).toEqual([3000, 5173]);
+    // Nothing answered with a page yet (still compiling): a dev server's own port goes first.
+    pages = new Set();
+    answer = new Map([[rows[0]!.pid!, [at(3000), at(5173), at(9229)]]]);
+    expect(await watch.tick()).toBe(true);
+    expect(watch.listenOf("srv")!.map((a) => a.port)).toEqual([5173, 3000, 9229]);
+    // Neither a page nor a known port: the lowest, as before.
+    answer = new Map([[rows[0]!.pid!, [at(9229), at(8777)]]]);
+    expect(await watch.tick()).toBe(true);
+    expect(watch.listenOf("srv")!.map((a) => a.port)).toEqual([8777, 9229]);
+    // One port: nothing to choose, nothing asked.
+    probed.length = 0;
+    answer = new Map([[rows[0]!.pid!, [at(8777)]]]);
+    expect(await watch.tick()).toBe(true);
+    expect(probed).toEqual([]);
+  });
+
   test("the wait doubles to 30 s, but to 5 s while a command may still be binding, and news resets it", () => {
     const walk = (binding: boolean) => {
       const seen: number[] = [];

@@ -57,6 +57,7 @@ function ServiceRow({ service, projectPath }: { service: RunningServiceSummary; 
   }, [ended]);
   if (gone) return null;
 
+  // The server puts the page first when the command serves more than one port.
   const first = service.listen[0];
   const url = first ? listenUrl(first) : '';
   const address = service.listen.map(listenLabel).join(', ');

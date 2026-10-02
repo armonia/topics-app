@@ -22,6 +22,12 @@
  * nothing changes, back to 2 s at every start. Each change (a port that
  * appears, one that goes) is pushed (`onChange`), as a start and an end are.
  *
+ * WHICH ADDRESS OPENS. A command can serve more than one port (a frontend and
+ * its API under `concurrently`), and the row's Open takes the FIRST address.
+ * So the first is the one that answers `/` with a page (asked once per set of
+ * ports, `servesHtml`), else a dev server's conventional port, else the
+ * lowest; the others follow by port.
+ *
  * The last addresses of a server are kept for a few seconds after it ends, so
  * the chat can say that the server ended and how (`SERVICE_END_SHOWN_MS`); a
  * pass that finds no port on a server that is going (stopped, or its process
@@ -70,9 +76,34 @@ export function isServiceCandidate(row: ServiceRowLike): boolean {
   return !!row.cmd && !row.cmd.wake && row.status === "running" && !!row.pid;
 }
 
+function byPort(list: ReadonlyArray<ListenAddress>): ListenAddress[] {
+  return list.slice().sort((a, b) => a.port - b.port || a.host.localeCompare(b.host));
+}
+
 function sameListen(a: ReadonlyArray<ListenAddress> | undefined, b: ReadonlyArray<ListenAddress>): boolean {
   if (!a || a.length !== b.length) return false;
-  return a.every((x, i) => x.host === b[i]!.host && x.port === b[i]!.port);
+  const sorted = byPort(a);
+  return sorted.every((x, i) => x.host === b[i]!.host && x.port === b[i]!.port);
+}
+
+/** The ports a dev server serves its page on (Vite and its preview, Angular, Astro, Next and its kin, the rest), most specific first. */
+const PAGE_PORTS = [5173, 5174, 5175, 4173, 4200, 4321, 3000, 8080];
+
+/**
+ * The addresses in the order the row reads them, sorted by port: the first is
+ * the one Open opens. A port that answered with a page wins, then a
+ * conventional page port, then the lowest.
+ */
+export function openFirst(listen: ReadonlyArray<ListenAddress>, pages: ReadonlySet<number>): ListenAddress[] {
+  const sorted = byPort(listen);
+  const rank = (a: ListenAddress) => {
+    if (pages.has(a.port)) return -1;
+    const i = PAGE_PORTS.indexOf(a.port);
+    return i < 0 ? PAGE_PORTS.length : i;
+  };
+  let best = 0;
+  sorted.forEach((a, i) => { if (rank(a) < rank(sorted[best]!)) best = i; });
+  return best === 0 ? sorted : [sorted[best]!, ...sorted.filter((_, i) => i !== best)];
 }
 
 /** The first line of a command, cut: what the row names when the agent gave no description. */
@@ -144,12 +175,22 @@ export function serviceWatch(deps: {
   /** Is this pid still a live process (a zombie is not). */
   alive: (pid: number) => boolean;
   onChange: (row: ServiceRowLike) => void;
+  /** Does this address answer `/` with a web page; asked only when a server listens on more than one port. */
+  servesHtml?: (address: ListenAddress) => Promise<boolean>;
 }): ServiceWatch {
   const listen = new Map<string, ListenAddress[]>();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let delay = SERVICE_WATCH_MIN_MS;
   let running = false;
   let kicked = false;
+
+  /** The ports of `list` that answer with a page; none asked for a single port. */
+  async function pagePorts(list: ReadonlyArray<ListenAddress>): Promise<Set<number>> {
+    const probe = deps.servesHtml;
+    if (!probe || list.length < 2) return new Set();
+    const answers = await Promise.all(list.map(async (a) => ((await probe(a).catch(() => false)) ? a.port : null)));
+    return new Set(answers.filter((p): p is number => p !== null));
+  }
 
   async function tick(): Promise<boolean> {
     const candidates = [...deps.rows()].filter(isServiceCandidate);
@@ -160,7 +201,7 @@ export function serviceWatch(deps: {
     for (const row of candidates) {
       // A row that ended during the probe keeps the addresses it last had.
       if (row.status !== "running") continue;
-      const next = (byPid.get(row.pid!) ?? []).slice().sort((a, b) => a.port - b.port || a.host.localeCompare(b.host));
+      const next = byPort(byPid.get(row.pid!) ?? []);
       const prev = listen.get(row.processId);
       if (next.length === 0 && !prev) continue;
       // No port because the server is going (stopped, or its process gone and
@@ -169,7 +210,7 @@ export function serviceWatch(deps: {
       // how it ended instead of turning it into a task it waits for.
       if (next.length === 0 && (row.cmd!.stopped || !deps.alive(row.pid!))) continue;
       if (sameListen(prev, next)) continue;
-      if (next.length) listen.set(row.processId, next); else listen.delete(row.processId);
+      if (next.length) listen.set(row.processId, openFirst(next, await pagePorts(next))); else listen.delete(row.processId);
       changed = true;
       deps.onChange(row);
     }

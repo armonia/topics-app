@@ -7,6 +7,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { listenUrl, type ListenAddress } from "../../shared/background-work";
 
 export type ListeningPort = { port: number; pid: number; command: string; host: string };
 
@@ -136,4 +137,19 @@ export async function listenersOf(
     out.set(pid, ports.filter((lp) => tree.has(lp.pid)).map((lp) => ({ host: lp.host, port: lp.port })));
   }
   return out;
+}
+
+/**
+ * Whether a listening address answers `/` with a web page: one GET with a short
+ * deadline, the headers read and the body dropped. What a server row opens
+ * first when its command listens on more than one port (`command-services.ts`).
+ */
+export async function servesHtml(address: ListenAddress, timeoutMs = 800): Promise<boolean> {
+  try {
+    const res = await fetch(listenUrl(address), { headers: { accept: "text/html" }, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+    await res.body?.cancel().catch(() => {});
+    return /\btext\/html\b/i.test(res.headers.get("content-type") ?? "");
+  } catch {
+    return false;
+  }
 }
