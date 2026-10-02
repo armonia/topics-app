@@ -12,10 +12,15 @@ import {
   UNDELIVERED_AFTER_MS,
   childModel,
   classifyChildTurn,
+  emptyTally,
   endingChildTurn,
+  forgetTurns,
   pendingChildTurns,
+  pendingTallyTurns,
   promptCount,
   resultKey,
+  tallyLines,
+  tallyTurnDurationMs,
   turnDurationMs,
 } from "./subagent-result";
 
@@ -171,5 +176,29 @@ describe("what a result carries", () => {
   test("the dedup key is per agent and turn, and an early undelivered has its own", () => {
     expect(resultKey({ agentId: "a1", turn: 2, status: "completed" })).toBe("a1:2");
     expect(resultKey({ agentId: "a1", turn: 1, status: "undelivered" })).not.toBe(resultKey({ agentId: "a1", turn: 1, status: "completed" }));
+  });
+});
+
+describe("the transcript folded as it grows", () => {
+  test("lines fed a few at a time give what the whole file gives", () => {
+    for (const name of ["completed", "two-turns", "stopped-midturn", "background-task", "compact-midturn", "spend-limit", "startup-only"]) {
+      const lines = fixture(name);
+      const t = emptyTally();
+      for (let i = 0; i < lines.length; i += 2) tallyLines(t, lines.slice(i, i + 2));
+      expect(t.prompts).toBe(promptCount(lines));
+      expect(t.model).toBe(childModel(lines));
+      expect(pendingTallyTurns(t, idle)).toEqual(pendingChildTurns(lines, idle));
+      for (let turn = 1; turn <= t.prompts; turn++) expect(tallyTurnDurationMs(t, turn)).toBe(turnDurationMs(lines, turn));
+    }
+  });
+
+  test("a reported turn is forgotten, and the turns after it still read right", () => {
+    const lines = fixture("two-turns");
+    const t = emptyTally();
+    tallyLines(t, lines);
+    forgetTurns(t, 1);
+    expect(t.open).toHaveLength(1);
+    expect(pendingTallyTurns(t, { ...idle, turnsReported: 1 })).toEqual(pendingChildTurns(lines, { ...idle, turnsReported: 1 }));
+    expect(tallyTurnDurationMs(t, 1)).toBeNull();
   });
 });

@@ -5,8 +5,8 @@ import { useT } from '../../hooks/useT';
 /**
  * Stepper: a number moved one step at a time, minus and plus around it.
  *
- * The focusable element is the value itself, a `spinbutton`: arrow keys move
- * it, and the two buttons are for the pointer and the finger, not tab stops
+ * The focusable element is the value itself, a `spinbutton`: right and left
+ * move it (up and down are the menu's, to the next row), and the two buttons are for the pointer and the finger, not tab stops
  * (still named, for whoever reaches them by pointer with a screen reader).
  * The number changes without animation: a number that rolls reads worse than
  * one that is simply there.
@@ -37,7 +37,7 @@ export function Stepper({
   const onKeyDown = (e: React.KeyboardEvent) => {
     const next = stepperValue(e.key, value, range);
     if (next === null) return;
-    // The spinbutton owns its arrows: the menu around it must not rove away.
+    // The spinbutton owns the keys it moves on: the menu around it must not rove away.
     e.preventDefault();
     e.stopPropagation();
     set(next);
@@ -54,7 +54,7 @@ export function Stepper({
         aria-label={tr('stepper.decrease', { name: ariaLabel })}
         disabled={value <= min}
         data-testid={testId ? `${testId}-down` : undefined}
-        onClick={() => set(stepperValue('ArrowDown', value, range))}
+        onClick={() => set(stepperValue('ArrowLeft', value, range))}
         className={button}
       >
         <Minus size={12} />
@@ -80,7 +80,7 @@ export function Stepper({
         aria-label={tr('stepper.increase', { name: ariaLabel })}
         disabled={value >= max}
         data-testid={testId ? `${testId}-up` : undefined}
-        onClick={() => set(stepperValue('ArrowUp', value, range))}
+        onClick={() => set(stepperValue('ArrowRight', value, range))}
         className={button}
       >
         <Plus size={12} />

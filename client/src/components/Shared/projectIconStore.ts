@@ -189,11 +189,37 @@ function setResolved(path: string, r: Resolved): void {
   state.set(path, r);
   notify(path);
 }
+/**
+ * The paths drawn on screen now, with the order in which each started being
+ * drawn (a surface subscribed to it). `watchOrder` reads it.
+ */
+const drawnSince = new Map<string, number>();
+let drawSeq = 0;
 function subscribe(path: string, cb: () => void): () => void {
   let set = listeners.get(path);
   if (!set) { set = new Set(); listeners.set(path, set); }
+  if (set.size === 0) drawnSince.set(path, ++drawSeq);
   set.add(cb);
-  return () => { listeners.get(path)?.delete(cb); };
+  return () => {
+    const cur = listeners.get(path);
+    cur?.delete(cb);
+    if (cur && cur.size === 0) drawnSince.delete(path);
+  };
+}
+
+/**
+ * The order in which the server hears about paths. It watches a bounded set
+ * of projects and drops the one asked about longest ago (`project-icon-watch`
+ * on the server), so the paths that must keep their live updates go LAST: the
+ * ones drawn nowhere now first, then the drawn ones, those drawn the longest
+ * (the sidebar, the tabs) at the very end. Asked in the order they were first
+ * seen, a palette drawing every topic's project after the sidebar pushed the
+ * sidebar's paths out, at every revalidation too.
+ */
+function watchOrder(paths: readonly string[]): string[] {
+  const idle = paths.filter((p) => !drawnSince.has(p));
+  const drawn = paths.filter((p) => drawnSince.has(p)).sort((a, b) => drawnSince.get(b)! - drawnSince.get(a)!);
+  return [...idle, ...drawn];
 }
 function getSnapshot(path: string): Resolved {
   const cur = state.get(path);
@@ -412,7 +438,11 @@ function queueRevalidation(path: string): boolean {
   if (revalidationTimer) return true;
   revalidationTimer = setTimeout(() => {
     revalidationTimer = null;
-    const paths = [...revalidationQueue];
+    // The paths already drawn ride along at the end, so that a surface that
+    // draws many new ones (the palette) does not push them out of the
+    // server's watch.
+    const onScreen = [...drawnSince.keys()].filter((p) => !revalidationQueue.has(p) && askedThisPage.has(p) && !inflight.has(p));
+    const paths = [...revalidationQueue, ...onScreen];
     revalidationQueue.clear();
     void revalidate(paths);
   }, REVALIDATE_GATHER_MS);
@@ -427,8 +457,9 @@ function queueRevalidation(path: string): boolean {
  * fills it again. A path left out of the answer (not a known project right
  * now) keeps what it has.
  */
-async function revalidate(paths: string[]): Promise<void> {
-  if (paths.length === 0) return;
+async function revalidate(asked: string[]): Promise<void> {
+  if (asked.length === 0) return;
+  const paths = watchOrder(asked);
   const startedIn = new Map(paths.map((p) => [p, genOf(p)]));
   try {
     const r = await apiFetch('/api/projects/icon-versions', {
@@ -503,6 +534,11 @@ export function projectIconSnapshot(path: string): Readonly<Resolved> {
 /** @knipignore used from the child process of projectIconStore.test.ts, which knip does not see */
 export function ensureProjectIcon(path: string): void {
   ensureProbe(path);
+}
+/** What a surface drawing `path` subscribes with; returns the unsubscribe.
+ *  @knipignore used from the child process of projectIconStore.test.ts, which knip does not see */
+export function subscribeProjectIcon(path: string, cb: () => void): () => void {
+  return subscribe(path, cb);
 }
 
 /** A mounted <img> failed on a src the store believed in. Endpoint src →

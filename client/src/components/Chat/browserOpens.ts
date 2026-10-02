@@ -116,3 +116,20 @@ export function browserMarkerState(place: BrowserPlaceKind | null, visible: bool
   // Loaded but never shown, and nothing shows it now: «closed» would be false.
   return visible === false ? 'offscreen' : 'closed';
 }
+
+/**
+ * The site's own icon, by convention (`origin/favicon.ico`), only where the app
+ * may load it. A plain-http page (a localhost dev server, the usual case) from
+ * the TLS app or the shell is mixed content: refused, with a console warning
+ * on every row. Then nothing, and `BrowserFavicon` draws its monogram, the
+ * same fallback every browser tab uses.
+ */
+export function markerFaviconUrl(url: string, appProtocol: string): string | undefined {
+  try {
+    const u = new URL(url);
+    const allowed = u.protocol === 'https:' || (u.protocol === 'http:' && appProtocol === 'http:');
+    return allowed ? `${u.origin}/favicon.ico` : undefined;
+  } catch {
+    return undefined;
+  }
+}

@@ -11,6 +11,7 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarke
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi, apiErrorCode } from '../../lib/api';
 import { useComposerDock } from './useComposerDock';
+import { composerMayTakeFocus } from './composerFocus';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
 import { findPendingPlan, planApprovalMessage } from './planDetection';
@@ -779,6 +780,9 @@ function ChatPaneComponent({
   useEffect(() => {
     if (!isFocused) return;
     const at = document.activeElement;
+    // A control of this pane that already holds the focus (a fold header
+    // toggled from the keyboard, whose click activated the pane) keeps it.
+    if (!composerMayTakeFocus(at, paneRootRef.current)) return;
     const t = setTimeout(() => {
       if (document.activeElement !== at) return;
       textareaRef.current?.focus({ preventScroll: true });

@@ -41,7 +41,8 @@ function dbBefore(): Database {
   mkdirSync(migDir, { recursive: true });
   const realMigDir = join(PROJECT_ROOT, "server", "db", "migrations");
   for (const f of readdirSync(realMigDir)) {
-    if (f.endsWith(".sql") && f !== NAME) writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
+    // Only the ones before it: a later migration that alters `command_runs` needs the table first.
+    if (f.endsWith(".sql") && parseInt(f, 10) < parseInt(NAME, 10)) writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
   }
   const db = initDatabase(tmpRoot);
   const insert = db.prepare("INSERT INTO messages (id, session_key, role, content, timestamp, sort_order) VALUES (?, 's', 'assistant', '```bash\nls\n```', '2026-10-01', ?)");

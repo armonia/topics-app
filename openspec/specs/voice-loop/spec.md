@@ -15,9 +15,10 @@ remoto che casca deve lasciare la board che risponde lo stesso: il giro vocale
 non è un servizio che deve stare su, è un suggerimento con le parole chiave
 sempre dietro.
 
-Il default è SPENTO (`settings.voiceMode === 'off'`), e finché è spento non
-deve costare niente: i moduli si caricano al primo giro vero, non nel bundle
-di partenza.
+Il default è SPENTO: `useVoiceLoop` riceve il modo da chi lo monta (oggi App
+passa `'off'`, perché la preferenza `voiceMode` è uscita da `AppSettings` con
+USERMENU-06 e nessun controllo la imposta), e finché è spento non deve costare
+niente: i moduli si caricano al primo giro vero, non nel bundle di partenza.
 
 ### Requirement: VOICE-01 — La coda degli annunci parla UNO alla volta, e lo stesso task non si annuncia due volte
 

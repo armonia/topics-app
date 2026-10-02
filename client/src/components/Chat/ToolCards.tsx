@@ -26,6 +26,7 @@ import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
+import { useDisclosureToggle } from './transcriptDisclosure';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 import { skillInstructions } from './toolCardBody';
 import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
@@ -474,11 +475,15 @@ export function McpCard({ args, result }: {
 /**
  * Result <pre> that collapses multi-MB bodies behind a "show all" toggle so a
  * pathological tool output never lays out megabytes of text inline. Shared by
- * every result-bearing card; preserves the `tool-call-result` test hook.
+ * every result-bearing card; preserves the `tool-call-result` test hook. The
+ * toggle holds the view like every fold (CHAT-FOLD-01); the box keeps its cap,
+ * so nothing unrolls and there is no `DisclosureBody`, as for a code block.
  */
 export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' }: {
   text: string; testId?: string; maxH?: string;
 }) {
+  const tr = useT();
+  const disclose = useDisclosureToggle();
   const [expanded, setExpanded] = useState(false);
   // I messaggi VECCHI portano il risultato ancora nella forma grezza del filo —
   // l'array di blocchi serializzato — perché l'adapter non sapeva leggerlo
@@ -495,12 +500,9 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
         {oversized && !expanded && <span className="text-app-text-muted">…</span>}
       </pre>
       {oversized && (
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          className="text-mini text-blue-500 hover:underline"
-        >
-          {expanded ? 'Mostra meno' : `Mostra tutto (${formatBytes(length)})`}
+        <button type="button" aria-expanded={expanded} data-testid={`${testId}-toggle`} className="text-mini text-blue-500 hover:underline"
+          onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}>
+          {expanded ? tr('tool.result.showLess') : tr('tool.result.showAll', { size: formatBytes(length) })}
         </button>
       )}
     </div>
@@ -730,8 +732,8 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 
-export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResult }: {
-  detail: ToolCallDetail; isError?: boolean; isRunning?: boolean;
+export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, liveResult }: {
+  detail: ToolCallDetail; isError?: boolean; error?: string; isRunning?: boolean;
   /** Serve alle sole card delle shell in background: è la metà della chiave
    *  con cui la shell sta nel registro dei processi. */
   sessionKey?: string;
@@ -755,7 +757,7 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResul
       return <TodoCard items={detail.items} />;
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
-      if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} />;
+      if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
       return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} isRunning={isRunning} />;
     case 'plan':
       return <PlanCard text={detail.text} />;

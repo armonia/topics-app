@@ -132,9 +132,16 @@ console.log(
 if (DRY) {
   console.log("[compress] dry run: niente e' stato scritto. Rilancia senza --dry-run — e fai prima il backup di data/topics.db e del suo -wal.");
 } else {
-  // Il file NON si restringe da solo: SQLite libera le pagine dentro il file e
-  // le riusa. `VACUUM` le restituisce al filesystem, ma riscrive l'intero
-  // database e vuole spazio libero pari alla sua taglia, quindi lo si nomina
-  // invece di farlo di nascosto su un DB che un server sta usando.
-  console.log("[compress] le pagine liberate restano DENTRO il file: per restituirle al disco serve `sqlite3 data/topics.db VACUUM;` a server fermo.");
+  // Where the freed pages go depends on the database. With `auto_vacuum =
+  // INCREMENTAL` (new databases, and old ones once converted by
+  // `scripts/enable-incremental-vacuum.ts`) the server gives them back to the
+  // disk itself, in small steps while nothing is working
+  // (`server/lib/db-incremental-vacuum.ts`). Otherwise they stay inside the
+  // file and are reused, and only a full `VACUUM` returns them: it rewrites the
+  // whole database and needs free space as large as it, so it is named here
+  // instead of being run behind the back of a server using the file.
+  const autoVacuum = (db.query("PRAGMA auto_vacuum").get() as { auto_vacuum: number } | null)?.auto_vacuum;
+  console.log(autoVacuum === 2
+    ? "[compress] le pagine liberate tornano al disco da sole: il server le restituisce a passi nei giri a riposo (auto_vacuum INCREMENTAL)."
+    : "[compress] le pagine liberate restano DENTRO il file: questo DB non è ancora in auto_vacuum INCREMENTAL (scripts/enable-incremental-vacuum.ts), quindi serve `sqlite3 data/topics.db VACUUM;` a server fermo.");
 }

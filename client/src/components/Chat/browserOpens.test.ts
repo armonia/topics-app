@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { ToolCall } from '../../types';
-import { browserMarkerState, coalesceBrowserOpens, currentPage, markerTitle } from './browserOpens';
+import { browserMarkerState, coalesceBrowserOpens, currentPage, markerFaviconUrl, markerTitle } from './browserOpens';
 
 const opened = (id: string, url: string, extra: { contextId?: string; title?: string; name?: string; visible?: boolean } = {}): ToolCall => {
   const where = url + (extra.title ? ` (title: ${extra.title})` : '');
@@ -78,5 +78,24 @@ describe('browserMarkerState', () => {
     expect(browserMarkerState(null, true)).toBe('closed');
     expect(browserMarkerState(null, undefined)).toBe('closed');
     expect(browserMarkerState(null, false)).toBe('offscreen');
+  });
+});
+
+// A localhost dev server is plain http: from the TLS app (or the shell) its
+// favicon is mixed content, refused with a warning per row.
+describe('markerFaviconUrl', () => {
+  test('an https page gives its own icon', () => {
+    expect(markerFaviconUrl('https://example.com/a?b', 'https:')).toBe('https://example.com/favicon.ico');
+  });
+
+  test('a plain-http page from a TLS app gives nothing: the monogram is drawn', () => {
+    expect(markerFaviconUrl('http://localhost:5173/', 'https:')).toBeUndefined();
+    expect(markerFaviconUrl('http://localhost:5173/', 'tauri:')).toBeUndefined();
+  });
+
+  test('from an http app (dev) the http icon is loadable; no URL, no icon', () => {
+    expect(markerFaviconUrl('http://localhost:5173/', 'http:')).toBe('http://localhost:5173/favicon.ico');
+    expect(markerFaviconUrl('about:blank', 'https:')).toBeUndefined();
+    expect(markerFaviconUrl('not a url', 'https:')).toBeUndefined();
   });
 });

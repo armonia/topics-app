@@ -11,8 +11,9 @@
  * @covers CMDRUN-05, CMDRUN-06
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, realpathSync } from "fs";
-import { join } from "path";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, utimesSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import type { AppContext, Topic } from "../types";
 
@@ -23,9 +24,9 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
 process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
-const { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake } = await import("./processes");
+const { commandWakeState, createProcessesRouter, logPathOf, sessionsAwaitingCommandWake } = await import("./processes");
 const { isGuestAllowedPath, isGuestSafeFrameType } = await import("../lib/grants");
-const { RUN_OUTPUT_MAX_BYTES } = await import("../lib/command-runs");
+const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunOutput } = await import("../lib/command-runs");
 
 let ctx: AppContext;
 let processes: ReturnType<typeof createProcessesRouter>;
@@ -295,6 +296,82 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     expect(done.droppedLines).toBeGreaterThan(0);
   }, 30_000);
 
+  test("a last line longer than 256 KB (a progress bar redrawn with \\r) keeps its end, cut on a character, and only the lines before it count as dropped", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    // 150,000 two-byte characters and a three-byte end: the 256 KB cut falls inside a character.
+    const run = await start(topic, messageId, "echo first; echo second; yes è | head -n 150000 | tr -d '\\n'; printf END");
+    const done = await ended(topic, messageId, run.runId);
+    expect(done.status).toBe("done");
+    const output = done.output!;
+    expect(output).toMatch(/^è+END$/);
+    expect(Buffer.byteLength(output)).toBe(RUN_OUTPUT_MAX_BYTES - 1);
+    expect(done.droppedLines).toBe(2);
+  }, 30_000);
+
+  test("a run the registry no longer knows closes as unknown when it was last known alive, not when a GET noticed it", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const startedAt = "2026-09-01T10:00:00.000Z";
+    const row = (id: string, blockKey: number) => insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
+    // Killed with the server and never re-adopted: one with its log still there, one without.
+    row(`gone-log-${seq}`, 0);
+    row(`gone-nolog-${seq}`, 1);
+    const log = logPathOf(`gone-log-${seq}`);
+    mkdirSync(dirname(log), { recursive: true });
+    writeFileSync(log, "step 1\n");
+    const lastOutput = new Date("2026-09-01T10:05:00.000Z");
+    utimesSync(log, lastOutput, lastOutput);
+    const byBlock = new Map((await runs(topic, messageId)).map((r) => [r.blockKey, r]));
+    expect(byBlock.get(0)).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput.toISOString() });
+    expect(byBlock.get(1)).toMatchObject({ status: "unknown", exitCode: null, endedAt: startedAt });
+  });
+
+  test("a run the registry no longer knows whose exit file is still there closes from it: its code, its time, its output", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const startedAt = "2026-09-01T10:00:00.000Z";
+    const id = `gone-exit-${seq}`;
+    insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "make", cwd: PROJECT, startedAt, authorDeviceId: null });
+    const log = logPathOf(id);
+    const exit = log.replace(/\.log$/, ".exit");
+    mkdirSync(dirname(log), { recursive: true });
+    writeFileSync(log, "built\nall fine\n");
+    writeFileSync(exit, "0\n");
+    const exitedAt = new Date("2026-09-01T10:03:00.000Z");
+    utimesSync(exit, exitedAt, exitedAt);
+    const [run] = await runs(topic, messageId);
+    expect(run).toMatchObject({ status: "done", exitCode: 0, endedAt: exitedAt.toISOString(), output: "built\nall fine" });
+  });
+
+  test("after a restart the log of a run the registry forgot is gone: the row's last persisted output closes it, not its start", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const startedAt = "2026-09-01T10:00:00.000Z";
+    const lastOutput = "2026-09-01T10:07:30.000Z";
+    const id = `gone-row-${seq}`;
+    insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
+    // What the registry wrote while the run printed, before the server went down and the boot swept its log.
+    noteRunOutput(ctx.db, id, Date.parse(lastOutput));
+    const [run] = await runs(topic, messageId);
+    expect(run).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput });
+    expect(Date.parse(run!.endedAt!) - Date.parse(run!.startedAt)).toBe(450_000);
+  });
+
+  test("while a run prints, its row keeps the time of its last output", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const run = await start(topic, messageId, "echo one; sleep 30");
+    const lastOutputAt = () => (ctx.db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(run.runId) as { last_output_at: string | null }).last_output_at;
+    await until(() => lastOutputAt() !== null);
+    const at = lastOutputAt();
+    expect(at).not.toBeNull();
+    expect(Date.parse(at!)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect((await runs(topic, messageId))[0]!.status).toBe("running");
+    expect((await call("POST", `/api/scripts/${run.processId}/stop`)).status).toBe(200);
+    await ended(topic, messageId, run.runId);
+  }, 30_000);
+
   test("deleting the reply takes its runs with it", async () => {
     const topic = newTopic();
     const messageId = reply(topic);
@@ -328,12 +405,94 @@ describe("across a reload of the server", () => {
     expect(run).toMatchObject({ runId: started.runId, status: "done", exitCode: 0, output: "fine" });
   }, 40_000);
 
-  test("it ended while the server was down: the boot closes the row from the exit file", async () => {
+  test("it ended while the server was down: the boot closes the row from the exit file, at the time the exit file was written", async () => {
     const dir = freshState();
-    const started = life(dir, "start", "m-down", "echo fine; exit 5");
+    // Long enough to end after the life that started it is gone, so that the boot is what closes it.
+    const started = life(dir, "start", "m-down", "sleep 1; echo fine; exit 5");
     await until(() => !alive(started.pid));
+    const deadAt = Date.now();
+    await Bun.sleep(1_200); // the server stays down a while: the boot is not when it ended
     const { run } = life(dir, "boot", "m-down", started.runId);
     expect(run).toMatchObject({ runId: started.runId, status: "error", exitCode: 5, output: "fine" });
+    expect(Date.parse(run.endedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect(Date.parse(run.endedAt)).toBeLessThanOrEqual(deadAt);
+  }, 40_000);
+
+  test("eleven runs ended while the server was down: the boot closes every one from its exit file, the oldest too", async () => {
+    const dir = freshState();
+    // One more than the registry keeps among its recent rows: closing them at boot must not evict one first.
+    const messageIds = Array.from({ length: 11 }, (_, k) => `m-eleven-${k}`);
+    const started = life(dir, "start", messageIds.join(","), "sleep 1; echo fine") as { runs: Array<{ runId: string; pid: number }> };
+    expect(started.runs).toHaveLength(11);
+    await until(() => started.runs.every((r) => !alive(r.pid)), 20_000);
+    const scripts = join(dir, ".state", "scripts");
+    expect(started.runs.every((r) => existsSync(join(scripts, `${r.runId}.exit`)))).toBe(true);
+    const { runs, atBoot } = life(dir, "boot", messageIds.join(","), started.runs.map((r) => r.runId).join(","));
+    // The boot itself closed them, before any request could.
+    expect(atBoot).toEqual(started.runs.map(() => ({ status: "done", exitCode: 0 })));
+    expect(runs).toEqual(started.runs.map((r) => expect.objectContaining({ runId: r.runId, status: "done", exitCode: 0, output: "fine" })));
+    for (const run of runs) expect(Date.parse(run.endedAt)).toBeGreaterThan(Date.parse(run.startedAt));
+    // Closed first, swept after: the files of a run closed at this boot are still there.
+    expect(started.runs.every((r) => existsSync(join(scripts, `${r.runId}.exit`)) && existsSync(join(scripts, `${r.runId}.log`)))).toBe(true);
+  }, 60_000);
+
+  test("it ended over a week ago with the server off: the boot closes it from its files, which go only at the next sweep", async () => {
+    const dir = freshState();
+    const started = life(dir, "start", "m-week", "sleep 1; echo fine");
+    await until(() => !alive(started.pid));
+    const files = [".exit", ".log"].map((ext) => join(dir, ".state", "scripts", `${started.runId}${ext}`));
+    expect(files.every((f) => existsSync(f))).toBe(true);
+    // Started and ended eight days ago: past the seven days the boot's sweep keeps.
+    const endedAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 8 * 86_400_000);
+    const startedAt = new Date(endedAt.getTime() - 60_000).toISOString();
+    const stateFile = join(dir, ".state", "scripts.json");
+    const state = JSON.parse(readFileSync(stateFile, "utf8")) as { running: Array<{ startedAt: string }> };
+    for (const r of state.running) r.startedAt = startedAt;
+    writeFileSync(stateFile, JSON.stringify(state));
+    const db = new Database(join(dir, "topics.db"));
+    db.prepare("UPDATE command_runs SET started_at = ? WHERE id = ?").run(startedAt, started.runId);
+    db.close();
+    for (const f of files) utimesSync(f, endedAt, endedAt);
+    const { run } = life(dir, "boot", "m-week", started.runId);
+    expect(run).toMatchObject({ runId: started.runId, status: "done", exitCode: 0, output: "fine", endedAt: endedAt.toISOString() });
+    expect(files.every((f) => existsSync(f))).toBe(true);
+    life(dir, "boot", "m-week", started.runId);
+    expect(files.some((f) => existsSync(f))).toBe(false);
+  }, 40_000);
+
+  /** The machine goes down under a running command: the command and its wrapper die at once, no exit file. */
+  async function machineDies(dir: string, messageId: string, command: string): Promise<{ runId: string; diedAt: number }> {
+    const started = life(dir, "start", messageId, command);
+    const log = join(dir, ".state", "scripts", `${started.runId}.log`);
+    await until(() => { try { return readFileSync(log, "utf8").includes("one"); } catch { return false; } });
+    const diedAt = Date.now();
+    process.kill(-started.pid, "SIGKILL");
+    await until(() => !alive(started.pid));
+    expect(existsSync(join(dir, ".state", "scripts", `${started.runId}.exit`))).toBe(false);
+    await Bun.sleep(1_200); // down a while: what the next boot sees is not when the command died
+    return { runId: started.runId, diedAt };
+  }
+
+  test("the machine went down mid-run: the boot closes it as unknown at its last output, not at the boot", async () => {
+    const dir = freshState();
+    const { runId, diedAt } = await machineDies(dir, "m-crash", "echo one; sleep 600");
+    const { run } = life(dir, "boot", "m-crash", runId);
+    expect(run).toMatchObject({ runId, status: "unknown", exitCode: null });
+    expect(Date.parse(run.endedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect(Date.parse(run.endedAt)).toBeLessThanOrEqual(diedAt);
+  }, 40_000);
+
+  test("the machine went down mid-run and its log is gone: the row's last output closes it, not the boot", async () => {
+    const dir = freshState();
+    const { runId } = await machineDies(dir, "m-crash-nolog", "echo one; sleep 600");
+    const db = new Database(join(dir, "topics.db"));
+    const { started_at } = db.query("SELECT started_at FROM command_runs WHERE id = ?").get(runId) as { started_at: string };
+    const lastOutput = new Date(Date.parse(started_at) + 1_000).toISOString();
+    db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ?").run(lastOutput, runId);
+    db.close();
+    unlinkSync(join(dir, ".state", "scripts", `${runId}.log`));
+    const { run } = life(dir, "boot", "m-crash-nolog", runId);
+    expect(run).toMatchObject({ runId, status: "unknown", exitCode: null, endedAt: lastOutput });
   }, 40_000);
 });
 

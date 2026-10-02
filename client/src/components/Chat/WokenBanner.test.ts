@@ -98,3 +98,20 @@ describe('il cartello del risveglio', () => {
     expect(unknown).not.toContain('exit 0');
   });
 });
+
+describe('a block kind this bundle does not know', () => {
+  // A window still on an older bundle meets kinds added after it was built,
+  // as it did with `subagent-result`: the row must draw, not take the pane down.
+  test('without text it draws nothing, and the blocks around it still draw', () => {
+    const html = render([{ kind: 'text', text: 'before' }, { kind: 'from-a-newer-server', payload: 1 } as unknown as ContentBlock, { kind: 'text', text: 'after' }]);
+    expect(html).toContain('message-content-assistant');
+    expect(html).toContain('before');
+    expect(html).toContain('after');
+    expect(html).not.toContain('from-a-newer-server');
+  });
+
+  test('with the text the server writes for older readers, that text reads as prose', () => {
+    const html = render([{ kind: 'from-a-newer-server', text: 'A line for older readers' } as unknown as ContentBlock]);
+    expect(html).toContain('A line for older readers');
+  });
+});

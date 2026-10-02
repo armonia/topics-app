@@ -404,6 +404,8 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     // end and then starts a turn of its own. It is not lost meanwhile: the
     // caller has already written it on the child's `subagents` row, and
     // `settle` drops that copy only once it reached the chat (SUBAGENT-07).
+    // The parent's own stop goes the same way: the wake writes it as a row,
+    // without a turn, once the parent's turn (inside `stop_agent`) is over.
     if (deps.requestWake) {
       deps.requestWake({
         parentSessionKey: info.parentSessionKey,

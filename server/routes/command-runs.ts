@@ -20,7 +20,7 @@
 import type { AppContext } from "../types";
 import { hasCommandShell } from "../lib/command-process";
 import { agentWorkspaceForSession } from "../lib/agent-workspace";
-import { closeRun, insertRun, latestRuns } from "../lib/command-runs";
+import { insertRun, latestRuns } from "../lib/command-runs";
 import { isCommandCut } from "../../shared/cut-fence";
 import { decodeCol } from "../../shared/message-blob";
 
@@ -29,6 +29,8 @@ export interface CommandRunRegistry {
   start(o: { cwd: string; command: string; sessionKey: string; topicId: string | null }): { processId: string; startedAt: string } | null;
   /** Where the registry stands with a run: still running, ended (its row is closed now), or no longer known. */
   reconcile(runId: string): "running" | "ended" | "gone";
+  /** Close the row of a run the registry no longer has, from what its exit file and its log still say. */
+  closeLost(runId: string, startedAt: string): void;
   /** Stop a run the registry has. */
   kill(runId: string): void;
 }
@@ -63,11 +65,12 @@ export function createCommandRunsRoute(ctx: AppContext, registry: CommandRunRegi
       const messageId = url.searchParams.get("messageId") ?? "";
       if (!messageId) return json({ error: "messageId is required" }, 400);
       // A run still `running` whose process the registry no longer has (killed
-      // with the server, never re-adopted): unknown, not running forever.
+      // with the server, never re-adopted, or dropped from its recent rows):
+      // not running forever. Its exit file, when still there, says how and
+      // when it ended; without one it is unknown, ended at the last moment it
+      // is known to have lived (`closeLostRun`), not when this GET noticed it.
       for (const run of latestRuns(ctx.db, sessionKey, messageId)) {
-        if (run.status === "running" && registry.reconcile(run.runId) === "gone") {
-          closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt: new Date().toISOString(), output: "", droppedLines: 0 });
-        }
+        if (run.status === "running" && registry.reconcile(run.runId) === "gone") registry.closeLost(run.runId, run.startedAt);
       }
       return json({ runs: latestRuns(ctx.db, sessionKey, messageId) });
     }

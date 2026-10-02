@@ -324,7 +324,9 @@ export function taskIdFromKey(key: string): string | null {
 
 const cache = new Map<string, TaskBrowserTabsState>();
 const loaded = new Set<string>();
-const loading = new Set<string>();
+/** The read in flight per task: a second caller waits for it instead of
+ *  deciding on an empty cache (a chat marker asking where its page lives). */
+const loading = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -332,11 +334,17 @@ function notify(): void {
 }
 
 /** Lazily hydrate a task's tabs from ui-state (once). Safe to call repeatedly. */
-export async function ensureTaskTabsLoaded(taskId: string): Promise<void> {
-  if (!taskId || loaded.has(taskId) || loading.has(taskId)) return;
-  loading.add(taskId);
+export function ensureTaskTabsLoaded(taskId: string): Promise<void> {
+  if (!taskId || loaded.has(taskId)) return Promise.resolve();
+  const inFlight = loading.get(taskId);
+  if (inFlight) return inFlight;
+  const read = loadTaskTabs(taskId).finally(() => { loading.delete(taskId); });
+  loading.set(taskId, read);
+  return read;
+}
+
+async function loadTaskTabs(taskId: string): Promise<void> {
   const read = await uiGet<unknown>(keyFor(taskId));
-  loading.delete(taskId);
   loaded.add(taskId);
   // Don't clobber writes that landed while the GET was in flight.
   if (!cache.has(taskId)) {
