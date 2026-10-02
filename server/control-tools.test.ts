@@ -207,6 +207,29 @@ describe("dispatchControlToolCall — create_project", () => {
     } finally { h.cleanup(); }
   });
 
+  test("a new project is born next to the user's projects, not in the agent workspace", async () => {
+    // Il caso del 02/10: una sessione ha creato `pop-demo` dentro
+    // ~/.openclaw/workspace mentre i progetti veri stanno in ~/Projects. Due
+    // progetti noti nella stessa cartella bastano a farne la consuetudine.
+    const h = makeDeps();
+    const projectsRoot = mkdtempSync(join(tmpdir(), "ctrl-projects-"));
+    try {
+      const known = ["alpha", "beta"].map((n) => join(projectsRoot, n));
+      for (const d of known) mkdirSync(d, { recursive: true });
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      const deps = { ...h.deps, listProjectDirs: () => known };
+      await dispatchControlToolCall("create_project", { name: "PopDemo" }, cur, deps);
+      const dir = join(projectsRoot, "PopDemo");
+      expect(h.topics.get("cur")!.projectPath).toBe(dir);
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
+      expect(existsSync(join(h.workspaceDir, "PopDemo"))).toBe(false);
+    } finally {
+      h.cleanup();
+      rmSync(projectsRoot, { recursive: true, force: true });
+    }
+  });
+
   test("throws bad_args when name empty after sanitization", async () => {
     const h = makeDeps();
     try {

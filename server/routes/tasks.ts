@@ -63,7 +63,7 @@ import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, projectIdForPath,
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { resolveAgentRuntime } from "../services/app-settings";
-import { newProjectParentDir } from "../services/project-path-resolver";
+import { newProjectParentDir, scaffoldNewProject } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { type RealignOutcome, landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
@@ -3427,32 +3427,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (!safeName) return json({ error: "name (alphanumeric) is required", code: "invalid_input" }, 400);
         // Nella cartella dei progetti, non nel workspace: il workspace è
         // plumbing dell'agente, e un progetto battuto a mano che finisce lì
-        // dispaccia ma non lo ritrovi più.
-        const dir = join(newDir() ?? opts.workspaceDir, safeName);
-        if (existsSync(dir)) {
-          return json({ error: `project "${safeName}" already exists`, code: "project_exists" }, 409);
-        }
+        // dispaccia ma non lo ritrovi più. Creazione e registrazione stanno in
+        // `scaffoldNewProject`, la stessa usata da chat e sessioni.
+        let dir: string;
         try {
-          mkdirSync(dir, { recursive: true });
-          writeFileSync(join(dir, "CLAUDE.md"), `# ${safeName}\n`);
-          // REGISTRARLO, non solo crearlo. L'indice dei progetti è l'unione di
-          // ciò che il server già referenzia (store, topic, worktree, cwd dei
-          // terminali) più una scansione del workspace: una cartella nuova FUORI
-          // dal workspace non è in nessuna di quelle liste, quindi sparirebbe dal
-          // selettore al primo reload e il dispatcher non saprebbe risolvere l'id
-          // della sua board. Finché si creava dentro il workspace il problema non
-          // esisteva — la scansione lo ripescava — ed è riemerso appena i progetti
-          // hanno cominciato a nascere dove l'utente li tiene davvero.
-          const store = ctx.projectStore;
-          if (store && !store.getByPath(dir)) {
-            // Slug già preso da un altro progetto: se ne prova uno derivato
-            // invece di lasciare la cartella orfana e invisibile.
-            const base = store.slugify(safeName);
-            for (const slug of [base, `${base}-${projectIdForPath(dir).split("-").pop()}`]) {
-              try { store.create({ name: safeName, slug, path: dir, color: null, icon: null }); break; }
-              catch { /* slug in conflitto: prova il prossimo */ }
-            }
-          }
+          const r = scaffoldNewProject(safeName, {
+            workspaceDir: opts.workspaceDir, homeDir: homedir(), knownDirs: knownDirs(), projectStore: ctx.projectStore,
+          });
+          if (r.exists) return json({ error: `project "${safeName}" already exists`, code: "project_exists" }, 409);
+          dir = r.dir;
         } catch (e) { return fail(e); }
         return json({ projectId: projectIdForPath(dir), name: safeName, path: dir }, 201);
       }

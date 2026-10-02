@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { join, resolve } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
+import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, RouteHandler, Topic, ToolCall, UnreadData } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { withBackgroundWork, stopBackgroundOnly, type TurnStatusRow } from "../providers/background-probes";
@@ -725,6 +726,23 @@ export function createTopicsRouter(
     return isExistingDir(wsDir) ? wsDir : null;
   }
 
+  /** Ogni cartella-progetto che il server già conosce (store, topic, workspace):
+   *  da qui `scaffoldNewProject` deduce DOVE l'utente tiene i suoi progetti. */
+  function knownProjectPaths(): string[] {
+    const out: string[] = [];
+    try { for (const p of projectStore.list()) out.push(p.path); } catch { /* store best-effort */ }
+    for (const t of Object.values(loadTopics().topics) as any[]) {
+      if (typeof t?.projectPath === "string" && t.projectPath) out.push(t.projectPath);
+    }
+    return out.concat(getWorkspaceProjects());
+  }
+
+  function scaffoldProject(safeName: string): { dir: string; exists: boolean } {
+    return scaffoldNewProject(safeName, {
+      workspaceDir: WORKSPACE_DIR, homeDir: homedir(), knownDirs: knownProjectPaths(), projectStore,
+    });
+  }
+
   /** Is this directory already a project Topics knows about? Used to decide
    *  whether a heuristic auto-bind is safe to surface as a project window. */
   function isKnownProject(dir: string): boolean {
@@ -934,7 +952,7 @@ export function createTopicsRouter(
   });
   extra.exposeAnswerRelay?.(answerRelay);
   const chatRouter = createChatRouter(ctx, {
-    resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
+    resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef, knownProjectPaths,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
     hooks: extra.hooks, goalLoop, answerRelay,
@@ -2188,17 +2206,15 @@ export function createTopicsRouter(
         const rawName = typeof body?.name === "string" ? body.name.trim() : "";
         const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
         if (!safeName) return json({ error: "name (alphanumeric) is required" }, 400);
-        const targetDir = join(WORKSPACE_DIR, safeName);
         // AC-01: create means CREATE — a name collision is a 409, never a silent
         // bind to whatever already lives there (that's open-project/bind-project).
-        if (existsSync(targetDir)) {
+        const { dir: targetDir, exists } = scaffoldProject(safeName);
+        if (exists) {
           return json(
             { error: `project "${safeName}" already exists`, code: "project_exists", name: safeName, projectPath: targetDir },
             409,
           );
         }
-        mkdirSync(targetDir, { recursive: true });
-        writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
         if (cur) {
           if (!bindTopicToProject(cur.id, targetDir, { focus: true })) {
             return json({ error: "topic not found for this session", code: "project_created_unbound", projectPath: targetDir }, 404);
@@ -3119,11 +3135,11 @@ export function createTopicsRouter(
               if (!value) return json({ error: "/project create <name> requires a project name" }, 400);
               const safeName = value.replace(/[^a-zA-Z0-9_-]/g, "");
               if (!safeName) return json({ error: "Invalid project name (only letters, digits, _ and - allowed)" }, 400);
-              const targetDir = join(WORKSPACE_DIR, safeName);
-              if (existsSync(targetDir)) return json({ error: `Project "${safeName}" already exists at ${targetDir}` }, 409);
+              let targetDir: string;
               try {
-                mkdirSync(targetDir, { recursive: true });
-                writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+                const r = scaffoldProject(safeName);
+                if (r.exists) return json({ error: `Project "${safeName}" already exists at ${r.dir}` }, 409);
+                targetDir = r.dir;
               } catch (err: any) {
                 return json({ error: `Failed to create project: ${err.message}` }, 500);
               }

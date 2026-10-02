@@ -15,8 +15,8 @@
  * helper + the open-pane route. Behaviour is a verbatim move — only the route
  * dispatch wrapper changed.
  */
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { homedir } from "os";
+import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
@@ -154,6 +154,8 @@ export interface ChatDeps {
   detectLocalhostAutoNav: (content: string, topic: Topic | null) => string;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
+  /** Le cartelle-progetto già note: dicono dove nasce un progetto nuovo. */
+  knownProjectPaths?: () => string[];
   getProjectIdForTopic: (topicId: string) => string | null;
   getWorkspaceProjects: () => string[];
   autoBindProject: (topic: Topic) => void;
@@ -252,7 +254,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     }
   }
   const {
-    resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
+    resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef, knownProjectPaths,
     getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
     ssePingMs,
@@ -346,6 +348,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     resolveProjectRef,
     bindTopicToProject,
     workspaceDir: WORKSPACE_DIR,
+    listProjectDirs: knownProjectPaths,
+    projectStore: ctx.projectStore,
     resolveTab: (ref) => resolveTabRef(ref, tabDeps),
   };
 
@@ -777,12 +781,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     if (!safeName) {
                       response = `Invalid project name. Use alphanumeric characters, hyphens, and underscores.`;
                     } else {
-                      const targetDir = join(WORKSPACE_DIR, safeName);
-                      if (existsSync(targetDir)) {
+                      const { dir: targetDir, exists } = scaffoldNewProject(safeName, {
+                        workspaceDir: WORKSPACE_DIR, homeDir: homedir(), knownDirs: knownProjectPaths?.() ?? [], projectStore: ctx.projectStore,
+                      });
+                      if (exists) {
                         response = `Project **${safeName}** already exists at \`${targetDir}\`. Use \`/project open ${safeName}\` to bind it.`;
                       } else {
-                        mkdirSync(targetDir, { recursive: true });
-                        writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
                         // Bind to current topic + open the project window.
                         if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
                         response = `Created project **${safeName}** at \`${targetDir}\` and bound to this topic.`;
