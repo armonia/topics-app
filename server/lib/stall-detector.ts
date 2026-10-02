@@ -17,6 +17,9 @@
 import { armTurnDeadline, type TurnDeadline } from "./turn-deadline";
 import type { StallVerdict } from "./stall-judge";
 
+/** Who held the watch, or the judge's "alive": the reason a rearm names in the log. */
+export type StallRearmReason = "human" | "checks" | "freeze" | "background" | "subagent" | "alive";
+
 export interface StallDetectorOptions {
   /** How long the session must stay silent before the judge is asked. */
   idleMs: number;
@@ -51,6 +54,13 @@ export interface StallDetectorOptions {
    * `claude/background-work.ts`.
    */
   isWaitingForBackground?: () => boolean;
+  /**
+   * The session is inside a foreground `spawn_agent` (`run_in_background:
+   * false`), which waits up to ten minutes for a child Topics runs: the
+   * transcript is quiet because of us. Same contract as the checks hold.
+   * Bounded by the hold's own deadline (`lib/subagent-runtime.ts`).
+   */
+  isWaitingForSubagent?: () => boolean;
   /** The tail of the transcript to hand the judge. `null` = nothing readable
    *  right now — treated as "alive": never recycle on ignorance. */
   getTail: () => string | null;
@@ -61,7 +71,7 @@ export interface StallDetectorOptions {
   onStuck: () => void;
   /** Fires on every rearm (a human in the loop, or an "alive" verdict) —
    *  logging only, mirrors `TurnDeadlineOptions.onRearm`. */
-  onRearm?: (reason: "human" | "checks" | "freeze" | "background" | "alive") => void;
+  onRearm?: (reason: StallRearmReason) => void;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
@@ -83,14 +93,15 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
       ms: opts.idleMs,
       isWaitingForHuman: () =>
         opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false) || (opts.isFrozen?.() ?? false)
-        || (opts.isWaitingForBackground?.() ?? false),
+        || (opts.isWaitingForBackground?.() ?? false) || (opts.isWaitingForSubagent?.() ?? false),
       now: opts.now,
       setTimer: opts.setTimer,
       clearTimer: opts.clearTimer,
       // The inner watch only knows "somebody is holding": name who, for the log.
       onRearm: () => opts.onRearm?.(
         opts.isWaitingForHuman() ? "human" : opts.isFrozen?.() ? "freeze"
-          : opts.isWaitingForBackground?.() ? "background" : "checks",
+          : opts.isWaitingForBackground?.() ? "background"
+            : opts.isWaitingForSubagent?.() ? "subagent" : "checks",
       ),
       onExpired: () => {
         // Fire-and-continue: the inner timer has already stopped ticking (it

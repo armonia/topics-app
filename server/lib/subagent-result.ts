@@ -112,23 +112,9 @@ export interface SubAgentResult extends SubAgentOutcome {
 /** How long a seeded prompt may take to appear in the transcript before the turn is `undelivered`. */
 export const UNDELIVERED_AFTER_MS = 60_000;
 
-/** The parsed records of each turn: turn N runs from its prompt to the next one. */
-function splitTurns(lines: readonly string[]): { preamble: TranscriptEvent[]; turns: TranscriptEvent[][] } {
-  const preamble: TranscriptEvent[] = [];
-  const turns: TranscriptEvent[][] = [];
-  for (const line of lines) {
-    const ev = parseEvent(line);
-    if (!ev) continue;
-    if (promptText(ev) !== null) turns.push([ev]);
-    else if (turns.length) turns[turns.length - 1]!.push(ev);
-    else preamble.push(ev);
-  }
-  return { preamble, turns };
-}
-
 /** How many prompts the child has received. */
 export function promptCount(lines: readonly string[]): number {
-  return splitTurns(lines).turns.length;
+  return tallyOf(lines).prompts;
 }
 
 const cutOutcome = (text: string, ending: SubAgentEnding, exitCode: number | null): SubAgentOutcome => {
@@ -161,6 +147,116 @@ function settleBackground(pending: Set<string>, text: string): void {
 }
 
 /**
+ * What the records of one turn add up to, folded one record at a time: the
+ * state after the last record that moved the conversation, the text, and the
+ * background work still owed a report. The live watch keeps it between two
+ * looks at a growing transcript instead of the turn's lines.
+ */
+interface TurnFold {
+  state: 'waiting' | 'working' | 'done' | 'api-error';
+  turnText: string;
+  errorText: string;
+  /** Background work the turn launched and the CLI has not reported back yet:
+   *  an `end_turn` before its notification is a promise to report, not the end. */
+  background: Set<string>;
+  /** The prompt's timestamp and the last record's: the turn's duration. */
+  startAt: number;
+  endAt: number;
+}
+
+const timestampOf = (ev: TranscriptEvent): number => (typeof ev.timestamp === 'string' ? Date.parse(ev.timestamp) : NaN);
+
+function openTurn(prompt: TranscriptEvent): TurnFold {
+  const at = timestampOf(prompt);
+  return { state: 'waiting', turnText: '', errorText: '', background: new Set(), startAt: at, endAt: at };
+}
+
+function foldRecord(f: TurnFold, ev: TranscriptEvent): void {
+  f.endAt = timestampOf(ev);
+  if (ev.type === 'user') {
+    // A tool result, an Escape marker or a notification: the turn is still open.
+    if (isTaskNotification(ev)) settleBackground(f.background, contentText(ev.message?.content));
+    f.state = 'working';
+    return;
+  }
+  if (ev.type !== 'assistant') return;
+  noteBackground(f.background, ev.message?.content);
+  const text = contentText(ev.message?.content).trim();
+  if (ev.isApiErrorMessage) {
+    f.state = 'api-error';
+    f.errorText = text;
+    return;
+  }
+  // A synthetic line that is not an error is the CLI's, not the model's: the
+  // "No response requested." a resume appends to a cut turn.
+  if (ev.message?.model === '<synthetic>') return;
+  if (text) f.turnText = text;
+  f.state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
+}
+
+function turnVerdict(f: TurnFold, opts: { ending?: SubAgentEnding; exitCode?: number | null }): SubAgentOutcome | null {
+  if (f.state === 'done' && !f.background.size) return { status: 'completed', partial: false, text: f.turnText };
+  if (f.state === 'api-error') {
+    return { status: 'failed', partial: false, text: f.turnText, reason: { code: 'api-error', detail: f.errorText } };
+  }
+  return opts.ending ? cutOutcome(f.turnText, opts.ending, opts.exitCode ?? null) : null;
+}
+
+/** The model an assistant record names, when it is a real one. */
+function modelOf(ev: TranscriptEvent): string | null {
+  if (ev.type !== 'assistant' || ev.isApiErrorMessage) return null;
+  const model = ev.message?.model;
+  return typeof model === 'string' && model && model !== '<synthetic>' ? model : null;
+}
+
+/**
+ * A child's transcript read so far, folded: its prompts, its model, and the
+ * turns still worth knowing (the ones not yet reported). Lines go in as they
+ * are appended (`tallyLines`), so the watch never parses a record twice.
+ */
+export interface TranscriptTally {
+  prompts: number;
+  model: string | null;
+  /** The folds of the last `open.length` turns, the newest last. */
+  open: TurnFold[];
+}
+
+export function emptyTally(): TranscriptTally {
+  return { prompts: 0, model: null, open: [] };
+}
+
+export function tallyLines(t: TranscriptTally, lines: readonly string[]): void {
+  for (const line of lines) {
+    const ev = parseEvent(line);
+    if (!ev) continue;
+    t.model ??= modelOf(ev);
+    if (promptText(ev) !== null) {
+      t.prompts++;
+      t.open.push(openTurn(ev));
+    } else if (t.open.length) {
+      // The open folds always end with the newest turn: this record is its.
+      foldRecord(t.open[t.open.length - 1]!, ev);
+    }
+  }
+}
+
+/** Drop the folds of the turns up to `turn`: reported, nothing is asked of them again. */
+export function forgetTurns(t: TranscriptTally, turn: number): void {
+  const drop = Math.min(t.open.length, Math.max(0, turn - (t.prompts - t.open.length)));
+  if (drop) t.open.splice(0, drop);
+}
+
+function foldOf(t: TranscriptTally, turn: number): TurnFold | undefined {
+  return turn >= 1 ? t.open[turn - 1 - (t.prompts - t.open.length)] : undefined;
+}
+
+function tallyOf(lines: readonly string[]): TranscriptTally {
+  const t = emptyTally();
+  tallyLines(t, lines);
+  return t;
+}
+
+/**
  * One turn's verdict. `null` when the turn is still open and nothing ended it:
  * the child is working, and there is nothing to report yet.
  *
@@ -173,48 +269,15 @@ export function classifyChildTurn(
   turn: number,
   opts: { ending?: SubAgentEnding; exitCode?: number | null } = {},
 ): SubAgentOutcome | null {
-  const exitCode = opts.exitCode ?? null;
   if (!lines) {
-    return opts.ending ? { ...cutOutcome('', opts.ending, exitCode), reason: { code: 'no-transcript' } } : null;
+    return opts.ending ? { ...cutOutcome('', opts.ending, opts.exitCode ?? null), reason: { code: 'no-transcript' } } : null;
   }
-  const records = splitTurns(lines).turns[turn - 1];
-  if (!records) {
+  const fold = foldOf(tallyOf(lines), turn);
+  if (!fold) {
     // No prompt for this turn: only the first one can be "never delivered".
     return opts.ending && turn === 1 ? { status: 'undelivered', partial: false, text: '', reason: { code: 'no-prompt' } } : null;
   }
-  // The state after the last record that moved the conversation.
-  let state: 'waiting' | 'working' | 'done' | 'api-error' = 'waiting';
-  let turnText = '';
-  let errorText = '';
-  // Background work the turn launched and the CLI has not reported back yet:
-  // an `end_turn` before its notification is a promise to report, not the end.
-  const background = new Set<string>();
-  for (const ev of records.slice(1)) {
-    if (ev.type === 'user') {
-      // A tool result, an Escape marker or a notification: the turn is still open.
-      if (isTaskNotification(ev)) settleBackground(background, contentText(ev.message?.content));
-      state = 'working';
-      continue;
-    }
-    if (ev.type !== 'assistant') continue;
-    noteBackground(background, ev.message?.content);
-    const text = contentText(ev.message?.content).trim();
-    if (ev.isApiErrorMessage) {
-      state = 'api-error';
-      errorText = text;
-      continue;
-    }
-    // A synthetic line that is not an error is the CLI's, not the model's: the
-    // "No response requested." a resume appends to a cut turn.
-    if (ev.message?.model === '<synthetic>') continue;
-    if (text) turnText = text;
-    state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
-  }
-  if (state === 'done' && !background.size) return { status: 'completed', partial: false, text: turnText };
-  if (state === 'api-error') {
-    return { status: 'failed', partial: false, text: turnText, reason: { code: 'api-error', detail: errorText } };
-  }
-  return opts.ending ? cutOutcome(turnText, opts.ending, exitCode) : null;
+  return turnVerdict(fold, opts);
 }
 
 /**
@@ -245,14 +308,22 @@ export function pendingChildTurns(
   lines: readonly string[],
   s: { turnsReported: number; seededAt: number | null; now: number; undeliveredReported: boolean },
 ): Array<{ turn: number; outcome: SubAgentOutcome }> {
-  const count = promptCount(lines);
-  if (count === 0) {
+  return pendingTallyTurns(tallyOf(lines), s);
+}
+
+/** `pendingChildTurns` over a transcript already folded. */
+export function pendingTallyTurns(
+  t: TranscriptTally,
+  s: { turnsReported: number; seededAt: number | null; now: number; undeliveredReported: boolean },
+): Array<{ turn: number; outcome: SubAgentOutcome }> {
+  if (t.prompts === 0) {
     if (s.undeliveredReported || s.seededAt == null || s.now - s.seededAt < UNDELIVERED_AFTER_MS) return [];
     return [{ turn: 1, outcome: { status: 'undelivered', partial: false, text: '', reason: { code: 'no-prompt' } } }];
   }
   const out: Array<{ turn: number; outcome: SubAgentOutcome }> = [];
-  for (let turn = s.turnsReported + 1; turn <= count; turn++) {
-    const outcome = classifyChildTurn(lines, turn);
+  for (let turn = s.turnsReported + 1; turn <= t.prompts; turn++) {
+    const fold = foldOf(t, turn);
+    const outcome = fold ? turnVerdict(fold, {}) : null;
     if (outcome) out.push({ turn, outcome });
   }
   return out;
@@ -280,23 +351,19 @@ export function endingChildTurn(
 
 /** The model the child really ran: the first assistant record that names one. */
 export function childModel(lines: readonly string[]): string | null {
-  for (const line of lines) {
-    const ev = parseEvent(line);
-    if (ev?.type !== 'assistant' || ev.isApiErrorMessage) continue;
-    const model = ev.message?.model;
-    if (typeof model === 'string' && model && model !== '<synthetic>') return model;
-  }
-  return null;
+  return tallyOf(lines).model;
 }
 
 /** From the turn's prompt to its last record, when both carry a timestamp. */
 export function turnDurationMs(lines: readonly string[], turn: number): number | null {
-  const records = splitTurns(lines).turns[turn - 1];
-  if (!records) return null;
-  const at = (ev: TranscriptEvent | undefined) => (typeof ev?.timestamp === 'string' ? Date.parse(ev.timestamp) : NaN);
-  const start = at(records[0]);
-  const end = at(records[records.length - 1]);
-  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : null;
+  return tallyTurnDurationMs(tallyOf(lines), turn);
+}
+
+/** `turnDurationMs` over a transcript already folded. */
+export function tallyTurnDurationMs(t: TranscriptTally, turn: number): number | null {
+  const fold = foldOf(t, turn);
+  if (!fold) return null;
+  return Number.isFinite(fold.startAt) && Number.isFinite(fold.endAt) && fold.endAt >= fold.startAt ? fold.endAt - fold.startAt : null;
 }
 
 /**

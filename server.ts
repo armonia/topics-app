@@ -173,7 +173,7 @@ import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/ser
 import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
-import { subagentWakeOwed } from "./server/lib/subagent-runtime";
+import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
@@ -1213,6 +1213,8 @@ async function watchHeadlessBody(
     // model's own. The same bound as every other clock that kills the child:
     // the judge's recycle is a SIGINT, and it takes the work with it.
     isWaitingForBackground: stallBackgroundHold(sessionKey),
+    // A foreground spawn_agent waiting for its child: our own wait as well.
+    isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     // Once per change of reason: a hold lasting an hour rearmed every five
@@ -1227,6 +1229,8 @@ async function watchHeadlessBody(
             ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
           : reason === "background"
             ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
+          : reason === "subagent"
+            ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
           : reason === "checks"
             ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
             : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
