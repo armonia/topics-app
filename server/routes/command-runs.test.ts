@@ -427,7 +427,9 @@ describe("across a reload of the server", () => {
     await until(() => started.runs.every((r) => !alive(r.pid)), 20_000);
     const scripts = join(dir, ".state", "scripts");
     expect(started.runs.every((r) => existsSync(join(scripts, `${r.runId}.exit`)))).toBe(true);
-    const { runs } = life(dir, "boot", messageIds.join(","), started.runs.map((r) => r.runId).join(","));
+    const { runs, atBoot } = life(dir, "boot", messageIds.join(","), started.runs.map((r) => r.runId).join(","));
+    // The boot itself closed them, before any request could.
+    expect(atBoot).toEqual(started.runs.map(() => ({ status: "done", exitCode: 0 })));
     expect(runs).toEqual(started.runs.map((r) => expect.objectContaining({ runId: r.runId, status: "done", exitCode: 0, output: "fine" })));
     for (const run of runs) expect(Date.parse(run.endedAt)).toBeGreaterThan(Date.parse(run.startedAt));
     // Closed first, swept after: the files of a run closed at this boot are still there.

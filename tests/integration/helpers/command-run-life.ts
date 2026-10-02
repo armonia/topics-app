@@ -11,7 +11,8 @@
  *     `runs` with every one: the server going away under running commands.
  *   boot <messageId>[,<messageId>...] <runId>[,<runId>...]
  *     boots (database, then registry, then router), waits for the rows of the
- *     runs to close and prints `{run}` with the first and `runs` with every one.
+ *     runs to close and prints `{run}` with the first, `runs` with every one
+ *     and `atBoot` with each row as the boot left it, before any request.
  */
 import { join } from "path";
 
@@ -51,6 +52,8 @@ if (mode === "start") {
 if (mode === "boot") {
   type Run = { runId: string; status: string };
   const runIds = arg!.split(",");
+  // Read from the database itself: a request would close a row the boot left running.
+  const atBoot = runIds.map((id) => db.query("SELECT status, exit_code AS exitCode FROM command_runs WHERE id = ?").get(id));
   const end = Date.now() + 20_000;
   let runs: Array<Run | undefined> = [];
   for (;;) {
@@ -62,6 +65,6 @@ if (mode === "boot") {
     if (runs.every((run) => run && run.status !== "running") || Date.now() > end) break;
     await Bun.sleep(100);
   }
-  process.stdout.write(`${JSON.stringify({ run: runs[0], runs })}\n`);
+  process.stdout.write(`${JSON.stringify({ run: runs[0], runs, atBoot })}\n`);
   process.exit(0);
 }
