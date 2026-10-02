@@ -6,6 +6,7 @@ import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { runningShellOutput } from './runningShellTail';
 import { ToolCardBody } from './ToolCards';
+import { spawnRefusal } from './subagentResult';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
 import { ToolPermissionRow } from './ToolPermissionRow';
@@ -202,6 +203,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const isAwaitingPermission = status === 'awaiting_permission';
   const isHumanTurn = isAwaitingHuman(status);
   const isError = status === 'error';
+  // A refused spawn_agent says its refusal as the card's own state.
+  const refusedSpawn = detail.type === 'sub_agent' && spawnRefusal(detail, isError, toolCall.error) !== null;
 
   // True when the whole point of the call is the question — the SDK's
   // `AskUserQuestion`, its Topics MCP bridge twin, or the BARE name the native
@@ -604,7 +607,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               {tr('chat.tool.noSessionContext')}
             </div>
           ) : (
-            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
+            <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
           )}
           <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />
           {toolCall.userResponse && status !== 'waiting_for_input' && (
@@ -624,7 +627,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               {tr('chat.question.askerGone')}
             </div>
           )}
-          {toolCall.error && status === 'error' && detail.type !== 'shell' && !questionEndedText && (
+          {toolCall.error && status === 'error' && detail.type !== 'shell' && !questionEndedText && !refusedSpawn && (
             <div className="mt-1.5">
               <div className="text-mini uppercase tracking-wide text-red-500 mb-0.5">Error</div>
               <pre data-testid="tool-call-error" className="text-mini font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-40 bg-red-500/5 rounded px-2 py-1.5">
