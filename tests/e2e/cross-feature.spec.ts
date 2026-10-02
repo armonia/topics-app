@@ -518,17 +518,13 @@ test.describe("Cross-Feature Interactions", () => {
     // Record current theme state on html element
     const htmlClassBefore = await page.locator("html").getAttribute("class") || "";
 
-    // Open settings and toggle theme
-    await settingsPage.openSettings();
-    await expect(settingsPage.panel).toBeVisible({ timeout: 10_000 });
+    // Open the Appearance level and toggle theme
+    await settingsPage.openAppearance();
 
-    // Click the theme button that differs from current state
-    // If currently dark, click Light; otherwise click Dark
+    // Choose the theme that differs from current state
+    // If currently dark, choose Light; otherwise choose Dark
     const isDark = htmlClassBefore.includes("dark");
-    const targetBtn = isDark
-      ? settingsPage.panel.getByRole("button", { name: "Light" })
-      : settingsPage.panel.getByRole("button", { name: "Dark" });
-    await targetBtn.click();
+    await settingsPage.themeRadio(isDark ? "light" : "dark").click();
 
     // Wait for theme class to change on html element
     if (isDark) {
@@ -537,14 +533,7 @@ test.describe("Cross-Feature Interactions", () => {
       await expect(page.locator("html")).toHaveClass(/dark/, { timeout: 5_000 });
     }
 
-    // Si chiude dalla fixture, che sa dov'e' il velo. Qui c'era
-    // `.fixed.inset-0.z-50` scritto a mano: quel `z-50` non esiste piu' da
-    // quando il layer dei modali e' passato a `z-[10000]` (`MODAL_OVERLAY` in
-    // client/src/lib/modalStyles.ts), quindi il click aspettava per quindici
-    // secondi un elemento che non c'e'. E' la lezione gia' scritta in
-    // `PaneTabBar.tsx`: un locator agganciato alle classi Tailwind muore
-    // quando qualcuno rinomina una utility, senza che nulla sia rotto.
-    await settingsPage.closeSettings();
+    await settingsPage.closeMenu();
 
     // Verify panels survived the theme toggle:
     // 1. Messages are still visible (not wiped by re-render)
@@ -569,12 +558,9 @@ test.describe("Cross-Feature Interactions", () => {
     });
 
     // Restore theme to avoid affecting other tests
-    await settingsPage.openSettings();
-    const restoreBtn = isDark
-      ? settingsPage.panel.getByRole("button", { name: "Dark" })
-      : settingsPage.panel.getByRole("button", { name: "System" });
-    await restoreBtn.click();
-    await settingsPage.closeSettings();
+    await settingsPage.openAppearance();
+    await settingsPage.themeRadio(isDark ? "dark" : "system").click();
+    await settingsPage.closeMenu();
 
     await deleteTopic(page.request, topic.id);
   });

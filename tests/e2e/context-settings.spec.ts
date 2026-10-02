@@ -13,6 +13,7 @@ import path from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
 import { createTopic, patchTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { openUserMenuLevel } from "./helpers/user-menu";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -265,33 +266,24 @@ test.describe("Context, Memory & Settings", () => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
-    // Verify the settings modal is visible
+    // Verify the settings modal is visible, on the forms it keeps
     await expect(settingsPage.panel).toBeVisible();
-
-    // Verify theme section has 3 buttons: Light, Dark, System
-    const lightBtn = settingsPage.panel.getByRole("button", { name: "Light" });
-    const darkBtn = settingsPage.panel.getByRole("button", { name: "Dark" });
-    const systemBtn = settingsPage.panel.getByRole("button", { name: "System" });
-    await expect(lightBtn).toBeVisible();
-    await expect(darkBtn).toBeVisible();
-    await expect(systemBtn).toBeVisible();
-
-    // Verify font size control exists (range input).
-    // Dal 27ccc796 i cursori nella sezione Aspetto sono DUE (corpo del testo e
-    // "Larghezza chat"): si asserisce che ci siano entrambi e che ognuno sia
-    // raggiungibile per nome — è quello che rende il locator non ambiguo.
-    await expect(settingsPage.fontSizeSlider).toBeVisible();
-    await expect(settingsPage.chatWidthSlider).toBeVisible();
-
-    // Verify message density section has Compact and Comfortable buttons
-    const compactBtn = settingsPage.panel.getByRole("button", { name: "Compact" });
-    const comfortableBtn = settingsPage.panel.getByRole("button", { name: "Comfortable" });
-    await expect(compactBtn).toBeVisible();
-    await expect(comfortableBtn).toBeVisible();
+    await expect(settingsPage.panel.locator("nav button").first()).toHaveText("Providers AI");
 
     // Close settings via the backdrop overlay
     await settingsPage.closeSettings();
     await expect(settingsPage.panel).not.toBeVisible();
+
+    // The appearance controls are in the user menu's Appearance level now.
+    await settingsPage.openAppearance();
+    for (const mode of ["light", "dark", "system"] as const) {
+      await expect(settingsPage.themeRadio(mode)).toBeVisible();
+    }
+    await expect(settingsPage.fontSizeStepper).toBeVisible();
+    await expect(settingsPage.chatWidthStepper).toBeVisible();
+    await expect(settingsPage.densityRadio("compact")).toBeVisible();
+    await expect(settingsPage.densityRadio("comfortable")).toBeVisible();
+    await settingsPage.closeMenu();
   });
 
   test("SET-02: theme toggle persistence across reload", async ({
@@ -299,18 +291,16 @@ test.describe("Context, Memory & Settings", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
-    await settingsPage.openSettings();
+    await settingsPage.openAppearance();
 
-    // Click the "Dark" theme button
-    const darkBtn = settingsPage.panel.getByRole("button", { name: "Dark" });
-    await darkBtn.click();
+    // Choose "Dark" in the theme segment
+    await settingsPage.themeRadio("dark").click();
 
-    // Verify html element has class "dark" (proves button click works)
+    // Verify html element has class "dark" (proves the choice applies)
     await expect(page.locator("html")).toHaveClass(/dark/);
 
-    // Close settings
-    await settingsPage.closeSettings();
-    await expect(settingsPage.panel).not.toBeVisible();
+    // Close the menu
+    await settingsPage.closeMenu();
 
     // Set localStorage explicitly before reload to test the persistence path.
     // (WS ui-state:init from real server may race with the local write.)
@@ -383,18 +373,17 @@ test.describe("Context, Memory & Settings", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
-    await settingsPage.openSettings();
+    await settingsPage.openAppearance();
 
     // Change message density to "Compact"
-    const compactBtn = settingsPage.panel.getByRole("button", { name: "Compact" });
-    await compactBtn.click();
+    await settingsPage.densityRadio("compact").click();
 
-    // Change font size via range input: set to 16
-    await settingsPage.fontSizeSlider.fill("16");
+    // Change the text size with the keyboard: 13 -> 16
+    await settingsPage.fontSizeStepper.focus();
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press("ArrowUp");
+    await expect(settingsPage.fontSizeStepper).toHaveAttribute("aria-valuenow", "16");
 
-    // Close settings
-    await settingsPage.closeSettings();
-    await expect(settingsPage.panel).not.toBeVisible();
+    await settingsPage.closeMenu();
 
     // Verify localStorage has updated values (settings save immediately to localStorage)
     const stored = await page.evaluate(() =>
@@ -410,20 +399,17 @@ test.describe("Context, Memory & Settings", () => {
       timeout: 15_000,
     });
 
-    // Re-open settings and verify persisted values
-    await settingsPage.openSettings();
-
-    // Verify "Compact" button appears selected (has active styling with bg-primary/10)
-    const compactAfterReload = settingsPage.panel.getByRole("button", { name: "Compact" });
-    await expect(compactAfterReload).toHaveClass(/bg-primary/);
-
-    // Verify font size input has value "16"
-    await expect(settingsPage.fontSizeSlider).toHaveValue("16");
+    // Re-open the level and verify persisted values
+    await settingsPage.openAppearance();
+    await expect(settingsPage.densityRadio("compact")).toHaveAttribute("aria-checked", "true");
+    await expect(settingsPage.fontSizeStepper).toHaveAttribute("aria-valuenow", "16");
 
     // Cleanup: restore defaults
-    const comfortableBtn = settingsPage.panel.getByRole("button", { name: "Comfortable" });
-    await comfortableBtn.click();
-    await settingsPage.fontSizeSlider.fill("13");
+    await settingsPage.densityRadio("comfortable").click();
+    await settingsPage.fontSizeStepper.focus();
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press("ArrowDown");
+    await expect(settingsPage.fontSizeStepper).toHaveAttribute("aria-valuenow", "13");
+    await settingsPage.closeMenu();
     await page.evaluate(() =>
       localStorage.setItem(
         "app-settings",
@@ -437,45 +423,23 @@ test.describe("Context, Memory & Settings", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
-    await settingsPage.openSettings();
+    // The push block is the «This device» level of the Notifications level.
+    // Whatever the browser supports, the level says it: a status line, and the
+    // subscribe button only when pressing it can do something.
+    const level = await openUserMenuLevel(page, "notifications");
+    await level.getByTestId("notif-this-device").click();
+    const device = page.getByTestId("notif-this-device-menu");
+    await expect(device.getByTestId("push-status-headline")).toBeVisible();
+    await settingsPage.closeMenu();
 
-    // Playwright Chromium has ServiceWorker/PushManager APIs available but
-    // may not fully support push subscriptions. The PushNotificationsToggle
-    // renders based on the state machine in usePushNotifications:
-    // - "unsupported" -> returns null (no UI)
-    // - "denied" -> shows "blocked by browser" message
-    // - "default" / "granted" -> shows enable/disable button
-    // - "subscribed" -> shows disable button
-    //
-    // We verify the settings panel handles whichever state gracefully:
-    // either push UI is absent (unsupported) or present and functional.
-    const pushLabel = settingsPage.panel.locator("label", {
-      hasText: "Push Notifications",
-    });
-    const pushIsVisible = await pushLabel.isVisible();
-
-    if (pushIsVisible) {
-      // Push section rendered: verify it shows either the toggle button or a denied message
-      const pushToggle = settingsPage.panel.getByRole("button", {
-        name: /push notifications/i,
-      });
-      const deniedMsg = settingsPage.panel.locator(
-        "text=Notifications blocked by your browser",
-      );
-      // One of these must be visible (toggle or denied message)
-      const toggleVisible = await pushToggle.isVisible();
-      const deniedVisible = await deniedMsg.isVisible();
-      expect(toggleVisible || deniedVisible).toBe(true);
+    // In all cases, the appearance controls render correctly
+    await settingsPage.openAppearance();
+    for (const mode of ["light", "dark", "system"] as const) {
+      await expect(settingsPage.themeRadio(mode)).toBeVisible();
     }
-    // If pushLabel is not visible, push is unsupported - this is correct graceful degradation.
-
-    // In all cases, verify all OTHER controls render correctly
-    await expect(settingsPage.panel.getByRole("button", { name: "Light" })).toBeVisible();
-    await expect(settingsPage.panel.getByRole("button", { name: "Dark" })).toBeVisible();
-    await expect(settingsPage.panel.getByRole("button", { name: "System" })).toBeVisible();
-    await expect(settingsPage.fontSizeSlider).toBeVisible();
-    await expect(settingsPage.panel.getByRole("button", { name: "Compact" })).toBeVisible();
-    await expect(settingsPage.panel.getByRole("button", { name: "Comfortable" })).toBeVisible();
+    await expect(settingsPage.fontSizeStepper).toBeVisible();
+    await expect(settingsPage.densityRadio("compact")).toBeVisible();
+    await expect(settingsPage.densityRadio("comfortable")).toBeVisible();
   });
 
   test("CTX-07: context pills in chat input", async ({

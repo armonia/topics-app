@@ -147,7 +147,7 @@ export async function expectEntrance(page: Page, label: string, maxMs: number, p
 
 /** The exit: the surface is gone at once, and an inert copy of it fades.
  *  The copy is looked up by its kind: a sheet leaves with a `modal` copy of its scrim next to it. */
-export async function expectExit(page: Page, label: string, kind: "popover" | "modal" | "sheet", maxMs: number) {
+export async function expectExit(page: Page, label: string, kind: "popover" | "modal" | "sheet" | "drawer", maxMs: number) {
   await expect
     .poll(async () => (await log(page)).filter((r) => r.kind === "ghost").map((r) => r.ghost), { message: `${label}: a ${kind} exit copy plays` })
     .toContain(kind);

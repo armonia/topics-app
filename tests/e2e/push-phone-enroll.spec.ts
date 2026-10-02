@@ -1,7 +1,7 @@
 /**
  * @covers PUSH-05
  *
- * Phone push, the enrolment half: Settings > Notifications > "Enable on this
+ * Phone push, the enrolment half: user menu > Notifications > This device > "Enable on this
  * device" leaves a subscription on the server, on an address that is NOT
  * `localhost`, and the service worker that carries it survives a reload.
  *
@@ -25,6 +25,7 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/settings.fixture";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
+import { openUserMenuLevel } from "./helpers/user-menu";
 
 hermetic(test);
 
@@ -107,6 +108,14 @@ async function permissionRequests(page: import("@playwright/test").Page): Promis
   return page.evaluate(() => JSON.parse(sessionStorage.getItem("e2e.permissionRequests") ?? "[]") as boolean[]);
 }
 
+/** The push controls: the «This device» level of the user menu's Notifications
+ *  level, where the Settings page's push card moved. */
+async function openThisDevicePush(page: import("@playwright/test").Page): Promise<void> {
+  const level = await openUserMenuLevel(page, "notifications");
+  await level.getByTestId("notif-this-device").click();
+  await expect(page.getByTestId("notif-this-device-menu")).toBeVisible({ timeout: 10_000 });
+}
+
 /** Is a service worker registered for this page right now? */
 async function hasWorker(page: import("@playwright/test").Page): Promise<boolean> {
   return page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration()));
@@ -115,7 +124,6 @@ async function hasWorker(page: import("@playwright/test").Page): Promise<boolean
 test.describe("Phone push: enrolment from Settings", () => {
   test("PUSH-05: the settings toggle subscribes this device on a non-localhost origin, and the worker survives a reload", async ({
     page,
-    settingsPage,
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "PUSH-05" });
@@ -128,9 +136,9 @@ test.describe("Phone push: enrolment from Settings", () => {
     //    registration here and unregistered any worker it found.
     await expect.poll(() => hasWorker(page), { timeout: 15_000, message: "no service worker on a non-localhost origin" }).toBe(true);
 
-    // 2. Settings > Notifications: the card says "not subscribed" and offers the button.
-    await settingsPage.openSettings();
-    await settingsPage.panel.getByRole("button", { name: /^(Notifications|Notifiche)$/ }).click();
+    // 2. User menu > Notifications > This device: the level says "not
+    //    subscribed" and offers the button.
+    await openThisDevicePush(page);
     const headline = page.getByTestId("push-status-headline");
     await expect(headline).toContainText("Non iscritto");
     const enable = page.getByTestId("push-subscribe");
@@ -146,6 +154,11 @@ test.describe("Phone push: enrolment from Settings", () => {
     await enable.click();
     await expect.poll(() => permissionRequests(page)).toEqual([...before, true]);
     await expect(headline).toContainText("Iscritto: le notifiche arrivano anche ad app chiusa");
+    // Subscribed, the level carries this device's own choices: receive here,
+    // and «when Topics is already open» as a segment that says which one is on.
+    await expect(page.getByTestId("push-receive-here")).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("push-when-open-native")).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("push-when-open-in-app")).toHaveAttribute("aria-checked", "false");
 
     const deviceId = await page.evaluate(() => localStorage.getItem("topics.push.deviceId"));
     expect(deviceId).toBeTruthy();
@@ -170,8 +183,7 @@ test.describe("Phone push: enrolment from Settings", () => {
     await bootVerdict;
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     expect(await hasWorker(page)).toBe(true);
-    await settingsPage.openSettings();
-    await settingsPage.panel.getByRole("button", { name: /^(Notifications|Notifiche)$/ }).click();
+    await openThisDevicePush(page);
     await expect(page.getByTestId("push-status-headline")).toContainText("Iscritto: le notifiche arrivano anche ad app chiusa");
 
     // 5. Unsubscribe from the same card: the server row goes away.
