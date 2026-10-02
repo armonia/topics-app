@@ -12,8 +12,12 @@
  * `||`, `|`, `&`, parentheses, braces, backticks and newlines, with backslash
  * line continuations joined first), after the reserved words that lead into
  * one (`then`, `do`, `!`...) and the wrappers that run another command
- * (`sudo`, `env`, `xargs`...). Quotes are not parsed, and only a command's
- * own name is looked at: `echo "rm -rf x"` asks nothing.
+ * (`sudo`, `env`, `xargs`, `timeout`, `caffeinate`...). A command handed over
+ * as text is read too: the payload of `sh -c`/`bash -c`/`zsh -c`, of `eval`
+ * and of `ssh host` (a command run on another machine is no less destructive).
+ * Quotes are not parsed, and only a command's own name is looked at: `echo
+ * "rm -rf x"` asks nothing, while in `bash -c "rm -rf x"` the quote before
+ * `rm` is dropped like any other, so the payload reads as the command it is.
  */
 
 export type RiskKind =
@@ -58,8 +62,14 @@ const WRAPPER_VALUE_OPTS: Record<string, Set<string>> = {
   nice: new Set(['-n']),
   xargs: new Set(['-I', '-n', '-P', '-L', '-d', '-s', '-E']),
   env: new Set(['-u', '-C', '-S']),
+  timeout: new Set(['-s', '-k', '--signal', '--kill-after']),
+  caffeinate: new Set(['-t', '-w']),
+  ssh: new Set(['-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w']),
 };
-const WRAPPERS = new Set(['sudo', 'doas', 'env', 'command', 'exec', 'nohup', 'time', 'nice', 'xargs']);
+const WRAPPERS = new Set(['sudo', 'doas', 'env', 'command', 'exec', 'nohup', 'time', 'nice', 'xargs', 'timeout', 'gtimeout', 'caffeinate']);
+/** Shells whose `-c` takes the command to run as text, and their options that take a value. */
+const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+const SHELL_VALUE_OPTS = new Set(['-o', '+o', '-O', '+O', '--rcfile', '--init-file']);
 const SHELLS = '(?:ba|z|da|k|fi)?sh';
 const PIPE_TO_SHELL = [
   new RegExp(String.raw`\b(curl|wget)\b[^\n|;&]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(${SHELLS})\b`, 'g'),
@@ -74,6 +84,41 @@ const commandName = (w: string) => unquote(w).replace(/^\\/, '').split('/').pop(
 const isShortFlag = (w: string) => /^-[A-Za-z]+$/.test(w);
 const shortHas = (w: string, letters: string) => isShortFlag(w) && [...letters].some((l) => w.includes(l));
 
+/** Past the options of the wrapper at `i`, and those that take a value with them. */
+function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefined, alsoSkip?: (w: string) => boolean): number {
+  while (i < words.length && (words[i]!.startsWith('-') || alsoSkip?.(words[i]!))) {
+    if (valueOpts?.has(words[i]!)) i++;
+    i++;
+  }
+  return i;
+}
+
+/**
+ * Where the command run by the wrapper at `i` starts, or null when `name`
+ * runs nothing of its own (`bash script.sh`, a bare `ssh host`).
+ */
+function wrappedCommandAt(name: string, words: string[], i: number): number | null {
+  if (WRAPPERS.has(name)) {
+    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name], name === 'env' ? (w) => ASSIGNMENT.test(w) : undefined);
+    // `timeout 10 cmd`: the duration comes before the command.
+    return name === 'timeout' || name === 'gtimeout' ? at + 1 : at;
+  }
+  if (name === 'eval') return i + 1;
+  if (name === 'ssh') {
+    // `ssh [options] host command...`: the words after the host are the remote command.
+    const host = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS.ssh);
+    return host + 1 < words.length ? host + 1 : null;
+  }
+  if (SHELL_NAMES.has(name)) {
+    // `bash -lc "..."`: the payload is the word after the flag that holds `c`.
+    for (let j = i + 1; j < words.length && /^[-+]/.test(words[j]!); j++) {
+      if (shortHas(words[j]!, 'c')) return j + 1;
+      if (SHELL_VALUE_OPTS.has(words[j]!)) j++;
+    }
+  }
+  return null;
+}
+
 /** The reasons found in one simple command, already split into words. */
 function scanWords(words: string[], add: (kind: RiskKind, text: string) => void): void {
   let i = 0;
@@ -81,15 +126,11 @@ function scanWords(words: string[], add: (kind: RiskKind, text: string) => void)
   for (;;) {
     while (i < words.length && (ASSIGNMENT.test(words[i]!) || LEADING_RESERVED.has(words[i]!))) i++;
     const name = commandName(words[i] ?? '');
-    if (!WRAPPERS.has(name)) break;
+    const next = wrappedCommandAt(name, words, i);
+    if (next === null) break;
     if (name === 'sudo' || name === 'doas') add('sudo', name);
-    const valueOpts = WRAPPER_VALUE_OPTS[name];
-    i++;
-    while (i < words.length && (words[i]!.startsWith('-') || (name === 'env' && ASSIGNMENT.test(words[i]!)))) {
-      if (valueOpts?.has(words[i]!)) i++;
-      i++;
-    }
-    if (name === 'xargs' && commandName(words[i] ?? '') === 'rm') add('xargs-rm', 'xargs rm');
+    if (name === 'xargs' && commandName(words[next] ?? '') === 'rm') add('xargs-rm', 'xargs rm');
+    i = next;
   }
   const name = commandName(words[i] ?? '');
   const args = words.slice(i + 1).map(unquote);

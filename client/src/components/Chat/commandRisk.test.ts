@@ -77,6 +77,61 @@ describe('commandRisk: the second step', () => {
     });
   }
 
+  // A wrapper runs the command after it, or the one it is handed as text:
+  // every destructive form is found behind every wrapper, quoted or not.
+  const destructive: Array<[string, RiskKind]> = [
+    ['rm -rf build', 'rm'],
+    ['git push --force origin main', 'git-push-force'],
+    ['git reset --hard HEAD~1', 'git-reset-hard'],
+    ['git clean -fdx', 'git-clean'],
+    ['kill -9 4242', 'kill'],
+    ['dd if=/dev/zero of=/dev/disk4', 'dd'],
+    ['chmod -R 777 /srv', 'chmod-recursive'],
+    ['find /srv -delete', 'find-delete'],
+    ['launchctl bootout gui/501/com.example', 'launchctl'],
+    ['diskutil eraseDisk APFS Empty disk4', 'diskutil-erase'],
+  ];
+  const wrappers: Array<[string, (c: string) => string]> = [
+    ['ssh, quoted', (c) => `ssh deploy@host "${c}"`],
+    ['ssh with options, unquoted', (c) => `ssh -i ~/.ssh/key -p 2222 -t host ${c}`],
+    ['sh -c', (c) => `sh -c '${c}'`],
+    ['bash -c', (c) => `bash -c "${c}"`],
+    ['bash -lc', (c) => `bash -o pipefail -lc '${c}'`],
+    ['zsh -c', (c) => `zsh -c '${c}'`],
+    ['eval', (c) => `eval "${c}"`],
+    ['timeout', (c) => `timeout 10 ${c}`],
+    ['timeout with a signal', (c) => `timeout -s KILL 10 ${c}`],
+    ['caffeinate', (c) => `caffeinate -i ${c}`],
+    ['nohup', (c) => `nohup ${c} &`],
+    ['env', (c) => `env FOO=1 ${c}`],
+    ['env into bash -c', (c) => `env -i bash -c "${c}"`],
+    ['sudo -u', (c) => `sudo -u deploy ${c}`],
+    ['sudo -u into sh -c', (c) => `sudo -u deploy sh -c '${c}'`],
+    ['xargs', (c) => `ls | xargs ${c}`],
+    ['xargs into sh -c', (c) => `ls | xargs -I{} sh -c '${c}'`],
+    ['ssh into bash -c', (c) => `ssh host 'bash -c "${c}"'`],
+  ];
+  for (const [wrapper, wrap] of wrappers) {
+    test(`behind ${wrapper}, every destructive form asks`, () => {
+      for (const [form, kind] of destructive) {
+        const command = wrap(form);
+        expect({ command, kinds: kinds(command) }).toEqual({ command, kinds: expect.arrayContaining([kind]) });
+      }
+    });
+  }
+
+  test('a wrapper around a harmless command, or handing harmless text, asks nothing', () => {
+    for (const c of [
+      'ssh host uptime', 'ssh -t host', 'ssh host "git push"', 'ssh host \'echo "rm -rf x"\'',
+      'bash script.sh', 'bash -c "echo rm -rf x"', "sh -c 'git status'", 'zsh -lc "bun run build"',
+      'eval "$(ssh-agent -s)"', 'eval "$(direnv hook zsh)"', 'timeout 5 ls', 'timeout 30 bun test',
+      'caffeinate -t 60', 'caffeinate -i bun run build', 'nohup bun run dev &', 'env NODE_ENV=production bun run build',
+      'find . -name "*.ts" | xargs grep -n TODO',
+    ]) {
+      expect({ c, confirm: commandRisk(c).confirm }).toEqual({ c, confirm: [] });
+    }
+  });
+
   test('a loop of harmless commands still asks nothing', () => {
     expect(kinds('for f in *.ts; do echo "$f"; done')).toEqual([]);
     expect(kinds('if [ -f x ]; then cat x; else ls; fi')).toEqual([]);
