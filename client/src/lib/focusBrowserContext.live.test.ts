@@ -109,8 +109,8 @@ describe('the agent\'s browser_focus_tab, fanned out to every client', () => {
   });
 
   test('the client whose drawer shows the task brings the tab in front', async () => {
-    const loc = (g.window as { location: { pathname: string } }).location;
-    loc.pathname = `/task/${TASK}`;
+    const location = (g.window as { location: { pathname: string } }).location;
+    location.pathname = `/task/${TASK}`;
     const outcome = await focusBrowserContextLive({ contextId: CTX, reopen: false, onlyWhereShown: true }, { layoutHandled: true });
     expect(outcome).toBe('task');
     expect(taskOpens().map((e) => e.detail)).toEqual([{ taskId: TASK, focusPaneId: `browser:${CTX}` }]);
