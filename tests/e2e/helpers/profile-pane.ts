@@ -15,8 +15,14 @@ import { expect, type Page } from "@playwright/test";
  * clicks to get there would make them red for a reason that is not theirs.
  */
 export async function openProfilePane(page: Page): Promise<void> {
-  await page.evaluate(() =>
-    window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "profile" } })),
-  );
-  await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
+  // The bus listeners register only after the first pane-store hydration, so
+  // an event sent right after `goto` can land on nobody (seen red on WebKit,
+  // base included). Re-send until the pane shows: the bus focuses an open
+  // Profile tab instead of opening a second one.
+  await expect(async () => {
+    await page.evaluate(() =>
+      window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "profile" } })),
+    );
+    await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 20000 });
 }

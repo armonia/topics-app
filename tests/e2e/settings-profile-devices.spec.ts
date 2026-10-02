@@ -18,7 +18,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
-import { hermetic } from "./fixtures/hermetic";
+import { hermetic, resetToBaseline } from "./fixtures/hermetic";
 import { openOwnProfile, openUserMenuLevel, requestSettingsSection } from "./helpers/user-menu";
 
 // The boundary between this file and the previous one: without it this spec
@@ -82,6 +82,10 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     // THIS is the original bug: two different doors opening onto the same
     // room. The door that said «devices» now lands on the user menu with the
     // Devices level open, and nowhere near the profile.
+    // SETTINGS-02 opened the Profile tab, and its saved layout comes back on
+    // the next load (seen red in a batch run): start from the baseline so «no
+    // profile» measures this door and not the test before.
+    await resetToBaseline();
     await page.route("**/api/auth/session", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
