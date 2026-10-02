@@ -105,11 +105,16 @@ let lastLocalChange = 0;
 // e parte appena il canale è aperto. Buttarla renderebbe il gate una perdita
 // silenziosa di dati invece di una precedenza.
 let pendingPut: AppSettings | null = null;
-// The last PUT FAILED (network down, server restarting, a non-ok answer): the
-// server holds an older value than the local one. While this is true a value
-// coming from the server does not overwrite the local one - it would silently
-// roll it back on reconnect - and the PUT is sent again instead.
-let serverBehind = false;
+// Keys changed on this device whose PUT has not been acknowledged yet, with
+// the JSON of the value written. A PUT that answers ok clears the keys it
+// carried (unless they changed again since).
+const unackedKeys = new Map<string, string>();
+// The subset whose last PUT FAILED (network down, server restarting, a non-ok
+// answer): the server holds an older value for THESE keys. A value coming from
+// the server does not overwrite them - it would silently roll them back on
+// reconnect - and they are sent again. Every other key from the server applies:
+// protecting the whole object overwrote what another device changed meanwhile.
+const failedKeys = new Set<string>();
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -157,17 +162,16 @@ export function syncableSettings(settings: AppSettings): Partial<AppSettings> {
  * preferenze locali sono più fresche del nulla.
  */
 export function applyServerSettings(raw: unknown): AppSettings | null {
-  // The server is behind a local change whose PUT failed: send that again
-  // instead of taking the old value as the truth.
-  if (serverBehind) {
-    if (hydrated) putSettings(loadSettings());
-    return null;
-  }
   const sv = sanitizeSettingsPayload(raw);
   if (!sv || Object.keys(sv).length === 0) return null;
-  const merged: AppSettings = { ...loadSettings(), ...sv };
+  const fromServer: Record<string, unknown> = { ...sv };
+  // The server is behind a local change whose PUT failed: those keys keep the
+  // local value and go up again, merged with what the server says about the rest.
+  for (const key of failedKeys) delete fromServer[key];
+  const merged: AppSettings = { ...loadSettings(), ...(fromServer as Partial<AppSettings>) };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch {}
   try { window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT)); } catch {}
+  if (failedKeys.size > 0 && hydrated) putSettings(merged);
   return merged;
 }
 
@@ -193,23 +197,48 @@ export function __resetSettingsSyncState(): void {
   hydrated = false;
   lastLocalChange = 0;
   pendingPut = null;
-  serverBehind = false;
+  unackedKeys.clear();
+  failedKeys.clear();
   if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
 }
 
 function putSettings(settings: AppSettings): void {
+  const carried = new Map(unackedKeys);
   // PANE-01-ALLOWED: non-pane ui-state key (app settings: fontSize, density, notifications). Not one of the 6 legacy pane keys.
   apiFetch(`/api/ui-state/${SETTINGS_SERVER_KEY}`, { // PANE-01-ALLOWED
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(syncableSettings(settings)),
   }).then(
-    (res) => { serverBehind = !res.ok; },
-    () => { serverBehind = true; },
+    (res) => { if (res.ok) settle(carried); else fail(carried); },
+    () => { fail(carried); },
   );
 }
 
+function settle(carried: Map<string, string>): void {
+  for (const [key, json] of carried) {
+    failedKeys.delete(key);
+    // Changed again while this PUT was in flight: the newer value is still unacked.
+    if (unackedKeys.get(key) === json) unackedKeys.delete(key);
+  }
+}
+
+function fail(carried: Map<string, string>): void {
+  for (const key of carried.keys()) failedKeys.add(key);
+}
+
+/** Records the syncable keys whose value differs from what is stored now. */
+function markChangedKeys(next: AppSettings): void {
+  const prev = loadSettings() as unknown as Record<string, unknown>;
+  const synced = syncableSettings(next) as Record<string, unknown>;
+  for (const key of Object.keys(synced)) {
+    const json = JSON.stringify(synced[key]);
+    if (json !== JSON.stringify(prev[key])) unackedKeys.set(key, json);
+  }
+}
+
 export function saveSettings(settings: AppSettings) {
+  markChangedKeys(settings);
   // Write localStorage immediately (fast paint)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   lastLocalChange = Date.now();

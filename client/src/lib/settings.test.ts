@@ -272,7 +272,7 @@ describe('failed PUT', () => {
       return Promise.resolve({ ok: true });
     };
     // The server is back: `ui-state:init` brings the value from before.
-    expect(applyServerSettings({ fontSize: 13 })).toBeNull();
+    expect(applyServerSettings({ fontSize: 13 })?.fontSize).toBe(19);
     expect(loadSettings().fontSize).toBe(19);
     const puts = fetchCalls.filter((c) => c.method === 'PUT');
     expect(puts).toHaveLength(2);
@@ -281,5 +281,50 @@ describe('failed PUT', () => {
     // The resend landed: the server is the source again.
     await Bun.sleep(0);
     expect(applyServerSettings({ fontSize: 15 })?.fontSize).toBe(15);
+  });
+});
+
+// ── A failed PUT protects only ITS keys ─────────────────────────────────────
+//
+// While the server was behind, EVERY value from the server was dropped and the
+// whole local object was PUT again: a key another device changed in the
+// meantime (here the language) was overwritten with this device's stale copy.
+
+describe('failed PUT, other keys', () => {
+  test('only the key that failed is protected and re-sent; another device\'s change applies', async () => {
+    markSettingsHydrated();
+    g.fetch = (url, init) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+      return Promise.reject(new Error('server down'));
+    };
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
+    await Bun.sleep(1100);
+
+    g.fetch = (url, init) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+      return Promise.resolve({ ok: true });
+    };
+    // Another device switched the language while this one was offline.
+    applyServerSettings({ ...syncableSettings(DEFAULT_SETTINGS), fontSize: 13, language: 'en' });
+    expect(loadSettings().fontSize).toBe(19);
+    expect(loadSettings().language).toBe('en');
+    const puts = fetchCalls.filter((c) => c.method === 'PUT');
+    expect(puts).toHaveLength(2);
+    expect((puts[1].body as AppSettings).fontSize).toBe(19);
+    expect((puts[1].body as AppSettings).language).toBe('en');
+  });
+
+  test('a key changed here and never failed does not block the server', async () => {
+    markSettingsHydrated();
+    g.fetch = (url, init) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+      return Promise.resolve({ ok: true });
+    };
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
+    await Bun.sleep(1100);
+    await Bun.sleep(0);
+    applyServerSettings({ fontSize: 15 });
+    expect(loadSettings().fontSize).toBe(15);
+    expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(1);
   });
 });
