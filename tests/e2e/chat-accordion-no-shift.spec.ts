@@ -486,10 +486,14 @@ test.describe("a fold opened by hand does not move the transcript", () => {
       if (kind.prepare) {
         await expect(locate(page, kind.fold(chat.last))).toBeVisible({ timeout: 30_000 });
         await kind.prepare(page, chat.last);
-        // Back to the end: the bottom case starts from a chat that follows its output.
+        // Back to the end, as a reader does: the bottom case starts from a chat that follows its output.
         const box = (await sc.boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 600);
+        for (let i = 0; i < 40; i++) {
+          if (await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight <= 1)) break;
+          await page.mouse.wheel(0, 600);
+          await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+        }
       }
       const lastClick = locate(page, kind.click(chat.last));
       await expect(lastClick).toBeVisible({ timeout: 30_000 });
