@@ -36,7 +36,8 @@ export type ListenAddress = { host: string; port: number };
  * work the chat waits for (BGVIS-08). `description` is the registry's name of
  * the process, `command` its first line, cut. `ended` is there for a few
  * seconds after it exits: when, its exit code (null = none recorded) and
- * whether a Stop ended it.
+ * whether a Stop ended it. `listen` has one address per port, and the first is
+ * the one the row opens (the page, when the command serves more than one port).
  */
 export type RunningServiceSummary = {
   processId: string;

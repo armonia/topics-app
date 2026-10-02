@@ -65,6 +65,10 @@ type Kind = {
   opened: (page: Page, tag: string) => Locator;
   /** Runs once the chat exists, before it is opened (a goal, a command file). */
   setup?: (request: APIRequestContext, topicId: string) => Promise<void>;
+  /** Reaches the control first, once the instance is in sight (a toggle inside a tool's body). */
+  prepare?: (page: Page, tag: string) => Promise<void>;
+  /** The toggle swaps content in a box that keeps its height: the fold must NOT change height. */
+  sameHeight?: boolean;
 };
 
 const LINES = (n: number, what: string) => Array.from({ length: n }, (_, i) => `${what} line ${i + 1}`).join("\n");
@@ -116,6 +120,28 @@ const KINDS: Kind[] = [
     click: (tag) => `[data-testid="tool-call-row-${tag}-l1"] > button`,
     fold: (tag) => `[data-testid="tool-call-row-${tag}-l1"]`,
     opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-l1"]`).getByText("lazy line 16"),
+  },
+  {
+    // A tool output past the inline budget (CHAT-PERF-01): «Show all» swaps the
+    // text inside a box that keeps its cap, inside a tool row opened first.
+    name: "tool-result-clamp",
+    seed: (tag) => [{
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: `${tag}-c1`, name: "mcp__probe__dump", args: { what: tag }, status: "success",
+        detail: { type: "mcp", server: "probe", tool: "dump", args: { what: tag }, result: LINES(2400, `dump ${tag}`) },
+        startedAt: now - 2000, endedAt: now - 1000,
+      }],
+    }],
+    click: (tag) => `[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"]`,
+    fold: (tag) => `[data-testid="tool-call-row-${tag}-c1"]`,
+    opened: (page, tag) => page.locator(`[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"][aria-expanded="true"]`),
+    prepare: async (page, tag) => {
+      await locate(page, `[data-testid="tool-call-row-${tag}-c1"] > button`).click();
+      await expect(locate(page, `[data-testid="tool-call-row-${tag}-c1"] [data-testid="tool-call-result-toggle"]`)).toBeVisible({ timeout: 10_000 });
+    },
+    sameHeight: true,
   },
   {
     name: "turn-work",
@@ -457,6 +483,18 @@ test.describe("a fold opened by hand does not move the transcript", () => {
       await installProbe(page);
       await openChat(page, request, chat.topicId);
       const sc = scrollerOf(page);
+      if (kind.prepare) {
+        await expect(locate(page, kind.fold(chat.last))).toBeVisible({ timeout: 30_000 });
+        await kind.prepare(page, chat.last);
+        // Back to the end, as a reader does: the bottom case starts from a chat that follows its output.
+        const box = (await sc.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        for (let i = 0; i < 40; i++) {
+          if (await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight <= 1)) break;
+          await page.mouse.wheel(0, 600);
+          await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+        }
+      }
       const lastClick = locate(page, kind.click(chat.last));
       await expect(lastClick).toBeVisible({ timeout: 30_000 });
 
@@ -483,6 +521,10 @@ test.describe("a fold opened by hand does not move the transcript", () => {
 
       // IN THE MIDDLE: wheeled up to an older instance (for a docked strip:
       // the same strip, the transcript read two screens up).
+      if (kind.prepare) {
+        await wheelToMiddle(page, kind.fold(chat.mid));
+        await kind.prepare(page, chat.mid);
+      }
       await wheelToMiddle(page, kind.docked ? `msg:Reply 9` : (kind.header ?? kind.click)(chat.mid).split(";;")[0]!);
       const residual = await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
       expect(residual, "the middle case is away from the bottom").toBeGreaterThan(300);
@@ -504,7 +546,8 @@ test.describe("a fold opened by hand does not move the transcript", () => {
 
       for (const m of results) {
         if (kind.docked) continue;
-        expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the fold did change height`).toBeGreaterThan(10);
+        if (kind.sameHeight) expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the box kept its height`).toBeLessThanOrEqual(1);
+        else expect(Math.abs(m.foldDelta), `${m.kind} ${m.where} ${m.phase}: the fold did change height`).toBeGreaterThan(10);
       }
       expect([...results.flatMap((m) => faults(m, !!kind.docked)), ...covered], "the clicked header and everything above it stay put, the newest row in sight").toEqual([]);
     });
@@ -560,6 +603,31 @@ test.describe("a fold opened by hand: at the true end of the chat", () => {
       await page.waitForFunction(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
     }
   }
+
+  test("a fold toggled from the keyboard keeps the focus on its header, so the next key closes it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
+    const id = `kbd${Date.now().toString(36)}`;
+    const chat = await chatEndingWith(request, "keyboard", [
+      { role: "user", content: "run it" },
+      { role: "assistant", content: "", toolCalls: [{ id, name: "Bash", args: { command: `ls -la /tmp/${id}` }, status: "success", result: LINES(6, "output"), startedAt: now - 2000, endedAt: now - 1000 }] },
+    ]);
+    await openChat(page, request, chat.topicId);
+    const header = page.locator(`[data-testid="tool-call-row-${id}"] > button`);
+    await expect(header).toBeVisible({ timeout: 30_000 });
+    await header.focus();
+    await page.keyboard.press("Enter");
+    await expect(header).toHaveAttribute("aria-expanded", "true");
+    // The press made the pane the focused one, and the pane hands the focus
+    // to its composer 50 ms later: twenty frames outlast that.
+    await page.waitForFunction(() => new Promise((r) => {
+      let n = 0;
+      const tick = () => (++n >= 20 ? r(true) : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    }));
+    await expect(header, "the header still holds the focus").toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(header, "Space closed the fold").toHaveAttribute("aria-expanded", "false");
+  });
 
   test("closed and reopened at once at the true bottom: the header stays and the fold ends open", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });

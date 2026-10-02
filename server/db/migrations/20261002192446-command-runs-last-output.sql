@@ -1,0 +1,15 @@
+-- 20261002192446-command-runs-last-output.sql
+--
+-- The prefix is a UTC timestamp (YYYYMMDDHHMMSS), not a counter: it is what
+-- makes a collision between parallel cards impossible. Do not rename it.
+--
+-- When a run from the chat last printed something, written on its row while
+-- it runs (at most every few seconds, `server/routes/processes.ts`).
+--
+-- A run whose process the registry no longer knows (killed with the server,
+-- never re-adopted) closes as `unknown` at the last moment it is known to
+-- have lived. Its log cannot say it: on a normal restart the registry's boot
+-- deletes the log of every process it does not know, so the row closed at its
+-- own start and the chat showed it as lasting 0 s. The row outlives the boot;
+-- this column is the time that survives it. NULL until the run prints.
+ALTER TABLE command_runs ADD COLUMN last_output_at TEXT;

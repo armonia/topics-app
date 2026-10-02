@@ -7,7 +7,7 @@
  * process is ever started.
  * @covers SUBAGENT-08, SUBAGENT-09, SUBAGENT-10, SUBAGENT-11, SUBAGENT-13, SUBAGENT-14, SUBAGENT-15, SUBAGENT-17
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
@@ -29,6 +29,8 @@ let bridge: FakeBridge;
 let ctx: AppContext;
 let router: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
 const reports: SubAgentExitInfo[] = [];
+/** Every frame the router broadcast: the roster pushes among them. */
+const frames: Array<{ type?: string; sessions?: Array<{ id: string; subAgentPhase?: string | null }> }> = [];
 const spawned: Array<{ parent: string; agentId: string }> = [];
 
 async function call(path: string, method: string, body?: object): Promise<Response> {
@@ -112,6 +114,7 @@ beforeAll(async () => {
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge = await startFakeClaudeBridge(ROOT, SOCKET_PATH);
   ctx = await createTestAppContext();
+  (ctx as { broadcastToAll: (m: object) => void }).broadcastToAll = (m) => { frames.push(m as (typeof frames)[number]); };
   topic(SONNET_CHAT, "claude-sonnet-5-5[1m]");
   topic(FOREIGN_MODEL_CHAT, "gpt-5.6-sol", "codex");
   topic(MEDIUM_CHAT, "claude-opus-5[1m]");
@@ -442,4 +445,137 @@ describe("limits counted from the rows (SUBAGENT-15)", () => {
     expect(status).toBe(429);
     expect(body.error).toContain("max 5 live sub-agents per session");
   });
+});
+
+describe("the roster, the transcript reads and the slots of a live child (SUBAGENT-11, 14, 15, 16)", () => {
+  const phaseOf = (agentId: string, f: (typeof frames)[number]) =>
+    f.type === "terminal:sessions" ? f.sessions?.find((s) => s.id === agentId)?.subAgentPhase ?? undefined : undefined;
+
+  test("send_to_agent on a finished child pushes its working phase at once, not at its next report", async () => {
+    const { body, child } = await spawn(SONNET_CHAT, { name: "steered" });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    endTurn(child!, "Report: 1 file");
+    await until("the first result", () => reportsFor(agentId).length === 1, 15_000);
+    await until("the finished phase pushed", () => frames.some((f) => phaseOf(agentId, f) === "finished"));
+    const mark = frames.length;
+    expect((await call(`${agents(SONNET_CHAT)}/${agentId}/send`, "POST", { input: "Now the tests." })).status).toBe(200);
+    expect(frames.slice(mark).map((f) => phaseOf(agentId, f)).filter(Boolean).at(-1)).toBe("working");
+  }, 60_000);
+
+  test("a chat with no model of its own opens its child on the model the chat runs on", async () => {
+    const { registerProvider, removeProvider, tryGetProvider } = await import("../../server/providers");
+    registerProvider({ type: "claude", apiKey: "test-key", model: "claude-sonnet-5-5" } as never);
+    try {
+      const parent = topicKey(7);
+      topic(parent, null, "claude");
+      const running = tryGetProvider("claude")!.defaultModel!()!;
+      const { status, body } = await spawn(parent, {});
+      expect(status).toBe(200);
+      expect(flag(argsOf(body.agentId as string), "--model")).toBe(running);
+      expect(body).toMatchObject({ model: running, modelSource: "parent" });
+      expect(body.modelNote).toBeUndefined();
+    } finally {
+      removeProvider("claude");
+    }
+  }, 30_000);
+
+  test("a working child's transcript is read from where the last look stopped, never whole at every tick", async () => {
+    const { body, child } = await spawn(SONNET_CHAT, { name: "long-turn" });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    const transcript = `${child!.sessionId}.jsonl`;
+    const readFile = spyOn(fs.promises, "readFile");
+    let wholeReads: unknown[][] = [];
+    try {
+      for (let i = 0; i < 3; i++) {
+        bridge.append(child!, { type: "assistant", message: { model: "claude-sonnet-5-5", role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: `g${i}`, name: "Grep", input: {} }] } });
+        bridge.append(child!, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `g${i}`, content: "x".repeat(4_000) }] } });
+        await new Promise((r) => setTimeout(r, 2_300));
+      }
+      endTurn(child!, "Report: long turn");
+      await until("the result", () => reportsFor(agentId).length === 1, 15_000);
+      wholeReads = readFile.mock.calls.filter(([p]) => String(p).endsWith(transcript));
+    } finally {
+      readFile.mockRestore();
+    }
+    expect(reportsFor(agentId)[0]).toMatchObject({ turn: 1, model: "claude-sonnet-5-5", outcome: { status: "completed", text: "Report: long turn" } });
+    expect(wholeReads).toEqual([]);
+  }, 60_000);
+
+  test("a record written in two pieces, and a transcript replaced by another file, are read right", async () => {
+    const { body, child } = await spawn(SONNET_CHAT, { name: "pieces" });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    const file = bridge.transcriptFile(child!.cwd, child!.sessionId)!;
+    const end = (text: string) => JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-5-5", role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text }] } }) + "\n";
+    const half = Math.floor(end("Report: in two pieces").length / 2);
+    fs.appendFileSync(file, end("Report: in two pieces").slice(0, half));
+    await new Promise((r) => setTimeout(r, 2_300));
+    expect(reportsFor(agentId)).toEqual([]);
+    fs.appendFileSync(file, end("Report: in two pieces").slice(half));
+    await until("the first result", () => reportsFor(agentId).length === 1, 15_000);
+    expect(reportsFor(agentId)[0]!.outcome).toMatchObject({ status: "completed", text: "Report: in two pieces" });
+
+    // Another file under the same name: what it holds is read from its top.
+    const prompt = (text: string) => JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n";
+    fs.writeFileSync(`${file}.next`, prompt("First.") + end("One.") + prompt("Second.") + end("Report: after the swap"));
+    fs.renameSync(`${file}.next`, file);
+    await until("the second result", () => reportsFor(agentId).length === 2, 15_000);
+    expect(reportsFor(agentId)[1]).toMatchObject({ turn: 2, outcome: { status: "completed", text: "Report: after the swap" } });
+  }, 60_000);
+
+  test("a child whose seeding a restart cut is reported undelivered, then retired: it holds no slot forever", async () => {
+    const terminal = await import("../../server/routes/terminal");
+    bridge.nextAcceptFromEnter = 99;
+    let spawnedChild: Awaited<ReturnType<typeof spawn>>;
+    try {
+      spawnedChild = await spawn(SONNET_CHAT, { name: "never-seeded" });
+    } finally {
+      bridge.nextAcceptFromEnter = 1;
+    }
+    const agentId = spawnedChild.body.agentId as string;
+    // The server restarts two minutes after the spawn, with the prompt never arrived.
+    terminal._forgetSubAgentMemory();
+    ctx.db.run("UPDATE subagents SET created_at = ? WHERE id = ?", [new Date(Date.now() - 2 * 60_000).toISOString(), agentId]);
+    await until("the undelivered report", () => reportsFor(agentId).some((r) => r.outcome.status === "undelivered"), 15_000);
+    expect(rowOf(agentId)).toMatchObject({ state: "running", turns_reported: 0 });
+    await until("the retirement", () => terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 15_000);
+    expect(rowOf(agentId)?.state).toBe("retired");
+  }, 60_000);
+
+  test("a foreground spawn holds its parent's own clock until its result is collected", async () => {
+    const { awaitsForegroundChild } = await import("../../server/lib/subagent-runtime");
+    const parent = topicKey(8);
+    topic(parent, "claude-sonnet-5-5[1m]");
+    expect(awaitsForegroundChild(parent)).toBe(false);
+    const { body, child } = await spawn(parent, { run_in_background: false });
+    const agentId = body.agentId as string;
+    expect(awaitsForegroundChild(parent)).toBe(true);
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    const waiting = call(`${agents(parent)}/${agentId}/wait?legMs=15000`, "GET");
+    endTurn(child!, "Report: foreground");
+    expect(((await (await waiting).json()) as { status: string }).status).toBe("done");
+    expect(awaitsForegroundChild(parent)).toBe(false);
+  }, 60_000);
+
+  test("a retirement the park gates refuse writes nothing to the row", async () => {
+    const terminal = await import("../../server/routes/terminal");
+    const { body, child } = await spawn(SONNET_CHAT, { name: "refused-park" });
+    const agentId = body.agentId as string;
+    await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
+    endTurn(child!, "Report: done");
+    await until("the result", () => reportsFor(agentId).length === 1, 15_000);
+    ctx.db.run("CREATE TABLE state_writes (id TEXT, state TEXT)");
+    ctx.db.run("CREATE TRIGGER log_state_writes AFTER UPDATE OF state ON subagents BEGIN INSERT INTO state_writes VALUES (NEW.id, NEW.state); END");
+    try {
+      // An hour after the report by the clock, but its PTY spoke seconds ago: the idle gate says no.
+      expect(terminal.retireIdleSubAgents({ now: Date.now() + 60 * 60_000, idleMs: 30 * 60_000 })).not.toContain(agentId);
+      expect(rowOf(agentId)?.state).toBe("running");
+      expect(ctx.db.query("SELECT state FROM state_writes WHERE id = ?").all(agentId)).toEqual([]);
+    } finally {
+      ctx.db.run("DROP TRIGGER log_state_writes");
+      ctx.db.run("DROP TABLE state_writes");
+    }
+  }, 60_000);
 });

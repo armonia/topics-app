@@ -128,7 +128,7 @@ interface StandaloneChatGroupProps {
   onNewChat?: () => void | Promise<unknown>;
   stopSession: (sessionKey: string) => Promise<boolean>;
   // Pending pane request for project tabs
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType; nearPaneId?: string } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project (optional groupId = the tab bar clicked)
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
@@ -842,6 +842,7 @@ export function StandaloneChatGroup({
           pendingPane={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.type : undefined}
           pendingTerminalSessionId={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalSessionId : undefined}
           pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalType : undefined}
+          pendingNearPaneId={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.nearPaneId : undefined}
           onPendingPaneConsumed={onPendingProjectPaneConsumed}
           onNewChat={onNewChatInProject ? (groupId?: string) => onNewChatInProject(projectPath, groupId) : undefined}
           // Il pin della sidebar scende fin qui: dentro il progetto il menu

@@ -92,6 +92,38 @@ describe("subagent wake", () => {
     expect(h.settled).toEqual(["c1:1"]);
   });
 
+  test("a stop the parent asked for waits until its turn is over, then is a row and starts no turn", async () => {
+    const h = harness();
+    h.setBusy(true);
+    h.ask(result({ status: "stopped", partial: true, reason: { code: "stopped-by-parent" } }));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(h.rows).toEqual([]);
+    expect(h.settled).toEqual([]);
+    h.setBusy(false);
+    await h.wake.idle();
+    expect(h.rows).toEqual(["c1"]);
+    expect(h.settled).toEqual(["c1:1"]);
+    expect(h.posted).toEqual([]);
+  });
+
+  test("beside a result that wakes, the parent's own stop is a row and only the other result is in the turn", async () => {
+    const h = harness();
+    h.ask(result({ agentId: "c1", status: "stopped", partial: true, reason: { code: "stopped-by-parent" } }));
+    h.ask(result({ agentId: "c2", name: "verifier", text: "Refuted." }));
+    await h.wake.idle();
+    expect(h.rows).toEqual(["c1"]);
+    expect(h.posted.map((p) => p.subagentResults.map((r) => r.agentId))).toEqual([["c2"]]);
+    expect(h.settled.sort()).toEqual(["c1:1", "c2:1"]);
+  });
+
+  test("a parent whose provider is held still gets the row of its own stop once it is idle", async () => {
+    const h = harness({ canWake: () => "wait" });
+    h.ask(result({ status: "stopped", partial: true, reason: { code: "stopped-by-parent" } }));
+    await h.wake.idle();
+    expect(h.rows).toEqual(["c1"]);
+    expect(h.posted).toEqual([]);
+  });
+
   test("a route that refuses for good falls back to the row, the result is not lost", async () => {
     const h = harness({ answers: [500] });
     h.ask(result());

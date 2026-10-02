@@ -410,11 +410,25 @@ export function __resetProjectSyncForTests(): void {
  * preserved for callers that still write their own per-project key.
  */
 export function saveProjectLayoutLocalOnly(localKey: string, state: unknown): void {
+  writeLocalRecord(localKey, state);
+}
+
+/**
+ * The one local write of a project record. A changed tab record tells the
+ * pane readers here: the project window writes locally first and only then
+ * calls `saveProjectLayout`, which then finds nothing changed, so the notice
+ * has to come from whichever write lands first.
+ */
+function writeLocalRecord(localKey: string, state: unknown): void {
+  let changed = false;
   try {
-    localStorage.setItem(localKey, JSON.stringify(state));
+    const json = JSON.stringify(state);
+    changed = localStorage.getItem(localKey) !== json;
+    if (changed) localStorage.setItem(localKey, json);
   } catch {
     /* quota / private mode — silent */
   }
+  if (changed && isSyncedProjectKey(localKey)) for (const l of [...panesListeners]) l();
 }
 
 /**
@@ -436,12 +450,26 @@ export function saveProjectLayout(
 ): void {
   // Suppress unused-args lint while keeping the signature for legacy callers.
   void projectPath;
-  try {
-    localStorage.setItem(localKey, JSON.stringify(state));
-  } catch {
-    /* quota / private mode — silent */
-  }
+  writeLocalRecord(localKey, state);
   if (isSyncedProjectKey(localKey)) queueSync(localKey, state);
+}
+
+const panesListeners = new Set<() => void>();
+
+/**
+ * Told whenever a project's tab record changes, here or in another window of
+ * the app (same localStorage). For the readers that ask the records where a
+ * pane lives without mounting the project window: a chat's browser marker
+ * says «in a tab» from them, and has to follow a tab opened or closed there.
+ */
+export function subscribeProjectPanes(listener: () => void): () => void {
+  panesListeners.add(listener);
+  const onStorage = (e: StorageEvent): void => { if (e.key === null || isSyncedProjectKey(e.key)) listener(); };
+  if (typeof window !== 'undefined') window.addEventListener?.('storage', onStorage);
+  return () => {
+    panesListeners.delete(listener);
+    if (typeof window !== 'undefined') window.removeEventListener?.('storage', onStorage);
+  };
 }
 
 /**

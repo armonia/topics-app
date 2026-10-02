@@ -18,7 +18,7 @@ import { join } from "path";
 import { createSubagentWatcher, extractTextContent, type SubagentWatcher } from "./subagent-watch";
 import type { Topic, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
-import type { SubagentWakeRequest } from "../services/subagent-wake";
+import { createSubagentWake, type SubagentWakeRequest } from "../services/subagent-wake";
 
 const SESSION_KEY = "topic:abc123";
 const TOPIC_ID = "topic-abc123";
@@ -303,6 +303,42 @@ describe("deliverExit - one report per turn, and the wake (SUBAGENT-11, SUBAGENT
     watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c5", name: "foglio-tab", outcome: completed, exitCode: null, model: "claude-sonnet-5-5" });
     expect(rows[0]!.content.startsWith('**Sotto-agente "foglio-tab", esito:**')).toBe(true);
     expect(rows[0]!.blocks).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId: "c5", name: "foglio-tab", status: "completed", model: "claude-sonnet-5-5" })] }]);
+  });
+
+  it("a stop the parent asked for waits for the parent's own turn to end, then lands as a row and starts no turn", async () => {
+    // The parent is inside its own stop_agent call: a row written now would be a
+    // `message:new` in the middle of its turn, which the window owning that stream drops.
+    let busy = true;
+    const posted: string[] = [];
+    const wake = createSubagentWake({
+      debounceMs: 10, pollMs: 5, endGraceMs: 20,
+      isBusy: () => busy,
+      canWake: () => "wake",
+      route: async (req) => { posted.push(((await req.json()) as { sessionKey: string }).sessionKey); return new Response("data: [DONE]\n\n"); },
+    });
+    let settled = 0;
+    const { watcher, rows } = watcherWith((r) => wake.request(r));
+    const byParent = { status: "stopped" as const, partial: true, text: "Mapping the call sites", reason: { code: "stopped-by-parent" as const } };
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c7", name: "scout", outcome: byParent, exitCode: null, settle: () => { settled++; } });
+    expect(rows).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, 120));
+    expect(rows).toHaveLength(0);
+    expect(settled).toBe(0);
+    busy = false;
+    await wake.idle();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.blocks).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId: "c7", status: "stopped", reason: { code: "stopped-by-parent" } })] }]);
+    expect(settled).toBe(1);
+    expect(posted).toEqual([]);
+  });
+
+  it("any other stop still wakes the parent", async () => {
+    const asked: SubagentWakeRequest[] = [];
+    const { watcher, rows } = watcherWith((r) => asked.push(r));
+    const tabClosed = { status: "stopped" as const, partial: true, text: "Mapping the call sites", reason: { code: "tab-closed" as const } };
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c8", name: "scout", outcome: tabClosed, exitCode: null });
+    expect(asked.map((r) => r.result.agentId)).toEqual(["c8"]);
+    expect(rows).toHaveLength(0);
   });
 
   it("with the wake wired the result goes there, and no row is written at once", () => {

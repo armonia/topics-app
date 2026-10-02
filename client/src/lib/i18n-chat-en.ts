@@ -187,6 +187,7 @@ const CHAT_EN: Dict = {
   'chat.subagent.phase.working': 'working',
   'chat.subagent.phase.finished': 'finished its turn',
   'chat.subagent.phase.ended': 'ended',
+  'chat.subagent.phase.refused': 'refused',
   'chat.subagent.status.completed': 'completed',
   'chat.subagent.status.failed': 'failed',
   'chat.subagent.status.stopped': 'stopped before finishing',

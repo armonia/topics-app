@@ -88,3 +88,9 @@ export function openInTopicWindow(topicId: string | undefined, sheet: TopicWindo
   if (!topicId || !sheet.contextId) return false;
   return doors.get(topicId)?.(sheet) ?? false;
 }
+
+/** Does this client draw the topic's window? The chat that would draw it holds
+ *  the door, so a topic with no door here is on another device or nowhere. */
+export function topicWindowOnScreen(topicId: string): boolean {
+  return doors.has(topicId);
+}

@@ -1233,12 +1233,18 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       } else if (b.kind === 'thinking') {
         out.push({ kind: 'thinking', idx: i, text: b.text });
       } else {
+        // A kind this bundle does not know (a window still on an older bundle
+        // meets a block added later) reads as prose when it carries the `text`
+        // the server writes for such readers, and draws nothing without one:
+        // splitting `undefined` threw and took the whole pane down.
+        const text: unknown = (b as { text?: unknown }).text;
+        if (typeof text !== 'string') continue;
         // Split HERE and not at the source: this is the last point before the
         // text reaches the screen, and it is the one the markers were slipping
         // through. Each part becomes its own group, so an image drawn in the
         // middle of the prose stays in the middle (see `splitBlockMedia`).
         let seq = 0;
-        for (const part of splitBlockMedia(b.text)) {
+        for (const part of splitBlockMedia(text)) {
           if (part.kind === 'text') out.push({ kind: 'text', idx: i, text: part.text });
           else { out.push({ kind: 'media', idx: i, path: part.path, seq: seq++ }); found.push(part.path); }
         }

@@ -107,7 +107,7 @@ export class SettingsPage {
     return this.page.getByTestId(`appearance-density-${density}`);
   }
 
-  /** The text size, a spinbutton: arrows move it one step. */
+  /** The text size, a spinbutton: right and left move it one step. */
   get fontSizeStepper() {
     return this.page.getByTestId("appearance-font-size");
   }

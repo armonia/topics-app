@@ -34,6 +34,15 @@ export function fallbackFocusedGroupId(focused: string | null, groups: readonly 
 }
 
 /**
+ * Where a pane asked for from outside the window lands: in the group holding
+ * `nearPaneId` (the chat that asked), else the focused group, else the first.
+ */
+export function pendingPaneGroupId(groups: readonly PaneGroup[], focused: string | null, nearPaneId?: string): string | undefined {
+  const near = nearPaneId ? groups.find(g => g.paneIds.includes(nearPaneId)) : undefined;
+  return near?.id ?? (focused || groups[0]?.id);
+}
+
+/**
  * Which pane becomes active in `group` once `paneId` leaves it: the tab that
  * takes its INDEX, clamped to the last one — i.e. focus lands where the eye
  * already is. Returns the current active pane unchanged when the leaving pane

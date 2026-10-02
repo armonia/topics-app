@@ -454,7 +454,10 @@ export function deriveToolDetail(
   // answer names the agentId and the model that really started.
   if (c === "spawn_agent" || c.endsWith("__spawn_agent")) {
     const agentId = result?.match(/agentId=([0-9a-f-]{36})/)?.[1];
-    const startedModel = result?.match(/ · model=([^\s·]+)/)?.[1];
+    // `model=default (why)` is the route's note that no `--model` went out:
+    // the child runs on the CLI default, which is not a model called "default".
+    const modelField = result?.match(/ · model=([^\s·]+)( \()?/);
+    const startedModel = modelField && !modelField[2] ? modelField[1] : undefined;
     const prompt = s(a.prompt);
     return {
       type: "sub_agent",
@@ -462,7 +465,7 @@ export function deriveToolDetail(
       ...(s(a.agent_type) ? { subAgentType: s(a.agent_type)! } : {}),
       ...(prompt ? { description: prompt.length > 120 ? `${prompt.slice(0, 119)}…` : prompt } : {}),
       ...(s(a.name) ? { name: s(a.name)! } : {}),
-      ...((startedModel ?? s(a.model)) ? { model: (startedModel ?? s(a.model))! } : {}),
+      ...(!modelField?.[2] && (startedModel ?? s(a.model)) ? { model: (startedModel ?? s(a.model))! } : {}),
       ...(agentId ? { agentId } : {}),
       actions: [],
       ...(result ? { result } : {}),

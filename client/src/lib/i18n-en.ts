@@ -67,6 +67,8 @@ const EN = {
   'ctx.removeFile': 'Remove the file',
   'tool.logTruncated': '[… {n} lines dropped: the log buffer is full]',
   'tool.runningTail.more': 'More output above',
+  'tool.result.showAll': 'Show all ({size})',
+  'tool.result.showLess': 'Show less',
   'kpi.noSource': 'Data unavailable: no source for this metric',
   'dev.newerBuild': 'A newer build is ready',
   'dev.chunkFailed': 'Part of the app did not load: this window is on an old build',

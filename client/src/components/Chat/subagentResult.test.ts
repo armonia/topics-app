@@ -1,7 +1,7 @@
 /** @covers SUBAGENT-16 */
 import { describe, expect, test } from 'bun:test';
 import type { ContentBlock, SubagentResultCard } from '../../types';
-import { foregroundSpawnResult, latestSubagentResult, reasonText, spawnCardState } from './subagentResult';
+import { foregroundSpawnResult, latestSubagentResult, reasonText, spawnCardState, spawnRefusal } from './subagentResult';
 import { ensureLocaleLoaded, t } from '../../lib/i18n';
 import { buildToolDisplayLabel, resolveToolDetail } from './toolDetail';
 import { toolCardHasBody } from './toolCardBody';
@@ -60,6 +60,72 @@ describe('the state a spawn card shows', () => {
     expect(spawnCardState({ live: null, result: card({ status: 'undelivered' }), isRunning: false })).toBe('finished');
     expect(spawnCardState({ live: null, result: null, isRunning: false })).toBe('ended');
     expect(spawnCardState({ live: null, result: null, isRunning: true })).toBe('starting');
+  });
+});
+
+describe('a spawn the server refused', () => {
+  const refusal = 'machine-wide limit of 6 live sub-agents reached; holding the slots: "a" (topic:x). Stop one with stop_agent, or wait for one to finish.';
+  const failed = (result: string) => resolveToolDetail({ id: 't1', name: 'mcp__topics__spawn_agent', args: { prompt: 'Find the call sites.' }, result, status: 'error' } as never);
+
+  test('is its own state, with the refusal as its words', () => {
+    const detail = failed(refusal);
+    expect(spawnRefusal(detail as never, true, undefined)).toBe(refusal);
+    expect(spawnCardState({ live: null, result: null, isRunning: false, refused: true })).toBe('refused');
+  });
+
+  test('the error kept on the call is the refusal when the result has none, and a call that started a child was not refused', () => {
+    expect(spawnRefusal(failed('') as never, true, refusal)).toBe(refusal);
+    const started = failed('spawn_agent: the turn was stopped while waiting; sub-agent "x" · agentId=0b7c2f0e-1d2a-4c3b-9e8f-1234567890ab · cwd=/p goes on');
+    expect(spawnRefusal(started as never, true, undefined)).toBeNull();
+    expect(spawnRefusal(failed(refusal) as never, false, undefined)).toBeNull();
+  });
+});
+
+describe('a spawn that failed without being refused keeps the error rendering', () => {
+  const failed = (result: string) => resolveToolDetail({ id: 't1', name: 'mcp__topics__spawn_agent', args: { prompt: 'Find the call sites.' }, result, status: 'error' } as never);
+  const notRefusals = [
+    '[Request interrupted by user for tool use]',
+    'Aborted by user',
+    'Stream ended with error',
+    'Chiamata tagliata: il turno ha raggiunto il limite di lunghezza mentre scriveva gli argomenti',
+    'POST /api/sessions/topic%3Ax/agents/spawn: no answer in 45s (topics-app unreachable?)',
+    'HTTP 502: Failed to spawn sub-agent: posix_spawn failed',
+    'HTTP 401: unauthorized',
+    'spawn_agent: server did not return an agentId',
+  ];
+  for (const text of notRefusals) {
+    test(`${JSON.stringify(text)} is not a refusal, as the result or as the error`, () => {
+      expect(spawnRefusal(failed(text) as never, true, undefined)).toBeNull();
+      expect(spawnRefusal(failed('') as never, true, text)).toBeNull();
+    });
+  }
+});
+
+describe('the route\'s refusals, as the MCP bridge hands them over', () => {
+  const failed = (result: string) => resolveToolDetail({ id: 't1', name: 'mcp__topics__spawn_agent', args: { prompt: 'Find the call sites.' }, result, status: 'error' } as never);
+  const refusals: Array<[string, string]> = [
+    ['HTTP 429: max 5 live sub-agents per session', 'max 5 live sub-agents per session'],
+    ['HTTP 429: sub-agent depth limit (2) reached', 'sub-agent depth limit (2) reached'],
+    ['HTTP 429: board concurrency cap reached (4/4 live agents)', 'board concurrency cap reached (4/4 live agents)'],
+    ['HTTP 400: unknown model "gpt": use one of opus, sonnet', 'unknown model "gpt": use one of opus, sonnet'],
+    ['HTTP 400: unknown agent_type "x": use one of scout, oracle', 'unknown agent_type "x": use one of scout, oracle'],
+    ['sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own', 'sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own'],
+    ['unknown effort "ultra": use one of low, high', 'unknown effort "ultra": use one of low, high'],
+  ];
+  for (const [text, words] of refusals) {
+    test(`${JSON.stringify(text)} is a refusal`, () => {
+      expect(spawnRefusal(failed(text) as never, true, undefined)).toBe(words);
+      expect(spawnRefusal(failed('') as never, true, text)).toBe(words);
+    });
+  }
+});
+
+describe('the model a spawn card names', () => {
+  test('a note that the child runs on the CLI default is not a model called "default"', () => {
+    const answer = 'spawned sub-agent "x" · agentId=0b7c2f0e-1d2a-4c3b-9e8f-1234567890ab · cwd=/p · model=default (the parent\'s model is not known) — its result will wake this chat';
+    const detail = resolveToolDetail({ id: 't1', name: 'mcp__topics__spawn_agent', args: { prompt: 'Find the call sites.' }, result: answer, status: 'success' } as never);
+    expect(detail).toMatchObject({ type: 'sub_agent', via: 'spawn_agent' });
+    expect((detail as { model?: string }).model).toBeUndefined();
   });
 });
 
