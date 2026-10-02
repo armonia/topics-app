@@ -1870,6 +1870,10 @@ const IT: Dict = {
   'sidebar.expand': 'Riapri la colonna',
   'sidebar.tree': 'Barra laterale',
   'sidebar.pinned': 'Fissato',
+  'sidebar.incognito.show': 'Mostra al gruppo',
+  'sidebar.incognito.hide': 'Rendi incognito',
+  'sidebar.incognito.showFailed': 'Non sono riuscito a mostrare il progetto al gruppo: resta incognito.',
+  'sidebar.incognito.hideFailed': 'Non sono riuscito a rendere incognito il progetto: il gruppo lo vede ancora.',
   'sidebar.moreOptions': 'Altre opzioni',
   // Il «+» della riga di progetto su touch. NON è «altre opzioni»: quel bottone
   // apre il menu di AGGIUNTA (nuova chat, terminale, browser…), non il menu
