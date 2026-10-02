@@ -70,6 +70,7 @@ import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-a
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { probePort, verdictMessage, realProbeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
+import { runIncrementalVacuum, INCREMENTAL_VACUUM_EVERY_MS } from "./server/lib/db-incremental-vacuum";
 import { startLoopLagSampler } from "./server/lib/loop-lag-sampler";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { nativeHistorySource } from "./server/providers/native/history-source";
@@ -6637,6 +6638,24 @@ const idleGcTimer = setInterval(() => {
 idleGcTimer.unref?.();
 
 /**
+ * Free database pages go back to the disk while nothing is working.
+ *
+ * The predicate is the restart gate's own (`whatIsStillWorking`): whatever
+ * would hold a restart holds a step of this too, and the round asks again
+ * before every step. Bounds and measurements are in
+ * `server/lib/db-incremental-vacuum.ts`. Until the one-time conversion in
+ * start-prod.sh has run, `auto_vacuum` is NONE and every round is a no-op.
+ */
+const incrementalVacuumTimer = setInterval(() => {
+  runIncrementalVacuum({
+    db: ctx.db,
+    busy: async () => (await whatIsStillWorking()).busy,
+    log: (line) => console.log(line),
+  }).catch((err) => console.warn("[incremental-vacuum] round skipped:", (err as Error).message));
+}, INCREMENTAL_VACUUM_EVERY_MS);
+incrementalVacuumTimer.unref?.();
+
+/**
  * WHEN THIS PROCESS STOPS ANSWERING, ONE LINE SAYS WHAT WAS TRUE OF IT.
  *
  * The `[HTTP]` line above measures a request from the moment the loop is free
@@ -6677,6 +6696,7 @@ async function gracefulShutdown(signal: string) {
   clearInterval(landingAuditTimer);
   clearInterval(relayLicenzaTimer);
   clearInterval(idleGcTimer);
+  clearInterval(incrementalVacuumTimer);
   clearInterval(loopLagTimer);
   stopToolOutputBackfill();
   // A process left STOPped by the governor is a process nobody will ever

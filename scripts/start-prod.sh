@@ -183,6 +183,17 @@ if [ ! -f "$APP_DIR/public/index.html" ]; then
   (cd client && npx vite build 2>&1 | tail -3)
 fi
 
+# ─── auto_vacuum=INCREMENTAL, once, with the server stopped (2026-10-01) ────
+# A database born with auto_vacuum=NONE never gives free pages back to the
+# disk, and only switches mode through a full VACUUM: minutes of write lock on
+# a multi-GB file, so it runs HERE, before the loop below starts the server,
+# never inside it. The script backs the file up first and skips on any doubt
+# (already converted, file open in another process, free disk under 2x, a
+# previous failure marker). Its exit code is ignored: the server starts anyway.
+# A watcher reload does not come back through here, only a supervisor start.
+"$BUN" run "$APP_DIR/scripts/enable-incremental-vacuum.ts" \
+  || echo "[start-prod] incremental-vacuum conversion failed (exit $?): starting the server anyway"
+
 # ─── Client: STABLE bundle, no reload-on-source-change ─────────────────────
 # The production app serves the /public bundle built once above. We deliberately
 # do NOT watch client/src and auto-rebuild+reload. A vite build rewrites
