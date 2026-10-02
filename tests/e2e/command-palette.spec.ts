@@ -159,7 +159,8 @@ test.describe("Command Palette", () => {
 
     // --- Part A: Theme toggle ---
     // Theme + Settings moved from result options into ActionPill <button>s in
-    // the palette's bottom bar (CommandPalette.tsx). The "Theme" pill cycles
+    // the palette's bottom bar (CommandPalette.tsx). The theme pill (named
+    // after the current theme, e.g. "Tema: Sistema", hence the test id) cycles
     // themeMode light→dark→system on each click (useTheme.toggleTheme) and
     // closes the palette; themeMode persists to localStorage['theme']. Any
     // single click advances to a distinct mode, so the stored value changes.
@@ -168,7 +169,7 @@ test.describe("Command Palette", () => {
     await expect(commandPalettePage.searchInput).toBeFocused();
 
     const themeBefore = await page.evaluate(() => localStorage.getItem("theme"));
-    const themePill = commandPalettePage.overlay.getByRole("button", { name: "Theme" });
+    const themePill = commandPalettePage.overlay.getByTestId("palette-theme-pill");
     await expect(themePill).toBeVisible();
     await themePill.click();
     await expect(commandPalettePage.overlay).toBeHidden();
@@ -259,8 +260,9 @@ test.describe("Command Palette", () => {
     ).toBeVisible();
 
     // Settings is now an ActionPill in the bottom bar, not a result option.
+    // Its accessible name is the localized title followed by the shortcut.
     await expect(
-      commandPalettePage.overlay.getByRole("button", { name: "Settings" })
+      commandPalettePage.overlay.getByRole("button", { name: /^Impostazioni/ })
     ).toBeVisible();
 
     // Test 4: Selecting an option closes the palette (same close mechanism for file results)
@@ -397,7 +399,7 @@ test.describe("Command Palette", () => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await goToApp(page);
 
-    // The theme control is the "Theme" ActionPill in the palette's bottom bar
+    // The theme control is the theme ActionPill in the palette's bottom bar
     // (CommandPalette.tsx). Clicking it advances themeMode light→dark→system
     // (useTheme.toggleTheme) and closes the palette. Over three consecutive
     // clicks the cycle necessarily visits the dark mode (effective `dark`
@@ -409,7 +411,7 @@ test.describe("Command Palette", () => {
     for (let i = 0; i < 3; i++) {
       await commandPalettePage.open();
       await expect(commandPalettePage.overlay).toBeVisible();
-      const themePill = commandPalettePage.overlay.getByRole("button", { name: "Theme" });
+      const themePill = commandPalettePage.overlay.getByTestId("palette-theme-pill");
       await expect(themePill).toBeVisible();
       await themePill.click();
       // Palette close (onClose) and the theme change (onToggleTheme) are batched
@@ -693,9 +695,10 @@ test.describe("Command Palette", () => {
     await page.locator('[role="main"] [draggable="true"]').first().click();
     const tabsBefore = await page.locator('[role="main"] [draggable="true"]').count();
 
-    // Palette: the action row renders in the 'action' category…
+    // Palette: the action row renders in the 'action' category… (exact: the
+    // "Impostazioni" pill also contains "azioni")
     await commandPalettePage.search("reimposta");
-    await expect(commandPalettePage.overlay.getByText("Azioni")).toBeVisible({ timeout: 3000 });
+    await expect(commandPalettePage.overlay.getByText("Azioni", { exact: true })).toBeVisible({ timeout: 3000 });
     const actionRow = commandPalettePage.overlay
       .getByRole("option")
       .filter({ hasText: "Reimposta pannelli" });
