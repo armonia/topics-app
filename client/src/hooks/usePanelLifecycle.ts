@@ -126,8 +126,8 @@ import { setPendingTerminalPaste } from '../lib/pendingTerminalPaste';
 /**
  * A shell opened from a chat («Open in terminal» under a code block,
  * CHAT-RUN-05): `cwdOf` is the chat's sessionKey, and the server starts the
- * shell where that chat's agent works; `paste` is typed at its first screen
- * and not run.
+ * shell where that chat's agent works, opened beside that chat; `paste` is
+ * typed at its first screen and not run.
  */
 export interface QuickTerminalOptions { cwdOf?: string; paste?: string }
 
@@ -196,7 +196,8 @@ function ensurePaneRegistered(
 }
 
 interface PendingProjectFocus { projectPath: string; topicId: string; targetGroupId?: string }
-interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType }
+/** `nearPaneId`: the pane of the project window to land beside (the chat that asked). */
+interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType; nearPaneId?: string }
 interface ContextMenuState { x: number; y: number; topic: Topic }
 
 /**
@@ -1871,8 +1872,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   //     (useProjectLayout) activates the pane in its group when its layout
   //     owns it;
   //   - app level: if this window's store/tabs hold the id, surface it (add to
-  //     openPanels if backgrounded) and mark it focused.
-  // Windows that don't own the pane no-op, so the broadcast is safe to fan out.
+  //     openPanels if backgrounded) and mark it focused;
+  //   - a task tab or a window sheet: only where its drawer or window is
+  //     already on screen (`onlyWhereShown`), never opened on another device.
   useEffect(() => {
     return onWSMessage((msg) => {
       const m = msg as { type?: string; contextId?: string };
@@ -1891,7 +1893,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       // Not a pane here: a task tab or a sheet of a topic's window, which this
       // handler could not reach before (BROWSER-CHAT-05). Never reopened.
-      void focusBrowserContextLive({ contextId: m.contextId, reopen: false }, { layoutHandled: true });
+      void focusBrowserContextLive({ contextId: m.contextId, reopen: false, onlyWhereShown: true }, { layoutHandled: true });
     });
   }, [onWSMessage, openPanelsRef, setOpenPanels, setFocusedPanelId]);
 
@@ -2317,12 +2319,24 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       cwd: data.cwd, command: data.command, clients: 0,
       topicId: data.topicId, type: data.type,
     });
+    // Beside the chat that asked: one living in its project window gets the
+    // shell in that window, in its own group (not the workspace's focus).
+    const chat = opts?.cwdOf ? Object.values(topicsRef.current).find(t => t.sessionKey === opts.cwdOf) : undefined;
+    if (chat?.projectPath && opensAsProjectPane(chat) && !openPanelsRef.current.includes(chat.id)) {
+      const projectPaneId = createPaneId('project', chat.projectPath);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: chat.projectPath });
+      setOpenPanels(prev => isMobile ? [projectPaneId] : prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+      setFocusedPanelId(projectPaneId);
+      setPendingProjectPane({ projectPath: chat.projectPath, type: 'terminal', terminalSessionId: data.id, nearPaneId: createPaneId('chat', chat.id) });
+      if (isMobile) setSidebarCollapsed(true);
+      return paneId;
+    }
     {
       const s = usePaneStore.getState();
       const focusLoc = s.focusedPaneId
         ? findPaneLocation(s, s.focusedPaneId)
         : null;
-      const targetGroupId = focusLoc?.groupId ?? 'group:default';
+      const targetGroupId = (chat ? findPaneLocation(s, chat.id)?.groupId : undefined) ?? focusLoc?.groupId ?? 'group:default';
       s.dispatch({
         type: 'OPEN_PANE',
         payload: {
@@ -2348,7 +2362,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // on a SPLIT cell's tab bar merges the pane into that cell (see
     // usePaneLifecycle.handleAddPane), otherwise it stays in the pool.
     return paneId;
-  }, [isMobile, terminalOps, setSidebarCollapsed, toast, tr]);
+  }, [isMobile, terminalOps, setSidebarCollapsed, toast, tr, topicsRef, openPanelsRef]);
 
   const handleCloseTerminal = useCallback(async (sessionId: string) => {
     deleteTerminalSession(sessionId);

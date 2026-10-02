@@ -84,6 +84,7 @@ import {
   fallbackFocusedGroupId,
   movePaneBetweenGroups,
   paneTypeToGroupType,
+  pendingPaneGroupId,
 } from './groupOps';
 import { reconcileGroupsWithPanes } from './groupPaneReconcile';
 import { useProjectFileOpen } from './useProjectFileOpen';
@@ -123,6 +124,8 @@ export interface UseProjectLayoutArgs {
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
   pendingTerminalType?: TerminalAgentType;
+  /** The pane the pending one lands beside (the chat that asked). */
+  pendingNearPaneId?: string;
   onPendingPaneConsumed?: () => void;
   pendingFocusTopicId?: string | null;
   // Group the chat should land in (set when the user clicks a specific tab
@@ -230,6 +233,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     pendingPane,
     pendingTerminalSessionId,
     pendingTerminalType,
+    pendingNearPaneId,
     onPendingPaneConsumed,
     pendingFocusTopicId,
     pendingFocusTargetGroupId,
@@ -1288,7 +1292,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         } else {
           const newPane: Pane = { id: paneId, type: 'terminal', title: 'Terminal', preview: false };
           setPanes(prev => (prev.some(p => p.id === paneId) ? prev : [...prev, newPane]));
-          const targetGroupId = focusedGroupId || groups[0]?.id;
+          const targetGroupId = pendingPaneGroupId(groups, focusedGroupId, pendingNearPaneId);
           if (targetGroupId) {
             setFocusedGroupId(targetGroupId);
             setGroups(prev =>
@@ -1319,7 +1323,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         onPendingPaneConsumed?.();
         return;
       }
-      const targetGroupId = focusedGroupId || groups[0]?.id;
+      const targetGroupId = pendingPaneGroupId(groups, focusedGroupId, pendingNearPaneId);
       const subType = pendingPane === 'terminal' ? pendingTerminalType : undefined;
       if (targetGroupId) {
         handleAddPaneToGroup(targetGroupId, pendingPane, subType);
@@ -1332,6 +1336,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     pendingPane,
     pendingTerminalSessionId,
     pendingTerminalType,
+    pendingNearPaneId,
     groups,
     focusedGroupId,
     panes,

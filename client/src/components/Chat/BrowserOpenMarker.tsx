@@ -15,10 +15,7 @@ import { memo, useEffect, useState } from 'react';
 import { ArrowUpRight, ChevronDown, ChevronRight } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { BrowserFavicon } from '../Browser/BrowserFavicon';
-import { loadTopicWindowStore, type TopicWindowStore } from '../Browser/topicBrowserWindowLazy';
-import { focusBrowserContextLive, liveBrowserSurfaces, locateBrowserContext } from '../../lib/focusBrowserContext';
-import { usePaneStore } from '../../state/pane/store';
-import { subscribeTaskTabs } from '../../state/taskBrowserTabs';
+import { focusBrowserContextLive, watchBrowserPlace } from '../../lib/focusBrowserContext';
 import { pageHost } from '../../../../shared/tool-detail';
 import { browserPageLabel } from './toolDetail';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -27,6 +24,7 @@ import { useChatTopicId } from './chatTopicContext';
 import {
   browserMarkerState,
   currentPage,
+  markerFaviconUrl,
   markerTitle,
   type BrowserMarker,
   type BrowserMarkerState,
@@ -40,43 +38,17 @@ const STATE_LABEL: Record<BrowserMarkerState, string> = {
   offscreen: 'chat.browserMarker.state.offscreen',
 };
 
-/** The site's own icon, by convention; `BrowserFavicon` draws a monogram when it fails. */
-function faviconFor(url: string): string | undefined {
-  try {
-    const u = new URL(url);
-    return u.protocol === 'http:' || u.protocol === 'https:' ? `${u.origin}/favicon.ico` : undefined;
-  } catch {
-    return undefined;
-  }
-}
+/** The site's icon, or nothing (the monogram): see `markerFaviconUrl`. */
+const faviconFor = (url: string): string | undefined => markerFaviconUrl(url, window.location.protocol);
 
 /**
- * Where the context lives now, following every surface that can hold it.
- * `undefined` until the window store has answered: saying «closed» for the
- * instant before would flash a false state on every load.
+ * Where the context lives now, following every surface that can hold it
+ * (`watchBrowserPlace`). `undefined` until the window store has answered.
+ * A string: an unchanged answer does not re-render the row.
  */
 function useBrowserPlace(contextId: string, topicId: string): BrowserPlaceKind | null | undefined {
   const [place, setPlace] = useState<BrowserPlaceKind | null | undefined>(undefined);
-  useEffect(() => {
-    let alive = true;
-    let store: TopicWindowStore | null = null;
-    // A string: an unchanged answer does not re-render the row.
-    const read = (): void => {
-      if (alive && store) setPlace(locateBrowserContext(contextId, topicId, liveBrowserSurfaces(store))?.kind ?? null);
-    };
-    const stops = [usePaneStore.subscribe(read), subscribeTaskTabs(read)];
-    void loadTopicWindowStore().then(async (s) => {
-      if (topicId) await s.ensureTopicWindowLoaded(topicId);
-      if (!alive) return;
-      store = s;
-      stops.push(s.subscribeTopicWindows(read));
-      read();
-    });
-    return () => {
-      alive = false;
-      for (const stop of stops) stop();
-    };
-  }, [contextId, topicId]);
+  useEffect(() => watchBrowserPlace(contextId, topicId, setPlace), [contextId, topicId]);
   return place;
 }
 

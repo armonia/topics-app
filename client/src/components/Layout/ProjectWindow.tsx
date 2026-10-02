@@ -77,6 +77,7 @@ export interface ProjectWindowPaneProps {
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
   pendingTerminalType?: TerminalAgentType;
+  pendingNearPaneId?: string;
   onPendingPaneConsumed?: () => void;
   // groupId = the tab bar whose "+ new chat" was clicked, so the chat lands there
   onNewChat?: (groupId?: string) => void;
@@ -116,7 +117,7 @@ export function ProjectWindowPane({
   onFocusPanel, onClosePanel: _onClosePanel,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
+  pendingPane, pendingTerminalSessionId, pendingTerminalType, pendingNearPaneId, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange, onToggleFissato, isFissato, isVisible: windowVisible = true,
 }: ProjectWindowPaneProps) {
@@ -173,6 +174,7 @@ export function ProjectWindowPane({
     pendingPane,
     pendingTerminalSessionId,
     pendingTerminalType,
+    pendingNearPaneId,
     onPendingPaneConsumed,
     pendingFocusTopicId,
     pendingFocusTargetGroupId,

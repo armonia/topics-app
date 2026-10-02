@@ -436,12 +436,35 @@ export function saveProjectLayout(
 ): void {
   // Suppress unused-args lint while keeping the signature for legacy callers.
   void projectPath;
+  let changed = false;
   try {
-    localStorage.setItem(localKey, JSON.stringify(state));
+    const json = JSON.stringify(state);
+    changed = localStorage.getItem(localKey) !== json;
+    if (changed) localStorage.setItem(localKey, json);
   } catch {
     /* quota / private mode — silent */
   }
-  if (isSyncedProjectKey(localKey)) queueSync(localKey, state);
+  if (!isSyncedProjectKey(localKey)) return;
+  queueSync(localKey, state);
+  if (changed) for (const l of [...panesListeners]) l();
+}
+
+const panesListeners = new Set<() => void>();
+
+/**
+ * Told whenever a project's tab record changes, here or in another window of
+ * the app (same localStorage). For the readers that ask the records where a
+ * pane lives without mounting the project window: a chat's browser marker
+ * says «in a tab» from them, and has to follow a tab opened or closed there.
+ */
+export function subscribeProjectPanes(listener: () => void): () => void {
+  panesListeners.add(listener);
+  const onStorage = (e: StorageEvent): void => { if (e.key === null || isSyncedProjectKey(e.key)) listener(); };
+  if (typeof window !== 'undefined') window.addEventListener?.('storage', onStorage);
+  return () => {
+    panesListeners.delete(listener);
+    if (typeof window !== 'undefined') window.removeEventListener?.('storage', onStorage);
+  };
 }
 
 /**
