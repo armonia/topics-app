@@ -147,13 +147,22 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
     else broadcastToAll(msg);
   };
 
+  // The reason an upstream failure gave, from a `{"error":{"message"}}` frame.
+  // Providers answer a failed upstream call (401, 429, 5xx) with a 200 stream
+  // that carries only this frame: without reading it, a wrong key ended as
+  // "the AI service may be overloaded".
+  let upstreamError: string | null = null;
+
   const processLine = (line: string): void => {
     if (!line.startsWith("data: ")) return;
     const data = line.slice(6).trim();
 
     if (data === "[DONE]") {
       const empty = !contentRef.value.trim();
-      if (empty) {
+      if (upstreamError) {
+        contentRef.value = empty ? upstreamError : `${contentRef.value}\n\n${upstreamError}`;
+        console.warn(`${logTag} Upstream error for ${sessionKey}: ${upstreamError}`);
+      } else if (empty) {
         contentRef.value = "\u26a0\ufe0f No response received. The AI service may be overloaded. Please try again.";
         console.warn(`${logTag} Empty response for ${sessionKey} — surfacing error to client`);
       }
@@ -162,7 +171,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
         thinking: thinkingRef.value || undefined,
         partial: undefined,
         streamedAt: undefined,
-        endReason: empty ? "error" : "done",
+        endReason: empty || upstreamError ? "error" : "done",
       }, own);
       endStream(sessionKey);
       // Route-specific: the caller broadcasts stream:end with its own extra
@@ -173,6 +182,10 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
 
     try {
       const parsed = JSON.parse(data);
+      const errorMessage = parsed?.error?.message;
+      if (typeof errorMessage === "string" && errorMessage.trim()) {
+        upstreamError = errorMessage.trim();
+      }
       const delta = parsed.choices?.[0]?.delta;
 
       if (delta?.content) {
