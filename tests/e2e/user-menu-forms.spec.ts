@@ -244,6 +244,7 @@ test.describe("un livello aperto col passaggio del mouse, una volta usato, resta
       if (route.request().method() !== "GET") { await route.fallback(); return; }
       await route.fulfill({ json: { plan: "team", seats: 5, remoteAccess: true, expiresAt, reason: "valid", installationId: "inst-e2e" } });
     });
+    await page.clock.install();
     await goToApp(page);
     const level = await hoverOpen(page, "plan");
     await pressAt(page, level.getByRole("button", { name: "Togli la licenza" }));
@@ -254,8 +255,9 @@ test.describe("un livello aperto col passaggio del mouse, una volta usato, resta
     const box = await cancel.boundingBox();
     if (!box) throw new Error("Annulla has no box");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
-    // Longer than the hover grace (150 ms), which used to take the level away.
-    await page.waitForTimeout(400);
+    // Past the hover grace (150 ms) that used to take the level away: the
+    // page's own clock runs its timers, nothing here sleeps.
+    await page.clock.runFor(400);
     await expect(level).toBeVisible();
     await page.mouse.down();
     await page.mouse.up();
@@ -265,6 +267,7 @@ test.describe("un livello aperto col passaggio del mouse, una volta usato, resta
 
   test("USERMENU-06e: una chiave scritta in un livello aperto al passaggio resta quando il mouse se ne va", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    await page.clock.install();
     await goToApp(page);
     const level = await hoverOpen(page, "providers");
     const setup = level.getByTestId("api-provider-setup-openai");
@@ -278,7 +281,9 @@ test.describe("un livello aperto col passaggio del mouse, una volta usato, resta
     const viewport = page.viewportSize();
     if (!viewport) throw new Error("no viewport");
     await page.mouse.move(viewport.width - 20, viewport.height / 2, { steps: 8 });
-    await page.waitForTimeout(400);
+    // Past the hover grace (150 ms) that used to take the level away: the
+    // page's own clock runs its timers, nothing here sleeps.
+    await page.clock.runFor(400);
     await expect(level).toBeVisible();
     await expect(field).toHaveValue("sk-typed-half");
   });
