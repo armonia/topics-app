@@ -20,6 +20,10 @@ export const RUN_OUTPUT_MAX_BYTES = 256 * 1024;
  * The end of an output that fits in `maxBytes`, made of whole lines, and how
  * many lines were left out before it. `lines` are complete lines, oldest first;
  * `alreadyDropped` the lines the registry's buffer had already let go.
+ *
+ * A last line alone over `maxBytes` (a progress bar redrawn with `\r` and no
+ * newline: curl, docker pull, rsync --progress) keeps its end, cut on a
+ * character, and is not counted as dropped: it is the line saying how it went.
  */
 function tailForStorage(lines: readonly string[], alreadyDropped: number, maxBytes = RUN_OUTPUT_MAX_BYTES): { output: string; droppedLines: number } {
   let bytes = 0;
@@ -30,6 +34,13 @@ function tailForStorage(lines: readonly string[], alreadyDropped: number, maxByt
     if (bytes + size > maxBytes) break;
     bytes += size;
     from--;
+  }
+  if (from === lines.length && from > 0) {
+    const last = Buffer.from(lines[from - 1]!);
+    let cut = last.length - maxBytes;
+    // Not inside a UTF-8 character: past its continuation bytes (10xxxxxx).
+    while (cut < last.length && (last[cut]! & 0xc0) === 0x80) cut++;
+    return { output: last.subarray(cut).toString("utf8"), droppedLines: alreadyDropped + from - 1 };
   }
   return { output: lines.slice(from).join("\n"), droppedLines: alreadyDropped + from };
 }

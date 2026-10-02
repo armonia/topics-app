@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync, statSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
@@ -1939,6 +1939,9 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       if (sp.status === "running") return "running";
       settlePersonRun(sp);
       return "ended";
+    },
+    lastOutputAt(runId) {
+      try { return statSync(logPathOf(runId)).mtime.toISOString(); } catch { return null; }
     },
     kill(runId) { const sp = runningScripts.get(runId); if (sp) killRunningScript(sp); },
   });
