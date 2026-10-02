@@ -14,8 +14,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readClaudeSubscription, subscriptionFrom } from "./subscription";
 
-const ACCESS = "sk-ant-oat01-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const REFRESH = "sk-ant-ort01-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const ACCESS = "sk-ant-oat01-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // allow-secret: a made-up token, the fixture the test looks for
+const REFRESH = "sk-ant-ort01-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"; // allow-secret: a made-up token, the fixture the test looks for
 
 /** Anything a credential is made of: the token prefix, or a long opaque run. */
 function looksLikeASecret(json: string): boolean {

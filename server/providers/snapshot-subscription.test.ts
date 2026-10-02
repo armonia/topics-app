@@ -16,8 +16,8 @@ import { ClaudeCodeProvider } from "./claude-code";
 import { registerProvider, removeProvider } from "./index";
 import { ProviderSnapshotManager } from "./snapshot-manager";
 
-const ACCESS = "sk-ant-oat01-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
-const REFRESH = "sk-ant-ort01-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
+const ACCESS = "sk-ant-oat01-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"; // allow-secret: a made-up token, the fixture the test looks for
+const REFRESH = "sk-ant-ort01-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"; // allow-secret: a made-up token, the fixture the test looks for
 const saved = { home: process.env.HOME, keychain: process.env.TOPICS_CREDENTIALS_KEYCHAIN };
 const undo: Array<() => void> = [];
 

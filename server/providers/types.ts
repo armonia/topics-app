@@ -157,7 +157,7 @@ export type { ProviderStatus, ProviderRequirement } from "../../shared/types";
 
 // Import the types so the local references in this file resolve (a bare
 // `export … from` re-export does not create an in-module binding).
-import type { ProviderStatus, ProviderRequirement, GoalStepStatus, ProviderSnapshotEntry } from "../../shared/types";
+import type { ProviderStatus, ProviderRequirement, GoalStepStatus } from "../../shared/types";
 
 export interface ProviderDiagnostic {
   name: string;
@@ -683,10 +683,6 @@ export interface AIProvider {
    * nessun tier semplicemente non implementa il metodo.
    */
   effortTier?(): string | undefined;
-
-  /** The subscription this provider runs on, as two labels for the user menu
-   *  (see `claude/subscription.ts`). Only a provider that has one declares it. */
-  subscription?(): ProviderSnapshotEntry["subscription"] | null;
 
   /**
    * Il modello su cui parte una sessione che NON ha scelto niente.
