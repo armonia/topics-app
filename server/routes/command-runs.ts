@@ -20,7 +20,7 @@
 import type { AppContext } from "../types";
 import { hasCommandShell } from "../lib/command-process";
 import { agentWorkspaceForSession } from "../lib/agent-workspace";
-import { closeRun, insertRun, latestRuns } from "../lib/command-runs";
+import { closeRun, insertRun, latestRuns, runLastOutputAt } from "../lib/command-runs";
 import { isCommandCut } from "../../shared/cut-fence";
 import { decodeCol } from "../../shared/message-blob";
 
@@ -67,11 +67,15 @@ export function createCommandRunsRoute(ctx: AppContext, registry: CommandRunRegi
       // A run still `running` whose process the registry no longer has (killed
       // with the server, never re-adopted): unknown, not running forever. It
       // ended at the last moment it is known to have lived, its last output or
-      // its start, not when this GET happened to notice it.
+      // its start, not when this GET happened to notice it. The row's time
+      // first: a normal restart deletes the log of every process the registry
+      // does not know, so the log's own time is there only when no boot ran.
       for (const run of latestRuns(ctx.db, sessionKey, messageId)) {
         if (run.status === "running" && registry.reconcile(run.runId) === "gone") {
-          const lastOutputAt = registry.lastOutputAt(run.runId);
-          const endedAt = lastOutputAt && Date.parse(lastOutputAt) > Date.parse(run.startedAt) ? lastOutputAt : run.startedAt;
+          const known = [runLastOutputAt(ctx.db, run.runId), registry.lastOutputAt(run.runId)]
+            .filter((t): t is string => !!t && Date.parse(t) > Date.parse(run.startedAt))
+            .sort((a, b) => Date.parse(b) - Date.parse(a));
+          const endedAt = known[0] ?? run.startedAt;
           closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt, output: "", droppedLines: 0 });
         }
       }

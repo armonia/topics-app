@@ -27,7 +27,7 @@ import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
-import { closeRegistryRun } from "../lib/command-runs";
+import { closeRegistryRun, noteRunOutput } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
@@ -116,6 +116,8 @@ interface ScriptProcess {
   /** Set while the log is a FILE somebody else writes (a command, a shell of
    *  the CLI): the registry follows it and never writes it. Not persisted. */
   tail?: FileTail;
+  /** When a person's run last wrote its output time on its `command_runs` row (ms). Not persisted. */
+  outputNotedAt?: number;
 }
 
 interface CommandMeta {
@@ -638,9 +640,30 @@ function tickTails(): void {
   for (const sp of runningScripts.values()) {
     if (!sp.tail) continue;
     live++;
-    if (pumpTail(sp) && _broadcastCtx) notifyScriptOutput(_broadcastCtx, sp.processId);
+    if (pumpTail(sp) && _broadcastCtx) {
+      notifyScriptOutput(_broadcastCtx, sp.processId);
+      if (isPersonRun(sp)) noteOutputOnRow(_broadcastCtx, sp);
+    }
   }
   if (!live && tailTimer) { clearInterval(tailTimer); tailTimer = null; }
+}
+
+/** How often a person's run writes the time of its output on its row: the error of its `unknown` end. */
+const OUTPUT_NOTE_MS = 5_000;
+
+/**
+ * A person's run printed: the time goes on its `command_runs` row, at most
+ * every `OUTPUT_NOTE_MS`. The boot after a restart deletes the log of every
+ * process the registry does not know, and with it the log's own time; the row
+ * is what says when a run lost with the server was last alive.
+ */
+function noteOutputOnRow(ctx: AppContext, sp: ScriptProcess): void {
+  const now = Date.now();
+  if (sp.outputNotedAt !== undefined && now - sp.outputNotedAt < OUTPUT_NOTE_MS) return;
+  sp.outputNotedAt = now;
+  try { noteRunOutput(ctx.db, sp.processId, new Date(now).toISOString()); } catch (err) {
+    console.warn(`[command-runs] noting the output of ${sp.processId} failed:`, err);
+  }
 }
 
 /**

@@ -25,7 +25,7 @@ process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
 const { commandWakeState, createProcessesRouter, logPathOf, sessionsAwaitingCommandWake } = await import("./processes");
 const { isGuestAllowedPath, isGuestSafeFrameType } = await import("../lib/grants");
-const { RUN_OUTPUT_MAX_BYTES, insertRun } = await import("../lib/command-runs");
+const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunOutput } = await import("../lib/command-runs");
 
 let ctx: AppContext;
 let processes: ReturnType<typeof createProcessesRouter>;
@@ -325,6 +325,34 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     expect(byBlock.get(0)).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput.toISOString() });
     expect(byBlock.get(1)).toMatchObject({ status: "unknown", exitCode: null, endedAt: startedAt });
   });
+
+  test("after a restart the log of a run the registry forgot is gone: the row's last persisted output closes it, not its start", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const startedAt = "2026-09-01T10:00:00.000Z";
+    const lastOutput = "2026-09-01T10:07:30.000Z";
+    const id = `gone-row-${seq}`;
+    insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
+    // What the registry wrote while the run printed, before the server went down and the boot swept its log.
+    noteRunOutput(ctx.db, id, lastOutput);
+    const [run] = await runs(topic, messageId);
+    expect(run).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput });
+    expect(Date.parse(run!.endedAt!) - Date.parse(run!.startedAt)).toBe(450_000);
+  });
+
+  test("while a run prints, its row keeps the time of its last output", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const run = await start(topic, messageId, "echo one; sleep 30");
+    const lastOutputAt = () => (ctx.db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(run.runId) as { last_output_at: string | null }).last_output_at;
+    await until(() => lastOutputAt() !== null);
+    const at = lastOutputAt();
+    expect(at).not.toBeNull();
+    expect(Date.parse(at!)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect((await runs(topic, messageId))[0]!.status).toBe("running");
+    expect((await call("POST", `/api/scripts/${run.processId}/stop`)).status).toBe(200);
+    await ended(topic, messageId, run.runId);
+  }, 30_000);
 
   test("deleting the reply takes its runs with it", async () => {
     const topic = newTopic();

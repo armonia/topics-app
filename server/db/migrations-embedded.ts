@@ -179,6 +179,7 @@ import m20260930195818_tasks_done_recency_index from "./migrations/2026093019581
 import m20260930200938_message_tool_outputs from "./migrations/20260930200938-message-tool-outputs.sql" with { type: "text" };
 import m20261001203100_subagents from "./migrations/20261001203100-subagents.sql" with { type: "text" };
 import m20261001220421_command_runs from "./migrations/20261001220421-command-runs.sql" with { type: "text" };
+import m20261002192446_command_runs_last_output from "./migrations/20261002192446-command-runs-last-output.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -362,4 +363,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260930200938, name: "20260930200938-message-tool-outputs.sql", sql: m20260930200938_message_tool_outputs },
   { version: 20261001203100, name: "20261001203100-subagents.sql", sql: m20261001203100_subagents },
   { version: 20261001220421, name: "20261001220421-command-runs.sql", sql: m20261001220421_command_runs },
+  { version: 20261002192446, name: "20261002192446-command-runs-last-output.sql", sql: m20261002192446_command_runs_last_output },
 ];

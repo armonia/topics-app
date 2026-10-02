@@ -69,6 +69,21 @@ export function closeRun(db: Database, id: string, end: {
   return res.changes > 0;
 }
 
+/**
+ * The run printed at `at`: kept on its row while it is `running`, so the
+ * moment it was last known alive survives a restart that takes its log with it
+ * (migration `20261002192446-command-runs-last-output.sql`).
+ */
+export function noteRunOutput(db: Database, id: string, at: string): void {
+  db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ? AND status = 'running'").run(at, id);
+}
+
+/** When the run of `id` last printed, as its row says; null when it never did, or is gone. */
+export function runLastOutputAt(db: Database, id: string): string | null {
+  const row = db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(id) as { last_output_at: string | null } | null;
+  return row?.last_output_at ?? null;
+}
+
 /** Where the run of `id` belongs: its session and message, for the frame. Null once it is gone with its message. */
 function runOwner(db: Database, id: string): { sessionKey: string; messageId: string } | null {
   const row = db.query("SELECT session_key, message_id FROM command_runs WHERE id = ?").get(id) as { session_key: string; message_id: string } | null;
