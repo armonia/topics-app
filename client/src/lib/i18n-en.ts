@@ -2670,7 +2670,7 @@ const EN = {
   // The user menu's preference levels and the Settings panel's five forms (sidebar-menu-settings).
   'settings.title': 'Settings',
   'settings.section.nodes': 'Nodes',
-  // The tails of the user menu's form levels, and their frame (menu-utente-tutto).
+  // The tails of the user menu's form levels, and their frame (the 02/10/2026 change).
   'userMenu.none': 'None',
   'userMenu.plan.free': 'Free',
   'userMenu.plan.team': 'Team · {n} seats',

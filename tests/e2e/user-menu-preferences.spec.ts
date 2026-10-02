@@ -1,6 +1,6 @@
 /**
  * EVERY SETTING LIVES IN THE USER MENU: the preferences as direct controls, the
- * forms as wider levels (`menu-utente-tutto`), and no Settings panel.
+ * forms as wider levels (the 02/10/2026 change), and no Settings panel.
  *
  * Every assertion here is about a door that moved (change
  * `sidebar-menu-settings`): the control has to be where the person now looks,

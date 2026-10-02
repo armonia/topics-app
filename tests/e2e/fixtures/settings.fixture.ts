@@ -9,7 +9,7 @@ export class SettingsPage {
 
   /**
    * Open the settings: every setting is a level of the user menu since
-   * `menu-utente-tutto`, and the forms land on AI providers, the first one a
+   * the 02/10/2026 change, and the forms land on AI providers, the first one a
    * person comes for. The user card on the desktop, the title button on the
    * phone (`openUserMenuLevel` picks). Rows are found by testid, never by their
    * translated label.

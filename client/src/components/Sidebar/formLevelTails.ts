@@ -14,9 +14,17 @@
  */
 import type { McpFleetStatus } from '../../../../shared/session-environment';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
-import { giorniAllaScadenza, scadenzaVicina, type StatoPiano } from '../Settings/pianoState';
+import { giorniAllaScadenza, scadenzaVicina } from '../Settings/pianoState';
 
 export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+/** The three facts of `/api/license` the Plan tail reads. */
+export interface LicensePlan {
+  plan: 'free' | 'team';
+  seats: number;
+  /** ms epoch, `null` on the free plan. */
+  expiresAt: number | null;
+}
 
 /** A tail: the words, and whether they ask for attention. */
 export interface Tail {
@@ -31,7 +39,7 @@ export interface Tail {
  * the Plan level itself uses (`scadenzaVicina`): a countdown that starts a year
  * out is noise, and noise teaches people not to read the tail at all.
  */
-export function planTail(plan: Pick<StatoPiano, 'plan' | 'seats' | 'expiresAt'> | null, now: number, tr: Translate): Tail | null {
+export function planTail(plan: LicensePlan | null, now: number, tr: Translate): Tail | null {
   if (!plan) return null;
   const base = plan.plan === 'team'
     ? (plan.seats === 1 ? tr('userMenu.plan.teamOne') : tr('userMenu.plan.team', { n: plan.seats }))

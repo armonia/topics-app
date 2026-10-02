@@ -232,14 +232,14 @@ describe('il registro degli aperti', () => {
     const level = popover({ exclusive: false });
     registerOpenPopover(host);
     registerOpenPopover(level);
-    const unshelter = shelterOpenPopovers(() => dialog);
+    const releaseShelter = shelterOpenPopovers(() => dialog);
     expect(shelteredNodes(host)).toEqual([dialog]);
     expect(shelteredNodes(level)).toEqual([dialog]);
     // A popover opened later was not asked: the dialog is not its.
     const later = popover({ exclusive: false });
     registerOpenPopover(later);
     expect(shelteredNodes(later)).toEqual([]);
-    unshelter();
+    releaseShelter();
     expect(shelteredNodes(host)).toEqual([]);
     expect(host.closed).toBe(0);
   });

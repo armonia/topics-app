@@ -3021,7 +3021,7 @@ const IT: Dict = {
   // The user menu's preference levels and the Settings panel's five forms (sidebar-menu-settings).
   'settings.title': 'Impostazioni',
   'settings.section.nodes': 'Nodi',
-  // The tails of the user menu's form levels, and their frame (menu-utente-tutto).
+  // The tails of the user menu's form levels, and their frame (the 02/10/2026 change).
   'userMenu.none': 'Nessuno',
   'userMenu.plan.free': 'Gratuito',
   'userMenu.plan.team': 'Team · {n} posti',

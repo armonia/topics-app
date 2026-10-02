@@ -125,8 +125,29 @@ export function PresencePopover({
   useEffect(() => {
     if (!anchorEl || !placed) return;
     const panel = pannello.current;
-    const first = focusFirstRow ? panel?.querySelector<HTMLElement>('[role="menuitem"], button:not([disabled])') : null;
-    (first ?? panel)?.focus({ preventScroll: true });
+    if (!panel) return;
+    if (!focusFirstRow) {
+      panel.focus({ preventScroll: true });
+      return;
+    }
+    // THE FIRST ROW MAY ARRIVE LATE: the account block is a lazy chunk, so on
+    // a cold open the first button in the panel is a row further down. The
+    // focus follows the first row while the content settles, and stops
+    // following the moment the person has moved it themselves.
+    let given: Element | null = null;
+    const follow = () => {
+      const active = document.activeElement;
+      if (active !== panel && active !== given && given !== null) return;
+      const first = panel.querySelector<HTMLElement>('[role="menuitem"], button:not([disabled])') ?? panel;
+      if (first === active) return;
+      first.focus({ preventScroll: true });
+      given = first;
+    };
+    follow();
+    given ??= panel;
+    const observer = new MutationObserver(follow);
+    observer.observe(panel, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [anchorEl, placed, focusFirstRow]);
 
   if (!anchorEl) return null;

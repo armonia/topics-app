@@ -51,8 +51,8 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     // Le parole inglesi che c'erano. Se tornano, questo morde.
     const inglesi = ["Appearance", "Notifications", "Profile", "Devices", "Plan", "Settings", "Tools", "Calendar", "Nodes", "Providers"];
     for (const parola of inglesi) {
-      const trovata = testi.find((testo) => new RegExp(`\\b${parola}\\b`).test(testo));
-      expect(trovata, `«${parola}» è inglese: le voci del menu passano dal dizionario`).toBeUndefined();
+      const found = testi.find((testo) => new RegExp(`\\b${parola}\\b`).test(testo));
+      expect(found, `«${parola}» è inglese: le voci del menu passano dal dizionario`).toBeUndefined();
     }
   });
 

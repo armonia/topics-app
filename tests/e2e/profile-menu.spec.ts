@@ -335,7 +335,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
 
     // THE MENU IS THE ONE HOME OF EVERY SETTING (USERMENU-06). The last row
     // used to open a Settings window holding five forms; the maintainer asked
-    // for the button to go («meglio evitarlo proprio il tasto») and the forms
+    // for the button to go and the forms
     // to be levels here. What this pins is the absence of that door, and the
     // presence of the five rows in their groups: the plan under the account,
     // the nodes after the devices, the engine above the preferences.

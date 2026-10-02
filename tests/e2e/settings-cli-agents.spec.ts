@@ -27,7 +27,7 @@ const SHOT_PATH = "test-results/settings-cli-agents.png";
 test.describe("Settings · agent CLIs", () => {
   test.describe.configure({ timeout: 60_000 });
 
-  // The providers form is a level of the user menu since `menu-utente-tutto`.
+  // The providers form is a level of the user menu since the 02/10/2026 change.
   async function openProviders(page: import("@playwright/test").Page) {
     await page.goto("/");
     const panel = await openUserMenuLevel(page, "providers");

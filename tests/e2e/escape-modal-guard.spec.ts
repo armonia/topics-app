@@ -20,8 +20,7 @@ hermetic(test);
  * chiuso, e la risposta era morta a metà senza che nessuno lo dicesse.
  *
  * La prova sta nella coppia di asserzioni, non in una sola: il primo Escape
- * chiude il menu utente aperto con ⌘, (la casa di ogni impostazione dal
- * `menu-utente-tutto`, un `role="dialog"` come i modali) e il turno resta VIVO; il secondo — a schermo pulito —
+ * chiude il menu utente (⌘,, a `role="dialog"`) e il turno resta VIVO; il secondo — a schermo pulito —
  * interrompe davvero. Se il gate fosse troppo largo il secondo fallirebbe, se
  * fosse assente fallirebbe il primo.
  *

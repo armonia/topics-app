@@ -6,7 +6,7 @@
  * `devices` while the label said "Profile". Since `sidebar-menu-settings` the
  * two answers left the Settings panel altogether: who you are is the Profile
  * tab, the machines are the Devices level of the user menu, and since
- * `menu-utente-tutto` there is no Settings panel at all: ⌘, opens the user
+ * the 02/10/2026 change there is no Settings panel at all: ⌘, opens the user
  * menu. What is defended here is what a regression would break first: the
  * menu has no Settings row to send you elsewhere, the two surfaces show
  * DIFFERENT content, and the two deep links each land on their own one.

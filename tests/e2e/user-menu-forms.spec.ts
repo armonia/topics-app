@@ -1,9 +1,8 @@
 /**
- * EVERY SETTING IS IN THE USER MENU, THE FORMS TOO (`menu-utente-tutto`).
+ * EVERY SETTING IS IN THE USER MENU, THE FORMS TOO (the 02/10/2026 change).
  *
- * The maintainer, on 02/10: «vedo ancora cose che possono essere messe
- * direttamente nel menu utente, come provider, calendario etc.. meglio
- * evitarlo proprio il tasto» (allow-italian: the request is the subject). So
+ * The maintainer, on 02/10, asked for the providers, the calendar and the
+ * rest to be in the user menu itself, and for the Settings button to go. So
  * the Settings window and its row are gone, and AI providers, tools, calendar,
  * plan and nodes are levels of the menu. What a regression would break first:
  *

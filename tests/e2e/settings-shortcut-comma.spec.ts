@@ -15,7 +15,7 @@ hermetic(test);
  * Ctrl+, MUST REACH SETTINGS WHILE YOU ARE TYPING, and must not reach it while
  * a terminal owns the keyboard.
  *
- * «Settings» is the user menu since `menu-utente-tutto`: every setting is one
+ * «Settings» is the user menu since the 02/10/2026 change: every setting is one
  * of its levels and there is no Settings window, so the shortcut opens the
  * menu (`profile-menu`) with its first row focused.
  *

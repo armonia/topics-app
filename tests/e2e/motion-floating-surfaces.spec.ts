@@ -151,7 +151,7 @@ test.describe("Floating surfaces enter and leave", () => {
     await expectExit(page, "notification panel", "popover", POPOVER_MAX_MS);
   });
 
-  // The settings are levels of the user menu since `menu-utente-tutto`: a form
+  // The settings are levels of the user menu since the 02/10/2026 change: a form
   // level moves like every level, with no veil of its own.
   test("MOTION-04e: a form level of the user menu (AI providers)", async ({ page }) => {
     await ready(page);

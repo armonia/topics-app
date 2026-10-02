@@ -14,10 +14,9 @@
 import { lazy, useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Cpu, CreditCard, Plug, Server } from 'lucide-react';
 import { FormLevel } from './FormLevel';
-import { calendarTail, nodesTail, planTail, providersTail, toolsTail, type Tail } from './formLevelTails';
+import { calendarTail, nodesTail, planTail, providersTail, toolsTail, type LicensePlan, type Tail } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
-import type { StatoPiano } from '../Settings/pianoState';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import { appSettingsApi, mcpApi, type AppBehaviorSettings, type McpFleetStatus } from '@/lib/api';
 import { apiFetch } from '@/lib/shell/net';
@@ -90,7 +89,7 @@ function useReadOnClose(again: () => void): (open: boolean) => void {
 const readPlan = async (signal: AbortSignal) => {
   const r = await apiFetch('/api/license', { credentials: 'same-origin', signal });
   if (!r.ok) throw new Error(String(r.status));
-  return { plan: await r.json() as StatoPiano, at: Date.now() };
+  return { plan: await r.json() as LicensePlan, at: Date.now() };
 };
 
 /** WHAT YOU PAY FOR, right under who you are: «Gratuito», «Team · 5 posti». */

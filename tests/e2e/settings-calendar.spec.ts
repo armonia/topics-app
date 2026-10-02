@@ -86,7 +86,7 @@ test.afterAll(async () => {
 });
 
 /**
- * The Calendar form is a level of the user menu since `menu-utente-tutto`
+ * The Calendar form is a level of the user menu since the 02/10/2026 change
  * (`openUserMenuLevel` waits for the app, the row and the level).
  */
 async function openCalendarSettings(page: Page) {

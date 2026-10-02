@@ -6736,11 +6736,7 @@
       "voci"
     ],
     "tests/e2e/settings-mobile.spec.ts": [
-      "SCHEDE",
-      "apriImpostazioni",
-      "lista",
-      "pannello",
-      "scheda"
+      "lista"
     ],
     "tests/e2e/settings-profile-devices.spec.ts": [
       "apriImpostazioni",

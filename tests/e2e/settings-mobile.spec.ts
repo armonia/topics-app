@@ -10,7 +10,7 @@
  * Questa spec È il criterio di accettazione, non un controllo a occhio. Misura,
  * a 390×844 con `hasTouch`:
  *  · che ogni modulo (Piano, Nodi, Provider AI, Strumenti, Calendario, livelli
- *    del menu utente dal `menu-utente-tutto`) sia un foglio largo quanto lo
+ *    del menu utente dal the 02/10/2026 change) sia un foglio largo quanto lo
  *    schermo, senza scorrimento ORIZZONTALE;
  *  · che ogni bersaglio toccabile dentro ciascun foglio sia ≥ 44px;
  *  · che NON esista un solo `<select>` nativo in pagina;
@@ -46,18 +46,18 @@ const AUDIT_JS = readFileSync(join(__dirname, "helpers", "ui-audit.js"), "utf8")
 /**
  * Opens one form level of the title menu and WAITS FOR THE SHEET TO SETTLE.
  *
- * The forms are levels of the user menu since `menu-utente-tutto` (there is no
+ * The forms are levels of the user menu since the 02/10/2026 change (there is no
  * Settings window), and on the phone a level is a sheet that slides up from the
  * bottom. Measuring while it slides returns a geometry that changes every frame,
  * so the wait is for the fact: the transform back to the identity.
  */
-async function apriLivello(page: Page, livello: Livello) {
-  const sheet = await openUserMenuLevel(page, livello);
+async function openFormLevel(page: Page, level: Level) {
+  const sheet = await openUserMenuLevel(page, level);
   await expect
     .poll(() => sheet.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
     .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
   // The form is a chunk of its own: measure it, not its loading placeholder.
-  await expect(sheet.getByTestId(`topics-menu-${livello}-form`)).toBeVisible();
+  await expect(sheet.getByTestId(`topics-menu-${level}-form`)).toBeVisible();
   await page.waitForTimeout(300);
   return sheet;
 }
@@ -119,8 +119,8 @@ test.beforeEach(async ({ page }) => {
  * while the comment keeps saying "all of them": the count assertion in the test
  * compares it with the rows the menu really has.
  */
-const LIVELLI = ["plan", "nodes", "providers", "tools", "calendar"] as const;
-type Livello = (typeof LIVELLI)[number];
+const LEVELS = ["plan", "nodes", "providers", "tools", "calendar"] as const;
+type Level = (typeof LEVELS)[number];
 
 test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli sotto i 44px", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
@@ -131,7 +131,7 @@ test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli s
   const rows = await menu.locator('[data-testid^="topics-menu-"]').evaluateAll((els) =>
     els.map((el) => el.getAttribute("data-testid") ?? "")
       .filter((id) => /^topics-menu-(plan|nodes|providers|tools|calendar)$/.test(id)));
-  expect(rows, "the form rows of the menu and the list this spec walks").toEqual(LIVELLI.map((l) => `topics-menu-${l}`));
+  expect(rows, "the form rows of the menu and the list this spec walks").toEqual(LEVELS.map((l) => `topics-menu-${l}`));
   await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
   await expect(page.getByTestId("settings-panel")).toHaveCount(0);
 
@@ -141,8 +141,8 @@ test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli s
   const belowThreshold: Record<string, unknown> = {};
   const horizontalScroll: string[] = [];
   const outside: Record<string, unknown> = {};
-  for (const livello of LIVELLI) {
-    const sheet = await apriLivello(page, livello);
+  for (const level of LEVELS) {
+    const sheet = await openFormLevel(page, level);
     // In the screen and as wide as it: the DOM's own geometry, not
     // `boundingBox()`, which under mobile emulation reports coordinates
     // already scaled by the page factor.
@@ -150,14 +150,14 @@ test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli s
       const b = el.getBoundingClientRect();
       return { left: b.left, right: b.right, vw: window.innerWidth };
     });
-    if (box.left < 0 || box.right > box.vw + 1 || box.right - box.left < box.vw - 1) outside[livello] = box;
+    if (box.left < 0 || box.right > box.vw + 1 || box.right - box.left < box.vw - 1) outside[level] = box;
     const audit = await page.evaluate((scope) => {
       const fn = (window as unknown as { __uiAudit: (o: unknown) => string }).__uiAudit;
       return JSON.parse(fn({ scope, minTap: 44 }));
-    }, `[data-testid="topics-menu-${livello}-menu"]`);
+    }, `[data-testid="topics-menu-${level}-menu"]`);
     const tap = (audit.findings?.tapTargets ?? []) as Array<{ el: string; w: number; h: number }>;
-    if (tap.length > 0) belowThreshold[livello] = tap;
-    if (audit.overflowX?.present) horizontalScroll.push(livello);
+    if (tap.length > 0) belowThreshold[level] = tap;
+    if (audit.overflowX?.present) horizontalScroll.push(level);
     await page.keyboard.press("Escape");
     await expect(sheet).toHaveCount(0);
   }
@@ -168,7 +168,7 @@ test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli s
   // The delivery's two shots: the same level, two widths, only under
   // `E2E_EVIDENCE=1`.
   if (isEvidenceRun()) {
-    await apriLivello(page, "providers");
+    await openFormLevel(page, "providers");
     await didascalia(page, "Provider AI a 390px");
     await beat(page);
     await page.screenshot({ path: "test-results/evidence/settings-390.png" });

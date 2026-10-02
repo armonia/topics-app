@@ -105,8 +105,8 @@ export function useModalDialog({
     // orfano, senza più il contesto che lo aveva prodotto.
     // Unless a popover asked for this dialog (`shelterRef`): then the dialog is
     // part of that popover, and it stays.
-    const unshelter = shelterRef ? shelterOpenPopovers(() => shelterRef.current) : null;
-    if (!unshelter) closeAllPopovers();
+    const releaseShelter = shelterRef ? shelterOpenPopovers(() => shelterRef.current) : null;
+    if (!releaseShelter) closeAllPopovers();
 
     const restoreTo = document.activeElement as HTMLElement | null;
     // Il nodo della card COM'ERA all'apertura: alla pulizia il ref può essere
@@ -156,7 +156,7 @@ export function useModalDialog({
 
     window.addEventListener('keydown', onKey, true);
     return () => {
-      unshelter?.();
+      releaseShelter?.();
       window.removeEventListener('keydown', onKey, true);
       const i = stack.lastIndexOf(id);
       if (i !== -1) stack.splice(i, 1);
