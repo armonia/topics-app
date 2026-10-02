@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
-  Search, Settings, Moon, Sun, File,
+  Search, Settings, Moon, Sun, Monitor, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
@@ -880,11 +880,16 @@ export function CommandPalette({
               ⌘N è legato senza condizioni (useKeyboardShortcuts) ma ci ARRIVA
               solo nel guscio desktop: in una scheda del browser il tasto se lo
               tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
-          <ActionPill isMobile={isMobile} icon={<Settings size={12} />} label="Settings" shortcut={shortcut(',')} onClick={() => { onOpenSettings(); onClose(); }} />
+          <ActionPill isMobile={isMobile} icon={<Settings size={12} />} label={t('settings.title')} shortcut={shortcut(',')} onClick={() => { onOpenSettings(); onClose(); }} />
+          {/* THE THEME PILL SAYS WHERE YOU ARE: the icon and the name of the
+              current theme. It had two icons for three states (the sun only on
+              Dark, the moon on both Light and System), so it said neither the
+              theme in force nor the next one. The click still cycles. */}
           <ActionPill
             isMobile={isMobile}
-            icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
-            label="Theme"
+            icon={themeMode === 'light' ? <Sun size={12} /> : themeMode === 'dark' ? <Moon size={12} /> : <Monitor size={12} />}
+            label={`${t('appearance.theme')}: ${t(`appearance.theme.${themeMode === 'light' || themeMode === 'dark' ? themeMode : 'system'}`)}`}
+            testId="palette-theme-pill"
             onClick={() => { onToggleTheme(); onClose(); }}
           />
         </div>

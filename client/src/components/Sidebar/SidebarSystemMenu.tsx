@@ -17,6 +17,7 @@ import { formatMemoryMB } from '@/lib/formatMemory';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
+import { KeptSites } from './KeptSites';
 import { VersionChip } from './VersionChip';
 import { bundleDrift } from './bundleDrift';
 import { reportLoadFailure } from '@/lib/chunkReloadGuard';
@@ -347,6 +348,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           <AgentLines />
           <div className="border-t border-app-border" />
           <PerfSection />
+          <KeptSites />
         </SubmenuItem>
 
         {/* WHAT EACH PROJECT HAS COST, in the third unit.

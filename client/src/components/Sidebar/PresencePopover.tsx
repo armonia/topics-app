@@ -23,6 +23,7 @@ import { useDismissable } from '@/hooks/useDismissable';
 import { computeMenuPosition } from '@/lib/popoverPosition';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useExitGhost } from '@/lib/exitGhost';
+import { useMenuKeyboard } from '@/hooks/useMenuKeyboard';
 
 /** The width of the panel. The default for all of them, and wider than the
  *  column: the list of people carries whole names, which the sidebar would
@@ -74,6 +75,16 @@ export function PresencePopover({
   });
   useExitGhost(pannello, anchorEl !== null);
 
+  // THE FIRST LEVEL LEARNS THE ARROWS (USERMENU-07). The levels had them
+  // (`Menu`, `useMenuKeyboard`) and this panel had only Escape: up, down, Home
+  // and End now rove over its rows with the same rule. Not from inside a text
+  // field (the account's email and code), where the arrows move the caret.
+  const roving = useMenuKeyboard({ panelRef: pannello });
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
+    roving(e);
+  };
+
   // Measure BEFORE the paint: with `useEffect` the panel would show up in the
   // top left corner for one frame and then jump into place.
   //
@@ -104,6 +115,13 @@ export function PresencePopover({
     return () => observer.disconnect();
   }, [anchorEl, width]);
 
+  // Focus moves INTO the panel once it is placed (a hidden element refuses
+  // `focus()`), so the arrows work from the first press, as in `Menu`.
+  const placed = pos !== null;
+  useEffect(() => {
+    if (anchorEl && placed) pannello.current?.focus({ preventScroll: true });
+  }, [anchorEl, placed]);
+
   if (!anchorEl) return null;
 
   return createPortal(
@@ -111,7 +129,9 @@ export function PresencePopover({
       ref={pannello}
       data-testid={testId}
       role="dialog"
-      className={`fixed ${POPOVER_PANEL} overflow-hidden`}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className={`fixed ${POPOVER_PANEL} overflow-hidden outline-none`}
       style={{
         width,
         zIndex: Z_POPOVER,

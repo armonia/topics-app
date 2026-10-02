@@ -128,6 +128,9 @@ export interface SubmenuItemProps {
   /** Told whenever the level opens or closes: for a host that has to suppress
    *  something else while it is up (the updater toast, over the version). */
   onOpenChange?: (open: boolean) => void;
+  /** Open, and pinned, from the first render: as if it had been clicked. For a
+   *  host asked to land on this level (`lib/openUserMenu`). */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -158,14 +161,17 @@ export function SubmenuItem({
   className = '',
   rowClassName = '',
   onOpenChange,
+  defaultOpen = false,
 }: SubmenuItemProps) {
   const { isMobile } = useMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Opened on purpose, so hover-out must not take it away.
-  const pinned = useRef(false);
+  const pinned = useRef(defaultOpen);
+  // A level open from the first render claims its slot once, like a click.
+  const claimOnMount = useRef(defaultOpen);
   const siblings = useContext(SiblingContext);
   // The call site's number is a FLOOR, not the measure: the wider of it and
   // the host's width wins. See `HostWidthContext`.
@@ -214,6 +220,12 @@ export function SubmenuItem({
     siblings.claim(token, close);
     setOpen(true);
   }, [cancelClose, cancelHoverOpen, close, siblings, token]);
+
+  useEffect(() => {
+    if (!claimOnMount.current) return;
+    claimOnMount.current = false;
+    siblings.claim(token, close);
+  }, [siblings, token, close]);
 
   useEffect(() => () => {
     cancelClose();

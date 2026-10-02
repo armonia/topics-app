@@ -84,6 +84,9 @@ export interface ProfileHeaderProps {
   onChanged: (p: PersonWithProfile) => void;
   onOpenFollowers?: () => void;
   onOpenFollowing?: () => void;
+  /** One more door after the two counters, on your own profile: the people
+   *  you could follow, which is the list that lives beside those two. */
+  afterCounters?: React.ReactNode;
   /**
    * Buttons that belong to the person and not to the page, next to Follow.
    * This is where the privacy control sits on your own profile: a switch that
@@ -99,7 +102,7 @@ export interface ProfileHeaderProps {
   panel?: React.ReactNode;
 }
 
-export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollowing, actions, panel }: ProfileHeaderProps) {
+export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollowing, afterCounters, actions, panel }: ProfileHeaderProps) {
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [editingLogin, setEditingLogin] = useState(false);
@@ -233,6 +236,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
               onClick={onOpenFollowing}
               testId="profile-count-following"
             />
+            {afterCounters}
           </div>
         )}
 

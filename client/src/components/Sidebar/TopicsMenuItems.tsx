@@ -31,9 +31,15 @@
  * that SAY something.
  */
 import { useMemo, useSyncExternalStore } from 'react';
-import { Archive, Globe2, Grid2x2, History, Hourglass, LayoutTemplate, List, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react';
-import { nextSidebarViewMode, type SidebarViewMode } from '@/hooks/useSidebarState';
+import { Globe2, Grid2x2, History, LayoutTemplate, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react';
+import type { SidebarViewMode } from '@/hooks/useSidebarState';
 import { SubmenuItem } from '../Shared/SubmenuItem';
+import { Segmented } from '../Shared/Segmented';
+import { AppearanceLevel, type MenuPreferences } from './AppearanceLevel';
+import { NotificationsLevel } from './NotificationsLevel';
+import { PreferenceRow, SwitchRow } from './PreferenceRow';
+import type { UserMenuLevel } from '@/lib/openUserMenu';
+import { shortcut } from '@/lib/shortcutLabel';
 import { menuRowClass } from './menuRow';
 import { useT } from '@/hooks/useT';
 import { buildHistoryRows } from '@/lib/historyRows';
@@ -63,7 +69,10 @@ export interface TopicsMenuItemsProps {
   showArchived: boolean;
   onToggleArchived: () => void;
   viewMode: SidebarViewMode;
-  onToggleViewMode: () => void;
+  onViewModeChange: (mode: SidebarViewMode) => void;
+  /** The preferences the Appearance, Notifications and View levels read and
+   *  write: the same stores the Settings panel used to write. */
+  preferences: MenuPreferences;
   /** The two panel commands exist only where panels do (`useSplitLayoutAvailable`):
    *  under 768px they would not fail, they would do nothing. */
   splitLayoutAvailable: boolean;
@@ -78,6 +87,8 @@ export interface TopicsMenuItemsProps {
   onOpenHistoryUrl?: (url: string) => void;
   /** Closes whichever menu is hosting these rows. */
   onClose: () => void;
+  /** A level asked for by `openUserMenu`, open from the first render. */
+  openLevel?: UserMenuLevel | null;
 }
 
 export function TopicsMenuItems({
@@ -85,13 +96,15 @@ export function TopicsMenuItems({
   showArchived,
   onToggleArchived,
   viewMode,
-  onToggleViewMode,
+  onViewModeChange,
+  preferences,
   splitLayoutAvailable,
   onOpenHistory,
   onOpenSettings,
   onReopenClosedTab,
   onOpenHistoryUrl,
   onClose,
+  openLevel = null,
 }: TopicsMenuItemsProps) {
   const tr = useT();
   const row = menuRowClass(isMobile);
@@ -110,22 +123,30 @@ export function TopicsMenuItems({
     }),
     [closedTabs, pages, onReopenClosedTab, onOpenHistoryUrl],
   );
-  // The icon and the label describe the NEXT mode, which is what the click
-  // does, and they ask the same function the toggle moves with: two hand
-  // written lists of cases diverge at the first mode added or removed.
-  const next = nextSidebarViewMode(viewMode);
-  const NextIcon = next === 'state' ? Hourglass : List;
+  const { settings, onSettingChange } = preferences;
 
   return (
     <>
+      {/* HOW THE APP LOOKS AND HOW IT WARNS YOU: direct controls, applied on
+          change, where the Settings panel used to hold them (USERMENU-01,
+          USERMENU-03). */}
+      <AppearanceLevel
+        preferences={preferences}
+        isMobile={isMobile}
+        onClose={onClose}
+        defaultOpen={openLevel === 'appearance'}
+      />
+      <NotificationsLevel preferences={preferences} defaultOpen={openLevel === 'notifications'} />
+
       {/* WHAT THE COLUMN SHOWS. The tail is the state you would otherwise have
-          to open the level to read: which order the tree is in, and whether
-          the archived ones are in it. */}
+          to open the level to read, and inside, every control says the state
+          that IS, never the one a click would bring (USERMENU-02). */}
       <SubmenuItem
         icon={Eye}
         label={tr('app.viewGroup')}
         testId="topics-menu-view"
-        minWidth={230}
+        minWidth={260}
+        defaultOpen={openLevel === 'view'}
         tail={
           <span data-testid="topics-menu-view-tail" className="flex-shrink-0 text-mini text-app-text-tertiary">
             {viewMode === 'state' ? tr('app.viewByStateShort') : tr('app.viewTimelineShort')}
@@ -133,27 +154,32 @@ export function TopicsMenuItems({
           </span>
         }
       >
-        <button
-          type="button"
-          onClick={onToggleArchived}
-          data-testid="topics-menu-archived"
-          className={`${row} ${showArchived ? 'text-primary' : ''}`}
-        >
-          <Archive size={glyph} className={`flex-shrink-0 ${showArchived ? 'text-primary' : ''}`} />
-          <span className="flex-1 text-left">{tr('app.showArchived')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onToggleViewMode}
-          data-testid="topics-menu-view-mode"
-          className={row}
-        >
-          <NextIcon size={glyph} className="flex-shrink-0" />
-          <span className="flex-1 text-left">
-            {next === 'state' ? tr('app.viewByState') : tr('app.viewTimeline')}
-          </span>
-        </button>
+        <div className="py-1">
+          <SwitchRow
+            label={tr('app.showArchived')}
+            checked={showArchived}
+            onChange={onToggleArchived}
+            testId="topics-menu-archived"
+          />
+          <PreferenceRow label={tr('app.viewOrder')}>
+            <Segmented<SidebarViewMode>
+              value={viewMode}
+              onChange={onViewModeChange}
+              ariaLabel={tr('app.viewOrder')}
+              testId="topics-menu-view-mode"
+              options={[
+                { value: 'timeline', label: tr('app.viewOrderTimeline') },
+                { value: 'state', label: tr('app.viewOrderState') },
+              ]}
+            />
+          </PreferenceRow>
+          <SwitchRow
+            label={tr('settings.board.showRow')}
+            checked={settings.showBoardRow}
+            onChange={(v) => onSettingChange('showBoardRow', v)}
+            testId="topics-menu-board-row"
+          />
+        </div>
       </SubmenuItem>
 
       {/* HOW THE WINDOW IS ARRANGED. Two commands that are each other's
@@ -262,6 +288,7 @@ export function TopicsMenuItems({
       >
         <SettingsIcon size={glyph} className="flex-shrink-0" />
         <span className="flex-1 text-left">{tr('app.settings')}</span>
+        <kbd className="kbd">{shortcut(',')}</kbd>
       </button>
     </>
   );

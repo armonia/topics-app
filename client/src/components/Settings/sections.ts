@@ -1,80 +1,35 @@
 /**
  * THE SETTINGS ENTRIES, as data and not as JSX.
  *
- * They used to live inside `GlobalSettings.tsx`, and while there were five of
- * them that was enough. The defect this module closes is a different one:
- * "Profile" was ONE entry holding six boxes, and six things answering three
- * different questions in a single scrolling column mean that whoever looked for
- * one of them concluded it did not exist, not that it was further down.
+ * The panel holds the FORMS only: the five things that need something typed
+ * (a key, a URL, a code, a token) and cannot be a direct control in a 288px
+ * menu level. Everything else moved (USERMENU-01..06):
+ *  · appearance and notifications are levels of the user menu, where each
+ *    control applies on change;
+ *  · profile, followers and organization are the Profile tab, the one place
+ *    that answers "who are you";
+ *  · the devices are managed in their level of the user menu.
+ * What was left of «Devices» here is the node pairing and the requests from
+ * other computers, which is «Nodes».
  *
- * -- WHY THE PROFILE PAGES ARE NOT THE SETTINGS PAGES ANY MORE ---------------
- * `SETTINGS_SECTIONS` is the settings PANEL: it still carries "organization",
- * because creating a group, adding members and handing out roles is
- * administration and it has to live somewhere.
- *
- * `IDENTITY_SECTIONS` is the identity group INSIDE the panel, and it
- * deliberately does not contain the organisation. A profile answers "who is
- * this person", and on every surface people actually read one, the answer is a
- * face, a bio and how many people follow them. The org still decides what a
- * person can SEE (grants, project visibility): it just stopped being what a
- * person IS.
- *
- * The list is exported as DATA so a test can read it: that the entries exist,
- * that the labels are in the dictionary in both languages, without mounting a
- * DOM the project does not have.
+ * The list is exported as DATA so a test can read it without a DOM.
  */
-import { Bell, Building2, CalendarDays, Cpu, CreditCard, MonitorSmartphone, Palette, Plug, UserRound, Users } from 'lucide-react';
+import { CalendarDays, Cpu, CreditCard, Plug, Server } from 'lucide-react';
 
-export type SectionId =
-  | 'appearance'
-  | 'notifications'
-  | 'calendar'
-  | 'providers'
-  | 'tools'
-  | 'profile'
-  | 'organization'
-  | 'followers'
-  | 'devices'
-  | 'plan';
+export type SectionId = 'providers' | 'tools' | 'calendar' | 'plan' | 'nodes';
 
 export interface SettingsSection {
   id: SectionId;
   labelKey: string;
-  icon: typeof Palette;
+  icon: typeof Cpu;
 }
 
-// THE ORDER IS AN ARGUMENT: first how the app looks and how it warns you
-// (appearance, notifications), then which engine it works with (providers),
-// then who you are and who is around you (profile, followers, privacy), then
-// the group you administer, then the machines and the plan.
+// THE ORDER IS AN ARGUMENT: the engine first (what the app runs on), what it
+// can reach (tools, calendar), what you pay for it, the machines it spans.
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
-  { id: 'appearance', labelKey: 'settings.section.appearance', icon: Palette },
-  { id: 'notifications', labelKey: 'settings.section.notifications', icon: Bell },
-  // The calendar sits with the other things the app does FOR you rather than
-  // with the engines it runs on: what it looks like, how it warns you, what it
-  // keeps in sight.
-  { id: 'calendar', labelKey: 'settings.section.calendar', icon: CalendarDays },
   { id: 'providers', labelKey: 'settings.section.providers', icon: Cpu },
   { id: 'tools', labelKey: 'settings.section.tools', icon: Plug },
-  { id: 'profile', labelKey: 'settings.section.profile', icon: UserRound },
-  { id: 'followers', labelKey: 'settings.section.followers', icon: Users },
-  // Privacy has no entry of its own any more: the whole page was an exact
-  // duplicate of the Profile pane's Privacy dropdown (same `PrivacySection`,
-  // same switches, nothing left over here), and a page with zero exclusive
-  // content is a second door to the same room. Reach it from the pane.
-  { id: 'organization', labelKey: 'settings.section.organization', icon: Building2 },
-  // The id stays `devices`: it is the key the identity row deep-links to
-  // (`onOpenDevices`, and `openSettings('devices')` from the Profile pane).
-  { id: 'devices', labelKey: 'settings.section.devices', icon: MonitorSmartphone },
+  { id: 'calendar', labelKey: 'settings.section.calendar', icon: CalendarDays },
   { id: 'plan', labelKey: 'settings.section.plan', icon: CreditCard },
+  { id: 'nodes', labelKey: 'settings.section.nodes', icon: Server },
 ];
-
-/**
- * The identity entries of the panel, in the order they are presented.
- *
- * No organisation here, on purpose: see the header. THE PROFILE PANE NO LONGER
- * READS THIS LIST: it stopped being a strip of tabs and became one page, with
- * followers and privacy as dropdowns opened from the header. What is left here
- * is the settings panel, where the configuration of this installation lives.
- */
-export const IDENTITY_SECTIONS: readonly SectionId[] = ['profile', 'followers'];
