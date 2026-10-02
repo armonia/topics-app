@@ -22,7 +22,7 @@
  * nothing changes, back to 2 s at every start. Each change (a port that
  * appears, one that goes) is pushed (`onChange`), as a start and an end are.
  *
- * WHICH ADDRESS OPENS. A command can serve more than one port (a frontend and
+ * WHICH ADDRESS OPENS. A command can listen on more than one port (the page and
  * its API under `concurrently`), and the row's Open takes the FIRST address.
  * So the first is the one that answers `/` with a page (asked once per set of
  * ports, `servesHtml`), else a dev server's conventional port, else the

@@ -441,8 +441,8 @@ function queueRevalidation(path: string): boolean {
     // The paths already drawn ride along at the end, so that a surface that
     // draws many new ones (the palette) does not push them out of the
     // server's watch.
-    const earlier = [...drawnSince.keys()].filter((p) => !revalidationQueue.has(p) && askedThisPage.has(p) && !inflight.has(p));
-    const paths = [...revalidationQueue, ...earlier];
+    const onScreen = [...drawnSince.keys()].filter((p) => !revalidationQueue.has(p) && askedThisPage.has(p) && !inflight.has(p));
+    const paths = [...revalidationQueue, ...onScreen];
     revalidationQueue.clear();
     void revalidate(paths);
   }, REVALIDATE_GATHER_MS);

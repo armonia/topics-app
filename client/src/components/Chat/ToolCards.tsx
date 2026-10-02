@@ -475,12 +475,9 @@ export function McpCard({ args, result }: {
 /**
  * Result <pre> that collapses multi-MB bodies behind a "show all" toggle so a
  * pathological tool output never lays out megabytes of text inline. Shared by
- * every result-bearing card; preserves the `tool-call-result` test hook.
- *
- * The toggle is a fold like every other one in the transcript (CHAT-FOLD-01):
- * it tells the transcript before the text changes, so the control stays where
- * it was clicked. Nothing opens or closes under it (the box keeps its cap and
- * only its content changes), hence no `DisclosureBody`, as for a code block.
+ * every result-bearing card; preserves the `tool-call-result` test hook. The
+ * toggle holds the view like every fold (CHAT-FOLD-01); the box keeps its cap,
+ * so nothing unrolls and there is no `DisclosureBody`, as for a code block.
  */
 export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' }: {
   text: string; testId?: string; maxH?: string;
@@ -503,13 +500,8 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
         {oversized && !expanded && <span className="text-app-text-muted">…</span>}
       </pre>
       {oversized && (
-        <button
-          type="button"
-          aria-expanded={expanded}
-          data-testid={`${testId}-toggle`}
-          onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}
-          className="text-mini text-blue-500 hover:underline"
-        >
+        <button type="button" aria-expanded={expanded} data-testid={`${testId}-toggle`} className="text-mini text-blue-500 hover:underline"
+          onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}>
           {expanded ? tr('tool.result.showLess') : tr('tool.result.showAll', { size: formatBytes(length) })}
         </button>
       )}

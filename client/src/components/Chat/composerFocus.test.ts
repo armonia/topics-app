@@ -8,6 +8,7 @@
  * inside the pane that holds the focus at that moment keeps it; a click on the
  * transcript's text (nothing focusable, or the scroller) still lands in the
  * composer, ready to write.
+ * @covers CHAT-FOLD-01
  */
 import { describe, expect, test } from 'bun:test';
 import { composerMayTakeFocus } from './composerFocus';
