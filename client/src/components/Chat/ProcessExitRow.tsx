@@ -10,6 +10,9 @@
 import { useState } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
+import { StableToggleLabel } from './StableToggleLabel';
 import type { ProcessExitBlock } from './machineRow';
 
 export function ProcessExitRow({ messageId, block, content }: {
@@ -20,6 +23,7 @@ export function ProcessExitRow({ messageId, block, content }: {
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const disclose = useDisclosureToggle();
   const line = block.exitCode === null
     ? tr('chat.processExit.lineUnknown', { label: block.label })
     : tr('chat.processExit.line', { label: block.label, code: block.exitCode });
@@ -37,17 +41,21 @@ export function ProcessExitRow({ messageId, block, content }: {
         <button
           type="button"
           data-testid="process-exit-toggle"
-          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={open ? tr('chat.processExit.hide') : tr('chat.processExit.show')}
+          onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
           className="shrink-0 underline-offset-2 hover:text-app-text hover:underline"
         >
-          {open ? tr('chat.processExit.hide') : tr('chat.processExit.show')}
+          {/* Both words hold the width: the line is centred, and a label that
+              changed length re-centred it under the pointer. */}
+          <StableToggleLabel open={open} show={tr('chat.processExit.show')} hide={tr('chat.processExit.hide')} />
         </button>
       </div>
-      {open && (
-        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-mini leading-relaxed text-app-text-secondary">
+      <DisclosureBody open={open} className="pt-1">
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-mini leading-relaxed text-app-text-secondary">
           {content}
         </pre>
-      )}
+      </DisclosureBody>
     </div>
   );
 }

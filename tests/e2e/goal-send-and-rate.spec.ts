@@ -72,13 +72,16 @@ test.describe("goal sent and readable, tok/s in line", () => {
     await expect(page.getByTestId("goal-bar")).toBeVisible({ timeout: 10_000 });
     await expect.poll(chatPosts, { timeout: 10_000 }).toEqual([LONG_GOAL]);
 
-    // Closed, the long goal is cut; a click opens it WHOLE, on more lines.
+    // Closed, the long goal is cut; a click opens it WHOLE, on more lines, in
+    // the panel above the line (the line itself stays put: CHAT-FOLD-01).
     const text = page.getByTestId("goal-bar-text");
     const closedHeight = (await text.boundingBox())!.height;
     expect(await text.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
     await page.getByTestId("goal-bar-toggle").click();
-    await expect.poll(async () => (await text.boundingBox())!.height).toBeGreaterThan(closedHeight * 1.5);
-    expect(await text.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    const whole = page.getByTestId("goal-bar-full-text");
+    await expect(whole).toHaveText(LONG_GOAL);
+    await expect.poll(async () => (await whole.boundingBox())!.height).toBeGreaterThan(closedHeight * 1.5);
+    expect(await whole.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
 
     // tok/s: in the meta row of the answer, never inside the composer.
     const rate = page.locator('[data-testid="message-meta-row"] [data-testid="stream-token-rate"]');

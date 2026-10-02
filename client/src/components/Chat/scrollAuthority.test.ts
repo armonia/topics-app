@@ -518,3 +518,32 @@ describe('presa dell’utente (userHeld)', () => {
     expect(again).toBe(held);
   });
 });
+
+describe('a disclosure toggled by hand (disclosure-toggled)', () => {
+  it('holds the view: no pin of any kind until the reader is back at the true bottom', () => {
+    const d = reduceScroll(at(), { type: 'disclosure-toggled' }, T0);
+    expect(d.pin).toBe(false);
+    expect(d.state.userHeld).toBe(true);
+    // Anchoring is not the question it answers: the geometry decides it later.
+    expect(d.state.anchored).toBe(true);
+    expect(shouldPin(d.state, { jumpPending: false })).toBe(false);
+  });
+
+  it('a stream that starts meanwhile keeps the hold, as it does for a wheel', () => {
+    const s = run(at(), [{ type: 'disclosure-toggled' }, { type: 'stream-start' }]);
+    expect(s.userHeld).toBe(true);
+    expect(shouldPin(s, { jumpPending: false })).toBe(false);
+  });
+
+  it('the true bottom releases it, and so does sending', () => {
+    const back = run(at(), [{ type: 'disclosure-toggled' }, { type: 'reached-bottom', distanceFromBottom: 0 }]);
+    expect(shouldPin(back, { jumpPending: false })).toBe(true);
+    const sent = run(at(), [{ type: 'disclosure-toggled' }, { type: 'user-sent' }]);
+    expect(shouldPin(sent, { jumpPending: false })).toBe(true);
+  });
+
+  it('a second toggle while held changes nothing (same state object)', () => {
+    const held = reduceScroll(at(), { type: 'disclosure-toggled' }, T0).state;
+    expect(reduceScroll(held, { type: 'disclosure-toggled' }, T0 + 1).state).toBe(held);
+  });
+});
