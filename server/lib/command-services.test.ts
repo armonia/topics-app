@@ -142,6 +142,12 @@ describe("command-services", () => {
     answer = new Map([[rows[0]!.pid!, [at(3000), at(5173), at(9229)]]]);
     expect(await watch.tick()).toBe(true);
     expect(watch.listenOf("srv")!.map((a) => a.port)).toEqual([5173, 3000, 9229]);
+    // Both answered with a page (an API's 404 in HTML is not one, but a page
+    // on each port can be): the dev server's own port still goes first.
+    pages = new Set([3000, 5173]);
+    answer = new Map([[rows[0]!.pid!, [at(3000), at(5173)]]]);
+    expect(await watch.tick()).toBe(true);
+    expect(watch.listenOf("srv")!.map((a) => a.port)).toEqual([5173, 3000]);
     // Neither a page nor a known port: the lowest, as before.
     answer = new Map([[rows[0]!.pid!, [at(9229), at(8777)]]]);
     expect(await watch.tick()).toBe(true);

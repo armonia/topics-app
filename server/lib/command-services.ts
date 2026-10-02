@@ -92,14 +92,14 @@ const PAGE_PORTS = [5173, 5174, 5175, 4173, 4200, 4321, 3000, 8080];
 /**
  * The addresses in the order the row reads them, sorted by port: the first is
  * the one Open opens. A port that answered with a page wins, then a
- * conventional page port, then the lowest.
+ * conventional page port, then the lowest; among pages, by the same order.
  */
 export function openFirst(listen: ReadonlyArray<ListenAddress>, pages: ReadonlySet<number>): ListenAddress[] {
   const sorted = byPort(listen);
   const rank = (a: ListenAddress) => {
-    if (pages.has(a.port)) return -1;
     const i = PAGE_PORTS.indexOf(a.port);
-    return i < 0 ? PAGE_PORTS.length : i;
+    const known = i < 0 ? PAGE_PORTS.length : i;
+    return pages.has(a.port) ? known - PAGE_PORTS.length - 1 : known;
   };
   let best = 0;
   sorted.forEach((a, i) => { if (rank(a) < rank(sorted[best]!)) best = i; });

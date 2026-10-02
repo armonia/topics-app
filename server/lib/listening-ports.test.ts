@@ -52,4 +52,13 @@ describe("listening sockets", () => {
     }
     expect(await servesHtml({ host: "127.0.0.1", port: api.port! })).toBe(false);
   });
+
+  test("an API whose / is a 404 written in HTML is no page: Express, Flask, Django and Rails all answer so", async () => {
+    const api = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("<!DOCTYPE html><pre>Cannot GET /</pre>", { status: 404, headers: { "content-type": "text/html; charset=utf-8" } }) });
+    try {
+      expect(await servesHtml({ host: "127.0.0.1", port: api.port! })).toBe(false);
+    } finally {
+      api.stop(true);
+    }
+  });
 });
