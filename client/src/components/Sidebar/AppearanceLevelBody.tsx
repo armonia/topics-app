@@ -20,7 +20,7 @@ import type { MenuPreferences } from './AppearanceLevel';
 // Bilingual on purpose: this is the one control that must stay readable when
 // the language in force is the wrong one.
 const LANGUAGE_OPTIONS: ReadonlyArray<SelectOption<LocalePreference>> = [
-  { value: 'auto', label: 'Automatica · Automatic' },
+  { value: 'auto', label: 'Automatica · Automatic' }, // allow-italian: bilingual on purpose, readable whichever language is in force
   { value: 'it', label: 'Italiano' },
   { value: 'en', label: 'English' },
 ];
