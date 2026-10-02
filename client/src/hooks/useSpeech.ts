@@ -285,6 +285,12 @@ export function useVoiceCall(
   // so a plain state check can't stop them re-acquiring the mic. startCall/endCall
   // flip this ref synchronously and startRecording gates on it.
   const isCallActiveRef = useRef(false);
+  // WHICH call is on. The boolean above cannot tell two calls apart: hang up
+  // while a turn is being transcribed, call again, and the old transcript
+  // landed with the flag true again and went into the new call. Bumped by
+  // startCall, endCall and unmount; every async step of a turn compares the
+  // generation it was born in.
+  const callGenRef = useRef(0);
   const [callStatus, setCallStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -314,6 +320,8 @@ export function useVoiceCall(
     // branches and any pending 500ms timers fire after endCall — without this
     // guard the mic silently goes hot again with no UI left to stop it.
     if (!isCallActiveRef.current) return;
+    const gen = callGenRef.current;
+    const sameCall = () => isCallActiveRef.current && callGenRef.current === gen;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
@@ -336,7 +344,7 @@ export function useVoiceCall(
         /** Riapre il microfono per il turno successivo, se la chiamata è ancora viva. */
         const relisten = () => {
           setCallStatus('listening');
-          setTimeout(() => { void startRecording(); }, 300);
+          setTimeout(() => { if (sameCall()) void startRecording(); }, 300);
         };
 
         mediaRecorder.onstop = async () => {
@@ -347,7 +355,7 @@ export function useVoiceCall(
           // `endCall` stops the recorder and this runs AFTER it, with the half
           // sentence already in `chunks`: once the call is over there is nothing
           // to transcribe and nobody to send it to.
-          if (!isCallActiveRef.current) return;
+          if (!sameCall()) return;
           // Nessun dato, o solo l'header del container: non c'è niente da
           // trascrivere e nemmeno da pagare.
           if (chunks.length === 0) { relisten(); return; }
@@ -357,8 +365,9 @@ export function useVoiceCall(
           setCallStatus('processing');
           try {
             const transcript = await transcribeTurn(audioBlob);
-            // Hung up while the turn was being transcribed: same rule.
-            if (!isCallActiveRef.current) return;
+            // Hung up while the turn was being transcribed, possibly with a new
+            // call already on: only the call that recorded it may send it.
+            if (!sameCall()) return;
             if (transcript.trim()) {
               await sendMessage(transcript.trim());
             } else {
@@ -368,7 +377,7 @@ export function useVoiceCall(
             }
           } catch (e) {
             console.error('[VoiceCall] Transcription error:', e);
-            relisten();
+            if (sameCall()) relisten();
           }
         };
 
@@ -469,6 +478,7 @@ export function useVoiceCall(
   }, [isCallActive, startRecording]);
 
   const startCall = useCallback(() => {
+    callGenRef.current++;
     isCallActiveRef.current = true;
     setIsCallActive(true);
     setCallStatus('listening');
@@ -477,6 +487,7 @@ export function useVoiceCall(
   }, [currentMessages, startRecording]);
 
   const endCall = useCallback(() => {
+    callGenRef.current++;
     isCallActiveRef.current = false;
     setIsCallActive(false);
     setCallStatus('idle');
@@ -506,6 +517,7 @@ export function useVoiceCall(
   // would stop the getUserMedia stream if the component just goes away.
   useEffect(() => {
     return () => {
+      callGenRef.current++;
       isCallActiveRef.current = false;
       vadRef.current?.stop();
       vadRef.current = null;

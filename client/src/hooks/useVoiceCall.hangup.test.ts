@@ -92,4 +92,26 @@ describe('useVoiceCall · hanging up', () => {
     await settle();
     expect(sent).toEqual(['half a sentence']);
   });
+
+  test('a transcription of the previous call is not sent into the next one', async () => {
+    // The transcription answers only when released: the person hangs up while
+    // it is in flight and calls again before it lands.
+    let release: () => void = () => {};
+    g.fetch = () => new Promise<Response>((resolve) => {
+      release = () => resolve(new Response(JSON.stringify({ transcript: 'old half sentence' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }));
+    });
+    const { sent, api } = drive();
+    api().startCall();
+    await settle();
+    FakeRecorder.last!.stop();
+    await settle();
+    api().endCall();
+    api().startCall();
+    await settle();
+    release();
+    await settle();
+    expect(sent).toEqual([]);
+  });
 });
