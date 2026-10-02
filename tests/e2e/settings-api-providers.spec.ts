@@ -10,7 +10,7 @@ import { beat, didascalia } from './helpers/evidence';
 import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { goToApp, openTopic } from './helpers';
 import { mockChatStream } from './helpers/sse-helpers';
-import { openProfileMenu } from './helpers/open-perf-panel';
+import { openUserMenuLevel } from './helpers/user-menu';
 
 hermetic(test);
 
@@ -93,18 +93,21 @@ async function mockProviders(page: Page, providers: ProviderSnapshotEntry[] = [e
   };
 }
 
+/** The AI providers form is a level of the user menu (a sheet on the phone). */
 async function openProviders(page: Page) {
   await page.goto('/');
-  await openProfileMenu(page);
-  // One click, not two: the row opens the panel straight away since 4763a62b.
-  // It used to unfold a level holding a copy of the panel's own section list,
-  // and this helper had to walk through its «all» door to get here.
-  await page.getByTestId('topics-menu-settings').click();
-  const panel = page.getByTestId('settings-panel');
-  await expect(panel).toBeVisible();
-  await panel.locator('nav').getByRole('button', { name: 'Providers AI', exact: true }).click();
-  await expect(page.getByTestId('ai-providers-settings')).toBeVisible();
-  await expect.poll(() => panel.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
+  const level = await openUserMenuLevel(page, 'providers');
+  await expect(page.getByTestId('ai-providers-settings')).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => level.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
+  return level;
+}
+
+/** From one form level to another: Escape closes only the open level, the
+ *  menu stays, and the next row opens its own. */
+async function switchLevel(page: Page, from: 'providers' | 'tools', to: 'providers' | 'tools') {
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId(`topics-menu-${from}-menu`)).toHaveCount(0);
+  return openUserMenuLevel(page, to);
 }
 
 for (const device of [
@@ -237,13 +240,12 @@ for (const device of [
       await expect(page.getByTestId('provider-default-missing')).toBeVisible();
       await toggle.click();
       await expect(advanced).toHaveCount(0);
-      const panel = page.getByTestId('settings-panel');
-      await panel.locator('nav').getByRole('button', { name: 'Strumenti', exact: true }).click();
+      await switchLevel(page, 'providers', 'tools');
       await expect(page.getByTestId('mcp-fleet-empty')).toBeVisible();
       await expect(page.getByTestId('settings-permissions')).toBeVisible();
       expect(fixture.fleetReads()).toBe(1);
       await page.screenshot({ path: test.info().outputPath('tools.png') });
-      await panel.locator('nav').getByRole('button', { name: 'Providers AI', exact: true }).click();
+      await switchLevel(page, 'tools', 'providers');
       await expect(page.getByTestId('ai-providers-settings')).toBeVisible();
       await expect(page.getByTestId('mcp-fleet-panel')).toHaveCount(0);
     });

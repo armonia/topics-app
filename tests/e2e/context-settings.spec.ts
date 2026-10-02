@@ -260,17 +260,19 @@ test.describe("Context, Memory & Settings", () => {
     expect(putBody.content).toBe("Updated global memory content");
   });
 
-  test("SET-01: settings panel opens from sidebar menu", async ({
-    settingsPage,
+  test("SET-01: the settings open from the user menu, as its levels", async ({
+    settingsPage, page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
-    // Verify the settings modal is visible, on the forms it keeps
+    // The forms are levels of the user menu: no Settings window, no Settings row.
     await expect(settingsPage.panel).toBeVisible();
-    await expect(settingsPage.panel.locator("nav button").first()).toHaveText("Providers AI");
+    await expect(settingsPage.panel.getByTestId("ai-providers-settings")).toBeVisible();
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
 
-    // Close settings via the backdrop overlay
+    // Escape closes the level, then the menu.
     await settingsPage.closeSettings();
     await expect(settingsPage.panel).not.toBeVisible();
 

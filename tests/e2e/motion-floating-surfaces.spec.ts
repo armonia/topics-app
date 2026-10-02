@@ -151,15 +151,19 @@ test.describe("Floating surfaces enter and leave", () => {
     await expectExit(page, "notification panel", "popover", POPOVER_MAX_MS);
   });
 
-  test("MOTION-04e: settings, the veil fades in with the panel and both leave", async ({ page }) => {
+  // The settings are levels of the user menu since `menu-utente-tutto`: a form
+  // level moves like every level, with no veil of its own.
+  test("MOTION-04e: a form level of the user menu (AI providers)", async ({ page }) => {
     await ready(page);
-    await watch(page, ':has(> [data-testid="settings-panel"])');
-    await page.keyboard.press("Meta+,");
-    await expect(page.getByTestId("settings-panel")).toBeVisible();
-    await expectEntrance(page, "settings veil", MODAL_MAX_MS, ["opacity"]);
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+    await watch(page, '[data-testid="topics-menu-providers-menu"]');
+    await page.getByTestId("topics-menu-providers").click();
+    await expect(page.getByTestId("topics-menu-providers-menu")).toBeVisible();
+    await expectEntrance(page, "form level", POPOVER_MAX_MS, COMPOSITOR_PROPS);
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
-    await expectExit(page, "settings", "modal", MODAL_MAX_MS);
+    await expect(page.getByTestId("topics-menu-providers-menu")).toHaveCount(0);
+    await expectExit(page, "form level", "popover", POPOVER_MAX_MS);
   });
 
   test("MOTION-04f: the palette, its veil and the same exit", async ({ page }) => {
@@ -597,9 +601,9 @@ test.describe("Reduced motion, everywhere", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("notification-history-panel")).toHaveCount(0);
     await page.keyboard.press("Meta+,");
-    await expect(page.getByTestId("settings-panel")).toBeVisible();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
     await page.keyboard.press("Meta+k");
     await expect(page.getByTestId("command-palette")).toBeVisible();
     await page.keyboard.press("Escape");

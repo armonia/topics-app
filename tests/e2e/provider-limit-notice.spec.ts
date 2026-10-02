@@ -134,10 +134,15 @@ for (const mobile of [false, true]) {
         const defaultBefore = (await (await request.get('/api/providers/snapshot')).json()).defaultProvider;
         await details.getByRole('menuitem', { name: 'Gestisci provider AI' }).click();
         await expect(details).toHaveCount(0);
-        await expect(page.getByTestId('ai-providers-settings')).toBeVisible();
+        // The door lands on the AI providers level of the user menu.
+        await expect(page.getByTestId('topics-menu-providers-menu').getByTestId('ai-providers-settings')).toBeVisible();
         const defaultAfter = (await (await request.get('/api/providers/snapshot')).json()).defaultProvider;
         expect(defaultAfter).toBe(defaultBefore);
+        // One Escape closes the level, the next one the menu.
         await page.keyboard.press('Escape');
+        await expect(page.getByTestId('topics-menu-providers-menu')).toHaveCount(0);
+        await page.keyboard.press('Escape');
+        await expect(page.getByTestId('profile-menu').or(page.getByTestId('sidebar-topics-menu-panel'))).toHaveCount(0);
         await expect(page.getByTestId('settings-panel')).toHaveCount(0);
 
         await notice.click();

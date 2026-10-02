@@ -1,5 +1,6 @@
 /**
- * THE PREFERENCES LIVE IN THE USER MENU, AND THE SETTINGS PANEL KEEPS THE FORMS.
+ * EVERY SETTING LIVES IN THE USER MENU: the preferences as direct controls, the
+ * forms as wider levels (`menu-utente-tutto`), and no Settings panel.
  *
  * Every assertion here is about a door that moved (change
  * `sidebar-menu-settings`): the control has to be where the person now looks,
@@ -283,19 +284,24 @@ test.describe("il menu utente: i dispositivi si gestiscono dove si vedono", () =
     await expect(revoked.getByTestId("device-revoked-when")).toHaveText("revocato 2 g fa");
   });
 
-  test("USERMENU-06: le Impostazioni hanno cinque voci, e Nodi ha l'aggiunta di un nodo ma non l'elenco dei dispositivi", async ({ page }) => {
+  test("USERMENU-06: ⌘, apre il menu utente, i cinque moduli sono suoi livelli, e Nodi ha l'aggiunta di un nodo ma non l'elenco dei dispositivi", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
     await goToApp(page);
-    const panel = page.getByTestId("settings-panel");
+    const menu = page.getByTestId("profile-menu");
     await expect(async () => {
       await page.keyboard.press("Meta+Comma");
-      await expect(panel).toBeVisible({ timeout: 2_000 });
+      await expect(menu).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 20_000 });
-    await expect(panel.locator("nav button")).toHaveText(["Providers AI", "Strumenti", "Calendario", "Piano", "Nodi"]);
-    await panel.locator("nav button", { hasText: /^Nodi$/ }).click();
-    await expect(panel.getByTestId("settings-node-pair")).toBeVisible();
-    await expect(panel.getByTestId("device-row")).toHaveCount(0);
-    await expect(panel.getByTestId("devices-active")).toHaveCount(0);
+    // No Settings window and no row that opens one: one home per setting.
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    await expect(menu.getByTestId("topics-menu-settings")).toHaveCount(0);
+    for (const row of ["plan", "nodes", "providers", "tools", "calendar"]) {
+      await expect(menu.getByTestId(`topics-menu-${row}`)).toBeVisible();
+    }
+    const nodes = await openUserMenuLevel(page, "nodes");
+    await expect(nodes.getByTestId("settings-node-pair")).toBeVisible({ timeout: 15_000 });
+    await expect(nodes.getByTestId("device-row")).toHaveCount(0);
+    await expect(nodes.getByTestId("devices-active")).toHaveCount(0);
   });
 });
 
@@ -429,7 +435,8 @@ test.describe("sul telefono il menu del titolo è il menu utente", () => {
     await expect(level.getByTestId("device-row")).toHaveCount(1, { timeout: 10_000 });
     expect(calls.map((c) => c.method)).toEqual(["PATCH", "DELETE"]);
 
-    // Sign out: the confirmation sits outside the sheet, which closes under it.
+    // Sign out: the confirmation is asked from inside the menu, which stays
+    // open behind it (`ConfirmInsidePopoverContext`).
     await page.keyboard.press("Escape");
     await expect(level).toBeHidden({ timeout: 10_000 });
     await signOut.click();

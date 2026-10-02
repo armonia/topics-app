@@ -329,24 +329,32 @@ test.describe("il menu utente apre i livelli di lato", () => {
     expect(width, `the version level is ${width}px`).toBeGreaterThanOrEqual(260);
   });
 
-  test("la riga delle impostazioni apre il pannello, e non ne ricopia l'elenco", async ({ page }) => {
+  test("nessuna riga Impostazioni: i moduli sono livelli del menu, ognuno con la coda che dice come sta", async ({ page }) => {
     await goToApp(page);
     const menu = await openProfileMenu(page);
 
-    // THE ROW DOES THE ONE THING ITS LABEL PROMISES. It used to open a level
-    // holding a copy of `SETTINGS_SECTIONS`, so the same names were read twice
-    // - once in the menu, once inside the panel - for one destination. Card
-    // 4763a62b called that a repetition of the panel's own navigation and took
-    // the copy out: the panel is where a section is picked, because that list
-    // already lives there.
-    //
-    // So what this test pins is the ABSENCE of the second copy, not just the
-    // click: a level growing back here would be the defect returning.
-    await menu.getByTestId("topics-menu-settings").click();
-    await expect(page.getByTestId("topics-menu-settings-menu")).toHaveCount(0);
-
-    const panel = page.getByTestId("settings-panel");
-    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // THE MENU IS THE ONE HOME OF EVERY SETTING (USERMENU-06). The last row
+    // used to open a Settings window holding five forms; the maintainer asked
+    // for the button to go («meglio evitarlo proprio il tasto») and the forms
+    // to be levels here. What this pins is the absence of that door, and the
+    // presence of the five rows in their groups: the plan under the account,
+    // the nodes after the devices, the engine above the preferences.
+    await expect(menu.getByTestId("topics-menu-settings")).toHaveCount(0);
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    const order = await menu.locator("[data-testid]").evaluateAll((els) => els
+      .map((el) => el.getAttribute("data-testid") ?? "")
+      .filter((id) => [
+        "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
+        "topics-menu-nodes", "topics-menu-providers", "topics-menu-tools", "topics-menu-calendar",
+        "topics-menu-appearance",
+      ].includes(id)));
+    expect(order).toEqual([
+      "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
+      "topics-menu-nodes", "topics-menu-providers", "topics-menu-tools", "topics-menu-calendar",
+      "topics-menu-appearance",
+    ]);
+    // The plan says itself without opening anything.
+    await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 10_000 });
   });
 
   test("il pulsante mostra quanti agenti stanno lavorando, ed è il numero della lista", async ({ page, request }) => {

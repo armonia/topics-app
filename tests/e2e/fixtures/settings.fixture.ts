@@ -1,5 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
-import { closeProfileMenu, openProfileMenu } from "../helpers/open-perf-panel";
+import { closeProfileMenu } from "../helpers/open-perf-panel";
 import { openUserMenuLevel } from "../helpers/user-menu";
 
 export class SettingsPage {
@@ -8,20 +8,15 @@ export class SettingsPage {
   // --- Navigation ---
 
   /**
-   * Open settings through the one door of the chrome: the user card on the
-   * desktop, the title button on the phone (`openProfileMenu` picks). The
-   * settings row is found by testid, not by its label: the label is
-   * translated, and `TooltipDelegate` strips `title` attributes under the
-   * pointer, so neither text nor `title` is a stable handle.
+   * Open the settings: every setting is a level of the user menu since
+   * `menu-utente-tutto`, and the forms land on AI providers, the first one a
+   * person comes for. The user card on the desktop, the title button on the
+   * phone (`openUserMenuLevel` picks). Rows are found by testid, never by their
+   * translated label.
    */
   async openSettings() {
-    await openProfileMenu(this.page);
-    // One step again. The row was a LEVEL for a while (STATUSLINE-05), listing
-    // the sections so «take me to the providers» was one gesture; 4763a62b took
-    // that copy out - it repeated the panel's own navigation - so the row is
-    // the plain door this fixture always wanted.
-    await this.page.getByTestId("topics-menu-settings").click();
-    await this.panel.waitFor({ state: "visible", timeout: 10_000 });
+    await openUserMenuLevel(this.page, "providers");
+    await this.page.getByTestId("ai-providers-settings").waitFor({ state: "visible", timeout: 15_000 });
   }
 
   // --- Mock Helpers ---
@@ -77,34 +72,14 @@ export class SettingsPage {
 
   // --- Locator Getters ---
 
+  /** The AI providers level of the user menu. */
   get panel() {
-    // Solo il testid. Il ripiego sulle classi (`.bg-surface.rounded-xl.shadow-xl`)
-    // era morto da f7ecd458, che ha portato MODAL_PANEL a `shadow-2xl`: un ramo
-    // `.or()` che non può più agganciare nulla non è una rete di sicurezza, è
-    // rumore che nasconde la deriva.
-    return this.page.locator('[data-testid="settings-panel"]');
+    return this.page.getByTestId("topics-menu-providers-menu");
   }
 
-  /**
-   * Il velo del modale — è il PADRE del pannello (`MODAL_OVERLAY` in
-   * client/src/lib/modalStyles.ts) ed è lui a portare l'`onClick={onClose}`.
-   *
-   * Ancorato al pannello e NON alle sue classi: il velo è passato da `z-50` a
-   * `z-[10000]` in baff80a5 («Il menu "New" era unificato di sopra…», dove i
-   * modali stavano sotto i popover a 9999), e ogni locator scritto sul numero
-   * — `.fixed.inset-0.z-50` — è morto lì in silenzio.
-   */
-  get overlay() {
-    return this.panel.locator("xpath=..");
-  }
-
-  /**
-   * Chiude il pannello dal velo, come fa l'utente cliccando fuori.
-   * L'angolo in alto a sinistra è sempre fuori dalla card (centrata,
-   * max-w 760px / h 80vh).
-   */
+  /** Closes the user menu, the level first: one Escape per level. */
   async closeSettings() {
-    await this.overlay.click({ position: { x: 10, y: 10 } });
+    await closeProfileMenu(this.page);
     await this.panel.waitFor({ state: "hidden", timeout: 10_000 });
   }
 

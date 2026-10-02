@@ -33,21 +33,26 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await page.keyboard.press("Meta+Comma");
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible({ timeout: 10000 });
+    // ⌘, opens the user menu: every setting is one of its levels.
+    const menu = page.getByTestId("profile-menu");
+    await expect(async () => {
+      await page.keyboard.press("Meta+Comma");
+      await expect(menu).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20000 });
 
     // Le voci del menu, non una a caso: TUTTE. Una lista mezza tradotta è
     // peggio di una non tradotta, perché sembra che le due metà siano cose
     // diverse.
-    const voci = pannello.locator("nav button");
+    const voci = menu.locator('[role="menuitem"]');
+    await expect(menu.getByTestId("topics-menu-providers")).toBeVisible();
     const testi = (await voci.allInnerTexts()).map((t) => t.trim()).filter(Boolean);
-    expect(testi.length, "il menu deve avere delle voci").toBeGreaterThan(3);
+    expect(testi.length, "il menu deve avere delle voci").toBeGreaterThan(8);
 
     // Le parole inglesi che c'erano. Se tornano, questo morde.
-    const inglesi = ["Appearance", "Notifications", "Profile", "Devices", "Plan"];
+    const inglesi = ["Appearance", "Notifications", "Profile", "Devices", "Plan", "Settings", "Tools", "Calendar", "Nodes", "Providers"];
     for (const parola of inglesi) {
-      expect(testi, `«${parola}» è inglese: il menu delle impostazioni è l'unica superficie dell'app che non passa dal dizionario`).not.toContain(parola);
+      const trovata = testi.find((testo) => new RegExp(`\\b${parola}\\b`).test(testo));
+      expect(trovata, `«${parola}» è inglese: le voci del menu passano dal dizionario`).toBeUndefined();
     }
   });
 
@@ -101,15 +106,10 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
-    // THE PANEL HAS NO COPY. The organisation page used to be an entry of the
+    // NO COPY. The organisation page used to be an entry of the Settings
     // panel AND the page the Profile tab opened from «Manage»: the same page
-    // in two hosts. The panel keeps the forms only.
-    await page.keyboard.press("Meta+Comma");
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible({ timeout: 10000 });
-    await expect(pannello.locator("nav button", { hasText: /^Organizzazione$/ })).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await expect(pannello).toHaveCount(0);
+    // in two hosts. There is no panel any more.
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
 
     // THE DOOR HAS ITS NAME ON IT: the Groups level of the user menu, and
     // «Manage» at its foot opens the organisation page in the Profile tab.

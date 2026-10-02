@@ -9,9 +9,10 @@
  *
  * Questa spec È il criterio di accettazione, non un controllo a occhio. Misura,
  * a 390×844 con `hasTouch`:
- *  · che il pannello non produca scorrimento ORIZZONTALE (era `max-w-[760px]`
- *    con dentro una nav larga 180 fissi: a 390 restavano 178px di contenuto);
- *  · che ogni bersaglio toccabile dentro il pannello sia ≥ 44px;
+ *  · che ogni modulo (Piano, Nodi, Provider AI, Strumenti, Calendario, livelli
+ *    del menu utente dal `menu-utente-tutto`) sia un foglio largo quanto lo
+ *    schermo, senza scorrimento ORIZZONTALE;
+ *  · che ogni bersaglio toccabile dentro ciascun foglio sia ≥ 44px;
  *  · che NON esista un solo `<select>` nativo in pagina;
  *  · che i comandi sugli split — che sotto i 768px non fanno niente, perché
  *    `PanelGrid` a quella larghezza non disegna affatto gli split — non
@@ -43,33 +44,22 @@ test.use({
 const AUDIT_JS = readFileSync(join(__dirname, "helpers", "ui-audit.js"), "utf8");
 
 /**
- * Apre le Impostazioni e ASPETTA CHE IL PANNELLO SIA FERMO.
+ * Opens one form level of the title menu and WAITS FOR THE SHEET TO SETTLE.
  *
- * `MODAL_PANEL` porta `command-palette-enter`, cioè `commandPaletteIn 0.15s`,
- * che è un'animazione di SCALA. Misurare mentre corre restituisce la geometria
- * moltiplicata per un fattore che cambia a ogni frame: un controllo alto 44
- * tornava 43,41 · 43,78 · 43,86 in tre passate, cioè un rosso che parlava del
- * fotogramma catturato e non della UI — ed era anche l'origine dell'unico test
- * intermittente di questo file.
- *
- * `reducedMotion: reduce` (impostato per tutta la suite) NON la ferma: quella
- * preferenza spegne le transizioni che il progetto ha legato alla media query,
- * e questa animazione non è fra quelle. Quindi si aspetta il fatto: la matrice
- * di trasformazione tornata all'identità.
+ * The forms are levels of the user menu since `menu-utente-tutto` (there is no
+ * Settings window), and on the phone a level is a sheet that slides up from the
+ * bottom. Measuring while it slides returns a geometry that changes every frame,
+ * so the wait is for the fact: the transform back to the identity.
  */
-async function apriImpostazioni(page: Page) {
-  await page.getByTestId("sidebar-topics-menu").click();
-  // By testid, not by the word: the row is one component shared with the
-  // desktop's user-card menu (`TopicsMenuItems`) and its label goes through
-  // the dictionary, so under it-IT it reads «Impostazioni». allow-italian: quoted label
-  // One click since 4763a62b: the row opens the panel instead of unfolding a
-  // level that held a copy of the panel's own section list.
-  await page.getByTestId("topics-menu-settings").click();
-  const pannello = page.getByTestId("settings-panel");
-  await expect(pannello).toBeVisible({ timeout: 10_000 });
+async function apriLivello(page: Page, livello: Livello) {
+  const sheet = await openUserMenuLevel(page, livello);
   await expect
-    .poll(() => pannello.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
-    .toBe("none");
+    .poll(() => sheet.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
+    .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+  // The form is a chunk of its own: measure it, not its loading placeholder.
+  await expect(sheet.getByTestId(`topics-menu-${livello}-form`)).toBeVisible();
+  await page.waitForTimeout(300);
+  return sheet;
 }
 
 /**
@@ -122,119 +112,66 @@ test.beforeEach(async ({ page }) => {
 });
 
 /**
- * Every entry of the panel, in the order the nav lists them
- * (`client/src/components/Settings/sections.ts`).
+ * Every form level of the user menu, in the order the menu lists them: plan,
+ * nodes (with the machines), then AI providers, tools, calendar.
  *
- * FIVE AGAIN, and for a different reason than the first time: the panel
- * holds only the forms now (`sidebar-menu-settings`). A fixed list does not
- * go red when the panel grows, it just measures less of it while the comment
- * keeps saying "all of them" - which is why the count assertion in the test is
- * part of the measurement and not decoration.
+ * A fixed list does not go red when a form is added, it just measures less
+ * while the comment keeps saying "all of them": the count assertion in the test
+ * compares it with the rows the menu really has.
  */
-const SCHEDE = [
-  "Providers AI",
-  "Strumenti",
-  "Calendario",
-  "Piano",
-  "Nodi",
-];
+const LIVELLI = ["plan", "nodes", "providers", "tools", "calendar"] as const;
+type Livello = (typeof LIVELLI)[number];
 
-/** The tab strip, which is also the only place these labels are buttons: the
- *  pages themselves carry buttons that repeat some of those words. */
-const panelNav = (page: Page) =>
-  page.getByTestId("settings-panel").locator("nav").first();
-
-test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", async ({ page }) => {
+test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli sotto i 44px", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
-  await apriImpostazioni(page);
-  await didascalia(page, "Impostazioni a 390px");
-  await beat(page);
+  await page.getByTestId("sidebar-topics-menu").click();
+  const menu = page.getByTestId("sidebar-topics-menu-panel");
+  await expect(menu).toBeVisible({ timeout: 10_000 });
+  // The rows the menu has, against the list this spec walks.
+  const rows = await menu.locator('[data-testid^="topics-menu-"]').evaluateAll((els) =>
+    els.map((el) => el.getAttribute("data-testid") ?? "")
+      .filter((id) => /^topics-menu-(plan|nodes|providers|tools|calendar)$/.test(id)));
+  expect(rows, "the form rows of the menu and the list this spec walks").toEqual(LIVELLI.map((l) => `topics-menu-${l}`));
+  await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
+  await expect(page.getByTestId("settings-panel")).toHaveCount(0);
 
-  // 1. Nessuno scorrimento orizzontale, né sul pannello né sulla colonna che
-  //    porta il contenuto. Si misura lo scarto scroll/client, che è il fatto —
-  //    non «sembra stretto».
-  const overflow = await page.evaluate(() => {
-    const panel = document.querySelector('[data-testid="settings-panel"]');
-    if (!panel) return null;
-    const nodi = [panel, ...Array.from(panel.querySelectorAll("*"))] as HTMLElement[];
-    return nodi
-      .filter((el) => el.scrollWidth - el.clientWidth > 1)
-      // The tab strip scrolls horizontally ON PURPOSE: it is the navigation,
-      // and that scroll is how ten entries fit on a 390px screen.
-      .filter((el) => el.tagName !== "NAV")
-      .map((el) => ({
-        tag: el.tagName.toLowerCase(),
-        cls: (el.getAttribute("class") || "").slice(0, 60),
-        scroll: el.scrollWidth,
-        client: el.clientWidth,
-      }));
-  });
-  expect(overflow).toEqual([]);
-
-  // 2. Il pannello non esce dal viewport.
-  //
-  //    `getBoundingClientRect` dentro la pagina e NON `boundingBox()` di
-  //    Playwright: sotto l'emulazione mobile quest'ultimo riporta le coordinate
-  //    già moltiplicate per il fattore di scala della pagina, e su questo
-  //    viewport la scala non è esattamente 1 — misurato: un controllo alto 44
-  //    tornava 43,775, cioè un rosso che parlava dell'emulatore, non della UI.
-  //    La geometria vera è quella del DOM, la stessa che legge `ui-audit.js`.
-  const box = await page.getByTestId("settings-panel").evaluate((el) => {
-    const b = el.getBoundingClientRect();
-    return { left: b.left, right: b.right, vw: window.innerWidth };
-  });
-  expect(box.left).toBeGreaterThanOrEqual(0);
-  expect(box.right).toBeLessThanOrEqual(box.vw + 1);
-
-  // 3. Bersagli toccabili: la misura viene da `ui-audit.js`, lo stesso attrezzo
-  //    che il progetto usa per gli audit di layout — numeri esatti dal DOM, non
-  //    pixel stimati da uno screenshot.
-  //    Si inietta come <script>, non con `eval`: il file è un IIFE che installa
-  //    `window.__uiAudit`, ed è esattamente il modo in cui è pensato per essere
-  //    caricato.
-  //    And it walks EVERY entry: stopping at the first one would measure a
-  //    fifth of the panel while claiming the whole of it.
-  //
-  //    The count comes first, and it is the assertion that keeps the rest
-  //    honest: the list above is written by hand, so the day an eleventh
-  //    section appears this line goes red instead of the audit quietly
-  //    skipping it. Labels and order are compared too - a renamed entry would
-  //    otherwise make the click below fail with "locator not found", which
-  //    names the test instead of the change.
-  const nav = panelNav(page);
-  const labels = (await nav.getByRole("button").allInnerTexts()).map((s) => s.trim());
-  expect(labels, "the panel nav and the list this spec walks").toEqual(SCHEDE);
-
-  //    EVERY section is measured before anything is asserted. Failing inside
-  //    the loop stops at the first bad entry and hides the others, which turns
-  //    one audit into as many runs as there are defects: with ten sections
-  //    that is the difference between one report and five.
+  //    EVERY level is measured before anything is asserted: failing inside the
+  //    loop stops at the first bad one and hides the others.
   await page.addScriptTag({ content: AUDIT_JS });
   const belowThreshold: Record<string, unknown> = {};
   const horizontalScroll: string[] = [];
-  for (const scheda of SCHEDE) {
-    await nav.getByRole("button", { name: scheda, exact: true }).click();
-    await page.waitForTimeout(200);
-    const audit = await page.evaluate(() => {
-      const fn = (window as unknown as { __uiAudit: (o: unknown) => string }).__uiAudit;
-      return JSON.parse(fn({ scope: '[data-testid="settings-panel"]', minTap: 44 }));
+  const outside: Record<string, unknown> = {};
+  for (const livello of LIVELLI) {
+    const sheet = await apriLivello(page, livello);
+    // In the screen and as wide as it: the DOM's own geometry, not
+    // `boundingBox()`, which under mobile emulation reports coordinates
+    // already scaled by the page factor.
+    const box = await sheet.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return { left: b.left, right: b.right, vw: window.innerWidth };
     });
+    if (box.left < 0 || box.right > box.vw + 1 || box.right - box.left < box.vw - 1) outside[livello] = box;
+    const audit = await page.evaluate((scope) => {
+      const fn = (window as unknown as { __uiAudit: (o: unknown) => string }).__uiAudit;
+      return JSON.parse(fn({ scope, minTap: 44 }));
+    }, `[data-testid="topics-menu-${livello}-menu"]`);
     const tap = (audit.findings?.tapTargets ?? []) as Array<{ el: string; w: number; h: number }>;
-    if (tap.length > 0) belowThreshold[scheda] = tap;
-    if (audit.overflowX?.present) horizontalScroll.push(scheda);
+    if (tap.length > 0) belowThreshold[livello] = tap;
+    if (audit.overflowX?.present) horizontalScroll.push(livello);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
   }
-  expect(belowThreshold, "bersagli sotto i 44px, per scheda").toEqual({});
-  expect(horizontalScroll, "schede con scorrimento orizzontale").toEqual([]);
-  await nav.getByRole("button", { name: "Providers AI", exact: true }).click();
+  expect(outside, "fogli fuori dallo schermo o più stretti").toEqual({});
+  expect(belowThreshold, "bersagli sotto i 44px, per livello").toEqual({});
+  expect(horizontalScroll, "livelli con scorrimento orizzontale").toEqual([]);
 
-  // Le due schermate della consegna: STESSA scheda, due larghezze. Solo sotto
-  // `E2E_EVIDENCE=1`, come le clip — nella passata veloce la suite non paga i
-  // due screenshot.
+  // The delivery's two shots: the same level, two widths, only under
+  // `E2E_EVIDENCE=1`.
   if (isEvidenceRun()) {
+    await apriLivello(page, "providers");
+    await didascalia(page, "Provider AI a 390px");
+    await beat(page);
     await page.screenshot({ path: "test-results/evidence/settings-390.png" });
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: "test-results/evidence/settings-desktop.png" });
   }
 });
 
@@ -298,7 +235,7 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // A 390px: assenti. Non grigi — ASSENTI: la condizione che li sbloccherebbe
   // è lo schermo, e non c'è niente da sbloccare.
   await menu.click();
-  const openMenu = page.getByTestId("topics-menu-settings");
+  const openMenu = page.getByTestId("topics-menu-view");
   await expect(openMenu).toBeVisible();
   // The whole GROUP is absent, which is the same fact one level up: the two
   // commands live in the «Pannelli» level (STATUSLINE-05), and where panels do

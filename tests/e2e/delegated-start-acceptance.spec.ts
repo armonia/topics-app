@@ -9,7 +9,7 @@
  *
  * @covers GUEST-20
  */
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -26,7 +26,7 @@ import {
   seedProjectPane,
 } from "./helpers/api-fixtures";
 import { clipDiConsegna } from "./helpers/clip";
-import { openOrganizationPage } from "./helpers/user-menu";
+import { openOrganizationPage, requestUserMenuLevel } from "./helpers/user-menu";
 import { beat, didascalia } from "./helpers/evidence";
 import { removeTmpDir } from "./helpers/file-project";
 import { ospite } from "./helpers/ospite";
@@ -69,32 +69,16 @@ async function openProjectBoard(page: Page, projectName: RegExp): Promise<void> 
 }
 
 /**
- * Open Settings with the keyboard shortcut, only once the app can hear it.
+ * The requests from other computers, in the user menu's Nodes level.
  *
- * The Cmd+, listener is registered by an effect inside `App`, and `App` mounts
- * well after `domcontentloaded`: `main.tsx` holds the first render until the
- * chunks of the panes on screen are warm (`paneChunksWarm`, capped). A press
- * sent right after `goto` lands on a page with no listener and is simply lost,
- * so the panel never appears. Measured on
- * GUEST-20 over 8 runs: the press opened Settings every time the sidebar was
- * already mounted and never when it was not. The sidebar is the condition to
- * wait for, and the press is retried because opening Settings is idempotent.
+ * The level is asked for on the event the Devices level and the bell use
+ * (`requestUserMenuLevel`), retried until the app can hear it: `App` mounts
+ * well after `domcontentloaded` (`main.tsx` holds the first render until the
+ * panes' chunks are warm), and a request sent before that is simply lost.
  */
-async function openSettingsPanel(page: Page): Promise<Locator> {
-  await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20_000 });
-  const panel = page.getByTestId('settings-panel');
-  await expect(async () => {
-    await page.keyboard.press('Meta+Comma');
-    await expect(panel).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
-  return panel;
-}
-
 async function openNodesSettings(page: Page): Promise<void> {
-  const panel = await openSettingsPanel(page);
-  // The requests from other computers are in «Nodes», with the node pairing.
-  await panel.getByRole('button', { name: 'Nodi', exact: true }).click();
-  await expect(panel.getByTestId('remote-node-requests')).toBeVisible();
+  const level = await requestUserMenuLevel(page, 'nodes');
+  await expect(level.getByTestId('remote-node-requests')).toBeVisible({ timeout: 15_000 });
 }
 
 test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermetic", async ({ request }) => {

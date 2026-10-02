@@ -22,12 +22,13 @@
  * events the week holds. Saving is what turns the sync on; forgetting takes
  * the address off the machine.
  *
- * @covers CAL-01, CAL-05
+ * @covers CAL-01, CAL-05, USERMENU-10
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { hermetic } from "./fixtures/hermetic";
+import { openUserMenuLevel } from "./helpers/user-menu";
 import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
@@ -85,25 +86,12 @@ test.afterAll(async () => {
 });
 
 /**
- * The same door the other settings specs use: Cmd+comma once the sidebar is
- * there. The keystroke is repeated until the panel answers, because the
- * shortcut is listened for by an effect of the mounted app and one sent to a
- * freshly loaded document falls into the void.
+ * The Calendar form is a level of the user menu since `menu-utente-tutto`
+ * (`openUserMenuLevel` waits for the app, the row and the level).
  */
 async function openCalendarSettings(page: Page) {
-  await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
-  const panel = page.getByTestId("settings-panel");
-  await expect(async () => {
-    await page.keyboard.press("Meta+Comma");
-    await expect(panel).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
-  // The panel opens with a scale animation; clicking a nav entry through it is
-  // fine, but the assertions below read state, so we wait for the fact rather
-  // than for a delay.
-  await expect
-    .poll(() => panel.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
-    .toBe("none");
-  await panel.locator("nav").first().getByRole("button", { name: "Calendario", exact: true }).click();
+  const panel = await openUserMenuLevel(page, "calendar");
+  await expect(panel.getByTestId("calendar-feed-url")).toBeVisible({ timeout: 15_000 });
   return panel;
 }
 
@@ -149,6 +137,13 @@ test("CALUI-01: si prova l'indirizzo, poi si salva, e dimenticarlo lo toglie dal
   await expect(forget).toBeVisible();
   await expect(field).toHaveValue("");
   await expect.poll(() => storedFeedUrl(page), { timeout: 5_000 }).toBe(`${origin}/basic.ics`);
+
+  // The row says it without opening anything: closing the level reads the
+  //    state again and the tail follows (USERMENU-10).
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByTestId("topics-menu-calendar-tail")).toHaveText("Collegato", { timeout: 10_000 });
+  await openCalendarSettings(page);
 
   // 4. Forgetting is the way out, and it reaches the server: the address is
   //    gone from the machine, not just from the field.
