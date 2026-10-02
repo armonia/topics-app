@@ -2,24 +2,92 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.428 — 2026-10-02
+
+### Sotto il cofano
+- Allinea il test del piano z al velo del cassetto, che ora entra in dissolvenza
+- Tieni aperto il menu sotto un selettore dei suoi livelli
+- Carica a parte i corpi dei livelli e le righe del menu del telefono
+- Prova il menu utente con le preferenze, e porta gli E2E alle porte nuove
+- Spunta i compiti di sidebar-menu-settings e allega schermate e video
+- Rimanda l'apertura del profilo finché il bus non risponde e riparti dalla baseline in SETTINGS-03
+- Dai un nome inglese al campo dell'indirizzo in USERMENU-09
+- Dichiara bilingue l'etichetta della lingua automatica e togli dalla baseline le pagine eliminate
+- Allinea command-palette ai nomi italiani delle pill Impostazioni e Tema
+- Rimetti nel livello Dispositivi quando e da dove, e di' quando l'elenco non si legge
+- Dai un id proprio al nuovo test dei dispositivi e dichiara cosa copre il test della riga di controllo
+- Fai aprire l'elenco delle pagine e l'output di un comando come ogni piega della chat
+- Registra App.tsx a 2781 righe dopo la tornata a cinque corsie
+- Alza l'entry eager del bundle al valore misurato dopo le cinque corsie
+- Non cliccare le righe dei sotto-agenti nella spec delle card: sono già aperte
+- Chiudi i tre minori dell'integrazione: piega sotto la conferma, esito dei sotto-agenti, frecce nel menu della board
+- Leggi i radio scelti del tetto della board senza dipendere dall'ordine degli attributi
+- Scrivi nel log perché un sotto-agente finito non viene ritirato
+- Un sotto-agente finito si ritira anche se il tracker non ha visto la fine del turno
+
 ## 2.2.427 — 2026-10-02
 
 ### Sotto il cofano
 - Registra MessageList a 2379 righe e il critical path con gli accordion fermi
+- Aggiungi i controlli del menu: segmento, passo e interruttore sui token del movimento
+- Sposta Aspetto, Notifiche, Vista e Dispositivi nel menu utente
+- Dai al cassetto di progetto del telefono l'entrata e l'uscita condivise
 
 ## 2.2.426 — 2026-10-01
 
 ### Sotto il cofano
+- Esegui dalla chat: route command-runs sul registro dei comandi
+- Esegui e Apri nel terminale sui blocchi shell delle risposte finite
+- Aggiungi l'e2e di Esegui dalla chat e allinea la change
+- Chiudi l'attesa in primo piano di spawn_agent quando il turno viene fermato
+- Fai aspettare alla card il risultato del sotto-agente invece di spronarla
+- Rientra nelle rotaie: route, controlli e lettore dell'esecuzione in moduli propri
+- Mostra nella card l'esito che uno spawn_agent in primo piano ha restituito
+- Carica il lettore dell'esecuzione con import destrutturato
+- Non chiudere il turno di un sotto-agente su una promessa di riferire
+- Stringi la lettura della busta nella card per restare nel budget del bundle
+- Proponi db-maintenance: auto_vacuum incrementale, conversione una tantum a server fermo
+- Fai nascere i database nuovi con auto_vacuum incrementale
+- Converti il database ad auto_vacuum incrementale all'avvio del supervisore, a server fermo
+- Restituisci al disco le pagine libere del database a piccoli passi, solo a server fermo sui turni
+- Togli i byte di controllo da ciò che Apri nel terminale incolla
+- Leggi il rischio anche dopo then/do/! e sulle righe continuate
+- Confronta il testo, non il markup, nel test del blocco di anteprima
+- Allinea spec e design: byte di controllo all'incolla, parole riservate nel rischio
+- Rinomina il filtro dei byte di controllo e riscrivi il suo commento per le rotaie di lingua
+- Rinomina gli identificatori che il controllo della lingua non riconosce
+- Segna chiusi i task di db-maintenance con l'esito delle verifiche
 - velo e sfocatura sulla barra in alto, banda Utilizzo Claude piu' piena (#184)
 - Misura gli accordion dove la spec non arrivava: comando, obiettivo, fondo vero, lista aperta mentre l'agente scrive
 - Le pieghe restanti non spostano piu' la chat: comando, obiettivo, strisce, riapertura veloce, spazio in fondo
+- Riconosci il comando troncato dentro un fence lasciato aperto
+- Rifiuta con 409 il comando che una risposta chiusa ha lasciato a metà del fence
+- Non offrire Esegui sul blocco troncato da Stop, riavvio o errore
+- Allinea spec e design: il comando troncato in una risposta finita non si esegue
 - Il messaggio di file illeggibile del /comando passa dai cataloghi, e la spec non dorme
 
 ## 2.2.425 — 2026-10-01
 
 ### Sotto il cofano
+- Gira l'e2e del segno di browser aperto anche su WebKit
+- Lancia, riporta, ritira e riprendi i sotto-agenti dalla rotta
+- Dai a spawn_agent modello, profilo, effort e primo piano
+- Segna fatti i compiti di verifica della change del segno di browser aperto
+- Disegna spawn_agent e i suoi esiti come card del sotto-agente
+- Allinea spec, design, task e kickoff della board al codice
+- Sposta la vita dei sotto-agenti in lib/subagent-runtime
 - Misura lo scatto degli accordion della chat: header, riga sopra e corpo, frame per frame
+- Togli gli export di tipo che nessuno usa
+- Fissa nel contratto WS i campi nuovi del dettaglio sub_agent e togli un any
+- Rinomina buf in bytes nel lettore di read_agent
+- Prova a schermo la card del sotto-agente e i suoi esiti
+- Togli un import di tipo rimasto senza uso in terminal.ts
+- Non disegnare il segno quando la navigazione della chat di un task è fallita
+- Ricava dal risultato il dettaglio di browser_open eseguito dalla route
 - Un accordion aperto a mano non sposta la chat: l'header resta fermo, il corpo si srotola sotto
+- Chiudi come fermato il turno che una Ricarica taglia a un sotto-agente
+- Aggiungi la tabella command_runs per le esecuzioni dalla chat
+- Aggiungi le funzioni pure del comando eseguibile: estrazione, rischio, resa ANSI
 
 ## 2.2.424 — 2026-10-01
 
@@ -27,8 +95,20 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Nella finestra che non carica le img dal server, una versione nuova arriva come blob prima di essere mostrata
 - Metti la spec delle icone dentro il confine ermetico
 - Leggi le porte in ascolto con ss dove lsof non c'è
+- Un'apertura del browser dice su quale contesto è avvenuta
 - Rimetti listenersOf in listening-ports, persa riscrivendo la coda del file
+- Le aperture del browser riuscite hanno un dettaglio tipizzato browser
+- Risolvi modello, profilo ed effort di un sotto-agente in un modulo puro
+- Classifica ogni turno di un sotto-agente dal suo transcript
+- Aggiungi la tabella subagents
 - liste, chat e schermate sotto i tasti, cinque tasti uguali (#181)
+- Leggi e scrivi la tabella subagents da un modulo solo
+- Sveglia la chat padre con l'esito del sotto-agente
+- Porta a una pagina del browser ovunque viva, finestrella della topic compresa
+- Il browser aperto dall'agente lascia un segno nel turno, e il segno non si piega
+- Aggiungi l'e2e del segno di browser aperto nella chat
+- Accorpa il controllo del contextId nel test dei due esiti di open_browser_pane
+- Il contratto WS conta anche la variante browser del dettaglio dei tool
 
 ## 2.2.423 — 2026-10-01
 

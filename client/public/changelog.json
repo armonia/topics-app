@@ -1,5 +1,111 @@
 [
   {
+    "version": "2.2.428",
+    "date": "2026-10-02",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Allinea il test del piano z al velo del cassetto, che ora entra in dissolvenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni aperto il menu sotto un selettore dei suoi livelli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Carica a parte i corpi dei livelli e le righe del menu del telefono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova il menu utente con le preferenze, e porta gli E2E alle porte nuove",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spunta i compiti di sidebar-menu-settings e allega schermate e video",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimanda l'apertura del profilo finché il bus non risponde e riparti dalla baseline in SETTINGS-03",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai un nome inglese al campo dell'indirizzo in USERMENU-09",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara bilingue l'etichetta della lingua automatica e togli dalla baseline le pagine eliminate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea command-palette ai nomi italiani delle pill Impostazioni e Tema",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimetti nel livello Dispositivi quando e da dove, e di' quando l'elenco non si legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai un id proprio al nuovo test dei dispositivi e dichiara cosa copre il test della riga di controllo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai aprire l'elenco delle pagine e l'output di un comando come ogni piega della chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra App.tsx a 2781 righe dopo la tornata a cinque corsie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza l'entry eager del bundle al valore misurato dopo le cinque corsie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non cliccare le righe dei sotto-agenti nella spec delle card: sono già aperte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi i tre minori dell'integrazione: piega sotto la conferma, esito dei sotto-agenti, frecce nel menu della board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi i radio scelti del tetto della board senza dipendere dall'ordine degli attributi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi nel log perché un sotto-agente finito non viene ritirato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente finito si ritira anche se il tracker non ha visto la fine del turno",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.427",
     "date": "2026-10-02",
     "sections": {
@@ -9,6 +115,21 @@
       "internal": [
         {
           "it": "Registra MessageList a 2379 righe e il critical path con gli accordion fermi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi i controlli del menu: segmento, passo e interruttore sui token del movimento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sposta Aspetto, Notifiche, Vista e Dispositivi nel menu utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai al cassetto di progetto del telefono l'entrata e l'uscita condivise",
           "en": "",
           "scope": null
         }
@@ -24,6 +145,111 @@
       "perf": [],
       "internal": [
         {
+          "it": "Esegui dalla chat: route command-runs sul registro dei comandi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Esegui e Apri nel terminale sui blocchi shell delle risposte finite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi l'e2e di Esegui dalla chat e allinea la change",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi l'attesa in primo piano di spawn_agent quando il turno viene fermato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai aspettare alla card il risultato del sotto-agente invece di spronarla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rientra nelle rotaie: route, controlli e lettore dell'esecuzione in moduli propri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra nella card l'esito che uno spawn_agent in primo piano ha restituito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Carica il lettore dell'esecuzione con import destrutturato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non chiudere il turno di un sotto-agente su una promessa di riferire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stringi la lettura della busta nella card per restare nel budget del bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proponi db-maintenance: auto_vacuum incrementale, conversione una tantum a server fermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai nascere i database nuovi con auto_vacuum incrementale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Converti il database ad auto_vacuum incrementale all'avvio del supervisore, a server fermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Restituisci al disco le pagine libere del database a piccoli passi, solo a server fermo sui turni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli i byte di controllo da ciò che Apri nel terminale incolla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi il rischio anche dopo then/do/! e sulle righe continuate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Confronta il testo, non il markup, nel test del blocco di anteprima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea spec e design: byte di controllo all'incolla, parole riservate nel rischio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina il filtro dei byte di controllo e riscrivi il suo commento per le rotaie di lingua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina gli identificatori che il controllo della lingua non riconosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segna chiusi i task di db-maintenance con l'esito delle verifiche",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "velo e sfocatura sulla barra in alto, banda Utilizzo Claude piu' piena (#184)",
           "en": "",
           "scope": null,
@@ -36,6 +262,26 @@
         },
         {
           "it": "Le pieghe restanti non spostano piu' la chat: comando, obiettivo, strisce, riapertura veloce, spazio in fondo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riconosci il comando troncato dentro un fence lasciato aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rifiuta con 409 il comando che una risposta chiusa ha lasciato a metà del fence",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non offrire Esegui sul blocco troncato da Stop, riavvio o errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea spec e design: il comando troncato in una risposta finita non si esegue",
           "en": "",
           "scope": null
         },
@@ -56,12 +302,97 @@
       "perf": [],
       "internal": [
         {
+          "it": "Gira l'e2e del segno di browser aperto anche su WebKit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lancia, riporta, ritira e riprendi i sotto-agenti dalla rotta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai a spawn_agent modello, profilo, effort e primo piano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segna fatti i compiti di verifica della change del segno di browser aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Disegna spawn_agent e i suoi esiti come card del sotto-agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea spec, design, task e kickoff della board al codice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sposta la vita dei sotto-agenti in lib/subagent-runtime",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Misura lo scatto degli accordion della chat: header, riga sopra e corpo, frame per frame",
           "en": "",
           "scope": null
         },
         {
+          "it": "Togli gli export di tipo che nessuno usa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fissa nel contratto WS i campi nuovi del dettaglio sub_agent e togli un any",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina buf in bytes nel lettore di read_agent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova a schermo la card del sotto-agente e i suoi esiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli un import di tipo rimasto senza uso in terminal.ts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non disegnare il segno quando la navigazione della chat di un task è fallita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricava dal risultato il dettaglio di browser_open eseguito dalla route",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un accordion aperto a mano non sposta la chat: l'header resta fermo, il corpo si srotola sotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi come fermato il turno che una Ricarica taglia a un sotto-agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi la tabella command_runs per le esecuzioni dalla chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi le funzioni pure del comando eseguibile: estrazione, rischio, resa ANSI",
           "en": "",
           "scope": null
         }
@@ -92,7 +423,32 @@
           "scope": null
         },
         {
+          "it": "Un'apertura del browser dice su quale contesto è avvenuta",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Rimetti listenersOf in listening-ports, persa riscrivendo la coda del file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le aperture del browser riuscite hanno un dettaglio tipizzato browser",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Risolvi modello, profilo ed effort di un sotto-agente in un modulo puro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Classifica ogni turno di un sotto-agente dal suo transcript",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi la tabella subagents",
           "en": "",
           "scope": null
         },
@@ -101,6 +457,41 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Leggi e scrivi la tabella subagents da un modulo solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sveglia la chat padre con l'esito del sotto-agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta a una pagina del browser ovunque viva, finestrella della topic compresa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il browser aperto dall'agente lascia un segno nel turno, e il segno non si piega",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi l'e2e del segno di browser aperto nella chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accorpa il controllo del contextId nel test dei due esiti di open_browser_pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il contratto WS conta anche la variante browser del dettaglio dei tool",
+          "en": "",
+          "scope": null
         }
       ]
     }
