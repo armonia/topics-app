@@ -93,6 +93,25 @@ function ancestors<T extends { nodes: () => Array<Node | null>; trigger?: () => 
 /** I popover attualmente aperti, in ordine di apertura. */
 const open = new Set<PopoverEntry>();
 
+/**
+ * Nodes that count as INSIDE for a popover although they are not its own: the
+ * confirmation asked from inside it.
+ *
+ * A level of the user menu holds forms, and a form asks «remove the licence?»
+ * through the app's confirmation dialog. That dialog is a modal on `<body>`:
+ * geometrically outside the menu, so pressing «Cancel» was a press outside,
+ * and the menu closed under the person who was answering a question it had
+ * asked. A dialog opened from inside a popover therefore SHELTERS the popovers
+ * open at that moment (`shelterOpenPopovers`), and they treat its nodes as
+ * theirs until it closes.
+ */
+const shelters = new Map<PopoverEntry, Set<() => Node | null>>();
+
+function forget(entry: PopoverEntry): void {
+  open.delete(entry);
+  shelters.delete(entry);
+}
+
 const domContains = (parent: Node, child: Node) => parent.contains(child);
 
 /**
@@ -105,11 +124,32 @@ export function registerOpenPopover(entry: PopoverEntry): () => void {
     // pulizia dell'altro hook, che proverebbe a togliersi da solo — togliersi
     // due volte da un Set è innocuo, ma l'ordine tiene il registro coerente
     // anche se `close()` dovesse aprire qualcos'altro.
-    open.delete(victim);
+    forget(victim);
     victim.close();
   }
   open.add(entry);
-  return () => { open.delete(entry); };
+  return () => { forget(entry); };
+}
+
+/**
+ * Every popover open right now keeps `node` as inside until the returned
+ * function is called. For a dialog that a popover asked for (see `shelters`).
+ */
+export function shelterOpenPopovers(node: () => Node | null): () => void {
+  const sheltered = [...open];
+  for (const entry of sheltered) {
+    const set = shelters.get(entry) ?? new Set();
+    set.add(node);
+    shelters.set(entry, set);
+  }
+  return () => {
+    for (const entry of sheltered) shelters.get(entry)?.delete(node);
+  };
+}
+
+/** The nodes sheltered by `entry`: inside for it, although not its own. */
+export function shelteredNodes(entry: PopoverEntry): Array<Node | null> {
+  return [...(shelters.get(entry) ?? [])].map((node) => node());
 }
 
 /**
@@ -121,7 +161,7 @@ export function registerOpenPopover(entry: PopoverEntry): () => void {
  */
 export function closeAllPopovers(): void {
   for (const entry of [...open]) {
-    open.delete(entry);
+    forget(entry);
     entry.close();
   }
 }

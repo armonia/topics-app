@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { ConfirmDialog } from '../components/Shared/ConfirmDialog';
+import { ConfirmInsidePopoverContext } from './confirmInsidePopover';
 
 /**
  * useConfirm — un `window.confirm` che NON blocca il thread.
@@ -21,6 +22,10 @@ export interface ConfirmOptions {
   cancelLabel?: string;
   /** 'danger' (default) = tasto rosso. */
   tone?: 'danger' | 'default';
+  /** Set by `useConfirm` itself inside a popover that keeps its questions (the
+   *  user menu, `ConfirmInsidePopoverContext`): the dialog leaves the popover
+   *  open. Callers do not write it. */
+  insidePopover?: boolean;
 }
 
 export type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
@@ -30,8 +35,13 @@ const ConfirmContext = createContext<ConfirmFn | null>(null);
 // eslint-disable-next-line react-refresh/only-export-components -- hook idiomatico colocato col suo ConfirmProvider; separarlo frammenterebbe il modulo senza vantaggio a runtime
 export function useConfirm(): ConfirmFn {
   const ctx = useContext(ConfirmContext);
+  const insidePopover = useContext(ConfirmInsidePopoverContext);
+  const ask = useCallback<ConfirmFn>(
+    (opts) => (ctx ? ctx(insidePopover ? { ...opts, insidePopover } : opts) : Promise.resolve(true)),
+    [ctx, insidePopover],
+  );
   // Fuori dal provider (test isolati) non c'è dialog da mostrare: si procede.
-  return ctx ?? (async () => true);
+  return ask;
 }
 
 interface Pending {
@@ -62,6 +72,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           confirmLabel={pending.opts.confirmLabel}
           cancelLabel={pending.opts.cancelLabel}
           tone={pending.opts.tone}
+          insidePopover={pending.opts.insidePopover}
           onConfirm={() => settle(true)}
           onCancel={() => settle(false)}
         >

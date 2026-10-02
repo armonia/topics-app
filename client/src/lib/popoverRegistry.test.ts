@@ -8,6 +8,8 @@ import {
   openPopoverCount,
   popoversToClose,
   registerOpenPopover,
+  shelterOpenPopovers,
+  shelteredNodes,
   subSurfaceNodes,
   type PopoverEntry,
 } from './popoverRegistry';
@@ -219,5 +221,26 @@ describe('il registro degli aperti', () => {
     expect(openPopoverCount()).toBe(0);
     expect(a.closed).toBe(1);
     expect(b.closed).toBe(1);
+  });
+
+  // A confirmation asked from a level of the user menu (remove the licence)
+  // is a modal on <body>: without the shelter, answering it was a press
+  // outside the menu, and the menu closed under the answer.
+  it('a sheltered dialog counts as inside for the popovers open when it came up, and stops when it goes', () => {
+    const dialog = 'confirm-veil' as unknown as Node;
+    const host = popover();
+    const level = popover({ exclusive: false });
+    registerOpenPopover(host);
+    registerOpenPopover(level);
+    const unshelter = shelterOpenPopovers(() => dialog);
+    expect(shelteredNodes(host)).toEqual([dialog]);
+    expect(shelteredNodes(level)).toEqual([dialog]);
+    // A popover opened later was not asked: the dialog is not its.
+    const later = popover({ exclusive: false });
+    registerOpenPopover(later);
+    expect(shelteredNodes(later)).toEqual([]);
+    unshelter();
+    expect(shelteredNodes(host)).toEqual([]);
+    expect(host.closed).toBe(0);
   });
 });

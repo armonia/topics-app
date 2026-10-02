@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { descendantPopoverNodes, registerOpenPopover, subSurfaceNodes, type PopoverEntry } from '../lib/popoverRegistry';
+import { descendantPopoverNodes, registerOpenPopover, shelteredNodes, subSurfaceNodes, type PopoverEntry } from '../lib/popoverRegistry';
 import { swallowNextClick } from '../lib/outsidePress';
 import { takeContextMenuOrigin } from '../lib/contextMenuOrigin';
 
@@ -115,6 +115,9 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
       // `click` reaches the chosen option. See
       // `lib/popoverRegistry.descendantPopoverNodes`.
       if (t && descendantPopoverNodes(self).some((n) => !!n && n.contains(t))) return;
+      // And a confirmation this popover asked for: answering it is not
+      // leaving. See `lib/popoverRegistry.shelterOpenPopovers`.
+      if (t && shelteredNodes(self).some((n) => !!n && n.contains(t))) return;
       // Il gesto che chiude non fa anche l'altra cosa: il `click` che segue
       // questa pressione trova sotto il puntatore la pagina — che senza il
       // guardiano si aziona. Vedi `lib/outsidePress`.

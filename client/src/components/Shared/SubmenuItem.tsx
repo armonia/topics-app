@@ -3,6 +3,8 @@ import { ChevronRight } from 'lucide-react';
 import { Menu } from './Menu';
 import { useMobile } from '../../hooks/useMobile';
 import { menuRowClass } from '../Sidebar/menuRow';
+import { isTypingSurface } from '../../hooks/useMenuKeyboard';
+import { LevelCloseContext } from './levelClose';
 
 /**
  * SubmenuItem: a menu row that opens a SECOND level beside itself.
@@ -269,9 +271,13 @@ export function SubmenuItem({
   // host's roving focus. The boundary stops that, and it is where ArrowLeft
   // means "one level up". Escape is not handled here: the dismissal contract
   // listens on the document and already closes the child first.
+  //
+  // NOT FROM A FIELD. A level can hold a form (an API key, a URL): there the
+  // left arrow moves the caret, and closing the level under it would throw the
+  // half-typed value away.
   const onLevelKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation();
-    if (e.key === 'ArrowLeft') {
+    if (e.key === 'ArrowLeft' && !isTypingSurface(e.target)) {
       e.preventDefault();
       close();
     }
@@ -318,7 +324,9 @@ export function SubmenuItem({
         >
           <div onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
             <SiblingContext.Provider value={nested}>
-              <HostWidthContext.Provider value={levelWidth}>{children}</HostWidthContext.Provider>
+              <LevelCloseContext.Provider value={close}>
+                <HostWidthContext.Provider value={levelWidth}>{children}</HostWidthContext.Provider>
+              </LevelCloseContext.Provider>
             </SiblingContext.Provider>
           </div>
         </Menu>

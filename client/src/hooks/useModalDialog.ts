@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { closeAllPopovers } from '../lib/popoverRegistry';
+import { closeAllPopovers, shelterOpenPopovers } from '../lib/popoverRegistry';
 
 /**
  * useModalDialog — UN contratto per i modali a schermo intero, come
@@ -34,7 +34,7 @@ const stack: symbol[] = [];
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function focusableWithin(panel: HTMLElement): HTMLElement[] {
+export function focusableWithin(panel: HTMLElement): HTMLElement[] {
   return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
     (el) => el.getClientRects().length > 0 && el.getAttribute('aria-hidden') !== 'true',
   );
@@ -71,6 +71,12 @@ export interface UseModalDialogOptions {
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   /** Chiudere su Escape (default true). */
   closeOnEscape?: boolean;
+  /** A dialog ASKED BY a popover (a confirmation from a level of the user
+   *  menu) keeps the popovers open and is part of them while it is up: this is
+   *  the node they treat as inside (the veil included, so a press on it cancels
+   *  the question without closing the menu). Absent = clear every popover, as
+   *  any modal does. */
+  shelterRef?: React.RefObject<HTMLElement | null>;
 }
 
 export function useModalDialog({
@@ -79,6 +85,7 @@ export function useModalDialog({
   panelRef,
   initialFocusRef,
   closeOnEscape = true,
+  shelterRef,
 }: UseModalDialogOptions): void {
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
@@ -96,7 +103,10 @@ export function useModalDialog({
     // (`useDismissable` per i menu, questa pila per i dialoghi), quindi un
     // dropdown aperto sopravviveva a ⌘K e restava a schermo SOPRA il velo —
     // orfano, senza più il contesto che lo aveva prodotto.
-    closeAllPopovers();
+    // Unless a popover asked for this dialog (`shelterRef`): then the dialog is
+    // part of that popover, and it stays.
+    const unshelter = shelterRef ? shelterOpenPopovers(() => shelterRef.current) : null;
+    if (!unshelter) closeAllPopovers();
 
     const restoreTo = document.activeElement as HTMLElement | null;
     // Il nodo della card COM'ERA all'apertura: alla pulizia il ref può essere
@@ -146,6 +156,7 @@ export function useModalDialog({
 
     window.addEventListener('keydown', onKey, true);
     return () => {
+      unshelter?.();
       window.removeEventListener('keydown', onKey, true);
       const i = stack.lastIndexOf(id);
       if (i !== -1) stack.splice(i, 1);
