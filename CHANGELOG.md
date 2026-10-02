@@ -2,10 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.426 — 2026-10-02
+## 2.2.427 — 2026-10-02
+
+### Sotto il cofano
+- Registra MessageList a 2379 righe e il critical path con gli accordion fermi
+
+## 2.2.426 — 2026-10-01
 
 ### Sotto il cofano
 - velo e sfocatura sulla barra in alto, banda Utilizzo Claude piu' piena (#184)
+- Misura gli accordion dove la spec non arrivava: comando, obiettivo, fondo vero, lista aperta mentre l'agente scrive
+- Le pieghe restanti non spostano piu' la chat: comando, obiettivo, strisce, riapertura veloce, spazio in fondo
+- Il messaggio di file illeggibile del /comando passa dai cataloghi, e la spec non dorme
+
+## 2.2.425 — 2026-10-01
+
+### Sotto il cofano
+- Misura lo scatto degli accordion della chat: header, riga sopra e corpo, frame per frame
+- Un accordion aperto a mano non sposta la chat: l'header resta fermo, il corpo si srotola sotto
 
 ## 2.2.424 — 2026-10-01
 
