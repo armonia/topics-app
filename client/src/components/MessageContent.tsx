@@ -23,6 +23,8 @@ import { TurnWorkRow } from './Chat/TurnWorkRow';
 import { useDisclosureToggle } from './Chat/transcriptDisclosure';
 import { DisclosureBody } from './Chat/DisclosureBody';
 import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
+import { coalesceBrowserOpens, type BrowserMarker } from './Chat/browserOpens';
+import { BrowserOpenMarker } from './Chat/BrowserOpenMarker';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
 import { isRedoneAnswer, LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
@@ -987,7 +989,8 @@ type BlockGroup =
   | { kind: 'thinking'; idx: number; text: string }
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'media'; idx: number; path: string; seq: number }
-  | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
+  | { kind: 'tools'; startIdx: number; tools: ToolCall[] }
+  | { kind: 'browser'; idx: number; marker: BrowserMarker };
 
 /**
  * DA DOVE VIENE QUESTA RISPOSTA.
@@ -1130,6 +1133,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     const out: BlockGroup[] = [];
     const found: string[] = [];
     if (!blocks) return { groups: out, mediaFromBlocks: found };
+    // A page the agent opened is lifted out of its tool run (CHAT-BROWSER-01):
+    // one marker per context, where the first opening was.
+    const browserOpens = coalesceBrowserOpens(blocks.flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])));
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
       // Il blocco `error` non è una tratta della cronologia: è il verdetto, e
@@ -1155,6 +1161,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Nor the end of a command: `MessageBubble` draws it as a service line.
       if (b.kind === 'process-exit') continue;
       if (b.kind === 'tool') {
+        const marker = browserOpens.get(b.toolCall.id);
+        if (marker === null) continue;
+        if (marker) { out.push({ kind: 'browser', idx: i, marker }); continue; }
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
         else out.push({ kind: 'tools', startIdx: i, tools: [b.toolCall] });
@@ -1295,6 +1304,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               </div>
             );
           }
+          if (g.kind === 'browser') return <BrowserOpenMarker key={`g-br-${g.idx}`} marker={g.marker} />;
           if (g.kind === 'tools') {
             // Consecutive runs of ≥3 aggregatable calls collapse into a
             // single summary row with per-tool counts (CHAT-TOOL-02);

@@ -22,6 +22,7 @@ import { formatDurationMs, formatToolCounts, isWhollyFailed } from './toolGroupi
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { baseName, summarizeTools, summarizeWork } from './taskWorkFold';
+import { BrowserMarkerChip } from './BrowserOpenMarker';
 
 /** Up to this many file names spell themselves out; past it, a count. */
 const FILES_SPELLED = 2;
@@ -59,6 +60,10 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
       data-actions={String(total)}
       className="my-0.5 text-compact"
     >
+      {/* The pages opened in the stretch sit on the same line as chips
+          (CHAT-BROWSER-01): commands of their own, so beside the toggle and
+          not inside it, a button in a button being invalid HTML. */}
+      <div className="flex items-center gap-1 rounded border border-app-border/60 bg-app-bg-secondary/40 pr-1 transition-colors hover:bg-app-bg-secondary/80">
       <button
         type="button"
         aria-expanded={open}
@@ -66,7 +71,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
         onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
         title={tr('chat.taskWork.summaryTitle')}
         data-testid="task-work-summary"
-        className="w-full rounded border border-app-border/60 bg-app-bg-secondary/40 px-2 py-1 text-left text-app-text-secondary transition-colors hover:bg-app-bg-secondary/80 hover:text-app-text"
+        className="min-w-0 flex-1 px-2 py-1 text-left text-app-text-secondary transition-colors hover:text-app-text"
       >
         <span className="flex items-center gap-2">
           <span className="flex-shrink-0 inline-flex">
@@ -119,6 +124,8 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
           )}
         </span>
       </button>
+      {summary.browsers.map((m) => <BrowserMarkerChip key={m.id} marker={m} />)}
+      </div>
       {/* Open: the same rows as always, indented under the line that summed
           them up. Mounted only when open (or closing), so a closed transcript
           does not pay for the tool bodies it is not showing. */}

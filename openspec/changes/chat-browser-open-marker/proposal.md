@@ -136,7 +136,7 @@ la scelta 2.
 - Client: `client/src/components/Chat/toolDetail.ts`, `toolIcons.ts`, `ToolCards.tsx`,
   `toolCardBody.ts`, `toolGrouping.ts`, `turnFold.ts`, `TaskWorkAccordion.tsx`,
   `client/src/components/MessageContent.tsx`; nuovo `BrowserOpenMarker.tsx` +
-  `browserOpenMarker.ts` (puro); nuovo `client/src/lib/focusBrowserContext.ts`,
+  `browserOpens.ts` (puro); nuovo `client/src/lib/focusBrowserContext.ts`,
   usato anche da `usePanelLifecycle.ts:1853`. i18n in `i18n-chat-it.ts` /
   `i18n-chat-en.ts`.
 - Spec: `chat` ADDED `CHAT-BROWSER-01..03`; `remote-browser` ADDED `BROWSER-CHAT-05`.

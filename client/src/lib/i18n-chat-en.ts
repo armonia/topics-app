@@ -173,6 +173,13 @@ const CHAT_EN: Dict = {
   'chat.processExit.title': 'The command started with run_command ended and Topics woke the agent with its outcome. You did not type this.',
   'chat.processExit.show': 'show the output',
   'chat.processExit.hide': 'hide the output',
+  // The page the agent opened, as a marker in the turn (CHAT-BROWSER-01).
+  'chat.browserMarker.open': 'Open {url}',
+  'chat.browserMarker.pages': '{n} pages',
+  'chat.browserMarker.state.window': 'in the window',
+  'chat.browserMarker.state.tab': 'in a tab',
+  'chat.browserMarker.state.closed': 'closed',
+  'chat.browserMarker.state.offscreen': 'not on screen',
 };
 
 export default CHAT_EN;

@@ -1041,3 +1041,10 @@ function projectHostsPane(reader: ProjectPanesReader, projectPath: string, paneI
 function anyProjectHostsPane(reader: ProjectPanesReader, paneId: string): boolean {
   return reader.keys().some((k) => recordHostsPane(reader.getItem(k), paneId));
 }
+
+/** Is this browser context a pane of the workspace or of a project layout? The
+ *  same two places `openBrowserTab` looks, so «in a tab» means «focusable». */
+export function browserPaneInLayout(contextId: string): boolean {
+  const paneId = createPaneId('browser', contextId);
+  return paneIsInStore(paneId) || anyProjectHostsPane(browserProjectPanesReader(), paneId);
+}

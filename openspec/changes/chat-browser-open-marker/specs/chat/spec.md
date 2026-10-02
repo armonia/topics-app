@@ -59,6 +59,12 @@ di sempre, col suo errore, dentro il gruppo.
 - **THEN** non c'è nessun segno di browser aperto
 - **AND** la chiamata è una riga di tool in errore, contata negli errori del suo gruppo
 
+#### Scenario: un'apertura che non dichiara l'errore ma non ha caricato niente
+- **GIVEN** nella chat di un task una `open_browser_pane` il cui risultato comincia con «navigation failed: goto: net::ERR_CONNECTION_REFUSED» e prosegue con «Browser context ready at …» (lì la navigazione non è fatale e la chiamata non è in errore), oppure una `browser_open` del percorso SDK che risponde `{error}` su una pane nativa
+- **WHEN** il messaggio si disegna
+- **THEN** non c'è nessun segno di browser aperto
+- **AND** la chiamata resta la riga di tool generica che era
+
 #### Scenario: nella chat di un task il segno sta nel riepilogo dell'accordion
 - **GIVEN** la chat di un task con un tratto di lavoro piegato che contiene una `open_browser_pane` riuscita con `name` «Darkroom»
 - **WHEN** l'utente guarda l'accordion chiuso

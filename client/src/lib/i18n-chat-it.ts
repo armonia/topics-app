@@ -194,6 +194,13 @@ const CHAT_IT: Dict = {
   'chat.processExit.title': "Il comando lanciato con run_command è finito e Topics ha svegliato l'agente con l'esito. Non l'hai scritto tu.",
   'chat.processExit.show': "mostra l'output",
   'chat.processExit.hide': "nascondi l'output",
+  // The page the agent opened, as a marker in the turn (CHAT-BROWSER-01).
+  'chat.browserMarker.open': 'Apri {url}',
+  'chat.browserMarker.pages': '{n} pagine',
+  'chat.browserMarker.state.window': 'nella finestra',
+  'chat.browserMarker.state.tab': 'in una tab',
+  'chat.browserMarker.state.closed': 'chiuso',
+  'chat.browserMarker.state.offscreen': 'non a schermo',
 };
 
 export default CHAT_IT;

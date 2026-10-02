@@ -827,7 +827,7 @@ describe("handleMessage", () => {
     const orig = globalThis.fetch;
     const call = async (visible: boolean) => {
       (globalThis as any).fetch = stubFetch(async () =>
-        new Response(JSON.stringify({ url: "https://example.com/", title: "T", visible }), { status: 200 }),
+        new Response(JSON.stringify({ url: "https://example.com/", title: "T", visible, contextId: "topic-1" }), { status: 200 }),
       );
       const resp = await handleMessage(
         { jsonrpc: "2.0", id: 77, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "https://example.com/" } } },
@@ -836,8 +836,12 @@ describe("handleMessage", () => {
       return (resp!.result as any).content[0].text as string;
     };
     try {
-      expect(await call(true)).toContain("Opened browser pane at https://example.com/");
+      const opened = await call(true);
+      expect(opened.startsWith("Opened browser pane at https://example.com/ (title: T)")).toBe(true);
+      // BROWSER-CHAT-05: the context goes LAST, so the prefix reads as it always did.
+      expect(opened.endsWith("[contextId: topic-1]")).toBe(true);
       const invisibile = await call(false);
+      expect(invisibile.endsWith("[contextId: topic-1]")).toBe(true);
       expect(invisibile).toContain("NO visible pane");
       expect(invisibile).toContain("browser_focus_tab");
       expect(invisibile).not.toContain("Opened browser pane");

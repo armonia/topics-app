@@ -782,6 +782,9 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResul
       return <ArtifactCard action={detail.action} title={detail.title} url={detail.url} filePath={detail.filePath} result={detail.result} />;
     case 'ask_user':
       return <AskUserCard questions={detail.questions} result={detail.result} />;
+    case 'browser':
+      // The same body as a fetch: the whole URL, clickable, and what came back.
+      return <FetchCard url={detail.url} result={detail.result} />;
     case 'unknown':
       return <UnknownCard args={detail.raw.args} result={detail.raw.result} />;
   }

@@ -157,6 +157,16 @@ describe("dispatchBrowserToolCall", () => {
     expect(navCalls[0].args[0]).toBe("topic-test-abc");
   });
 
+  test("browser_open names the context it navigated, so the chat marker can find the page (BROWSER-CHAT-05)", async () => {
+    const { service } = makeMockService();
+    const withState = makeTopic({ browserState: { url: "https://prev", contextId: "ctx-9", lastActiveAt: 1 } });
+
+    expect(await dispatchBrowserToolCall("browser_open", { url: "https://example.com" }, withState, service))
+      .toMatchObject({ contextId: "ctx-9" });
+    expect(await dispatchBrowserToolCall("browser_open", { url: "https://example.com" }, makeTopic(), service))
+      .toMatchObject({ contextId: "topic-test-abc" });
+  });
+
   test("browser_open throws when 'url' arg is missing", async () => {
     const { service } = makeMockService();
     const topic = makeTopic();

@@ -1,5 +1,6 @@
 /**
  * @covers CHAT-TOOL-02
+ * @covers CHAT-BROWSER-01
  */
 import { describe, expect, test } from 'bun:test';
 import { foldFinishedTurn, type FoldableGroup } from './turnFold';
@@ -38,6 +39,18 @@ describe('the finished turn folds its work and shows its answer', () => {
     expect(foldFinishedTurn([text(0, 'Solo prosa.')], false)).toBeNull();
     expect(foldFinishedTurn([tools(0, tool('a'), tool('b'))], false)).toBeNull();
     expect(foldFinishedTurn([tools(0, tool('a')), text(1, 'Un tool solo.')], false)).toBeNull();
+  });
+
+  // CHAT-BROWSER-01: twelve calls, the seventh opened the browser.
+  test('a browser marker stays in sight like an image, and the fold counts the other eleven', () => {
+    const marker: FoldableGroup = { kind: 'browser', idx: 6, marker: { id: 'o', contextId: 't1', pages: [{ toolCallId: 'o', url: 'http://localhost:5173/', title: 'Vite App' }] } };
+    const before = Array.from({ length: 6 }, (_, i) => tool(`b${i}`));
+    const after = Array.from({ length: 5 }, (_, i) => tool(`a${i}`));
+    const groups = [tools(0, ...before), marker, tools(7, ...after), text(12, 'Fatto.')];
+    const fold = foldFinishedTurn(groups, false)!;
+    expect(fold.tools).toHaveLength(11);
+    expect(fold.work).toEqual([tools(0, ...before), tools(7, ...after)]);
+    expect(fold.shown).toEqual([marker, text(12, 'Fatto.')]);
   });
 
   test('an image drawn in the work stays in sight, and what follows the answer is shown', () => {

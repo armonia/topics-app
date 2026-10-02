@@ -15,7 +15,8 @@
  *  - nothing that needs a person folds: a question, a permission, a plan
  *    waiting for approval, a tool still running. If any is there, the turn is
  *    shown as it always was;
- *  - media drawn in the work stays out of the fold: an image is a result;
+ *  - media drawn in the work stays out of the fold: an image is a result, and
+ *    so is a page the agent opened (CHAT-BROWSER-01);
  *  - a turn with no work, or with no answer, is not folded: there is nothing to
  *    hide, or nothing to show instead.
  *
@@ -26,13 +27,15 @@ import type { ToolCall } from '../../types';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { isActiveTool } from './toolGrouping';
 import { COMPACTION_PREAMBLE } from '../../lib/compactionSummary';
+import type { BrowserMarker } from './browserOpens';
 
 /** The groups `MessageContent` builds from a message's blocks. */
 export type FoldableGroup =
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] }
   | { kind: 'thinking'; idx: number; text: string }
   | { kind: 'text'; idx: number; text: string }
-  | { kind: 'media'; idx: number; path: string; seq: number };
+  | { kind: 'media'; idx: number; path: string; seq: number }
+  | { kind: 'browser'; idx: number; marker: BrowserMarker };
 
 export interface TurnFold<G extends FoldableGroup> {
   /** Everything up to and including a compaction recap: never folded. */
@@ -78,9 +81,10 @@ export function foldFinishedTurn<G extends FoldableGroup>(groups: readonly G[], 
     if (g.tools.some((tc) => isAwaitingHuman(tc.status) || isActiveTool(tc))) return null;
   }
   if (tools.length < FOLD_MIN_TOOLS) return null;
-  const work = before.filter((g) => g.kind !== 'media');
-  const keptMedia = before.filter((g) => g.kind === 'media');
-  return { head, work, shown: [...keptMedia, ...tail.slice(answerAt)], tools };
+  const isResult = (g: G): boolean => g.kind === 'media' || g.kind === 'browser';
+  const work = before.filter((g) => !isResult(g));
+  const kept = before.filter(isResult);
+  return { head, work, shown: [...kept, ...tail.slice(answerAt)], tools };
 }
 
 /**

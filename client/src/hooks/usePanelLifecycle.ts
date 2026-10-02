@@ -111,6 +111,7 @@ import { dismissSubAgent } from '../state/endedSubAgents';
 import { useReconnectCatchUp } from './useReconnectCatchUp';
 import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
+import { focusBrowserContextLive } from '../lib/focusBrowserContext';
 import {
   armFocusIntent,
   liveFocusIntent,
@@ -1877,7 +1878,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // Ensure a backgrounded tab is actually open before focusing it.
         setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
         setFocusedPanelId(paneId);
+        return;
       }
+      // Not a pane here: a task tab or a sheet of a topic's window, which this
+      // handler could not reach before (BROWSER-CHAT-05). Never reopened.
+      void focusBrowserContextLive({ contextId: m.contextId, reopen: false }, { layoutHandled: true });
     });
   }, [onWSMessage, openPanelsRef, setOpenPanels, setFocusedPanelId]);
 

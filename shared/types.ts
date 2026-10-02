@@ -740,6 +740,11 @@ export type ToolCallDetail =
   /** `AskUserQuestion`: a question put TO the person reading. Rendering it as
    *  JSON hid the one tool whose whole purpose is to be read by a human. */
   | { type: 'ask_user'; questions: Array<{ question: string; header?: string; options?: string[] }>; result?: string }
+  /** The agent opened a page in the in-app browser (`open_browser_pane`,
+   *  `browser_open`), and it worked. Drawn as a marker that stays in sight and
+   *  brings the page back (CHAT-BROWSER-01). `contextId` is absent on rows older
+   *  than BROWSER-CHAT-05; `visible: false` = loaded but on no screen. */
+  | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; result?: string }
   | { type: 'unknown'; raw: { args?: Record<string, unknown>; result?: string } };
 
 export interface ToolCall {

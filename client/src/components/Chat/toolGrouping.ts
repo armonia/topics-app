@@ -10,13 +10,16 @@ import type { ToolCall } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
 import { isAwaitingHuman } from '../../../../shared/types';
+import { coalesceBrowserOpens, type BrowserMarker } from './browserOpens';
 
 /** Runs shorter than this render as plain per-call rows (no group chrome). */
 export const GROUP_MIN = 3;
 
 export type ToolGroupSegment =
   | { kind: 'aggregate'; tools: ToolCall[] }
-  | { kind: 'solo'; tool: ToolCall };
+  | { kind: 'solo'; tool: ToolCall }
+  /** A page the agent opened (CHAT-BROWSER-01): drawn as a marker, never folded. */
+  | { kind: 'browser'; marker: BrowserMarker };
 
 /**
  * Calls that must NEVER fold into an aggregate:
@@ -38,7 +41,15 @@ export function isActiveTool(tc: ToolCall): boolean {
 /** Split a consecutive run into aggregatable stretches and solo rows, in order. */
 export function partitionToolGroup(tools: ToolCall[]): ToolGroupSegment[] {
   const segments: ToolGroupSegment[] = [];
+  const browserOpens = coalesceBrowserOpens(tools);
   for (const tc of tools) {
+    const marker = browserOpens.get(tc.id);
+    // A later opening of a context already marked lives inside that marker.
+    if (marker === null) continue;
+    if (marker) {
+      segments.push({ kind: 'browser', marker });
+      continue;
+    }
     if (isSoloTool(tc)) {
       segments.push({ kind: 'solo', tool: tc });
       continue;

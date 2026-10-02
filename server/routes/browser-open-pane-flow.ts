@@ -162,10 +162,14 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
     const warning = [navError ? `navigation failed: ${navError}` : "", portWarning ?? ""]
       .filter(Boolean)
       .join(" ");
+    // The contextId goes back too: it is the only handle on THIS page that the
+    // caller can pass on, to the chat marker that brings it back on screen and
+    // to the agent's own `browser_focus_tab` / `close_browser_pane`.
     return json({
       url: resolvedUrl,
       title: opts.title ?? pageTitle,
       visible,
+      contextId,
       ...(warning ? { warning } : {}),
     });
   }

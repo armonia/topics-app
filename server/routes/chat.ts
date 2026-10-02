@@ -2830,9 +2830,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     // state updates happen consistently. Same surface as the existing
                     // onToolResult callback below.
                     const browserEndedAt = Date.now();
+                    // The start-time detail only knows the requested URL. The
+                    // result says where the page landed, under which context, and
+                    // whether it opened at all: a native pane RESOLVES `{error}`
+                    // instead of throwing, so this is the only place a failed
+                    // `browser_open` shows up (CHAT-BROWSER-01).
+                    const failed = !!result && typeof result === 'object' && 'error' in result;
+                    const browserDetail = deriveToolDetail(name, args, resultStr, { failed });
                     updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt }, ownMirrored);
-                    updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
-                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
+                    updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt, detail: browserDetail });
+                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, detail: browserDetail, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
                     settleTrackedTool(toolCallId);
 
@@ -3092,7 +3099,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               for (let i = blocks.length - 1; i >= 0; i--) {
                 const b = blocks[i];
                 if (b.kind === "tool" && b.toolCall.id === toolCallId) {
-                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result);
+                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result, { failed: !!isError });
                   break;
                 }
               }
