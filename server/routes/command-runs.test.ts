@@ -11,8 +11,8 @@
  * @covers CMDRUN-05, CMDRUN-06
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, realpathSync } from "fs";
-import { join } from "path";
+import { mkdirSync, realpathSync, utimesSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import type { AppContext, Topic } from "../types";
 
@@ -23,9 +23,9 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
 process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
-const { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake } = await import("./processes");
+const { commandWakeState, createProcessesRouter, logPathOf, sessionsAwaitingCommandWake } = await import("./processes");
 const { isGuestAllowedPath, isGuestSafeFrameType } = await import("../lib/grants");
-const { RUN_OUTPUT_MAX_BYTES } = await import("../lib/command-runs");
+const { RUN_OUTPUT_MAX_BYTES, insertRun } = await import("../lib/command-runs");
 
 let ctx: AppContext;
 let processes: ReturnType<typeof createProcessesRouter>;
@@ -294,6 +294,37 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     expect(lines[0]).toBe(String(200000 - lines.length + 1));
     expect(done.droppedLines).toBeGreaterThan(0);
   }, 30_000);
+
+  test("a last line longer than 256 KB (a progress bar redrawn with \\r) keeps its end, cut on a character, and only the lines before it count as dropped", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    // 150,000 two-byte characters and a three-byte end: the 256 KB cut falls inside a character.
+    const run = await start(topic, messageId, "echo first; echo second; yes è | head -n 150000 | tr -d '\\n'; printf END");
+    const done = await ended(topic, messageId, run.runId);
+    expect(done.status).toBe("done");
+    const output = done.output!;
+    expect(output).toMatch(/^è+END$/);
+    expect(Buffer.byteLength(output)).toBe(RUN_OUTPUT_MAX_BYTES - 1);
+    expect(done.droppedLines).toBe(2);
+  }, 30_000);
+
+  test("a run the registry no longer knows closes as unknown when it was last known alive, not when a GET noticed it", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const startedAt = "2026-09-01T10:00:00.000Z";
+    const row = (id: string, blockKey: number) => insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
+    // Killed with the server and never re-adopted: one with its log still there, one without.
+    row(`gone-log-${seq}`, 0);
+    row(`gone-nolog-${seq}`, 1);
+    const log = logPathOf(`gone-log-${seq}`);
+    mkdirSync(dirname(log), { recursive: true });
+    writeFileSync(log, "step 1\n");
+    const lastOutput = new Date("2026-09-01T10:05:00.000Z");
+    utimesSync(log, lastOutput, lastOutput);
+    const byBlock = new Map((await runs(topic, messageId)).map((r) => [r.blockKey, r]));
+    expect(byBlock.get(0)).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput.toISOString() });
+    expect(byBlock.get(1)).toMatchObject({ status: "unknown", exitCode: null, endedAt: startedAt });
+  });
 
   test("deleting the reply takes its runs with it", async () => {
     const topic = newTopic();

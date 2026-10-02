@@ -29,6 +29,8 @@ export interface CommandRunRegistry {
   start(o: { cwd: string; command: string; sessionKey: string; topicId: string | null }): { processId: string; startedAt: string } | null;
   /** Where the registry stands with a run: still running, ended (its row is closed now), or no longer known. */
   reconcile(runId: string): "running" | "ended" | "gone";
+  /** When the run's output was last written, as an ISO time; null when its log is gone too. */
+  lastOutputAt(runId: string): string | null;
   /** Stop a run the registry has. */
   kill(runId: string): void;
 }
@@ -63,10 +65,14 @@ export function createCommandRunsRoute(ctx: AppContext, registry: CommandRunRegi
       const messageId = url.searchParams.get("messageId") ?? "";
       if (!messageId) return json({ error: "messageId is required" }, 400);
       // A run still `running` whose process the registry no longer has (killed
-      // with the server, never re-adopted): unknown, not running forever.
+      // with the server, never re-adopted): unknown, not running forever. It
+      // ended at the last moment it is known to have lived, its last output or
+      // its start, not when this GET happened to notice it.
       for (const run of latestRuns(ctx.db, sessionKey, messageId)) {
         if (run.status === "running" && registry.reconcile(run.runId) === "gone") {
-          closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt: new Date().toISOString(), output: "", droppedLines: 0 });
+          const lastOutputAt = registry.lastOutputAt(run.runId);
+          const endedAt = lastOutputAt && Date.parse(lastOutputAt) > Date.parse(run.startedAt) ? lastOutputAt : run.startedAt;
+          closeRun(ctx.db, run.runId, { status: "unknown", exitCode: null, endedAt, output: "", droppedLines: 0 });
         }
       }
       return json({ runs: latestRuns(ctx.db, sessionKey, messageId) });
