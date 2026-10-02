@@ -10,7 +10,7 @@
   * @covers AUTHERR-01
  */
 import { describe, test, expect } from 'bun:test';
-import { chiaveErroreAuth, CODICI_AUTH } from './authErrors';
+import { authRefusalKey, chiaveErroreAuth, CODICI_AUTH } from './authErrors';
 import { t, missingKeys } from './i18n';
 
 describe('dal codice di /api/auth/** alla frase', () => {
@@ -49,5 +49,19 @@ describe('dal codice di /api/auth/** alla frase', () => {
     expect(chiaveErroreAuth(undefined)).toBe('auth.err.generic');
     expect(chiaveErroreAuth('')).toBe('auth.err.generic');
     expect(t('auth.err.generic', 'en')).not.toBe('auth.err.generic');
+  });
+});
+
+describe('authRefusalKey · reading the refusal off the response', () => {
+  test('a JSON code becomes its key', async () => {
+    const r = new Response(JSON.stringify({ error: CODICI_AUTH[0] }), { status: 400 });
+    expect(await authRefusalKey(r)).toBe(`auth.err.${CODICI_AUTH[0]}`);
+  });
+
+  test('a proxy page (502, HTML) is the generic sentence, not a throw', async () => {
+    // `ShareControl` read it with a bare `await r.json()`: this threw, nobody
+    // caught it, and the person saw nothing at all.
+    const r = new Response('<html>Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } });
+    expect(await authRefusalKey(r)).toBe('auth.err.generic');
   });
 });

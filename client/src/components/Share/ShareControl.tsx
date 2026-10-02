@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { componiLink } from '../../../../shared/relay-crypto';
 import { Share2, X, UserPlus, Globe, Copy, Check, Link2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { chiaveErroreAuth } from '../../lib/authErrors';
+import { authRefusalKey, chiaveErroreAuth } from '../../lib/authErrors';
 import { copyText } from '../../lib/clipboard';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
@@ -225,8 +225,12 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
       // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
       // c'era `setErrore(body.error)`, che stampava la prosa italiana del
       // server sotto un titolo inglese.
-      if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
+      if (!r.ok) setErrore(t(await authRefusalKey(r)));
       await carica();
+    } catch {
+      // Network down: `condividi` is called with `void`, so a throw here was an
+      // unhandled rejection and the person saw nothing.
+      setErrore(t(chiaveErroreAuth(undefined)));
     } finally { setInCorso(false); }
   };
 
@@ -255,11 +259,14 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         credentials: 'same-origin',
         body: JSON.stringify({ resourceType, resourceId }),
       });
-      if (!r.ok) { setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error))); return; }
+      if (!r.ok) { setErrore(t(await authRefusalKey(r))); return; }
       const { ref, key } = await r.json() as { ref: string; key: string };
       setAppenaCreato(componiLink(relay.baseUrl, relay.relayId, ref, key));
       setCopiato(false);
       await carica();
+    } catch {
+      // Same as `condividi`: called with `void`, a throw here was silent.
+      setErrore(t(chiaveErroreAuth(undefined)));
     } finally { setInCorso(false); }
   };
 

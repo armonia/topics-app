@@ -89,6 +89,10 @@ export function useVoiceLoop({ onWSMessage, mode }: VoiceLoopProps): void {
       import('../lib/voice/classifyIntent'),
       import('../lib/voice/announceQueue'),
     ]);
+    // A call, not an inline comparison: after the check at the top of the
+    // round TypeScript narrows `modeRef.current` for the rest of it, while the
+    // awaits below are exactly where it can change.
+    const switchedOff = () => modeRef.current === 'off';
     try {
       for (;;) {
         if (modeRef.current === 'off') {
@@ -110,6 +114,10 @@ export function useVoiceLoop({ onWSMessage, mode }: VoiceLoopProps): void {
         await speak(announceText(item));
 
         const transcript = await recordUtterance();
+        // Switched off while the mic was listening: what it heard is not for
+        // the board. Checked here and after the classifier, the two awaits a
+        // flip to `off` can land in, not only at the top of the round.
+        if (switchedOff()) continue;
         if (!transcript.trim()) continue; // silence / no reply in time: skip, task untouched
 
         const heard =
@@ -120,6 +128,7 @@ export function useVoiceLoop({ onWSMessage, mode }: VoiceLoopProps): void {
         const toClassify = heard.trim() || transcript.trim();
 
         const result = await classifyVoiceIntent(toClassify);
+        if (switchedOff()) continue;
         if (result.intent === 'close') continue; // stop listening, task stays as it is
 
         const actionId = result.intent === 'approve' ? 'approve' : `answer:${encodeURIComponent(result.text ?? toClassify)}`;
@@ -152,8 +161,8 @@ export function useVoiceLoop({ onWSMessage, mode }: VoiceLoopProps): void {
 
   // Flip to `off` mid-loop: stop talking, drop whatever is queued. The mic
   // turn already in flight (inside `recordUtterance`) still finishes on its
-  // own VAD timeout, but the `for(;;)` loop above exits before acting on it
-  // because it re-checks the mode first.
+  // own VAD timeout, but the loop above does not act on it: it re-checks the
+  // mode right after the turn and again after the classifier.
   useEffect(() => {
     if (mode === 'off') {
       stopSpeaking();

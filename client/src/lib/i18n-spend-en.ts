@@ -20,6 +20,7 @@ const SPEND_EN: Dict = {
   'board.spend.leftDay': '{amount} left before the daily cap.',
   'board.spend.capTaskNote': 'A card that reaches {cap} does not start its next turn, and writes it in its thread.',
   'board.spend.noCaps': 'No cap: no brake, no warning. The number above shows anyway.',
+  'board.spend.saveFailed': 'The cap was not saved: the previous one still applies. Try again.',
 
   'cost.agent': 'Board agent',
   'cost.agentUnpriced': '(+{tokens} unpriced)',

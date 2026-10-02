@@ -326,6 +326,7 @@ const EN = {
   'forget.scopePrefix': 'This covers the data saved under',
   'forget.scopeSuffix': ', subdomains included. Other tabs and other sites are untouched.',
   'forget.noUndo': 'This cannot be undone.',
+  'forget.failed': 'Could not clear the site data: it is still saved. Try again.',
 
   'board.actionError.failed': 'action failed',
   'board.actionError.moveFailed': 'move failed',
@@ -1646,6 +1647,10 @@ const EN = {
   'sidebar.expand': 'Reopen the sidebar',
   'sidebar.tree': 'Sidebar',
   'sidebar.pinned': 'Pinned',
+  'sidebar.incognito.show': 'Show to the group',
+  'sidebar.incognito.hide': 'Make incognito',
+  'sidebar.incognito.showFailed': 'Could not show the project to the group: it is still incognito.',
+  'sidebar.incognito.hideFailed': 'Could not make the project incognito: the group still sees it.',
   'sidebar.moreOptions': 'More options',
   'sidebar.newInProject': 'Add in project',
   'sidebar.worktree': 'Worktree',

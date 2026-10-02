@@ -344,6 +344,10 @@ export function useVoiceCall(
           const type = mediaRecorder.mimeType || mimeType || 'audio/webm';
           const chunks = audioChunksRef.current;
           audioChunksRef.current = [];
+          // `endCall` stops the recorder and this runs AFTER it, with the half
+          // sentence already in `chunks`: once the call is over there is nothing
+          // to transcribe and nobody to send it to.
+          if (!isCallActiveRef.current) return;
           // Nessun dato, o solo l'header del container: non c'è niente da
           // trascrivere e nemmeno da pagare.
           if (chunks.length === 0) { relisten(); return; }
@@ -353,6 +357,8 @@ export function useVoiceCall(
           setCallStatus('processing');
           try {
             const transcript = await transcribeTurn(audioBlob);
+            // Hung up while the turn was being transcribed: same rule.
+            if (!isCallActiveRef.current) return;
             if (transcript.trim()) {
               await sendMessage(transcript.trim());
             } else {

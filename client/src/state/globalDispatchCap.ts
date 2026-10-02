@@ -168,8 +168,12 @@ export function adoptSpend(next: {
  * Writing a spend cap. Optimistic and then authoritative, like `saveGlobalCap`.
  * Zero clears the cap, and the client never proposes a value: a pre-filled cap is
  * a cap nobody chose.
+ *
+ * Resolves `false` when the write failed and was rolled back, so the control can
+ * say so: the rollback alone is silent, and a limit somebody typed would look
+ * set while the server never took it.
  */
-export async function saveSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): Promise<void> {
+export async function saveSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): Promise<boolean> {
   const before = state.spend;
   if (before) {
     publish({
@@ -186,8 +190,10 @@ export async function saveSpendCaps(patch: { perTaskCents?: number; perDayCents?
     const g = await boardApi.setSpendCaps(patch);
     publish({ ...state, saving: false });
     adoptSpend(g);
+    return true;
   } catch {
     publish({ ...state, spend: before, saving: false });
+    return false;
   }
 }
 

@@ -190,8 +190,16 @@ export function AgentStartControl({ projectId, subjects }: {
       // purpose-specific owner approval flow; the browser receives a code and
       // status, never the confined credential exchanged by the servers.
       if ((selectedComputer?.remote || selectedComputer?.modelSupport === 'unverified') && body?.capability?.id) {
-        const requestResponse = await apiFetch(...createDelegatedRequest(computer, body.capability.id));
-        if (!requestResponse.ok) throw new Error(String(requestResponse.status));
+        const capabilityId = body.capability.id;
+        const requested = await apiFetch(...createDelegatedRequest(computer, capabilityId))
+          .then((r) => r.ok, () => false);
+        if (!requested) {
+          // Without its request the capability is inert on the remote computer
+          // and has no row to reissue it from: take it back instead of leaving
+          // something that looks granted and does nothing.
+          await apiFetch(...revokeAgentStartRequest(projectId, capabilityId)).catch(() => null);
+          throw new Error('delegated request');
+        }
       }
       resetForm();
       await load();

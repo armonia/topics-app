@@ -283,7 +283,9 @@ export function normalizeUrl(input: string, origin = servedOrigin()): string {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return httpsFirstUrl(s);
   const local = sameOriginPath(s, origin);
   if (local !== null) return local;
-  // looks like a domain (has a dot, no spaces) → https://
-  if (/^[^\s]+\.[^\s]+$/.test(s) && !s.includes(' ')) return `https://${s}`;
+  // Looks like a domain (has a dot, no spaces): the same https-first rule as a
+  // typed `http://`, so `.local`, a LAN address or a dev-server port stay on
+  // http instead of being forced onto a TLS they do not speak.
+  if (/^[^\s]+\.[^\s]+$/.test(s) && !s.includes(' ')) return httpsFirstUrl(`http://${s}`);
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
 }

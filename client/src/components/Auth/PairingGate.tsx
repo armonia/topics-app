@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { refreshSession, type SessionState } from '@/lib/auth/session';
+// Relative and not `@/`: the alias is Vite's, `bun test` does not resolve it,
+// and `PairingGate.retry.test.ts` mounts this component.
+import { refreshSession, type SessionState } from '../../lib/auth/session';
 import { attesaRiprova, chiaveFrase, chiaveStato, motivoDaRisposta, type MotivoPairing } from './pairingErrore';
-import { MODAL_LAYER } from '@/lib/modalStyles';
-import { useT } from '@/hooks/useT';
+import { MODAL_LAYER } from '../../lib/modalStyles';
+import { useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
 
 /** The bundle version, baked in by Vite (`client/vite.config.ts`). */
@@ -252,7 +254,13 @@ export function PairingGate({ session }: { session: SessionState }) {
             <div className="mt-6">
               <p className="text-prose text-app-text-secondary">{t('pair.denied')}</p>
               <button
-                onClick={() => { setDenied(false); setCode(null); void refreshSession(); }}
+                // `oraRiprova` too, not only `refreshSession()`: a device still
+                // unpaired gets the same session back, nothing changes, and the
+                // effect would never ask for a new code.
+                onClick={() => {
+                  setDenied(false); setCode(null); attemptsRef.current = 0;
+                  setOraRiprova((n) => n + 1); void refreshSession();
+                }}
                 className="mt-3 rounded-lg border border-app-border px-4 py-2 text-prose text-app-text hover:bg-surface"
               >
                 {t('pair.retry')}

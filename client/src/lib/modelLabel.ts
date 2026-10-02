@@ -58,7 +58,9 @@ export function friendlyModelLabel(modelId: string): string {
   }
   if (modelId.startsWith('gpt-')) return modelId.replace(/^gpt-/, 'GPT-');
   const long = /\[1m\]$/i.test(modelId);
-  const parts = modelId.replace(/^claude-/, '').replace(/\[1m\]$/i, '').split('-');
+  // A dated snapshot (`-20251001`, the server's DATED_SUFFIX) is not part of
+  // the version: kept, it read «Haiku 4.5.20251001».
+  const parts = modelId.replace(/^claude-/, '').replace(/\[1m\]$/i, '').replace(/-\d{8}$/, '').split('-');
   const name = parts[0] ? parts[0][0].toUpperCase() + parts[0].slice(1) : modelId;
   const version = parts.slice(1).join('.');
   const base = version ? `${name} ${version}` : name;
