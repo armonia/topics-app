@@ -325,6 +325,7 @@ const IT: Dict = {
   'forget.scopePrefix': 'Vale per i dati salvati sotto',
   'forget.scopeSuffix': ', sottodomini compresi. Le altre tab e gli altri siti non si toccano.',
   'forget.noUndo': 'Non si può annullare.',
+  'forget.failed': 'Non sono riuscito a cancellare i dati del sito: sono ancora salvati. Riprova.',
 
   'board.actionError.failed': 'azione non riuscita',
   'board.actionError.moveFailed': 'spostamento non riuscito',

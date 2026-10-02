@@ -324,6 +324,7 @@ const EN = {
   'forget.scopePrefix': 'This covers the data saved under',
   'forget.scopeSuffix': ', subdomains included. Other tabs and other sites are untouched.',
   'forget.noUndo': 'This cannot be undone.',
+  'forget.failed': 'Could not clear the site data: it is still saved. Try again.',
 
   'board.actionError.failed': 'action failed',
   'board.actionError.moveFailed': 'move failed',
