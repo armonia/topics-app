@@ -690,7 +690,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             // tombstoned ids, so a reload before the cleanup timer fires
             // can no longer resurrect this terminal as a phantom pane.
             addTerminalTombstone(sessionId);
-            scheduleTerminalCleanup(record.id, 60_000, () => {
+            scheduleTerminalCleanup(record.id, 60_000, (unloading) => {
+              if (unloading) {
+                // The page is going away inside the grace window: one
+                // `keepalive` DELETE, the only request that outlives the
+                // unload. The tombstone stays, in case it does not land.
+                apiFetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+                return;
+              }
               deleteTerminalSession(sessionId);
               clearTerminalTombstone(sessionId);
             });

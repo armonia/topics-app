@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   scheduleTerminalCleanup,
   cancelTerminalCleanup,
+  flushTerminalCleanups,
   reopenClosedTab,
   selectProjectBrowserReopen,
   type ClosedTabRecord,
@@ -268,5 +269,22 @@ describe("selectProjectBrowserReopen (pinned-browser reopen routing)", () => {
 
   test("empty stack → null", () => {
     expect(selectProjectBrowserReopen([], "browser:ctx1")).toBeNull();
+  });
+});
+
+/**
+ * A RELOAD INSIDE THE GRACE WINDOW RUNS THE CLEANUP, IT DOES NOT DROP IT.
+ * The unload hook only cleared the timers: the DELETE of a closed terminal
+ * never left, its PTY stayed up, and the tab came back once the tombstone
+ * expired. The flush is what the beforeunload/pagehide hook runs.
+ */
+describe("flushTerminalCleanups", () => {
+  test("runs a pending cleanup now, flagged as unloading, and only once", async () => {
+    const calls: boolean[] = [];
+    scheduleTerminalCleanup("test-flush-1", 50, (unloading) => { calls.push(unloading); });
+    flushTerminalCleanups();
+    expect(calls).toEqual([true]);
+    await wait(120);
+    expect(calls).toEqual([true]);
   });
 });
