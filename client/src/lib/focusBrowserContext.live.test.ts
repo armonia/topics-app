@@ -11,7 +11,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import { focusBrowserContextLive, watchBrowserPlace } from './focusBrowserContext';
 import { __resetTaskTabs, applyRemoteTaskTabs } from '../state/taskBrowserTabs';
 import { __resetTaskSessions, applyTaskSessionIndex } from '../state/taskSessions';
-import { __resetProjectSyncForTests, projectPanesLocalKey, saveProjectLayout } from '../state/pane/adapters/projectLayoutSync';
+import { __resetProjectSyncForTests } from '../state/pane/adapters/projectLayoutSync';
+import { markChatSyncComplete, savePersistedTabState } from '../components/Layout/hooks/projectPersistence';
 
 class MemStorage {
   private m = new Map<string, string>();
@@ -117,13 +118,25 @@ describe('the agent\'s browser_focus_tab, fanned out to every client', () => {
 });
 
 describe('the marker\'s state follows a project window', () => {
-  test('a tab opened in a project\'s layout turns «closed» into «in a tab» with nothing else ticking', async () => {
+  // Through the save the project window really makes: it writes the record
+  // locally first and only then hands it to the synced save, so the notice
+  // has to come from the local write or it never comes.
+  async function openedThere(projectPath: string, pageId: string, chatSynced: boolean): Promise<Array<string | null>> {
     const seen: Array<string | null> = [];
-    const stop = watchBrowserPlace('page-1', '', (p) => seen.push(p));
+    const stop = watchBrowserPlace(pageId, '', (p) => seen.push(p));
     await until(() => seen.length > 0);
     expect(seen.at(-1)).toBeNull();
-    saveProjectLayout(projectPanesLocalKey('/p'), '/p', { nonChatPanes: [{ id: 'browser:page-1', type: 'browser' }], openChatTopicIds: [] });
+    if (chatSynced) markChatSyncComplete(projectPath);
+    savePersistedTabState(projectPath, { nonChatPanes: [{ id: `browser:${pageId}`, type: 'browser', title: 'App' }], openChatTopicIds: [] } as never);
     stop();
-    expect(seen.at(-1)).toBe('layout');
+    return seen;
+  }
+
+  test('a tab opened in a project\'s layout turns «closed» into «in a tab» with nothing else ticking', async () => {
+    expect((await openedThere('/p', 'page-1', true)).at(-1)).toBe('layout');
+  });
+
+  test('the same holds before the project\'s chats have synced, when only the local record is written', async () => {
+    expect((await openedThere('/q', 'page-2', false)).at(-1)).toBe('layout');
   });
 });
