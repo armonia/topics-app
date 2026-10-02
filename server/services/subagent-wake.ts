@@ -88,8 +88,9 @@ export function subagentWakeText(results: readonly SubAgentResult[]): string {
 /**
  * A result the parent caused itself wakes nobody: its own `stop_agent` on a
  * working child ends that turn as `stopped`, and a paid turn telling the
- * parent what it just did is all the wake would buy. The row still lands. A
- * stop by a person (a closed tab, a reload, the sweep) still wakes it.
+ * parent what it just did is all the wake would buy. The row still lands,
+ * once the parent's turn is over, like a wake. A stop by a person (a closed
+ * tab, a reload, the sweep) still wakes it.
  */
 export function resultWakesParent(r: Pick<SubAgentResult, "reason">): boolean {
   return r.reason?.code !== "stopped-by-parent";
@@ -144,6 +145,17 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
     await sleep(debounceMs);
     for (;;) {
       if (deps.isBusy(sessionKey)) { await sleep(pollMs); continue; }
+      // The parent's own stop wakes nobody (`resultWakesParent`), but it waited
+      // here all the same: written during the parent's turn (it is inside its
+      // `stop_agent` call), its `message:new` reached the window that owns that
+      // stream, which drops it, and the card showed only after a reload.
+      const queued = pending.get(sessionKey) ?? [];
+      const rowsOnly = queued.filter((r) => !resultWakesParent(r.result));
+      if (rowsOnly.length) {
+        pending.set(sessionKey, queued.filter((r) => resultWakesParent(r.result)));
+        asRows(rowsOnly);
+      }
+      if (!pending.get(sessionKey)?.length) return;
       const verdict = deps.canWake(sessionKey);
       if (verdict === "wait") { await sleep(pollMs); continue; }
       const batch = pending.get(sessionKey)?.splice(0) ?? [];
