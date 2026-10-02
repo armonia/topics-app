@@ -190,6 +190,7 @@ function makeMockCtx(opts: {
   };
   return {
     BASE_DIR: opts.baseDir,
+    STATE_DIR: opts.baseDir,
     OPENCLAW_DIR: opts.openclawDir,
     getTopicBySessionKey: (sk: string) => (opts.topic && opts.topic.sessionKey === sk ? opts.topic : null),
     loadLocalMessages: (_sk: string) => opts.messages,
@@ -345,9 +346,9 @@ describe("assembleTopicContext — disabledContextSources", () => {
   const openclawDir = join(ROOT, "disabled", "openclaw");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
   mkdirSync(join(openclawDir, "workspace"), { recursive: true });
-  writeFileSync(join(baseDir, "memory", "_global.md"), "global memory content");
 
-  const topic = makeTopic({ disabledContextSources: ["memory:global"] });
+  const topic = makeTopic({ disabledContextSources: ["memory:topic"] });
+  writeFileSync(join(baseDir, "memory", `${topic.id}.md`), "topic memory content");
   const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
 
   const env = assembleTopicContext(ctx, {
@@ -355,20 +356,27 @@ describe("assembleTopicContext — disabledContextSources", () => {
     providerName: "claude",
   });
 
-  it("memory:global is present but enabled=false", () => {
-    const block = env.systemBlocks.find((b) => b.id === "memory:global");
+  it("memory:topic is present but enabled=false", () => {
+    const block = env.systemBlocks.find((b) => b.id === "memory:topic");
     expect(block).toBeDefined();
     expect(block!.enabled).toBe(false);
   });
 
   it("disabled blocks do NOT count toward totalTokens", () => {
-    const memBlock = env.systemBlocks.find((b) => b.id === "memory:global")!;
+    const memBlock = env.systemBlocks.find((b) => b.id === "memory:topic")!;
     const tokensWithoutDisabled = env.systemBlocks
       .filter((b) => b.enabled && b.countInBudget)
       .reduce((s, b) => s + b.tokens, 0);
     expect(env.diagnostics.totalTokens).toBe(tokensWithoutDisabled);
     // Sanity: the memory block had tokens > 0 but was excluded.
     expect(memBlock.tokens).toBeGreaterThan(0);
+  });
+
+  it("a leftover memory/_global.md (retired) produces no block", () => {
+    writeFileSync(join(baseDir, "memory", "_global.md"), "stringa di test dimenticata");
+    const again = assembleTopicContext(ctx, { sessionKey: topic.sessionKey, providerName: "claude" });
+    expect(again.systemBlocks.map((b) => b.id)).not.toContain("memory:global");
+    expect(JSON.stringify(again.systemBlocks)).not.toContain("stringa di test dimenticata");
   });
 });
 

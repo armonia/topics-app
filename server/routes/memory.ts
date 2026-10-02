@@ -4,7 +4,6 @@ import type { AppContext, RouteHandler } from "../types";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
 const MAX_TOPIC_MEMORY_BYTES = 10 * 1024;  // 10KB per topic
-const MAX_GLOBAL_MEMORY_BYTES = 50 * 1024; // 50KB global
 
 // Simple in-process write locking
 const activeLocks = new Set<string>();
@@ -41,12 +40,6 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
     if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
     return filepath;
   }
-
-  // A literal still goes through the same containment guard as caller-derived
-  // paths.  This route has no caller Topic/session to inspect, so preserving
-  // normal global-memory semantics is intentional.
-  const globalMemoryPath = containedMemoryPath("_global.md");
-  if (!globalMemoryPath) throw new Error("global memory path escaped its root");
 
   function getMemoryPath(topicId: string): string | null {
     // Topic ids are UUIDs in normal operation.  Treat a malformed/imported id
@@ -96,41 +89,16 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
 
   return async function memoryRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
-    // GET /api/memory — global memory
-    if (method === "GET" && pathname === "/api/memory") {
-      const content = loadMemory(globalMemoryPath);
-      return json({ content, type: "global", maxBytes: MAX_GLOBAL_MEMORY_BYTES });
-    }
-
-    // PUT /api/memory — update global memory
-    if (method === "PUT" && pathname === "/api/memory") {
-      const body = await readJSON(req);
-      if (!body || typeof body.content !== "string") return json({ error: "content required" }, 400);
-      if (Buffer.byteLength(body.content, "utf-8") > MAX_GLOBAL_MEMORY_BYTES) {
-        return json({ error: `Global memory exceeds ${MAX_GLOBAL_MEMORY_BYTES / 1024}KB limit` }, 413);
-      }
-      const locked = await acquireLock(globalMemoryPath);
-      if (!locked) return json({ error: "Memory is locked by another write" }, 409);
-      try {
-        saveMemory(globalMemoryPath, body.content);
-        broadcastToAll({ type: "memory:updated", scope: "global" });
-        return json({ ok: true });
-      } finally {
-        releaseLock(globalMemoryPath);
-      }
-    }
-
-    // DELETE /api/memory/global — clear global memory
-    if (method === "DELETE" && pathname === "/api/memory/global") {
-      const locked = await acquireLock(globalMemoryPath);
-      if (!locked) return json({ error: "Memory is locked by another write" }, 409);
-      try {
-        if (existsSync(globalMemoryPath)) unlinkSync(globalMemoryPath);
-        broadcastToAll({ type: "memory:updated", scope: "global" });
-        return json({ ok: true });
-      } finally {
-        releaseLock(globalMemoryPath);
-      }
+    // La memoria globale di Topics e' ritirata (change `contesto-dall-hub`):
+    // le regole comuni a tutti gli agenti stanno nell'hub `~/.agents`, e il
+    // pannello del contesto le mostra in sola lettura. 410 e non 404: la route
+    // e' esistita, e un client vecchio deve capire che non tornera'.
+    if ((pathname === "/api/memory" && (method === "GET" || method === "PUT"))
+      || (pathname === "/api/memory/global" && method === "DELETE")) {
+      return json({
+        error: "global memory is retired: shared rules live in ~/.agents/AGENTS.md",
+        code: "gone",
+      }, 410);
     }
 
     // DELETE /api/memory/topic/:topicId — clear topic memory
@@ -151,20 +119,17 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    // GET /api/memory/:topicId — topic memory (includes global)
+    // GET /api/memory/:topicId — topic memory
     {
       const params = matchRoute(pathname, "/api/memory/:topicId");
       if (params && method === "GET") {
         const target = resolveTopicMemoryTarget(params.topicId);
         if (target instanceof Response) return target;
         const topicContent = loadMemory(target.filepath);
-        const globalContent = loadMemory(globalMemoryPath);
         return json({
           topicContent,
-          globalContent,
           topicId: target.topicId,
           maxTopicBytes: MAX_TOPIC_MEMORY_BYTES,
-          maxGlobalBytes: MAX_GLOBAL_MEMORY_BYTES,
         });
       }
 
@@ -224,34 +189,13 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
  * Load combined memory content for injection into system prompt.
  * Called from topics.ts during chat message sending.
  */
-export function loadMemoryForTopic(baseDir: string, topicId: string, options?: { includeGlobal?: boolean; includeTopic?: boolean }): string {
-  const includeGlobal = options?.includeGlobal ?? true;
-  const includeTopic = options?.includeTopic ?? true;
-  const MEMORY_DIR = join(baseDir, "memory");
-  const parts: string[] = [];
-
-  // Global memory
-  if (includeGlobal) {
-    const globalPath = join(MEMORY_DIR, "_global.md");
-    if (existsSync(globalPath)) {
-      try {
-        const content = readFileSync(globalPath, "utf-8").trim();
-        if (content) parts.push(`### Global Memory\n${content}`);
-      } catch {}
-    }
-  }
-
-  // Topic-specific memory
-  if (includeTopic) {
-    const topicPath = join(MEMORY_DIR, `${topicId}.md`);
-    if (existsSync(topicPath)) {
-      try {
-        const content = readFileSync(topicPath, "utf-8").trim();
-        if (content) parts.push(`### Topic Memory\n${content}`);
-      } catch {}
-    }
-  }
-
-  if (parts.length === 0) return "";
-  return `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n${parts.join("\n\n")}`;
+export function loadMemoryForTopic(baseDir: string, topicId: string, options?: { includeTopic?: boolean }): string {
+  if (options?.includeTopic === false) return "";
+  const topicPath = join(baseDir, "memory", `${topicId}.md`);
+  if (!existsSync(topicPath)) return "";
+  try {
+    const content = readFileSync(topicPath, "utf-8").trim();
+    if (!content) return "";
+    return `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Topic Memory\n${content}`;
+  } catch { return ""; }
 }

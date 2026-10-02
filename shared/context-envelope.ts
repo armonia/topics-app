@@ -24,8 +24,8 @@ import type { ProviderChatMessage, ProviderContextStrategy } from './types';
  * - `openclaw`  — files injected by the OpenClaw workspace
  *                 (SOUL.md, MEMORY.md, AGENTS.md, TOOLS.md, IDENTITY.md,
  *                 USER.md, plus the aggregated memory tree).
- * - `memory`    — global memory (`memory/_global.md`) and topic-specific
- *                 memory (`memory/${topicId}.md`).
+ * - `memory`    — topic-specific memory (`memory/${topicId}.md`). The global
+ *                 one is retired: shared rules come from the hub (`template`).
  * - `prompt`    — `topic.systemPrompt` configured by the user.
  * - `template`  — project-level files discovered automatically:
  *                 CLAUDE.md, README.md, .cursorrules, AGENTS.md

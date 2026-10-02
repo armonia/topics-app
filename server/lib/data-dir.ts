@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { accessSync, constants, existsSync, mkdirSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { topicsHome } from "../services/daemon-state";
 
 /**
@@ -157,4 +157,29 @@ export function appDataRoots(inputs: AppDataDirInputs = {}): string[] {
   const home = inputs.home ?? env.HOME ?? homedir();
   const roots = [resolveAppDataDir(inputs), join(home, ".openclaw"), topicsHome(env, home)];
   return [...new Set(roots)];
+}
+
+/**
+ * A test process never opens the live state.
+ *
+ * `bun test` sets NODE_ENV=test. Under it, a state dir equal to the repo the
+ * server runs from is the LIVE layout (dev and the prod LaunchAgent write
+ * there): DB, topics.json, memory/. The DB already had its own gate in the test
+ * helper, the rest did not, and twice something got through: three «bench
+ * progetto» topics on 16/08 and a global memory holding a test string from
+ * 25/08 to 02/10. This is the gate at the one door every context goes through,
+ * so a test that forgets to isolate fails loudly instead of passing by writing
+ * to the user's data.
+ */
+export function assertNotLiveStateUnderTest(
+  stateDir: string,
+  repoRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.NODE_ENV !== "test") return;
+  if (resolve(stateDir) !== resolve(repoRoot)) return;
+  throw new Error(
+    `test process opened the live state dir (${stateDir}): set DATA_DIR to a ` +
+      `testTmpDir() before creating the context`,
+  );
 }
