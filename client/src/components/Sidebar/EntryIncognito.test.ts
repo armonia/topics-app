@@ -6,7 +6,7 @@
  * to the group while the person believed it hidden. Driven through the real
  * entry inside the real toast provider; only the network is faked.
  *
- * @covers PROJECT-INCOGNITO-01
+ * @covers PROJECT-07
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createElement } from 'react';

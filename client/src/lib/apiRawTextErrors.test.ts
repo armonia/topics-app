@@ -7,7 +7,7 @@
  * to the person instead of the sentence. They now read it with
  * `readErrorBody`, like `request()`.
  *
- * @covers FILES-01
+ * @covers FILE-01, FILE-02
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { ApiError, filesApi, gitApi } from './api';

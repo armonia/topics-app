@@ -12,7 +12,7 @@
  * (`rootRef.current`), and this project has no DOM library, so the mirror
  * cannot be mounted here. What is guarded is the order inside the effect.
  *
- * @covers BROWSER-COBROWSE-01
+ * @covers DOMCO-01
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

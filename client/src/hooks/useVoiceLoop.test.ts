@@ -7,7 +7,7 @@
  * or an answer. Driven through the real hook; TTS, microphone, recorder and
  * network are faked.
  *
- * @covers VOICE-LOOP-01
+ * @covers VOICE-01
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';

@@ -8,7 +8,7 @@
  * nothing. The grant now revokes the capability it just created. Driven
  * through the real control; only the network is faked.
  *
- * @covers AGENT-START-01
+ * @covers GUEST-17
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';

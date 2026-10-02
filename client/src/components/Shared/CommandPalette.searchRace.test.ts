@@ -8,7 +8,7 @@
  * defect `FileSearch` closed with `searchSeqRef`. Driven through the real
  * palette; only the network and the browser globals are faked.
  *
- * @covers PALETTE-01
+ * @covers CMD-01
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';

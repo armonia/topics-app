@@ -6,7 +6,7 @@
  * spending limit could believe it was in place. Driven through the real
  * control and the real store; only the network is faked.
  *
- * @covers BOARD-SPEND-01
+ * @covers KANBAN-12
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';

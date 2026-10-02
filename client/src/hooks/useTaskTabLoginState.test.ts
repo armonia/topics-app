@@ -7,7 +7,7 @@
  * the mark stayed, so no later mount retried for the whole app session and the
  * reviewer had to log in by hand. Driven through the real hook.
  *
- * @covers BROWSER-TASK-TABS-01
+ * @covers LOGINST-01
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';

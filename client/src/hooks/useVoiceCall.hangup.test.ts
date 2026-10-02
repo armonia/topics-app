@@ -7,7 +7,7 @@
  * the fragment was transcribed and sent to the agent after the hang-up. Driven
  * through the real hook; microphone, recorder and network are faked.
  *
- * @covers VOICE-CALL-01
+ * @covers CHAT-01
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
