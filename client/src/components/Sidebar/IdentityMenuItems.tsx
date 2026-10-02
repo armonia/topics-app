@@ -1,11 +1,17 @@
 /**
  * WHO YOU ARE AND WHO IS AROUND: the identity block of the user menu.
  *
- * The account, the friends, the groups and the devices, written once and
- * mounted twice: at the top of the user card's menu on the desktop, and at the
- * top of the title menu on the phone, where the user card does not exist
- * (USERMENU-09). Before, the phone reached sign-in, rename and revoke only
- * through the Settings panel; two hosts of one component cannot drift.
+ * The account and the plan, the friends and the groups, the devices and the
+ * nodes, written once and mounted twice: at the top of the user card's menu on
+ * the desktop, and at the top of the title menu on the phone, where the user
+ * card does not exist (USERMENU-09). Before, the phone reached sign-in, rename
+ * and revoke only through the Settings panel; two hosts of one component cannot
+ * drift.
+ *
+ * THREE GROUPS, hairline between them. What you are and what you pay (the
+ * account, the plan right under it), who is around (friends, groups), and the
+ * machines (this one's devices, then the nodes the board spans: both are
+ * computers, and the devices level already points at the nodes' requests).
  *
  * The data comes from `useIdentityMenuData`, which each host calls once: the
  * desktop card needs it for the card itself, the phone only while its menu is
@@ -17,6 +23,7 @@ import { SubmenuItem } from '../Shared/SubmenuItem';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { AccountPanel } from './accountPanelLazy';
 import { DevicesLevel } from './DevicesLevel';
+import { NodesLevel, PlanLevel } from './FormLevels';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
 import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { mergePeople } from './orgPresence';
@@ -43,6 +50,7 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
           onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
         />
       </Suspense>
+      <PlanLevel defaultOpen={openLevel === 'plan'} />
 
       <div className="border-t border-app-border" />
       {/* THE LEVELS OF NAMES ARE AS WIDE AS THE MENU, NOT AS THEIR LONGEST
@@ -51,14 +59,16 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
           ceiling too, a long name truncates and a hint wraps. */}
       <FriendsSection friends={data.friends} width={width} onClose={onClose} />
       <OrgsSection orgs={data.orgs} width={width} onClose={onClose} />
+
+      <div className="border-t border-app-border" />
       <DevicesLevel
         devices={data.devices}
         failed={data.devicesFailed}
         width={width}
         onReadDevices={data.readDevices}
-        onClose={onClose}
         defaultOpen={openLevel === 'devices'}
       />
+      <NodesLevel defaultOpen={openLevel === 'nodes'} />
     </>
   );
 }

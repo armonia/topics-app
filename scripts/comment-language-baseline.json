@@ -221,7 +221,6 @@
     "client/src/components/Settings/AppearanceSection.tsx": 76,
     "client/src/components/Settings/DevicesSection.tsx": 55,
     "client/src/components/Settings/DiscordSection.tsx": 38,
-    "client/src/components/Settings/GlobalSettings.tsx": 67,
     "client/src/components/Settings/IdentitySection.test.tsx": 31,
     "client/src/components/Settings/IdentitySection.tsx": 92,
     "client/src/components/Settings/NotificationsSection.tsx": 64,

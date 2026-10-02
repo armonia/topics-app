@@ -1664,6 +1664,12 @@ export const mcpApi = {
     return request<McpFleetStatus>('/mcp/fleet', { signal });
   },
 
+  /** What is mounted now, WITHOUT mounting (`mounted: false` = not asked yet).
+   *  For the tail of the user menu's Tools row, read on every open. */
+  async peek(signal?: AbortSignal): Promise<McpFleetStatus> {
+    return request<McpFleetStatus>('/mcp/fleet?peek=1', { signal });
+  },
+
   /** Drop every connection and mount again, then answer with the new state. */
   async refresh(): Promise<McpFleetStatus> {
     return request<McpFleetStatus>('/mcp/fleet/refresh', { method: 'POST' });

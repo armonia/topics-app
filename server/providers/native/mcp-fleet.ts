@@ -285,6 +285,7 @@ export function mcpFleetStatus(): McpFleetStatus {
   return {
     enabled: enabled(),
     mounting: Boolean(mountPromise) && !mounted,
+    mounted,
     source,
     servers: statuses,
   };

@@ -25,19 +25,23 @@
  * History stays a row of its own: it is not a setting of anything, it is a
  * place you go.
  *
+ * AND THE FORMS ARE HERE TOO. AI providers, tools and calendar open as levels
+ * above the preferences (`FormLevels`): the Settings window and its row are
+ * gone, every setting has one home and it is this menu (USERMENU-06).
+ *
  * WHAT IS NOT HERE: performance, version and restart. They are `SidebarSystemMenu`,
  * which was already one component for both screens, and they sit BELOW these
  * rows in either host: above the things that DO something, below the things
  * that SAY something.
  */
 import { lazy, Suspense, useMemo, useSyncExternalStore } from 'react';
-import { Globe2, Grid2x2, History, LayoutTemplate, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react';
+import { Globe2, Grid2x2, History, LayoutTemplate, RotateCcw, Eye } from 'lucide-react';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AppearanceLevel, type MenuPreferences } from './AppearanceLevel';
 import { NotificationsLevel } from './NotificationsLevel';
+import { EngineLevels } from './FormLevels';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
-import { shortcut } from '@/lib/shortcutLabel';
 import { menuRowClass } from './menuRow';
 import { useT } from '@/hooks/useT';
 import { buildHistoryRows } from '@/lib/historyRows';
@@ -82,7 +86,6 @@ export interface TopicsMenuItemsProps {
    *  under 768px they would not fail, they would do nothing. */
   splitLayoutAvailable: boolean;
   onOpenHistory: () => void;
-  onOpenSettings: () => void;
   /** Reopens a closed tab exactly where it was. Optional: without it the
    *  quick preview still shows the row, it just cannot act on it and the
    *  row falls back to opening the full history in the palette. */
@@ -105,7 +108,6 @@ export function TopicsMenuItems({
   preferences,
   splitLayoutAvailable,
   onOpenHistory,
-  onOpenSettings,
   onReopenClosedTab,
   onOpenHistoryUrl,
   onClose,
@@ -130,6 +132,12 @@ export function TopicsMenuItems({
   );
   return (
     <>
+      {/* WHAT THE APP RUNS ON AND WHAT IT REACHES: the AI providers, the tools,
+          the calendar. Forms, in levels of their own (USERMENU-06): there is no
+          Settings window any more, the menu is the one home of every setting. */}
+      <EngineLevels openLevel={openLevel} />
+
+      <div className="border-t border-app-border" />
       {/* HOW THE APP LOOKS AND HOW IT WARNS YOU: direct controls, applied on
           change, where the Settings panel used to hold them (USERMENU-01,
           USERMENU-03). */}
@@ -259,23 +267,6 @@ export function TopicsMenuItems({
         </button>
       </SubmenuItem>
 
-      {/* SETTINGS IS A DOOR, NOT A SECOND RAIL. It used to open a submenu that
-          listed the very same sections the settings panel already navigates
-          by itself (`SETTINGS_SECTIONS`): one destination, reached by reading
-          the same names twice, once here and once inside. The row now does
-          the one thing its label promises - it opens the panel - and the
-          panel is where you pick a section, because that list already lives
-          there and does not need a second copy in a menu. */}
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className={row}
-        data-testid="topics-menu-settings"
-      >
-        <SettingsIcon size={glyph} className="flex-shrink-0" />
-        <span className="flex-1 text-left">{tr('app.settings')}</span>
-        <kbd className="kbd">{shortcut(',')}</kbd>
-      </button>
     </>
   );
 }

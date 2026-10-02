@@ -1,25 +1,37 @@
 /**
  * OPEN THE USER MENU, optionally on one of its levels, from anywhere.
  *
- * The preferences moved out of the Settings panel into the user menu, and the
- * doors that led to a section of the panel now lead to a level of the menu: the
- * bell's gear to Notifications, an old deep link to Devices. The menu is owned
- * by two hosts (the user card on the desktop, the title menu on the phone) that
- * no caller can reach through props, so the request is an event, in the same
- * shape as `topics:open-settings` and `topics:open-utility`.
+ * The user menu is the one home of every setting: the preferences, and since
+ * the Settings panel went away the forms too (AI providers, tools, calendar,
+ * plan, nodes). Every door that led to a page of the panel now leads to a level
+ * of the menu: the bell's gear to Notifications, the plan-limit notice and the
+ * model selector to AI providers, ⌘, to the menu itself. The menu is owned by
+ * two hosts (the user card on the desktop, the title menu on the phone) that no
+ * caller can reach through props, so the request is an event, in the same shape
+ * as `topics:open-utility`.
  */
 
 /** The event both hosts listen to. */
 export const OPEN_USER_MENU_EVENT = 'topics:open-user-menu';
 
 /** The levels a request can land on. */
-export type UserMenuLevel = 'appearance' | 'notifications' | 'view' | 'devices';
+export type UserMenuLevel =
+  | 'plan'
+  | 'devices'
+  | 'nodes'
+  | 'providers'
+  | 'tools'
+  | 'calendar'
+  | 'appearance'
+  | 'notifications'
+  | 'view';
 
 export interface OpenUserMenuDetail {
   level?: UserMenuLevel;
 }
 
-/** Open the user menu, with `level` already open when given. */
+/** Open the user menu, with `level` already open when given. Without a level
+ *  (⌘, and the palette) the focus lands on the menu's first row. */
 export function openUserMenu(level?: UserMenuLevel): void {
   window.dispatchEvent(new CustomEvent<OpenUserMenuDetail>(OPEN_USER_MENU_EVENT, { detail: { level } }));
 }
@@ -32,4 +44,6 @@ export function openUserMenu(level?: UserMenuLevel): void {
 export interface UserMenuRequest {
   level: UserMenuLevel | null;
   n: number;
+  /** Asked from the keyboard without a level (⌘,): focus the first row. */
+  focusFirst?: boolean;
 }

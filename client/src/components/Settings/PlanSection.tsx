@@ -144,9 +144,7 @@ export function PlanSection() {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-mini font-semibold uppercase tracking-wide text-app-text-secondary">
-        {t('plan.title')}
-      </h3>
+      {/* The title is the level's header in the user menu (`FormLevel`). */}
       <p className="text-mini leading-relaxed text-app-text-tertiary">{t('plan.blurb')}</p>
 
       <div className="space-y-2.5 rounded-lg border border-app-border px-3 py-2.5">

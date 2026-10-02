@@ -42,6 +42,7 @@ export function PresencePopover({
   children,
   testId,
   width = LARGHEZZA,
+  focusFirstRow = false,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
@@ -49,6 +50,9 @@ export function PresencePopover({
   testId?: string;
   /** Wider than the default, for a panel that holds fields and not names. */
   width?: number;
+  /** Opened from the keyboard (⌘,): the focus goes to the first row instead
+   *  of the panel, so Enter acts and the arrows continue from there. */
+  focusFirstRow?: boolean;
 }) {
   const pannello = useRef<HTMLDivElement>(null);
   const ancora = useRef<HTMLElement | null>(null);
@@ -119,8 +123,11 @@ export function PresencePopover({
   // `focus()`), so the arrows work from the first press, as in `Menu`.
   const placed = pos !== null;
   useEffect(() => {
-    if (anchorEl && placed) pannello.current?.focus({ preventScroll: true });
-  }, [anchorEl, placed]);
+    if (!anchorEl || !placed) return;
+    const panel = pannello.current;
+    const first = focusFirstRow ? panel?.querySelector<HTMLElement>('[role="menuitem"], button:not([disabled])') : null;
+    (first ?? panel)?.focus({ preventScroll: true });
+  }, [anchorEl, placed, focusFirstRow]);
 
   if (!anchorEl) return null;
 

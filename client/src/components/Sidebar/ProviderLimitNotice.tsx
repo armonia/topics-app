@@ -4,7 +4,7 @@ import type { PlanUsageWindow, ProviderHold } from '../../../../shared/provider-
 import { PLAN_DISPATCH_HOLD_AT } from '../../../../shared/provider-hold';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
-import { openSettings } from '../../lib/openSettings';
+import { openUserMenu } from '../../lib/openUserMenu';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { Menu } from '../Shared/Menu';
 import { SEGNALE_ATTESA } from './chromeSignals';
@@ -65,7 +65,7 @@ export function ProviderLimitNotice({ hold, usage }: {
           <p className="text-app-text-secondary">{tr('statusBar.providerHold.otherChats')}</p>
         </div>
         <div className="border-t border-app-border px-1 pt-1">
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); openSettings('providers'); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-compact text-app-text hover:bg-app-hover">
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); openUserMenu('providers'); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-compact text-app-text hover:bg-app-hover">
             <Settings size={14} aria-hidden="true" />{tr('statusBar.providerHold.manage')}
           </button>
         </div>

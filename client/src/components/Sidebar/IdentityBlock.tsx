@@ -195,7 +195,7 @@ function UserCard({ identity, commands, alarm }: {
     const onRequest = (e: Event) => {
       const level = (e as CustomEvent<OpenUserMenuDetail>).detail?.level ?? null;
       readDevices();
-      setRequest((r) => ({ level, n: r.n + 1 }));
+      setRequest((r) => ({ level, n: r.n + 1, focusFirst: level === null }));
       setOpen(true);
     };
     window.addEventListener(OPEN_USER_MENU_EVENT, onRequest);
@@ -312,6 +312,7 @@ function UserCard({ identity, commands, alarm }: {
             signals={signals}
             commands={commands}
             openLevel={request.level}
+            focusFirstRow={request.focusFirst === true}
           />
         </Suspense>
       )}

@@ -5,7 +5,7 @@ import { taskExecutionOptions, topicsRoutingAvailable } from '../../../../shared
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
-import { openSettings } from '../../lib/openSettings';
+import { openUserMenu } from '../../lib/openUserMenu';
 import { useT } from '../../hooks/useT';
 import { ownsSelection, selectedModelMissingIn, type AiExecutionSelection } from './aiExecutionSelection';
 
@@ -225,7 +225,7 @@ export function AiExecutionMenuOptions({
             <button
               className="mt-1.5 inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-40"
               disabled={disabled}
-              onClick={() => { openSettings('providers'); onClose?.(); }}
+              onClick={() => { openUserMenu('providers'); onClose?.(); }}
             >
               <Settings className="h-3 w-3" /> {tr('ai.selector.openSettings')}
             </button>
@@ -318,7 +318,7 @@ export function AiExecutionMenuOptions({
       {executions.length === 0 && (
         <div className="px-3 py-4 text-center text-mini text-app-text-muted">
           <p>{tr('ai.selector.none')}</p>
-          <button disabled={disabled} className="mt-1.5 text-primary hover:underline disabled:opacity-40" onClick={() => { openSettings('providers'); onClose?.(); }}>
+          <button disabled={disabled} className="mt-1.5 text-primary hover:underline disabled:opacity-40" onClick={() => { openUserMenu('providers'); onClose?.(); }}>
             {tr('ai.selector.openSettings')}
           </button>
         </div>

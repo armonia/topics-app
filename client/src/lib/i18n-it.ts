@@ -50,7 +50,6 @@ const IT: Dict = {
   'app.showArchived': 'Mostra archiviati',
   'app.resetPanels': 'Reimposta pannelli',
   'app.autoArrange': 'Disponi automaticamente',
-  'app.settings': 'Impostazioni',
   'app.viewGroup': 'Vista',
   'app.viewByStateShort': 'per stato',
   'app.viewTimelineShort': 'cronologica',
@@ -75,7 +74,6 @@ const IT: Dict = {
   'dev.reload': 'Ricarica',
   'topic.notFound': 'Topic non trovato',
   'compaction.summaryTitle': 'Riassunto del contesto compattato',
-  'settings.close': 'Chiudi le impostazioni',
   'toast.close': 'Chiudi la notifica',
   'lightbox.close': "Chiudi l'immagine",
   'lightbox.resetZoom': 'Azzera lo zoom',
@@ -1191,7 +1189,7 @@ const IT: Dict = {
   // chiamava «Profile».
   'settings.section.appearance': 'Aspetto',
   'settings.section.notifications': 'Notifiche',
-  'settings.section.providers': 'Providers AI',
+  'settings.section.providers': 'Provider AI',
   'settings.section.tools': 'Strumenti',
   // ORGANIZZAZIONE e AMICI erano il quarto e il sesto riquadro dentro
   // «Profilo»: c'erano, ma si raggiungevano solo scorrendo, e una cosa che si
@@ -2099,7 +2097,6 @@ const IT: Dict = {
   // Il gratuito NON è una mancanza: il confine del listino è ORG-08, cioè tutto il
   // locale e tutta la rete di casa, per sempre e senza account. Quindi queste
   // frasi dicono cosa hai, non cosa ti manca.
-  'plan.title': 'Piano',
   'plan.blurb': 'Sulla tua macchina e dalla tua rete di casa funziona tutto, per sempre e senza account. Si paga l’essere raggiunti da un’ALTRA rete, e i posti per chi lavora con te.',
   'plan.current.free': 'Piano gratuito · 1 posto',
   'plan.current.team': 'Piano team · {posti} posti',
@@ -3024,6 +3021,29 @@ const IT: Dict = {
   // The user menu's preference levels and the Settings panel's five forms (sidebar-menu-settings).
   'settings.title': 'Impostazioni',
   'settings.section.nodes': 'Nodi',
+  // The tails of the user menu's form levels, and their frame (menu-utente-tutto).
+  'userMenu.none': 'Nessuno',
+  'userMenu.plan.free': 'Gratuito',
+  'userMenu.plan.team': 'Team · {n} posti',
+  'userMenu.plan.teamOne': 'Team · 1 posto',
+  'userMenu.plan.expiresIn': 'scade tra {n} g',
+  'userMenu.plan.expiresToday': 'scade oggi',
+  'userMenu.plan.expired': 'scaduto',
+  'userMenu.tools.off': 'Spenti',
+  'userMenu.tools.one': '1 attivo',
+  'userMenu.tools.many': '{n} attivi',
+  'userMenu.calendar.on': 'Collegato',
+  'userMenu.calendar.paused': 'In pausa',
+  'userMenu.calendar.none': 'Non collegato',
+  'userMenu.nodes.one': '1 nodo',
+  'userMenu.nodes.many': '{n} nodi',
+  'userMenu.nodes.requests': '{n} richieste da altri computer aspettano una risposta',
+  'userMenu.subscription': 'Abbonamento Claude {plan}',
+  'userMenu.subscriptionUnknown': 'Abbonamento Claude',
+  'userMenu.usage.fiveHours': 'Finestra di 5 ore al {pct}%',
+  'userMenu.usage.fiveHoursReset': 'Finestra di 5 ore al {pct}% · riparte alle {time}',
+  'userMenu.usage.none': 'Nessuna lettura dell’uso, per ora',
+  'userMenu.level.close': 'Chiudi {nome}',
   'appearance.theme': 'Tema',
   'appearance.theme.light': 'Chiaro',
   'appearance.theme.dark': 'Scuro',

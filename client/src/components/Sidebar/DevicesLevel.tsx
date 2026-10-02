@@ -28,9 +28,8 @@ import { CHIP_INK_DIM } from './identityChip';
 import { PALLINO_OK, SEGNALE_OK } from './chromeSignals';
 import { moveDevice, renameDevice, revokeDevice } from '@/lib/devicesApi';
 import type { DevicePerson, DevicesSnapshot, PairedDevice } from '@/lib/devicesRead';
-import { delegatedRequests, listLocalDelegatedRequests } from '../Settings/delegatedMachineAccess';
-import { openSettings } from '@/lib/openSettings';
-import { apiFetch } from '@/lib/shell/net';
+import { pendingRemoteRequests } from '@/lib/remoteNodeRequests';
+import { openUserMenu } from '@/lib/openUserMenu';
 import { deviceRevokedLine, deviceSeenLine } from '@/lib/deviceAudit';
 import { useActiveLocale, useT } from '@/hooks/useT';
 
@@ -38,19 +37,7 @@ const ROW = 'flex items-center gap-2 px-3 py-1 text-mini coarse:min-h-11 coarse:
 const ICON_BUTTON = 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:h-11 coarse:w-11';
 const TEXT_BUTTON = 'flex-shrink-0 rounded px-1.5 py-0.5 text-mini coarse:min-h-11 coarse:px-3';
 
-/** How many pairing requests from other computers wait for an answer here.
- *  `0` for a guest: the route is owner-only and a 403 means it is not theirs. */
-async function pendingRemoteRequests(): Promise<number> {
-  try {
-    const r = await apiFetch(...listLocalDelegatedRequests());
-    if (!r.ok) return 0;
-    return delegatedRequests(await r.json()).filter((q) => q.state === 'pending').length;
-  } catch {
-    return 0;
-  }
-}
-
-export function DevicesLevel({ devices, failed = false, width, onReadDevices, onClose, defaultOpen = false }: {
+export function DevicesLevel({ devices, failed = false, width, onReadDevices, defaultOpen = false }: {
   /** `null` until the route has answered once. */
   devices: DevicesSnapshot | null;
   /** The last read did not answer. */
@@ -59,7 +46,6 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, on
   width: number;
   /** Asks the route again. Stable: the level calls it on open. */
   onReadDevices: () => void;
-  onClose: () => void;
   defaultOpen?: boolean;
 }) {
   const tr = useT();
@@ -108,7 +94,9 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, on
         <button
           type="button"
           data-testid="devices-remote-requests"
-          onClick={() => { onClose(); openSettings('nodes'); }}
+          // The requests are answered in the Nodes level, one row below this
+          // one in the same menu: the menu reopens on it.
+          onClick={() => openUserMenu('nodes')}
           className={`${ROW} w-full text-left text-app-text hover:bg-app-hover`}
         >
           <Server size={12} className="flex-shrink-0 text-app-text-muted" />
