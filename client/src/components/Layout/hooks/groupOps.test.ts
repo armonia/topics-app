@@ -15,6 +15,7 @@ import {
   movePaneBetweenGroups,
   nextActivePaneId,
   paneTypeToGroupType,
+  pendingPaneGroupId,
 } from './groupOps';
 
 const group = (id: string, paneIds: string[], activePaneId = paneIds[0]): PaneGroup => ({
@@ -125,5 +126,22 @@ describe('fallbackFocusedGroupId', () => {
   });
   test('with no group left the focus does not move', () => {
     expect(fallbackFocusedGroupId('gone', [])).toBe('gone');
+  });
+});
+
+// «Open in terminal» from a chat in a project window: the shell goes in the
+// chat's own group, not in whichever group happens to hold the focus.
+describe('pendingPaneGroupId', () => {
+  const groups = [group('g1', ['chat:a']), group('g2', ['chat:b', 'file:x'])];
+
+  test('beside the pane that asked, when a group holds it', () => {
+    expect(pendingPaneGroupId(groups, 'g1', 'chat:b')).toBe('g2');
+  });
+
+  test('the focused group, then the first, when nobody asked or the asker is gone', () => {
+    expect(pendingPaneGroupId(groups, 'g2')).toBe('g2');
+    expect(pendingPaneGroupId(groups, 'g2', 'chat:gone')).toBe('g2');
+    expect(pendingPaneGroupId(groups, null)).toBe('g1');
+    expect(pendingPaneGroupId([], null, 'chat:a')).toBeUndefined();
   });
 });

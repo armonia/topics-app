@@ -13,6 +13,9 @@ interface World {
   windows?: Record<string, string[]>;
   /** False = the chat has no window door (narrow, or inside a project window). */
   door?: boolean;
+  /** Tasks whose drawer, and topics whose window, THIS client has on screen. */
+  shownTasks?: string[];
+  shownWindows?: string[];
 }
 
 function harness(world: World) {
@@ -25,8 +28,10 @@ function harness(world: World) {
       if (prefer && windows[prefer]?.includes(ctx)) return prefer;
       return Object.keys(windows).find((t) => windows[t].includes(ctx)) ?? null;
     },
+    taskShown: (taskId) => (world.shownTasks ?? []).includes(taskId),
+    windowShown: (topicId) => (world.shownWindows ?? []).includes(topicId),
     focusLayoutTab: (ctx) => calls.push(`layout:${ctx}`),
-    openTask: (taskId) => calls.push(`task:${taskId}`),
+    openTask: (taskId, ctx) => calls.push(`task:${taskId}:${ctx}`),
     wakeSheet: (topicId, ctx) => calls.push(`wake:${topicId}:${ctx}`),
     reopenInWindow: (topicId, ctx, url) => {
       if (world.door === false) return false;
@@ -59,7 +64,7 @@ describe('focusBrowserContext', () => {
   test('a task tab opens its task', () => {
     const h = harness({ tasks: { 'task-full-id': ['task-12345678-napp'] } });
     expect(focusBrowserContext({ contextId: 'task-12345678-napp', topicId: 't1', reopen: true }, h.deps)).toBe('task');
-    expect(h.calls).toEqual(['task:task-full-id']);
+    expect(h.calls).toEqual(['task:task-full-id:task-12345678-napp']);
   });
 
   test('a sheet of the window wakes it on that sheet, even from another topic', () => {
@@ -90,5 +95,35 @@ describe('focusBrowserContext', () => {
     const h = harness({});
     expect(focusBrowserContext({ contextId: 'c', topicId: 't1', url: 'https://x/', reopen: false }, h.deps)).toBe('none');
     expect(h.calls).toEqual([]);
+  });
+});
+
+// The agent's focus reaches every connected client. A client that merely has
+// the task's tabs cached (a phone that once opened the drawer) used to open the
+// board and the drawer too.
+describe('the agent\'s focus, fanned out to every client', () => {
+  const agent = { contextId: 'task-12345678-napp', reopen: false, onlyWhereShown: true } as const;
+
+  test('a task tab moves only where its drawer is on screen', () => {
+    const elsewhere = harness({ tasks: { T: ['task-12345678-napp'] } });
+    expect(focusBrowserContext(agent, elsewhere.deps)).toBe('none');
+    expect(elsewhere.calls).toEqual([]);
+    const here = harness({ tasks: { T: ['task-12345678-napp'] }, shownTasks: ['T'] });
+    expect(focusBrowserContext(agent, here.deps)).toBe('task');
+    expect(here.calls).toEqual(['task:T:task-12345678-napp']);
+  });
+
+  test('a sheet wakes only where its topic\'s window is drawn', () => {
+    const elsewhere = harness({ windows: { t2: ['c'] } });
+    expect(focusBrowserContext({ contextId: 'c', reopen: false, onlyWhereShown: true }, elsewhere.deps)).toBe('none');
+    expect(elsewhere.calls).toEqual([]);
+    const here = harness({ windows: { t2: ['c'] }, shownWindows: ['t2'] });
+    expect(focusBrowserContext({ contextId: 'c', reopen: false, onlyWhereShown: true }, here.deps)).toBe('window');
+    expect(here.calls).toEqual(['wake:t2:c']);
+  });
+
+  test('the chat marker is not fenced: a click opens the drawer wherever it is', () => {
+    const h = harness({ tasks: { T: ['task-12345678-napp'] } });
+    expect(focusBrowserContext({ contextId: 'task-12345678-napp', topicId: 't1', reopen: true }, h.deps)).toBe('task');
   });
 });
