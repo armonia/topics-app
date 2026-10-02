@@ -4135,12 +4135,25 @@ struct NavErrorMsg {
     url: String,
     description: String,
     code: i64,
+    // When the failure was queued, epoch ms. The catch-up read after a hidden
+    // period drops an entry older than the last navigation the client asked for
+    // (`pickNavError`): a matching URL alone let "X fails, X reloads fine" light
+    // the strip over a working page.
+    at: u64,
     // Pane this failure belongs to — internal scoping only, like DownloadEventMsg.
     #[serde(skip)]
     pane_id: String,
 }
 
 static NAV_ERROR_EVENTS: std::sync::Mutex<Vec<NavErrorMsg>> = std::sync::Mutex::new(Vec::new());
+
+/// Epoch ms for `NavErrorMsg::at`: the same clock the client's `Date.now()` reads.
+fn nav_error_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Codice nostro per «la navigazione l'abbiamo rifiutata noi», che non esiste
 /// fra quelli di Cocoa: NSURLErrorDomain vive fra -998 e -1200, WebKitErrorDomain
@@ -4215,7 +4228,7 @@ fn nav_record_failure(webview: *mut objc2::runtime::AnyObject, error: *mut objc2
                 let overflow = v.len() - 63;
                 v.drain(0..overflow);
             }
-            v.push(NavErrorMsg { url, description, code, pane_id });
+            v.push(NavErrorMsg { url, description, code, at: nav_error_now_ms(), pane_id });
         }
     }
 }
@@ -10635,6 +10648,7 @@ pub fn run() {
                                                 url.scheme()
                                             ),
                                             code: NAV_ERR_SCHEME_REFUSED,
+                                            at: nav_error_now_ms(),
                                             pane_id: pane.to_string(),
                                         });
                                     }
