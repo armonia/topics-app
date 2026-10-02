@@ -32,7 +32,7 @@ import type { Calibration } from "./context-window";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
-import { hasCredentials, getAccessToken, readCredentials } from "./auth";
+import { hasCredentials, getAccessToken, readCredentials, unsavedCredentialsError } from "./auth";
 import { topicsAppBaseUrl } from "../claude-code";
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import type {
@@ -852,7 +852,9 @@ export class NativeProvider implements AIProvider {
         name: this.name,
         status: tok ? "ready" : "unavailable",
         requirements,
-        lastError: tok ? undefined : "token non rinnovabile: rifai /login con la CLI",
+        // A renewal that only lives in memory works until the server restarts:
+        // after that the dead token on disk means a /login. Say so now.
+        lastError: tok ? unsavedCredentialsError() ?? undefined : "token non rinnovabile: rifai /login con la CLI",
       };
     } catch (err) {
       return {
