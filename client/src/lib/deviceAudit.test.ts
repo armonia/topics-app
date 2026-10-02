@@ -1,3 +1,8 @@
+/**
+ * The audit line of a device row in the user menu's Devices level.
+ *
+ * @covers USERMENU-04
+ */
 import { describe, expect, test } from 'bun:test';
 import { t as translate } from './i18n';
 import { deviceRevokedLine, deviceSeenLine, deviceWhen } from './deviceAudit';

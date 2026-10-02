@@ -247,7 +247,7 @@ test.describe("il menu utente: i dispositivi si gestiscono dove si vedono", () =
     await expect(page.getByTestId("devices-revoked-level-menu").getByTestId("device-revoked-row")).toContainText("Telefono di Anna");
   });
 
-  test("USERMENU-04: ogni riga dice quando è stata vista e da dove, un revocato quando, e una lettura fallita lo dice con Riprova", async ({ page }) => {
+  test("USERMENU-04b: ogni riga dice quando è stata vista e da dove, un revocato quando, e una lettura fallita lo dice con Riprova", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-04" });
     const minute = 60_000;
     const now = Date.now();

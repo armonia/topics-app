@@ -160,7 +160,7 @@ test.describe("Command Palette", () => {
     // --- Part A: Theme toggle ---
     // Theme + Settings moved from result options into ActionPill <button>s in
     // the palette's bottom bar (CommandPalette.tsx). The theme pill (named
-    // after the current theme, e.g. "Tema: Sistema", hence the test id) cycles
+    // after the current theme, hence the test id) cycles
     // themeMode light→dark→system on each click (useTheme.toggleTheme) and
     // closes the palette; themeMode persists to localStorage['theme']. Any
     // single click advances to a distinct mode, so the stored value changes.
@@ -695,8 +695,8 @@ test.describe("Command Palette", () => {
     await page.locator('[role="main"] [draggable="true"]').first().click();
     const tabsBefore = await page.locator('[role="main"] [draggable="true"]').count();
 
-    // Palette: the action row renders in the 'action' category… (exact: the
-    // "Impostazioni" pill also contains "azioni")
+    // Palette: the action row renders in the 'action' category… (exact match:
+    // the localized name of the settings pill contains the same word)
     await commandPalettePage.search("reimposta");
     await expect(commandPalettePage.overlay.getByText("Azioni", { exact: true })).toBeVisible({ timeout: 3000 });
     const actionRow = commandPalettePage.overlay
