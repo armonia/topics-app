@@ -9,12 +9,12 @@
  * it is drawn as cards, never as the person's bubble.
  */
 import type { ComponentType } from 'react';
-import { Bot, CircleCheck, CircleStop, CircleX, Hourglass, Loader2, MailX, SquareTerminal, Unplug } from 'lucide-react';
+import { Ban, Bot, CircleCheck, CircleStop, CircleX, Hourglass, Loader2, MailX, SquareTerminal, Unplug } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import type { SubagentResultCard, ToolCallDetail } from '../../types';
 import type { SubagentResultBlock } from './machineRow';
-import { foregroundSpawnResult, reasonText, spawnCardState, useSubagentResult, type SpawnCardState } from './subagentResult';
+import { foregroundSpawnResult, reasonText, spawnCardState, spawnRefusal, useSubagentResult, type SpawnCardState } from './subagentResult';
 
 const STATUS_ICON: Record<SubagentResultCard['status'], { icon: ComponentType<{ size?: number; className?: string }>; tone: string }> = {
   completed: { icon: CircleCheck, tone: 'text-emerald-500' },
@@ -91,13 +91,17 @@ const PHASE_ICON: Record<SpawnCardState, { icon: ComponentType<{ size?: number; 
   working: { icon: Loader2, className: 'animate-spin text-blue-500' },
   finished: { icon: CircleCheck, className: 'text-blue-500' },
   ended: { icon: CircleStop, className: 'text-app-text-muted' },
+  refused: { icon: Ban, className: 'text-red-500' },
 };
 
 /** The card of a `spawn_agent` call: who it started, and where that child is now. */
-export function SpawnAgentCard({ detail, sessionKey, isRunning }: {
+export function SpawnAgentCard({ detail, sessionKey, isRunning, isError, error }: {
   detail: Extract<ToolCallDetail, { type: 'sub_agent' }>;
   sessionKey?: string;
   isRunning?: boolean;
+  isError?: boolean;
+  /** The call's error, where an imported row keeps the refusal. */
+  error?: string;
 }) {
   const tr = useT();
   const terminals = useTerminalSessions();
@@ -105,7 +109,8 @@ export function SpawnAgentCard({ detail, sessionKey, isRunning }: {
   const rowResult = useSubagentResult(sessionKey, detail.agentId);
   const result = rowResult ?? foregroundSpawnResult(detail.result, detail.agentId);
   const live = detail.agentId ? terminals.find((s) => s.id === detail.agentId) ?? null : null;
-  const state = spawnCardState({ live, result, isRunning: !!isRunning });
+  const refusal = spawnRefusal(detail, !!isError, error);
+  const state = spawnCardState({ live, result, isRunning: !!isRunning, refused: refusal !== null });
   const { icon: Icon, className } = PHASE_ICON[state];
   const name = detail.name ?? result?.name ?? detail.description ?? tr('chat.subagent.title');
   const openLabel = tr('chat.subagent.open');
@@ -130,6 +135,9 @@ export function SpawnAgentCard({ detail, sessionKey, isRunning }: {
         )}
       </div>
       {detail.name && detail.description && <div className="line-clamp-2 text-mini text-app-text-muted">{detail.description}</div>}
+      {state === 'refused' && refusal && (
+        <pre data-testid="spawn-agent-refusal" className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-500/5 px-2 py-1.5 text-mini text-red-500">{refusal}</pre>
+      )}
       {result && <SubAgentResultView card={result} />}
     </div>
   );

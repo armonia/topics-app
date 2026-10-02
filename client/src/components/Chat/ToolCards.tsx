@@ -732,8 +732,8 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 
-export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResult }: {
-  detail: ToolCallDetail; isError?: boolean; isRunning?: boolean;
+export function ToolCardBody({ detail, isError, error, isRunning, sessionKey, liveResult }: {
+  detail: ToolCallDetail; isError?: boolean; error?: string; isRunning?: boolean;
   /** Serve alle sole card delle shell in background: è la metà della chiave
    *  con cui la shell sta nel registro dei processi. */
   sessionKey?: string;
@@ -757,7 +757,7 @@ export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResul
       return <TodoCard items={detail.items} />;
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
-      if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} />;
+      if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
       return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} isRunning={isRunning} />;
     case 'plan':
       return <PlanCard text={detail.text} />;

@@ -47,7 +47,7 @@ import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
 import {
   FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
-  parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
+  chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
 import { composerHoldsPrompt } from "../lib/subagent-seed";
@@ -177,10 +177,10 @@ configureSubagentRuntime({
   adoptTranscriptId: (child) => { resolveChildTranscriptSessionId(child); },
   readLines: (child) => readChildTranscriptLines(child),
   branchOf: (cwd) => branchOfCwd(cwd),
-  park: (child, idleMs) => {
+  park: (child, idleMs, beforeKill) => {
     const s = sessions.get(child.id);
     if (!s) return false;
-    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true, turnEnded: true });
+    const outcome = tryParkSession(s.id, s, idleMs, 'sotto-agente finito e fermo', { allowSubAgent: true, turnEnded: true, beforeKill });
     // A finished child that stays up costs a CLI in RAM: say why, once in a while.
     if (!outcome.parked) warnThrottled(`subagent:retire:${child.id}`, `[Terminal] finished sub-agent ${child.id} not retired: ${outcome.reason}`);
     return outcome.parked;
@@ -2637,8 +2637,8 @@ function tryParkSession(
   s: TerminalSession,
   thresholdMs: number,
   motivo: string,
-  /** Retiring a finished sub-agent is the one park a child admits; `turnEnded`: its own transcript says so, and the tracker's phase (which can miss a turn end) does not veto it. */
-  opts: { allowSubAgent?: boolean; turnEnded?: boolean } = {},
+  /** Retiring a finished sub-agent is the one park a child admits; `turnEnded`: its own transcript says so, and the tracker's phase (which can miss a turn end) does not veto it. `beforeKill`: runs only once every gate said yes. */
+  opts: { allowSubAgent?: boolean; turnEnded?: boolean; beforeKill?: () => void } = {},
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
   const activity = terminalActivity.get(id);
   const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
@@ -2681,6 +2681,7 @@ function tryParkSession(
       `${Math.round((Date.now() - (activity?.lastAt ?? 0)) / 60_000)} min, nessun client attaccato. ` +
       `Torna con --resume alla prossima apertura.`,
   );
+  opts.beforeKill?.();
   sendToBridge({ type: "kill", id });
   // Il resto — riga a `dormant`, `noteDormant`, chiusura dei socket, broadcast
   // — lo fa il percorso di uscita quando il bridge conferma la morte della
@@ -3387,7 +3388,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           call: { model: body.model, agentType: body.agent_type ?? body.agentType, effort: body.effort },
           profiles: agentProfilesFor(cwd),
           parent: {
-            model: parentTopic ? (parentTopic.model ?? null) : parentTranscriptModel(parent),
+            model: parentTopic ? chatParentModel(parentTopic) : parentTranscriptModel(parent),
             effort: resolveClaudeEffort(topicEffortFor(getDatabase(), parentTopic?.id ?? parent?.topicId)),
           },
         });
@@ -3464,7 +3465,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             claudeSessionId: session.claudeSessionId ?? null, createdAt: session.createdAt,
           });
           noteChildSeeded(id);
-          if (foreground) holdForeground(id, FOREGROUND_WAIT_MS + 60_000);
+          if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
           // The roster broadcast carries parentSessionKey, so the sub-agent
           // immediately appears nested under its parent in the sidebar tree.
           broadcastTerminalSessions();

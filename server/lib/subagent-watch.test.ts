@@ -305,6 +305,20 @@ describe("deliverExit - one report per turn, and the wake (SUBAGENT-11, SUBAGENT
     expect(rows[0]!.blocks).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId: "c5", name: "foglio-tab", status: "completed", model: "claude-sonnet-5-5" })] }]);
   });
 
+  it("a stop the parent asked for is a row and wakes nobody; any other stop still wakes the parent", () => {
+    const asked: SubagentWakeRequest[] = [];
+    let settled = 0;
+    const { watcher, rows } = watcherWith((r) => asked.push(r));
+    const byParent = { status: "stopped" as const, partial: true, text: "Mapping the call sites", reason: { code: "stopped-by-parent" as const } };
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c7", name: "scout", outcome: byParent, exitCode: null, settle: () => { settled++; } });
+    expect(asked).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(settled).toBe(1);
+    const tabClosed = { ...byParent, reason: { code: "tab-closed" as const } };
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c8", name: "scout", outcome: tabClosed, exitCode: null });
+    expect(asked.map((r) => r.result.agentId)).toEqual(["c8"]);
+  });
+
   it("with the wake wired the result goes there, and no row is written at once", () => {
     const asked: SubagentWakeRequest[] = [];
     let settled = 0;

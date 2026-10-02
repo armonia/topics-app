@@ -5,7 +5,7 @@
  * its PTY bytes), the result from the chat's `subagent-result` rows.
  */
 import { useCallback, useSyncExternalStore } from 'react';
-import type { ContentBlock, SubagentResultCard } from '../../types';
+import type { ContentBlock, SubagentResultCard, ToolCallDetail } from '../../types';
 import type { TerminalSessionInfo } from '../../types';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import type { useT } from '../../hooks/useT';
@@ -57,21 +57,38 @@ export function foregroundSpawnResult(output: string | undefined, agentId: strin
   return null;
 }
 
-export type SpawnCardState = 'starting' | 'waiting-prompt' | 'working' | 'finished' | 'ended';
+export type SpawnCardState = 'starting' | 'waiting-prompt' | 'working' | 'finished' | 'ended' | 'refused';
 
 /**
  * A live child says its own phase. Gone from the roster, it has finished if a
  * result says so, and simply ended otherwise; before the roster lists it, a
- * call still running is starting.
+ * call still running is starting. A call the server refused started nothing.
  */
 export function spawnCardState(i: {
   live: Pick<TerminalSessionInfo, 'subAgentPhase'> | null;
   result: SubagentResultCard | null;
   isRunning: boolean;
+  refused?: boolean;
 }): SpawnCardState {
   if (i.live) return i.live.subAgentPhase ?? (i.result ? 'finished' : 'working');
   if (i.result) return 'finished';
+  if (i.refused) return 'refused';
   return i.isRunning ? 'starting' : 'ended';
+}
+
+/**
+ * Why the server refused a `spawn_agent` (a limit, an unknown model or
+ * profile), or null when the call started a child: a failed call whose answer
+ * names no agentId. The card says it as its own state, so the row does not
+ * repeat it in the generic error block.
+ */
+export function spawnRefusal(
+  detail: Extract<ToolCallDetail, { type: 'sub_agent' }>,
+  isError: boolean,
+  error: string | undefined,
+): string | null {
+  if (!isError || detail.via !== 'spawn_agent' || detail.agentId) return null;
+  return (detail.result || error || '').trim() || null;
 }
 
 /** The reason of a result in words, or null for a code this client does not know. */

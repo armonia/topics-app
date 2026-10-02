@@ -37,7 +37,7 @@ import type { AIProvider } from "../providers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { formatSubAgentExitMessage, formatSubAgentExitBody, subAgentResultOf, type ReportLanguage, type SubAgentExitInfo } from "../routes/subagent-exit";
 import { resultKey } from "./subagent-result";
-import { subagentResultCard, type SubagentWakeRequest } from "../services/subagent-wake";
+import { resultWakesParent, subagentResultCard, type SubagentWakeRequest } from "../services/subagent-wake";
 
 /** Una sessione padre sorvegliata, col cursore di lettura del suo transcript. */
 interface WatchedSession {
@@ -404,7 +404,7 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     // end and then starts a turn of its own. It is not lost meanwhile: the
     // caller has already written it on the child's `subagents` row, and
     // `settle` drops that copy only once it reached the chat (SUBAGENT-07).
-    if (deps.requestWake) {
+    if (deps.requestWake && resultWakesParent(result)) {
       deps.requestWake({
         parentSessionKey: info.parentSessionKey,
         result,

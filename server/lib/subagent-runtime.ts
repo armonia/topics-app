@@ -17,13 +17,18 @@ import fs from "fs";
 import { getDatabase } from "../db";
 import { warnThrottled } from "./warn-throttled";
 import { claudeTranscriptPath } from "./claude-transcript-path";
-import { childModel, endingChildTurn, pendingChildTurns, promptCount, resultKey, turnDurationMs, type SubAgentEnding, type SubAgentOutcome, type SubAgentResult } from "./subagent-result";
+import {
+  childModel, emptyTally, endingChildTurn, forgetTurns, pendingTallyTurns, resultKey, tallyLines, tallyTurnDurationMs, turnDurationMs,
+  type SubAgentEnding, type SubAgentOutcome, type SubAgentResult, type TranscriptTally,
+} from "./subagent-result";
 import {
   SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent,
   markTurnReported, parentHasPendingResults, runningSubagents, setSubagentState, type SubagentRow,
 } from "./subagent-store";
 import type { SubAgentExitInfo } from "../routes/subagent-exit";
 import { parseJsonlLine, splitJsonlChunk } from "./claude-session-state";
+import { openTail, readTail, type FileTail } from "./file-tail";
+import { tryGetProvider } from "../providers";
 
 /** What this module reads of a terminal session: a live child, or one rebuilt from its row. */
 export interface ChildRef {
@@ -45,8 +50,12 @@ export interface SubagentRuntimeDeps {
   /** The child's transcript lines, or null when none can be found. */
   readLines(child: ChildRef): Promise<string[] | null>;
   branchOf(cwd: string): string | null;
-  /** Close the child's PTY through the idle park's gates; true when it went. */
-  park(child: ChildRef, idleMs: number): boolean;
+  /**
+   * Close the child's PTY through the idle park's gates; true when it went.
+   * `beforeKill` runs once the gates said yes and before the kill, so a
+   * refusal writes nothing.
+   */
+  park(child: ChildRef, idleMs: number, beforeKill: () => void): boolean;
   /** Push the roster again: a child's phase changed. */
   broadcast(): void;
   /** Where a result for a chat parent goes (`setSubAgentExitHandler`). */
@@ -79,6 +88,19 @@ interface ChildRuntime {
   /** Transcript size at the last look: an unchanged file is not read again. */
   lastSize: number;
   phase: SubAgentPhase;
+  /** The transcript as far as it was read: a look reads only what was appended since. */
+  transcript: TranscriptCursor | null;
+}
+
+/** Where the last look at a child's transcript stopped, and what it had folded. */
+interface TranscriptCursor {
+  path: string;
+  /** The file read: another one under the same name is read from its top. */
+  ino: number;
+  tail: FileTail;
+  /** A last line still being written: it is folded once it ends. */
+  partial: string;
+  tally: TranscriptTally;
 }
 /** The live state of a child as its strip and card show it (SUBAGENT-16). */
 export type SubAgentPhase = 'waiting-prompt' | 'working' | 'finished';
@@ -89,7 +111,7 @@ const deliveredResultKeys = new Set<string>();
 export function runtimeOf(id: string): ChildRuntime {
   let rt = childRuntime.get(id);
   if (!rt) {
-    rt = { seededAt: null, undeliveredReported: false, lastSize: -1, phase: 'waiting-prompt' };
+    rt = { seededAt: null, undeliveredReported: false, lastSize: -1, phase: 'waiting-prompt', transcript: null };
     childRuntime.set(id, rt);
   }
   return rt;
@@ -103,6 +125,8 @@ export function runtimeOf(id: string): ChildRuntime {
  * nothing.
  */
 interface ForegroundHold {
+  /** The session whose call is waiting: its own wait, not a stall (`awaitsForegroundChild`). */
+  parentSessionKey: string;
   until: number;
   held: SubAgentResult[];
   waiters: Set<(r: SubAgentResult) => void>;
@@ -112,12 +136,22 @@ const foregroundHolds = new Map<string, ForegroundHold>();
 /** How long a foreground call waits for its child's first result. */
 export const FOREGROUND_WAIT_MS = 10 * 60_000;
 
-export function holdForeground(id: string, ms: number): void {
+export function holdForeground(id: string, parentSessionKey: string, ms: number): void {
   const prev = foregroundHolds.get(id);
   if (prev) clearTimeout(prev.timer);
   const timer = setTimeout(() => releaseForeground(id), ms);
   timer.unref?.();
-  foregroundHolds.set(id, { until: Date.now() + ms, held: prev?.held ?? [], waiters: prev?.waiters ?? new Set(), timer });
+  foregroundHolds.set(id, { parentSessionKey, until: Date.now() + ms, held: prev?.held ?? [], waiters: prev?.waiters ?? new Set(), timer });
+}
+
+/**
+ * A foreground `spawn_agent` of this session is waiting for its child: the
+ * session is quiet because Topics runs that child, so the stall watch holds
+ * as it does for our own checks. Bounded by the hold's own deadline.
+ */
+export function awaitsForegroundChild(parentSessionKey: string): boolean {
+  for (const hold of foregroundHolds.values()) if (hold.parentSessionKey === parentSessionKey) return true;
+  return false;
 }
 
 export function releaseForeground(id: string): void {
@@ -128,16 +162,19 @@ export function releaseForeground(id: string): void {
   for (const r of hold.held) deliverChildResult(r, null);
 }
 
+/** What a child's transcript says of a turn, when it could be read. */
+interface TurnFacts { model: string | null; durationMs: number | null }
+
 /** The parent's chosen name, the launch and the branch of a child, from its row first. */
-function resultOf(child: Pick<ChildRef, 'id' | 'name' | 'cwd'>, row: SubagentRow | null, turn: number, outcome: SubAgentOutcome, lines: string[] | null): SubAgentResult {
+function resultOf(child: Pick<ChildRef, 'id' | 'name' | 'cwd'>, row: SubagentRow | null, turn: number, outcome: SubAgentOutcome, facts: TurnFacts | null): SubAgentResult {
   return {
     ...outcome,
     agentId: child.id,
     name: row?.name ?? child.name,
     turn,
-    model: (lines ? childModel(lines) : null) ?? row?.model ?? null,
+    model: facts?.model ?? row?.model ?? null,
     agentType: row?.agentType ?? null,
-    durationMs: lines ? turnDurationMs(lines, turn) : null,
+    durationMs: facts?.durationMs ?? null,
     cwd: child.cwd,
     branch: deps().branchOf(child.cwd) ?? row?.branch ?? null,
   };
@@ -152,8 +189,14 @@ function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitC
   if (deliveredResultKeys.has(key)) return;
   deliveredResultKeys.add(key);
   const db = getDatabase();
-  if (result.status === 'undelivered') runtimeOf(result.agentId).undeliveredReported = true;
-  else markTurnReported(db, result.agentId, result.turn);
+  if (result.status === 'undelivered') {
+    runtimeOf(result.agentId).undeliveredReported = true;
+    // Turn 0: the retire clock starts and the row remembers the report across
+    // a restart, while turn 1 stays open for a prompt that lands after all.
+    markTurnReported(db, result.agentId, 0);
+  } else {
+    markTurnReported(db, result.agentId, result.turn);
+  }
   const rt = childRuntime.get(result.agentId);
   if (rt && result.status !== 'undelivered') {
     rt.phase = 'finished';
@@ -216,6 +259,28 @@ function redeliverPendingResults(): void {
 }
 
 /**
+ * The child's transcript folded up to its end, reading only what was appended
+ * since the last look: a working child's file grows by megabytes, and reading
+ * it whole every two seconds cost up to 141 ms of the main thread per child.
+ * Synchronous on purpose, like the tail it uses: two looks in flight (the tick
+ * and the `Stop` hook) cannot fold the same bytes twice. A file cut below
+ * what was read, or another file under the same name, is read from its top.
+ */
+function foldTranscript(rt: ChildRuntime, path: string, stat: fs.Stats | null): TranscriptTally {
+  let cur = rt.transcript;
+  if (!cur || cur.path !== path || (stat && (stat.ino !== cur.ino || stat.size < cur.tail.offset))) {
+    cur = rt.transcript = { path, ino: stat?.ino ?? 0, tail: openTail(path), partial: '', tally: emptyTally() };
+  }
+  if (!stat) return cur.tally;
+  const { text } = readTail(cur.tail, Number.POSITIVE_INFINITY);
+  if (!text) return cur.tally;
+  const { lines, remainder } = splitJsonlChunk(cur.partial + text);
+  cur.partial = remainder;
+  tallyLines(cur.tally, lines);
+  return cur.tally;
+}
+
+/**
  * Look at a live child's transcript and report the turns it has finished
  * (SUBAGENT-11). The process does not exit at the end of a turn, so this is
  * the only way the end is seen; the `Stop` hook only makes the look earlier.
@@ -227,22 +292,28 @@ async function checkChildTurns(child: ChildRef): Promise<void> {
   const rt = runtimeOf(child.id);
   deps().adoptTranscriptId(child);
   if (!child.claudeSessionId) return;
+  // After a restart this process never seeded the child: its prompt went in
+  // at the spawn, and an `undelivered` already reported is on the row (turn
+  // 0 with a report time). Without both, a seeding the restart cut was never
+  // reported, and the child held its slot for good.
+  const seededAt = rt.seededAt ?? (row.turnsReported === 0 ? Date.parse(row.createdAt) : null);
+  const undeliveredReported = rt.undeliveredReported || (row.turnsReported === 0 && row.reportedAt != null);
   const path = claudeTranscriptPath(child.cwd, child.claudeSessionId);
-  let size = -1;
-  try { size = (await fs.promises.stat(path)).size; } catch { /* not written yet */ }
+  let stat: fs.Stats | null = null;
+  try { stat = await fs.promises.stat(path); } catch { /* not written yet */ }
+  const size = stat?.size ?? -1;
   // An unchanged file has nothing new, unless the `undelivered` clock is running.
-  const undeliveredDue = rt.seededAt != null && !rt.undeliveredReported;
+  const undeliveredDue = seededAt != null && !undeliveredReported;
   if (size === rt.lastSize && !(undeliveredDue && rt.phase === 'waiting-prompt')) return;
   rt.lastSize = size;
-  let lines: string[] = [];
-  try { lines = (await fs.promises.readFile(path, 'utf-8')).split('\n').filter(Boolean); } catch { /* not written yet */ }
-  const prompts = promptCount(lines);
+  const tally = foldTranscript(rt, path, stat);
+  forgetTurns(tally, row.turnsReported);
   const before = rt.phase;
-  rt.phase = prompts === 0 ? 'waiting-prompt' : prompts <= row.turnsReported ? 'finished' : 'working';
-  for (const { turn, outcome } of pendingChildTurns(lines, {
-    turnsReported: row.turnsReported, seededAt: rt.seededAt, now: Date.now(), undeliveredReported: rt.undeliveredReported,
+  rt.phase = tally.prompts === 0 ? 'waiting-prompt' : tally.prompts <= row.turnsReported ? 'finished' : 'working';
+  for (const { turn, outcome } of pendingTallyTurns(tally, {
+    turnsReported: row.turnsReported, seededAt, now: Date.now(), undeliveredReported,
   })) {
-    emitChildResult(row.parentSessionKey, resultOf(child, row, turn, outcome, lines), null);
+    emitChildResult(row.parentSessionKey, resultOf(child, row, turn, outcome, { model: tally.model, durationMs: tallyTurnDurationMs(tally, turn) }), null);
   }
   if (rt.phase !== before) deps().broadcast();
 }
@@ -250,19 +321,20 @@ async function checkChildTurns(child: ChildRef): Promise<void> {
 /**
  * A finished child idle for 15 minutes after its report is retired (choice
  * 5): its PTY closed through the same gates as the idle park, its row kept as
- * `retired` with everything `send_to_agent` needs to bring it back.
+ * `retired` with everything `send_to_agent` needs to bring it back. A child
+ * reported `undelivered` is idle too: its prompt never arrived, and nothing
+ * else would ever free its slot.
  */
 function retireIdleChild(child: ChildRef, now = Date.now(), idleMs = SUBAGENT_RETIRE_IDLE_MS): boolean {
   const row = getSubagent(getDatabase(), child.id);
-  if (!row || row.state !== 'running' || row.turnsReported === 0 || !row.reportedAt) return false;
-  if (runtimeOf(child.id).phase !== 'finished') return false;
+  if (!row || row.state !== 'running' || !row.reportedAt) return false;
+  const phase = runtimeOf(child.id).phase;
+  if (phase !== 'finished' && !(phase === 'waiting-prompt' && row.turnsReported === 0)) return false;
   if (now - Date.parse(row.reportedAt) < idleMs) return false;
   if (foregroundHolds.has(child.id)) return false;
-  // Marked BEFORE the kill: the exit frame then reads a retirement, not an end.
-  setSubagentState(getDatabase(), child.id, 'retired');
-  const parked = deps().park(child, idleMs);
-  if (!parked) setSubagentState(getDatabase(), child.id, 'running');
-  return parked;
+  // Marked after the gates and BEFORE the kill: the exit frame then reads a
+  // retirement, not an end, and a refusal leaves the row as it was.
+  return deps().park(child, idleMs, () => setSubagentState(getDatabase(), child.id, 'retired'));
 }
 
 /** One pass over the live children: their turns, then the ones due for retirement. */
@@ -346,17 +418,22 @@ export function reportChildEnd(child: ChildRef, exitCode: number | null, ending:
   const rt = childRuntime.get(child.id);
   if (!reloaded) childRuntime.delete(child.id);
   void (async () => {
-    const verdictOf = (lines: string[] | null) => endingChildTurn(lines, {
-      turnsReported: getSubagent(getDatabase(), child.id)?.turnsReported ?? 0,
-      undeliveredReported: rt?.undeliveredReported ?? false,
-      ending, exitCode,
-    });
+    const verdictOf = (lines: string[] | null) => {
+      const latest = getSubagent(getDatabase(), child.id);
+      return endingChildTurn(lines, {
+        turnsReported: latest?.turnsReported ?? 0,
+        // On the row too: a restart forgot what this process had reported.
+        undeliveredReported: (rt?.undeliveredReported ?? false) || (latest?.turnsReported === 0 && latest.reportedAt != null),
+        ending, exitCode,
+      });
+    };
     // Anything but `completed` is read again: a final record still in the
     // CLI's buffer would otherwise read as a cut turn.
     const lines = await settledChildLines(child, (l) => { const v = verdictOf(l); return !v || v.outcome.status === 'completed'; });
     const verdict = verdictOf(lines);
     if (!verdict) return;
-    emitChildResult(parentSessionKey, resultOf(child, getSubagent(getDatabase(), child.id), verdict.turn, verdict.outcome, lines), exitCode);
+    const facts = lines ? { model: childModel(lines), durationMs: turnDurationMs(lines, verdict.turn) } : null;
+    emitChildResult(parentSessionKey, resultOf(child, getSubagent(getDatabase(), child.id), verdict.turn, verdict.outcome, facts), exitCode);
   })().catch((err) => console.warn(`[Terminal] reporting the end of ${child.id} failed:`, err));
 }
 
@@ -430,6 +507,16 @@ export function subagentLimitRefusal(parentKey: string, live: { depth: number; c
 }
 
 
+/**
+ * The model a chat parent runs on: its pin, or what its provider starts a
+ * turn with now (for Claude Code, the Settings model). Read the way the
+ * context ring reads it (`routes/context.ts`).
+ */
+export function chatParentModel(topic: { model?: string | null; provider?: string | null }): string | null {
+  if (topic.model) return topic.model;
+  try { return tryGetProvider(topic.provider ?? undefined)?.defaultModel?.() ?? null; } catch { return null; }
+}
+
 /** The model of a Claude PTY parent: `message.model` of the last assistant record of its transcript. */
 export function parentTranscriptModel(parent: Pick<ChildRef, 'cwd' | 'claudeSessionId'> | undefined): string | null {
   if (!parent?.claudeSessionId) return null;
@@ -489,10 +576,17 @@ export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): v
   if (opts.working) rt.phase = 'working';
 }
 
-/** `send_to_agent` on a live child: a new turn is open. */
+/**
+ * `send_to_agent` on a live child: a new turn is open, and the roster says so
+ * now. The next look reads `working` too, the phase it already has, so it
+ * pushes nothing: without this the strip said «finished its turn» for the
+ * whole second turn.
+ */
 export function noteChildSteered(id: string): void {
   const rt = childRuntime.get(id);
-  if (rt) rt.phase = 'working';
+  if (!rt) return;
+  rt.phase = 'working';
+  deps().broadcast();
 }
 
 /**
