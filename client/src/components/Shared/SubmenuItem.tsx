@@ -128,7 +128,7 @@ export interface SubmenuItemProps {
   /** Told whenever the level opens or closes: for a host that has to suppress
    *  something else while it is up (the updater toast, over the version). */
   onOpenChange?: (open: boolean) => void;
-  /** Open, and pinned, from the first render: as if it had been clicked. For a
+  /** Open, and pinned, right after mounting: as if it had been clicked. For a
    *  host asked to land on this level (`lib/openUserMenu`). */
   defaultOpen?: boolean;
 }
@@ -165,13 +165,11 @@ export function SubmenuItem({
 }: SubmenuItemProps) {
   const { isMobile } = useMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Opened on purpose, so hover-out must not take it away.
-  const pinned = useRef(defaultOpen);
-  // A level open from the first render claims its slot once, like a click.
-  const claimOnMount = useRef(defaultOpen);
+  const pinned = useRef(false);
   const siblings = useContext(SiblingContext);
   // The call site's number is a FLOOR, not the measure: the wider of it and
   // the host's width wins. See `HostWidthContext`.
@@ -221,12 +219,6 @@ export function SubmenuItem({
     setOpen(true);
   }, [cancelClose, cancelHoverOpen, close, siblings, token]);
 
-  useEffect(() => {
-    if (!claimOnMount.current) return;
-    claimOnMount.current = false;
-    siblings.claim(token, close);
-  }, [siblings, token, close]);
-
   useEffect(() => () => {
     cancelClose();
     cancelHoverOpen();
@@ -234,6 +226,15 @@ export function SubmenuItem({
   }, [cancelClose, cancelHoverOpen, siblings, token]);
 
   useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
+
+  // A level asked for on mount opens one task later, as a click would: the
+  // host panel registers as an open popover in the same commit, and a level
+  // registered BEFORE it would be evicted by the host's "one at a time" rule.
+  useEffect(() => {
+    if (!defaultOpen) return;
+    const timer = setTimeout(() => openLevel(true), 0);
+    return () => clearTimeout(timer);
+  }, [defaultOpen, openLevel]);
 
   // Hover opens with a MOUSE only: a finger that lands on the row is a tap,
   // and a level that opened on touch-down would be a level nobody asked for

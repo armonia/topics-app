@@ -48,17 +48,46 @@ export interface PopoverEntry {
  * (`popoverRegistry.test.ts`). `contains` è iniettato così il test può
  * descrivere l'annidamento senza costruire un albero vero.
  */
-export function popoversToClose<T extends { nodes: () => Array<Node | null> }>(
+export function popoversToClose<T extends { nodes: () => Array<Node | null>; trigger?: () => Node | null }>(
   openEntries: readonly T[],
   opener: { trigger: () => Node | null; exclusive: boolean },
   contains: (parent: Node, child: Node) => boolean,
 ): T[] {
   if (!opener.exclusive) return [];
   const trigger = opener.trigger();
-  return openEntries.filter((other) => {
-    if (!trigger) return true; // nessun trigger noto = non può essere figlio di nessuno
-    return !other.nodes().some((n) => !!n && contains(n, trigger));
-  });
+  if (!trigger) return [...openEntries]; // nessun trigger noto = non può essere figlio di nessuno
+  return openEntries.filter((other) => !ancestors(openEntries, trigger, contains).has(other));
+}
+
+/**
+ * Every open entry that holds `trigger`, directly or through a chain of open
+ * levels: the parent that holds it, the parent that holds THAT parent's
+ * trigger, and so on up.
+ *
+ * Direct containment alone missed the grandparent: a selector inside a level of
+ * the user menu has its trigger in the level, and the level's trigger is a row
+ * of the menu, so the menu does not contain the selector's trigger and was
+ * evicted, taking the level and the selector down with it.
+ */
+function ancestors<T extends { nodes: () => Array<Node | null>; trigger?: () => Node | null }>(
+  entries: readonly T[],
+  trigger: Node,
+  contains: (parent: Node, child: Node) => boolean,
+): Set<T> {
+  const holds = (entry: T, node: Node) => entry.nodes().some((n) => !!n && contains(n, node));
+  const found = new Set<T>();
+  let frontier: Node[] = [trigger];
+  while (frontier.length > 0) {
+    const next: Node[] = [];
+    for (const entry of entries) {
+      if (found.has(entry) || !frontier.some((node) => holds(entry, node))) continue;
+      found.add(entry);
+      const own = entry.trigger?.();
+      if (own) next.push(own);
+    }
+    frontier = next;
+  }
+  return found;
 }
 
 /** I popover attualmente aperti, in ordine di apertura. */
@@ -136,15 +165,17 @@ export function subSurfaceNodes(): Array<Node | null> {
  */
 export function descendantPopoverNodes(parent: PopoverEntry): Array<Node | null> {
   const nodes: Array<Node | null> = [];
-  const hosts = parent.nodes();
-  for (const entry of open) {
+  const entries = [...open];
+  for (const entry of entries) {
     // By IDENTITY, not by geometry: a popover whose refs include a container
     // of its own trigger (`extraRefs`) would contain itself, and a popover
     // that is its own child would never close on Escape again.
     if (entry === parent) continue;
     const trigger = entry.trigger();
     if (!trigger) continue;
-    if (hosts.some((h) => !!h && h.contains(trigger))) nodes.push(...entry.nodes());
+    // A grandchild counts too: a selector inside a level the parent opened
+    // (see `ancestors`).
+    if (ancestors(entries.filter((e) => e !== entry), trigger, domContains).has(parent)) nodes.push(...entry.nodes());
   }
   return nodes;
 }

@@ -24,13 +24,16 @@ type Node_ = string;
 const CONTAINS: Record<string, string[]> = {
   'panel-A': ['row-in-A'],
   'panel-B': ['row-in-B'],
+  // A host whose row opens a level, and a control inside the level.
+  'panel-H': ['trigger-L'],
+  'panel-L': ['row-in-L'],
 };
 
 const contains = (parent: unknown, child: unknown) =>
   (CONTAINS[parent as string] ?? []).includes(child as string);
 
 function entry(label: string, ...nodes: Node_[]) {
-  return { label, nodes: () => nodes as unknown as Array<Node | null> };
+  return { label, nodes: () => nodes as unknown as Array<Node | null>, trigger: () => (nodes[0] ?? null) as unknown as Node | null };
 }
 
 function opener(trigger: Node_ | null, exclusive = true) {
@@ -71,6 +74,20 @@ describe('popoversToClose', () => {
     const openEntries = [entry('A', 'trigger-A', 'panel-A')];
     const victims = popoversToClose(openEntries, opener('trigger-B', false), contains as never);
     expect(victims).toEqual([]);
+  });
+
+  it('NON chiude il nonno: il trigger del nuovo vive in un livello aperto da una riga del nonno', () => {
+    // The language selector inside the user menu's Appearance level: its
+    // trigger is in the level, not in the menu, and the level's own trigger is
+    // a row of the menu. Opening the selector evicted the menu, and the level
+    // and the selector with it, before the list could be seen.
+    const openEntries = [
+      entry('host', 'trigger-H', 'panel-H'),
+      entry('level', 'trigger-L', 'panel-L'),
+      entry('other', 'trigger-B', 'panel-B'),
+    ];
+    const victims = popoversToClose(openEntries, opener('row-in-L'), contains as never);
+    expect(victims.map((v) => v.label)).toEqual(['other']);
   });
 
   it('un ref non montato (null) non conta come contenitore', () => {
