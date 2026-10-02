@@ -24,15 +24,17 @@ import { prefersReducedMotion } from './reducedMotion';
 /**
  * `popover`: 90ms opacity + scale. `modal`: 150ms veil fade + the panel's own exit.
  * `sheet`: the phone's bottom sheet slides back down in 150ms; its scrim leaves
- * as a `modal` copy next to it.
+ * as a `modal` copy next to it. `drawer`: the phone's project drawer slides back
+ * out to the left in 150ms, its scrim leaving the same way.
  */
-export type ExitKind = 'popover' | 'modal' | 'sheet';
+export type ExitKind = 'popover' | 'modal' | 'sheet' | 'drawer';
 
 /** Exit length per kind. Must match `[data-exit-ghost]` in index.css. */
 export const EXIT_MS: Record<ExitKind, number> = {
   popover: MOTION.instant,
   modal: MOTION.fast,
   sheet: MOTION.fast,
+  drawer: MOTION.fast,
 };
 
 /**

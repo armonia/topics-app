@@ -595,17 +595,6 @@
       "SEZIONI",
       "capSezione"
     ],
-    "client/src/components/Settings/AccountSection.tsx": [
-      "bottone"
-    ],
-    "client/src/components/Settings/DevicesSection.tsx": [
-      "attivi",
-      "giorni",
-      "quando",
-      "revoca",
-      "revocati",
-      "riprova"
-    ],
     "client/src/components/Settings/DiscordSection.tsx": [
       "Anteprima",
       "COLORE",
@@ -701,12 +690,6 @@
       "postiValidi",
       "scadenzaVicina",
       "siPuoComprare"
-    ],
-    "client/src/components/Settings/sections.test.ts": [
-      "CHIAVI",
-      "chiave",
-      "chiavi",
-      "mancanti"
     ],
     "client/src/components/Share/GuestView.tsx": [
       "vuoto"
@@ -6749,7 +6732,6 @@
       "origine",
       "pannello",
       "parola",
-      "profilo",
       "testi",
       "voci"
     ],

@@ -4,6 +4,7 @@ import { test, expect } from "./fixtures/test-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { beat, didascalia } from "./helpers/evidence";
+import { openOwnProfile } from "./helpers/user-menu";
 
 /**
  * LA SCHEDA «PROFILE», dal vivo — ed è la clip di consegna del task.
@@ -74,14 +75,14 @@ test.describe("Profile — statistiche vere e stato Discord", () => {
   test("le stats si contano, e l'anteprima Discord cambia coi tre livelli di privacy", async ({
     page,
     request,
-    settingsPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "DISCORD-01" });
     seminaConsumo(6);
 
     await page.goto("/");
-    await settingsPage.openSettings();
-    await page.locator('nav button:has-text("Profilo")').click();
+    // The figures and the Discord card are the Profile tab's «Outside Topics»
+    // panel now: what somebody who is not here sees of you.
+    await openOwnProfile(page, "outside");
 
     // ── LE STATISTICHE ──────────────────────────────────────────────────────
     const stats = page.getByTestId("profile-stats");

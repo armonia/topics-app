@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import { isTauri } from '../lib/shell';
-import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '../lib/settings';
+import { keepSite, keptSites, subscribeKeptSites } from '../lib/keptSites';
 import { PAUSE_DWELL_MS, paneLive } from '../lib/shell/nativePaneLive';
 import { toPausedStill } from '../lib/shell/pausedStill';
 import { tauriInvoke } from '../lib/shell/tauri';
@@ -37,11 +37,6 @@ const STILL_TIMEOUT_MS = 1_500;
 
 /** Stable for `useSyncExternalStore`: a fresh function per render resubscribes. */
 const subscribeFocusChange = (cb: () => void): (() => void) => subscribeWindowFocus(() => cb());
-const subscribeSettings = (cb: () => void): (() => void) => {
-  const onChange = () => { keptCache = null; cb(); };
-  window.addEventListener(SETTINGS_CHANGED_EVENT, onChange);
-  return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onChange);
-};
 const readPanePerf = (): Promise<readonly ShellWebviewRow[] | undefined> =>
   tauriInvoke<{ webviews?: ShellWebviewRow[]; system_mem_mb?: number | null }>('perf_metrics').then((m) => {
     noteSystemMemory(m?.system_mem_mb);
@@ -99,15 +94,6 @@ function originOf(u: string): string {
   try { const o = new URL(u).origin; return o === 'null' ? '' : o; } catch { return ''; }
 }
 
-/** The sites the person chose to keep live. Read from the settings once and
- *  again on every settings change (a choice made on another device arrives
- *  through the settings sync), not on every render of every browser pane. */
-let keptCache: readonly string[] | null = null;
-function keptSites(): readonly string[] {
-  if (keptCache === null) keptCache = loadSettings().keepLiveSites ?? [];
-  return keptCache;
-}
-
 function revoke(url: string | null): void {
   if (url && url.startsWith('blob:') && typeof URL !== 'undefined') URL.revokeObjectURL(url);
 }
@@ -126,7 +112,7 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
   const pageKey = urlKeyOf(d.url);
   const origin = originOf(d.url);
   const keptAlways = useSyncExternalStore(
-    subscribeSettings,
+    subscribeKeptSites,
     () => (origin ? keptSites().includes(origin) : false),
   );
   const kept = keptAlways || (keptOnceKey !== null && keptOnceKey === pageKey);
@@ -299,11 +285,7 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
   }, [resume]);
   const keepAlways = useCallback(() => {
     const o = originOf(depsRef.current.url);
-    if (o) {
-      const s = loadSettings();
-      const cur = s.keepLiveSites ?? [];
-      if (!cur.includes(o)) saveSettings({ ...s, keepLiveSites: [...cur, o] });
-    }
+    if (o) keepSite(o);
     resume();
   }, [resume]);
 

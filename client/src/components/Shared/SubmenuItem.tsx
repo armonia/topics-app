@@ -128,6 +128,9 @@ export interface SubmenuItemProps {
   /** Told whenever the level opens or closes: for a host that has to suppress
    *  something else while it is up (the updater toast, over the version). */
   onOpenChange?: (open: boolean) => void;
+  /** Open, and pinned, right after mounting: as if it had been clicked. For a
+   *  host asked to land on this level (`lib/openUserMenu`). */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -158,6 +161,7 @@ export function SubmenuItem({
   className = '',
   rowClassName = '',
   onOpenChange,
+  defaultOpen = false,
 }: SubmenuItemProps) {
   const { isMobile } = useMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -222,6 +226,15 @@ export function SubmenuItem({
   }, [cancelClose, cancelHoverOpen, siblings, token]);
 
   useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
+
+  // A level asked for on mount opens one task later, as a click would: the
+  // host panel registers as an open popover in the same commit, and a level
+  // registered BEFORE it would be evicted by the host's "one at a time" rule.
+  useEffect(() => {
+    if (!defaultOpen) return;
+    const timer = setTimeout(() => openLevel(true), 0);
+    return () => clearTimeout(timer);
+  }, [defaultOpen, openLevel]);
 
   // Hover opens with a MOUSE only: a finger that lands on the row is a tap,
   // and a level that opened on touch-down would be a level nobody asked for

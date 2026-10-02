@@ -6,7 +6,10 @@ import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useWorktrees } from './hooks/useWorktrees';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
-import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail, type SettingsPanelSection } from './lib/openSettings';
+import { OPEN_SETTINGS_EVENT, routeSettingsRequest, type OpenSettingsDetail, type SettingsPanelSection } from './lib/openSettings';
+import { openUserMenu } from './lib/openUserMenu';
+import { apriProfilo } from './state/profileTarget';
+import { useMenuPreferences, useUserMenuRequest } from './hooks/useUserMenuHost';
 import { runNotificationAction } from './lib/notify/notificationAction';
 import { decodeNotifyTarget, openNotifyToken } from './lib/notify/notifyTarget';
 import { boardNotificationDeps } from './lib/notify/boardActionDeps';
@@ -66,7 +69,7 @@ import { SheetGrabber } from './components/Shared/SheetGrabber';
 import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
 import { useExitGhost } from './lib/exitGhost';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
-import { TopicsMenuItems } from './components/Sidebar/TopicsMenuItems';
+import { MobileIdentityMenuItems, TopicsMenuItems, prefetchTopicsMenuItems } from './components/Sidebar/topicsMenuItemsLazy';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
 
 // Tauri-on-macOS: the native traffic lights are permanent and the shell pins
@@ -132,6 +135,9 @@ const ChangelogModal = lazy(async () => {
   const { ChangelogModal: C } = await import('./components/ChangelogModal');
   return { default: C };
 });
+/** The voice loop board has no control and stays off (USERMENU-06: a
+ *  preference with no door left `AppSettings`). */
+const VOICE_LOOP_MODE = 'off' as const;
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })));
 // Shared factory so the idle prefetch (App mount) and the `lazy()` boundary
 // resolve the SAME module — a first ⌘K then finds the chunk already parsed
@@ -476,7 +482,12 @@ function App() {
   // way panes are opened (`topics:open-utility`). See `lib/openSettings`.
   useEffect(() => {
     const handleOpen = (e: Event) => {
-      setSettingsSection((e as CustomEvent<OpenSettingsDetail>).detail?.section);
+      // A section that left the panel lands in its new home (USERMENU-05):
+      // an old id on this event must not open the panel on its first page.
+      const route = routeSettingsRequest((e as CustomEvent<OpenSettingsDetail>).detail?.section);
+      if (route.to === 'user-menu') { openUserMenu(route.level); return; }
+      if (route.to === 'profile') { apriProfilo(route.page); return; }
+      setSettingsSection(route.section);
       setShowSettings(true);
     };
     window.addEventListener(OPEN_SETTINGS_EVENT, handleOpen);
@@ -647,11 +658,11 @@ function App() {
   useTaskBrowserTabsSync(onWSMessage);
 
   // Voice loop board: announces a task reaching review out loud and, outside
-  // `voiceMode: 'off'` (the default), listens for a spoken reply. No toast
+  // `'off'` (what App passes, see VOICE_LOOP_MODE), listens for a spoken reply. No toast
   // context needed (unlike CompletionNotifierBridge below), so it's called
   // directly here instead of through a renderless bridge component. See
   // useVoiceLoop.ts.
-  useVoiceLoop({ onWSMessage, settings: appSettings });
+  useVoiceLoop({ onWSMessage, mode: VOICE_LOOP_MODE });
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {
@@ -676,6 +687,18 @@ function App() {
   // back into React state, so there is no need for a WS listener here.
 
   const { themeMode, toggleTheme, setTheme } = useTheme(onWSMessage);
+
+  const openShortcuts = useCallback(() => setShowShortcuts(true), []);
+  const menuPreferences = useMenuPreferences({ settings: appSettings, setSettings: setAppSettings, themeMode, setTheme, onOpenShortcuts: openShortcuts });
+  // On the phone the title menu IS the user menu: it answers `openUserMenu`.
+  const openTopicsMenu = useCallback(() => setShowTopicsMenu(true), []);
+  const [topicsMenuRequest, resetTopicsMenuRequest] = useUserMenuRequest(isMobile, openTopicsMenu);
+  // The phone's title menu rows are a lazy chunk, warmed once the phone layout is up.
+  useEffect(() => {
+    if (!isMobile) return;
+    const timer = setTimeout(prefetchTopicsMenuItems, 0);
+    return () => clearTimeout(timer);
+  }, [isMobile]);
   // Claude Code session tracker — subscribes to /api/claude-hooks-driven
   // `session:state` broadcasts. Feeds the unified signals store (useSignalsSync
   // below), which derives the per-topic "needs you" attention the notification
@@ -1745,6 +1768,7 @@ function App() {
                   if (!showTopicsMenu) {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     setTopicsMenuPos({ top: rect.bottom + 4, left: rect.left });
+                    resetTopicsMenuRequest();
                   }
                   setShowTopicsMenu(!showTopicsMenu);
                 }}
@@ -1855,7 +1879,6 @@ function App() {
                 <NotificationHistoryButton
                   onWSMessage={onWSMessage}
                   isMobile={isMobile}
-                  onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
                 />
               </div>
             )}
@@ -1866,7 +1889,6 @@ function App() {
               <NotificationHistoryButton
                 onWSMessage={onWSMessage}
                 isMobile
-                onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
               />
             </div>
           )}
@@ -2014,7 +2036,6 @@ function App() {
           <SidebarStatusBar
             wsStatus={wsStatus}
             dataNotice={topicsError}
-            onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
             // THE COMMANDS OF THE COLUMN COME DOWN HERE. On the desktop the
             // user card is the only door of the chrome: archived, view,
             // panels, history, settings and the state of the machine live in
@@ -2023,7 +2044,8 @@ function App() {
               showArchived: sidebar.showArchived,
               onToggleArchived: () => { sidebar.toggleShowArchived(); },
               viewMode: sidebar.viewMode,
-              onToggleViewMode: () => { sidebar.toggleViewMode(); },
+              onViewModeChange: sidebar.setViewMode,
+              preferences: menuPreferences,
               splitLayoutAvailable,
               onOpenHistory: () => { setSearchScope('history'); setShowSearch(true); },
               onOpenSettings: () => { setShowSettings(true); },
@@ -2322,24 +2344,45 @@ function App() {
           }
         >
           {isMobile && <SheetGrabber />}
+          {/* WHO YOU ARE, at the top, as on the desktop card: the account, the
+              people, the groups and the devices are the same component in
+              both hosts (USERMENU-09). Before, the phone reached sign-in,
+              rename and revoke only through the Settings panel. */}
+          {isMobile && (
+            <>
+              <Suspense fallback={null}>
+                <MobileIdentityMenuItems
+                  key={topicsMenuRequest.n}
+                  onClose={() => setShowTopicsMenu(false)}
+                  openLevel={topicsMenuRequest.level}
+                />
+              </Suspense>
+              <div className="border-t border-app-border" />
+            </>
+          )}
           {/* THE ROWS ARE A COMPONENT, not a copy. The same ones sit in the
               user card's menu at the foot of the column, which on the desktop
               is the only door of this chrome: two hand-written lists are two
               lists that one day answer differently - the same rule
               SIDEBAR-STATUS-01 writes for the status rows. */}
+          <Suspense fallback={null}>
           <TopicsMenuItems
+            key={topicsMenuRequest.n}
             isMobile={isMobile}
             showArchived={sidebar.showArchived}
             onToggleArchived={() => { sidebar.toggleShowArchived(); }}
             viewMode={sidebar.viewMode}
-            onToggleViewMode={() => { sidebar.toggleViewMode(); }}
+            onViewModeChange={sidebar.setViewMode}
+            preferences={menuPreferences}
             splitLayoutAvailable={splitLayoutAvailable}
             onOpenHistory={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
             onOpenSettings={() => { setShowSettings(true); setShowTopicsMenu(false); }}
             onReopenClosedTab={handleReopenClosedTab}
             onOpenHistoryUrl={openHistoryUrl}
             onClose={() => setShowTopicsMenu(false)}
+            openLevel={topicsMenuRequest.level}
           />
+          </Suspense>
           {/* THE STATE SITS AT THE BOTTOM, under the commands: above the things
               that DO something, below the things that SAY something. Same
               component on both screens, never a second copy counting the same
@@ -2427,20 +2470,6 @@ function App() {
             isOpen={showSettings}
             initialSection={settingsSection}
             onClose={() => { setShowSettings(false); setSettingsSection(undefined); }}
-            settings={appSettings}
-            onSettingsChange={setAppSettings}
-            themeMode={themeMode}
-            onThemeChange={setTheme}
-            // La scheda «Shortcuts» delle Impostazioni è stata rimossa (era una
-            // terza lista scritta a mano, e sbagliata). Il rimando in Aspetto
-            // porta alla finestra vera, ⌘? — che finora era l'UNICA porta, e
-            // una scorciatoia non si scopre con una scorciatoia. Le Impostazioni
-            // si chiudono: due modali sovrapposti non hanno un ordine di uscita.
-            onOpenShortcuts={() => {
-              setShowSettings(false);
-              setSettingsSection(undefined);
-              setShowShortcuts(true);
-            }}
           />
         </Suspense>
         </ErrorBoundary>

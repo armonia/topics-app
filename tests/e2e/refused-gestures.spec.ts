@@ -17,8 +17,9 @@
  * The cron half of the family lives in `infra-panels.spec.ts`, next to the
  * fixture that already knows how to open that panel.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { openOrganizationPage, openOwnProfile, openUserMenuLevel } from "./helpers/user-menu";
 
 hermetic(test);
 
@@ -26,24 +27,6 @@ hermetic(test);
 const SHOTS = "test-results/refusals";
 
 const JSON_HEADERS = { status: 200, contentType: "application/json" };
-
-/**
- * Cmd+comma opens Preferences, and the keystroke is repeated until it lands.
- *
- * Same helper as `settings-profile-devices.spec.ts`, and for the same reason
- * written down there: the shortcut is listened for by an effect of the mounted
- * app, so a keypress sent to a freshly loaded document falls into the void.
- */
-async function openSettings(page: Page, section: string) {
-  await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20000 });
-  const panel = page.getByTestId("settings-panel");
-  await expect(async () => {
-    await page.keyboard.press("Meta+Comma");
-    await expect(panel).toBeVisible({ timeout: 2000 });
-  }).toPass({ timeout: 20000 });
-  await panel.getByRole("button", { name: section, exact: true }).click();
-  return panel;
-}
 
 test.describe("un rifiuto che nessuno stampa", () => {
   test("ACCOUNT-04: uno scollegamento rifiutato dice perche'", async ({ page }) => {
@@ -112,7 +95,8 @@ test.describe("un rifiuto che nessuno stampa", () => {
     });
 
     await page.goto("/");
-    const panel = await openSettings(page, "Organizzazione");
+    // The organisation page is the Profile tab's (USERMENU-05).
+    const panel = await openOrganizationPage(page);
 
     await panel.getByRole("button", { name: "Nuovo gruppo" }).click();
     const field = panel.getByLabel("Nome del nuovo gruppo");
@@ -144,7 +128,9 @@ test.describe("un rifiuto che nessuno stampa", () => {
     });
 
     await page.goto("/");
-    const panel = await openSettings(page, "Profilo");
+    // The public page is the Profile tab's «Outside Topics» panel.
+    await openOwnProfile(page, "outside");
+    const panel = page.getByTestId("profile-outside-panel");
 
     const publish = panel.getByTestId("profile-public-publish");
     await expect(publish).toBeVisible({ timeout: 20000 });
@@ -202,12 +188,13 @@ test.describe("un rifiuto che nessuno stampa", () => {
     });
 
     await page.goto("/");
-    const panel = await openSettings(page, "Dispositivi");
+    // The devices are managed in their level of the user menu (USERMENU-04).
+    const panel = await openUserMenuLevel(page, "devices");
     await expect(panel.getByText("Telefono di prova")).toBeVisible({ timeout: 20000 });
 
     const before = reloads;
     await panel.getByRole("button", { name: "Revoca Telefono di prova" }).click();
-    await panel.getByRole("button", { name: "Conferma revoca" }).click();
+    await panel.getByTestId("device-revoke-confirm").click();
 
     const band = panel.getByTestId("devices-error");
     await expect(band).toBeVisible({ timeout: 10000 });

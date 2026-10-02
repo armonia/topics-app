@@ -26,6 +26,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { openProfileMenu } from "./helpers/open-perf-panel";
+import { openUserMenuLevel } from "./helpers/user-menu";
 import { beat, didascalia, isEvidenceRun } from "./helpers/evidence";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -124,24 +125,18 @@ test.beforeEach(async ({ page }) => {
  * Every entry of the panel, in the order the nav lists them
  * (`client/src/components/Settings/sections.ts`).
  *
- * IT USED TO BE FIVE, and the panel had ten: Calendar, Followers, Privacy,
- * Organization and Devices arrived after this file was written and none of
- * them ever went through the 44px/overflow audit below. A fixed list does not
+ * FIVE AGAIN, and for a different reason than the first time: the panel
+ * holds only the forms now (`sidebar-menu-settings`). A fixed list does not
  * go red when the panel grows, it just measures less of it while the comment
  * keeps saying "all of them" - which is why the count assertion in the test is
  * part of the measurement and not decoration.
  */
 const SCHEDE = [
-  "Aspetto",
-  "Notifiche",
-  "Calendario",
   "Providers AI",
   "Strumenti",
-  "Profilo",
-  "Follower",
-  "Organizzazione",
-  "Dispositivi",
+  "Calendario",
   "Piano",
+  "Nodi",
 ];
 
 /** The tab strip, which is also the only place these labels are buttons: the
@@ -197,8 +192,8 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
   //    Si inietta come <script>, non con `eval`: il file è un IIFE che installa
   //    `window.__uiAudit`, ed è esattamente il modo in cui è pensato per essere
   //    caricato.
-  //    And it walks EVERY entry: the first one is "Aspetto", and stopping
-  //    there would measure a tenth of the panel while claiming the whole of it.
+  //    And it walks EVERY entry: stopping at the first one would measure a
+  //    fifth of the panel while claiming the whole of it.
   //
   //    The count comes first, and it is the assertion that keeps the rest
   //    honest: the list above is written by hand, so the day an eleventh
@@ -230,7 +225,7 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
   }
   expect(belowThreshold, "bersagli sotto i 44px, per scheda").toEqual({});
   expect(horizontalScroll, "schede con scorrimento orizzontale").toEqual([]);
-  await nav.getByRole("button", { name: "Aspetto", exact: true }).click();
+  await nav.getByRole("button", { name: "Providers AI", exact: true }).click();
 
   // Le due schermate della consegna: STESSA scheda, due larghezze. Solo sotto
   // `E2E_EVIDENCE=1`, come le clip — nella passata veloce la suite non paga i
@@ -245,7 +240,9 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
 
 test("nessun <select> di sistema in pagina, e la lingua si cambia col menu dell'app", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
-  await apriImpostazioni(page);
+  // The language lives in the user menu's Appearance level now, which on the
+  // phone is a sheet of the title menu.
+  await openUserMenuLevel(page, "appearance");
 
   // Il difetto segnalato, misurato: zero `<select>` nativi renderizzati.
   expect(await page.locator("select").count()).toBe(0);
@@ -280,7 +277,7 @@ test("nessun <select> di sistema in pagina, e la lingua si cambia col menu dell'
   await page.reload();
   await theFingerIsReal(page);
   await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 15_000 });
-  await apriImpostazioni(page);
+  await openUserMenuLevel(page, "appearance");
   await expect(page.getByTestId("settings-language")).toHaveText(/English/);
   await didascalia(page, "Dopo il reload: ancora English");
   await beat(page);

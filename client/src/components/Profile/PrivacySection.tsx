@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type ProfilePrivacy } from '@/lib/api';
 import { useT } from '@/hooks/useT';
 import { useSelf } from './useSelf';
+import { Switch } from '../Shared/Switch';
 
 /**
  * WHAT YOUR PROFILE PUBLISHES, five switches, and none of them is decoration.
@@ -40,7 +41,9 @@ const SWITCHES: ReadonlyArray<keyof ProfilePrivacy> = [
   'showPresence',
 ];
 
-function Switch({ on, onToggle, label, help, testId, disabled }: {
+/** One privacy switch: the app's `Shared/Switch` beside its name and gloss,
+ *  instead of the private copy this file used to draw. */
+function PrivacyRow({ on, onToggle, label, help, testId, disabled }: {
   on: boolean;
   onToggle: () => void;
   label: string;
@@ -50,33 +53,7 @@ function Switch({ on, onToggle, label, help, testId, disabled }: {
 }) {
   return (
     <li className="flex items-start gap-3 rounded-md border border-app-border px-3 py-2.5">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        disabled={disabled}
-        onClick={onToggle}
-        data-testid={testId}
-        // Under a finger the BUTTON becomes 44x44 and the track stays 36x20
-        // at its centre: the switch looks identical, the target stops being
-        // below the iOS threshold. Measured at 390px in Settings > Privacy:
-        // 36x20, and this is the same box `Shared/Switch` already takes for
-        // the same reason.
-        className="mt-0.5 flex-shrink-0 rounded-full disabled:opacity-50 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"
-      >
-        <span
-          className={`block h-5 w-9 rounded-full border transition-colors ${
-            on ? 'border-primary bg-primary/70' : 'border-app-border bg-app-hover'
-          }`}
-        >
-          <span
-            className={`block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-              on ? 'translate-x-4' : 'translate-x-0.5'
-            }`}
-          />
-        </span>
-      </button>
+      <Switch checked={on} onChange={onToggle} label={label} disabled={disabled} testId={testId} className="mt-0.5" />
       <div className="min-w-0">
         <div className="text-prose text-app-text">{label}</div>
         <p className="text-compact leading-snug text-app-text-muted">{help}</p>
@@ -135,7 +112,7 @@ export function PrivacySection() {
     <div data-testid="privacy-section" className="space-y-2">
       <ul className="space-y-2">
         {SWITCHES.map((field) => (
-          <Switch
+          <PrivacyRow
             key={field}
             on={privacy[field]}
             onToggle={() => void toggle(field)()}

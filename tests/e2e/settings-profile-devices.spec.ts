@@ -1,26 +1,25 @@
 /**
- * "Who you are" and "what machines you have" are two entries, and both doors
+ * "Who you are" and "what machines you have" are two surfaces, and both doors
  * actually lead there.
  *
  * The original work (6134a25e) split one single entry in two: `SectionId` said
- * `devices` while the label said "Profile". It was verified by looking at the
- * column by eye, and nothing more: no test held it in place. It is the same
- * pattern that let the presence bug (e290c513) through, where seven green tests
- * never once looked at the screen.
+ * `devices` while the label said "Profile". Since `sidebar-menu-settings` the
+ * two answers left the Settings panel altogether: who you are is the Profile
+ * tab, the machines are the Devices level of the user menu. What is defended
+ * here is what a regression would break first: the panel holds neither, the
+ * two surfaces show DIFFERENT content, and the two deep links each land on
+ * their own one, including an old `openSettings('devices')` that must not fall
+ * on the panel's first page.
  *
- * What is defended here are the three things a regression would break first:
- * the two entries exist, they show DIFFERENT content, and the two deep links
- * each land on their own one. That last part is precisely what used to be
- * broken, with `onOpenDevices` and `onOpenProfile` both pointing at `devices`.
- *
- * The active entry is read from `aria-current="page"`, which the panel already
- * sets: a `data-testid` added on purpose for the test would measure the test.
+ * The active surface is read from the accessibility marks it already writes
+ * (`aria-expanded` on the level's row, the profile page itself).
  *
  * @covers APPSET-03
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
-import { hermetic } from "./fixtures/hermetic";
+import { hermetic, resetToBaseline } from "./fixtures/hermetic";
+import { openOwnProfile, openUserMenuLevel, requestSettingsSection } from "./helpers/user-menu";
 
 // The boundary between this file and the previous one: without it this spec
 // inherits whatever the tests before it left behind in the shared DB.
@@ -54,58 +53,45 @@ async function apriImpostazioni(page: Page) {
 }
 
 test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
-  test("SETTINGS-01: Profile e Devices sono due voci distinte", async ({ page }) => {
+  test("SETTINGS-01: Profilo e Dispositivi non sono voci del pannello, e hanno ciascuno la sua superficie", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "APPSET-03" });
     await page.goto("/");
     const pannello = await apriImpostazioni(page);
-    await expect(pannello.getByRole("button", { name: "Profilo", exact: true })).toBeVisible();
-    await expect(pannello.getByRole("button", { name: "Dispositivi", exact: true })).toBeVisible();
+    await expect(pannello.getByRole("button", { name: "Profilo", exact: true })).toHaveCount(0);
+    await expect(pannello.getByRole("button", { name: "Dispositivi", exact: true })).toHaveCount(0);
     await page.screenshot({ path: join(SHOTS, "settings-due-voci.png") });
+    await page.keyboard.press("Escape");
+    await expect(pannello).toHaveCount(0);
+    await expect(await openUserMenuLevel(page, "devices")).toBeVisible();
   });
 
-  test("SETTINGS-02: le due voci mostrano contenuti diversi", async ({ page }) => {
+  test("SETTINGS-02: le due superfici mostrano contenuti diversi", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "APPSET-03" });
-    // Two labels over the SAME panel would be the earlier flaw with one extra
+    // Two labels over the SAME content would be the earlier flaw with one extra
     // name on it: the proof they are separate is what sits inside them.
     await page.goto("/");
-    const pannello = await apriImpostazioni(page);
-
-    await pannello.getByRole("button", { name: "Profilo", exact: true }).click();
-    const profilo = await pannello.innerText();
-
-    await pannello.getByRole("button", { name: "Dispositivi", exact: true }).click();
-    const dispositivi = await pannello.innerText();
-
+    const dispositivi = await (await openUserMenuLevel(page, "devices")).innerText();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    const profilo = await (await openOwnProfile(page)).innerText();
     expect(profilo).not.toBe(dispositivi);
   });
 
-  test("SETTINGS-03: il chip dei dispositivi apre i DISPOSITIVI, non il profilo", async ({ page }) => {
+  test("SETTINGS-03: il vecchio collegamento ai dispositivi apre i DISPOSITIVI, non il profilo", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "APPSET-03" });
-    // THIS is the original bug: `onOpenDevices` (the identity row at the
-    // bottom of the sidebar) and `onOpenProfile` (the Topics menu) BOTH pointed
-    // at `devices`. Two different doors opening onto the same room.
-    //
-    // UPDATE: the identity row now has TWO doors, because it had two subjects.
-    // The name and the face open your PROFILE (it is the row that talks about
-    // you), the chip with the machine count opens the DEVICES. What has to be
-    // defended is unchanged: the devices keep a door of their own and are not
-    // swallowed by the profile.
+    // THIS is the original bug: two different doors opening onto the same
+    // room. The door that said «devices» now lands on the user menu with the
+    // Devices level open, and nowhere near the profile.
+    // SETTINGS-02 opened the Profile tab, and its saved layout comes back on
+    // the next load (seen red in a batch run): start from the baseline so «no
+    // profile» measures this door and not the test before.
+    await resetToBaseline();
     await page.route("**/api/auth/session", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ paired: true, as: "loopback", name: "Questo computer",
                                role: "owner", personId: "io" }) }));
-    // THE SHAPE IS THE ROUTE'S REAL ONE. This stub used to send a device with
-    // no `id` and no `name`: the devices section takes both for granted (the
-    // type says `id: string`), so opening it crashed the WHOLE app — a white
-    // screen, outside every error boundary — and the red accused the devices
-    // door of not opening. The comparison defect behind the crash is closed in
-    // the component; here we remove the cause, which is a fake server poorer
-    // than the real one. Same lesson as the person stub above.
-    //
-    // And the computer travels APART, in `thisComputer`: over loopback the
-    // route has no session cookie, so no paired device is ever `current`. A
-    // stub that listed the computer among `devices` hid a menu level that
-    // never drew the computer at all.
+    // THE SHAPE IS THE ROUTE'S REAL ONE, the computer apart in `thisComputer`:
+    // a stub poorer than the server crashed the whole app once.
     await page.route("**/api/auth/devices", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({
@@ -119,30 +105,13 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
         }) }));
     await page.goto("/");
 
-    // The devices have moved INSIDE the identity panel: on the row they were a
-    // "1/1" next to an icon, which is to say the bit that had to be explained
-    // every single time. The door is the same one though, and it stays separate
-    // from the profile.
-    await page.getByTestId("identity-me-profile").click();
-    const ferri = page.getByTestId("profile-menu-devices");
-    await expect(ferri).toBeVisible({ timeout: 20000 });
-    await ferri.click();
-    // The row opens the LIST first, the one Settings draws in full: the
-    // machine you are on, then what is paired to it.
     const level = page.getByTestId("profile-menu-devices-menu");
+    await requestSettingsSection(page, "devices", level);
+    await expect(page.getByTestId("profile-menu-devices"), "il collegamento deve aprire i DISPOSITIVI")
+      .toHaveAttribute("aria-expanded", "true");
     await expect(level.getByTestId("device-row")).toHaveText([/Questo computer/, /iPhone di prova/]);
-    await level.getByTestId("devices-open-manage").click();
-
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible({ timeout: 20000 });
-    await expect(
-      pannello.getByRole("button", { name: "Dispositivi", exact: true }),
-      "il chip dei ferri deve aprire i DISPOSITIVI",
-    ).toHaveAttribute("aria-current", "page");
-    await expect(
-      pannello.getByRole("button", { name: "Profilo", exact: true }),
-      "…e NON il profilo: sono due domande diverse, e ognuna ha la sua porta",
-    ).not.toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    await expect(page.getByTestId("self-profile"), "…e NON il profilo: sono due domande diverse").toHaveCount(0);
     await page.screenshot({ path: join(SHOTS, "settings-deeplink-devices.png") });
   });
 

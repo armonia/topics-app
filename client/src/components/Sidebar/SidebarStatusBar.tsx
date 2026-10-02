@@ -211,10 +211,9 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
   );
 }
 
-export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, commands }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, commands }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
-  onOpenDevices?: () => void;
   /** The commands of the column, on their way to the user card's menu: on the
    *  desktop that card is the only door of the chrome, so they travel through
    *  here rather than hanging off a dropdown at the top. */
@@ -234,7 +233,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, commands
           6px at the sides — measured 2026-08-31. */}
       <div style={{ paddingBottom: 'var(--sab, 0px)' }}>
         <IdentityBlock
-          onOpenDevices={onOpenDevices}
           commands={commands}
           // The alarm the title dot used to carry. It rides on the card's dot
           // now, because the title is no longer a control: same rule as before,

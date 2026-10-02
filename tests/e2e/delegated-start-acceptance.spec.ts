@@ -26,6 +26,7 @@ import {
   seedProjectPane,
 } from "./helpers/api-fixtures";
 import { clipDiConsegna } from "./helpers/clip";
+import { openOrganizationPage } from "./helpers/user-menu";
 import { beat, didascalia } from "./helpers/evidence";
 import { removeTmpDir } from "./helpers/file-project";
 import { ospite } from "./helpers/ospite";
@@ -89,9 +90,10 @@ async function openSettingsPanel(page: Page): Promise<Locator> {
   return panel;
 }
 
-async function openDevicesSettings(page: Page): Promise<void> {
+async function openNodesSettings(page: Page): Promise<void> {
   const panel = await openSettingsPanel(page);
-  await panel.getByRole('button', { name: 'Dispositivi', exact: true }).click();
+  // The requests from other computers are in «Nodes», with the node pairing.
+  await panel.getByRole('button', { name: 'Nodi', exact: true }).click();
   await expect(panel.getByTestId('remote-node-requests')).toBeVisible();
 }
 
@@ -191,8 +193,8 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
       },
       scena: async (page) => {
         await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
-        const settings = await openSettingsPanel(page);
-        await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
+        // The organisation page is the Profile tab's (USERMENU-05).
+        const settings = await openOrganizationPage(page);
         const projectRow = settings.getByTestId("org-project-row").filter({ hasText: projectName });
         await expect(projectRow).toBeVisible({ timeout: 15_000 });
         await projectRow.getByTestId("share-control").click();
@@ -241,9 +243,7 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
           await didascalia(page, "Il proprietario vede iniziatore e computer distinti");
           await beat(page, 500);
 
-          await page.keyboard.press("Meta+Comma");
-          await expect(settings).toBeVisible({ timeout: 15_000 });
-          await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
+          await openOrganizationPage(page);
           await projectRow.getByTestId("share-control").click();
           await expect(sharing).toBeVisible();
           await sharing.getByRole("button", { name: new RegExp(`Revoca Avvio agenti per Persona ${guestName}`) }).click();
@@ -321,7 +321,7 @@ test("GUEST-21: an already-open empty node page receives, approves, and revokes 
       url: E2E_TUNNEL_BASE,
     }]);
     await page.goto(E2E_TUNNEL_BASE, { waitUntil: 'domcontentloaded' });
-    await openDevicesSettings(page);
+    await openNodesSettings(page);
     const surface = page.getByTestId('remote-node-requests');
     await expect(surface.getByTestId('remote-node-request')).toHaveCount(0);
 

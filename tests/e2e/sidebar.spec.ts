@@ -278,18 +278,20 @@ test.describe("Sidebar — Unified Timeline", () => {
     // rows are the same component (`TopicsMenuItems`) on both.
     // And the column commands are grouped by subject now: "what the column
     // shows" is a level of its own, carrying the current state in the tail of
-    // its row. The toggle is addressed by testid and not by label, because the
-    // label names the NEXT mode and therefore changes on every click.
+    // its row. The order is a segment that says which mode IS on
+    // (USERMENU-02), never the one a click would bring.
     await openColumnViewMenu(page);
 
     // Il modo per tipo non e' piu' nemmeno offerto.
     await expect(page.getByRole("button", { name: "Vista per tipo" })).toHaveCount(0);
 
     // Timeline to by-state.
-    const stateToggle = page.getByTestId("topics-menu-view-mode");
+    const timelineToggle = page.getByTestId("topics-menu-view-mode-timeline");
+    const stateToggle = page.getByTestId("topics-menu-view-mode-state");
     await expect(stateToggle).toBeVisible({ timeout: 5000 });
-    await expect(stateToggle).toContainText("stato");
+    await expect(timelineToggle).toHaveAttribute("aria-checked", "true");
     await stateToggle.click();
+    await expect(stateToggle).toHaveAttribute("aria-checked", "true");
 
     // Vista per stato: le sezioni sono gli STATI, mai i tipi.
     await expect(
@@ -299,12 +301,9 @@ test.describe("Sidebar — Unified Timeline", () => {
       page.getByRole("button", { name: /sezione Chat/ })
     ).toHaveCount(0);
 
-    // The cycle closes in two: from by-state back to timeline, and it is the
-    // same row that says so, now naming timeline.
-    const timelineToggle = page.getByTestId("topics-menu-view-mode");
-    await expect(timelineToggle).toBeVisible({ timeout: 3000 });
-    await expect(timelineToggle).toContainText("timeline");
+    // And back to timeline, from the same segment.
     await timelineToggle.click();
+    await expect(timelineToggle).toHaveAttribute("aria-checked", "true");
 
     // Timeline: nessuna sezione di nessun genere.
     await expect(
@@ -350,9 +349,9 @@ test.describe("Sidebar — Unified Timeline", () => {
 
     // The archived toggle lives in the menu under the user card (the one door
     // of the chrome since card 022db87b; `openProfileMenu` picks the trigger
-    // for the screen). It's a single row ("Mostra archiviati") that flips
-    // showArchived on each click; the menu stays open, so the same locator
-    // toggles both ways.
+    // for the screen). It's a switch ("Mostra archiviati") in the View level
+    // that flips showArchived on each click; the menu stays open, so the same
+    // locator toggles both ways.
     await openColumnViewMenu(page);
     const archiveToggle = page.getByTestId("topics-menu-archived");
     await expect(archiveToggle).toBeVisible({ timeout: 3000 });
@@ -386,11 +385,12 @@ test.describe("Sidebar — Unified Timeline", () => {
     // hang off the title button, and `openProfileMenu` picks).
     await openColumnViewMenu(page);
     await expect(page.getByTestId("topics-menu-archived")).toBeVisible({ timeout: 3000 });
-    // Il toggle c'e' e nomina il modo SUCCESSIVO. Da timeline il successivo e'
-    // "per stato": il modo "per tipo" e' stato rimosso il 06/08.
+    // The order is a segment of two: timeline and by state (the «by type»
+    // mode was removed on 06/08), with the active one checked.
     const viewToggle = page.getByTestId("topics-menu-view-mode");
     await expect(viewToggle).toBeVisible({ timeout: 3000 });
-    await expect(viewToggle).toContainText("stato");
+    await expect(viewToggle.getByRole("radio")).toHaveCount(2);
+    await expect(page.getByTestId("topics-menu-view-mode-timeline")).toHaveAttribute("aria-checked", "true");
   });
 
   // AC-1: Clicking a topic in timeline still switches panel

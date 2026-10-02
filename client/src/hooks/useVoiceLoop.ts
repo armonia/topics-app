@@ -20,9 +20,11 @@
  * task is done stays a human gesture on the card; "close" here means "stop
  * talking to me".
  *
- * Renderless orchestrator, no UI: call it once, with `settings` and the
- * shared `onWSMessage` thunk. Off by default (`settings.voiceMode === 'off'`)
- * so it never opens a microphone the person didn't ask for.
+ * Renderless orchestrator, no UI: call it once, with the `mode` and the shared
+ * `onWSMessage` thunk. Off unless a mode is passed, so it never opens a
+ * microphone the person didn't ask for. No control sets it today: the
+ * `voiceMode` preference left `AppSettings` because nothing could change it
+ * (USERMENU-06), and App passes `'off'`.
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { useWSSubscription } from './useWSSubscription';
@@ -40,16 +42,25 @@ import type { AnnounceQueueState } from '../lib/voice/announceQueue';
 const EMPTY_ANNOUNCE_QUEUE: AnnounceQueueState = { items: [] };
 import { runNotificationAction } from '../lib/notify/notificationAction';
 import { boardNotificationDeps } from '../lib/notify/boardActionDeps';
-import type { AppSettings, WSMessage } from '../types';
+import type { WSMessage } from '../types';
+
+/**
+ *  · `off` — no announcement, no mic opened on its own.
+ *  · `always` — every `task:review-ready` is announced and, right after, the
+ *    app listens for the reply.
+ *  · `wake-word` — still announces, but the reply is only recorded if the
+ *    transcript contains the activation phrase (`lib/voice/wakeWord.ts`).
+ */
+export type VoiceLoopMode = 'off' | 'always' | 'wake-word';
 
 export interface VoiceLoopProps {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
-  settings: AppSettings;
+  mode: VoiceLoopMode;
 }
 
-export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
+export function useVoiceLoop({ onWSMessage, mode }: VoiceLoopProps): void {
   const { speak, stop: stopSpeaking } = useTextToSpeech();
-  const settingsRef = useRefMirror(settings);
+  const modeRef = useRefMirror(mode);
   const queueRef = useRef<AnnounceQueueState>(EMPTY_ANNOUNCE_QUEUE);
   const drainingRef = useRef(false);
 
@@ -61,7 +72,7 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
     if (drainingRef.current) return;
     drainingRef.current = true;
     // The voice machinery is loaded HERE, not at module level. It is dead
-    // weight for everybody who never speaks to the board (`voiceMode: 'off'`
+    // weight for everybody who never speaks to the board (`mode: 'off'`
     // is the default) and it was 26 KB of the eager entry, which is what
     // `check:bundle` measured. Fetched once per drain, after the first
     // `speak()` has already started - no turn waits on it. Destructured on
@@ -80,7 +91,7 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
     ]);
     try {
       for (;;) {
-        if (settingsRef.current.voiceMode === 'off') {
+        if (modeRef.current === 'off') {
           queueRef.current = EMPTY_ANNOUNCE_QUEUE;
           return;
         }
@@ -102,7 +113,7 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
         if (!transcript.trim()) continue; // silence / no reply in time: skip, task untouched
 
         const heard =
-          settingsRef.current.voiceMode === 'wake-word' ? extractAfterWakePhrase(transcript) : transcript;
+          modeRef.current === 'wake-word' ? extractAfterWakePhrase(transcript) : transcript;
         // wake-word mode and the phrase was never said: this turn wasn't
         // meant for the board, skip it.
         if (heard === null) continue;
@@ -117,18 +128,18 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
     } finally {
       drainingRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- settingsRef is a stable ref object (useRefMirror), reading `.current` needs no re-subscription
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- modeRef is a stable ref object (useRefMirror), reading `.current` needs no re-subscription
   }, [speak]);
 
   // Async on purpose: the enqueue lives in the same lazy module as the rest of
   // the voice machinery, so it arrives a microtask later. Nothing observes the
   // difference - `drain` was already async and is guarded by `drainingRef`.
   useWSSubscription(onWSMessage, 'task:review-ready', (msg) => {
-    if (settingsRef.current.voiceMode === 'off') return;
+    if (modeRef.current === 'off') return;
     if (!msg.taskId || !msg.projectId) return;
     void (async () => {
       const { enqueueAnnouncement } = await import('../lib/voice/announceQueue');
-      if (settingsRef.current.voiceMode === 'off') return;
+      if (modeRef.current === 'off') return;
       queueRef.current = enqueueAnnouncement(queueRef.current, {
         taskId: msg.taskId!,
         projectId: msg.projectId!,
@@ -142,11 +153,11 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
   // Flip to `off` mid-loop: stop talking, drop whatever is queued. The mic
   // turn already in flight (inside `recordUtterance`) still finishes on its
   // own VAD timeout, but the `for(;;)` loop above exits before acting on it
-  // because it re-checks `voiceMode` first.
+  // because it re-checks the mode first.
   useEffect(() => {
-    if (settings.voiceMode === 'off') {
+    if (mode === 'off') {
       stopSpeaking();
       queueRef.current = EMPTY_ANNOUNCE_QUEUE;
     }
-  }, [settings.voiceMode, stopSpeaking]);
+  }, [mode, stopSpeaking]);
 }

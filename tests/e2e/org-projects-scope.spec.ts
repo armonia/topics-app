@@ -20,6 +20,7 @@
 import { test, expect } from "@playwright/test";
 import { join } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
+import { openOrganizationPage } from "./helpers/user-menu";
 
 hermetic(test);
 
@@ -77,11 +78,8 @@ test.describe("Organizzazione - la lista progetti segue il gruppo scelto", () =>
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await page.keyboard.press("Meta+Comma");
-    const panel = page.locator('[data-testid="settings-panel"]');
-    await expect(panel).toBeVisible({ timeout: 10000 });
-    await panel.locator("nav button", { hasText: /^Organizzazione$/ }).click();
-    await expect(panel.getByTestId("settings-page-organization")).toBeVisible({ timeout: 10000 });
+    // The organisation page lives in the Profile tab (USERMENU-05).
+    const panel = await openOrganizationPage(page);
 
     // ARMONIA IS SELECTED FIRST (the installation's own group): its one
     // project is there.

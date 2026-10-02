@@ -13,7 +13,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { FileExplorerPage } from "./fixtures/file-explorer.fixture";
 import { canonicalTmpRoot, cleanupFileProject, removeTmpDir, seedFileProject, type FileProject } from "./helpers/file-project";
@@ -393,5 +393,41 @@ test.describe("The phone's sheets rise and go back down", () => {
     await expect(page.getByTestId("sidebar-topics-menu-panel")).toHaveCount(0);
     await expectExit(page, "Topics sheet", "sheet", MODAL_MAX_MS);
     await expectExit(page, "sheet scrim", "modal", MODAL_MAX_MS);
+  });
+
+  test("the project drawer and its scrim", async ({ page, request }) => {
+    // The one surface the MOTION-04 rail listed as a known gap: the drawer and
+    // its veil appeared and vanished in one frame. It slides in from the left
+    // edge and slides back out as a copy, its veil fading with it.
+    const project = await seedFileProject(request, "drawer-motion");
+    try {
+      await installRecorder(page);
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, project.tmpDir);
+      await seedProjectPane(request, project.tmpDir);
+      await goToApp(page);
+      // The phone opens with the column's drawer over the content: the
+      // project's own row closes it and lands on the project.
+      const column = page.locator('[aria-label="Topics sidebar"][data-drawer="open"]');
+      if ((await column.count()) > 0) {
+        await projectRow(page, project.tmpDir.split("/").filter(Boolean).pop()!).click();
+        await expect(column).toHaveCount(0);
+      }
+      const opener = page.getByTestId("project-rail-inline").locator('[aria-expanded="false"]').first();
+      await expect(opener).toBeVisible({ timeout: 20_000 });
+      await watch(page, '[data-testid="project-sidebar"], div[class~="fixed"][class~="bg-black/50"]');
+      await opener.click();
+      const drawer = page.getByTestId("project-sidebar");
+      await expect(drawer).toBeVisible();
+      await expectEntrance(page, "project drawer", SHEET_MAX_MS, ["transform"], "drawer-enter");
+      await expectEntrance(page, "drawer scrim", MODAL_MAX_MS, ["opacity"], "bg-black/50");
+
+      await drawer.locator('[aria-expanded="true"]').first().click();
+      await expect(drawer).toHaveCount(0);
+      await expectExit(page, "project drawer", "drawer", MODAL_MAX_MS);
+      await expectExit(page, "drawer scrim", "modal", MODAL_MAX_MS);
+    } finally {
+      await cleanupFileProject(request, project);
+    }
   });
 });
