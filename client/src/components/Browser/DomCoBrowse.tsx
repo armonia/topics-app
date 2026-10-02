@@ -411,7 +411,6 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       if (announced) applyScale(); // refit on the new viewport
     };
 
-    const unsubscribe = registerDomSink(handle);
     const ro = new ResizeObserver(() => applyScale());
     ro.observe(root);
 
@@ -471,6 +470,11 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
     });
     io.observe(root);
     document.addEventListener('visibilitychange', sync);
+
+    // LAST, after the two refs above: `registerDomSink` flushes the buffered
+    // bootstrap burst synchronously, inside this call. Registered earlier, the
+    // whole initial stream met null refs and never armed the idle park.
+    const unsubscribe = registerDomSink(handle);
 
     return () => {
       unsubscribe();
