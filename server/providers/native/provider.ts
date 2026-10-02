@@ -33,6 +33,7 @@ import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
+import { readClaudeSubscription, type ClaudeSubscription } from "../claude/subscription";
 import { topicsAppBaseUrl } from "../claude-code";
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import type {
@@ -826,6 +827,14 @@ export class NativeProvider implements AIProvider {
 
   defaultModel(): string {
     return this.config.model ?? DEFAULT_MODEL;
+  }
+
+  /** The Claude plan this runtime signs in with: the same credentials as the
+   *  CLI (`readCredentials`), so the same two labels. `topics` is the default
+   *  runtime, so without this the «AI providers» tail never named the plan
+   *  for most people (`claude/subscription.ts`). */
+  subscription(): ClaudeSubscription | null {
+    return readClaudeSubscription();
   }
 
   async diagnose(): Promise<ProviderDiagnostic> {

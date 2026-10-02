@@ -11,7 +11,7 @@
 import { describe, expect, test } from 'bun:test';
 import { t, missingKeys, type Locale } from '../../lib/i18n';
 import {
-  calendarTail, nodesTail, planTail, providersTail, subscriptionLabel, toolsTail, usageLine,
+  calendarTail, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersTail, subscriptionLabel, toolsTail, usageLine,
 } from './formLevelTails';
 import type { ProvidersSnapshot } from '../../types';
 
@@ -60,17 +60,45 @@ describe('subscriptionLabel', () => {
   });
 });
 
-function snapshot(defaultProvider: string | null, sub?: { type: string | null; tier: string | null }): ProvidersSnapshot {
+/** A snapshot whose Claude rows (`claude-code` and the `topics` runtime, both
+ *  signed in with the same credentials) carry `sub`, as the server sends it. */
+function snapshot(
+  defaultProvider: string | null,
+  sub?: { type: string | null; tier: string | null },
+  claudeRows: string[] = ['claude-code', 'topics'],
+): ProvidersSnapshot {
   const row = (name: string, label: string) => ({
     name, label, status: 'ready' as const, isDefault: name === defaultProvider, models: [], requirements: [],
-    fetchedAt: '2026-10-02T10:00:00Z', ...(name === 'claude-code' && sub ? { subscription: sub } : {}),
+    fetchedAt: '2026-10-02T10:00:00Z', ...(claudeRows.includes(name) && sub ? { subscription: sub } : {}),
   });
-  return { providers: [row('claude-code', 'Claude Code'), row('codex', 'Codex')], defaultProvider, generatedAt: '2026-10-02T10:00:00Z' };
+  return {
+    providers: [row('topics', 'Topics'), row('claude-code', 'Claude Code'), row('codex', 'Codex')],
+    defaultProvider,
+    generatedAt: '2026-10-02T10:00:00Z',
+  };
 }
+
+describe('claudeSubscription', () => {
+  const max = { type: 'max', tier: 'default_claude_max_20x' };
+
+  test('read from whichever Claude row has it, so a missing claude CLI does not hide it', () => {
+    expect(claudeSubscription(snapshot('topics', max, ['topics']))).toEqual(max);
+    expect(claudeSubscription(snapshot('codex', max, ['claude-code']))).toEqual(max);
+  });
+
+  test('no Claude row with a plan (an API key, no login) is no plan', () => {
+    expect(claudeSubscription(snapshot('codex'))).toBeNull();
+    expect(claudeSubscription(null)).toBeNull();
+  });
+});
 
 describe('providersTail', () => {
   test('the default provider and the Claude plan it runs on', () => {
     expect(providersTail(snapshot('claude-code', { type: 'max', tier: 'default_claude_max_20x' }), it)).toBe('Claude Code · Max 20x');
+  });
+
+  test('the default runtime, topics, runs on the same Claude plan and says it', () => {
+    expect(providersTail(snapshot('topics', { type: 'max', tier: 'default_claude_max_20x' }), it)).toBe('Topics · Max 20x');
   });
 
   test('without a known plan, the provider alone', () => {
@@ -142,5 +170,13 @@ describe('every word of the tails exists in both languages', () => {
   test('english: really translated', async () => {
     const missing = new Set(await missingKeys('en'));
     for (const key of KEYS) expect(missing.has(key)).toBe(false);
+  });
+});
+
+describe('nodeRequestsLabel', () => {
+  test('one request is singular, in both languages', () => {
+    expect(nodeRequestsLabel(1, it)).toBe('1 richiesta da un altro computer aspetta una risposta');
+    expect(nodeRequestsLabel(1, (key, vars) => t(key, 'en', vars))).toBe('1 request from another computer is waiting for an answer');
+    expect(nodeRequestsLabel(3, it)).toBe('3 richieste da altri computer aspettano una risposta');
   });
 });

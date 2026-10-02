@@ -14,7 +14,7 @@
 import { lazy, useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Cpu, CreditCard, Plug, Server } from 'lucide-react';
 import { FormLevel } from './FormLevel';
-import { calendarTail, nodesTail, planTail, providersTail, toolsTail, type LicensePlan, type Tail } from './formLevelTails';
+import { calendarTail, nodeRequestsLabel, nodesTail, planTail, providersTail, toolsTail, type LicensePlan, type Tail } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
@@ -133,8 +133,8 @@ export function NodesLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
             <NotificationBadge
               count={requests}
               testId="topics-menu-nodes-requests"
-              ariaLabel={tr('userMenu.nodes.requests', { n: requests })}
-              title={tr('userMenu.nodes.requests', { n: requests })}
+              ariaLabel={nodeRequestsLabel(requests, tr)}
+              title={nodeRequestsLabel(requests, tr)}
             />
           )}
         </>

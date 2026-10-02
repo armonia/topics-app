@@ -10,7 +10,7 @@
  * from the same reading the plan-limit notice in the column uses.
  */
 import { AIProvidersSection } from '../Settings/AIProvidersSection';
-import { subscriptionLabel, usageLine } from './formLevelTails';
+import { claudeSubscription, subscriptionLabel, usageLine } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
@@ -31,12 +31,12 @@ function ClaudePlanLine() {
   const locale = useLocale();
   const { snapshot } = useProvidersSnapshot();
   const usage = usePlanUsage();
-  const row = snapshot?.providers.find((p) => p.name === 'claude-code');
-  const plan = subscriptionLabel(row?.subscription);
+  const subscription = claudeSubscription(snapshot);
+  const plan = subscriptionLabel(subscription);
   const fiveHour = usage?.fiveHour ?? null;
-  // Only where there is a Claude to speak of: a machine without Claude Code
-  // and without a reading has nothing to say here.
-  if (!row && !fiveHour) return null;
+  // Only where there is a subscription to speak of: an API key or no login,
+  // with no five-hour reading, has nothing to say here.
+  if (!subscription && !fiveHour) return null;
   const line = usageLine(
     fiveHour,
     (ms) => new Date(ms).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false }),

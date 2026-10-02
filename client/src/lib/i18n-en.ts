@@ -2686,6 +2686,7 @@ const EN = {
   'userMenu.calendar.none': 'Not connected',
   'userMenu.nodes.one': '1 node',
   'userMenu.nodes.many': '{n} nodes',
+  'userMenu.nodes.requestOne': '1 request from another computer is waiting for an answer',
   'userMenu.nodes.requests': '{n} requests from other computers are waiting for an answer',
   'userMenu.subscription': 'Claude {plan} subscription',
   'userMenu.subscriptionUnknown': 'Claude subscription',

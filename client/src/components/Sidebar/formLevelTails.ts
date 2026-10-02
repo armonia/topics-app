@@ -75,8 +75,23 @@ export function subscriptionLabel(sub: ProviderSnapshotEntry['subscription'] | n
   }
 }
 
-/** The providers that run on a Claude subscription, whose plan the tail may name. */
-const CLAUDE_SUBSCRIPTION_PROVIDERS = new Set(['claude-code']);
+/** The providers that run on a Claude subscription, whose plan the tail may name:
+ *  the claude CLI and `topics`, the default runtime, which signs in with the
+ *  same credentials (`DEFAULT_AGENT_RUNTIME`). */
+const CLAUDE_SUBSCRIPTION_PROVIDERS = new Set(['claude-code', 'topics']);
+
+/**
+ * THE CLAUDE PLAN OF THIS MACHINE, from whichever Claude row carries it.
+ *
+ * Both rows read the same credentials, so either one is the answer; reading
+ * only `claude-code` lost the plan on a machine without the claude CLI, where
+ * `topics` is signed in all the same. Null when no Claude row has one (an API
+ * key, no login): there is no subscription to speak of.
+ */
+export function claudeSubscription(snapshot: ProvidersSnapshot | null): ProviderSnapshotEntry['subscription'] | null {
+  if (!snapshot) return null;
+  return snapshot.providers.find((p) => CLAUDE_SUBSCRIPTION_PROVIDERS.has(p.name) && p.subscription)?.subscription ?? null;
+}
 
 /** The default provider's row, and the Claude plan when that row runs on it. */
 export function providersTail(snapshot: ProvidersSnapshot | null, tr: Translate): string | null {
@@ -112,6 +127,11 @@ export function nodesTail(nodes: number | null, tr: Translate): string | null {
   if (nodes === null) return null;
   if (nodes === 0) return tr('userMenu.none');
   return nodes === 1 ? tr('userMenu.nodes.one') : tr('userMenu.nodes.many', { n: nodes });
+}
+
+/** The badge's words for requests from other nodes, singular for one. */
+export function nodeRequestsLabel(n: number, tr: Translate): string {
+  return n === 1 ? tr('userMenu.nodes.requestOne') : tr('userMenu.nodes.requests', { n });
 }
 
 /**

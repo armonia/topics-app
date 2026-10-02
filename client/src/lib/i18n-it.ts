@@ -3037,6 +3037,7 @@ const IT: Dict = {
   'userMenu.calendar.none': 'Non collegato',
   'userMenu.nodes.one': '1 nodo',
   'userMenu.nodes.many': '{n} nodi',
+  'userMenu.nodes.requestOne': '1 richiesta da un altro computer aspetta una risposta',
   'userMenu.nodes.requests': '{n} richieste da altri computer aspettano una risposta',
   'userMenu.subscription': 'Abbonamento Claude {plan}',
   'userMenu.subscriptionUnknown': 'Abbonamento Claude',

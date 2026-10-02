@@ -75,7 +75,8 @@ sopra le preferenze (su cosa gira l'app e cosa raggiunge).
 L'abbonamento Claude della coda di Provider AI viene dalle credenziali della
 CLI, che il server legge già per il runtime nativo
 (`server/providers/native/auth.ts`). Esce solo come due etichette nella riga
-`claude-code` dello snapshot dei provider (`subscription: { type, tier }`),
+`claude-code` e nella riga `topics` dello snapshot dei provider (il runtime
+predefinito entra con le stesse credenziali; `subscription: { type, tier }`),
 filtrate da un elenco di due nomi ammessi e da una forma (`[a-z0-9_]{1,48}`):
 un domani la CLI può aggiungere campi accanto ai token senza che uno arrivi al
 client (`server/providers/claude/subscription.ts`, test sul file di credenziali

@@ -59,7 +59,7 @@ Se esce non-zero, ci si ferma qui.
 
 ## 6. Modifica del 02/10: tutto nel menu (scelte 1 e 2)
 
-- [x] 6.1 Server: `subscriptionType` e `rateLimitTier` dalle credenziali della CLI, come due etichette nella riga `claude-code` dello snapshot dei provider (`server/providers/claude/subscription.ts`); test che il file di credenziali vero non lascia un token nello snapshot serializzato (USERMENU-10).
+- [x] 6.1 Server: `subscriptionType` e `rateLimitTier` dalle credenziali della CLI, come due etichette nelle righe `claude-code` e `topics` dello snapshot dei provider (`server/providers/claude/subscription.ts`); test che il file di credenziali vero non lascia un token nello snapshot serializzato (USERMENU-10).
 - [x] 6.2 `/api/mcp/fleet?peek=1`: quel che è montato, senza montare, con `mounted` per distinguere «nessuno» da «non ancora».
 - [x] 6.3 `Sidebar/formLevelTails.ts` con i test: le code di Piano, Provider AI, Strumenti, Calendario, Nodi, e la riga della finestra di 5 ore (USERMENU-10).
 - [x] 6.4 `Sidebar/FormLevel.tsx` (400 px, intestazione fissa, corpo che scorre, Tab nel livello, rete d'errore) e `Sidebar/FormLevels.tsx` (i cinque livelli, corpi caricati alla prima apertura); Piano sotto l'account, Nodi dopo Dispositivi, Provider AI, Strumenti e Calendario sopra le preferenze.
