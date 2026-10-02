@@ -27,6 +27,7 @@ const SPEND_IT: Dict = {
   'board.spend.leftDay': 'Restano {amount} prima del tetto giornaliero.',
   'board.spend.capTaskNote': 'Una card che arriva a {cap} non fa partire il turno successivo, e lo scrive nel suo thread.',
   'board.spend.noCaps': 'Nessun tetto: nessun freno, nessun avviso. Il numero sopra si vede comunque.',
+  'board.spend.saveFailed': 'Il tetto non è stato salvato: vale ancora quello di prima. Riprova.',
 
   'cost.agent': 'Agente della board',
   'cost.agentUnpriced': '(+{tokens} non prezzabili)',
