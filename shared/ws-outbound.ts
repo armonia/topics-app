@@ -1377,6 +1377,19 @@ const backgroundChangedSchema = z.looseObject({
   sessionKey: z.string(),
 });
 
+/**
+ * A run of a command from the chat (Run under a code block) started or ended
+ * (CMDRUN-05): the windows showing that reply read its runs again. Owner-only:
+ * not in `GUEST_SAFE_FRAMES` (`server/lib/grants.ts`).
+ */
+const commandRunUpdatedSchema = z.looseObject({
+  type: z.literal('command-run:updated'),
+  sessionKey: z.string(),
+  messageId: z.string(),
+  runId: z.string(),
+  status: z.enum(['running', 'done', 'error', 'stopped', 'unknown']),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1473,6 +1486,7 @@ const OUTBOUND_SCHEMAS = {
   'ui-state:init': uiStateInitSchema,
   'scripts:output': scriptsOutputSchema,
   'scripts:updated': scriptsUpdatedSchema,
+  'command-run:updated': commandRunUpdatedSchema,
   'terminal:sessions': terminalSessionsSchema,
   'terminal:activity': terminalActivitySchema,
   // Board / task

@@ -38,7 +38,9 @@ rifarebbe il parse di ogni messaggio a ogni render. Quindi:
 
 - `CommandRunContext` (accanto a `MarkdownBaseDirContext`,
   `MessageContent.tsx:43`) con `{ sessionKey, messageId }` oppure `null`.
-- `MessageContent` lo fornisce solo se `role === 'assistant'`, `!partial`,
+- `MessageContent` lo fornisce solo se `runnable` (lo passa solo
+  `MessageBubble`: la scheda del task sulla board usa lo stesso componente e
+  resta senza), `role === 'assistant'`, `!partial`,
   `sessionKey` e `messageId` presenti, sessione di proprietario, e il server ha
   la shell (`hasCommandShell`, `server/lib/command-process.ts:20`: se nessuna
   risposta che il client legge già lo porta, `commandShell: boolean` si
@@ -46,12 +48,30 @@ rifarebbe il parse di ogni messaggio a ogni render. Quindi:
 - Il renderer `pre` (`MessageContent.tsx:628`) passa a `CodeBlock` la posizione
   del nodo (`node.position.start.offset`, che react-markdown dà a ogni
   componente): è la **chiave del blocco** dentro il messaggio, stabile finché
-  il testo non cambia.
+  il testo non cambia. Una risposta a timeline ha più segmenti di testo, ognuno
+  parsato a sé (offset da 0 in ciascuno): la chiave è
+  `segmento × 2^24 + offset` (`commandBlockKey`), il segmento lo dà un
+  `CommandRunSegment` attorno a ogni blocco di testo.
 
 `partial` è una guardia reale, non un caso di scuola: durante lo streaming
 `completePartialMarkdown` (`MessageContent.tsx:59-60`) chiude i fence aperti,
 quindi un blocco a metà si disegna come un blocco finito. `rm -rf ./build/cache`
 arrivato fino a `rm -rf ./` sarebbe un blocco perfettamente eseguibile.
+
+`partial` da solo non basta: Stop, la spazzata al boot
+(`server/lib/boot-partial-sweep.ts`, `end_reason = 'cut-by-restart'`) e
+l'errore del provider (`server/routes/chat.ts`, `end_reason = 'error'`)
+chiudono la riga con `partial = 0` e tengono il testo troncato, e il riavvio
+qui succede a ogni salvataggio del server. Quindi il contesto porta anche i
+testi della risposta (`content` e i blocchi `text`), e `isCommandCut`
+(`shared/cut-fence.ts`) dice se il comando di un blocco è il corpo del fence
+che uno di quei testi lascia aperto: ogni sua riga è una riga di quel corpo
+(anche senza `> ` o senza il prompt `$ `). Si confronta il testo e non la
+posizione perché gli offset ripartono da 0 nei pezzi in cui un segmento viene
+parsato. Il blocco tagliato dice «Troncato» al posto di Esegui; Apri nel
+terminale resta. La route applica la stessa funzione sui testi salvati
+(409 `command_cut`). Un blocco chiuso prima del taglio resta eseguibile; uno
+identico al pezzo troncato perde Esegui anche lui, ed è il verso giusto.
 
 ## 3. Estrazione e rischio: due funzioni pure
 
@@ -76,6 +96,10 @@ arrivato fino a `rm -rf ./` sarebbe un blocco perfettamente eseguibile.
   chiama per nome: svuotano le pane / SIGKILL a metà turno, `CLAUDE.md`).
   Più `placeholder`: un `<parola>` che non è `<<` né `< file`. Una
   redirezione `>` non si valuta: dal testo non si sa se il file esiste.
+- Le continuazioni di riga (`\` a fine riga) si uniscono prima di dividere, e
+  le parole riservate che introducono un comando (`if`, `then`, `else`,
+  `elif`, `do`, `while`, `until`, `!`) si saltano come i wrapper: `then rm
+  -rf build` e `git push \⏎ --force` chiedono come le loro forme su una riga.
 - Si scandisce **tutto** il testo, anche quando il blocco è collassato a 10
   righe (`CodeBlock`, `isLong && collapsed`, `MessageContent.tsx:435`).
 
@@ -87,7 +111,8 @@ comando nel terminale.
 
 `POST /api/sessions/:sessionKey/command-runs` `{ messageId, blockKey, command }`:
 1. La sessione esiste; `messageId` è di quella sessione, `role = 'assistant'`,
-   `partial = 0`; altrimenti 404 / 409.
+   `partial = 0`, e `command` non è il fence che la risposta lascia aperto
+   (`isCommandCut`); altrimenti 404 / 409 (`message_partial`, `command_cut`).
 2. Cartella: la stessa del Bash dell'agente, `getTopicWorkspaceForSession`
    (`server/providers/claude-code.ts:592`, worktree pronta › progetto) e
    altrimenti `defaultWorkspace` / `HOME` (`claude-code.ts:2150`). Non
@@ -123,7 +148,7 @@ command_runs(
   ended_at TEXT,
   output TEXT,                    -- NULL finché gira: vive nel registro
   dropped_lines INTEGER NOT NULL DEFAULT 0,
-  author_device_id TEXT REFERENCES devices(id)
+  author_device_id TEXT REFERENCES devices(id) ON DELETE SET NULL  -- dimenticare un dispositivo non cancella né blocca le sue esecuzioni
 )
 INDEX (message_id, block_key, started_at)
 ```
@@ -185,13 +210,21 @@ occasione di vedere cosa parte.
   paste acceso (zsh lo accende di default) un testo di più righe entra come
   incollato e non parte; se la modalità è spenta e il testo ha più righe, non
   si incolla niente, il comando va negli appunti e un avviso lo dice.
+- Prima di incollare, un `\r` diventa a capo e ogni altro byte di controllo
+  (C0 diverso da tab e a capo, DEL) si toglie (`pendingTerminalPaste.ts`):
+  `term.paste()` di xterm li lascia passare, e un `ESC[201~` dentro il testo
+  chiuderebbe il bracketed paste in anticipo e farebbe girare le righe dopo;
+  un `\r` nudo è un Invio. Esegui manca già su quei blocchi (CHAT-RUN-02), Apri
+  nel terminale no: lì il testo arriva senza i byte che non si vedono.
 
 ## 7. La resa dell'output
 
 - **ANSI**: una funzione pura `ansiSpans(text)` rende SGR (16, 256 e
   truecolor, grassetto, corsivo, sottolineato, dim) come `<span>` con classi
-  e stile inline di solo colore; ogni altra sequenza CSI/OSC si toglie (stessa
-  regex di `ProcessLogPane.tsx:17-23`). Nessun `innerHTML`.
+  e stile inline di solo colore; ogni altra sequenza CSI/OSC si toglie, come
+  `ProcessLogPane.tsx:17-23` ma senza la sua regex dei frammenti orfani
+  (`[32m` senza ESC): qui il log è un file, l'ESC non si perde, e quella regex
+  mangerebbe testo vero come `[A` di `[ACME]`. Nessun `innerHTML`.
 - **`\r`**: di ogni riga resta il segmento dopo l'ultimo `\r`, come
   `liveShellTail` (`client/src/components/Chat/runningShellTail.ts`).
 - **Mentre gira**: riquadro alto 16 righe che segue il fondo; se scorri su,

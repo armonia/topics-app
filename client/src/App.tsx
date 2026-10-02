@@ -17,6 +17,7 @@ import type { PaneType } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
+import { noteCommandRunFrame } from './components/Chat/commandRunStore';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
@@ -657,6 +658,9 @@ function App() {
     return onWSMessage(chatStreamHandler);
   }, [onWSMessage, chatStreamHandler]);
 
+  // The runs of commands from the chat, under their code blocks (CHAT-RUN-03).
+  useEffect(() => onWSMessage((msg) => noteCommandRunFrame(msg as Parameters<typeof noteCommandRunFrame>[0])), [onWSMessage]);
+
   // Terminal lifecycle (Phase 3 hook 2). Owns terminal sessions + grace
   // period ref + WS subscription. Exposes a pure pruneStaleTerminalPanes
   // helper used by the App-side cleanup effect below (CRITIQUE C5: NO
@@ -946,6 +950,18 @@ function App() {
     window.addEventListener('topics:open-terminal-pane', handler as EventListener);
     return () => window.removeEventListener('topics:open-terminal-pane', handler as EventListener);
   }, [handleTerminalClick]);
+
+  // «Open in terminal» under a code block of a reply (CHAT-RUN-05): a shell
+  // where that chat's agent works, with the command typed and not run. Same
+  // bus as above: the block lives deep inside the message list.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionKey?: string; command?: string } | undefined;
+      if (detail?.sessionKey && detail.command) void handleQuickCreateTerminal('shell', claudeSkipPermissions, { cwdOf: detail.sessionKey, paste: detail.command });
+    };
+    window.addEventListener('topics:open-terminal-with-command', handler);
+    return () => window.removeEventListener('topics:open-terminal-with-command', handler);
+  }, [handleQuickCreateTerminal, claudeSkipPermissions]);
 
   // Preavviso di compaction nel composer → "Nuova chat". Stesso bus del picker
   // di progetto: la strip vive dentro ChatInput, tre livelli sotto, e l'unica

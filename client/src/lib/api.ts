@@ -25,6 +25,7 @@ import type {
   GoalStepStatus,
 } from '../types';
 import { serverHttpBase, apiFetch } from './shell/net';
+import type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import { adoptWarmRead, warmRead } from './warmReads';
 
@@ -985,6 +986,24 @@ export const scriptsApi = {
     return request<{ ok: boolean }>(`/scripts/${processId}/stop`, {
       method: 'POST',
     });
+  },
+};
+
+/** A run of a command from the chat (CHAT-RUN-03): the server's row, one shape on both sides. */
+export type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
+
+export const commandRunsApi = {
+  async start(sessionKey: string, run: { messageId: string; blockKey: number; command: string }): Promise<{ runId: string; processId: string; cwd: string; startedAt: string }> {
+    return request<{ runId: string; processId: string; cwd: string; startedAt: string }>(`/sessions/${encodeURIComponent(sessionKey)}/command-runs`, {
+      method: 'POST',
+      body: JSON.stringify(run),
+    });
+  },
+
+  /** For each block of the message, its last run. */
+  async list(sessionKey: string, messageId: string): Promise<CommandRunInfo[]> {
+    const { runs } = await request<{ runs: CommandRunInfo[] }>(`/sessions/${encodeURIComponent(sessionKey)}/command-runs?messageId=${encodeURIComponent(messageId)}`);
+    return runs;
   },
 };
 

@@ -185,6 +185,7 @@ describe('outbound registry contract', () => {
       'browser:open-near-pane',
       'browser:open-task-tab',
       'clear',
+      'command-run:updated',
       'connected',
       'cron:updated',
       'dashboard:updated',
@@ -390,8 +391,12 @@ describe('outbound registry contract', () => {
   // 103 -> 104: `project:icon`, a project's icon changed on disk (appeared,
   // changed, went away): every window swaps it without a reload. Sender
   // `server/services/project-icon-watch.ts`, listener `projectIconStore`.
-  test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(104);
+  // 104 -> 105: `command-run:updated`, a run of a command from the chat (Run
+  // under a code block) started or ended; the windows showing that reply read
+  // its runs again. Owner-only. Sender `server/routes/processes.ts`, listener
+  // `client/src/components/Chat/commandRunStore.ts`.
+  test('all 105 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(105);
   });
 });
 

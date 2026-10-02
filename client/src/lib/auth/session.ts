@@ -23,13 +23,14 @@ export async function refreshSession(): Promise<SessionState> {
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
       deviceId?: string; code?: string; role?: 'owner' | 'guest'; personId?: string | null;
-      installationName?: string | null;
+      installationName?: string | null; commandShell?: boolean;
     };
     if (body.paired && body.as && body.name) {
       publishSession({
         status: 'paired', as: body.as, name: body.name, deviceId: body.deviceId,
         personId: body.personId ?? null,
         installationName: body.installationName ?? null,
+        commandShell: body.commandShell === true,
         // Default prudente: se il server non lo dice, si assume il ruolo con
         // MENO poteri. Il contrario — assumere `owner` — mostrerebbe l'app
         // intera a chi non deve vederla, e la schermata sbagliata sarebbe l'unico

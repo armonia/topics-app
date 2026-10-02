@@ -22,6 +22,8 @@ export type SessionState =
        *  more than "iPhone", and with two phones it says the one thing they
        *  share. */
       personId?: string | null;
+      /** The server can run a command for its owner (Run under a code block of a reply): not on Windows. */
+      commandShell?: boolean;
     }
   /** Out, and it can be fixed: `reason` decides what the screen says. */
   | {
@@ -66,6 +68,7 @@ function readLastPaired(): SessionState | null {
       role: p.role === 'owner' ? 'owner' : 'guest',
       installationName: p.installationName ?? null,
       personId: p.personId ?? null,
+      commandShell: p.commandShell === true,
     };
   } catch {
     return null;
@@ -101,7 +104,8 @@ function sameState(a: SessionState, b: SessionState): boolean {
   if (a.status === 'paired' && b.status === 'paired') {
     return a.name === b.name && a.role === b.role && a.as === b.as
       && a.deviceId === b.deviceId && a.personId === b.personId
-      && a.installationName === b.installationName;
+      && a.installationName === b.installationName
+      && a.commandShell === b.commandShell;
   }
   // The NAME too, not just the reason: it is what the pairing screen paints,
   // so a new name at the same reason must reach whoever is looking. An

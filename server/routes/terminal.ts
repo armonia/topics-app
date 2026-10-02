@@ -52,6 +52,7 @@ import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffo
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { createAgentWorktree, resolveAgentProject, worktreeReadyMs } from "../services/worktree-for-agent";
 import type { SubAgentExitInfo } from "./subagent-exit";
+import { agentWorkspaceForSession } from "../lib/agent-workspace";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
 interface TerminalSession {
@@ -3014,7 +3015,12 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       }
 
       const body = await readJSON(req).catch(() => ({}));
-      const suppliedCwd = typeof body.cwd === "string" && body.cwd ? body.cwd : null;
+      // `cwdOf: <sessionKey>`: the folder the agent of that chat works in, resolved
+      // here so the client does not need to know a worktree's path (Open in
+      // terminal under a code block, CHAT-RUN-05). The paired-device gate below
+      // applies to the resolved folder exactly as to one sent by hand.
+      const cwdOf = typeof body.cwdOf === "string" && body.cwdOf ? body.cwdOf : null;
+      const suppliedCwd = typeof body.cwd === "string" && body.cwd ? body.cwd : cwdOf ? agentWorkspaceForSession(cwdOf) : null;
       // A cwd sent by a PAIRED DEVICE must sit inside a known project (or be
       // the broad default). The cwd of every terminal session becomes a root
       // of the file-route allowlist (`services/known-project-dirs.ts`, source

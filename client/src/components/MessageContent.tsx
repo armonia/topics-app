@@ -1,5 +1,5 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
-import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
+import React, { createContext, lazy, Suspense, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { useT } from '../hooks/useT';
 import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
@@ -34,6 +34,16 @@ import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../li
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
+import { getSession, subscribeSession } from '../lib/auth/session';
+import { CommandRunContext, type CommandRunTarget } from './Chat/commandRunContext';
+import { useCommandRun } from './Chat/useCommandRun';
+import { RunButtons, RunConfirmStrip } from './Chat/CodeBlockRunControls';
+
+// Only a block that has been run draws one: its output reader stays out of the first load.
+const CommandRunBlock = lazy(async () => {
+  const { CommandRunBlock: block } = await import('./Chat/CommandRunBlock');
+  return { default: block };
+});
 
 /**
  * Directory of the markdown file currently being previewed. Used by
@@ -412,7 +422,7 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
 });
 
 // Code block with copy button, language badge, line numbers, collapsible, word wrap
-const CodeBlock = memo(function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
+const CodeBlock = memo(function CodeBlock({ children, className, blockOffset }: { children: React.ReactNode; className?: string; blockOffset?: number }) {
   const tr = useT();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -424,6 +434,8 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   const language = className?.replace('language-', '') || '';
   
   const textContent = useMemo(() => getTextContent(children), [children]);
+  const runTarget = useContext(CommandRunContext);
+  const runner = useCommandRun(runTarget, language, textContent, blockOffset);
   const lines = useMemo(() => textContent.split('\n'), [textContent]);
   const lineCount = lines.length;
   const isLong = lineCount > 20;
@@ -450,7 +462,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   // the plain text render below. Line-numbers mode stays plain (per-row table).
   // hljs is lazy (first code block kicks off the chunk): hljsReady flips once
   // when the tokenizers land so already-rendered plain blocks re-highlight.
-  const hljsReady = useSyncExternalStore(subscribeHighlighter, highlighterReady);
+  const hljsReady = useSyncExternalStore(subscribeHighlighter, highlighterReady, highlighterReady);
   // Highlighting a growing code block on EVERY streaming delta re-tokenizes the
   // whole block each time (bounded by MAX_HIGHLIGHT_CHARS but still costly on big
   // blocks). Feed hljs a DEFERRED copy of the content: React coalesces the
@@ -475,9 +487,13 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   // the consumer treats a null shownHtml as "render plain".)
   const shownHtml = deferredContent === displayContent ? highlightedHtml : null;
 
+
   return (
     <div className="code-block-wrapper">
-      {/* Header with language + controls */}
+      {runner.confirming ? (
+        <RunConfirmStrip reasons={runner.confirming} onRun={() => { void runner.start(); }} onCancel={runner.cancel} />
+      ) : (
+      /* Header with language + controls */
       <div ref={headerRef} className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
           {language && <span className="text-mini uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
@@ -488,6 +504,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <RunButtons runner={runner} />
           <button
             onClick={() => setShowLineNumbers(p => !p)}
             className={`text-mini px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
@@ -510,6 +527,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           </button>
         </div>
       </div>
+      )}
       {/* `tabIndex` quando il blocco scorre in orizzontale: una regione che
           scorre e non è raggiungibile da tastiera è una riga di codice che con
           la sola tastiera non si può leggere fino in fondo (axe:
@@ -561,6 +579,17 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
         >
           {collapsed ? tr('code.showAll', { n: lineCount }) : tr('code.showLess')}
         </button>
+      )}
+      {runner.run && runTarget && (
+        <Suspense fallback={null}>
+          <CommandRunBlock
+            run={runner.run}
+            sessionKey={runTarget.sessionKey}
+            messageId={runTarget.messageId}
+            onRerun={runner.requestRun}
+            onOpenTerminal={runner.openTerminal}
+          />
+        </Suspense>
       )}
     </div>
   );
@@ -644,16 +673,18 @@ export const markdownComponents: Components = {
   // `a` NON è qui: il renderer dei link è il default di ChatMarkdown, che ogni
   // superficie markdown eredita (i commenti della board e i piani non avevano
   // link cliccabili proprio perché la regola viveva solo in questo file).
-  pre: ({ children }) => {
+  pre: ({ children, node }) => {
+    // The block's place in the markdown it was parsed from: its key in the reply (CHAT-RUN-03).
+    const blockOffset = node?.position?.start.offset;
     if (children && typeof children === 'object' && 'props' in children) {
       const codeProps = (children as { props: { className?: string; children?: React.ReactNode } }).props;
       // ```mermaid → diagram (CHAT-RND-03); everything else stays a CodeBlock.
       if (codeProps.className?.includes('language-mermaid')) {
         return <MermaidBlock code={getTextContent(codeProps.children).replace(/\n$/, '')} />;
       }
-      return <CodeBlock className={codeProps.className}>{codeProps.children}</CodeBlock>;
+      return <CodeBlock className={codeProps.className} blockOffset={blockOffset}>{codeProps.children}</CodeBlock>;
     }
-    return <CodeBlock>{children}</CodeBlock>;
+    return <CodeBlock blockOffset={blockOffset}>{children}</CodeBlock>;
   },
   code: ({ children, className }) => {
     const isBlock = className?.includes('language-');
@@ -981,6 +1012,19 @@ interface MessageContentProps {
    * streaming messages (they never arrive trimmed).
    */
   messageId?: string;
+  /**
+   * The chat's own transcript: shell blocks of a finished reply offer Run and
+   * Open in terminal (CHAT-RUN-01). Only `MessageBubble` sets it; the board's
+   * task drawer and every other reader of a reply leave it off.
+   */
+  runnable?: boolean;
+}
+
+/** The text segment a code block is in, for its key in the reply (CHAT-RUN-03). */
+function CommandRunSegment({ segment, children }: { segment: number; children: React.ReactNode }) {
+  const parent = useContext(CommandRunContext);
+  const value = useMemo(() => (parent ? { ...parent, segment } : null), [parent, segment]);
+  return <CommandRunContext.Provider value={value}>{children}</CommandRunContext.Provider>;
 }
 
 /** Una tratta della timeline di un messaggio assistant: testo, ragionamento, o
@@ -1065,7 +1109,23 @@ function RipresoBanner() {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, onPlanDecision, sessionKey, messageId }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, onPlanDecision, sessionKey, messageId, runnable }: MessageContentProps) {
+  // Run under a shell block (CHAT-RUN-01): a finished reply of the agent, in
+  // the chat, for an owner, on a server with a shell. While the reply streams
+  // `completePartialMarkdown` closes its open fence, and a command cut in the
+  // middle would be drawn as a finished block: `partial` keeps Run away. A
+  // reply closed by Stop, a restart or an error keeps its open fence too:
+  // `replyTexts` lets the block that fence draws find out it was cut.
+  const session = useSyncExternalStore(subscribeSession, getSession, getSession);
+  const canRun = !!runnable && role === 'assistant' && !partial && !!sessionKey && !!messageId
+    && session.status === 'paired' && session.role === 'owner' && session.commandShell === true;
+  const runTarget = useMemo<CommandRunTarget | null>(
+    () => (canRun ? {
+      sessionKey: sessionKey!, messageId: messageId!, segment: 0,
+      replyTexts: [content, ...(blocks ?? []).flatMap((b) => (b.kind === 'text' ? [b.text] : []))],
+    } : null),
+    [canRun, sessionKey, messageId, content, blocks],
+  );
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1334,7 +1394,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           }
           return (
             <div key={`g-tx-${g.idx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-              <ProseBlock text={text} components={markdownComponents} />
+              <CommandRunSegment segment={g.idx}>
+                <ProseBlock text={text} components={markdownComponents} />
+              </CommandRunSegment>
             </div>
           );
     };
@@ -1342,6 +1404,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // vertical timeline (connected by a left border line) instead of N
     // unrelated rows. Visually lighter, easier to scan.
     return (
+      <CommandRunContext.Provider value={runTarget}>
       <div data-testid="message-content-assistant">
         {ripreso && <RipresoBanner />}
         {woken.map((w, i) => <WokenBanner key={i} woken={w} />)}
@@ -1369,6 +1432,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             fissa coi numeri, che su pane strette andava pure a capo, e una
             sotto per la sola ora. */}
       </div>
+      </CommandRunContext.Provider>
     );
   }
 
@@ -1379,6 +1443,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // saying → meta. Inline tool calls (with contentOffset) still interleave
   // inside the prose via renderContentWithInlineTools.
   return (
+    <CommandRunContext.Provider value={runTarget}>
     <div data-testid="message-content-assistant">
       {turnError && <TurnErrorBanner text={turnError} />}
       {(() => {
@@ -1442,6 +1507,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       {/* Vedi sopra: la striscia di chiusura è salita in <MessageBubble>, sulla
           riga dell'ora. */}
     </div>
+    </CommandRunContext.Provider>
   );
 });
 

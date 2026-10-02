@@ -121,6 +121,15 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { tracePaneAttach } from '../lib/paneAttachTrace';
 import { apiFetch } from '../lib/shell/net';
+import { setPendingTerminalPaste } from '../lib/pendingTerminalPaste';
+
+/**
+ * A shell opened from a chat («Open in terminal» under a code block,
+ * CHAT-RUN-05): `cwdOf` is the chat's sessionKey, and the server starts the
+ * shell where that chat's agent works; `paste` is typed at its first screen
+ * and not run.
+ */
+export interface QuickTerminalOptions { cwdOf?: string; paste?: string }
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -311,7 +320,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | string | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
     promoteDraft: (draftId: string, firstMessage: string, options?: SendMessageOptions) => Promise<void>;
-    handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
+    handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: QuickTerminalOptions) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
     // L'INSIEME canonico, non tre literal a mano: l'implementazione qui sotto
@@ -2292,14 +2301,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
-  const handleQuickCreateTerminal = useCallback(async (termType: TerminalAgentType = 'shell', skipPermissions = true): Promise<string | null> => {
+  const handleQuickCreateTerminal = useCallback(async (termType: TerminalAgentType = 'shell', skipPermissions = true, opts?: QuickTerminalOptions): Promise<string | null> => {
     const name = TERMINAL_AGENT_LABELS[termType];
-    const body = buildTerminalSessionBody(termType, { skipPermissions });
+    const body = { ...buildTerminalSessionBody(termType, { skipPermissions }), ...(opts?.cwdOf ? { cwdOf: opts.cwdOf } : {}) };
     // The refusal is spoken by the helper (translated, one sentence). Null is
     // still the answer, but no longer the ONLY thing that happened.
     const data = await createTerminalSession(body, toast, tr);
     if (!data) return null;
     const paneId = createPaneId('terminal', data.id);
+    // Before the pane exists: it takes the text at the shell's first screen.
+    if (opts?.paste) setPendingTerminalPaste(data.id, opts.paste);
     terminalOps.markRecentlyCreated(data.id);
     terminalOps.addOptimisticSession({
       id: data.id, name: data.name || name, createdAt: data.createdAt,

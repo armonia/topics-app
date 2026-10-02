@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
-import { getTopicWorkspaceForSession } from "./claude-code";
+import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
 
 let tmpRoot: string;
 let projectDir: string;
