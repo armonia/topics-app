@@ -3,16 +3,18 @@
  *
  * Every generated command has a twin where the destructive verb is a probe
  * script that only leaves a mark, and the twin is really run through
- * `/bin/bash -c` and `/bin/sh -c` in a temporary folder. Whenever a shell
+ * `/bin/bash -c`, `/bin/sh -c` and `/bin/zsh -c` (the shell Run uses on
+ * macOS, where it is installed) in a temporary folder. Whenever a shell
  * runs the probe, commandRisk on the original must ask, with the reason the
  * verb gives; whenever the verb only sits in the text (an argument, a quoted
  * value, a comment) and no shell runs it, commandRisk must ask nothing. The
  * original is never run.
  *
- * The commands are (assignment prefixes in every quoting style, with the
- * shell's separators inside their values) x (wrappers, one or two deep) x
- * (destructive forms), drawn with a fixed seed, plus the forms the reviews
- * found by hand.
+ * The commands are (assignment prefixes in every quoting style, `=` and
+ * `+=`, with the shell's separators inside their values) x (wrappers, one or
+ * two deep: options, `--`, heredocs, here-strings, pipes into a shell, zsh's
+ * precommand modifiers) x (destructive forms), drawn with a fixed seed, plus
+ * the forms the reviews found by hand.
  * @covers CHAT-RUN-02
  */
 import { afterAll, describe, expect, test } from 'bun:test';
@@ -21,8 +23,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { commandRisk, type RiskKind } from './commandRisk';
 
-const SHELLS = ['/bin/bash', '/bin/sh'] as const;
-const HAS_BASH = existsSync('/bin/bash');
+const SHELLS = ['/bin/bash', '/bin/sh', '/bin/zsh'].filter((shell) => existsSync(shell));
+const HAS_BASH = SHELLS.includes('/bin/bash');
 
 /** A command written with `verb` where the destructive program goes. */
 type Template = (verb: string) => string;
@@ -38,6 +40,7 @@ const VALUES = [
   `'a"b'`, `"a'b"`, '"a \\" b"', "$'a\\\\'", '""', "''", '"#x"', '"a > b"',
 ];
 const NAMES = ['A', 'GIT_SSH_COMMAND', 'MSG'];
+const OPERATORS = ['=', '=', '=', '+='];
 
 const DESTRUCTIVE: Array<[Template, RiskKind]> = [
   [(v) => `${v} -rf 'a b'`, 'rm'],
@@ -84,6 +87,30 @@ const WRAPPERS: Array<(c: string) => string> = [
   (c) => `echo $(${c})`,
   (c) => `X=$(${c})`,
   (c) => `${c} > /dev/null 2>&1`,
+  (c) => `env -P /usr/bin ${c}`,
+  (c) => `env -S ${sq(c)}`,
+  (c) => `exec -a name ${c}`,
+  (c) => `builtin command ${c}`,
+  (c) => `builtin exec ${c}`,
+  (c) => `builtin eval ${sq(c)}`,
+  (c) => `sh -c -- ${sq(c)}`,
+  (c) => `bash -c -e ${sq(c)}`,
+  (c) => `zsh -c -- ${sq(c)}`,
+  (c) => `eval -- ${sq(c)}`,
+  (c) => `echo a | xargs -J % ${c} %`,
+  (c) => `function f { ${c}; }; f`,
+  (c) => `echo ${sq(c)} | sh`,
+  (c) => `printf '%s\\n' ${sq(c)} | bash`,
+  (c) => `sh <<< ${sq(c)}`,
+  (c) => `bash <<'EOF'\n${c}\nEOF`,
+  (c) => `echo \${X:-$(${c})}`,
+  (c) => `: "\${OUT:=$(${c})}"`,
+  (c) => `cat > /dev/null <<EOF\ndon't\nEOF\n${c}\ncat > /dev/null <<EOF\nit's\nEOF`,
+  (c) => `noglob ${c}`,
+  (c) => `nocorrect ${c}`,
+  (c) => `repeat 1 ${c}`,
+  (c) => `coproc ${c}; wait`,
+  (c) => `(- ${c})`,
 ];
 
 /** mulberry32: the same draws on every run. */
@@ -101,7 +128,7 @@ function generate(count: number): Case[] {
   const pick = <T,>(list: readonly T[]) => list[Math.floor(random() * list.length)]!;
   const cases: Case[] = [];
   for (let n = 0; n < count; n++) {
-    const prefix = Array.from({ length: Math.floor(random() * 3) }, () => `${pick(NAMES)}=${pick(VALUES)} `).join('');
+    const prefix = Array.from({ length: Math.floor(random() * 3) }, () => `${pick(NAMES)}${pick(OPERATORS)}${pick(VALUES)} `).join('');
     const [form, kind] = random() < 0.75 ? pick(DESTRUCTIVE) : [pick(BENIGN), null];
     const outer = pick(WRAPPERS);
     const inner = random() < 0.4 ? pick(WRAPPERS) : (c: string) => c;
@@ -128,7 +155,37 @@ const FOUND: Case[] = [
   { template: (v) => `A="{a b}" ${v} -rf x`, kind: 'rm' },
   { template: (v) => `A="one\ntwo" ${v} -rf x`, kind: 'rm' },
   { template: (v) => `A=a\\ b ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `A+=1 ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `env A+=1 ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `GIT_SSH_COMMAND+=" -v" ${v} push --force origin main`, kind: 'git-push-force' },
+  { template: (v) => `function cleanup { ${v} -rf x; }; cleanup`, kind: 'rm' },
+  { template: (v) => `cat > a.md <<EOF\nDon't edit\nEOF\n${v} -rf build\ncat > b.md <<EOF\nIt's generated\nEOF`, kind: 'rm' },
+  { template: (v) => `echo \${X:-$(${v} -rf x)}`, kind: 'rm' },
+  { template: (v) => `: "\${OUT:=$(${v} -rf x)}"`, kind: 'rm' },
+  { template: (v) => `env -S '${v} -rf x'`, kind: 'rm' },
+  { template: (v) => `env -P /usr/bin ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `exec -a name ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `builtin command ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `builtin exec ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `builtin eval '${v} -rf x'`, kind: 'rm' },
+  ...['sh', 'bash', 'zsh'].map((shell) => ({ template: (v: string) => `${shell} -c -- '${v} -rf x'`, kind: 'rm' as const })),
+  { template: (v) => `bash -c -e '${v} -rf x'`, kind: 'rm' },
+  { template: (v) => `eval -- '${v} -rf x'`, kind: 'rm' },
+  { template: (v) => `echo a | xargs -J % ${v} -rf %`, kind: 'rm' },
+  { template: (v) => `echo a | xargs -R 1 -I % ${v} -rf %`, kind: 'rm' },
+  { template: (v) => `echo '${v} -rf x' | sh`, kind: 'rm' },
+  { template: (v) => `printf '%s\\n' '${v} reset --hard' | bash`, kind: 'git-reset-hard' },
+  { template: (v) => `sh <<< '${v} -rf x'`, kind: 'rm' },
+  { template: (v) => `zsh -s <<< '${v} -9 2147483646'`, kind: 'kill' },
+  { template: (v) => `noglob ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `nocorrect ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `repeat 1 ${v} -rf x`, kind: 'rm' },
+  { template: (v) => `coproc ${v} -rf x; wait`, kind: 'rm' },
+  { template: (v) => `(- ${v} -9 2147483646)`, kind: 'kill' },
+  { template: (v) => `{${v},-rf,x}`, kind: 'rm' },
   { template: () => 'FOO="a b" ls', kind: null },
+  { template: (v) => `git commit -m "$(cat <<'EOF'\nDon't call ${v} -rf here\nEOF\n)"`, kind: null },
+  { template: (v) => `cat > clean.sh <<'EOF'\n${v} -rf dist\nEOF`, kind: null },
   { template: (v) => `git commit -m "${v} -rf x"`, kind: null },
   { template: (v) => `echo "${v} push --force"`, kind: null },
   { template: (v) => `env A="${v} -rf /" true`, kind: null },
@@ -163,7 +220,7 @@ async function runTwin(c: Case, n: number): Promise<boolean[]> {
 
 describe.skipIf(!HAS_BASH)('commandRisk against what bash and sh really run', () => {
   test('a probe the shell runs is always asked about, a verb that is only text never', async () => {
-    const cases = [...FOUND, ...generate(220)];
+    const cases = [...FOUND, ...generate(300)];
     const ran: boolean[][] = [];
     for (let at = 0; at < cases.length; at += 16) {
       ran.push(...await Promise.all(cases.slice(at, at + 16).map((c, k) => runTwin(c, at + k))));
@@ -187,5 +244,5 @@ describe.skipIf(!HAS_BASH)('commandRisk against what bash and sh really run', ()
     // The generator is worth something only if both directions are exercised.
     expect(executed).toBeGreaterThan(100);
     expect(benign).toBeGreaterThan(30);
-  }, 20_000);
+  }, 60_000);
 });

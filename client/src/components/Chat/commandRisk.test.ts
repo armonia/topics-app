@@ -265,6 +265,83 @@ describe('commandRisk: the second step', () => {
     expect(kinds('echo hi 2>&1 >out.txt')).toEqual([]);
   });
 
+  // Read the way the shell reads them, third review: forms each of the shells
+  // really ran with a probe in place of the verb, and Run asked nothing for.
+  const thirdReview: Array<[string, RiskKind]> = [
+    ['A+=1 rm -rf x', 'rm'],
+    ['env A+=1 rm -rf x', 'rm'],
+    ['GIT_SSH_COMMAND+=" -v" git push --force origin main', 'git-push-force'],
+    ['function cleanup { rm -rf x; }; cleanup', 'rm'],
+    ["cat > a.md <<EOF\nDon't edit\nEOF\nrm -rf build\ncat > b.md <<EOF\nIt's generated\nEOF", 'rm'],
+    ["cat > a.md <<'EOF'\nRun `make\nEOF\nrm -rf build\ncat > b.md <<'EOF'\nthen` done\nEOF", 'rm'],
+    ['cat <<EOF\n$(rm -rf x)\nEOF', 'rm'],
+    ['echo ${X:-$(rm -rf x)}', 'rm'],
+    [': "${OUT:=$(rm -rf x)}"', 'rm'],
+    ["env -S 'rm -rf x'", 'rm'],
+    ['env -P /usr/bin rm -rf x', 'rm'],
+    ['exec -a name rm -rf x', 'rm'],
+    ['builtin command rm -rf x', 'rm'],
+    ['builtin exec rm -rf x', 'rm'],
+    ["builtin eval 'rm -rf x'", 'rm'],
+    ["sh -c -- 'rm -rf x'", 'rm'],
+    ["bash -c -- 'rm -rf x'", 'rm'],
+    ["zsh -c -- 'rm -rf x'", 'rm'],
+    ["bash -c -e 'rm -rf x'", 'rm'],
+    ["eval -- 'rm -rf x'", 'rm'],
+    ['echo a | xargs -J % rm -rf %', 'rm'],
+    ['echo a | xargs -R 1 -I % rm -rf %', 'rm'],
+    ['ssh host -- rm -rf x', 'rm'],
+    ['ssh host -t rm -rf x', 'rm'],
+    ['ssh host -p 22 rm -rf x', 'rm'],
+    ["echo 'rm -rf x' | sh", 'rm'],
+    ["printf '%s\\n' 'git reset --hard' | bash", 'git-reset-hard'],
+    ["sh <<< 'rm -rf x'", 'rm'],
+    ["zsh -s <<< 'kill -9 99999'", 'kill'],
+    ["bash <<'EOF'\nrm -rf x\nEOF", 'rm'],
+    ["cat <<'EOF' | sh\nrm -rf x\nEOF", 'rm'],
+    ['noglob rm -rf x', 'rm'],
+    ['nocorrect rm -rf x', 'rm'],
+    ['repeat 1 rm -rf x', 'rm'],
+    ['coproc rm -rf x; wait', 'rm'],
+    ['(- kill -9 99999)', 'kill'],
+    ['if true { rm -rf x }', 'rm'],
+    ['{rm,-rf,x}', 'rm'],
+  ];
+  for (const [command, kind] of thirdReview) {
+    test(`${JSON.stringify(command)} asks (${kind})`, () => {
+      expect(kinds(command)).toContain(kind);
+    });
+  }
+
+  test('a heredoc body is text: a commit message or a file written with one asks nothing', () => {
+    for (const c of [
+      "git commit -m \"$(cat <<'EOF'\nDon't require sudo for the install step\n\nThe script no longer calls sudo.\nEOF\n)\"",
+      "git commit -m \"$(cat <<'EOF'\nfix: don't kill -9 the worker\nEOF\n)\"",
+      "git commit -m \"$(cat <<'EOF'\nWe don't need rm -rf here anymore.\nEOF\n)\"",
+      "gh pr create --title x --body \"$(cat <<'EOF'\n## Summary\n- don't call sudo or pkill node\nEOF\n)\"",
+      "cat > clean.sh <<'EOF'\n#!/bin/sh\nrm -rf dist\nEOF",
+      "cat > README.md <<'EOF'\nIt's a tool. Run pkill node if it hangs.\nEOF",
+      'cat <<-EOF\n\tdd if=/dev/zero of=x\n\tEOF',
+    ]) {
+      expect({ c, confirm: commandRisk(c).confirm }).toEqual({ c, confirm: [] });
+    }
+  });
+
+  // commandRisk runs on every render of a runnable block: the time grows with
+  // the text, not with how deep the quotes and wrappers nest. Each of these
+  // took from 0.1 s to minutes before.
+  test('nested quotes, expansions and wrappers stay fast up to 20 KB', () => {
+    const fill = (unit: string, before = '', after = '') => before + unit.repeat(Math.floor((20480 - before.length - after.length) / unit.length)) + after;
+    for (const command of [
+      '"$('.repeat(26), fill('"$('), fill('$('), fill('${'), fill('"${'), fill('eval ', '', 'true'), 'eval '.repeat(400) + `"'"`,
+      fill('eval ', '', `"'"`), fill('nohup ', "'"), fill('ssh h ', '', "'a b'"), fill('echo rm -rf x | sh | '), fill('cat <<A\n'),
+      fill('if { '), fill('`a` '),
+    ]) {
+      const times = [0, 1, 2].map(() => { const t0 = performance.now(); commandRisk(command); return performance.now() - t0; }).sort((a, b) => a - b);
+      expect({ command: command.slice(0, 40), ms: times[1]! < 100 }).toEqual({ command: command.slice(0, 40), ms: true });
+    }
+  });
+
   test('a reason at line 25 of 30 is found: the whole text is read, not what a collapsed block shows', () => {
     const lines = Array.from({ length: 30 }, (_, i) => `echo step ${i + 1}`);
     lines[24] = 'rm -rf build';
