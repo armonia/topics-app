@@ -2611,7 +2611,12 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   .composer-dock-slide { transition: none; }
 }
 
-/* Mobile drawer animation */
+/* Mobile drawer animation. The project drawer on the phone rides on these:
+ * `--motion-base` in, because it crosses most of the screen like the bottom
+ * sheet does; out is `[data-exit-ghost="drawer"]` (lib/exitGhost). */
+.drawer-enter {
+  animation: slideInLeft var(--motion-base) var(--ease-standard) both;
+}
 @keyframes slideInLeft {
   from {
     transform: translateX(-100%);
@@ -2918,6 +2923,10 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 [data-exit-ghost="sheet"] {
   animation: sheetOut var(--motion-fast) var(--ease-exit) both !important;
+}
+/* The phone's project drawer goes back out to the left edge it came from. */
+[data-exit-ghost="drawer"] {
+  animation: slideOutLeft var(--motion-fast) var(--ease-exit) both !important;
 }
 
 /* REDUCED MOTION, ONCE FOR THE WHOLE APP.
@@ -3391,6 +3400,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .anims-paused .reveal-in,
 .anims-paused .popover-enter,
 .anims-paused .modal-backdrop-enter,
+.anims-paused .drawer-enter,
 .anims-paused .morph-char,
 .anims-paused .morph-block,
 /* The frost's glint is the same shape (one-shot, first frame at opacity 0) and
