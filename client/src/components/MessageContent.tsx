@@ -20,6 +20,8 @@ import { useToast } from './Shared/Toast';
 import { SlashCommandChip } from './Chat/SlashCommandChip';
 import { TurnErrorBanner } from './Chat/TurnErrorBanner';
 import { TurnWorkRow } from './Chat/TurnWorkRow';
+import { useDisclosureToggle } from './Chat/transcriptDisclosure';
+import { DisclosureBody } from './Chat/DisclosureBody';
 import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
@@ -414,6 +416,8 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(true); // collapsed by default if >20 lines
   const [showLineNumbers, setShowLineNumbers] = useState(false);
+  const disclose = useDisclosureToggle();
+  const headerRef = useRef<HTMLDivElement>(null);
   const [wordWrap, setWordWrap] = useState(false);
   const language = className?.replace('language-', '') || '';
   
@@ -472,7 +476,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   return (
     <div className="code-block-wrapper">
       {/* Header with language + controls */}
-      <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
+      <div ref={headerRef} className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
           {language && <span className="text-mini uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
           {/* One line and many lines are two sentences, not one with a hole:
@@ -537,7 +541,20 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       {/* Collapse/expand for long blocks */}
       {isLong && (
         <button
-          onClick={() => setCollapsed(p => !p)}
+          aria-expanded={!collapsed}
+          onClick={(e) => {
+            // The block's own header is what stays put: the lines unroll below
+            // the ten already shown and the button travels down with the end
+            // of the block. Folding a block whose header has scrolled out of
+            // sight holds the button instead, or the reader would be dropped
+            // past the block, wherever its end used to be.
+            const header = headerRef.current;
+            const scroller = header?.closest('[data-virtuoso-scroller]');
+            const headerOutOfSight = !collapsed && header && scroller
+              && header.getBoundingClientRect().top < scroller.getBoundingClientRect().top;
+            disclose(headerOutOfSight ? e.currentTarget : header);
+            setCollapsed(p => !p);
+          }}
           className="w-full bg-app-code-bg hover:bg-app-code-bg text-indigo-300/70 hover:text-indigo-300 text-mini py-1.5 rounded-b-md border-t border-white/5 transition-colors"
         >
           {collapsed ? tr('code.showAll', { n: lineCount }) : tr('code.showLess')}
@@ -891,12 +908,14 @@ type MarkdownComponents = React.ComponentProps<typeof ChatMarkdown>['components'
 function CompactionSummaryFold({ summary, components }: { summary: string; components: MarkdownComponents }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const disclose = useDisclosureToggle();
   const approxK = Math.max(1, Math.round(summary.length / 4 / 1000));
   return (
     <div className="my-2 not-prose" data-testid="compaction-summary-fold">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => { disclose(e.currentTarget); setOpen((o) => !o); }}
+        aria-expanded={open}
         className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini text-app-text-muted hover:bg-app-hover transition-colors"
       >
         <Layers size={12} className="flex-shrink-0" />
@@ -904,11 +923,9 @@ function CompactionSummaryFold({ summary, components }: { summary: string; compo
         <span className="text-app-text-muted/70">· ~{approxK}k token</span>
         <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
-      {open && (
-        <div className="mt-1.5 prose prose-sm max-w-none opacity-70 prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5">
-          <ChatMarkdown components={components}>{summary}</ChatMarkdown>
-        </div>
-      )}
+      <DisclosureBody open={open} className="pt-1.5 prose prose-sm max-w-none opacity-70 prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5">
+        <ChatMarkdown components={components}>{summary}</ChatMarkdown>
+      </DisclosureBody>
     </div>
   );
 }

@@ -167,6 +167,7 @@ const CHAT_IT: Dict = {
   'chat.mention.empty': 'Nessun file trovato',
 
   'chat.command.readingFile': 'Leggo il file…',
+  'chat.command.fileUnreadable': 'Il file di questo comando non è più leggibile.',
   'chat.command.openingBrowser': 'Apro il browser → {url}',
   'chat.compaction.title': 'Contesto compattato',
   'chat.config.reasoningEffort': 'Sforzo di ragionamento',

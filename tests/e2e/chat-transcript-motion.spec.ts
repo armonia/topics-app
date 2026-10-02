@@ -345,8 +345,9 @@ test.describe("transcript motion", () => {
     expect(lurches, "no one-frame lurch when the body opens or closes").toEqual([]);
   });
 
-  test("F09: opening a finished tool row near the bottom brings it into view without a jump or a return", async ({ page, request }, testInfo) => {
+  test("F09: opening a finished tool row at the bottom keeps the row where it was, the body unrolls under it", async ({ page, request }, testInfo) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-03" });
+    test.info().annotations.push({ type: "spec", description: "CHAT-FOLD-01" });
     const output = Array.from({ length: 14 }, (_, i) => `line ${i + 1} of the command output`).join("\n");
     const chat = await seedChat(request, `TM expand ${Date.now()}`, 30, "EXPAND-END", [
       { id: "tm-expand-1", name: "Bash", args: { command: "ls -la /tmp/expand" }, status: "success", result: output, startedAt: Date.now() - 2000, endedAt: Date.now() - 1000 },
@@ -364,27 +365,23 @@ test.describe("transcript motion", () => {
     await moreFrames(page, 45);
     const frames = await stopProbe(page, testInfo, "expand");
 
-    // The list was pinned: the opened body is brought into view, as before.
-    // What changes is how it gets there. The row travels to its final place
-    // without covering more of the way in one frame than that frame's share of
-    // the time (`stepShare`), and it never
-    // moves the other way (the audit saw +266 px, then -266 px 33-43 ms later).
+    // The contract changed with CHAT-FOLD-01. The audit saw +266 px and then
+    // -266 px 33-43 ms later; the cure of 30/09 made the row glide up to bring
+    // its body into view. A row opened by hand now does not move at all: the
+    // body unrolls below it, the list does not re-pin to the new bottom, and
+    // the reader scrolls on to read it (chat-accordion-no-shift.spec.ts).
     const withRow = frames.filter((f) => f.boxes.row);
     const rows = withRow.map((f) => f.boxes.row!);
     const opened = rows.findIndex((b) => b.h - rows[0]!.h >= 100);
     expect(opened, "the body opened").toBeGreaterThan(0);
     const y0 = rows[0]!.y;
-    const yEnd = rows[rows.length - 1]!.y;
-    const travel = yEnd - y0;
-    const faults: string[] = [];
-    for (let i = 1; i < rows.length; i++) {
-      const dy = rows[i]!.y - rows[i - 1]!.y;
-      if (Math.abs(travel) >= 20 && Math.abs(dy) > stepShare(withRow[i]!.t - withRow[i - 1]!.t) * Math.abs(travel)) faults.push(`f${i}: row moved ${dy.toFixed(1)}px in one frame (travel ${travel.toFixed(1)})`);
-      if (Math.abs(dy) > 1 && Math.sign(dy) !== Math.sign(travel)) faults.push(`f${i}: row moved back ${dy.toFixed(1)}px (travel ${travel.toFixed(1)})`);
-    }
-    expect(faults, "the clicked row glides to its place, never jumps, never comes back").toEqual([]);
+    const faults = rows
+      .map((b, i) => ({ i, dy: b.y - y0 }))
+      .filter((x) => Math.abs(x.dy) > 1)
+      .map((x) => `f${x.i}: row moved ${x.dy.toFixed(1)}px`);
+    expect(faults, "the clicked row stays where it was in every frame").toEqual([]);
     const last = frames[frames.length - 1]!;
-    expect(residual(last), "and the list ends pinned, the body in view").toBeLessThanOrEqual(1);
+    expect(residual(last), "the opened body went on below the fold: the list was not re-pinned").toBeGreaterThan(20);
   });
 
   test("F07: a cold open of a short chat shows one skeleton where the messages land", async ({ page, request }, testInfo) => {

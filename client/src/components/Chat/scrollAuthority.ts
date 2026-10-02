@@ -160,7 +160,17 @@ export type ScrollEvent =
   /** Virtuoso: la vista non è più in fondo. Può essere l'utente o la crescita del contenuto. */
   | { type: 'left-bottom'; streaming: boolean; distanceFromBottom: number }
   /** Offset ripristinato da un undo di pane. */
-  | { type: 'offset-restored'; distanceFromBottom: number };
+  | { type: 'offset-restored'; distanceFromBottom: number }
+  /**
+   * A person opened or closed a disclosure in the transcript (a tool group, a
+   * thinking row, a turn's work). It is a hand on the view like a wheel is:
+   * the row they clicked has to stay where it is while its body grows or
+   * shrinks under it, so nobody may take the view to the bottom until they
+   * come back to it themselves (`userHeld`, released at the true bottom).
+   * Anchoring is left alone: whether the reader is still at the bottom is a
+   * question of geometry, and the list answers it after the body has settled.
+   */
+  | { type: 'disclosure-toggled' };
 
 export interface ScrollDecision {
   state: ScrollAuthorityState;
@@ -331,6 +341,9 @@ export function reduceScroll(
     case 'offset-restored':
       if (event.distanceFromBottom <= RESTORE_DETACH_PX) return { state, pin: false };
       return detach(state);
+
+    case 'disclosure-toggled':
+      return { state: hold(state), pin: false };
 
     default: {
       // Esaustività a compile-time: un evento nuovo senza transizione non compila.

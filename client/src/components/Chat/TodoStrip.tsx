@@ -3,15 +3,17 @@
  *
  * A compact, collapsible mirror of the latest `TodoWrite`, rendered above the
  * composer so the current plan stays visible while typing. Collapsed by
- * default to a progress line ("3/7 · <active item>"); expands in place to the
- * full checklist. Purely presentational — the inline transcript card is
- * unaffected.
+ * default to a progress line ("3/7 · <active item>"); opens the full
+ * checklist ABOVE that line (`DockedStripPanel`), so the line under the
+ * pointer stays where it is and the transcript stays in sight above the list. Purely presentational: the inline
+ * transcript card is unaffected.
  */
 
 import { useState } from 'react';
 import { ListChecks, ChevronRight, CircleCheck, CircleDot, Circle } from 'lucide-react';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import { DockedStripPanel } from './DockedStripPanel';
 
 export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
   const [expanded, setExpanded] = useState(false);
@@ -20,27 +22,9 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
 
   return (
     <div data-testid="todo-strip" className={CHAT_STRIP_NEUTRAL}>
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        className={CHAT_STRIP_ROW}
-        aria-expanded={expanded}
-      >
-        <ChevronRight
-          size={13}
-          className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
-        />
-        <ListChecks size={13} className={`flex-shrink-0 ${allDone ? 'text-green-500' : 'text-app-text-secondary'}`} />
-        <span className="flex-shrink-0 text-mini font-medium tabular-nums text-app-text-secondary">
-          {done}/{total}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-compact text-app-text-secondary">
-          {active ? (active.activeForm ?? active.content) : allDone ? 'Tutto completato' : 'Da fare'}
-        </span>
-      </button>
-
-      {expanded && (
-        <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
+      {/* Above the header, in the strip's flow: see `DockedStripPanel`. */}
+      <DockedStripPanel open={expanded} testId="todo-strip-panel" className="max-h-64 overflow-y-auto">
+        <ul className="space-y-0.5 px-2.5 py-1.5">
           {items.map((t, i) => (
             <li key={i} className="flex items-start gap-2 text-compact">
               <span className="mt-0.5 flex-shrink-0">
@@ -66,7 +50,25 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
             </li>
           ))}
         </ul>
-      )}
+      </DockedStripPanel>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className={CHAT_STRIP_ROW}
+        aria-expanded={expanded}
+      >
+        <ChevronRight
+          size={13}
+          className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? '-rotate-90' : ''}`}
+        />
+        <ListChecks size={13} className={`flex-shrink-0 ${allDone ? 'text-green-500' : 'text-app-text-secondary'}`} />
+        <span className="flex-shrink-0 text-mini font-medium tabular-nums text-app-text-secondary">
+          {done}/{total}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-compact text-app-text-secondary">
+          {active ? (active.activeForm ?? active.content) : allDone ? 'Tutto completato' : 'Da fare'}
+        </span>
+      </button>
     </div>
   );
 }

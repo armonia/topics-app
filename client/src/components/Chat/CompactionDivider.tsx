@@ -15,6 +15,8 @@ import { useT } from '../../hooks/useT';
 import { ChevronRight, Layers } from 'lucide-react';
 import type { CompactionMarker } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
 
 function tokens(n: number): string {
   if (n < 1000) return `${n}`;
@@ -26,6 +28,7 @@ const NO_COMPONENTS = {};
 export function CompactionDivider({ marker, summary }: { marker: CompactionMarker; summary?: string }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const disclose = useDisclosureToggle();
   const triggerLabel =
     marker.trigger === 'auto' ? 'automatica' : marker.trigger === 'manual' ? 'manuale' : null;
   const parts: string[] = [];
@@ -54,7 +57,8 @@ export function CompactionDivider({ marker, summary }: { marker: CompactionMarke
         {summary ? (
           <button
             type="button"
-            onClick={() => setOpen((o) => !o)}
+            onClick={(e) => { disclose(e.currentTarget); setOpen((o) => !o); }}
+            aria-expanded={open}
             data-testid="compaction-divider-toggle"
             title={open ? tr('compaction.hide') : tr('compaction.show')}
             className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini hover:bg-app-hover transition-colors"
@@ -69,13 +73,14 @@ export function CompactionDivider({ marker, summary }: { marker: CompactionMarke
         )}
         <div className="h-px flex-1 bg-app-border/60" />
       </div>
-      {open && summary && (
-        <div
-          data-testid="compaction-divider-summary"
-          className="mt-1.5 prose prose-sm max-w-none opacity-70 prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5"
+      {summary && (
+        <DisclosureBody
+          open={open}
+          testId="compaction-divider-summary"
+          className="pt-1.5 prose prose-sm max-w-none opacity-70 prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5"
         >
           <ChatMarkdown components={NO_COMPONENTS}>{summary}</ChatMarkdown>
-        </div>
+        </DisclosureBody>
       )}
     </div>
   );

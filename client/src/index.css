@@ -2414,9 +2414,33 @@ html.native-frost.dark .edge-lit::before {
    la tinta del chrome al 72% piu' un blur, con corpo bastante a leggere il testo
    sopra qualunque cosa passi dietro, e non il pieno che fermava ogni schermata al
    suo bordo. `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano:
-   Lightning CSS collassa la coppia grezza sul solo `-webkit-` (vedi `.glass-surface`). */
+   Lightning CSS collassa la coppia grezza sul solo `-webkit-` (vedi `.glass-surface`).
+
+   Il 72% lasciava leggere il testo di sotto attraverso la banda (misurato a occhio
+   sullo scatto del 01/10): su un telefono sotto scorre testo, non una vibrancy, e il
+   blur sfoca i contorni ma non abbassa il contrasto. Sale all'86%, lo stesso velo
+   della barra in alto (`.mobile-top-veil`, e `.pane-chrome-bar` sotto i 768px): una
+   tinta sola per le due fasce che chiudono lo schermo. */
 .transport-band-glass {
-  background-color: color-mix(in srgb, var(--chrome-bg) 72%, transparent);
+  background-color: color-mix(in srgb, var(--chrome-bg) 86%, transparent);
+  @apply backdrop-blur-md;
+}
+
+/* IL VELO DELLA BARRA IN ALTO SUL TELEFONO. Le liste e la chat le scorrono SOTTO
+   (PR #181) e senza fondo il titolo si sovrapponeva al testo delle righe. Stessa
+   ricetta della banda in basso: tinta del chrome all'86% + blur. `.mobile-top-veil`
+   e' per la riga «Topics» della colonna, che non e' una `.pane-chrome-bar`; la riga
+   delle pane la prende dalla media query piu' sotto, dopo la sua regola base.
+   Il velo e' il `::before` e non la riga: sale di `env(safe-area-inset-top)` perche'
+   la lista scorre anche sotto la fascia di sicurezza e il velo deve coprirla fino al
+   bordo dello schermo, e un `backdrop-filter` sulla riga renderebbe nullo quello
+   del figlio (la riga diventa «backdrop root»). */
+.mobile-top-veil::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * env(safe-area-inset-top, 0px)) 0 0 0;
+  z-index: -1;
+  background-color: color-mix(in srgb, var(--chrome-bg) 86%, transparent);
   @apply backdrop-blur-md;
 }
 
@@ -3682,6 +3706,18 @@ html.native-frost:not(.dark) .chrome-glass {
   /* Sopra il contenuto, sotto i popover (z-50) e le anteprime di split. */
   z-index: 20;
   background-color: var(--chrome-overlay-bg);
+}
+
+/* SUL TELEFONO LA RIGA HA UN VELO (richiesta del 02/10). Sopra i 768px resta il
+   vetro senza fondo e senza blur che `chrome-bar-continuity.spec.ts` blinda: le tab
+   galleggiano sul transcript. Sul telefono le tab non ci sono (c'e' il nome della
+   superficie) e il titolo cadeva sulle parole che scorrono. Stessa tinta e stesso
+   blur della banda «Utilizzo Claude». `max-width: 767px` e' il complemento di `md:`. */
+@media (max-width: 767px) {
+  .pane-chrome-bar {
+    background-color: color-mix(in srgb, var(--chrome-bg) 86%, transparent);
+    @apply backdrop-blur-md;
+  }
 }
 
 /* THE THREE TAB FILLS, DERIVED FROM THE DESIGN SYSTEM'S OWN SURFACE.

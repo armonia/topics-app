@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import { DisclosureBody } from './DisclosureBody';
 
 interface Props {
   /** Raw thinking text. */
@@ -17,6 +19,7 @@ interface Props {
  */
 export function ReasoningRow({ content, partial, defaultCollapsed = true }: Props) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const disclose = useDisclosureToggle();
   if (!content) return null;
   const length = content.length;
 
@@ -24,7 +27,8 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true }: Prop
     <div data-testid="reasoning-row" className="text-compact">
       <button
         type="button"
-        onClick={() => setCollapsed((v) => !v)}
+        onClick={(e) => { disclose(e.currentTarget); setCollapsed((v) => !v); }}
+        aria-expanded={!collapsed}
         className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
       >
         {collapsed ? <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />}
@@ -35,13 +39,11 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true }: Prop
           <span className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse flex-shrink-0" />
         )}
       </button>
-      {!collapsed && (
-        <div className="ml-5 pb-1.5">
-          <pre className="text-mini font-mono text-app-text-secondary whitespace-pre-wrap leading-relaxed bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
-            {content}
-          </pre>
-        </div>
-      )}
+      <DisclosureBody open={!collapsed} className="ml-5 pb-1.5">
+        <pre className="text-mini font-mono text-app-text-secondary whitespace-pre-wrap leading-relaxed bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
+          {content}
+        </pre>
+      </DisclosureBody>
     </div>
   );
 }
