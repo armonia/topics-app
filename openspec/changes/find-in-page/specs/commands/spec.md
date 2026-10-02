@@ -45,6 +45,17 @@ anche con il cursore in un campo di testo della pane (il campo della chat), in
 un terminale, in un editor, o dentro la pagina di una pane browser nativa
 (BROWSER-FIND-02).
 
+Il cursore nel campo SHALL essere anche la tastiera del sistema: aprendosi, la
+barra SHALL chiamare `releaseNativeFocus()` (`lib/shell/tauri.ts:50-56`) prima
+di mettere il fuoco nel suo campo. Senza, con una pane browser nativa a fuoco
+le lettere vanno alla pagina (`Browser/useBrowserChromeBridge.ts:107-118`).
+
+Il modificatore: sul Mac (`usesCtrl` falso, `lib/shortcutLabel.ts:34`) SHALL
+contare solo ⌘; Ctrl+F col cursore in un campo di testo, in un terminale o in
+un editor NON SHALL essere preso e SHALL restare a quella superficie (avanti di
+un carattere). Dove `usesCtrl` è vero (Windows, Linux) Ctrl+F SHALL aprire la
+barra ovunque sia il cursore, terminale compreso.
+
 Se la pane a fuoco non ha un cercatore:
 - la board SHALL ricevere il cursore nel suo campo filtro
   (`Board/FilterTokenField.tsx`);
@@ -53,15 +64,23 @@ Se la pane a fuoco non ha un cercatore:
 
 ⇧⌘F SHALL aprire, o chiudere se aperta, la ricerca nel contenuto dei progetti;
 con la ricerca per nome aperta (⌘P) SHALL passare al modo contenuto senza
-chiudere. Il registro `shared/shortcuts.ts` SHALL avere le righe ⌘F «Cerca
-qui», ⌘G, ⇧⌘G e ⇧⌘F «Cerca nei progetti aperti», e ⌘F e ⌘G SHALL portare
-`native` (accordi inoltrati dalla shell su Mac e Windows).
+chiudere. Questo rovescia il ritiro di ⇧⌘F del 2026-08-06 (SRC-05 in
+`tests/e2e/search-shortcuts.spec.ts`), e SRC-03 diventa: ⌘F in un campo di
+testo apre la barra della pane, non la ricerca nei progetti. Il registro
+`shared/shortcuts.ts` SHALL avere le righe ⌘F «Cerca qui», ⌘G, ⇧⌘G e ⇧⌘F
+«Cerca nei progetti aperti», e ⌘F e ⌘G SHALL portare `native` (accordi
+inoltrati dalla shell su Mac e Windows).
 
 #### Scenario: dal campo della chat
 - **GIVEN** una chat a fuoco con il cursore nel campo dove scrivo
 - **WHEN** premo ⌘F
 - **THEN** si apre la barra della chat con il cursore nel suo campo
 - **AND** la ricerca nei progetti non si apre
+
+#### Scenario: Ctrl+F sul Mac resta al campo
+- **GIVEN** il Mac, una chat a fuoco con il cursore nel campo dove scrivo
+- **WHEN** premo Ctrl+F
+- **THEN** né la barra della chat né la ricerca nei progetti si aprono
 
 #### Scenario: la ricerca nei progetti su ⇧⌘F
 - **GIVEN** un progetto aperto
@@ -82,7 +101,11 @@ qui», ⌘G, ⇧⌘G e ⇧⌘F «Cerca nei progetti aperti», e ⌘F e ⌘G SHAL
 
 Con il cursore dentro una `FindBar`, Esc SHALL chiudere quella barra, togliere
 le evidenziazioni e rimettere il cursore dove stava nella pane prima di ⌘F, e
-NON SHALL interrompere il turno in streaming della pane. La regola SHALL stare
+NON SHALL interrompere il turno in streaming della pane. Se la barra era stata
+aperta col cursore dentro la pagina di una pane browser nativa, Esc SHALL
+ridare la tastiera a quella pagina con un comando di release della shell
+(`browser_focus_pane`; oggi `focus_grab_browser`, `lib.rs:8083`, esiste solo
+in debug). La regola SHALL stare
 nel gestore in capture su window (`useKeyboardShortcuts.ts`), prima del ramo
 che interrompe il turno, perché quel gestore gira prima di ogni `onKeyDown`
 della barra.

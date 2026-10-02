@@ -2,23 +2,33 @@
 
 ## ADDED Requirements
 
-### Requirement: CHAT-FIND-01 — La chat cerca nella conversazione intera, nei dati e non nel DOM
+### Requirement: CHAT-FIND-01 — La chat cerca nella conversazione intera, uscite degli strumenti comprese, sul server
 
-Il cercatore della chat SHALL cercare nei messaggi della sessione, non nelle
-righe montate dalla lista virtuale (`MessageList.tsx:2111,2267`).
+Il cercatore della chat NON SHALL cercare nelle righe montate dalla lista
+virtuale (`MessageList.tsx:2111,2267`), e NON SHALL cercare l'uscita degli
+strumenti nei dati del client. Il client non la riceve: la storia la toglie
+(`server/routes/history.ts:136-143,266`, `shared/lean-tool-call.ts:305,433-436,516`).
 
-SHALL cercare in tutti i messaggi della conversazione: quelli nello store e
-quelli che `historyCompleteness` tiene in attesa (`staged`). Se la storia non è
-completa, la barra SHALL chiederla con `requestHistoryCompletion(sessionKey,
-'stage')`, che NON SHALL unire le righe alla lista; finché non arrivano il
-contatore SHALL dire che il totale è parziale, e all'arrivo la ricerca SHALL
-rifarsi.
+SHALL chiedere i risultati alla rotta `POST /api/history-find`
+(`{ sessionKey, query, matchCase }`, in `server/routes/history.ts`). La rotta
+SHALL leggere tutti i messaggi attivi della sessione con le uscite rimesse da
+`message_tool_outputs`, e SHALL rispondere
+`{ total, hits: [{ messageId, part, toolCallId?, offset }], truncated }`, con
+`total` esatto e al più 5.000 posizioni. La rotta NON SHALL essere aperta agli
+ospiti (`server/lib/grants.ts:101`).
 
 In ogni messaggio SHALL cercare: il testo; i ragionamenti; il comando o gli
 argomenti e l'uscita di ogni strumento (dal `detail` validato, o da `result`
-quando `detail` manca). La funzione SHALL essere pura
-(`client/src/components/Chat/chatFind.ts`) e SHALL dare per ogni risultato
-`messageId`, la parte (`text`, `thinking`, o lo strumento) e la posizione.
+quando `detail` manca). NON SHALL cercare nei comandi lanciati da chi scrive
+(`CommandRunBlock`), che non sono messaggi. La ricerca SHALL essere una
+funzione pura (`shared/chat-find.ts`), la stessa per la rotta e per il client,
+e SHALL dare per ogni risultato `messageId`, la parte (`text`, `thinking`,
+`tool` con `toolCallId`) e la posizione.
+
+Il messaggio in streaming SHALL essere cercato nel client, sul testo ricevuto
+dal vivo; i suoi risultati SHALL sostituire quelli della rotta per lo stesso
+`messageId`. La barra SHALL chiedere alla rotta 250 ms dopo l'ultima lettera,
+annullando la richiesta precedente, e di nuovo a fine turno.
 
 I risultati SHALL essere nell'ordine in cui la conversazione li mostra, dal
 primo messaggio all'ultimo. Il primo passo avanti da fermo SHALL essere il
@@ -26,7 +36,11 @@ primo risultato **sotto** la posizione di lettura, e il primo indietro il primo
 sopra (poi BROWSER-FIND-01 per il ciclo).
 
 Senza maiuscole/minuscole il confronto SHALL ignorare le maiuscole; una parola
-vuota SHALL dare zero risultati.
+vuota SHALL dare zero risultati. Oltre 5.000 risultati il contatore SHALL dire
+«oltre 5000».
+
+Per un ospite di una chat condivisa la barra SHALL cercare solo nel testo e nei
+ragionamenti che il client ha.
 
 #### Scenario: una parola solo nel primo messaggio di una chat lunga
 - **GIVEN** una chat con più messaggi di quanti ne porti la prima pagina (`HISTORY_FIRST_PAGE`) e la parola «zibaldone» solo nel primo
@@ -35,7 +49,7 @@ vuota SHALL dare zero risultati.
 - **AND** con Invio la riga del primo messaggio è in vista
 
 #### Scenario: una parola solo nell'uscita di uno strumento
-- **GIVEN** una risposta con una chiamata a uno strumento chiusa, la cui uscita contiene «ENOENT»
+- **GIVEN** una risposta con una chiamata a uno strumento chiusa, la cui uscita contiene «ENOENT» e sta in `message_tool_outputs`
 - **WHEN** cerco «ENOENT»
 - **THEN** il contatore dice almeno un risultato
 
@@ -51,13 +65,16 @@ Andare su un risultato SHALL:
   palette (`requestScrollToMessage`, `MessageList.tsx:1384-1460`), che unisce la
   storia mancante (`'apply'`) solo in questo momento;
 - aprire la sezione dei ragionamenti o dello strumento che lo contiene, se è
-  chiusa, e lasciarla aperta dopo;
+  chiusa, e lasciarla aperta dopo; una riga di strumento SHALL chiedere il suo
+  testo intero con la richiesta che c'è già (`ToolCallRow.tsx:274-283`) prima
+  di evidenziare;
 - espandere il corpo se il risultato è oltre il taglio di `clampBody`
   (`Chat/clampBody.ts:14`);
 - evidenziare la parola nel testo a schermo con la CSS Custom Highlight API
   (`CSS.highlights`), il corrente con un colore suo, senza modificare il DOM
   della riga. Dove la parola non si ritrova nel testo a schermo (markdown che la
-  spezza) SHALL evidenziare la riga intera (`chat-msg-jump-highlight`).
+  spezza, uscita disegnata in parte) SHALL evidenziare la riga intera
+  (`chat-msg-jump-highlight`).
 
 Chiudere la barra SHALL togliere ogni evidenziazione e NON SHALL richiudere le
 sezioni aperte.
