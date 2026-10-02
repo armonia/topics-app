@@ -151,14 +151,15 @@ export function translateSessionUpdate(
       return [{ kind: "context", tokens: used, ...(size ? { windowTokens: size } : {}) }];
     }
     case "plan": {
-      const entries = Array.isArray(update.entries) ? update.entries : [];
-      const steps = entries
+      // A `plan` with no `entries` at all says nothing.
+      if (!Array.isArray(update.entries)) return [];
+      const steps = update.entries
         .map((e) => ({ content: String(e?.content ?? "").trim(), status: planStatus(e?.status) }))
         .filter((e) => e.content.length > 0);
-      // Un piano svuotato è un fatto («non c'è più un piano»), non un
-      // non-evento: emetterlo permette a chi ascolta di cancellare l'elenco.
-      // Un `plan` senza `entries` del tutto, invece, non dice niente.
-      return entries.length ? [{ kind: "plan", steps }] : [];
+      // An emptied plan is a fact ("there is no plan any more"), not a
+      // non-event: ACP sends the WHOLE plan on every update, so
+      // `entries: []` is emitted too and the listener clears its list.
+      return [{ kind: "plan", steps }];
     }
     // `user_message_chunk` è l'eco del nostro stesso prompt (replay di
     // `session/load`): ri-emetterlo duplicherebbe il messaggio dell'umano.
