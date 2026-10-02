@@ -51,6 +51,10 @@ import type {
 export interface UseProjectChatSyncArgs {
   projectPath: string;
   topics: Record<string, Topic>;
+  /** The topics list has not answered yet and nothing was cached
+   *  (`useTopicsPending`). An empty `topics` then means "not known", not
+   *  "this project has none": the first sync waits for it. */
+  topicsPending?: boolean;
   /** Snapshot from `useProjectPersistenceLoad`. Read once on first sync to
    *  restore last-session open chats + active chat. */
   initial: PersistedSnapshot | null;
@@ -92,6 +96,7 @@ export function useProjectChatSync(
   const {
     projectPath,
     topics,
+    topicsPending = false,
     initial,
     panes,
     groups,
@@ -169,8 +174,12 @@ export function useProjectChatSync(
     // topics `topics` does not know yet, the list is not "this project has no
     // topics" but "the topics have not arrived". The first sync waits for them.
     const existingChatPanes = curPanes.filter(p => p.type === 'chat');
+    // Two ways to tell: chat panes whose topics are missing, or (a layout with
+    // no chat panes at all) the topics list itself still pending. Missing the
+    // second one took an EMPTY baseline and opened every topic on arrival.
     const topicsUnknown =
-      currentSet.size === 0 && existingChatPanes.some(p => !!p.topicId && !topics[p.topicId]);
+      currentSet.size === 0 &&
+      (topicsPending || existingChatPanes.some(p => !!p.topicId && !topics[p.topicId]));
     if (currentSet.size === 0 && existingChatPanes.length > 0) markChatSyncDone();
 
     // Remove chat panes whose topic no longer belongs in the project — but ONLY
@@ -307,10 +316,10 @@ export function useProjectChatSync(
     // ripartire sul proprio output — un ciclo, non una sincronizzazione.
     // `applyChatReconciliation` è una prop che il chiamante non memoizza, e
     // passa comunque per updater funzionali (vedi l'intestazione del file),
-    // quindi non invecchia. Gli ingressi veri sono i tre elencati: quali topic
-    // esistono, come si chiamano, e in quale progetto.
+    // quindi non invecchia. Gli ingressi veri sono quelli elencati: quali topic
+    // esistono, come si chiamano, e in quale progetto (più se l'elenco è ancora in arrivo).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicIds, topics, projectPath]);
+  }, [topicIds, topics, topicsPending, projectPath]);
 
   // --- Server-fetch hydration callback ---
   // Replaces the inline shim that lived in ProjectWindow.tsx during Commits 2-3.

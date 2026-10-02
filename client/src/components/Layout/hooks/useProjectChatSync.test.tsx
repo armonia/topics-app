@@ -67,4 +67,48 @@ describe('useProjectChatSync, topics that arrive after the layout', () => {
       h.unmount();
     }
   });
+
+  test('a layout with no chat panes waits for the topics too, and opens none of them', () => {
+    // The saved layout holds only a terminal; the topic cache was empty, so
+    // the topics list is still pending. Nothing told the first sync to wait:
+    // it took an EMPTY baseline and the delta branch then opened every
+    // non-archived topic of the project as a tab when the list arrived.
+    const term: Pane = { id: 'terminal:t1', type: 'terminal', title: 'zsh', preview: false } as Pane;
+    const group: PaneGroup = { id: 'g1', type: 'terminal', paneIds: [term.id], activePaneId: term.id } as PaneGroup;
+    const applied: ChatReconciliation[] = [];
+    let topics: Record<string, Topic> = {};
+    let topicsPending = true;
+    const gateRefs = { initialChatsSyncedRef: { current: false } };
+
+    function Probe() {
+      useProjectChatSync({
+        projectPath: PROJECT,
+        topics,
+        topicsPending,
+        initial: { nonChatPanes: [], openChatTopicIds: [], activeChatTopicId: null },
+        panes: [term],
+        groups: [group],
+        focusedGroupId: group.id,
+        applyChatReconciliation: (r) => { applied.push(r); },
+        reopenChatPane: () => {},
+        gateRefs,
+        markChatSyncDone: () => {},
+      });
+      return null;
+    }
+
+    const h = mount(createElement(Probe));
+    try {
+      topics = { A: topic('A', 0), B: topic('B', 1) };
+      topicsPending = false;
+      h.rerender();
+      expect(applied.flatMap(r => r.add.map(p => p.topicId))).toEqual([]);
+      // Once the list is known a topic that genuinely arrives later still opens.
+      topics = { ...topics, C: topic('C', 2) };
+      h.rerender();
+      expect(applied.flatMap(r => r.add.map(p => p.topicId))).toEqual(['C']);
+    } finally {
+      h.unmount();
+    }
+  });
 });
