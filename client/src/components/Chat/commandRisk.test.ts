@@ -166,6 +166,55 @@ describe('commandRisk: the second step', () => {
     }
   });
 
+  // Read the way the shell reads them: ANSI-C quotes, quotes inside other
+  // quotes, separators and expansions inside a quoted value, escaped spaces.
+  const secondReview: Array<[string, RiskKind]> = [
+    ["A=$'don\\'t' rm -rf 'my dir'", 'rm'],
+    ["A=$'a\\'b' rm -rf 'a b'", 'rm'],
+    ["env A=$'\\'' rm -rf 'a b'", 'rm'],
+    ["A=$'\\'' rm -rf x\\'", 'rm'],
+    ["A=$'it\\'s here' rm -rf x", 'rm'],
+    ['bash -c "A=\\"x y\\" rm -rf x"', 'rm'],
+    ['sh -c "GIT_SSH_COMMAND=\\"ssh -i k\\" git push --force"', 'git-push-force'],
+    ['env -i "A=x y" rm -rf x', 'rm'],
+    ['MSG="done (ok)" rm -rf x', 'rm'],
+    ['A="a; b" rm -rf x', 'rm'],
+    ['A="$(date) x" rm -rf x', 'rm'],
+    ['A="`date` x" rm -rf x', 'rm'],
+    ['A="{a b}" rm -rf x', 'rm'],
+    ['A="one\ntwo" rm -rf x', 'rm'],
+    ['A=a\\ b rm -rf x', 'rm'],
+    ["$'\\x72m' -rf x", 'rm'],
+    ['r\\\nm -rf x', 'rm'],
+    ['> out.log rm -rf x', 'rm'],
+    ['2>/dev/null git push --force', 'git-push-force'],
+    ['echo "$(rm -rf x)"', 'rm'],
+    ['diff <(rm -rf x) b', 'rm'],
+    ['{ rm -rf x; }', 'rm'],
+    ['ls `git reset --hard`', 'git-reset-hard'],
+  ];
+  for (const [command, kind] of secondReview) {
+    test(`${JSON.stringify(command)} asks (${kind})`, () => {
+      expect(kinds(command)).toContain(kind);
+    });
+  }
+
+  test('a destructive word only as text asks nothing', () => {
+    for (const c of [
+      'FOO="a b" ls', 'git commit -m "rm -rf x"', 'echo "git push --force"', 'env A="rm -rf /" ls',
+      'grep -e "rm -rf" file', `printf '%s' "a; rm -rf x"`, "echo $'rm -rf x'", 'echo hi # rm -rf x',
+      'echo rm\\ -rf x', 'A="x; rm -rf y" ls', 'echo "a && rm -rf x"', "echo 'a | rm -rf x'",
+    ]) {
+      expect({ c, confirm: commandRisk(c).confirm }).toEqual({ c, confirm: [] });
+    }
+  });
+
+  test('a quote that never closes: a destructive word anywhere on the line asks', () => {
+    for (const c of ['A="a rm -rf x', "A='a rm -rf x", 'A="a b rm -rf "x" y', 'A="a b" rm -rf "x', "rm -rf x'", 'echo `rm -rf x']) {
+      expect({ c, kinds: kinds(c) }).toEqual({ c, kinds: expect.arrayContaining(['rm']) });
+    }
+  });
+
   test('the three payloads the review found ask', () => {
     expect(kinds('bash -c "FOO=1 rm -rf x"')).toContain('rm');
     expect(kinds('ssh host "FOO=1 rm -rf x"')).toContain('rm');

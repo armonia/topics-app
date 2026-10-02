@@ -8,18 +8,24 @@
  * plain command asks nothing. The WHOLE text is read, also when the code
  * block shows only its first ten lines.
  *
- * The scan is word by word over each simple command (split on `;`, `&&`,
- * `||`, `|`, `&`, parentheses, braces, backticks and newlines, with backslash
- * line continuations joined first), after the reserved words that lead into
- * one (`then`, `do`, `!`...) and the wrappers that run another command
+ * The text is read the way sh and bash read it, by one small lexer: single
+ * quotes, double quotes, ANSI-C `$'...'` (where `\'` is a quote), backslash
+ * escapes and line continuations, `$(...)`, backticks and `<(...)` (whose
+ * content is a command too, read the same way), comments, redirections, and
+ * the control operators that end a simple command, only where they are not
+ * quoted. Each simple command comes out as the words the shell would hand
+ * over, quotes removed, and is scanned word by word: past the reserved words
+ * that lead into it (`then`, `do`, `!`, `{`...), the assignments in front of
+ * it (`FOO="a b" rm -rf x`) and the wrappers that run another command
  * (`sudo`, `env`, `xargs`, `timeout`, `caffeinate`...). A command handed over
- * as text is read too: the payload of `sh -c`/`bash -c`/`zsh -c`, of `eval`
- * and of `ssh host` (a command run on another machine is no less destructive).
- * Quotes are not parsed but in the value of a leading assignment, which may
- * span words (`FOO="a b" rm -rf x`), and only a command's own name is looked
- * at: `echo "rm -rf x"` asks nothing, while in `bash -c "rm -rf x"` the quote
- * before `rm` is dropped like any other, so the payload reads as the command
- * it is.
+ * as text is read again from that text: the payload of `sh -c`/`bash -c`/
+ * `zsh -c`, the words of `eval` and those after `ssh host` (a command run on
+ * another machine is no less destructive). Only a command's own name is
+ * looked at: `echo "rm -rf x"` asks nothing.
+ *
+ * A quote that never closes makes bash refuse the line, and which part was
+ * meant as the command is a guess: there every word is tried as the start of
+ * one, so a destructive word anywhere on it asks.
  */
 
 export type RiskKind =
@@ -51,10 +57,9 @@ function hasHiddenChars(text: string): boolean {
   return false;
 }
 
-const SEPARATORS = /\n|;|&&|\|\||\||&|\$\(|[(){}`]/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
-/** Words that lead into a command without being one: `then rm -rf x`, `! git push -f`. */
-const LEADING_RESERVED = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
+/** Words that lead into a command without being one: `then rm -rf x`, `! git push -f`, `{ rm -rf x; }`. */
+const LEADING_RESERVED = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
 /** A backslash at the end of a line: the command goes on on the next one. */
 const LINE_CONTINUATION = /\\\r?\n/g;
 /** Options of a wrapper that take the next word as their value. */
@@ -79,65 +84,228 @@ const PIPE_TO_SHELL = [
 ];
 /** `<word>`, but not `<<EOF`, `<<<`, `< file`, `<(cmd)` nor `a<b>`. */
 const PLACEHOLDER = /(?<![<\w])<[A-Za-z][\w.-]*>/g;
+/** A redirection operator, longest first. */
+const REDIRECTION = /^(?:<<<|<<-|&>>|<<|>>|<>|<&|>&|>\||&>|<|>)/;
+/** What a backslash stands for inside `$'...'`, past the numeric forms. */
+const ANSI_C_ESCAPES: Record<string, string> = {
+  n: '\n', t: '\t', r: '\r', a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?',
+};
 
-const unquote = (w: string) => w.replace(/^['"]+|['"]+$/g, '');
-/** The command's name as the shell resolves it: `/bin/rm` and `\rm` are `rm`. */
-const commandName = (w: string) => unquote(w).replace(/^\\/, '').split('/').pop() ?? '';
+type AddReason = (kind: RiskKind, text: string) => void;
+
+/** The command's name as the shell resolves it: `/bin/rm` is `rm`. */
+const commandName = (w: string) => w.split('/').pop() ?? '';
 const isShortFlag = (w: string) => /^-[A-Za-z]+$/.test(w);
 const shortHas = (w: string, letters: string) => isShortFlag(w) && [...letters].some((l) => w.includes(l));
 
-/** The quote still open at the end of `text`, read with `open` already open. */
-function openQuoteAfter(text: string, open: string | null): string | null {
-  for (let k = 0; k < text.length; k++) {
-    const c = text[k]!;
-    if (open === "'") { if (c === "'") open = null; continue; }
-    if (c === '\\') { k++; continue; }
-    if (open === '"') { if (c === '"') open = null; continue; }
-    if (c === '"' || c === "'") open = c;
+/**
+ * The value of the `$'...'` whose content starts at `i`, and where it ends
+ * past its closing quote; null when it never closes. `\'` is a quote, not the
+ * end, and `$'\x72m'` is `rm`.
+ */
+function ansiC(src: string, i: number): [string, number] | null {
+  let out = '';
+  while (i < src.length) {
+    const c = src[i]!;
+    if (c === "'") return [out, i + 1];
+    if (c !== '\\') { out += c; i++; continue; }
+    const num = /^(?:x([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{1,4})|U([0-9A-Fa-f]{1,8})|([0-7]{1,3}))/.exec(src.slice(i + 1, i + 10));
+    if (num) {
+      const hex = num[1] ?? num[2] ?? num[3];
+      out += String.fromCodePoint(Math.min(hex ? parseInt(hex, 16) : parseInt(num[4]!, 8), 0x10ffff));
+      i += 1 + num[0].length;
+      continue;
+    }
+    const e = src[i + 1] ?? '';
+    if (e === 'c' && i + 2 < src.length) { out += String.fromCharCode(src.charCodeAt(i + 2) & 0x1f); i += 3; continue; }
+    out += ANSI_C_ESCAPES[e] ?? `\\${e}`;
+    i += 2;
   }
-  return open;
+  return null;
 }
 
 /**
- * Past the assignment at `i`, or null when `words[i]` is not one. A value
- * quoted across a space (`FOO="a b"`, `GIT_SSH_COMMAND="ssh -i k"`) spans the
- * words up to the one that closes its quote: the word after `FOO="a` is still
- * the value, not the command. A quote that never closes spans nothing, and the
- * next word is read as the command. The quotes in front of the name are not
- * the value's: in `bash -c "FOO='a b' rm -rf x"` the payload's first word is
- * `"FOO='a`.
+ * Splits `src` into simple commands the way sh and bash do, handing the words
+ * of each one to `sink` with their quotes and escapes removed, the commands
+ * inside `$(...)`, backticks and `<(...)` included. Returns whether a quote
+ * never closed: there the quote is read as a plain character, so the words
+ * after it are still handed over.
  */
-function pastAssignment(words: string[], i: number): number | null {
-  const word = (words[i] ?? '').replace(/^['"]+/, '');
-  if (!ASSIGNMENT.test(word)) return null;
-  let open = openQuoteAfter(word.slice(word.indexOf('=') + 1), null);
-  let j = i + 1;
-  while (open && j < words.length) open = openQuoteAfter(words[j++]!, open);
-  return open ? i + 1 : j;
+function splitCommands(src: string, sink: (words: string[]) => void): boolean {
+  let broken = false;
+
+  /** Where the `${...}` whose brace is at `i` ends, or null when it never closes. */
+  const braceEnd = (i: number): number | null => {
+    for (let depth = 0; i < src.length; i++) {
+      const c = src[i];
+      if (c === '\\') i++;
+      else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) return i + 1;
+    }
+    return null;
+  };
+
+  /**
+   * Where the expansion at `i` ends when it is `$(...)`, `${...}` or a
+   * backtick span, with the commands inside handed to `sink`; null when there
+   * is none at `i`, or it never closes.
+   */
+  const expansionEnd = (i: number): number | null => {
+    if (src[i] === '$' && src[i + 1] === '(') return read(i + 2, true);
+    if (src[i] === '$' && src[i + 1] === '{') return braceEnd(i + 1);
+    if (src[i] !== '`') return null;
+    let j = i + 1;
+    while (j < src.length && src[j] !== '`') j += src[j] === '\\' ? 2 : 1;
+    if (j >= src.length) return null;
+    // Inside backticks a backslash keeps only `\\`, `` \` `` and `\$`.
+    if (splitCommands(src.slice(i + 1, j).replace(/\\([\\`$])/g, '$1'), sink)) broken = true;
+    return j + 1;
+  };
+
+  /** The value of the double-quoted text whose content starts at `i`, and where it ends; null when it never closes. */
+  const doubleQuoted = (i: number): [string, number] | null => {
+    let out = '';
+    while (i < src.length) {
+      const c = src[i]!;
+      if (c === '"') return [out, i + 1];
+      const next = src[i + 1];
+      if (c === '\\' && next !== undefined && '$`"\\\n'.includes(next)) {
+        if (next !== '\n') out += next;
+        i += 2;
+        continue;
+      }
+      const end = expansionEnd(i);
+      if (end !== null) { out += src.slice(i, end); i = end; continue; }
+      out += c;
+      i++;
+    }
+    return null;
+  };
+
+  /** Reads from `i`; when `nested`, stops past the `)` that closes the `$(` or `<(` before `i`. */
+  const read = (i: number, nested: boolean): number => {
+    let words: string[] = [];
+    let word = '';
+    let inWord = false; // a word has begun, also an empty one (`""`)
+    let dropNext = false; // the next word is a redirection's target, not an argument
+    let depth = 0; // subshell parentheses open inside this span
+    const add = (s: string) => { word += s; inWord = true; };
+    const endWord = () => {
+      if (inWord) {
+        if (dropNext) dropNext = false;
+        else words.push(word);
+      }
+      word = '';
+      inWord = false;
+    };
+    const endCommand = () => {
+      endWord();
+      dropNext = false;
+      if (words.length) sink(words);
+      words = [];
+    };
+    while (i < src.length) {
+      const c = src[i]!;
+      const next = src[i + 1];
+      if (c === '\\') {
+        // The next character as it is; a backslash before a newline joins the lines.
+        if (next !== '\n') add(next ?? c);
+        i += 2;
+        continue;
+      }
+      if (c === "'") {
+        const end = src.indexOf("'", i + 1);
+        if (end < 0) { broken = true; add(c); i++; continue; }
+        add(src.slice(i + 1, end));
+        i = end + 1;
+        continue;
+      }
+      if (c === '"' || (c === '$' && (next === '"' || next === "'"))) {
+        const quoted = c === '"' ? doubleQuoted(i + 1) : next === '"' ? doubleQuoted(i + 2) : ansiC(src, i + 2);
+        if (!quoted) { broken = true; add(c); i++; continue; }
+        add(quoted[0]);
+        i = quoted[1];
+        continue;
+      }
+      if (c === '$' || c === '`') {
+        const end = expansionEnd(i);
+        if (end === null && c === '`') broken = true;
+        add(end === null ? c : src.slice(i, end));
+        i = end ?? i + 1;
+        continue;
+      }
+      if (c === ' ' || c === '\t') { endWord(); i++; continue; }
+      if (c === '#' && !inWord) {
+        while (i < src.length && src[i] !== '\n') i++;
+        continue;
+      }
+      if (c === '\n' || c === ';') { endCommand(); i++; continue; }
+      if ((c === '<' || c === '>') && next === '(') {
+        const end = read(i + 2, true);
+        add(src.slice(i, end));
+        i = end;
+        continue;
+      }
+      if (c === '<' || c === '>' || (c === '&' && next === '>')) {
+        // A redirection: neither the operator nor its target is an argument; `2>` names a descriptor.
+        if (/^\d+$/.test(word)) { word = ''; inWord = false; } else endWord();
+        i += REDIRECTION.exec(src.slice(i, i + 3))![0].length;
+        dropNext = true;
+        continue;
+      }
+      if (c === '&' || c === '|') {
+        endCommand();
+        i += next === c || (c === '|' && next === '&') ? 2 : 1;
+        continue;
+      }
+      if (c === '(') { endCommand(); depth++; i++; continue; }
+      if (c === ')') {
+        endCommand();
+        i++;
+        if (depth === 0 && nested) return i;
+        depth = Math.max(0, depth - 1);
+        continue;
+      }
+      add(c);
+      i++;
+    }
+    endCommand();
+    return src.length;
+  };
+
+  read(0, false);
+  return broken;
+}
+
+/** The reasons found in a command line, and in each command it hands over as text. */
+function scanText(text: string, add: AddReason): void {
+  if (!splitCommands(text, (words) => scanWords(words, add))) return;
+  // A quote that never closes: every word of every line is tried as a command's name.
+  for (const line of text.split('\n')) {
+    const words = line.split(/[\s;&|()`]+/).map((w) => w.replace(/['"\\]/g, '')).filter(Boolean);
+    for (let k = 0; k < words.length; k++) scanWords(words.slice(k), add);
+  }
 }
 
 /** Past the options of the wrapper at `i`, and those that take a value with them. */
-function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefined, assignments = false): number {
-  for (;;) {
-    const past = assignments ? pastAssignment(words, i) : null;
-    if (past !== null) { i = past; continue; }
-    if (i >= words.length || !words[i]!.startsWith('-')) return i;
-    if (valueOpts?.has(words[i]!)) i++;
-    i++;
-  }
+function skipOptions(words: string[], i: number, valueOpts: Set<string> | undefined): number {
+  while (i < words.length && words[i]!.startsWith('-')) i += valueOpts?.has(words[i]!) ? 2 : 1;
+  return i;
 }
 
 /**
- * Where the command run by the wrapper at `i` starts, or null when `name`
- * runs nothing of its own (`bash script.sh`, a bare `ssh host`).
+ * What the wrapper at `i` runs: the index of the command it starts, the text
+ * it hands to a shell to read, or null when `name` runs nothing of its own
+ * (`bash script.sh`, a bare `ssh host`).
  */
-function wrappedCommandAt(name: string, words: string[], i: number): number | null {
+function wrappedCommand(name: string, words: string[], i: number): number | string | null {
   if (WRAPPERS.has(name)) {
-    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name], name === 'env');
+    const at = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS[name]);
     // `timeout 10 cmd`: the duration comes before the command.
     return name === 'timeout' || name === 'gtimeout' ? at + 1 : at;
   }
-  if (name === 'eval') return i + 1;
+  // `eval` joins its words with spaces, and the shell reads the result again.
+  if (name === 'eval') return words.slice(i + 1).join(' ');
   if (name === 'ssh') {
     // `ssh [options] host command...`: the words after the host are the remote command.
     const host = skipOptions(words, i + 1, WRAPPER_VALUE_OPTS.ssh);
@@ -146,34 +314,32 @@ function wrappedCommandAt(name: string, words: string[], i: number): number | nu
   if (SHELL_NAMES.has(name)) {
     // `bash -lc "..."`: the payload is the word after the flag that holds `c`.
     for (let j = i + 1; j < words.length && /^[-+]/.test(words[j]!); j++) {
-      if (shortHas(words[j]!, 'c')) return j + 1;
+      if (shortHas(words[j]!, 'c')) return words[j + 1] ?? null;
       if (SHELL_VALUE_OPTS.has(words[j]!)) j++;
     }
   }
   return null;
 }
 
-/** The reasons found in one simple command, already split into words. */
-function scanWords(words: string[], add: (kind: RiskKind, text: string) => void): void {
+/** The reasons found in one simple command, as the words the shell hands over. */
+function scanWords(words: string[], add: AddReason): void {
   let i = 0;
   // Leading reserved words, assignments and wrappers: what runs is the command after them.
   for (;;) {
-    for (;;) {
-      // Read without its quotes: in `bash -c "FOO=1 rm -rf x"` the payload's first word is `"FOO=1`.
-      if (i < words.length && LEADING_RESERVED.has(unquote(words[i]!))) { i++; continue; }
-      const past = pastAssignment(words, i);
-      if (past === null) break;
-      i = past;
-    }
+    while (i < words.length && (LEADING_RESERVED.has(words[i]!) || ASSIGNMENT.test(words[i]!))) i++;
     const name = commandName(words[i] ?? '');
-    const next = wrappedCommandAt(name, words, i);
-    if (next === null) break;
+    const runs = wrappedCommand(name, words, i);
+    if (runs === null) break;
     if (name === 'sudo' || name === 'doas') add('sudo', name);
-    if (name === 'xargs' && commandName(words[next] ?? '') === 'rm') add('xargs-rm', 'xargs rm');
-    i = next;
+    if (typeof runs === 'string') { scanText(runs, add); return; }
+    // The remote side joins the words and its shell reads them again; which shell is not
+    // known here, so they are read both ways.
+    if (name === 'ssh') scanText(words.slice(runs).join(' '), add);
+    if (name === 'xargs' && commandName(words[runs] ?? '') === 'rm') add('xargs-rm', 'xargs rm');
+    i = runs;
   }
   const name = commandName(words[i] ?? '');
-  const args = words.slice(i + 1).map(unquote);
+  const args = words.slice(i + 1);
   switch (name) {
     case 'rm': {
       const flags = args.filter((a) => shortHas(a, 'rRf') || a === '--recursive' || a === '--force');
@@ -215,7 +381,7 @@ function scanWords(words: string[], add: (kind: RiskKind, text: string) => void)
   }
 }
 
-function scanGit(args: string[], add: (kind: RiskKind, text: string) => void): void {
+function scanGit(args: string[], add: AddReason): void {
   let i = 0;
   // Global options before the subcommand: `-C <dir>` and `-c <k=v>` take a value.
   while (i < args.length && args[i]!.startsWith('-')) i += args[i] === '-C' || args[i] === '-c' ? 2 : 1;
@@ -258,11 +424,8 @@ export function commandRisk(command: string): CommandRisk {
     seen.add(key);
     confirm.push({ kind, text });
   };
+  scanText(command, add);
   const joined = command.replace(LINE_CONTINUATION, ' ');
-  for (const segment of joined.split(SEPARATORS)) {
-    const words = segment.trim().split(/\s+/).filter(Boolean);
-    if (words.length) scanWords(words, add);
-  }
   for (const re of PIPE_TO_SHELL) {
     for (const m of joined.matchAll(re)) {
       const [tool, shell] = /curl|wget/.test(m[1]!) ? [m[1]!, m[2]!] : [m[2]!, m[1]!];
