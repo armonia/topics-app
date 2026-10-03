@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { closeAllPopovers, shelterOpenPopovers } from '../lib/popoverRegistry';
+import { closeAllPopovers, openPopoverCount, shelterOpenPopovers } from '../lib/popoverRegistry';
 
 /**
  * useModalDialog — UN contratto per i modali a schermo intero, come
@@ -107,6 +107,8 @@ export function useModalDialog({
     // part of that popover, and it stays.
     const releaseShelter = shelterRef ? shelterOpenPopovers(() => shelterRef.current) : null;
     if (!releaseShelter) closeAllPopovers();
+    // The popovers this dialog lets stay up: the ones that asked for it.
+    const popoversAtOpen = openPopoverCount();
 
     const restoreTo = document.activeElement as HTMLElement | null;
     // Il nodo della card COM'ERA all'apertura: alla pulizia il ref può essere
@@ -131,6 +133,11 @@ export function useModalDialog({
       if (stack[stack.length - 1] !== id) return;
 
       if (closeOnEscape && e.key === 'Escape') {
+        // A popover opened INSIDE the dialog (the model selector in the chat
+        // settings, a Select) takes this Escape: it listens on `document`,
+        // after this `window` listener, and closing the dialog here took the
+        // popover down with it and sent the focus out of the dialog.
+        if (openPopoverCount() > popoversAtOpen) return;
         e.stopPropagation();
         e.preventDefault();
         onCloseRef.current();

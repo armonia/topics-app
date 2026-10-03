@@ -214,6 +214,13 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(trigger).toBeVisible();
     await trigger.click();
     await expect(panel(page)).toHaveAttribute("data-variant", "full");
+    // MSEL-08: Escape inside the selector closes the selector only, and the
+    // focus goes back to its trigger in the dialog that is still open.
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toHaveCount(0);
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toBeFocused();
+    await trigger.click();
     await expect(panel(page)).toHaveAttribute("data-scope", "chat");
     await modelRow(page, "gpt-6.1-sol").click();
     await expect(trigger).toContainText("GPT-6.1-Sol");
