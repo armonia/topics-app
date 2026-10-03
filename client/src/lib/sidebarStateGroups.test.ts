@@ -1,37 +1,38 @@
 /**
- * Raggruppamento della sidebar per STATO (FASE 2, AC c).
- *
- * Perché esiste. La sidebar raggruppa per TIPO e ordina con un boost BINARIO
- * sulle notifiche: chi ha un numero addosso sale, e basta. Quel boost non
- * distingue le tre cose che l'utente distingue eccome — "aspetta una mia
- * risposta", "ha finito e non l'ho guardato", "sta lavorando" — e le mescola nello
- * stesso blocco. La partizione a tre esisteva già ma solo come CONTEGGI, per i
- * chip della status bar: le liste venivano buttate.
+ * Raggruppamento della sidebar per STATO (FASE 2, AC c; notifications-redesign
+ * ATTN-12: the sections read the TIER of the attention state).
  *
  * Il test fissa le due cose che si possono sbagliare in silenzio: la chiave con
- * cui si guarda un item nei Set (il SOGGETTO, non la chiave di render) e la
- * conservazione dell'ordine dentro il bucket.
+ * cui si guarda un item nello stato di attenzione (il SOGGETTO, non la chiave
+ * di render) e la conservazione dell'ordine dentro la sezione.
  *
- * @covers TOPIC-02, CHROME-07
+ * @covers TOPIC-02, CHROME-07, ATTN-12
  */
 import { describe, test, expect } from 'bun:test';
 import {
   groupSidebarItemsByState,
   sidebarItemState,
   sidebarItemSubject,
-  sidebarStateSignals,
   type SidebarItem,
-  type SidebarStateSignals,
 } from './buildSidebarItems';
+import type { AttentionSnapshot, AttentionState } from '../../../shared/attention';
+import type { AttentionRows } from '../state/attention';
 
-const S = (...ids: string[]): ReadonlySet<string> => new Set(ids);
-
-const noSignals: SidebarStateSignals = {
-  awaitingTopics: S(),
-  awaitingTermIds: S(),
-  workingTopics: S(),
-  workingTermIds: S(),
-};
+function snap(subject: string, state: AttentionState, over: Partial<AttentionSnapshot> = {}): AttentionSnapshot {
+  return {
+    subject, state, reason: state === 'needs-you' ? 'question' : null, outcome: state === 'finished' ? 'done' : null, detail: null,
+    since: '2026-10-03T10:00:00.000Z', epoch: 1, seenEpoch: 0, lit: state === 'needs-you' || state === 'finished', unread: 0,
+    turnUnseen: false, lastTurnAt: null, background: state === 'background' ? [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] : [], ...over,
+  };
+}
+/** `t:<id>` is a chat, `s:<id>` a terminal. */
+function rows(entries: Record<string, AttentionState>): AttentionRows {
+  return new Map(Object.entries(entries).map(([k, st]) => {
+    const subject = k.startsWith('s:') ? `terminal:${k.slice(2)}` : `topic:${k.slice(2)}`;
+    return [subject, snap(subject, st)];
+  }));
+}
+const none: AttentionRows = new Map();
 
 function chat(topicId: string, name = topicId): SidebarItem {
   return {
@@ -85,145 +86,88 @@ describe('sidebarItemSubject — la chiave con cui i segnali conoscono un item',
   });
 });
 
-describe('sidebarItemState — in quale bucket sta un item', () => {
-  test('senza segnali, tutto sta in rest', () => {
-    expect(sidebarItemState(chat('t1'), noSignals)).toBe('rest');
-    expect(sidebarItemState(terminal('s1'), noSignals)).toBe('rest');
-    expect(sidebarItemState(project('/p'), noSignals)).toBe('rest');
+describe('sidebarItemState — in quale sezione sta un item', () => {
+  test('senza stato, tutto sta in rest', () => {
+    expect(sidebarItemState(chat('t1'), none)).toBe('rest');
+    expect(sidebarItemState(terminal('s1'), none)).toBe('rest');
+    expect(sidebarItemState(project('/p'), none)).toBe('rest');
   });
 
-  test('una chat in attesa va in awaiting; una che lavora in working', () => {
-    expect(sidebarItemState(chat('t1'), { ...noSignals, awaitingTopics: S('t1') })).toBe('awaiting');
-    expect(sidebarItemState(chat('t1'), { ...noSignals, workingTopics: S('t1') })).toBe('working');
+  test('il tier decide: needs-you, finished, background, working', () => {
+    expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'needs-you' }))).toBe('needs-you');
+    expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'finished' }))).toBe('finished');
+    expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'background' }))).toBe('background');
+    expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'working' }))).toBe('working');
   });
 
-  test('un terminale usa i Set dei TERMINALI, non quelli delle topic', () => {
-    // Incrocio sbagliato: l'id del terminale messo nel set delle topic non deve
-    // spostarlo di bucket.
-    expect(sidebarItemState(terminal('s1'), { ...noSignals, awaitingTopics: S('s1') })).toBe('rest');
-    expect(sidebarItemState(terminal('s1'), { ...noSignals, awaitingTermIds: S('s1') })).toBe('awaiting');
-    expect(sidebarItemState(terminal('s1'), { ...noSignals, workingTermIds: S('s1') })).toBe('working');
+  test('un finito già visto non sta fra le finite', () => {
+    const seen: AttentionRows = new Map([['topic:t1', snap('topic:t1', 'finished', { lit: false, seenEpoch: 1 })]]);
+    expect(sidebarItemState(chat('t1'), seen)).toBe('rest');
   });
 
-  test('"attende te" PRECEDE "al lavoro" quando i due si sovrappongono', () => {
-    // I due assi sono dichiarati mutuamente esclusivi nel tempo, ma una
-    // sovrapposizione momentanea non deve spostare la riga sotto gli occhi
-    // dell'utente: chi aspetta una risposta resta in cima.
-    const sig = { ...noSignals, awaitingTopics: S('t1'), workingTopics: S('t1') };
-    expect(sidebarItemState(chat('t1'), sig)).toBe('awaiting');
+  test('un terminale si legge sul soggetto TERMINALE, non su quello della chat con lo stesso id', () => {
+    expect(sidebarItemState(terminal('s1'), rows({ 't:s1': 'needs-you' }))).toBe('rest');
+    expect(sidebarItemState(terminal('s1'), rows({ 's:s1': 'needs-you' }))).toBe('needs-you');
+    expect(sidebarItemState(terminal('s1'), rows({ 's:s1': 'working' }))).toBe('working');
   });
 
   test('un progetto resta in rest anche se un suo figlio attende', () => {
-    // Il progetto è un contenitore: i figli entrano nei bucket per conto proprio.
-    const sig = { ...noSignals, awaitingTopics: S('figlio') };
-    expect(sidebarItemState(project('/p'), sig)).toBe('rest');
+    expect(sidebarItemState(project('/p'), rows({ 't:figlio': 'needs-you' }))).toBe('rest');
   });
 });
 
 describe('groupSidebarItemsByState', () => {
-  test('partiziona nei tre bucket', () => {
+  test('partiziona nelle sezioni', () => {
     const items = [chat('a'), chat('b'), terminal('s1'), project('/p')];
-    const g = groupSidebarItemsByState(items, {
-      awaitingTopics: S('a'),
-      awaitingTermIds: S(),
-      workingTopics: S(),
-      workingTermIds: S('s1'),
-    });
-    expect(g.awaiting.map(i => i.name)).toEqual(['a']);
+    const g = groupSidebarItemsByState(items, rows({ 't:a': 'needs-you', 's:s1': 'working' }));
+    expect(g['needs-you'].map(i => i.name)).toEqual(['a']);
     expect(g.working.map(i => i.name)).toEqual(['s1']);
     expect(g.rest.map(i => i.name)).toEqual(['b', '/p']);
   });
 
-  test('CONSERVA l\'ordine relativo dentro ogni bucket', () => {
-    // buildSidebarItems ha già ordinato per notifica e attività: riordinare qui
-    // butterebbe via quel lavoro, e un utente che rilegge la stessa lista
-    // troverebbe le righe rimescolate.
+  test('CONSERVA l\'ordine relativo dentro ogni sezione', () => {
     const items = [chat('x'), chat('y'), chat('z')];
-    const g = groupSidebarItemsByState(items, { ...noSignals, awaitingTopics: S('x', 'z') });
-    expect(g.awaiting.map(i => i.name)).toEqual(['x', 'z']);
+    const g = groupSidebarItemsByState(items, rows({ 't:x': 'finished', 't:z': 'finished' }));
+    expect(g.finished.map(i => i.name)).toEqual(['x', 'z']);
     expect(g.rest.map(i => i.name)).toEqual(['y']);
   });
 
-  test('i tre bucket esistono sempre, anche vuoti', () => {
-    const g = groupSidebarItemsByState([], noSignals);
-    expect(g.awaiting).toEqual([]);
-    expect(g.working).toEqual([]);
-    expect(g.rest).toEqual([]);
+  test('le sezioni esistono sempre, anche vuote', () => {
+    const g = groupSidebarItemsByState([], none);
+    expect(g).toEqual({ 'needs-you': [], finished: [], background: [], working: [], rest: [] });
   });
 
-  test('i FIGLI di un progetto entrano nei bucket per conto proprio', () => {
-    // La premessa scritta in `sidebarItemState` («i figli entrano nei bucket per
-    // conto proprio») era falsa: questa funzione iterava solo gli item top-level,
-    // e i figli di un progetto vivono in `item.children`. Effetto: «Attende te»
-    // era cieca a tutto ciò che sta dentro un progetto — cioè quasi tutto.
+  test('i FIGLI di un progetto entrano nelle sezioni per conto proprio', () => {
     const figlioAttende = chat('f1', 'attende');
     const figlioLavora = terminal('s9', 'lavora');
     const stoppedChild = chat('f2', 'fermo');
-    const g = groupSidebarItemsByState([project('/p', [figlioAttende, figlioLavora, stoppedChild])], {
-      awaitingTopics: S('f1'),
-      awaitingTermIds: S(),
-      workingTopics: S(),
-      workingTermIds: S('s9'),
-    });
-    expect(g.awaiting.map(i => i.name)).toEqual(['attende']);
+    const g = groupSidebarItemsByState([project('/p', [figlioAttende, figlioLavora, stoppedChild])], rows({ 't:f1': 'needs-you', 's:s9': 'working' }));
+    expect(g['needs-you'].map(i => i.name)).toEqual(['attende']);
     expect(g.working.map(i => i.name)).toEqual(['lavora']);
-    // Il progetto resta, ma con appesi solo i figli non promossi.
     expect(g.rest.map(i => i.name)).toEqual(['/p']);
     expect(g.rest[0].children?.map(c => c.name)).toEqual(['fermo']);
   });
 
   test('un progetto i cui figli sono tutti fermi non viene ricostruito', () => {
-    // Identità preservata quando non c'è niente da promuovere: un oggetto nuovo
-    // a ogni rebuild farebbe ri-renderizzare la riga per nulla.
     const p = project('/p', [chat('f1')]);
-    const g = groupSidebarItemsByState([p], noSignals);
-    expect(g.rest[0]).toBe(p);
+    expect(groupSidebarItemsByState([p], none).rest[0]).toBe(p);
   });
 
   test('nessun item si perde né si duplica', () => {
     const items = [chat('a'), terminal('s1'), project('/p'), chat('b'), terminal('s2')];
-    const g = groupSidebarItemsByState(items, {
-      awaitingTopics: S('a'),
-      awaitingTermIds: S('s2'),
-      workingTopics: S('b'),
-      workingTermIds: S('s1'),
-    });
-    const total = g.awaiting.length + g.working.length + g.rest.length;
-    expect(total).toBe(items.length);
-    const ids = [...g.awaiting, ...g.working, ...g.rest].map(i => i.id).sort();
-    expect(ids).toEqual(items.map(i => i.id).sort());
+    const g = groupSidebarItemsByState(items, rows({ 't:a': 'needs-you', 's:s2': 'finished', 't:b': 'background', 's:s1': 'working' }));
+    const all = [...g['needs-you'], ...g.finished, ...g.background, ...g.working, ...g.rest];
+    expect(all.length).toBe(items.length);
+    expect(all.map(i => i.id).sort()).toEqual(items.map(i => i.id).sort());
   });
-});
 
-describe('sidebarStateSignals: the sets the view groups by', () => {
-  const none = new Set<string>();
-  const sources = {
-    awaitingFeedbackTopics: none,
-    awaitingInputTopics: none,
-    claudePhaseAwaitingTermIds: none,
-    claudePhaseAwaitingInputTermIds: none,
-    liveStreamTopics: none,
-    hydratedStreamTopics: none,
-    claudePhaseActiveTermIds: none,
-  };
-
-  test('a chat parked on an in-app question sits in «Attende te», not in «Al lavoro»', () => {
-    // CHROME-07. Its stream is still open, so it is in the working set; the
-    // question reaches only `awaitingInputTopics`, which the view used not to
-    // read, and the row landed in the working section while painted amber.
-    const sig = sidebarStateSignals({ ...sources, awaitingInputTopics: S('ask'), liveStreamTopics: S('ask', 'busy') });
-    const g = groupSidebarItemsByState([chat('ask'), chat('busy')], sig);
-    expect(g.awaiting.map(i => i.name)).toEqual(['ask']);
+  test('a chat parked on a question sits in «Ti aspetta», not in «Al lavoro» (CHROME-07)', () => {
+    const g = groupSidebarItemsByState([chat('ask'), chat('busy')], rows({ 't:ask': 'needs-you', 't:busy': 'working' }));
+    expect(g['needs-you'].map(i => i.name)).toEqual(['ask']);
     expect(g.working.map(i => i.name)).toEqual(['busy']);
   });
 
-  test('a finished hook turn still sits in «Attende te»', () => {
-    const sig = sidebarStateSignals({ ...sources, awaitingFeedbackTopics: S('done') });
-    expect(sidebarItemState(chat('done'), sig)).toBe('awaiting');
-  });
-
-  test('working is a live OR a hydrated stream', () => {
-    const sig = sidebarStateSignals({ ...sources, hydratedStreamTopics: S('h') });
-    expect(sidebarItemState(chat('h'), sig)).toBe('working');
+  test('a chat waiting on its background work sits in «In background», never in «Ti aspetta» (BG-4)', () => {
+    expect(sidebarItemState(chat('bg'), rows({ 't:bg': 'background' }))).toBe('background');
   });
 });

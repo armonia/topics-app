@@ -1,133 +1,139 @@
 /**
- * Tests for the unified attention helpers — the single definition of "this
- * needs you", shared by the tab bar (getBadgeCount / getProjectBadgeCount) and
- * the sidebar (buildSidebarItems). The whole point of these helpers is that the
- * two surfaces can't drift, so the contract worth pinning is:
- *   - a chat counts max(unread, Claude-needs-you), never the sum;
- *   - a terminal counts a finished-but-unseen turn;
- *   - a project rolls up its children, excludes lead (Master) topics, and so
- *     produces the SAME number regardless of whether it's handed the full topic
- *     map (tab bar) or the lead-filtered one (sidebar).
+ * THE CLIENT'S ATTENTION STORE AND ITS TWO FUNCTIONS (notifications-redesign,
+ * tasks.md 3.1): filled only by `attention:init` (replaces) and
+ * `attention:updated` (applies), read through `attentionOf` and
+ * `rollupAttention`. Plus the phase helpers that still name a session's
+ * activity LABEL (they no longer decide whether anything lights up).
  *
- * @covers MUTE-01, PARITY-01
+ * @covers ATTN-01, ATTN-06, ATTN-07, ATTN-12, MUTE-01, PARITY-01
  */
-import { describe, test, expect } from "bun:test";
-import {
-  topicAttentionCount, terminalAttentionCount, rollupProjectAttention, rollupGlobalAttention,
-  attentionTierForPhase, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics,
-  derivePhaseTerminals, projectAttentionTier, deriveSessionActivity,
-} from "./signals";
-import type { Topic, TerminalSessionInfo, ClaudeSessionState } from "../types";
+import { describe, test, expect, beforeEach } from "bun:test";
+import { attentionActions, attentionOf, attentionOfRow, needsSeen, rollupAttention, sendAttentionSeenItems, useAttentionStore } from "./attention";
+import { attentionTierForPhase, derivePhaseTerminals, deriveSessionActivity } from "./signals";
+import type { AttentionSnapshot } from "../../../shared/attention";
+import type { Topic, ClaudeSessionState } from "../types";
 
-const unread = (counts: Record<string, number>): Record<string, { unreadCount: number }> =>
-  Object.fromEntries(Object.entries(counts).map(([id, n]) => [id, { unreadCount: n }]));
-
-// Minimal Topic factory — only the fields the rollup reads.
 const topic = (id: string, over: Partial<Topic> = {}): Topic =>
   ({ id, name: id, ...over } as Topic);
 
-// Minimal terminal — only id + cwd matter to the rollup.
-const term = (id: string, cwd: string): TerminalSessionInfo =>
-  ({ id, cwd } as TerminalSessionInfo);
-
-describe("topicAttentionCount", () => {
-  test("uses server unread when there's no Claude attention", () => {
-    expect(topicAttentionCount("t", unread({ t: 3 }), new Set())).toBe(3);
-  });
-
-  test("counts Claude needs-you as 1 even with zero unread", () => {
-    expect(topicAttentionCount("t", unread({}), new Set(["t"]))).toBe(1);
-  });
-
-  test("takes the max, never the sum (no double counting)", () => {
-    // unread 5 + needs-you should still read as 5, not 6.
-    expect(topicAttentionCount("t", unread({ t: 5 }), new Set(["t"]))).toBe(5);
-    // needs-you (1) beats a single unread (1) → still 1, not 2.
-    expect(topicAttentionCount("t", unread({ t: 1 }), new Set(["t"]))).toBe(1);
-  });
-
-  test("is zero when nothing is pending", () => {
-    expect(topicAttentionCount("t", unread({}), new Set())).toBe(0);
-  });
-});
-
-describe("terminalAttentionCount", () => {
-  test("a finished-but-unseen claude-code turn counts 1", () => {
-    expect(terminalAttentionCount("s", new Set(["s"]))).toBe(1);
-  });
-  test("zero when not finished", () => {
-    expect(terminalAttentionCount("s", new Set())).toBe(0);
-  });
-});
-
-describe("rollupProjectAttention", () => {
-  const PROJ = "/work/app";
-
-  test("sums child chat attention + finished terminals under the project", () => {
-    const topics = {
-      a: topic("a", { projectPath: PROJ }),
-      b: topic("b", { projectPath: PROJ }),
-      other: topic("other", { projectPath: "/work/elsewhere" }),
-    };
-    const terminals = [term("term1", `${PROJ}/sub`), term("term2", "/work/elsewhere")];
-    const sum = rollupProjectAttention(
-      PROJ,
-      topics,
-      terminals,
-      unread({ a: 2 }),          // a: 2 unread
-      new Set(["b"]),            // b: Claude needs-you (1)
-      new Set(["term1"]),        // term1 finished (1) — under the project
-    );
-    // 2 (a) + 1 (b) + 1 (term1). `other` and `term2` belong to another project.
-    expect(sum).toBe(4);
-  });
-
-  test("zero for a project with no pending attention", () => {
-    const topics = { a: topic("a", { projectPath: PROJ }) };
-    expect(rollupProjectAttention(PROJ, topics, [], unread({}), new Set(), new Set())).toBe(0);
-  });
-});
-
-describe("rollupGlobalAttention", () => {
-  test("counts every SUBJECT waiting across ALL projects + all finished terminals", () => {
-    const topics = {
-      a: topic("a", { projectPath: "/work/app" }),
-      b: topic("b", { projectPath: "/work/elsewhere" }),
-      c: topic("c"), // no project
-    };
-    const sum = rollupGlobalAttention(
-      topics,
-      unread({ a: 2, c: 1 }),   // a: 2 unread, c: 1 unread
-      new Set(["b"]),           // b: Claude needs-you (1)
-      new Set(["t1", "t2"]),    // two finished terminal turns (project-agnostic)
-    );
-    // a, b, c + 2 terminals = 5 subjects. `a` has 2 unread messages and still
-    // counts ONE: the dock counts things to open, not messages. Unlike the
-    // project rollup, no cwd/project filtering.
-    expect(sum).toBe(5);
-  });
-
-  test("is zero when nothing anywhere is pending", () => {
-    const topics = { a: topic("a"), b: topic("b") };
-    expect(rollupGlobalAttention(topics, unread({}), new Set(), new Set())).toBe(0);
-  });
-
-  test("a chat is ONE subject however many messages, unread AND needs-you included", () => {
-    const topics = { a: topic("a") };
-    // a is BOTH 3-unread AND needs-you → one thing to open.
-    expect(rollupGlobalAttention(topics, unread({ a: 3 }), new Set(["a"]), new Set())).toBe(1);
-    // 39 unread messages in one chat (the measured case) → still 1.
-    expect(rollupGlobalAttention(topics, unread({ a: 39 }), new Set(), new Set())).toBe(1);
-  });
-});
-
-// ─── Attention TIER split (amber "act now" vs blue "done, look when ready") ───
-
 const sess = (over: Partial<ClaudeSessionState> = {}): ClaudeSessionState => ({
   sessionKey: null, claudeSessionId: "c", phase: "running",
-  // `jsonlOffset`/`createdAt` sono obbligatori sul filo (il tracker li scrive
-  // sempre): senza, questa fixture era una sessione che il server non produce.
   phaseUpdatedAt: 1000, jsonlOffset: 0, rev: 1, createdAt: 1000, updatedAt: 1000, ...over,
+});
+
+function snap(subject: string, over: Partial<AttentionSnapshot> = {}): AttentionSnapshot {
+  return {
+    subject, state: "idle", reason: null, outcome: null, detail: null, since: "2026-10-03T10:00:00.000Z",
+    epoch: 0, seenEpoch: 0, lit: false, unread: 0, turnUnseen: false, lastTurnAt: null, background: [], ...over,
+  };
+}
+const rows = () => useAttentionStore.getState().rows;
+
+beforeEach(() => attentionActions.reset());
+
+describe("attentionOf: one subject", () => {
+  test("a lit finished chat is 'done' with max(1, unread)", () => {
+    expect(attentionOfRow(snap("topic:a", { state: "finished", outcome: "done", lit: true, epoch: 2 }))).toMatchObject({ tier: "done", lit: true, count: 1 });
+    expect(attentionOfRow(snap("topic:a", { state: "finished", outcome: "done", lit: true, unread: 4 }))).toMatchObject({ count: 4 });
+  });
+  test("an error is 'error', a question 'needs-you' with its reason", () => {
+    expect(attentionOfRow(snap("topic:a", { state: "finished", outcome: "error", lit: true })).tier).toBe("error");
+    expect(attentionOfRow(snap("topic:a", { state: "needs-you", reason: "question", lit: true }))).toMatchObject({ tier: "needs-you", reason: "question", count: 1 });
+  });
+  test("a finished subject already seen draws nothing and has no number, whatever its unread", () => {
+    expect(attentionOfRow(snap("topic:a", { state: "finished", outcome: "done", lit: false, unread: 3 }))).toMatchObject({ tier: null, lit: false, count: 0 });
+  });
+  test("background and working are tiers that never carry a number", () => {
+    const bg = attentionOfRow(snap("topic:a", { state: "background", unread: 2, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] }));
+    expect(bg).toMatchObject({ tier: "background", lit: false, count: 0 });
+    expect(bg.background.length).toBe(1);
+    expect(attentionOfRow(snap("topic:a", { state: "working" }))).toMatchObject({ tier: "working", count: 0 });
+  });
+  test("no row is idle", () => {
+    expect(attentionOf(new Map(), "topic:x")).toMatchObject({ tier: null, lit: false, count: 0, subject: "topic:x" });
+  });
+});
+
+describe("rollupAttention: a set of subjects", () => {
+  const v = (over: Partial<AttentionSnapshot>) => attentionOfRow(snap("topic:x", over));
+  test("needs-you beats error beats done; the count is the lit children", () => {
+    const done = v({ state: "finished", outcome: "done", lit: true });
+    const error = v({ state: "finished", outcome: "error", lit: true });
+    const ask = v({ state: "needs-you", reason: "permission", lit: true });
+    const bg = v({ state: "background" });
+    expect(rollupAttention([done, bg])).toEqual({ tier: "done", count: 1 });
+    expect(rollupAttention([done, error])).toEqual({ tier: "error", count: 2 });
+    expect(rollupAttention([error, ask, done, bg])).toEqual({ tier: "needs-you", count: 3 });
+    expect(rollupAttention([bg])).toEqual({ tier: null, count: 0 });
+  });
+});
+
+describe("the store: init replaces, updated applies", () => {
+  test("init replaces the whole store, keeping the identity of an unchanged row", () => {
+    attentionActions.applyFrame({ type: "attention:init", rows: [snap("topic:a", { state: "working" }), snap("topic:b", { state: "working" })] });
+    const a = rows().get("topic:a");
+    attentionActions.applyFrame({ type: "attention:init", rows: [snap("topic:a", { state: "working" })] });
+    expect([...rows().keys()]).toEqual(["topic:a"]);
+    expect(rows().get("topic:a")).toBe(a);
+    expect(useAttentionStore.getState().ready).toBe(true);
+  });
+  test("an update to idle with nothing to show removes the row", () => {
+    attentionActions.applyFrame({ type: "attention:updated", row: snap("topic:a", { state: "working" }), live: true });
+    attentionActions.applyFrame({ type: "attention:updated", row: snap("topic:a"), live: true });
+    expect(rows().has("topic:a")).toBe(false);
+  });
+  test("an identical update leaves the store as it was (no render)", () => {
+    attentionActions.applyFrame({ type: "attention:updated", row: snap("topic:a", { state: "working" }), live: true });
+    const before = rows();
+    attentionActions.applyFrame({ type: "attention:updated", row: snap("topic:a", { state: "working" }), live: true });
+    expect(rows()).toBe(before);
+  });
+  test("other frames are not its business", () => {
+    expect(attentionActions.applyFrame({ type: "unread:updated" })).toBe(false);
+  });
+});
+
+describe("the seen of this window: optimistic, for one epoch", () => {
+  const lit = (epoch: number, at: string, over: Partial<AttentionSnapshot> = {}) =>
+    snap("topic:a", { state: "finished", outcome: "done", lit: true, epoch, lastTurnAt: at, turnUnseen: true, unread: 2, ...over });
+
+  test("applied at once, kept over a late frame of the same epoch, released by the confirmation", () => {
+    attentionActions.applyFrame({ type: "attention:updated", row: lit(3, "2026-10-03T10:00:00.000Z"), live: true });
+    attentionActions.seeLocally("topic:a");
+    expect(attentionOf(rows(), "topic:a")).toMatchObject({ lit: false, count: 0, unread: 0 });
+    // A frame sent before the server applied the seen arrives late: still seen here.
+    attentionActions.applyFrame({ type: "attention:updated", row: lit(3, "2026-10-03T10:00:00.000Z"), live: true });
+    expect(attentionOf(rows(), "topic:a").lit).toBe(false);
+    // The confirmation, then a NEW epoch: lit again.
+    attentionActions.applyFrame({ type: "attention:updated", row: lit(3, "2026-10-03T10:00:00.000Z", { seenEpoch: 3, lit: false, turnUnseen: false, unread: 0 }), live: true });
+    attentionActions.applyFrame({ type: "attention:updated", row: lit(4, "2026-10-03T10:09:00.000Z"), live: true });
+    expect(attentionOf(rows(), "topic:a")).toMatchObject({ lit: true, epoch: 4 });
+  });
+
+  test("a needs-you seen stays lit: the look does not answer it", () => {
+    attentionActions.applyFrame({ type: "attention:updated", row: snap("topic:q", { state: "needs-you", reason: "question", lit: true, epoch: 2 }), live: true });
+    attentionActions.seeLocally("topic:q");
+    expect(attentionOf(rows(), "topic:q")).toMatchObject({ lit: true, tier: "needs-you" });
+    expect(needsSeen(attentionOf(rows(), "topic:q"))).toBe(false);
+  });
+
+  test("«Mark all seen» switches off only the epochs it was shown", () => {
+    attentionActions.applyFrame({ type: "attention:init", rows: [lit(4, "2026-10-03T10:00:00.000Z"), snap("topic:b", { state: "finished", outcome: "done", lit: true, epoch: 1 })] });
+    // The list showed epoch 4 of a; epoch 5 arrives before the click.
+    attentionActions.applyFrame({ type: "attention:updated", row: lit(5, "2026-10-03T10:05:00.000Z"), live: true });
+    sendAttentionSeenItems([{ subject: "topic:a", epoch: 4, turnAt: "2026-10-03T10:00:00.000Z" }, { subject: "topic:b", epoch: 1, turnAt: null }]);
+    expect(attentionOf(rows(), "topic:a").lit).toBe(true);
+    expect(attentionOf(rows(), "topic:b").lit).toBe(false);
+  });
+});
+
+describe("needsSeen: when the focused pane has something to tell the server", () => {
+  test("a lit epoch not seen, unread messages, or a closed turn not seen (background, T7)", () => {
+    expect(needsSeen(attentionOfRow(snap("topic:a", { state: "finished", outcome: "done", lit: true, epoch: 1 })))).toBe(true);
+    expect(needsSeen(attentionOfRow(snap("topic:a", { unread: 1 })))).toBe(true);
+    expect(needsSeen(attentionOfRow(snap("topic:a", { state: "background", turnUnseen: true, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] })))).toBe(true);
+    expect(needsSeen(attentionOfRow(snap("topic:a", { state: "working" })))).toBe(false);
+  });
 });
 
 describe("attentionTierForPhase", () => {
@@ -145,29 +151,7 @@ describe("attentionTierForPhase", () => {
   });
 });
 
-describe("deriveAwaitingInputTopics ⊂ deriveAwaitingFeedbackTopics", () => {
-  const topics = {
-    t1: topic("t1", { sessionKey: "k1" }),
-    t2: topic("t2", { sessionKey: "k2" }),
-    t3: topic("t3", { sessionKey: "k3" }),
-    t4: topic("t4", { sessionKey: "k4" }),
-  };
-  const sessions = new Map<string, ClaudeSessionState>([
-    ["k1", sess({ sessionKey: "k1", phase: "awaiting-approval" })],
-    ["k2", sess({ sessionKey: "k2", phase: "awaiting-user" })],
-    ["k3", sess({ sessionKey: "k3", phase: "paused" })],
-    ["k4", sess({ sessionKey: "k4", phase: "running" })],
-  ]);
-
-  test("feedback = all awaiting (approval + user + paused), not running", () => {
-    expect(deriveAwaitingFeedbackTopics(topics, sessions)).toEqual(new Set(["t1", "t2", "t3"]));
-  });
-  test("input = only the awaiting-approval subset", () => {
-    expect(deriveAwaitingInputTopics(topics, sessions)).toEqual(new Set(["t1"]));
-  });
-});
-
-describe("derivePhaseTerminals — awaitingInput is a subset of awaiting", () => {
+describe("derivePhaseTerminals: the loading split (and the label tiers)", () => {
   const roster = [
     { id: "term-appr", type: "claude-code", claudeSessionId: "a" },
     { id: "term-user", type: "claude-code", claudeSessionId: "u" },
@@ -185,99 +169,6 @@ describe("derivePhaseTerminals — awaitingInput is a subset of awaiting", () =>
     expect(active).toEqual(new Set(["term-run"]));
     expect(awaiting).toEqual(new Set(["term-appr", "term-user"]));
     expect(awaitingInput).toEqual(new Set(["term-appr"])); // only the permission gate
-  });
-});
-
-describe("projectAttentionTier — loudest child wins", () => {
-  const PROJ = "/work/app";
-  const topics = {
-    a: topic("a", { projectPath: PROJ }),
-    b: topic("b", { projectPath: PROJ }),
-  };
-  test("'input' if any child is awaiting a permission", () => {
-    expect(projectAttentionTier(PROJ, topics, [], new Set(["a", "b"]), new Set(), new Set(["b"]), new Set())).toBe("input");
-  });
-  test("'done' when children are only finished-unseen", () => {
-    expect(projectAttentionTier(PROJ, topics, [], new Set(["a"]), new Set(), new Set(), new Set())).toBe("done");
-  });
-  test("null when no child needs you", () => {
-    expect(projectAttentionTier(PROJ, topics, [], new Set(), new Set(), new Set(), new Set())).toBeNull();
-  });
-});
-
-/**
- * Il "visto" nel rollup — perché la tab «Progetto» restava segnalata.
- *
- * Una fase Claude come `awaiting-user` non si spegne da sola: resta fino al turno
- * dopo. Per una chat il fill lo spegne il "visto"; questo rollup però leggeva gli
- * insiemi grezzi, quindi il progetto continuava a segnalare un figlio già letto e
- * l'unica cosa che lo nascondeva era «la tab è attiva adesso» — un gate che cade
- * appena selezioni un'altra tab. Qui si fissa il pezzo DUREVOLE: il progetto
- * segnala solo ciò che non hai ancora guardato. Il gate transitorio resta nei
- * chiamanti come valvola per i figli irraggiungibili (una sessione nel roster
- * senza riga né tab non può essere marcata vista da nessuno).
- */
-describe("projectAttentionTier — un figlio già VISTO non segnala più", () => {
-  const PROJ = "/work/app";
-  const topics = {
-    a: topic("a", { projectPath: PROJ }),
-    b: topic("b", { projectPath: PROJ }),
-  };
-  const S = (...ids: string[]) => new Set(ids);
-
-  test("l'unico figlio in attesa è stato visto ⇒ il progetto tace", () => {
-    expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S(), S("a"))).toBeNull();
-  });
-
-  test("visto un figlio, ne resta un altro non visto ⇒ segnala ancora", () => {
-    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S(), S(), S("a"))).toBe("done");
-  });
-
-  test("il figlio AMBRA resta ambra anche visto: un permesso in attesa non si spegne con lo sguardo", () => {
-    // 'b' asks for a permission (input) and you looked at it: the request is
-    // still open, so it wins, as on the tab, the row and the group card.
-    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("b"))).toBe("input");
-    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("a"))).toBe("input");
-    // A look only clears the blue: 'a' seen, no amber, the project is quiet.
-    expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S(), S("a"))).toBeNull();
-  });
-
-  test("vale anche per un terminale claude-code in attesa di permesso", () => {
-    const terminals = [{ id: "t1", cwd: `${PROJ}/sub`, type: "claude-code" } as TerminalSessionInfo];
-    expect(projectAttentionTier(PROJ, {}, terminals, S(), S("t1"), S(), S("t1"), S("t1"))).toBe("input");
-  });
-
-  test("vale anche per i terminali claude-code sotto il progetto", () => {
-    const terminals = [{ id: "t1", cwd: `${PROJ}/sub`, type: "claude-code" } as TerminalSessionInfo];
-    expect(projectAttentionTier(PROJ, {}, terminals, S(), S("t1"), S(), S())).toBe("done");
-    expect(projectAttentionTier(PROJ, {}, terminals, S(), S("t1"), S(), S(), S("t1"))).toBeNull();
-  });
-
-  test("omettere seenSubjects lascia il rollup GREZZO", () => {
-    expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S())).toBe("done");
-  });
-
-  test("un ARCHIVIATO non accende: è la chat CHIUSA che non ha dove essere spenta", () => {
-    // Misurato sulla macchina vera: 6 dei 6 figli che tenevano segnalato
-    // `topics-app` erano archiviati, fermi su `awaiting-user`. Una chat chiusa non
-    // ha riga né tab, quindi nessuna soglia può marcarla vista e il progetto
-    // resterebbe acceso per sempre. Stessa scelta di `visibleTopicSignalCount`.
-    const withArchived = { z: topic("z", { projectPath: PROJ, archived: true }) };
-    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S())).toBeNull();
-    // …e non è il "visto" a spegnerlo: non conta proprio.
-    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S(), S())).toBeNull();
-  });
-});
-
-describe("rollupProjectAttention — il BADGE ha la stessa causa del fill", () => {
-  const PROJ = "/work/app";
-  test("una chat CHIUSA parcheggiata su awaiting non tiene appeso il numero", () => {
-    const topics = {
-      viva: topic("viva", { projectPath: PROJ }),
-      chiusa: topic("chiusa", { projectPath: PROJ, archived: true }),
-    };
-    // Entrambe hanno l'attenzione di Claude; solo la viva la può azzerare.
-    expect(rollupProjectAttention(PROJ, topics, [], unread({}), new Set(["viva", "chiusa"]), new Set())).toBe(1);
   });
 });
 

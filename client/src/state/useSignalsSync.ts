@@ -3,21 +3,15 @@
  * input. Mounted once at App level. Keeping all population here means there's
  * one wiring diagram to reason about, and consumers only ever read the facade.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
-import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, setsEqual, useSignalsStore, type TerminalPhaseLite } from './signals';
-import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
+import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, type TerminalPhaseLite } from './signals';
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
 import { setRunningServices } from './runningServices';
 import type { TopicServices } from '../../../shared/background-work';
-import { chatFinishedEdge } from '../lib/notify/chatFinished';
-import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
-import { isSubjectInFront } from './chatInView';
+import { attentionActions } from './attention';
 import { subscribeAllSessionFlags } from './sessionFlags';
 import { apiFetch } from '../lib/shell/net';
-
-/** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
-const EMPTY_TOPIC_SET: Set<string> = new Set();
 
 interface Args {
   topics: Record<string, Topic>;
@@ -34,67 +28,15 @@ interface Args {
 }
 
 export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSessionStreaming, reconcileServerStreams, onWSMessage }: Args) {
-  // Chat FERME ad aspettare una risposta (ask_user_question a schermo), come le
-  // riporta il server nello snapshot degli stream. Fuori dalla chat il turno
-  // sospeso si leggeva come uno che macina: stesso pallino, stesso spinner.
-  // Confluisce nell'insieme 'input' qui sotto, quello ambra del «tocca a te».
-  const [askWaitingTopics, setAskWaitingTopics] = useState(EMPTY_TOPIC_SET);
-  // Specchio per i gestori WS: leggono l'insieme corrente senza rilegarsi a
-  // ogni cambio (l'effetto della poll si monta una volta sola).
-  const askWaitingRef = useRef(askWaitingTopics);
-  const setAskWaiting = useCallback((next: Set<string>) => {
-    if (setsEqual(next, askWaitingRef.current)) return;
-    askWaitingRef.current = next;
-    setAskWaitingTopics(next);
-  }, []);
-
-  // Chats whose turn ended cleanly and nobody has opened since: see the
-  // `stream:end` handler below and `chatFinishedTopics` in signals.ts.
-  const chatFinishedTopics = useSignalsStore((s) => s.chatFinishedTopics);
-
-  // Claude "needs you" phases → attention by topic.
-  useEffect(() => {
-    const ids = new Set<string>();
-    for (const t of Object.values(topics)) {
-      const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
-      if (st && NOTABLE_CLAUDE_PHASES.has(st.phase)) ids.add(t.id);
-    }
-    signalsActions.setClaudeAttentionTopics(ids);
-  }, [topics, claudeSessions]);
-
-  // Claude "stopped, waiting for YOU" phases → awaiting-feedback fill by topic
-  // (the UNION set: amber 'input' + blue 'done'). Subset of the attention set
-  // above (drops `error`); kept as its own signal so the fill is decoupled from
-  // the badge. Also feed the LOUD 'input' subset (awaiting-approval) so the UI
-  // can pick amber vs blue.
-  useEffect(() => {
-    const awaiting = deriveAwaitingFeedbackTopics(topics, claudeSessions);
-    // A finished chat is 'done' like a finished terminal, whatever its runtime.
-    // The hook phase alone left a hookless chat without a mark, and a hook chat
-    // lost its mark ~15 min later when `awaiting-user` became `completed`. It
-    // goes in BEFORE `applyNewAttention` so a chat read an hour ago is unseen on
-    // the new finish, as a new `awaiting-user` would be.
-    for (const id of chatFinishedTopics) awaiting.add(id);
-    // Due sorgenti, un solo insieme: le fasi del terminale (awaiting-approval) e
-    // le chat sospese su una domanda. Per chi guarda la sidebar è la stessa cosa
-    // (la palla è sua) quindi è giusto che sia lo stesso colore.
-    const input = deriveAwaitingInputTopics(topics, claudeSessions);
-    for (const id of askWaitingTopics) input.add(id);
-    // The "seen" flag is cleared on the rising edge of EVERYTHING that wants
-    // you, so the union goes in: a chat parked on an in-app ask_user_question
-    // is only ever in `input` (its phase stays tool-running), and feeding just
-    // `awaiting` left it seen, hence with no amber fill. applyNewAttention
-    // keeps its own copy of this union, so the call order no longer matters.
-    signalsActions.applyNewAttention(new Set([...awaiting, ...input]));
-    signalsActions.setAwaitingFeedbackTopics(awaiting);
-    signalsActions.setAwaitingInputTopics(input);
-  }, [topics, claudeSessions, askWaitingTopics, chatFinishedTopics]);
-
-  // L'aura smorzata per la fase `watching` (Monitor armato) non ha piu' un
-  // segnale suo: `watching` e' una fase ATTIVA e passa da
-  // `derivePhaseTerminals` (signals.ts, `active`) come running/tool-running.
-  // Qui restava un `useEffect` col corpo VUOTO, che a ogni cambio di `topics` o
-  // `claudeSessions` faceva girare React per non fare niente.
+  // THE ATTENTION STATE, from its two frames and nothing else
+  // (notifications-redesign). Every "needs you", "finished" and "in
+  // background" mark of every surface reads the store these feed: the Claude
+  // phase, the poll below, `stream:end` and the unread frames are not sources
+  // of attention any more. `attention:init` replaces the store at every open
+  // of the socket, so a reconnect re-syncs whatever was missed.
+  useEffect(() => onWSMessage((msg) => {
+    attentionActions.applyFrame(msg);
+  }), [onWSMessage]);
 
   // "What is each session doing" → the activity map (keyed by topicId/terminalId).
   // Drives the SessionActivity label on sidebar rows + the mobile activity view.
@@ -143,10 +85,12 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
         // own that the composer's Stop and the background glyphs read.
         const snap = readStreamingSnapshot(body.sessions ?? []);
         signalsActions.setHydratedStreamTopics(snap.streamingTopics);
-        signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+        // The detail of the background work (a command's process, the last
+        // news), for the line under the transcript only. Whether there IS work
+        // is the attention state's (`attentionOf(...).background`).
+        signalsActions.setBackgroundDetail(snap.backgroundTopics);
         // A chat's servers are not work it waits for: a store of their own (BGVIS-08).
         setRunningServices(body.services);
-        setAskWaiting(snap.waitingTopics);
         // Self-heal: this server snapshot is authoritative, so any chat we still
         // show as streaming but the server doesn't is an orphaned flag (lost
         // stream:end). reconcileServerStreams clears it after ≥2 such polls.
@@ -155,104 +99,28 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     };
     refresh();
     const interval = setInterval(refresh, 15_000);
-    // Domande aperte per topic (topicId → toolCallId). Un topic può averne più
-    // di una in volo: si spegne l'attesa quando si chiude l'ULTIMA, non la prima.
-    const openAsks = new Map<string, Set<string>>();
     let pending = false;
     const schedule = () => {
       if (pending) return;
       pending = true;
       setTimeout(() => { pending = false; refresh(); }, 400);
     };
+    // A task listed or gone, a Monitor armed mid-turn, a turn opened or
+    // closed: the hydrated set and the line's detail follow now, not at the
+    // next 15 s poll (BGVIS-06).
     const unsub = onWSMessage((msg) => {
-      // A task listed or gone, a Monitor armed mid-turn: the line names it now,
-      // not at the next 15 s poll (BGVIS-06).
-      if (msg.type === 'background:changed') { schedule(); return; }
-      if (msg.type === 'stream:start' || msg.type === 'stream:end') {
-        // The chat "finished" mark, the twin of `terminal:activity` below: a
-        // clean end raises it, a new turn drops it. Opening the chat drops it
-        // too (the seen event, `useSeenFocusedPane`), and a chat already in
-        // front of the person is never marked (`isSubjectInFront`).
-        const edge = chatFinishedEdge(msg, isSubjectInFront);
-        if (edge?.op === 'mark') signalsActions.markChatFinished(edge.topicId);
-        else if (edge?.op === 'clear') signalsActions.clearChatFinished(edge.topicId);
-        // Turno finito ⇒ nessuna domanda può essergli sopravvissuta. Si spegne
-        // subito invece di aspettare la poll: 400ms di "ti aspetta" su una chat
-        // che ha già chiuso sono 400ms di bugia.
-        if (msg.type === 'stream:end' && msg.topicId && openAsks.delete(msg.topicId)) {
-          const next = new Set(askWaitingRef.current);
-          next.delete(msg.topicId);
-          setAskWaiting(next);
-        }
-        schedule();
-        return;
-      }
-      // La domanda a schermo accende il segnale SUBITO: aspettare la poll
-      // vorrebbe dire fino a 15s di sidebar che dice "sta lavorando" mentre in
-      // realtà aspetta te. La poll poi conferma (o corregge).
-      if (msg.type === 'stream:tool_user_input_required' && msg.topicId) {
-        let open = openAsks.get(msg.topicId);
-        if (!open) { open = new Set(); openAsks.set(msg.topicId, open); }
-        open.add(msg.toolCallId);
-        setAskWaiting(new Set(askWaitingRef.current).add(msg.topicId));
-        return;
-      }
-      // …e si spegne allo stesso modo: quando il tool che aspettava si chiude.
-      // Si tiene il conto delle domande aperte per topic invece di richiedere la
-      // fotografia al server, perché una poll in più qui alimenterebbe il
-      // self-heal (due giri "assente" e spegne uno stream vivo) — e comunque il
-      // giro dei 15s è già lì a fare da giudice.
-      if (msg.type === 'stream:tool_result' && msg.topicId) {
-        const open = openAsks.get(msg.topicId);
-        if (!open?.delete(msg.toolCallId) || open.size > 0) return;
-        openAsks.delete(msg.topicId);
-        const next = new Set(askWaitingRef.current);
-        next.delete(msg.topicId);
-        setAskWaiting(next);
-      }
+      if (msg.type === 'background:changed' || msg.type === 'stream:start' || msg.type === 'stream:end') schedule();
     });
     return () => { cancelled = true; clearInterval(interval); unsub(); };
-  }, [onWSMessage, reconcileServerStreams, setAskWaiting]);
+  }, [onWSMessage, reconcileServerStreams]);
 
-  // ONE SEEN-STATE PER SUBJECT: a subject seen anywhere (its chat opened, its
-  // row clicked in the panel, the panel opened = mark all) switches off the
-  // marks this window keeps in memory for it. The unread badges already follow
-  // `unread:updated`; the terminal "finished" and the chat "done" marks exist
-  // only here, and the frame names what it cleared. The STORE setters, not the
-  // facade: the facade would POST the seen back to the server that just sent it.
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type !== 'notification:seen') return;
-      const st = useSignalsStore.getState();
-      for (const id of marksClearedBy(msg, terminalSubject, st.terminalFinishedIds)) st.clearTerminalFinished(id);
-      for (const id of marksClearedBy(msg, topicSubject, st.chatFinishedTopics)) st.clearChatFinished(id);
-    });
-  }, [onWSMessage]);
-
-  // Server-tracked pty activity → terminal busy (loading) + claude-code
-  // finished (notification). Works for every session, mounted or not.
+  // Server-tracked pty activity → terminal busy (loading). The "finished" of
+  // a terminal is the attention state's now (`terminal:activity` finished is
+  // an input of it on the server, for the terminals without hooks).
   useEffect(() => {
     return onWSMessage((msg) => {
       if (msg.type !== 'terminal:activity') return;
       signalsActions.setTerminalBusy(msg.id, msg.busy);
-      if (msg.busy) {
-        // A new turn started — drop any stale "finished" badge for it.
-        signalsActions.clearTerminalFinished(msg.id);
-      } else if (msg.finished && (msg.kind === 'claude-code' || msg.kind === 'claude-code-team')) {
-        // The server's "finished" is a crude PTY-quiet proxy (1.5s lull) and
-        // fires even mid-turn (a sub-agent running quietly, the model thinking).
-        // When the authoritative phase is known, trust IT: don't raise a
-        // finished badge for a session that is phase-active (running/tool-running)
-        // or phase-resting (awaiting-user/paused/completed/…) — those drive
-        // attention via the phase path. Only genuinely phase-less sessions
-        // (hook-less / stuck-at-starting) fall through to the pty heuristic.
-        // And a terminal in front of the person is never marked, like a chat:
-        // the turn ended under their eyes (`isSubjectInFront`).
-        const sig = useSignalsStore.getState();
-        if (!sig.claudePhaseActiveTermIds.has(msg.id) && !sig.claudePhaseRestingTermIds.has(msg.id) && !isSubjectInFront(msg.id)) {
-          signalsActions.markTerminalFinished(msg.id);
-        }
-      }
     });
   }, [onWSMessage]);
 
@@ -266,11 +134,11 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
   useEffect(() => {
     const byCsid = new Map<string, TerminalPhaseLite>();
     for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
-    const { active, resting, awaiting, awaitingInput } = derivePhaseTerminals(terminalSessions, byCsid);
-    signalsActions.setClaudePhaseTerminals(active, resting, awaiting, awaitingInput);
+    const { active, resting } = derivePhaseTerminals(terminalSessions, byCsid);
+    signalsActions.setClaudePhaseTerminals(active, resting);
   }, [terminalSessions, claudeSessions]);
 
-  // Reconcile busy/finished against the authoritative session roster. The
+  // Reconcile busy against the authoritative session roster. The
   // live deltas above are best-effort and can be lost (server hot-reload wipes
   // the in-memory activity map, WS reconnect, dropped message), which used to
   // leave a finished session spinning forever. The roster carries a fresh busy

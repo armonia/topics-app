@@ -5,7 +5,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, type LucideIcon, Share2 } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, Orbit, type LucideIcon, Share2 } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -27,14 +27,15 @@ import type { Topic, UnreadData, PaneType, TerminalSessionInfo, Worktree } from 
 import { groupProjectChildrenByWorktree, worktreeChipFor, type WorktreeLabel } from '@/lib/sidebarWorktrees';
 import { WorktreeSection } from './WorktreeSection';
 import { EntryIncognito } from './EntryIncognito';
-import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { CodexIcon } from '@/components/Shared/CodexIcon';
 import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
-import { useAttentionSignals, useTerminalAttentionFill, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
-import { seeChatFinished } from '@/state/chatInView';
+import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
+import { sendAttentionSeen, useAttentionRows } from '@/state/attention';
+import { projectAttention } from '@/state/attentionRollups';
+import { terminalSubject, topicSubject } from '../../../../shared/attention';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -57,7 +58,7 @@ import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemSpace, sidebarStateSignals, type SidebarItem, type SidebarSignalSources, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@/state/waitingQueue';
 import { SpaceGroupCard } from './SpaceGroups';
@@ -65,19 +66,21 @@ import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 import { useSidebarRowFlip } from './useSidebarRowFlip';
 
 /**
- * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
+ * Le sezioni della vista per STATO, nell'ordine in cui si leggono: il tier
+ * dello stato di attenzione (ATTN-12).
  *
- * "Attende te" prima di tutto: è l'unica riga su cui devi muoverti tu. Poi "al
- * lavoro", che è informazione (sta andando, non toccare). Poi il resto.
+ * «Ti aspetta» prima di tutto: è l'unica riga su cui devi muoverti tu. Poi le
+ * finite che non hai guardato, poi chi aspetta il proprio lavoro in background
+ * (informazione: non chiede niente), poi chi sta lavorando, poi il resto.
  *
- * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase: "attende
- * te" invece di "awaiting", "al lavoro" invece di "active". È la stessa distinzione
- * che i tier ambra/blu fanno col colore.
+ * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase.
  */
-const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; label: string }[] = [
-  { key: 'awaiting', icon: Hourglass, label: 'Attende te' },
-  { key: 'working', icon: Activity, label: 'Al lavoro' },
-  { key: 'rest', icon: MoreHorizontal, label: 'Il resto' },
+const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labelKey: string }[] = [
+  { key: 'needs-you', icon: Hourglass, labelKey: 'sidebar.state.needsYou' },
+  { key: 'finished', icon: CircleCheck, labelKey: 'sidebar.state.finished' },
+  { key: 'background', icon: Orbit, labelKey: 'sidebar.state.background' },
+  { key: 'working', icon: Activity, labelKey: 'sidebar.state.working' },
+  { key: 'rest', icon: MoreHorizontal, labelKey: 'sidebar.state.rest' },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -113,7 +116,8 @@ function saveCollapsedGroups(ids: Set<string>): void {
 function describeChildAttention(children: SidebarItem[] | undefined): string | undefined {
   const ringing = (children ?? []).filter((c) => c.notificationCount > 0);
   if (!ringing.length) return undefined;
-  const total = ringing.reduce((n, c) => n + c.notificationCount, 0);
+  // Subjects, like the project's number: one per lit child, whatever its unread.
+  const total = ringing.length;
   const shown = ringing.slice(0, 4).map((c) => c.name);
   const rest = ringing.length - shown.length;
   return `${total} da guardare: ${shown.join(' · ')}${rest > 0 ? ` · +altri ${rest}` : ''}`;
@@ -491,19 +495,10 @@ export function TopicTree({
   // «Aggiungi/Rimuovi dai Fissati» — e col solo tasto destro da telefono la
   // board, una volta fissata, non si sarebbe più potuta togliere.
   const boardPress = useLongPress(openContextMenuAt, { enabled: isTouch });
-  // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
-  // closure can derive a project's electric-blue rollup synchronously.
-  const awaitingTopics = useSignalsStore((s) => s.awaitingFeedbackTopics);
-  const awaitingTermIds = useSignalsStore((s) => s.claudePhaseAwaitingTermIds);
-  // The LOUD 'input' tier subsets (amber) — the rest of the awaiting sets are the
-  // calm 'done' tier (blue). Feed projectAttentionTier so a project row picks the
-  // colour of its loudest child.
-  const inputTopics = useSignalsStore((s) => s.awaitingInputTopics);
-  const inputTermIds = useSignalsStore((s) => s.claudePhaseAwaitingInputTermIds);
-  // I soggetti già guardati: il rollup di progetto li salta, così la riga del
-  // progetto si spegne quando hai letto ciò che segnalava — e resta spenta, invece
-  // di dipendere da «è selezionata adesso». Stessa regola della tab omonima.
-  const seenSubjects = useSignalsStore((s) => s.seenSubjects);
+  // The attention state, read once here so the (non-component)
+  // renderProjectItem closure can derive a project's rollup synchronously: the
+  // same rows the tab bar and every row read.
+  const attention = useAttentionRows();
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -516,16 +511,6 @@ export function TopicTree({
 
   // ── Build unified items ──────────────────────────────────────────────────
 
-  // `extraCounts` rides along with lastNotifiedAt: it is the badge source for
-  // every pane that is neither a chat nor a terminal (agents panes,
-  // session-viewer). The tab bar has always read it via getBadgeCount; the
-  // sidebar hard-coded 0, which is how a badge could show on the tab and not on
-  // the row for the very same pane.
-  const { lastNotifiedAt, extraCounts } = useTabNotifications();
-  // Attention signals — fed into buildSidebarItems so the sidebar badge counts
-  // the same thing the tab bar does (Claude needs-you, finished terminal turns),
-  // not just raw server unread.
-  const { claudeAttentionTopics, terminalFinishedIds } = useAttentionSignals();
   // Real last-touched timestamp per claude-code terminal (idle/finished
   // sessions included — see deriveSessionLastActivity) so a terminal row sorts
   // and displays by actual Claude activity, not just when the session opened.
@@ -585,20 +570,16 @@ export function TopicTree({
     workspaceProjects,
     terminalSessions,
     browserContexts,
-    unreadData,
     showArchived,
     openPanels,
     projectOpenPanes,
-    lastNotifiedAt,
-    claudeAttentionTopics,
-    terminalFinishedIds,
+    attention,
     pinnedIds,
-    extraCounts,
     detachedTopicIds,
     paneTitleById,
     browserOriginById,
     sessionLastActivityById,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, extraCounts, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById]);
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -792,38 +773,22 @@ export function TopicTree({
   // Vista per STATO: attende te / al lavoro / il resto. I Set arrivano dallo
   // store dei segnali — la stessa fonte che dipinge i fill delle righe, quindi la
   // sezione in cui una riga finisce e il suo colore non possono divergere.
-  // NB: il selettore restituisce solo RIFERIMENTI già nello store. Costruire qui
-  // un `new Set([...])` darebbe un riferimento nuovo a ogni chiamata e `useShallow`
-  // lo leggerebbe come "cambiato" per sempre — re-render a ciclo continuo. L'unione
-  // si fa dopo, in un useMemo.
-  const signalSources: SidebarSignalSources = useSignalsStore(
-    useShallow((s) => ({
-      awaitingFeedbackTopics: s.awaitingFeedbackTopics,
-      awaitingInputTopics: s.awaitingInputTopics,
-      claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds,
-      claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds,
-      liveStreamTopics: s.liveStreamTopics,
-      hydratedStreamTopics: s.hydratedStreamTopics,
-      claudePhaseActiveTermIds: s.claudePhaseActiveTermIds,
-    })),
-  );
-  // The unions happen here, in `sidebarStateSignals`, never in the selector
-  // (see above). «Attende te» reads the same union that paints amber and blue,
-  // so a chat parked on an in-app question no longer sits with the working ones
-  // (CHROME-07).
+  // The state view reads the tier of the attention state: «Ti aspetta»,
+  // «Finite», «In background», «Al lavoro» (ATTN-12). A chat waiting on its
+  // own background work is never under «Ti aspetta» (BG-4).
   const stateGroups = useMemo(() => {
     if (viewMode !== 'state') return null;
-    return groupSidebarItemsByState(unpinnedItems, sidebarStateSignals(signalSources));
-  }, [unpinnedItems, viewMode, signalSources]);
+    return groupSidebarItemsByState(unpinnedItems, attention);
+  }, [unpinnedItems, viewMode, attention]);
 
-  // ── ⌘J: the next chat waiting for you (CHAT-WAIT-03) ─────────────────────
+  // ── ⌘J: the next row waiting for your answer (CHAT-WAIT-03) ──────────────
   // The queue is built from `allItems` in every view, not from the rows drawn:
-  // it is the sequence of the «Attende te» section, which in the timeline is
+  // it is the sequence of the «Ti aspetta» section, which in the timeline is
   // also the order on screen. Published to the store for the phone door, which
   // lives outside this tree and needs the count (CHAT-WAIT-04).
   const waitingTargets = useMemo(
-    () => waitingQueue(allItems, pinnedItems, signalSources),
-    [allItems, pinnedItems, signalSources],
+    () => waitingQueue(allItems, pinnedItems, attention),
+    [allItems, pinnedItems, attention],
   );
   useEffect(() => {
     waitingQueueActions.setQueue(waitingTargets.map(t => t.subject));
@@ -928,7 +893,7 @@ export function TopicTree({
         // this window's seen event (its focused pane) can never reach it: the
         // click that brings that window forward is the look, here. Any other
         // row click focuses the chat's pane and the seen event clears it.
-        seeChatFinished(topicId);
+        sendAttentionSeen([topicSubject(topicId)]);
         void tauriInvoke<boolean>('window_focus_label', { label: detachedWindowLabel })
           .then((focused) => {
             if (!focused) onTopicClick(topicId, e);
@@ -941,11 +906,13 @@ export function TopicTree({
     [onTopicClick],
   );
 
-  /** A terminal row's click opens (focuses) it; its «finished» mark goes with
-   *  the seen event of the focused pane, like any other way in. One handler
+  /** A terminal row's click opens (focuses) it and sends the seen of its
+   *  subject to the server's door (ATTN-06): the row and ⌘J say "I looked"
+   *  at once, without waiting for the dwell of the pane it opens. One handler
    *  for the row and for ⌘J, so the chord cannot drift from the click
    *  (CHAT-WAIT-03). */
   const handleTerminalRowClick = useCallback((sessionId: string, sessionName: string) => {
+    sendAttentionSeen([terminalSubject(sessionId)]);
     onTerminalClick?.(sessionId, sessionName);
   }, [onTerminalClick]);
 
@@ -1187,13 +1154,14 @@ export function TopicTree({
     // (below): now that selection is a flat fill (no ring/shadow), folder + child
     // read as one clean nested-selection block, not overlapping rows.
     const folderFilled = isProjectFocused;
-    // Attention TIER rolled up from the project's children (amber 'input' beats
-    // blue 'done'). Fill only shows on an UNfocused folder (focus clears it), so
-    // the name/badge must switch to the on-fill treatment then — otherwise the
-    // hardcoded muted name colour + default blue badge render grey-on-fill /
-    // blue-on-blue, the exact illegibility this redesign removes.
-    const projTier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds, seenSubjects);
-    const projOnFill = !isProjectFocused && projTier !== null;
+    // Attention TIER rolled up from the project's lit children ('needs-you'
+    // beats 'error' beats 'done'). A blue or red fill only shows on an
+    // UNfocused folder (focus clears it), so the name/badge must switch to the
+    // on-fill treatment then — otherwise the hardcoded muted name colour +
+    // default blue badge render grey-on-fill / blue-on-blue.
+    const projTier = projectAttention(attention, pp, topics, terminalSessions).tier;
+    const projectFill = attentionFillFor(projTier, folderFilled);
+    const projOnFill = projectFill !== null;
 
     return (
       <div key={item.id}>
@@ -1217,8 +1185,10 @@ export function TopicTree({
             // dopo aver selezionato altro (prima tornava blu, perché la fase Claude
             // resta `awaiting-user` fino al turno dopo). `folderFilled` resta come
             // valvola per i figli che nessuna soglia può raggiungere.
-            sidebarRowCard({ focused: folderFilled, attention: attentionFillFor(projTier, folderFilled) })
+            sidebarRowCard({ focused: folderFilled, attention: projectFill })
           }`}
+          data-attention={projTier ?? undefined}
+          data-attention-fill={projectFill ?? undefined}
           data-pinned={item.pinned ? 'true' : undefined}
           // La riga di un progetto non è mai stata trascinabile: si potevano
           // trascinare chat, terminali e browser, non il progetto — quindi non
@@ -1565,7 +1535,7 @@ export function TopicTree({
     if (item.type === 'project' && item.projectPath) {
       const pp = item.projectPath;
       const focused = focusedTopicId === createPaneId('project', pp);
-      const tier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds, seenSubjects);
+      const tier = projectAttention(attention, pp, topics, terminalSessions).tier;
       return { focused, attention: attentionFillFor(tier, focused) };
     }
     return { focused: focusedTopicId === item.id, attention: null };
@@ -2126,8 +2096,7 @@ export function TopicTree({
                 Zero chrome quando non c'è niente da distinguere, come per il
                 gruppo unico. */}
             {(() => {
-              const soloIlResto =
-                stateGroups.awaiting.length === 0 && stateGroups.working.length === 0;
+              const soloIlResto = STATE_SECTIONS.every(({ key }) => key === 'rest' || stateGroups[key].length === 0);
               if (soloIlResto) {
                 return (
                   <SidebarRowList data-testid="sidebar-state-section-rest">
@@ -2137,12 +2106,12 @@ export function TopicTree({
               }
               return (
                 <SidebarRowList>
-                  {STATE_SECTIONS.map(({ key, icon, label }) => {
+                  {STATE_SECTIONS.map(({ key, icon, labelKey }) => {
                     const items = stateGroups[key];
                     if (items.length === 0) return null;
                     return (
                       <div key={key} data-testid={`sidebar-state-section-${key}`}>
-                        {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
+                        {renderSection(`state:${key}`, icon, `${tr(labelKey)} (${items.length})`, items)}
                       </div>
                     );
                   })}
@@ -2403,10 +2372,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
   const pendingClose = useTerminalPendingStatus(s.id);
-  // Attention TIER — amber 'input' (permission gate) vs blue 'done' (turn
-  // finished), or null. The fill goes when the terminal has been SEEN (the
-  // window's focused pane for the dwell, `useSeenFocusedPane`), not when the
-  // row is selected: the same rule as the chat row (`attentionFillFor`).
+  // Attention TIER: amber 'needs-you' (a permission), red 'error', blue
+  // 'done', or null, from the server's attention state. The fill goes when
+  // the terminal has been SEEN in any window (ATTN-06), not when the row is
+  // selected: the same rule as the chat row.
   const attentionTier = useTerminalAttentionFill(s.id);
   const onFill = attentionTier !== null;
 
@@ -2430,6 +2399,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
       data-pinned={pinned ? 'true' : undefined}
       data-terminal-row={s.id}
+      data-attention={attentionTier ?? undefined}
       data-attention-fill={attentionTier ?? undefined}
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >

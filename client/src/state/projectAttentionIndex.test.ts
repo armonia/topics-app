@@ -1,26 +1,26 @@
 /**
- * The per-project index behind `projectAttentionTier` / `projectAttentionSubjects`.
+ * The per-project index behind `projectAttention` / `projectAttentionChildren`
+ * (`state/attentionRollups.ts`, notifications-redesign).
  *
  * Two questions, and only two. First, PARITY: the indexed walk must answer
- * exactly what the full scan answered, on generated states that mix awaiting /
- * input / seen with archived and standalone children. The oracle is kept in
- * this file on purpose - it IS the previous implementation, copied - because an
- * expectation typed by hand would only pin what the author remembered of the
- * rules, and the rules here (archived out of both, standalone out of the tier
- * but IN the subjects) are exactly the part one forgets.
+ * exactly what a full scan answers, on generated states that mix every
+ * attention tier with archived and standalone children. The oracle is kept
+ * in this file on purpose: an expectation typed by hand would only pin what
+ * the author remembered of the rules (archived out, standalone out, shells
+ * out, a terminal under the project's cwd in).
  *
  * Second, COST: the sidebar and the tab bar call these helpers for every
- * project on every activity tick, so what matters is not one call but a
- * thousand of them over a map whose bulk is the archive. On the map this was
- * measured against - 1,500 archived topics for 17 live ones - the full scan
- * spent ~300 ms for 1,000 calls of `projectAttentionTier`. The index answers
- * from the project's own bucket, so the same thousand calls stay under 5 ms.
+ * project on every attention frame, over a map whose bulk is the archive. The
+ * index answers from the project's own bucket, so a thousand calls stay
+ * cheap.
  *
- * @covers PARITY-01, ATTN-COST-01
+ * @covers PARITY-01, ATTN-COST-01, ATTN-12
  */
 import { describe, test, expect } from "bun:test";
-import { projectAttentionTier, projectAttentionSubjects, topicAttentionCount, terminalAttentionCount } from "./signals";
-import type { Topic, TerminalSessionInfo, AttentionTier } from "../types";
+import { projectAttention, projectAttentionChildren } from "./attentionRollups";
+import { attentionOf, rollupAttention, type AttentionRows } from "./attention";
+import type { AttentionSnapshot, AttentionState } from "../../../shared/attention";
+import type { Topic, TerminalSessionInfo } from "../types";
 
 const topic = (id: string, over: Partial<Topic> = {}): Topic =>
   ({ id, name: id, ...over } as Topic);
@@ -28,80 +28,25 @@ const topic = (id: string, over: Partial<Topic> = {}): Topic =>
 const term = (id: string, cwd: string, over: Partial<TerminalSessionInfo> = {}): TerminalSessionInfo =>
   ({ id, name: id, cwd, type: "claude-code", ...over } as TerminalSessionInfo);
 
-const unreadOf = (counts: Record<string, number>): Record<string, { unreadCount: number }> =>
-  Object.fromEntries(Object.entries(counts).map(([id, n]) => [id, { unreadCount: n }]));
-
-/** A terminal belongs to a project when its cwd is the project or under it -
- *  the same containment rule the helpers use, restated for the oracle. */
 function belongs(cwd: string, projectPath: string): boolean {
-  if (!cwd || !projectPath) return false;
-  const c = cwd.replace(/\/+$/, "");
-  const p = projectPath.replace(/\/+$/, "");
-  return c === p || c.startsWith(p + "/");
+  return cwd === projectPath || cwd.startsWith(projectPath + "/");
 }
 
-/** ORACLE - `projectAttentionTier` as it was before the index: one pass over
- *  every topic in the map, archive included. Do not "simplify" it: its job is
- *  to disagree with the new code if the new code changes an answer. */
-function tierOracle(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  terminalSessions: TerminalSessionInfo[],
-  awaitingTopics: ReadonlySet<string>,
-  awaitingTerms: ReadonlySet<string>,
-  inputTopics: ReadonlySet<string>,
-  inputTerms: ReadonlySet<string>,
-  seenSubjects?: ReadonlySet<string>,
-): AttentionTier | null {
-  let hasDone = false;
+/** ORACLE: one pass over every topic in the map, archive included. */
+function oracle(projectPath: string, topics: Record<string, Topic>, terminals: TerminalSessionInfo[], rows: AttentionRows) {
+  const subjects: string[] = [];
   for (const t of Object.values(topics)) {
-    if (t.projectPath !== projectPath) continue;
-    if (t.archived) continue;
-    if (t.standalone) continue;
-    if (inputTopics.has(t.id)) return "input";
-    if (seenSubjects?.has(t.id)) continue;
-    if (awaitingTopics.has(t.id)) hasDone = true;
+    if (t.projectPath !== projectPath || t.archived || t.standalone) continue;
+    subjects.push(`topic:${t.id}`);
   }
-  for (const ts of terminalSessions) {
-    if (ts.type === "shell") continue;
-    if (!ts.cwd || !belongs(ts.cwd, projectPath)) continue;
-    if (inputTerms.has(ts.id)) return "input";
-    if (seenSubjects?.has(ts.id)) continue;
-    if (awaitingTerms.has(ts.id)) hasDone = true;
+  for (const ts of terminals) {
+    if (ts.type === "shell" || !ts.cwd || !belongs(ts.cwd, projectPath)) continue;
+    subjects.push(`terminal:${ts.id}`);
   }
-  return hasDone ? "done" : null;
+  const lit = subjects.filter((s) => attentionOf(rows, s).lit);
+  return { ...rollupAttention(subjects.map((s) => attentionOf(rows, s))), lit };
 }
 
-/** ORACLE - `projectAttentionSubjects` as it was before the index. Note the
- *  asymmetry with the tier: standalone children DO count here. */
-function subjectsOracle(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  terminalSessions: TerminalSessionInfo[],
-  unread: Record<string, { unreadCount: number } | undefined>,
-  claudeAttentionTopics: Set<string>,
-  terminalFinishedIds: Set<string>,
-) {
-  const out: { id: string; kind: "chat" | "terminal"; name: string; count: number }[] = [];
-  for (const t of Object.values(topics)) {
-    if (t.projectPath !== projectPath) continue;
-    if (t.archived) continue;
-    const count = topicAttentionCount(t.id, unread, claudeAttentionTopics);
-    if (count > 0) out.push({ id: t.id, kind: "chat", name: t.name || "Chat", count });
-  }
-  if (terminalFinishedIds.size) {
-    for (const ts of terminalSessions) {
-      if (ts.type === "shell") continue;
-      if (!ts.cwd || !belongs(ts.cwd, projectPath)) continue;
-      const count = terminalAttentionCount(ts.id, terminalFinishedIds);
-      if (count > 0) out.push({ id: ts.id, kind: "terminal", name: ts.name || ts.type || "Terminale", count });
-    }
-  }
-  return out;
-}
-
-/** Deterministic generator: a seeded LCG, so a red is reproducible from the
- *  seed printed in the failure instead of "it happens sometimes". */
 function seededRandom(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
@@ -111,111 +56,69 @@ function seededRandom(seed: number): () => number {
 }
 
 const PROJECTS = ["/w/alpha", "/w/beta", "/w/gamma"];
+const STATES: AttentionState[] = ["idle", "working", "background", "needs-you", "finished"];
+
+function row(subject: string, state: AttentionState, lit: boolean, error: boolean): AttentionSnapshot {
+  return {
+    subject, state, reason: state === "needs-you" ? "question" : null, outcome: state === "finished" ? (error ? "error" : "done") : null,
+    detail: null, since: "", epoch: 1, seenEpoch: lit ? 0 : 1, lit: state === "needs-you" || (state === "finished" && lit),
+    unread: 0, turnUnseen: false, lastTurnAt: null, background: [],
+  };
+}
 
 function generateCase(seed: number) {
   const rand = seededRandom(seed);
   const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)]!;
   const topics: Record<string, Topic> = {};
-  const awaitingTopics = new Set<string>();
-  const inputTopics = new Set<string>();
-  const seenSubjects = new Set<string>();
-  const claudeAttentionTopics = new Set<string>();
-  const unreadCounts: Record<string, number> = {};
+  const rows = new Map<string, AttentionSnapshot>();
   for (let i = 0; i < 40; i++) {
     const id = `t${i}`;
-    const hasProject = rand() < 0.85;
-    topics[id] = topic(id, {
-      projectPath: hasProject ? pick(PROJECTS) : undefined,
-      archived: rand() < 0.4,
-      standalone: rand() < 0.3,
-    });
-    if (rand() < 0.3) awaitingTopics.add(id);
-    if (rand() < 0.2) inputTopics.add(id);
-    if (rand() < 0.25) seenSubjects.add(id);
-    if (rand() < 0.3) claudeAttentionTopics.add(id);
-    if (rand() < 0.3) unreadCounts[id] = 1 + Math.floor(rand() * 3);
+    topics[id] = topic(id, { projectPath: rand() < 0.85 ? pick(PROJECTS) : undefined, archived: rand() < 0.4, standalone: rand() < 0.3 });
+    if (rand() < 0.7) rows.set(`topic:${id}`, row(`topic:${id}`, pick(STATES), rand() < 0.6, rand() < 0.3));
   }
-  const terminalSessions: TerminalSessionInfo[] = [];
-  const awaitingTerms = new Set<string>();
-  const inputTerms = new Set<string>();
-  const terminalFinishedIds = new Set<string>();
+  const terminals: TerminalSessionInfo[] = [];
   for (let i = 0; i < 8; i++) {
     const id = `s${i}`;
-    terminalSessions.push(term(id, `${pick(PROJECTS)}${rand() < 0.5 ? "/sub" : ""}`, {
-      type: rand() < 0.25 ? "shell" : "claude-code",
-    }));
-    if (rand() < 0.3) awaitingTerms.add(id);
-    if (rand() < 0.2) inputTerms.add(id);
-    if (rand() < 0.2) seenSubjects.add(id);
-    if (rand() < 0.3) terminalFinishedIds.add(id);
+    terminals.push(term(id, `${pick(PROJECTS)}${rand() < 0.5 ? "/sub" : ""}`, { type: rand() < 0.25 ? "shell" : "claude-code" }));
+    if (rand() < 0.7) rows.set(`terminal:${id}`, row(`terminal:${id}`, pick(STATES), rand() < 0.6, rand() < 0.3));
   }
-  return {
-    topics, terminalSessions, awaitingTopics, awaitingTerms, inputTopics, inputTerms,
-    seenSubjects, claudeAttentionTopics, terminalFinishedIds, unread: unreadOf(unreadCounts),
-  };
+  return { topics, terminals, rows };
 }
 
 describe("project attention index - same answers as the full scan", () => {
-  test("tier and subjects match the oracle on 200 generated states", () => {
+  test("tier, count and lit children match the oracle on 200 generated states", () => {
     for (let seed = 1; seed <= 200; seed++) {
       const c = generateCase(seed);
       for (const p of [...PROJECTS, "/w/unknown"]) {
-        const got = projectAttentionTier(
-          p, c.topics, c.terminalSessions, c.awaitingTopics, c.awaitingTerms,
-          c.inputTopics, c.inputTerms, c.seenSubjects,
-        );
-        const want = tierOracle(
-          p, c.topics, c.terminalSessions, c.awaitingTopics, c.awaitingTerms,
-          c.inputTopics, c.inputTerms, c.seenSubjects,
-        );
-        expect({ seed, p, got }).toEqual({ seed, p, got: want });
-
-        const gotSubjects = projectAttentionSubjects(
-          p, c.topics, c.terminalSessions, c.unread, c.claudeAttentionTopics, c.terminalFinishedIds,
-        );
-        const wantSubjects = subjectsOracle(
-          p, c.topics, c.terminalSessions, c.unread, c.claudeAttentionTopics, c.terminalFinishedIds,
-        );
-        expect({ seed, p, subjects: gotSubjects }).toEqual({ seed, p, subjects: wantSubjects });
+        const want = oracle(p, c.topics, c.terminals, c.rows);
+        const got = projectAttention(c.rows, p, c.topics, c.terminals);
+        const children = projectAttentionChildren(c.rows, p, c.topics, c.terminals).map((x) => x.subject);
+        expect({ seed, p, tier: got.tier, count: got.count, lit: children }).toEqual({ seed, p, tier: want.tier, count: want.count, lit: want.lit });
       }
     }
   });
 
-  test("the tier follows a topic that is archived or unarchived under the same map identity", () => {
-    // The index is keyed by the identity of the topics map, and the app builds
-    // a NEW map on every change (mergeBuckets is a useMemo over the buckets).
-    // Two different maps, two different answers: this is the case that would
-    // break if the index were keyed by project path alone.
+  test("the rollup follows a topic that is archived or unarchived under a new map identity", () => {
     const live = { a: topic("a", { projectPath: "/w/alpha" }) };
     const archived = { a: topic("a", { projectPath: "/w/alpha", archived: true }) };
-    const awaiting = new Set(["a"]);
-    const empty = new Set<string>();
-    expect(projectAttentionTier("/w/alpha", live, [], awaiting, empty, empty, empty)).toBe("done");
-    expect(projectAttentionTier("/w/alpha", archived, [], awaiting, empty, empty, empty)).toBeNull();
-    expect(projectAttentionTier("/w/alpha", live, [], awaiting, empty, empty, empty)).toBe("done");
+    const rows = new Map([["topic:a", row("topic:a", "finished", true, false)]]);
+    expect(projectAttention(rows, "/w/alpha", live, []).tier).toBe("done");
+    expect(projectAttention(rows, "/w/alpha", archived, []).tier).toBeNull();
+    expect(projectAttention(rows, "/w/alpha", live, []).tier).toBe("done");
   });
 });
 
 describe("project attention index - cost", () => {
-  test("1,000 tier calls over 1,500 archived topics stay under 5 ms", () => {
+  test("1,000 rollups over 1,500 archived topics stay under 5 ms", () => {
     const topics: Record<string, Topic> = {};
     const projects = Array.from({ length: 8 }, (_, i) => `/w/p${i}`);
-    for (let i = 0; i < 1500; i++) {
-      topics[`old${i}`] = topic(`old${i}`, { projectPath: projects[i % projects.length], archived: true });
-    }
-    for (let i = 0; i < 17; i++) {
-      topics[`live${i}`] = topic(`live${i}`, { projectPath: projects[i % projects.length] });
-    }
-    const awaiting = new Set(["live3"]);
-    const empty = new Set<string>();
-    // One warm-up call: the first call over a map builds the index, and what is
-    // measured is the steady state the sidebar lives in (same map, many calls).
-    projectAttentionTier(projects[0]!, topics, [], awaiting, empty, empty, empty);
+    for (let i = 0; i < 1500; i++) topics[`old${i}`] = topic(`old${i}`, { projectPath: projects[i % projects.length], archived: true });
+    for (let i = 0; i < 17; i++) topics[`live${i}`] = topic(`live${i}`, { projectPath: projects[i % projects.length] });
+    const rows = new Map([["topic:live3", row("topic:live3", "finished", true, false)]]);
+    // One warm-up call: the first call over a map builds the index.
+    projectAttention(rows, projects[0]!, topics, []);
     const started = performance.now();
-    for (let i = 0; i < 1000; i++) {
-      projectAttentionTier(projects[i % projects.length]!, topics, [], awaiting, empty, empty, empty);
-    }
-    const elapsed = performance.now() - started;
-    expect(elapsed).toBeLessThan(5);
+    for (let i = 0; i < 1000; i++) projectAttention(rows, projects[i % projects.length]!, topics, []);
+    expect(performance.now() - started).toBeLessThan(5);
   });
 });

@@ -35,7 +35,7 @@ import { usePaneStore } from '../../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';
 import { focusSpaceWindow, popOutSpace, closeSpaceWindow } from '../../lib/popOutSpace';
 import { DND_TYPES } from '../../lib/dndTypes';
-import { ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX, TAB_LABEL_TYPE, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
+import { ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX, TAB_LABEL_TYPE, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
@@ -244,9 +244,9 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         )}
         {card.tier && (
           <span
-            aria-label={card.tier === 'input' ? tr('space.tier.input') : tr('space.tier.done')}
+            aria-label={card.tier === 'needs-you' ? tr('space.tier.input') : card.tier === 'error' ? tr('space.tier.error') : tr('space.tier.done')}
             className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-              card.tier === 'input' ? `${TIER_INPUT_BG} animate-pulse` : TIER_DONE_BG
+              card.tier === 'needs-you' ? `${TIER_INPUT_BG} animate-pulse` : card.tier === 'error' ? TIER_ERROR_BG : TIER_DONE_BG
             }`}
           />
         )}

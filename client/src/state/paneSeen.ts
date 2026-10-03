@@ -1,67 +1,58 @@
 /**
  * ONE "SEEN" PER PANE: the window's focused pane, looked at for the dwell.
  *
- * Before, "seen" had one definition per surface and each one cleared its own
- * marks: the tab click cleared the terminal mark, the terminal body cleared it
- * as soon as it was merely visible (focused or not), the chat pane cleared the
- * chat mark on focus with no dwell, and three separate dwells (the active tab
- * of a focused group, the focused chat row, the focused terminal row) set the
- * flag the blue fill reads. A click INSIDE a pane went through none of the
- * tab's private clears, so the tab you had just clicked into stayed blue.
+ * There is one subject in front per window: the pane the window has focused
+ * (`focusedPanelId`, or the focused inner pane of a focused project window),
+ * whatever input put it there: a tab click, a click or tap inside the pane,
+ * the keyboard, the palette, a sidebar row. When it has been in front, with
+ * the window awake, for SEEN_DWELL_MS, ONE event (`seeSubject`) sends the seen
+ * to the server's door (`POST /api/attention/seen`, ATTN-06) with the epoch
+ * and the turn this window was showing. The server answers every window and
+ * device with `attention:updated`, and every surface reads that one frame:
+ * the tab, the sidebar row, the project and group rollups, the inbox and the
+ * Dock. Nothing here keeps a mark of its own.
  *
- * Now there is one subject in front per window: the pane the window has
- * focused (`focusedPanelId`, or the focused inner pane of a focused project
- * window), whatever input put it there: a tab click, a click or tap inside the
- * pane, the keyboard, the palette, a sidebar row. When it has been in front,
- * with the window awake, for SEEN_DWELL_MS, ONE event (`seeSubject`) clears
- * every mark of it, and every surface reads those same marks: the tab, the
- * sidebar row, the project and group rollups, the bell and the Dock.
- *
- * A terminal's history rows (grouped under `terminal:<id>`) are one of those
- * marks on their own: a claude-code terminal driven by hooks never gets the
- * finished mark (its phase drives attention), so its banner's row is the only
- * thing it leaves on the bell, and the seen event has to clear it too.
+ * The dwell is armed only while the subject has something to tell the server
+ * (`needsSeen`): a lit epoch not seen, unread messages, or a closed turn not
+ * seen (a chat in `background` read by the person, so the end of its wait does
+ * not light it again, design section 6). A question already seen stays amber
+ * and asks for nothing more.
  *
  * A pane can be in front with no focus to name it: with `focusedPanelId` null
  * (a new device, after a drop) the group draws its active tab as focused, so
- * the group holds that pane in front itself (`StandaloneChatGroup`). The board's
- * coordinator chat lives in a drawer inside the board pane, which has no
- * subject of its own: the drawer holds the coordinator (`SubjectInFront`).
- *
- * The unread count stays on its own door (the WS `focus` ping in
- * `useWebSocket`), armed by the focused chat with the same dwell and re-armed,
- * like this one, when the window comes back.
+ * the group holds that pane in front itself (`StandaloneChatGroup`). The
+ * board's coordinator chat lives in a drawer inside the board pane, which has
+ * no subject of its own: the drawer holds the coordinator (`SubjectInFront`).
  */
 import { useEffect } from 'react';
-import { SEEN_DWELL_MS, signalsActions, useSignalsStore } from './signals';
-import { holdSubjectInFront, seeChatFinished } from './chatInView';
+import { SEEN_DWELL_MS } from './signals';
+import { holdSubjectInFront } from './chatInView';
 import { isWindowAwake, onWindowAwakeChange } from './windowAwake';
 import { useProjectFocusStore } from './projectFocus';
 import { createPaneId, getTerminalSessionFromPaneId } from './pane/adapters/paneConfig';
 import { isUtilityPanelId } from './pane/adapters/utilityPanelId';
-import { useUnseenNotificationsStore } from './notificationUnseen';
-import { markTargetSeen } from '../lib/notify/history';
-import { TERMINAL_TARGET_KIND, terminalNotificationGroupKey } from '../../../shared/notification-log';
+import { attentionOfRow, needsSeen, sendAttentionSeen, useAttentionStore } from './attention';
+import { terminalSubject, topicSubject } from '../../../shared/attention';
 
 /**
- * The subject a pane id stands for: a terminal's session id, a chat's topic id
- * (`chat:<id>` inside a project, the bare topic id at the top level), or null
- * for a pane that carries no mark (browser, file, utility, draft, project).
+ * The attention subject a pane id stands for: `terminal:<session>` for a
+ * terminal, `topic:<id>` for a chat (`chat:<id>` inside a project, the bare
+ * topic id at the top level), or null for a pane that carries no attention
+ * (browser, file, utility, draft, project).
  */
 export function subjectOfPaneId(paneId: string | null | undefined): string | null {
   if (!paneId) return null;
   const sid = getTerminalSessionFromPaneId(paneId);
-  if (sid !== null) return sid || null;
-  if (paneId.startsWith('chat:')) return paneId.slice('chat:'.length) || null;
+  if (sid !== null) return sid ? terminalSubject(sid) : null;
+  if (paneId.startsWith('chat:')) return paneId.length > 'chat:'.length ? topicSubject(paneId.slice('chat:'.length)) : null;
   if (paneId.includes(':') || isUtilityPanelId(paneId)) return null;
-  return paneId;
+  return topicSubject(paneId);
 }
 
 /**
  * The subject of the pane the window has in front. A project window is one
  * pane at the top level; the pane in front inside it is the focused inner one
- * it publishes in `activePaneByProject` (the same two levels the banner rules
- * read, `isTerminalPaneSelected`). Exact comparisons only.
+ * it publishes in `activePaneByProject`. Exact comparisons only.
  */
 export function focusedSubjectOf(
   focusedPanelId: string | null | undefined,
@@ -75,57 +66,24 @@ export function focusedSubjectOf(
   return null;
 }
 
-type MarkSets = {
-  seenSubjects: ReadonlySet<string>;
-  terminalFinishedIds: ReadonlySet<string>;
-  chatFinishedTopics: ReadonlySet<string>;
-};
-
-/** Does the subject carry something the seen event would clear? A subject not
- *  yet seen (its "seen" flag dropped by a new "your turn") counts too, and so
- *  does an unseen history row grouped under it as a terminal
- *  (`unseenNotificationKeys`, the bell's keys). */
-export function hasUnseenMark(s: MarkSets, id: string, unseenNotificationKeys?: ReadonlySet<string>): boolean {
-  return (
-    !s.seenSubjects.has(id) ||
-    s.terminalFinishedIds.has(id) ||
-    s.chatFinishedTopics.has(id) ||
-    !!unseenNotificationKeys?.has(terminalNotificationGroupKey(id))
-  );
-}
-
-/**
- * THE seen event: every mark of `id`, at once. The "seen" flag the fills and
- * rollups read, the terminal's finished mark (and its history rows on the
- * server, through the facade), a terminal's unseen history rows with no
- * finished mark (a hook-driven claude-code terminal), the chat's 'done' mark
- * (and the other windows, through the seen door, `takeChatDoneSeen`).
- */
-export function seeSubject(id: string): void {
-  const st = useSignalsStore.getState();
-  st.markSubjectSeen(id);
-  if (st.terminalFinishedIds.has(id)) signalsActions.clearTerminalFinished(id);
-  else if (useUnseenNotificationsStore.getState().keys.has(terminalNotificationGroupKey(id))) {
-    markTargetSeen(TERMINAL_TARGET_KIND, id);
-  }
-  seeChatFinished(id);
+/** THE seen event: the subject's epoch and turn, to the server's door, applied here first. */
+export function seeSubject(subject: string): void {
+  sendAttentionSeen([subject]);
 }
 
 /**
  * Arms the seen dwell on `subject` while it is in front: declared in front for
- * the mark decisions, and seen after SEEN_DWELL_MS of continuous look with the
- * window awake. The dwell re-arms whenever the subject gets a new mark, so a
- * turn that ends on the pane you are looking at clears after the dwell instead
- * of staying until you click somewhere else and back.
+ * the server (`holdSubjectInFront`, the `focus` frame), and seen after
+ * SEEN_DWELL_MS of continuous look with the window awake. The dwell re-arms
+ * whenever the subject has something new to see, so a turn that ends on the
+ * pane you are looking at clears after the dwell instead of staying until you
+ * click somewhere else and back.
  */
 function useSeenSubjectInFront(subject: string | null): void {
-  // Declared in front for the mark decisions (`isSubjectInFront`): a turn that
-  // ends on it while the window is awake raises no mark at all.
   useEffect(() => (subject ? holdSubjectInFront(subject) : undefined), [subject]);
-  const unseenNotificationKeys = useUnseenNotificationsStore((s) => s.keys);
-  const unseen = useSignalsStore((s) => !!subject && hasUnseenMark(s, subject, unseenNotificationKeys));
+  const pending = useAttentionStore((s) => !!subject && needsSeen(attentionOfRow(s.rows.get(subject), subject)));
   useEffect(() => {
-    if (!subject || !unseen) return;
+    if (!subject || !pending) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     const arm = () => {
@@ -148,7 +106,7 @@ function useSeenSubjectInFront(subject: string | null): void {
       disarm();
       stopListening();
     };
-  }, [subject, unseen]);
+  }, [subject, pending]);
 }
 
 /**
@@ -163,7 +121,7 @@ export function useSeenFocusedPane(paneId: string | null): void {
 
 /** The seen dwell as an element, for a subject drawn in front inside a pane
  *  that has none of its own (the board's coordinator drawer). */
-export function SubjectInFront({ subjectId }: { subjectId: string | null }): null {
-  useSeenSubjectInFront(subjectId);
+export function SubjectInFront({ subject }: { subject: string | null }): null {
+  useSeenSubjectInFront(subject);
   return null;
 }

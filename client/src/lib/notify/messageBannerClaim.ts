@@ -35,7 +35,7 @@
  * ── In dubbio si suona ─────────────────────────────────────────────────────
  * Ogni fallimento dello storage (private mode, quota, JSON rotto) restituisce
  * `true`: un banner in più è un fastidio, un banner perso è un messaggio che non
- * hai visto. È la stessa dottrina di `muteGate.ts`.
+ * hai visto.
  */
 
 /** La chiave del registro in localStorage. Esportata per i test e per chi

@@ -4,7 +4,7 @@
  *
  * The queue is the list of rows whose attention subject is `needs-you` with a
  * question, a permission or a plan, in the order the sidebar shows them:
- * pinned first, then the «Ti aspetta» section. The step picks the next one
+ * pinned first, then the "needs-you" section. The step picks the next one
  * from the focused row, and after an answer from the row the previous step
  * left, which by then has left the queue.
  *
@@ -73,7 +73,7 @@ const subjects = (items: SidebarItem[], pinnedIds: string[], rows: AttentionRows
   waitingQueue(items, pinnedIds, rows).map(t => t.subject);
 
 describe('waitingQueue: the rows that wait for an answer, in sidebar order', () => {
-  test('pinned first, then «Ti aspetta», with a project child in its project\'s place', () => {
+  test('pinned first, then the needs-you section, with a project child in its project\'s place', () => {
     // L sits above the project in the list, so it comes before P even though
     // P is the project's child: the section keeps the builder's order and
     // promotes children where their project stands.

@@ -10,7 +10,9 @@
  *
  * Two concerns, one model:
  *   - loading   — "this pane is producing output / working right now"
- *   - attention — "this pane needs you" (notification count)
+ *   - attention — "this pane needs you": NOT here any more. It is the server's
+ *     attention state (`state/attention.ts`, notifications-redesign), and the
+ *     rollups below read it from there.
  *
  * Project rollup is computed CENTRALLY from the raw inputs + the global
  * topic/terminal maps (a topic belongs to a project via topic.projectPath; a
@@ -25,27 +27,12 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import { markTargetSeen } from '../lib/notify/history';
-import { TERMINAL_TARGET_KIND } from '../../../shared/notification-log';
-import type { Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
+import type { Topic, ClaudeSessionPhase, ClaudeSessionState, AttentionTier, PhaseTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
-import { liveTopicsOfProject } from './projectAttentionIndex';
-import { mergeBackgroundWork, projectBackgroundCount, type TopicBackgroundWork } from './backgroundWork';
-
-/** Claude phases that mean "Claude needs you" — worth a notification badge.
- *  Loading-ish phases (running / tool-running) surface as spinners instead.
- *
- *  `paused` is included: the reaper demotes awaiting-approval→paused after a
- *  10-minute timeout but DELIBERATELY keeps `pendingApproval` "so the UI can
- *  still display what was being asked" (claude-session-state.ts:301-307). If
- *  paused weren't notable, that un-answered question would silently vanish
- *  from the badge/dot the moment it timed out — the opposite of the intent. */
-export const NOTABLE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
-  'awaiting-approval',
-  'awaiting-user',
-  'paused',
-  'error',
-]);
+import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork';
+import type { AttentionTask } from '../../../shared/attention';
+import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
+import { projectAttention, projectBackgroundCount } from './attentionRollups';
 
 /** Phases that mean "Claude STOPPED and is waiting for YOU" — the subset of
  *  NOTABLE that warrants a blue "awaiting feedback" tab/row highlight.
@@ -56,7 +43,7 @@ export const NOTABLE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<Cl
  *  see NOTABLE_CLAUDE_PHASES). Loading phases (running / tool-running) are the
  *  opposite axis and, being mutually exclusive with these in time, never show a
  *  blue fill and a spinner at once. */
-export const AWAITING_FEEDBACK_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
+const AWAITING_FEEDBACK_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
   'awaiting-user',
   'awaiting-approval',
   'paused',
@@ -67,15 +54,15 @@ export const AWAITING_FEEDBACK_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set
  *  — a mid-task gate — as opposed to `awaiting-user`/`paused`, which mean the turn
  *  simply finished (the calm blue "done, look when ready" tier). Splitting the two
  *  is the fix for "one blue does two jobs → everything looks equally urgent". */
-export const AWAITING_INPUT_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
+const AWAITING_INPUT_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
   'awaiting-approval',
 ]);
 
-/** Map a phase to its attention TIER, or null if it isn't a "needs you" phase.
- *  `awaiting-approval` → 'input' (loud amber); `awaiting-user`/`paused` → 'done'
- *  (calm blue). The ONE definition every surface reads, so the tier→colour choice
- *  can never drift between the tab bar, the sidebar and the project rollup. */
-export function attentionTierForPhase(phase: ClaudeSessionPhase): AttentionTier | null {
+/** Map a phase to its LABEL tier, or null if it isn't a "needs you" phase.
+ *  `awaiting-approval` → 'input'; `awaiting-user`/`paused` → 'done'. It names
+ *  what the session's activity label says; whether a surface LIGHTS UP is the
+ *  attention state's decision (`state/attention.ts`), never the phase's. */
+export function attentionTierForPhase(phase: ClaudeSessionPhase): PhaseTier | null {
   if (AWAITING_INPUT_PHASES.has(phase)) return 'input';
   if (AWAITING_FEEDBACK_PHASES.has(phase)) return 'done';
   return null;
@@ -120,33 +107,6 @@ export function isSeen(focusedSince: number | null, now: number, dwellMs = SEEN_
 }
 
 /**
- * Politica pura: il "visto" si ANNULLA quando arriva un nuovo "tocca a te".
- *
- * Senza questo, una tab vista una volta non tornerebbe mai più blu: il turno
- * successivo finirebbe in silenzio. La regola è sul FRONTE di salita — un id che
- * entra ora nell'insieme awaiting perde il suo "visto" — e non sulla presenza,
- * perché un id che RESTA awaiting mentre lo stai leggendo deve restare visto.
- *
- * Torna lo STESSO riferimento quando non cambia niente: è il contratto
- * anti-render che tutto questo store rispetta (vedi `setsEqual`/`withToggled`).
- */
-export function resetSeenOnNewAttention(
-  prevSeen: ReadonlySet<string>,
-  prevAwaiting: ReadonlySet<string>,
-  nextAwaiting: ReadonlySet<string>,
-): ReadonlySet<string> {
-  let next: Set<string> | null = null;
-  for (const id of nextAwaiting) {
-    // Fronte di salita: non c'era e ora c'è ⇒ è un nuovo "tocca a te".
-    if (prevAwaiting.has(id)) continue;
-    if (!prevSeen.has(id)) continue;
-    if (next === null) next = new Set(prevSeen);
-    next.delete(id);
-  }
-  return next ?? prevSeen;
-}
-
-/**
  * Il fill di attenzione da applicare a una superficie, in UN posto.
  *
  * FOCUS WINS era ricopiato in QUATTRO punti indipendenti (sidebarRowCard,
@@ -161,51 +121,19 @@ export function resetSeenOnNewAttention(
  * soglia non scatta — che è esattamente ciò che "resta blu finché non la
  * visualizzi" chiede.
  *
- * The amber ('input', a permission or a question waiting) is NOT cleared by a
- * look: it is not news to read but a request still open, and only the answer
- * takes it away. Same rule as the group card (`spaceAttentionTier`) and the
- * project rollup (`projectAttentionTier`): the tab and the row used to drop it
- * after the dwell, and on the pane in front the amber stayed on the card only.
+ * The amber ('needs-you', a permission or a question waiting) is NOT cleared
+ * by a look: it is not news to read but a request still open, and only the
+ * answer takes it away. Since notifications-redesign the "seen" of a chat or a
+ * terminal is the server's (a seen subject is no longer lit), so the one
+ * caller left is the project row, whose `seen` is "the folder is selected".
  */
 export function attentionFillFor(
   tier: AttentionTier | null | undefined,
   seen: boolean,
 ): AttentionTier | null {
   if (!tier) return null;
-  if (tier === 'input') return tier;
+  if (tier === 'needs-you') return tier;
   return seen ? null : tier;
-}
-
-/** Pure: topic ids whose bound Claude session is parked awaiting human input.
- *  Mirror of the `claudeAttentionTopics` derivation but keyed on
- *  AWAITING_FEEDBACK_PHASES. Extracted (and unit-tested) so the blue-tab signal
- *  is provable without standing up the store / WS. */
-export function deriveAwaitingFeedbackTopics(
-  topics: Record<string, Topic>,
-  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const t of Object.values(topics)) {
-    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
-    if (st && AWAITING_FEEDBACK_PHASES.has(st.phase)) ids.add(t.id);
-  }
-  return ids;
-}
-
-/** Pure: topic ids whose bound Claude session is specifically awaiting a
- *  permission answer (the amber 'input' tier) — a strict subset of
- *  deriveAwaitingFeedbackTopics. Kept separate so the UI can pick amber vs blue
- *  while the union set still drives the tier-agnostic counts/rollups. */
-export function deriveAwaitingInputTopics(
-  topics: Record<string, Topic>,
-  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const t of Object.values(topics)) {
-    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
-    if (st && AWAITING_INPUT_PHASES.has(st.phase)) ids.add(t.id);
-  }
-  return ids;
 }
 
 /** Phases that mean "Claude is actively working".
@@ -259,9 +187,13 @@ interface SignalsState {
    *  before that the hydrated set is empty because nobody asked, not because
    *  nothing is open. */
   hydratedStreamAsked: boolean;
-  /** Sessions (by sessionKey) with no turn open but work a closed turn left running: the composer offers its Stop. */
-  backgroundWorkSessions: Set<string>;
-  /** The same work by topic, with what it is: the glyphs, the chat line and the agent list read it. Never a streaming set. */
+  /**
+   * The poll's DETAIL of the work a closed turn left running, by topic: the
+   * process of a `run_command` (its link to the Processes pane) and when the
+   * CLI last said something about the work (the stale readout). Never whether
+   * there IS work, nor which glyph: that is the attention state's
+   * (`attentionOf(...).background`), so the glyph and the fill cannot diverge.
+   */
   backgroundWorkTopics: ReadonlyMap<string, TopicBackgroundWork>;
   terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id (fallback heuristic)
   browserBusyPaneIds: Set<string>;   // browser panel loading/agent, by pane id
@@ -276,46 +208,6 @@ interface SignalsState {
   // otherwise opening a fresh Claude Code session flashes "loading" for no
   // reason. pty still drives plain shells and any session with no phase yet.
   claudePhaseRestingTermIds: Set<string>;
-  // claude-code terminals whose phase is specifically awaiting the user
-  // (awaiting-user/-approval/paused) — subset of resting. Drives the "awaiting
-  // feedback" fill on terminal tabs/rows, the terminal twin of
-  // awaitingFeedbackTopics. By terminal session id.
-  claudePhaseAwaitingTermIds: Set<string>;
-  // claude-code terminals in the LOUD 'input' tier (awaiting-approval only) —
-  // a strict subset of claudePhaseAwaitingTermIds. Amber fill (act now); the
-  // rest of the awaiting set is calm blue (done-unseen). By terminal session id.
-  claudePhaseAwaitingInputTermIds: Set<string>;
-  // attention inputs
-  claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
-  // chat Claude parked awaiting human input (awaiting-user/-approval/paused) —
-  // the subset that drives the "awaiting feedback" tab/row fill. Separate
-  // from claudeAttentionTopics because `error` belongs to the badge, not the fill.
-  awaitingFeedbackTopics: Set<string>;
-  // chat topics in the LOUD 'input' tier (awaiting-approval) — subset of
-  // awaitingFeedbackTopics. Amber fill; the rest is calm blue done-unseen.
-  awaitingInputTopics: Set<string>;
-  // The set the rising edge of `seenSubjects` is measured against: EVERY chat
-  // subject that is currently asking for you, blue 'done' and amber 'input'
-  // alike (an in-app ask_user_question lives only in awaitingInputTopics).
-  // It has to be its own field. Reusing awaitingFeedbackTopics for both jobs
-  // is what broke this: a topic held by an open question never entered that
-  // set, so every pass looked like a fresh rising edge and wiped the "seen"
-  // flag forever, and the amber could never be dismissed. Written only by
-  // applyNewAttention, which is also its only reader.
-  attentionEdgeTopics: ReadonlySet<string>;
-  // Soggetti (topicId o terminalSessionId) che l'utente ha DAVVERO guardato: sono
-  // stati davanti, con la finestra sveglia, per SEEN_DWELL_MS continui. È il gate
-  // di FOCUS WINS — vedi `attentionFillFor` — e sostituisce "è selezionata", che
-  // spegneva il fill al primo clic di passaggio. Si annulla per un soggetto
-  // quando arriva un nuovo "tocca a te" (`resetSeenOnNewAttention`).
-  seenSubjects: ReadonlySet<string>;
-  terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
-  // The chat twin of `terminalFinishedIds`: a chat whose turn ended cleanly
-  // (`isCleanChatTurnEnd`, any runtime, hooks or not), until the user opens it
-  // or a new turn starts. In memory only, like its terminal twin: a reload
-  // starts empty for both. `useSignalsSync` folds it into
-  // `awaitingFeedbackTopics`, so it paints through the same blue 'done' tier.
-  chatFinishedTopics: Set<string>;
   terminalReloadingIds: Set<string>;    // a terminal is restarting (Ricarica), until it reconnects
   // "What is this session doing right now" — a compact descriptor keyed by
   // SUBJECT id (topicId for chats, terminalSessionId for terminals; the two id
@@ -332,25 +224,13 @@ interface SignalsState {
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
   markHydratedStreamAsked: () => void;
-  /** Writes both halves of the background work in one pass: per session and per topic. */
-  setBackgroundWork: (sessions: Set<string>, byTopic: ReadonlyMap<string, TopicBackgroundWork>) => void;
-  /** Segna un soggetto come VISTO (la soglia è scattata). Idempotente. */
-  markSubjectSeen: (id: string) => void;
-  /** Clears the "seen" flag of the chat subjects that ENTER the attention set
-   *  now. Takes the full set that wants you (awaiting-feedback plus the topics
-   *  parked on an open question) and keeps its own previous value in
-   *  `attentionEdgeTopics`, so no call order can lose the edge. */
-  applyNewAttention: (nextAttention: ReadonlySet<string>) => void;
+  setBackgroundDetail: (byTopic: ReadonlyMap<string, TopicBackgroundWork>) => void;
   setBrowserBusy: (paneId: string, busy: boolean) => void;
   setTerminalBusy: (id: string, busy: boolean) => void;
-  markTerminalFinished: (id: string) => void;
-  clearTerminalFinished: (id: string) => void;
-  markChatFinished: (topicId: string) => void;
-  clearChatFinished: (topicId: string) => void;
   markTerminalReloading: (id: string) => void;
   clearTerminalReloading: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => void;
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>) => void;
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => void;
   setSessionLastActivity: (activity: Map<string, number>) => void;
 }
@@ -364,7 +244,7 @@ interface SignalsState {
 export interface SessionActivitySignal {
   phase: ClaudeSessionPhase;
   /** null = neither working nor awaiting (idle/error handled by badge). */
-  tier: AttentionTier | null;
+  tier: PhaseTier | null;
   /** running / tool-running — Claude is producing work right now. */
   working: boolean;
   /** The tool Claude is currently running (from lastTool), when working. */
@@ -393,7 +273,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'backgroundWorkSessions' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics';
 
 export function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   if (a.size !== b.size) return false;
@@ -409,38 +289,23 @@ function withToggled(prev: Set<string>, id: string, present: boolean): Set<strin
 }
 
 /**
- * Reconcile the busy/finished sets against an authoritative session roster.
+ * Reconcile the busy set against an authoritative session roster.
  *
  * The server roster is the single source of truth for which pty sessions exist
  * and which are busy *right now*. Incremental `terminal:activity` deltas can be
  * lost (server restart wipes the in-memory activity map, WS reconnect, a
  * dropped message) — leaving a session stuck "in progress". Re-deriving from
- * the roster whenever it arrives makes the loading state self-healing:
- *   - busy     = full sync to the roster (a session not reported busy is idle).
- *   - finished = prune-only (drop ids whose session is gone; a completed-turn
- *                badge must otherwise survive roster broadcasts until the user
- *                looks, so we never clear it just because busy went false).
+ * the roster whenever it arrives makes the loading state self-healing. The
+ * "finished" mark that used to be pruned here is the server's attention state
+ * now: a closed terminal is composed `idle` there (`closed`).
  *
- * Pure: returns the SAME set references when nothing changed so the store can
+ * Pure: returns the SAME set reference when nothing changed so the store can
  * skip the update and avoid spurious re-renders.
  */
-export function reconcileTerminalSignals(
-  prevBusy: Set<string>,
-  prevFinished: Set<string>,
-  roster: TerminalRosterEntry[],
-): { busy: Set<string>; finished: Set<string> } {
-  const rosterIds = new Set<string>();
+export function reconcileTerminalSignals(prevBusy: Set<string>, roster: TerminalRosterEntry[]): Set<string> {
   const nextBusy = new Set<string>();
-  for (const s of roster) {
-    rosterIds.add(s.id);
-    if (s.busy) nextBusy.add(s.id);
-  }
-  const nextFinished = new Set<string>();
-  for (const id of prevFinished) if (rosterIds.has(id)) nextFinished.add(id);
-  return {
-    busy: setsEqual(nextBusy, prevBusy) ? prevBusy : nextBusy,
-    finished: setsEqual(nextFinished, prevFinished) ? prevFinished : nextFinished,
-  };
+  for (const s of roster) if (s.busy) nextBusy.add(s.id);
+  return setsEqual(nextBusy, prevBusy) ? prevBusy : nextBusy;
 }
 
 /**
@@ -493,21 +358,11 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   liveStreamTopics: new Set(),
   hydratedStreamTopics: new Set(),
   hydratedStreamAsked: false,
-  backgroundWorkSessions: new Set(),
   backgroundWorkTopics: new Map(),
   terminalBusyIds: new Set(),
   browserBusyPaneIds: new Set(),
   claudePhaseActiveTermIds: new Set(),
   claudePhaseRestingTermIds: new Set(),
-  claudePhaseAwaitingTermIds: new Set(),
-  claudePhaseAwaitingInputTermIds: new Set(),
-  claudeAttentionTopics: new Set(),
-  awaitingFeedbackTopics: new Set(),
-  awaitingInputTopics: new Set(),
-  attentionEdgeTopics: new Set(),
-  seenSubjects: new Set(),
-  terminalFinishedIds: new Set(),
-  chatFinishedTopics: new Set(),
   terminalReloadingIds: new Set(),
   sessionActivity: new Map(),
   sessionLastActivity: new Map(),
@@ -515,34 +370,10 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   markHydratedStreamAsked: () => set((s) => (s.hydratedStreamAsked ? s : { hydratedStreamAsked: true })),
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
-  setBackgroundWork: (sessions, byTopic) =>
+  setBackgroundDetail: (byTopic) =>
     set((s) => {
       const topics = mergeBackgroundWork(s.backgroundWorkTopics, byTopic);
-      const sessionsChanged = !setsEqual(sessions, s.backgroundWorkSessions);
-      if (!sessionsChanged && topics === s.backgroundWorkTopics) return s;
-      return {
-        ...(sessionsChanged ? { backgroundWorkSessions: sessions } : {}),
-        ...(topics === s.backgroundWorkTopics ? {} : { backgroundWorkTopics: topics }),
-      };
-    }),
-
-  // "Visto" — due sole mosse, entrambe con bail-out sull'identità perché questo
-  // set è letto da OGNI riga e OGNI tab.
-  markSubjectSeen: (id: string) =>
-    set((s) => (s.seenSubjects.has(id) ? s : { seenSubjects: new Set(s.seenSubjects).add(id) })),
-  // Applies the rising edge of the chat attention set. The set it compares
-  // against is the one IT stored last time (attentionEdgeTopics), never one of
-  // the tier sets: those are rewritten for their own reasons and a subject
-  // missing from them would read as a new edge on every single pass.
-  applyNewAttention: (nextAttention: ReadonlySet<string>) =>
-    set((s) => {
-      const seenSubjects = resetSeenOnNewAttention(s.seenSubjects, s.attentionEdgeTopics, nextAttention);
-      const edgeChanged = !setsEqual(s.attentionEdgeTopics, nextAttention);
-      if (!edgeChanged && seenSubjects === s.seenSubjects) return s;
-      return {
-        ...(edgeChanged ? { attentionEdgeTopics: nextAttention } : {}),
-        ...(seenSubjects === s.seenSubjects ? {} : { seenSubjects }),
-      };
+      return topics === s.backgroundWorkTopics ? s : { backgroundWorkTopics: topics };
     }),
 
   setBrowserBusy: (paneId, busy) =>
@@ -555,30 +386,6 @@ export const useSignalsStore = create<SignalsState>((set) => ({
     set((s) => {
       const next = withToggled(s.terminalBusyIds, id, busy);
       return next ? { terminalBusyIds: next } : s;
-    }),
-
-  markTerminalFinished: (id) =>
-    set((s) => {
-      const next = withToggled(s.terminalFinishedIds, id, true);
-      return next ? { terminalFinishedIds: next } : s;
-    }),
-
-  clearTerminalFinished: (id) =>
-    set((s) => {
-      const next = withToggled(s.terminalFinishedIds, id, false);
-      return next ? { terminalFinishedIds: next } : s;
-    }),
-
-  markChatFinished: (topicId) =>
-    set((s) => {
-      const next = withToggled(s.chatFinishedTopics, topicId, true);
-      return next ? { chatFinishedTopics: next } : s;
-    }),
-
-  clearChatFinished: (topicId) =>
-    set((s) => {
-      const next = withToggled(s.chatFinishedTopics, topicId, false);
-      return next ? { chatFinishedTopics: next } : s;
     }),
 
   markTerminalReloading: (id) =>
@@ -595,37 +402,18 @@ export const useSignalsStore = create<SignalsState>((set) => ({
 
   reconcileTerminals: (roster) =>
     set((s) => {
-      const { busy, finished } = reconcileTerminalSignals(s.terminalBusyIds, s.terminalFinishedIds, roster);
-      if (busy === s.terminalBusyIds && finished === s.terminalFinishedIds) return s;
-      return { terminalBusyIds: busy, terminalFinishedIds: finished };
+      const busy = reconcileTerminalSignals(s.terminalBusyIds, roster);
+      return busy === s.terminalBusyIds ? s : { terminalBusyIds: busy };
     }),
 
-  setClaudePhaseTerminals: (active, resting, awaiting, awaitingInput) =>
+  setClaudePhaseTerminals: (active, resting) =>
     set((s) => {
       const activeChanged = !setsEqual(active, s.claudePhaseActiveTermIds);
       const restingChanged = !setsEqual(resting, s.claudePhaseRestingTermIds);
-      const awaitingChanged = !setsEqual(awaiting, s.claudePhaseAwaitingTermIds);
-      const awaitingInputChanged = !setsEqual(awaitingInput, s.claudePhaseAwaitingInputTermIds);
-      if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged) return s;
-      // Il "visto" dei TERMINALI si annulla qui, sul fronte di salita, esattamente
-      // come quello delle chat in `applyNewAttention`. Per le chat è una chiamata
-      // separata da fare PRIMA della sostituzione (col suo avvertimento
-      // sull'ordine); qui sta dentro l'aggiornamento che HA già il precedente,
-      // quindi l'ordine non si può sbagliare.
-      //
-      // Senza, un terminale claude-code guardato una volta restava "visto" per
-      // sempre: `seenSubjects` non lo toglieva più nessuno, e la sua tab non
-      // tornava blu al secondo turno finito. Lo stesso silenzio si propagava al
-      // progetto, che ora salta i figli visti.
-      const seenSubjects = awaitingChanged
-        ? resetSeenOnNewAttention(s.seenSubjects, s.claudePhaseAwaitingTermIds, awaiting)
-        : s.seenSubjects;
+      if (!activeChanged && !restingChanged) return s;
       return {
         ...(activeChanged ? { claudePhaseActiveTermIds: active } : {}),
         ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
-        ...(awaitingChanged ? { claudePhaseAwaitingTermIds: awaiting } : {}),
-        ...(awaitingInputChanged ? { claudePhaseAwaitingInputTermIds: awaitingInput } : {}),
-        ...(seenSubjects === s.seenSubjects ? {} : { seenSubjects }),
       };
     }),
 
@@ -668,47 +456,15 @@ export const signalsActions = {
     st.setTopicSet('hydratedStreamTopics', ids);
     st.markHydratedStreamAsked();
   },
-  setBackgroundWork: (sessions: Set<string>, byTopic: ReadonlyMap<string, TopicBackgroundWork>) =>
-    useSignalsStore.getState().setBackgroundWork(sessions, byTopic),
-  /** The Stop just ended this session's background work: the glyph, the chat line and the agent row go now, not at the next poll. */
-  dropBackgroundWork: (sessionKey: string) => {
-    const st = useSignalsStore.getState();
-    const sessions = new Set(st.backgroundWorkSessions);
-    sessions.delete(sessionKey);
-    const byTopic = new Map([...st.backgroundWorkTopics].filter(([, work]) => work.sessionKey !== sessionKey));
-    st.setBackgroundWork(sessions, byTopic);
-  },
-  setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
-  setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
-  setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
-  applyNewAttention: (nextAttention: ReadonlySet<string>) => useSignalsStore.getState().applyNewAttention(nextAttention),
-  markSubjectSeen: (id: string) => useSignalsStore.getState().markSubjectSeen(id),
+  setBackgroundDetail: (byTopic: ReadonlyMap<string, TopicBackgroundWork>) => useSignalsStore.getState().setBackgroundDetail(byTopic),
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
   setSessionLastActivity: (activity: Map<string, number>) => useSignalsStore.getState().setSessionLastActivity(activity),
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
-  markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
-  /**
-   * OPENING THE TERMINAL THAT FINISHED IS HAVING SEEN IT, and from here the
-   * REGISTRY knows it too. Before, this cleared only the live signal - the dot
-   * on the tab - and the history row stayed lit forever: 325 `session` rows out
-   * of 400 unseen, measured on 2026-08-29, that no natural gesture touched.
-   *
-   * It lives in the facade and not in the store because the store is pure: the
-   * three UI gestures (tab bar, tree, single pane) all pass through here. So
-   * does the echo of another window over WS, and that is fine - that call
-   * clears zero rows and the server announces nothing.
-   */
-  clearTerminalFinished: (id: string) => {
-    useSignalsStore.getState().clearTerminalFinished(id);
-    markTargetSeen(TERMINAL_TARGET_KIND, id);
-  },
-  markChatFinished: (topicId: string) => useSignalsStore.getState().markChatFinished(topicId),
-  clearChatFinished: (topicId: string) => useSignalsStore.getState().clearChatFinished(topicId),
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting, awaitingInput),
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting),
 };
 
 /**
@@ -971,99 +727,18 @@ export function useProjectWorkStart(projectPath: string | undefined): number | u
  * domanda. Sulla stessa riga il fill era già ambra, e i due segni si
  * contraddicevano: uno diceva «tocca a te», l'altro «lascialo lavorare».
  *
- * Stessa fonte del fill (`projectAttentionTier`), così non possono divergere.
- * Il tier 'input' è il più forte: se un figlio aspetta te, il progetto aspetta
- * te — anche se un altro figlio sta ancora macinando, perché la cosa che devi
- * fare non smette di esistere.
+ * Same source as the fill (`projectAttention`, the rollup of the attention
+ * state), so the two cannot diverge. 'needs-you' is the loudest tier: a child
+ * that waits for you makes the project wait for you.
  */
 export function useProjectAwaitingInput(projectPath: string | undefined): boolean {
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
-  const { awaitingTopics, awaitingTerms, inputTopics, inputTerms, seen } = useSignalsStore(
-    useShallow((s) => ({
-      awaitingTopics: s.awaitingFeedbackTopics,
-      awaitingTerms: s.claudePhaseAwaitingTermIds,
-      inputTopics: s.awaitingInputTopics,
-      inputTerms: s.claudePhaseAwaitingInputTermIds,
-      seen: s.seenSubjects,
-    })),
+  const rows = useAttentionRows();
+  return useMemo(
+    () => !!projectPath && projectAttention(rows, projectPath, topics, terminalSessions).tier === 'needs-you',
+    [projectPath, topics, terminalSessions, rows],
   );
-  return useMemo(() => {
-    if (!projectPath) return false;
-    return projectAttentionTier(
-      projectPath, topics, terminalSessions,
-      awaitingTopics, awaitingTerms, inputTopics, inputTerms, seen,
-    ) === 'input';
-  }, [projectPath, topics, terminalSessions, awaitingTopics, awaitingTerms, inputTopics, inputTerms, seen]);
-}
-
-/** The attention TIER a project row/tab should paint: 'input' (amber) if ANY
- *  child is awaiting a permission — the loudest child wins — else 'done' (blue)
- *  if any child finished-and-unseen, else null. Mirrors useProjectLoading's
- *  child-walk ma tier-aware, così la superficie del progetto combacia con le
- *  sue foglie.
- *
- *  È l'UNICO rollup di attenzione: il predicato booleano `projectHasAwaitingChild`
- *  nasceva nello stesso commit ma non ha mai avuto un chiamante — questo lo
- *  copre, e con un tier invece che con un sì/no.
- *
- *  `seenSubjects` è il gate del "visto", ed è il motivo per cui la tab di un
- *  progetto tornava blu per sempre. Una fase Claude come `awaiting-user` NON si
- *  spegne da sola: resta lì fino al turno dopo. Per una chat o un terminale il
- *  fill lo spegne il "visto" (vedi `attentionFillFor`), ma questo rollup leggeva
- *  gli insiemi GREZZI — quindi il progetto continuava a segnalare un figlio che
- *  avevi già letto, e la sola cosa che lo nascondeva era il gate transitorio
- *  «la tab è attiva adesso»: bastava selezionare un'altra tab e tornava blu.
- *  Passandolo, un figlio già guardato smette di contribuire, e ricomincia da solo
- *  al turno successivo (`resetSeenOnNewAttention` gli toglie il visto sul fronte
- *  di salita).
- *
- *  Questo NON sostituisce FOCUS WINS sulla superficie del progetto: il gate
- *  «quella che stai guardando non ti pulsa in faccia» resta dov'era, nei
- *  chiamanti. Serve perché non tutti i figli sono raggiungibili — una sessione
- *  claude-code nel roster con cwd sotto il progetto e nessuna riga né tab non può
- *  essere marcata vista da nessuno (le tre soglie si armano solo su una riga
- *  renderizzata o sulla tab attiva), e senza quella valvola il progetto pulserebbe
- *  per sempre. I due gate sono complementari: questo spegne ciò che HAI letto,
- *  quello copre ciò che non puoi raggiungere.
- *
- *  Gli ARCHIVIATI non contano, ed è la causa che si misura sul campo, non un caso
- *  di scuola: sulla macchina di sviluppo, dei 22 figli che tenevano accesi i
- *  progetti, 21 erano chat CHIUSE ferme su `awaiting-user` — alcune di settimane
- *  prima. Una chat chiusa non ha riga né tab, quindi non c'è nessun posto dove
- *  andare a spegnerla: senza questa riga il progetto resta acceso per sempre, ed è
- *  precisamente il sintomo. È anche la scelta già fatta per l'ALTRO aggregato,
- *  `visibleTopicSignalCount` (che nacque dal gemello di questo bug: la status bar
- *  annunciava 22 sessioni parcheggiate mentre la sidebar non ne mostrava
- *  nessuna). Prezzo accettato, lo stesso di lì: una chat archiviata ma FISSATA ha
- *  una riga che pulsa mentre il progetto tace — il segnale non si perde, non viene
- *  aggregato. */
-export function projectAttentionTier(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  terminalSessions: TerminalSessionInfo[],
-  awaitingTopics: ReadonlySet<string>,
-  awaitingTerms: ReadonlySet<string>,
-  inputTopics: ReadonlySet<string>,
-  inputTerms: ReadonlySet<string>,
-  seenSubjects?: ReadonlySet<string>,
-): AttentionTier | null {
-  let hasDone = false;
-  for (const t of liveTopicsOfProject(topics, projectPath)) {
-    if (t.standalone) continue; // resa fuori dal progetto — vedi rollupProjectAttention
-    // A pending permission is not cleared by a look (`attentionFillFor`).
-    if (inputTopics.has(t.id)) return 'input';
-    if (seenSubjects?.has(t.id)) continue;
-    if (awaitingTopics.has(t.id)) hasDone = true;
-  }
-  for (const ts of terminalSessions) {
-    if (ts.type === 'shell') continue;
-    if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-    if (inputTerms.has(ts.id)) return 'input';
-    if (seenSubjects?.has(ts.id)) continue;
-    if (awaitingTerms.has(ts.id)) hasDone = true;
-  }
-  return hasDone ? 'done' : null;
 }
 
 // `usePaneLoading(pane)` lived here: a per-pane dispatcher that subscribed to
@@ -1082,21 +757,41 @@ export function useServerTurnAsked(): boolean {
   return useSignalsStore((s) => s.hydratedStreamAsked);
 }
 
-/** No turn open, but work a closed turn left running (server registry, polled). */
-export function useSessionBackgroundWork(sessionKey: string | undefined): boolean {
-  return useSignalsStore((s) => !!sessionKey && s.backgroundWorkSessions.has(sessionKey));
-}
-
-/** The work a chat's closed turn left running, or undefined. A stable reference while the poll brings no news. */
-export function useTopicBackgroundWork(topicId: string | undefined): TopicBackgroundWork | undefined {
+/** The poll's detail of a chat's background work (command processes, last news): the line reads it, never to decide whether there is work. */
+export function useTopicBackgroundDetail(topicId: string | undefined): TopicBackgroundWork | undefined {
   return useSignalsStore((s) => (topicId ? s.backgroundWorkTopics.get(topicId) : undefined));
 }
 
-/** How many chats of this project wait on background work: the closed folder's grey glyph. */
+const NO_TASKS: readonly AttentionTask[] = [];
+
+/**
+ * Is the chat waiting on its own background work, with nothing to ask (tier
+ * `background`)? The grey glyph on the tab, the row and the indicator: read
+ * from the same frame as the fill, so a row cannot be grey and blue at once
+ * (BG-1, ATTN-12).
+ */
+export function useTopicInBackground(topicId: string | undefined): boolean {
+  return useAttentionStore((s) => !!topicId && s.rows.get(`topic:${topicId}`)?.state === 'background');
+}
+
+/**
+ * The tasks a chat's closed turns left running, whatever its tier: the line
+ * under the transcript names them, and the composer's Stop is offered while
+ * there are any (even on a `finished(error)` chat, ATTN-12).
+ */
+export function useTopicBackgroundTasks(topicId: string | undefined): readonly AttentionTask[] {
+  return useAttentionStore((s) => (topicId ? s.rows.get(`topic:${topicId}`)?.background : undefined)) ?? NO_TASKS;
+}
+
+/** How many children of this project wait on background work: the closed folder's grey glyph. */
 export function useProjectBackgroundWork(projectPath: string | undefined): number {
   const topics = useTopics();
-  const work = useSignalsStore((s) => s.backgroundWorkTopics);
-  return useMemo(() => (projectPath ? projectBackgroundCount(projectPath, topics, work) : 0), [projectPath, topics, work]);
+  const terminalSessions = useTerminalSessions();
+  const rows = useAttentionRows();
+  return useMemo(
+    () => (projectPath ? projectBackgroundCount(rows, projectPath, topics, terminalSessions) : 0),
+    [projectPath, topics, terminalSessions, rows],
+  );
 }
 
 /** A topic is loading if it has a live stream or a hydrated mid-reply. */
@@ -1108,66 +803,28 @@ export function useTopicLoading(topicId: string | undefined): boolean {
 
 /**
  * Il turno di questo topic è FERMO ad aspettare una risposta — una domanda a
- * schermo in chat, o un permesso da concedere sul terminale.
+ * schermo, un permesso, un piano da approvare.
  *
  * È il gemello «sta lavorando?» di `useTopicLoading`: un turno sospeso è ancora
  * aperto (quindi loading resta true, e il bottone stop ha ancora senso) ma non
  * macina niente. Chi disegna un indicatore chiede ENTRAMBI e sceglie il glifo,
- * invece di far passare per lavoro un'attesa.
+ * invece di far passare per lavoro un'attesa. Read from the attention state
+ * (`needs-you`), the same frame that paints the amber fill.
  */
 export function useTopicAwaitingInput(topicId: string | undefined): boolean {
-  return useSignalsStore((s) => !!topicId && s.awaitingInputTopics.has(topicId));
+  return useAttentionStore((s) => !!topicId && s.rows.get(`topic:${topicId}`)?.state === 'needs-you');
 }
 
-/** The attention TIER of a chat topic's Claude session, or null. 'input' (amber,
- *  act now) when awaiting a permission; 'done' (blue, look when ready) when the
- *  turn finished/paused. The surface colour is chosen from this — see
- *  selectionStyles.attentionSurface. Returns a stable primitive so the selector
- *  is referentially safe. */
-export function useTopicAttentionTier(topicId: string | undefined): AttentionTier | null {
-  return useSignalsStore((s) => {
-    if (!topicId) return null;
-    if (s.awaitingInputTopics.has(topicId)) return 'input';
-    if (s.awaitingFeedbackTopics.has(topicId)) return 'done';
-    return null;
-  });
-}
-
-/** The attention TIER of a claude-code terminal session — the terminal twin of
- *  useTopicAttentionTier. */
-export function useTerminalAttentionTier(sessionId: string | undefined): AttentionTier | null {
-  return useSignalsStore((s) => {
-    if (!sessionId) return null;
-    if (s.claudePhaseAwaitingInputTermIds.has(sessionId)) return 'input';
-    if (s.claudePhaseAwaitingTermIds.has(sessionId)) return 'done';
-    return null;
-  });
-}
-
-/** Questo soggetto è stato DAVVERO guardato (soglia scattata)? */
-export function useSubjectSeen(subjectId: string | undefined): boolean {
-  return useSignalsStore((s) => !!subjectId && s.seenSubjects.has(subjectId));
-}
-
-/**
- * Il fill di attenzione di un soggetto, già passato per FOCUS WINS.
- *
- * Un hook solo al posto della coppia "leggi il tier" + "e poi ricordati di
- * spegnerlo se è focussato", che era ricopiata in quattro superfici con quattro
- * definizioni diverse di "focussato". Chi disegna una tab o una riga chiede
- * questo e disegna quello che torna.
- */
+/** The lit tier of a chat (its fill), from the attention state: a seen subject is not lit. */
 export function useTopicAttentionFill(topicId: string | undefined): AttentionTier | null {
-  const tier = useTopicAttentionTier(topicId);
-  const seen = useSubjectSeen(topicId);
-  return attentionFillFor(tier, seen);
+  const a = useTopicAttention(topicId);
+  return a.lit ? (a.tier as AttentionTier) : null;
 }
 
-/** Il gemello terminale di `useTopicAttentionFill`. */
+/** The terminal twin of `useTopicAttentionFill`. */
 export function useTerminalAttentionFill(sessionId: string | undefined): AttentionTier | null {
-  const tier = useTerminalAttentionTier(sessionId);
-  const seen = useSubjectSeen(sessionId);
-  return attentionFillFor(tier, seen);
+  const a = useTerminalAttention(sessionId);
+  return a.lit ? (a.tier as AttentionTier) : null;
 }
 
 /** "What is this session doing" for a subject id (topicId or terminalSessionId),
@@ -1274,44 +931,34 @@ export interface ActiveAgentRows {
  *  subset of `TerminalSessionInfo`, so App's list fits without a cast. */
 export type AgentRosterEntry = { id: string; type: string; name: string };
 
-/** The slice of the store both agent hooks read. One selector so the two hooks
- *  subscribe to the same fields and re-run on the same changes. */
+/** The slice both agent hooks read: the loading sets of this store and the
+ *  attention rows. One selector so the two hooks re-run on the same changes. */
 type AgentActivitySlice = {
   active: Set<string>;
   resting: Set<string>;
   busy: Set<string>;
-  awaitingTerm: Set<string>;
-  awaitingInputTerm: Set<string>;
   liveStream: Set<string>;
   hydratedStream: Set<string>;
-  awaitingTopics: Set<string>;
-  awaitingInputTopics: Set<string>;
-  finishedTerms: Set<string>;
-  backgroundTopics: ReadonlyMap<string, unknown>;
+  attention: AttentionRows;
 };
 
 function useAgentActivitySlice(): AgentActivitySlice {
-  return useSignalsStore(
+  const loading = useSignalsStore(
     useShallow((s) => ({
       active: s.claudePhaseActiveTermIds,
       resting: s.claudePhaseRestingTermIds,
       busy: s.terminalBusyIds,
-      awaitingTerm: s.claudePhaseAwaitingTermIds,
-      awaitingInputTerm: s.claudePhaseAwaitingInputTermIds,
       liveStream: s.liveStreamTopics,
       hydratedStream: s.hydratedStreamTopics,
-      awaitingTopics: s.awaitingFeedbackTopics,
-      awaitingInputTopics: s.awaitingInputTopics,
-      // The FINISHED claude-code turns: they used to count nowhere while the
-      // tooltip called something else "turn finished" (see the counts hook).
-      finishedTerms: s.terminalFinishedIds,
-      backgroundTopics: s.backgroundWorkTopics,
     })),
   );
+  const attention = useAttentionRows();
+  return useMemo(() => ({ ...loading, attention }), [loading, attention]);
 }
 
 /**
- * Pure: the agents WORKING and the agents WAITING FOR AN ANSWER, as rows.
+ * Pure: the agents WORKING, IN BACKGROUND, WAITING FOR AN ANSWER and FINISHED,
+ * as rows.
  *
  * This is the one place that decides who counts as an active agent. The
  * profile menu lists these rows, the card badges their number, and the status
@@ -1321,56 +968,50 @@ function useAgentActivitySlice(): AgentActivitySlice {
  *   - working: a non-shell terminal that `terminalLoadingFrom` calls loading
  *     (phase-active OR pty-busy-and-not-resting), plus every chat topic mid
  *     stream (live or hydrated) that is on screen (not archived, not deleted).
- *   - background: a chat with no turn open whose last turn left work running
- *     (BGVIS-03), one row per chat and never also in `working`: that work
- *     holds a CLI in RAM now, and this row is what says which one to stop.
- *   - awaitingInput: the LOUD tier (`awaiting-approval`) on both surfaces.
+ *   - background, awaitingInput, finished: the attention tier of the subject
+ *     (`background`, `needs-you`, a lit `done`/`error`), the same frame the
+ *     tab and the row paint from. One session is in one of the three: a chat
+ *     with an Agent in background is never also "turn finished" (ATTN-01).
  *     Terminals are read through the roster so each row has a name: an id
  *     whose session is gone has no row and no tab, and its "1" would be
- *     unanswerable from anywhere (same gate as the finished terminals below).
+ *     unanswerable from anywhere.
  *
  * Exported for its unit test; the two hooks under it are the callers.
  */
 export function activeAgentRowsFrom(
   roster: ReadonlyArray<AgentRosterEntry>,
   topics: Record<string, Topic>,
-  sig: Pick<AgentActivitySlice, 'active' | 'resting' | 'busy' | 'awaitingTerm' | 'awaitingInputTerm' | 'finishedTerms' | 'liveStream' | 'hydratedStream' | 'awaitingTopics' | 'awaitingInputTopics' | 'backgroundTopics'>,
+  sig: AgentActivitySlice,
 ): ActiveAgentRows {
   const working: ActiveAgentRow[] = [];
   const background: ActiveAgentRow[] = [];
   const awaitingInput: ActiveAgentRow[] = [];
   const finished: ActiveAgentRow[] = [];
+  const place = (subject: string, row: ActiveAgentRow, streaming: boolean) => {
+    const a = attentionOf(sig.attention, subject);
+    if (a.tier === 'needs-you') awaitingInput.push(row);
+    else if (a.lit) finished.push(row);
+    else if (a.tier === 'background' && !streaming) background.push(row);
+  };
   for (const t of roster) {
     // The exclusion is THE SHELL, not "everything but the three I remember":
     // written as a negated list it had already left out 'opencode', which
-    // worked without ever showing among the active agents (the data was
-    // there: useSignalsSync fills terminalBusyIds for every session, no type
-    // filter).
+    // worked without ever showing among the active agents.
     if (t.type === 'shell') continue;
-    if (terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting)) {
-      working.push({ id: t.id, kind: 'terminal', label: t.name });
-    }
-    if (sig.awaitingInputTerm.has(t.id)) {
-      awaitingInput.push({ id: t.id, kind: 'terminal', label: t.name });
-      continue; // the loud tier wins: one session is one thing to look at
-    }
-    if (sig.awaitingTerm.has(t.id) || sig.finishedTerms.has(t.id)) {
-      finished.push({ id: t.id, kind: 'terminal', label: t.name });
-    }
+    const row: ActiveAgentRow = { id: t.id, kind: 'terminal', label: t.name };
+    const loading = terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting);
+    if (loading) working.push(row);
+    place(`terminal:${t.id}`, row, loading);
   }
-  // Chat sessions mid-reply (distinct id space from terminals: no overlap).
+  // Chat sessions (distinct id space from terminals: no overlap).
   const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
   for (const id of visibleTopicSignalIds(streamingTopics, topics)) {
     working.push({ id, kind: 'topic', label: topics[id].name });
   }
-  for (const id of visibleTopicSignalIds(sig.backgroundTopics.keys(), topics)) {
-    if (!streamingTopics.has(id)) background.push({ id, kind: 'topic', label: topics[id].name });
-  }
-  for (const id of visibleTopicSignalIds(sig.awaitingInputTopics, topics)) {
-    awaitingInput.push({ id, kind: 'topic', label: topics[id].name });
-  }
-  for (const id of visibleTopicSignalIds(sig.awaitingTopics, topics)) {
-    if (!sig.awaitingInputTopics.has(id)) finished.push({ id, kind: 'topic', label: topics[id].name });
+  const chatSubjects: string[] = [];
+  for (const subject of sig.attention.keys()) if (subject.startsWith('topic:')) chatSubjects.push(subject.slice('topic:'.length));
+  for (const id of visibleTopicSignalIds(chatSubjects, topics)) {
+    place(`topic:${id}`, { id, kind: 'topic', label: topics[id].name }, streamingTopics.has(id));
   }
   return { working, background, awaitingInput, finished };
 }
@@ -1391,25 +1032,13 @@ export function useActiveAgentRows(
 }
 
 /**
- * Global live agent counts for the status bar, counted from the SAME signals the
- * tab spinners and blue "awaiting" fills read — and, for the topic-keyed ones,
- * narrowed to topics that are actually on screen (see `visibleTopicSignalCount`)
- * so the number cannot drift from what you can see:
- *   - working      = claude/codex sessions producing output right now. A terminal
- *     counts via `terminalLoadingFrom` (phase-active OR pty-busy-and-not-resting)
- *     — crucially the pty-busy fallback means a session stuck at `starting`
- *     (hooks never advanced it) still counts, which raw phase counting missed —
- *     plus chat topics mid-stream (live or hydrated).
- *   - awaiting     = sessions parked for the user (the whole blue-fill set):
- *     claude terminals awaiting + chat topics awaiting.
- *   - awaitingInput= the LOUD subset of `awaiting` (`awaiting-approval`): blocked
- *     on a permission, needs an answer now. Split out so the chip can paint the
- *     two tiers the way `attentionTierForPhase` defines them instead of calling
- *     everything amber — `awaiting-user` means "the turn ended", not "answer me".
- *
- * `roster` is the authoritative terminal session list (App's `terminalSessions`)
- * — needed to enumerate which ids are claude/codex and apply the loading rule.
- * `topics` is App's topic map, the authority on what is archived.
+ * Global live agent counts for the status bar, counted from the same rows the
+ * menu lists (`activeAgentRowsFrom`), so the number cannot drift from what you
+ * can see:
+ *   - working       = sessions producing output right now;
+ *   - awaiting      = sessions lit for the person: waiting for an answer, or
+ *                     finished and not seen;
+ *   - awaitingInput = the LOUD subset of `awaiting` (`needs-you`).
  */
 export function useAgentActivityCounts(
   roster: ReadonlyArray<AgentRosterEntry>,
@@ -1417,215 +1046,7 @@ export function useAgentActivityCounts(
 ): { working: number; awaiting: number; awaitingInput: number } {
   const sig = useAgentActivitySlice();
   return useMemo(() => {
-    // EVERY number here is the LENGTH of a list the menu can name, `awaiting`
-    // included. It did not use to be: it was a union of sets counted apart,
-    // and the difference `awaiting - awaitingInput` ("N to look at") ended up
-    // in a row of the account panel that could not be opened. Those turns are
-    // rows like the others now (`rows.finished`), so the number and the names
-    // have no way left to diverge - the same rule `working` and
-    // `awaitingInput` already followed.
-    //
-    // UNION, not sum: a session can have finished its turn AND sit in
-    // `awaiting-user`, and it is ONE thing to look at. The dedup lives inside
-    // `activeAgentRowsFrom`, which emits one row per session.
-    //
-    // The roster gate now covers EVERY waiting terminal, not just the finished
-    // turns: an id whose session was closed has neither a row nor a tab left,
-    // and its "1" could not be cleared from anywhere.
     const rows = activeAgentRowsFrom(roster, topics, sig);
-    const awaiting = rows.awaitingInput.length + rows.finished.length;
-    return { working: rows.working.length, awaiting, awaitingInput: rows.awaitingInput.length };
+    return { working: rows.working.length, awaiting: rows.awaitingInput.length + rows.finished.length, awaitingInput: rows.awaitingInput.length };
   }, [roster, topics, sig]);
-}
-
-// ---- Attention facade (read by the notification layer) ---------------------
-
-/** Reactive attention sets for getBadgeCount. */
-export function useAttentionSignals() {
-  return useSignalsStore(
-    useShallow((s) => ({
-      claudeAttentionTopics: s.claudeAttentionTopics,
-      terminalFinishedIds: s.terminalFinishedIds,
-    })),
-  );
-}
-
-/**
- * Attention count for a single chat topic: server unread OR a "Claude needs
- * you" phase (awaiting-approval / awaiting-user / paused / error). `max`, never
- * sum — a topic that is both unread AND awaiting you is still ONE thing to look
- * at. This is the single
- * source the tab bar (getBadgeCount) and the sidebar (buildSidebarItems) both
- * call, so a chat's badge can never differ between the two surfaces.
- */
-export function topicAttentionCount(
-  topicId: string,
-  unread: Record<string, { unreadCount: number } | undefined>,
-  claudeAttentionTopics: Set<string>,
-): number {
-  // NB: nessun gate "visto" qui, ed è deliberato. Il conteggio e il fill sono due
-  // ASSI diversi: il fill risponde a «devo attirare la tua attenzione?» e si
-  // spegne quando hai guardato (`attentionFillFor`, `projectAttentionTier`); il
-  // numero risponde a «ti resta un'azione da fare» e si spegne quando l'azione è
-  // fatta. Portare il "visto" qui è stato provato e scartato: farebbe dire 0 al
-  // progetto mentre la riga della chat figlia dice ancora 1, che è esattamente la
-  // deriva fra superfici che questi helper esistono per impedire.
-  return Math.max(unread[topicId]?.unreadCount || 0, claudeAttentionTopics.has(topicId) ? 1 : 0);
-}
-
-/**
- * Attention count for a terminal session: a claude-code turn that finished and
- * hasn't been opened yet. Same source the tab bar and sidebar terminal rows
- * read, so the finished signal is one badge, not a dot here and a badge there.
- */
-export function terminalAttentionCount(sid: string, terminalFinishedIds: Set<string>): number {
-  // MAI un gate "visto" davanti a `terminalFinishedIds`: quel segnale si alza
-  // proprio per le sessioni senza fase nota, che per costruzione non entrano mai
-  // in `claudePhaseAwaitingTermIds` — da cui passa il reset del visto. Le due
-  // popolazioni sono disgiunte, e un gate qui renderebbe il chip muto per sempre
-  // dal secondo turno finito in poi.
-  return terminalFinishedIds.has(sid) ? 1 : 0;
-}
-
-/**
- * Project attention rollup: sum of child unread + Claude attention + finished
- * claude-code turns. Pure helper (not a hook) so both getProjectBadgeCount (tab
- * bar) and buildSidebarItems (sidebar project row) call it — guaranteeing the
- * project tab and the sidebar project row show the SAME summed count. Built on
- * the per-subject helpers above so there's one definition of "attention".
- *
- * Gli ARCHIVIATI non contano, per la stessa ragione di `projectAttentionTier` e
- * di `visibleTopicSignalCount`: una chat chiusa ferma su `awaiting-user` non ha
- * riga né tab, quindi il suo "1" non si può azzerare da nessuna parte e il badge
- * del progetto resta appeso per sempre. Misurato: 6 dei 6 figli che tenevano
- * segnalato `topics-app` erano archiviati. Il gemello globale
- * (`rollupGlobalAttention`, badge del dock) NON è cambiato qui — è un'altra
- * superficie e va guardato a parte.
- */
-export function rollupProjectAttention(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  terminalSessions: TerminalSessionInfo[],
-  unread: Record<string, { unreadCount: number } | undefined>,
-  claudeAttentionTopics: Set<string>,
-  terminalFinishedIds: Set<string>,
-): number {
-  let sum = 0;
-  for (const s of projectAttentionSubjects(projectPath, topics, terminalSessions, unread, claudeAttentionTopics, terminalFinishedIds)) {
-    sum += s.count;
-  }
-  return sum;
-}
-
-/** Un figlio che contribuisce al numero del progetto, con il suo NOME. */
-export interface AttentionSubject {
-  id: string;
-  kind: 'chat' | 'terminal';
-  name: string;
-  count: number;
-}
-
-/**
- * CHI compone il numero del progetto, non solo quanto fa.
- *
- * Nasce da un sintomo preciso: il progetto «Guido AI» mostrava 1 e nessuna tab
- * dentro mostrava niente. Il numero era corretto — una chat ferma su
- * `awaiting-user` — ma non era ATTRIBUIBILE: quella chat era l'unica pane aperta
- * del progetto, quindi per forza la tab attiva, e sia la tab (`suppressOnSelect`)
- * sia la riga di sidebar (`!isFocused`) nascondono il numero di ciò che stai
- * guardando. Due regole giuste che, insieme, producono un numero orfano.
- *
- * La soppressione non si tocca: è la spec, ed è coperta da un test E2E
- * (`tab-notifications.spec.ts`, TAB-BADGE-07). Quello che mancava era il modo di
- * RISALIRE dal numero al suo autore, e ora ce l'hanno il tooltip della riga di
- * progetto e il nome accessibile della tab.
- *
- * `rollupProjectAttention` è definito su questa lista, non accanto ad essa: due
- * walk paralleli sugli stessi figli sono esattamente come i due gemelli
- * fill/badge hanno già divergito una volta.
- */
-export function projectAttentionSubjects(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  terminalSessions: TerminalSessionInfo[],
-  unread: Record<string, { unreadCount: number } | undefined>,
-  claudeAttentionTopics: Set<string>,
-  terminalFinishedIds: Set<string>,
-): AttentionSubject[] {
-  const out: AttentionSubject[] = [];
-  for (const t of liveTopicsOfProject(topics, projectPath)) {
-    const count = topicAttentionCount(t.id, unread, claudeAttentionTopics);
-    if (count > 0) out.push({ id: t.id, kind: 'chat', name: t.name || 'Chat', count });
-  }
-  if (terminalFinishedIds.size) {
-    for (const ts of terminalSessions) {
-      // Le shell non sono agenti e `projectAttentionTier` le salta già (:947):
-      // due gemelli che camminano sugli stessi figli con due predicati diversi
-      // producono, prima o poi, un fill senza numero o un numero senza fill.
-      if (ts.type === 'shell') continue;
-      if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-      const count = terminalAttentionCount(ts.id, terminalFinishedIds);
-      if (count > 0) out.push({ id: ts.id, kind: 'terminal', name: ts.name || ts.type || 'Terminale', count });
-    }
-  }
-  return out;
-}
-
-/** Il tooltip del progetto: «2 da guardare: Lavori aperti da fare · build». Vuoto
- *  quando non c'è niente, così il chiamante può concatenarlo senza guardie. */
-export function describeProjectAttention(subjects: AttentionSubject[]): string {
-  if (!subjects.length) return '';
-  const total = subjects.reduce((n, s) => n + s.count, 0);
-  // Cap a 4 nomi: un progetto con venti figli non deve produrre un tooltip che
-  // copre lo schermo. Il resto si conta.
-  const shown = subjects.slice(0, 4).map((s) => s.name);
-  const rest = subjects.length - shown.length;
-  return `${total} da guardare: ${shown.join(' · ')}${rest > 0 ? ` · +altri ${rest}` : ''}`;
-}
-
-/**
- * App-wide attention total for the desktop dock badge + macOS menu-bar tray glyph.
- * The number of SUBJECTS waiting for the user across every topic and terminal:
- * a chat counts ONE whatever its unread (39 messages in one chat are one thing to
- * open), a finished claude-code turn counts one. Which subjects count is decided
- * by the same per-subject helpers the tab badges use (`topicAttentionCount` > 0),
- * so the two cannot disagree on WHO is waiting; they differ only on the unit, and
- * on purpose: the row shows how many messages, the dock how many things.
- *
- * It used to sum the messages, and that is how the dock said 133 while the
- * notifications panel, which lists subjects, said there was nothing left
- * (measured 2026-09-29: 132 unread messages on 6 chats).
- *
- * Pure so it's unit-testable. Agent/session-viewer pane badges live in the
- * notification layer's local `extraCounts`, so the caller adds those.
- */
-export function rollupGlobalAttention(
-  topics: Record<string, Topic>,
-  unread: Record<string, { unreadCount: number } | undefined>,
-  claudeAttentionTopics: Set<string>,
-  terminalFinishedIds: Set<string>,
-): number {
-  return globalAttentionTopicIds(topics, unread, claudeAttentionTopics).length + terminalFinishedIds.size;
-}
-
-/** The chats `rollupGlobalAttention` counts, by id: the global number names its
- *  subjects so it can union them with the unseen notifications. */
-export function globalAttentionTopicIds(
-  topics: Record<string, Topic>,
-  unread: Record<string, { unreadCount: number } | undefined>,
-  claudeAttentionTopics: Set<string>,
-): string[] {
-  const ids: string[] = [];
-  for (const t of Object.values(topics)) {
-    // Gli ARCHIVIATI fuori anche qui. Il commento di `rollupProjectAttention`
-    // diceva che questo gemello «va guardato a parte»: guardato. Misurato sui
-    // dati veri il 03/08: dei 23 topic con sessione ferma su `awaiting-user`, 21
-    // erano ARCHIVIATI — chat chiuse, alcune di settimane prima, senza riga né
-    // tab. Erano 21 unità sul badge del dock e sul glifo nella barra dei menu che
-    // non si potevano azzerare da nessuna parte, perché non esiste una superficie
-    // dove andare a spegnerle. Stesso gate di `visibleTopicSignalCount`.
-    if (t.archived) continue;
-    if (topicAttentionCount(t.id, unread, claudeAttentionTopics) > 0) ids.push(t.id);
-  }
-  return ids;
 }

@@ -4,7 +4,7 @@
  *
  * Serve a una cosa sola, e non è cosmetica: `useCompletionNotifier` deve sapere
  * se il push parla, per tacere sugli eventi che il push già annuncia (vedi
- * `lib/notify/pushVoice.ts`). Farlo passare come prop vorrebbe dire attraversare
+ * `lib/notify/announceBanner.ts`). Farlo passare come prop vorrebbe dire attraversare
  * mezza App per un booleano che cambia due volte nella vita di un dispositivo;
  * uno store lo rende leggibile anche dentro un handler WebSocket, che è
  * esattamente dove serve.

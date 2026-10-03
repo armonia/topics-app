@@ -91,3 +91,14 @@ export function repinSpaceWindow(spaceId: string): void {
     /* history non disponibile: resta il SET_ACTIVE_SPACE del chiamante */
   }
 }
+
+/**
+ * `true` in the MAIN window: neither a pop-out nor a group window. The one
+ * window that writes the Dock badge and the tray (ATTN-08): every window
+ * computes the same number from the same attention frames, but a single hand
+ * writing it is what keeps the Dock from flickering between windows (WIN-1).
+ * The shell checks the caller's label too (`set_app_status` in `lib.rs`).
+ */
+export function isMainWindow(): boolean {
+  return !isDetachedWindow() && spaceWindowId() === null;
+}

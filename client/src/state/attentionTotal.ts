@@ -1,168 +1,129 @@
 /**
- * The ONE number Topics paints on the operating system: the dock badge, the
- * macOS menu-bar tray glyph, and the PWA Badging API all project the value this
- * module computes, and nothing else computes it.
+ * THE ONE NUMBER Topics paints on the operating system: the Dock badge, the
+ * macOS menu-bar tray glyph, the PWA Badging API, and the inbox's button all
+ * project the value this module computes, and nothing else computes it
+ * (ATTN-08, CHROME-COUNT-01, NOTIF-ONE-02).
  *
- * One criterion: HOW MANY THINGS ARE ASKING A HUMAN FOR SOMETHING. Things, not
- * messages: a chat with 39 unread messages is ONE (its row keeps showing 39).
- * That is
- *   - every non-archived chat that is unread or waiting for the user
- *     (`topicAttentionCount`, the same helper each sidebar row and tab uses);
- *   - every claude-code terminal whose turn finished and has not been opened
- *     (`terminalAttentionCount`, again the per-row helper);
- *   - every non-archived chat whose turn finished and has not been opened
- *     (`chatFinishedTopics`, the chat twin of the terminal mark), once;
- *   - every window-local pane badge (`paneCounts`, the notification layer's
- *     `extraCounts`, which the sidebar utility rows read through the same map);
- *   - every board card waiting for a decision (`trayBoardAttention`);
- *   - every subject with a notification not yet seen (the registry's unseen
- *     keys), so the bell and the dock count THE SAME subjects: a card in review
- *     with no notification row, or a chat waiting for you whose rows were all
- *     seen, used to light the dock while the panel said "No notifications".
+ * One criterion: HOW MANY SUBJECTS ARE LIT. Subjects, not messages: a chat
+ * with 39 unread messages is ONE (its row keeps showing 39). A subject is lit
+ * when it waits for the person (`needs-you`) or finished and was not seen
+ * (`finished`), and the server decides that (`state/attention.ts`). Work that
+ * runs on its own (`working`, `background`) is not lit, an archived topic
+ * never counts, and history rows never enter: the bell used to count unseen
+ * rows of pushes never sent and of chats long archived (D3, ARCH-1).
  *
- * Each subject once: a chat with unread messages AND an unseen notification is
- * one thing, keyed as the registry keys it (`topic:<id>`, `task:<id>`, ...).
- *
- * Work that runs on its own asks nothing and does not count. An ARCHIVED topic
- * never counts: it has no row to open, so nothing could ever switch it off.
- *
- * Pure, no React, no I/O: the parity test computes its expectation from the very
- * per-row helpers the sidebar calls, so a criterion that changes on one surface
+ * Pure, no React, no I/O: the parity test computes its expectation from the
+ * sidebar rows and the board tab, so a criterion that changes on one surface
  * and not the other turns the test red instead of quietly drifting.
  */
-import type { Topic } from '../types';
-import { globalAttentionTopicIds } from './signals';
-import type { TrayGroup } from '../../../shared/tray-board';
-import { defaultNotificationGroupKey, terminalNotificationGroupKey } from '../../../shared/notification-log';
+import type { Topic, TerminalSessionInfo } from '../types';
+import { attentionOf, type AttentionRows } from './attention';
+import { TASK_SUBJECT_PREFIX, TERMINAL_SUBJECT_PREFIX, TOPIC_SUBJECT_PREFIX, taskSubject, topicSubject } from '../../../shared/attention';
 
-export interface ChromeAttentionInput {
-  topics: Record<string, Topic>;
-  unread: Record<string, { unreadCount: number } | undefined>;
-  claudeAttentionTopics: Set<string>;
-  terminalFinishedIds: Set<string>;
-  /** Chats marked 'done' (a clean turn end nobody has opened since). */
-  chatFinishedTopics?: ReadonlySet<string>;
-  boardGroups: readonly TrayGroup[];
-  paneCounts: ReadonlyMap<string, number>;
-  /** The registry's unseen subjects (`useUnseenNotificationsStore`). */
-  unseenNotificationKeys?: ReadonlySet<string>;
-}
+export type ChromeSubjectKind = 'chat' | 'terminal' | 'card';
 
-export type ChromeSubjectKind = 'chat' | 'terminal' | 'pane' | 'card' | 'notification';
-
-/** One thing asking a human for something, under the registry's key for it. */
+/** One lit subject the Dock, the tray, the PWA badge and the inbox count. */
 export interface ChromeSubject {
   key: string;
   kind: ChromeSubjectKind;
   id: string;
-  /** Cards only: the title the board list carries. */
-  title?: string;
 }
 
-/** How many window-local panes carry a badge (agents pane, session viewer, ...):
- *  a pane is one subject, whatever its count, like a chat. */
-export function paneAttentionTotal(paneCounts: ReadonlyMap<string, number>): number {
-  let sum = 0;
-  for (const n of paneCounts.values()) if (n > 0) sum += 1;
-  return sum;
+function kindOf(subject: string): { kind: ChromeSubjectKind; id: string } | null {
+  if (subject.startsWith(TOPIC_SUBJECT_PREFIX)) return { kind: 'chat', id: subject.slice(TOPIC_SUBJECT_PREFIX.length) };
+  if (subject.startsWith(TERMINAL_SUBJECT_PREFIX)) return { kind: 'terminal', id: subject.slice(TERMINAL_SUBJECT_PREFIX.length) };
+  if (subject.startsWith(TASK_SUBJECT_PREFIX)) return { kind: 'card', id: subject.slice(TASK_SUBJECT_PREFIX.length) };
+  return null;
 }
 
 /**
- * WHO the one number counts, each once. The notifications panel lists the
- * non-notification entries under "Waiting for you", so nothing the dock counts
- * is missing from the panel.
+ * THE ONE NUMBER (ATTN-08, CHROME-COUNT-01): every lit subject, once, but an
+ * archived chat. The server already composes an archived chat `idle`; the
+ * filter here keeps a row that raced the archive from lighting a Dock nobody
+ * can switch off. Work that runs on its own is not lit, and no history row
+ * enters.
  */
-export function chromeAttentionSubjects(input: ChromeAttentionInput): ChromeSubject[] {
+export function chromeAttentionSubjects(rows: AttentionRows, topics: Record<string, Topic>): ChromeSubject[] {
   const out: ChromeSubject[] = [];
-  const seen = new Set<string>();
-  const add = (subject: ChromeSubject) => {
-    if (seen.has(subject.key)) return;
-    seen.add(subject.key);
-    out.push(subject);
-  };
-  for (const id of globalAttentionTopicIds(input.topics, input.unread, input.claudeAttentionTopics)) {
-    add({ key: defaultNotificationGroupKey('topic', id) ?? `topic:${id}`, kind: 'chat', id });
+  for (const [subject, row] of rows) {
+    if (!row.lit) continue;
+    const a = attentionOf(rows, subject);
+    if (!a.lit) continue;
+    const k = kindOf(subject);
+    if (!k) continue;
+    if (k.kind === 'chat' && topics[k.id]?.archived) continue;
+    out.push({ key: subject, kind: k.kind, id: k.id });
   }
-  for (const id of input.chatFinishedTopics ?? []) {
-    const topic = input.topics[id];
-    if (!topic || topic.archived) continue;
-    add({ key: defaultNotificationGroupKey('topic', id) ?? `topic:${id}`, kind: 'chat', id });
-  }
-  for (const id of input.terminalFinishedIds) add({ key: terminalNotificationGroupKey(id), kind: 'terminal', id });
-  for (const [id, n] of input.paneCounts) if (n > 0) add({ key: `pane:${id}`, kind: 'pane', id });
-  const review = input.boardGroups.find((g) => g.status === 'review');
-  if (review) {
-    for (const row of review.rows) {
-      add({ key: defaultNotificationGroupKey('task', row.id) ?? `task:${row.id}`, kind: 'card', id: row.id, title: row.title });
-    }
-    // A group cut to its first rows still counts every card in it.
-    for (let i = review.rows.length; i < review.count; i++) add({ key: `task#${i}`, kind: 'card', id: '' });
-  }
-  for (const key of input.unseenNotificationKeys ?? []) add({ key, kind: 'notification', id: key });
   return out;
 }
 
-/**
- * Chats (unread, waiting or finished) + terminals + pane badges + board cards
- * in review + unseen notifications, each subject once. Every OS surface and the bell read THIS.
- */
-export function chromeAttentionTotal(input: ChromeAttentionInput): number {
-  return chromeAttentionSubjects(input).length;
+export function chromeAttentionTotal(rows: AttentionRows, topics: Record<string, Topic>): number {
+  return chromeAttentionSubjects(rows, topics).length;
 }
 
-/**
- * What the notifications panel lists under "Waiting for you": every subject the
- * number counts that the history below does not already show with an unseen
- * dot. Without it a card in review, or a chat waiting for an answer, lit the
- * dock while the panel said "No notifications".
- */
-export function waitingSubjects(
-  subjects: readonly ChromeSubject[],
-  unseenNotificationKeys: ReadonlySet<string>,
-): ChromeSubject[] {
-  return subjects.filter((s) => s.kind !== 'notification' && !!s.id && !unseenNotificationKeys.has(s.key));
-}
-
-/** How many chats the tray menu lists: the menu stays short. */
+/** How many chats and terminals the tray menu lists: the menu stays short. */
 export const TRAY_CHAT_ROWS = 8;
 
-/** A chat row of the tray menu: `set_app_status` items. */
+/** A row of the tray menu (`set_app_status` items). A terminal's id carries its `terminal:` prefix. */
 export interface TrayChatItem {
   id: string;
   title: string;
 }
 
 /**
- * The chat rows of the tray menu, read from the subjects the tray glyph counts
- * (`chromeAttentionSubjects`), so the menu cannot list fewer chats than the
- * number beside it: a chat marked 'done' and a chat known only by an unseen
- * notification are rows too. It used to filter topics by
- * `topicAttentionCount`, which knows unread and needs-you but not the 'done'
- * mark, and the tray said N while listing N-1.
- *
- * Heaviest first (more unread messages first, the rest in subject order), at
- * most `TRAY_CHAT_ROWS`. Terminals, panes and cards are not chat rows: the
- * cards ride the board groups of the same call.
+ * The chat and terminal rows of the tray menu, from the subjects the glyph
+ * counts: the menu lists what the number says. Waiting for you first, then
+ * the most recent. The cards ride the board groups of the same call.
  */
 export function trayChatItems(
   subjects: readonly ChromeSubject[],
+  rows: AttentionRows,
   topics: Record<string, Topic>,
-  unread: Record<string, { unreadCount: number } | undefined>,
+  terminalSessions: readonly TerminalSessionInfo[],
 ): TrayChatItem[] {
-  const rows: { id: string; title: string; weight: number }[] = [];
-  const listed = new Set<string>();
+  const names = new Map(terminalSessions.map((t) => [t.id, t.name || t.type || 'Terminal']));
+  const listed: { item: TrayChatItem; rank: number; since: number }[] = [];
   for (const s of subjects) {
-    let id: string | null = null;
-    if (s.kind === 'chat') id = s.id;
-    else if (s.kind === 'notification' && s.key.startsWith('topic:')) id = s.key.slice('topic:'.length);
-    if (!id || listed.has(id)) continue;
-    const topic = topics[id];
-    if (!topic || topic.archived) continue;
-    listed.add(id);
-    rows.push({ id, title: topic.name || id, weight: Math.max(unread[id]?.unreadCount || 0, 1) });
+    const a = attentionOf(rows, s.key);
+    const rank = a.tier === 'needs-you' ? 2 : 1;
+    if (s.kind === 'chat') {
+      const t = topics[s.id];
+      if (!t || t.archived) continue;
+      listed.push({ item: { id: s.id, title: t.name || s.id }, rank, since: a.since });
+    } else if (s.kind === 'terminal') {
+      listed.push({ item: { id: s.key, title: names.get(s.id) ?? s.id }, rank, since: a.since });
+    }
   }
-  return rows
-    .sort((a, b) => b.weight - a.weight)
+  return listed
+    .sort((x, y) => y.rank - x.rank || y.since - x.since)
     .slice(0, TRAY_CHAT_ROWS)
-    .map(({ id, title }) => ({ id, title }));
+    .map((x) => x.item);
+}
+
+/**
+ * THE PHONE'S DELIVERED NOTIFICATIONS, after a seen elsewhere (ATTN-06): the
+ * subject a push tag stands for. The server tags a push with the subject
+ * itself, or with the older per-kind tags (`chat-end-<id>`, `task-review-<id>`,
+ * ...) that already sit on the phone.
+ */
+export function subjectOfPushTag(tag: string | null | undefined): string | null {
+  if (!tag) return null;
+  if (tag.startsWith(TOPIC_SUBJECT_PREFIX) || tag.startsWith(TERMINAL_SUBJECT_PREFIX) || tag.startsWith(TASK_SUBJECT_PREFIX)) return tag;
+  const chat = /^chat-(?:end|error|wait)-(.+)$/.exec(tag);
+  if (chat) return topicSubject(chat[1]);
+  const task = /^task-(?:review|park|wait)-(.+)$/.exec(tag);
+  if (task && task[1] !== 'new') return taskSubject(task[1]);
+  return null;
+}
+
+/**
+ * Which delivered notifications to withdraw on `attention:init`: those whose
+ * subject is no longer lit. A tag that names no subject (an old generic one)
+ * is left alone: nothing says it is stale.
+ */
+export function notificationsToWithdraw<N extends { tag?: string }>(delivered: readonly N[], rows: AttentionRows): N[] {
+  return delivered.filter((n) => {
+    const subject = subjectOfPushTag(n.tag);
+    return subject !== null && !attentionOf(rows, subject).lit;
+  });
 }

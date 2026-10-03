@@ -124,7 +124,7 @@ import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { UnsentContext, useUnsentController } from './state/unsentMessages';
-import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
+import { Inbox } from './components/Sidebar/Inbox';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
 import { useSidebarBottomInset } from './hooks/useSidebarBottomInset';
@@ -566,12 +566,11 @@ function App() {
   // bound topic's chip and a project's worktree sections from it.
   const { worktrees } = useWorktrees({ onMessage: onWSMessage });
 
-  // topicId → task index for dispatched tasks. Un consumatore solo, e apposta:
-  // `useCompletionNotifier` è l'unica porta dei banner. Ci mette dentro il
-  // taskId (un click apre il drawer del task) e lo legge per NON bannerizzare
-  // né la fine turno né i messaggi di un agente di board al lavoro — quelli li
-  // annuncia `task:review-ready`.
-  const taskForTopic = useTaskTopicIndex();
+  // topicId → task index for dispatched tasks, published to the per-topic
+  // store (`state/taskSessions.ts`) that the chats read. The banners no longer
+  // use it: the server decides who is announced (a board agent's topic never
+  // is, its card is the subject).
+  useTaskTopicIndex();
 
   // A stable global the native (Tauri) notification delegate can call on click to
   // open a banner's destination. Il percorso web/Electron ci arriva da solo
@@ -969,14 +968,18 @@ function App() {
   // Native tray menu (Tauri) click on an attention row → open/focus that topic,
   // exactly like a sidebar click. The Rust `nav:` handler dispatches this DOM
   // CustomEvent into the webview (no @tauri-apps/event dependency).
+  // A terminal row of the tray (notifications-redesign: the tray lists the
+  // terminals the number counts) carries its `terminal:` subject instead.
   useEffect(() => {
     const handler = (e: Event) => {
       const topicId = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
-      if (topicId) handleTopicClick(topicId);
+      if (!topicId) return;
+      if (topicId.startsWith('terminal:')) handleTerminalClick(topicId.slice('terminal:'.length), '');
+      else handleTopicClick(topicId);
     };
     window.addEventListener('topics:tray-navigate', handler);
     return () => window.removeEventListener('topics:tray-navigate', handler);
-  }, [handleTopicClick]);
+  }, [handleTopicClick, handleTerminalClick]);
 
   // The palette's two callbacks that feed its effects and memos: as inline
   // arrows they changed on every App render (every topic:updated), and the
@@ -1396,7 +1399,7 @@ function App() {
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects} topicsPending={topicsLoading && Object.keys(topics).length === 0}>
     <UnsentContext.Provider value={unsent}>
-    <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
+    <TabNotificationProvider>
     <SplitPositionProvider>
     <ToastProvider>
     <ConfirmProvider>
@@ -1418,17 +1421,7 @@ function App() {
         Settings → Notifications takes effect without a reload. Native
         desktop notifications are dispatched independently from
         electron-app/main.ts — see notifyAgentCompleted there. */}
-    <CompletionNotifierBridge
-      onWSMessage={onWSMessage}
-      settings={appSettings}
-      topics={topics}
-      ensureTopic={ensureTopic}
-      ensureArchivedTopics={ensureArchivedTopics}
-      focusedPanelId={focusedPanelId}
-      terminalSessions={terminalSessions}
-      taskForTopic={taskForTopic}
-      isOwnStream={isOwnStream}
-    />
+    <CompletionNotifierBridge onWSMessage={onWSMessage} settings={appSettings} />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original
       conservative default; 1.5s still leaves an obvious "click again to
@@ -1845,7 +1838,7 @@ function App() {
                 rettangolo del trigger e si tiene dentro lo schermo da sé. */}
             {!isMobile && (
               <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
-                <NotificationHistoryButton
+                <Inbox
                   onWSMessage={onWSMessage}
                   isMobile={isMobile}
                 />
@@ -1855,7 +1848,7 @@ function App() {
 
           {isMobile && (
             <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
-              <NotificationHistoryButton
+              <Inbox
                 onWSMessage={onWSMessage}
                 isMobile
               />

@@ -54,6 +54,7 @@ import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { SubjectInFront, useSeenFocusedPane } from '../../state/paneSeen';
+import { topicSubject } from '../../../../shared/attention';
 
 // `lazyWarm`, not `lazy`, for the pane bodies: their chunks are asked for at
 // boot from the local pane-store snapshot (`state/pane/panePreload`), and a
@@ -410,7 +411,7 @@ export function StandaloneChatGroup({
   // Build tab notification badge map from context. Project tabs inherit their
   // children's badges via the central rollup (getProjectBadgeCount); other
   // panes use their own badge.
-  const { getBadgeCount, getProjectBadgeCount, clearPane } = useTabNotifications();
+  const { getBadgeCount, getProjectBadgeCount } = useTabNotifications();
   const tabNotifications = useMemo(() => {
     const map = new Map<string, number>();
     // «La stai guardando» = attiva E in un gruppo che ha il fuoco: la stessa
@@ -594,7 +595,7 @@ export function StandaloneChatGroup({
       {/* The board pane has no subject of its own: the coordinator in its drawer
           is the pane in front when the board is (focused, or drawn focused with
           no pane focused), and gets the seen dwell from here. */}
-      <SubjectInFront subjectId={focused || (!focusedPanelId && hasBox && paneId === activePaneId) ? topic.id : null} />
+      <SubjectInFront subject={focused || (!focusedPanelId && hasBox && paneId === activePaneId) ? topicSubject(topic.id) : null} />
       {/* The coordinator is not the board pane for ⌘F: the board's finds go
           to its filter, the chat's own under the topic's id. */}
       <FindPaneContext.Provider value={null}>
@@ -677,7 +678,6 @@ export function StandaloneChatGroup({
       // la soppressione del suo badge.
       groupIsFocused={!focusedPanelId || validatedOrderedIds.includes(focusedPanelId)}
       onActivate={(paneId) => {
-        clearPane(paneId); // clear non-chat badge on tab activation
         onFocusPanel(paneId);
       }}
       onClose={handleClosePane}

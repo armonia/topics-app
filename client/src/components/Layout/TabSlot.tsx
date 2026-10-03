@@ -36,7 +36,7 @@ import { useSharedOrg } from '../../lib/projectSharingStore';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import type { SwapFreezeView } from '../../state/swapFreeze';
 import {
-  useTopicLoading, useTopicBackgroundWork, useProjectLoading, useProjectBackgroundWork,
+  useTopicLoading, useTopicInBackground, useProjectLoading, useProjectBackgroundWork,
   useTerminalLoading, useBrowserLoading, useSessionActivity, useSubjectLastActivity, useProjectWorkStart,
 } from '../../state/signals';
 import { deriveSubjectTime, formatElapsedCompact } from '../../state/workLongevity';
@@ -92,11 +92,11 @@ export function TabSlot(props: TabSlotProps) {
 
 function ChatSlot(props: TabSlotProps) {
   const loading = useTopicLoading(props.topicId);
-  const background = useTopicBackgroundWork(props.topicId);
+  const background = useTopicInBackground(props.topicId);
   return (
     <SlotView
       {...props}
-      working={loading || !!background}
+      working={loading || background}
       canStop={loading && !!props.onStop}
       glyph={<TopicStreamingSpinner topicId={props.topicId} onFill={props.onFill} />}
     />

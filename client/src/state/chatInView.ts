@@ -1,72 +1,58 @@
 /**
- * Which pane the person is looking at, for the chat and terminal marks.
+ * Which subject the person has in front in THIS window, for the server.
  *
- * A clean turn end raises the mark (`chatFinishedEdge`), and viewing the chat
- * clears it. When the chat that finished was already in front, the mark used
- * to be raised and then cleared one commit later by the chat pane's effect:
- * short enough to be invisible on the tab, long enough for the provider's
- * effects to paint +1 on the Dock and the PWA badge and take it back, at every
- * turn end (setAppBadge history 0,1,0,1,...; in Tauri two `set_app_status`
- * calls per turn). So the window declares its focused pane here
- * (`useSeenFocusedPane`), and the turn end reads it synchronously and raises
- * no mark at all.
+ * An epoch born on a subject in front of a window that is awake is born seen:
+ * no number, no unseen history row, no push (ATTN-06). The server can decide
+ * that only if each window tells it what it has in front and whether it is
+ * awake, so the window declares its focused pane here (`useSeenFocusedPane`,
+ * `SubjectInFront`) and `useWebSocket` sends it as the `focus` frame
+ * (`{ subject, awake }`) at every change of either, and again after a
+ * reconnect.
+ *
+ * Subjects are the attention keys: `topic:<id>`, `terminal:<id>`.
  */
-import { signalsActions, useSignalsStore } from './signals';
 import { isWindowAwake } from './windowAwake';
 
-/**
- * Chats whose 'done' mark THIS window switched off because the person looked
- * at them, not yet told to the server. The mark lives per window, so the
- * others hear about it only through the chat's seen door, after the dwell
- * (`useWebSocket`): by then the pane has already cleared the mark here, and
- * reading the store at that moment would find nothing. Consumed once.
- */
-const chatDoneSeenHere = new Set<string>();
+/** The holders, in the order they declared: the last one is the subject in front. */
+const held: string[] = [];
+const listeners = new Set<() => void>();
 
-/**
- * The person LOOKED at the chat (its pane in front for the dwell, or the row of
- * a chat held by another window clicked): the mark
- * goes here now, and the seen door tells every other window after the dwell
- * (`takeChatDoneSeen`). A new turn is not a look, and keeps the plain
- * `signalsActions.clearChatFinished`. Before, the clear stayed in this window,
- * and a finished chat with no unread and no notification row kept its mark in
- * every other one.
- */
-export function seeChatFinished(topicId: string): void {
-  if (!useSignalsStore.getState().chatFinishedTopics.has(topicId)) return;
-  chatDoneSeenHere.add(topicId);
-  signalsActions.clearChatFinished(topicId);
+function notify(): void {
+  for (const fn of listeners) {
+    try { fn(); } catch { /* a listener must not break the others */ }
+  }
 }
 
-/** Does opening `topicId` here clear a 'done' mark: one seen since the last
- *  call, or one still on it? Consumes the first. */
-export function takeChatDoneSeen(topicId: string): boolean {
-  const seen = chatDoneSeenHere.delete(topicId);
-  return seen || useSignalsStore.getState().chatFinishedTopics.has(topicId);
-}
-
-/** Subject id (topic or terminal session) → how many holders declare it the
- *  pane in front of this window (a remount can overlap the release). */
-const subjectsInFront = new Map<string, number>();
-
-/** Declare `subjectId` the pane in front of this window until the returned
- *  release runs. The one holder is `useSeenFocusedPane` (paneSeen.ts). */
-export function holdSubjectInFront(subjectId: string): () => void {
-  subjectsInFront.set(subjectId, (subjectsInFront.get(subjectId) ?? 0) + 1);
+/** Declare `subject` the pane in front of this window until the returned
+ *  release runs. A remount can overlap the release: each hold is counted. */
+export function holdSubjectInFront(subject: string): () => void {
+  const before = subjectInFront();
+  held.push(subject);
+  if (subjectInFront() !== before) notify();
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    const n = (subjectsInFront.get(subjectId) ?? 1) - 1;
-    if (n > 0) subjectsInFront.set(subjectId, n);
-    else subjectsInFront.delete(subjectId);
+    const at = held.lastIndexOf(subject);
+    if (at === -1) return;
+    const was = subjectInFront();
+    held.splice(at, 1);
+    if (subjectInFront() !== was) notify();
   };
 }
 
-/** Is the person looking at this chat or terminal now: it is the window's
- *  focused pane AND the window is awake (`isWindowAwake`, the predicate the
- *  seen dwell reads). A pane focused in a window behind another app is not in
- *  front of anyone. A turn that ends on it raises no mark. */
-export function isSubjectInFront(subjectId: string): boolean {
-  return (subjectsInFront.get(subjectId) ?? 0) > 0 && isWindowAwake();
+/** The subject this window has in front, or null (a browser, a file, nothing). */
+export function subjectInFront(): string | null {
+  return held.length ? held[held.length - 1] : null;
+}
+
+/** Is the person looking at this subject now: held in front AND the window awake. */
+export function isSubjectInFront(subject: string): boolean {
+  return held.includes(subject) && isWindowAwake();
+}
+
+/** Called whenever the subject in front changes. Returns the unsubscribe. */
+export function onSubjectInFrontChange(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
 }

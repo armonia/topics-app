@@ -158,7 +158,7 @@ const PUSH_BANNER_MESSAGE = 'topics:push-banner';
 // payload (`whenOpen`, scritto riga per riga da server/push-service.ts):
 //   · `native` (default) → il banner lo mostra il sistema, sempre. La pagina, se
 //     aperta, tace da sé: quando questo dispositivo è iscritto smette di
-//     disegnare i banner degli eventi che il push copre (lib/notify/pushVoice.ts).
+//     disegnare i banner degli eventi che il push copre (lib/notify/announceBanner.ts).
 //   · `in-app`           → con una finestra VISIBILE il contenuto va alla pagina
 //     e la notifica di sistema NON si mostra. Ad app chiusa (nessuna finestra
 //     visibile) si ricade sul banner di sistema, che è l'unica voce rimasta.
@@ -184,6 +184,19 @@ async function deliverPush(data) {
   // esegue la chiamata che è arrivata (dopo il cancello sul path). Vale per
   // entrambe le voci — la esegue il worker sulla nativa, la pagina sul banner.
   const requests = data.requests || {};
+
+  // THE NUMBER RIDES WITH THE PUSH (notifications-redesign, ATTN-06): the
+  // server puts the current count of lit subjects in `badge`, and with the PWA
+  // closed this is the only hand that can write the app icon. Best-effort: a
+  // platform without the Badging API in the worker simply keeps its number
+  // until the PWA opens and rewrites it.
+  if (typeof data.badge === 'number') {
+    try {
+      const nav = self.navigator;
+      if (data.badge > 0 && nav && typeof nav.setAppBadge === 'function') await nav.setAppBadge(data.badge);
+      else if (data.badge <= 0 && nav && typeof nav.clearAppBadge === 'function') await nav.clearAppBadge();
+    } catch { /* the badge is a courtesy: never block the notification on it */ }
+  }
 
   // I tasti dichiarati dal server, ripuliti UNA volta per tutte e due le voci.
   const declared = Array.isArray(data.actions) ? data.actions : [];

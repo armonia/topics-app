@@ -18,11 +18,13 @@ import type { Dict } from './i18n-types';
 import SPEND_EN from './i18n-spend-en';
 import CHAT_EN from './i18n-chat-en';
 import FIND_EN from './i18n-find-en';
+import ATTENTION_EN from './i18n-attention-en';
 
 const EN = {
   ...SPEND_EN,
   ...CHAT_EN,
   ...FIND_EN,
+  ...ATTENTION_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
   'ai.selector.routingLine': 'Claude runs inside Topics on your subscription, without starting a Claude Code process per chat. GPT and Gemini stay direct.',
@@ -2377,21 +2379,10 @@ const EN = {
   'version.installRestart': 'Restart and install',
   'version.check': 'Check for updates',
   // ── Notification history.
-  'notifications.historyTitle': 'Notification history',
-  'notifications.historyUnseen': 'Notification history. {n} to look at',
-  'notifications.badgeUnseen': '{n} to look at',
-  'notifications.panelTitle': 'Notifications',
   'notifications.settings': 'Notification preferences',
   'notifications.empty': 'No notifications',
-  'notifications.waitingTitle': 'Waiting for you',
-  'notifications.waitingChat': 'Chat waiting for you',
-  'notifications.waitingCard': 'Card in review',
-  'notifications.waitingTerminal': 'Terminal finished',
-  'notifications.waitingPane': 'Panel with news',
-  'notifications.logStartsHere': 'From here on every notification sent leaves a row.',
   'notifications.loadMore': 'Load older notifications',
   'notifications.loadingMore': 'Loading…',
-  'notifications.allLoaded': 'You reached the bottom of the log.',
   // ── Project strip under the board.
   'board.projects.more': '{n} more projects with open tasks',
   // ── Sidebar rows.

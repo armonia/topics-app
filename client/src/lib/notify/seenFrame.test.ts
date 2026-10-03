@@ -1,11 +1,11 @@
 /**
- * What a `notification:seen` frame switches off in a window: the in-memory
- * marks (terminal finished, chat done) and the unseen dots of the history rows.
+ * What a `notification:seen` frame switches off in a window: the unseen dots
+ * of the history rows (the subjects' lit state is the attention frame's).
  *
  * @covers NOTIF-ONE-01
  */
 import { describe, expect, test } from "bun:test";
-import { frameCoversSubject, marksClearedBy, rowSeenByFrame, terminalSubject, topicSubject } from "./seenFrame";
+import { frameCoversSubject, rowSeenByFrame } from "./seenFrame";
 
 describe("frameCoversSubject", () => {
   test("a frame with subjects covers exactly those", () => {
@@ -15,19 +15,6 @@ describe("frameCoversSubject", () => {
 
   test("a frame that names nothing covers nothing", () => {
     expect(frameCoversSubject({}, "topic:a")).toBe(false);
-  });
-});
-
-describe("marksClearedBy", () => {
-  test("terminal marks use the terminal group key the rows are born with", () => {
-    const finished = new Set(["s1", "s2"]);
-    expect(marksClearedBy({ subjects: [terminalSubject("s1")] }, terminalSubject, finished)).toEqual(["s1"]);
-  });
-
-  test("chat done marks use the topic group key, and never match a terminal of the same id", () => {
-    const done = new Set(["x"]);
-    expect(marksClearedBy({ subjects: [topicSubject("x")] }, topicSubject, done)).toEqual(["x"]);
-    expect(marksClearedBy({ subjects: [terminalSubject("x")] }, topicSubject, done)).toEqual([]);
   });
 });
 

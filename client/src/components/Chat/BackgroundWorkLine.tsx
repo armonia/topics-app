@@ -4,8 +4,12 @@
  * A turn that ends with an Agent, a Bash, a Monitor or a Workflow still running
  * leaves the chat with no turn open and nothing on screen: no phrase, no timer,
  * no spinner, while the CLI waits for its own work and will wake to answer it.
- * This line names that work, from the `background` row of
- * `/api/topics/streaming` (`useTopicBackgroundWork`), and goes away with it.
+ * This line names that work, from the tasks of the chat's attention state
+ * (`useTopicBackgroundTasks`, the frame the grey glyph and the fill read too,
+ * ATTN-12), and goes away with it. The poll of `/api/topics/streaming` adds
+ * only what the attention state does not carry: the process of each
+ * `run_command` (its link to the Processes pane) and when the CLI last said
+ * something about the work (the stale readout).
  *
  * NO STOP HERE. The composer already offers it with an empty field
  * (`composerAction.ts`), and two commands for one thing read as two things; the
@@ -53,8 +57,9 @@
 import { memo } from 'react';
 import { Activity, SquareTerminal } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { useTopicBackgroundWork, useTopicLoading } from '../../state/signals';
+import { useTopicBackgroundDetail, useTopicBackgroundTasks, useTopicLoading } from '../../state/signals';
 import type { TopicBackgroundWork } from '../../state/backgroundWork';
+import type { AttentionTask } from '../../../../shared/attention';
 import type { BackgroundTaskSummary } from '../../../../shared/background-work';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact, formatRunningFor } from '../../state/workLongevity';
@@ -63,7 +68,9 @@ import { OrbitLoader } from '../Layout/StreamingIndicator';
 import { OPEN_PROCESS_LOG_EVENT } from '../Layout/fileOpenScope';
 
 export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, projectPath, isMobile }: { topicId: string; projectPath?: string; isMobile: boolean }) {
-  const work = useTopicBackgroundWork(topicId);
+  const tasks = useTopicBackgroundTasks(topicId);
+  const detail = useTopicBackgroundDetail(topicId);
+  const work = tasks.length > 0 ? lineWork(tasks, detail) : undefined;
   const turnOpen = useTopicLoading(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
   return work ? (
@@ -72,6 +79,23 @@ export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, pr
     </div>
   ) : null;
 });
+
+/**
+ * What the line names: the attention state's tasks, in its order, with the
+ * poll's detail where it has one. A `command` of the attention state stands
+ * for every `run_command` of the chat: the poll lists them one by one, with
+ * the process the click opens. A Monitor is a `monitor` here and in the poll.
+ */
+function lineWork(tasks: readonly AttentionTask[], detail: TopicBackgroundWork | undefined): TopicBackgroundWork {
+  const commands = (detail?.tasks ?? []).filter((t) => t.type === 'command');
+  const named: BackgroundTaskSummary[] = [];
+  for (const t of tasks) {
+    if (t.kind === 'command' && commands.length > 0) { named.push(...commands); continue; }
+    const startedAt = Date.parse(t.startedAt);
+    named.push({ type: t.kind, description: t.label, ...(Number.isFinite(startedAt) ? { startedAt } : {}) });
+  }
+  return { sessionKey: detail?.sessionKey ?? '', tasks: named, lastSignalAt: detail?.lastSignalAt ?? 0 };
+}
 
 /**
  * Opens a command's log as a pane of the project window that hosts this chat
@@ -93,7 +117,7 @@ function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turn
   // Commands only: the composer's Stop has nothing to stop, their own Stop is in the Processes pane.
   const commandsOnly = n > 0 && work.tasks.every((t) => t.type === 'command');
   // With no task listed a report is waking the CLI right now: that is news.
-  const { isStale, elapsedMs } = deriveWorkLongevity(n > 0 ? work.lastSignalAt : undefined, now);
+  const { isStale, elapsedMs } = deriveWorkLongevity(n > 0 && work.lastSignalAt > 0 ? work.lastSignalAt : undefined, now);
   return (
     <div
       data-testid="background-work-line"

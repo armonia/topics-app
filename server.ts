@@ -4632,9 +4632,12 @@ const opzioniServer = {
             ws.data.focusedTopicId = data.topicId;
             // What this window has in front and whether it is awake: an epoch
             // born there is born seen (ATTN-06). A guest's focus never counts.
+            // A client that sends `subject` (null included: a browser pane in
+            // front) says it itself; an older one is read from its topic.
             {
               const subject = typeof data.subject === 'string' && isAttentionSubject(data.subject)
                 ? data.subject
+                : 'subject' in data ? null
                 : data.topicId ? topicSubject(data.topicId) : null;
               setSocketFocus(ws.data.id, { subject, awake: data.awake ?? true }, { guest: guestSocket });
             }
