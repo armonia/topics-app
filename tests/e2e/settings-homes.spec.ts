@@ -36,6 +36,7 @@ import { openProfileMenu } from "./helpers/open-perf-panel";
 import { openUserMenuLevel } from "./helpers/user-menu";
 import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, calendarTile, navigateToSidebar, setPins } from "./helpers/pinned-calendar-tile";
 import { E2E_BASE } from "./helpers/test-server";
+import { longPress } from "./helpers/long-press";
 
 const test = base.extend<{ bp: BrowserProcessPage }>({
   bp: async ({ page }, use) => {
@@ -527,6 +528,79 @@ test.describe("sul telefono il modulo dei provider è un foglio dal basso", () =
     } finally {
       await deleteTopic(request, topic.id);
     }
+  });
+});
+
+/** The phone's sheet: settled, flush with the bottom, edge to edge, with a
+ *  close button a finger can hit. */
+async function expectBottomSheet(page: Page, panel: Locator, closeId: string) {
+  await expect(panel).toBeVisible();
+  await expect.poll(() => panel.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
+    .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+  const box = await panel.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    return { left: Math.round(b.left), width: Math.round(b.width), bottom: Math.round(b.bottom), vw: window.innerWidth, vh: window.innerHeight };
+  });
+  expect(box.left).toBe(0);
+  expect(box.width).toBe(box.vw);
+  expect(box.bottom).toBeGreaterThanOrEqual(box.vh - 1);
+  const close = panel.getByTestId(closeId);
+  expect(await close.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+  return close;
+}
+
+test.describe("sul telefono Strumenti e Calendario sono fogli dal basso", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("SETHOME-01j: a 390 il «+» del composer apre Strumenti a tutta larghezza", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    await page.route("**/api/mcp/fleet**", async (route) => {
+      if (route.request().method() !== "GET") { await route.fallback(); return; }
+      await route.fulfill({ json: { enabled: true, mounted: true, mounting: false, servers: [
+        { name: "github", transport: "stdio", state: "ready", tools: [], skills: [] },
+      ] } });
+    });
+    const topic = await createTopic(request, `Homes phone tools ${Date.now()}`);
+    try {
+      await resetPaneStore(request, [topic.id]);
+      await goToApp(page);
+      await openTopic(page, new RegExp(topic.name));
+      const plus = page.getByTestId("composer-add-menu");
+      await expect(plus).toBeVisible({ timeout: 15_000 });
+      await plus.tap();
+      const row = page.getByTestId("composer-tools");
+      await expect(row).toBeVisible();
+      await expect(page.getByTestId("composer-tools-tail")).toHaveText("1 attivo");
+      await row.tap();
+      const panel = page.getByTestId("home-panel-tools");
+      const close = await expectBottomSheet(page, panel, "home-panel-tools-close");
+      await expect(panel.getByTestId("mcp-fleet-panel")).toBeVisible({ timeout: 15_000 });
+      await close.tap();
+      await expect(panel).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
+  });
+
+  test("SETHOME-01k: a 390 il menu della tessera del calendario apre il feed a tutta larghezza", async ({ page, bp }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    await bp.mockBrowserContexts([{ id: CAL_CTX_ID, url: CAL_URL, title: "Calendar", lastActivity: Date.now() }]);
+    await bp.mockRemoteBrowserPane({ connected: true, url: CAL_URL, title: "Calendar", hasScreenshot: true });
+    await setPins(page, [CAL_PANE_ID]);
+    await navigateToSidebar(page);
+    const tile = calendarTile(page);
+    await expect(tile).toBeVisible();
+
+    // On a phone the tile's menu is a long press (TOUCH parity), held until it is up.
+    const row = page.getByTestId("calendar-tile-feed");
+    await longPress(page, '[data-testid="sidebar-pinned-section"] [data-testid="pinned-tile"]', { until: row });
+    await expect(page.getByTestId("calendar-tile-feed-tail")).toHaveText(/^(Non collegato|Collegato|In pausa)$/, { timeout: 10_000 });
+    await row.tap();
+    const panel = page.getByTestId("home-panel-calendar");
+    const close = await expectBottomSheet(page, panel, "home-panel-calendar-close");
+    await expect(panel.getByTestId("calendar-feed-url")).toBeVisible({ timeout: 15_000 });
+    await close.tap();
+    await expect(panel).toHaveCount(0);
   });
 });
 
