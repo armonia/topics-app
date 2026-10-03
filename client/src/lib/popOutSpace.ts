@@ -13,6 +13,7 @@
 // il `server_seq`: non serve un secondo modello.
 import { isTauri } from './shell/index';
 import { tauriInvoke } from './shell/tauri';
+import { beginNativeViewMovesToAnotherWindow } from './shell/nativeBrowserViews';
 
 /**
  * I gruppi che QUESTA finestra ha rivendicato a mano.
@@ -52,6 +53,9 @@ export async function popOutSpace(spaceId: string): Promise<boolean> {
   // Se lo si stacca, non è più "voglio tenerlo qui".
   claimedSpaces.delete(spaceId);
   if (isTauri) {
+    // Same reason as `popOutTopics`: the group's pages must still be alive when
+    // the new window asks for them, so it gets the same native views.
+    beginNativeViewMovesToAnotherWindow();
     try {
       const label = await tauriInvoke<string>('window_detach_space', { space: spaceId });
       const ok = typeof label === 'string' && label.length > 0;

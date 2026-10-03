@@ -248,6 +248,12 @@ fn webview_content_pid_map() -> &'static std::sync::Mutex<std::collections::Hash
 ///
 /// L'URL di una pane la decidiamo noi (`browser_open`/`browser_navigate`): è
 /// uno stato nostro, e leggerlo da qui non può fallire.
+///
+/// Since `browser_open` stopped navigating a live view, this map is also what
+/// the reuse branch reports back as "where the page is", so on macOS the KVO
+/// observer of `URL` (`nav_record_state`) keeps it current: a click, a redirect
+/// or a pushState inside the page overwrites the url we last asked for. It is
+/// the same value WebKit hands the toolbar, read without touching the view.
 static BROWSER_PANE_URL: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashMap<String, String>>,
 > = std::sync::OnceLock::new();
@@ -4424,6 +4430,11 @@ fn nav_record_state(webview: *mut objc2::runtime::AnyObject) {
         let title = ns_string_to_rust(msg_send![webview, title]);
         // The KVO key is `loading`; the getter is `isLoading`.
         let loading: BOOL = msg_send![webview, isLoading];
+        // The live url, kept for the reuse branch of `browser_open` (see
+        // BROWSER_PANE_URL). Empty means teardown, which is not a place.
+        if !url.is_empty() {
+            remember_pane_url(&browser_label(&pane_id), &url);
+        }
         if let Ok(mut v) = NAV_STATE_EVENTS.lock() {
             let next = NavStateMsg { url, title, loading, pane_id: pane_id.clone() };
             // Coalesce: replace this pane's pending state instead of appending.
@@ -5065,8 +5076,8 @@ fn browser_open(
     // pop-out, non di `main`. Optional per compatibilità coi bundle vecchi (None
     // = `main`, il vecchio comportamento).
     window_label: Option<String>,
-) -> Result<(), String> {
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+) -> Result<BrowserOpenAnswer, String> {
+    let (tx, rx) = std::sync::mpsc::channel::<Result<BrowserOpenAnswer, String>>();
     let app_for_main = app.clone();
     app.run_on_main_thread(move || {
         let out = no_abort("browser_open", move || {
@@ -5084,6 +5095,76 @@ fn browser_open(
         .map_err(|_| "browser_open: the main thread dropped the task".to_string())?
 }
 
+/// What `browser_open` answers: whether it found the pane's view alive, and
+/// where that view is. The client puts `url` in the address bar: for a reused
+/// view it is the page the view is showing, not the (possibly stale) url the
+/// pane asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct BrowserOpenAnswer {
+    reused: bool,
+    url: String,
+}
+
+/// What `browser_open` does with a pane id. Decided apart from tauri so the
+/// rule can be tested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserOpenPlan {
+    /// No live view under the pane's label (never opened, closed, or its label
+    /// burned because it died): build one at the requested url.
+    Create,
+    /// A live view: keep its page as it is. `reparent` when the window asking
+    /// for it is not the one hosting it (a pop-out taking a page from `main`).
+    Reuse { reparent: bool },
+}
+
+/// THE RULE: an `open` of a live view never navigates it.
+///
+/// It used to navigate whenever the requested url differed from the last url
+/// WE had asked for, which after any click, redirect or pushState inside the
+/// page is every time. Every path that re-sends `browser_open` for a live id
+/// then reloaded the page and lost what was in it (scroll, forms, SPA state,
+/// sometimes the login): a ⌘R of the app, a remount that missed the client's
+/// handoff, a pop-out. Changing the page of a live view is `browser_navigate`'s
+/// job, and only its.
+///
+/// `requested_host` is the window that asked, when it exists. An unknown one
+/// leaves the view where it is: moving it to a fallback window would take it
+/// away from a window that still shows it.
+fn plan_browser_open(
+    view_alive: bool,
+    current_host: Option<&str>,
+    requested_host: Option<&str>,
+) -> BrowserOpenPlan {
+    if !view_alive {
+        return BrowserOpenPlan::Create;
+    }
+    let reparent = matches!((current_host, requested_host), (Some(cur), Some(want)) if cur != want);
+    BrowserOpenPlan::Reuse { reparent }
+}
+
+/// Drop what `browser_set_bounds` remembers about a pane's frame and corners.
+///
+/// After a reparent the numbers are relative to ANOTHER window: the cache would
+/// skip the very first push in the new window when it repeats the last rect of
+/// the old one (both park off-screen at the same rect), leaving the view framed
+/// for a parent it no longer has, and the corner mask computed on the old
+/// window's size.
+fn forget_pane_geometry(id: &str) {
+    if let Ok(mut g) = browser_bounds_cache().lock() {
+        g.remove(id);
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(mut g) = browser_corner_cache().lock() {
+        g.remove(id);
+    }
+}
+
+/// Where a reused view is: what the shell knows (WebKit's own url, or the last
+/// one we asked for), or, failing that, what the pane asked for.
+fn reused_view_url(known: Option<String>, requested: &str) -> String {
+    known.filter(|u| !u.is_empty()).unwrap_or_else(|| requested.to_string())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn browser_open_inner(
     app: tauri::AppHandle,
@@ -5095,42 +5176,49 @@ fn browser_open_inner(
     height: f64,
     isolate: Option<bool>,
     window_label: Option<String>,
-) -> Result<(), String> {
+) -> Result<BrowserOpenAnswer, String> {
     use tauri::Manager;
     let label = browser_label(&id);
-    // `is_some`, non il binding: la webview qui non serve più a nessuno da
-    // quando l'URL non gliela si chiede (vedi sotto). Ci interessa solo se la
-    // pane esiste già.
-    if app.get_webview(&label).is_some() {
-        // Already open — reposition, and navigate ONLY if the URL actually
-        // differs. browser_open is the idempotent-mount path: a transient
-        // auto-split remount re-invokes it with the pane's persisted (≈live)
-        // URL, and a blind browser_navigate there RELOADS the live WKWebView,
-        // discarding the user's in-progress page/scroll/form state. Skip the
-        // navigate when we're already there; explicit browser_navigate (user
-        // re-entering a URL) still reloads as before.
-        // «Dove sei?» NON si chiede alla WKWebView.
-        //
-        // `wv.url()` scende in `wry::url_from_webview`, che fa `unwrap()`
-        // sull'URL nativa: per una pane appena montata quell'URL è `nil` e
-        // l'unwrap PANICA sul main thread, dentro un callback Objective-C, con
-        // un lock di wry in mano. Il `catch_unwind` che stava qui prendeva
-        // l'unwind ma non disfaceva il danno — il mutex restava avvelenato e da
-        // lì ogni lock di tauri-runtime-wry panicava a sua volta, fino
-        // all'`abort()`: l'app che si chiude da sola qualche secondo dopo
-        // (crash del 5 agosto, 522.313 panic in cascata da uno solo).
-        //
-        // La risposta ce l'abbiamo già in casa: l'URL di una pane la decidiamo
-        // noi. Assente = «non lo so» = si naviga, che per una pane non ancora
-        // caricata è la cosa giusta comunque.
-        let already_here = match (last_pane_url(&label), url.parse::<tauri::Url>()) {
-            (Some(cur), Ok(want)) => cur.parse::<tauri::Url>().map(|c| c == want).unwrap_or(false),
-            _ => false,
-        };
-        if !already_here {
-            let _ = browser_navigate(app.clone(), id.clone(), url);
+    let live = app.get_webview(&label);
+    let requested_window = window_label.as_deref().and_then(|l| app.get_window(l));
+    let plan = plan_browser_open(
+        live.is_some(),
+        live.as_ref().map(|wv| wv.window().label().to_string()).as_deref(),
+        requested_window.as_ref().map(|w| w.label()),
+    );
+    if let (BrowserOpenPlan::Reuse { reparent }, Some(wv)) = (plan, live) {
+        if reparent {
+            if let Some(target) = &requested_window {
+                // The same view, moved: its WebContent, history, scroll and
+                // session go with it. Supported by tauri 2.11 + wry 0.55 on all
+                // three engines (`unstable` feature, see Cargo.toml): an NSView
+                // added to the new window's content view, `SetParent` of the
+                // WebView2 host window, the GTK widget moved to the new vbox.
+                // A failure is NOT harmless: tauri-runtime-wry detaches the view
+                // from its old window before it knows the move will succeed.
+                match wv.reparent(target) {
+                    Ok(()) => forget_pane_geometry(&id),
+                    Err(e) => eprintln!("[browser_open] {id}: reparent to {} failed: {e}", target.label()),
+                }
+            }
         }
-        return browser_set_bounds(app, id, x, y, width, height, None);
+        // "Where are you?" is NOT asked of the WKWebView: `wv.url()` goes down
+        // to `wry::url_from_webview`, which `unwrap()`s a URL that is `nil` for
+        // a freshly mounted pane and PANICS on the main thread with a wry lock
+        // held (crash of 5 August, 522,313 panics cascading from one). On macOS
+        // the answer is the map the KVO observer keeps current.
+        // Only WebView2 is asked: it reads `Source`, which is always a URL.
+        // WebKitGTK answers "" when the page has no `uri` yet (a first load
+        // cancelled or turned into a download), and tauri-runtime-wry then
+        // `expect`s a parse of it with the dispatcher lock held: a panic that
+        // poisons the pane. Linux falls back to the map, or to the URL asked.
+        #[cfg(not(target_os = "windows"))]
+        let known = last_pane_url(&label);
+        #[cfg(target_os = "windows")]
+        let known = wv.url().ok().map(|u| u.to_string()).or_else(|| last_pane_url(&label));
+        let current = reused_view_url(known, &url);
+        browser_set_bounds(app, id, x, y, width, height, None)?;
+        return Ok(BrowserOpenAnswer { reused: true, url: current });
     }
     // Parenta la webview alla finestra che OSPITA la pane, non a `main` per
     // default. Cablare `main` faceva nascere OGNI pane browser figlia della
@@ -5425,7 +5513,7 @@ fn browser_open_inner(
             apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0);
         }
     }
-    Ok(())
+    Ok(BrowserOpenAnswer { reused: false, url })
 }
 
 /// Navigate an existing browser pane to a new URL.
@@ -5709,10 +5797,43 @@ fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
 }
 
 /// Destroy a browser pane's native webview.
+///
+/// `host_window`: "close it only if it is still in this window". A surface that
+/// lets go of a view sends it (the client's deferred close after an unmount),
+/// because by the time that close runs another window may have taken the view
+/// over (`browser_open` reparents a live view into the window that asks for
+/// it: a pop-out taking a page from `main`). Closing it then would kill the
+/// page the other window is showing. Absent = close unconditionally, which is
+/// what a real close of a tab, an agent, or an older client asks for.
 // ENGINES: wkwebview, webview2, webkitgtk - portable: tauri close plus label bookkeeping, no per-engine branch.
 #[tauri::command]
-fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    no_abort("browser_close", move || browser_close_inner(app, id))
+fn browser_close(app: tauri::AppHandle, id: String, host_window: Option<String>) -> Result<(), String> {
+    no_abort("browser_close", move || {
+        use tauri::Manager;
+        let host = app
+            .get_webview(&browser_label(&id))
+            .map(|wv| wv.window().label().to_string());
+        if !close_is_for_this_host(host.as_deref(), host_window.as_deref()) {
+            eprintln!(
+                "[browser_close] {id}: kept, it moved to {} (close asked by {})",
+                host.as_deref().unwrap_or("?"),
+                host_window.as_deref().unwrap_or("?"),
+            );
+            return Ok(());
+        }
+        browser_close_inner(app, id)
+    })
+}
+
+/// Whether a close may destroy the view. Only a conditional close (`asked_by`
+/// set) can be refused, and only when the view lives in a different window.
+/// No view at all: let the close run, it is a no-op that still does the
+/// bookkeeping.
+fn close_is_for_this_host(view_host: Option<&str>, asked_by: Option<&str>) -> bool {
+    match (view_host, asked_by) {
+        (Some(host), Some(asker)) => host == asker,
+        _ => true,
+    }
 }
 
 /// Chiede alla WKWebView di una pane di smontarsi per davvero. `false` = qui non
@@ -11336,7 +11457,7 @@ pub fn run() {
                                 None,
                                 None, // window_label: demo runs against main
                             ) {
-                                Ok(()) => eprintln!("[corner-demo] opened ok"),
+                                Ok(_) => eprintln!("[corner-demo] opened ok"),
                                 Err(e) => eprintln!("[corner-demo] open err: {e}"),
                             }
                         } else {
@@ -13554,5 +13675,82 @@ mod reveal_window_tests {
     #[test]
     fn nothing_to_raise_is_reported_not_guessed() {
         assert_eq!(window_to_reveal(&[]), None);
+    }
+}
+
+#[cfg(test)]
+mod browser_open_reuse_tests {
+    use super::{close_is_for_this_host, plan_browser_open, reused_view_url, BrowserOpenPlan};
+
+    /// A live view is reused whatever url the pane asks for: the url is not
+    /// even an input of the decision, so no request can turn a reuse into a
+    /// navigation.
+    #[test]
+    fn a_live_view_in_the_asking_window_is_reused_where_it_is() {
+        assert_eq!(
+            plan_browser_open(true, Some("main"), Some("main")),
+            BrowserOpenPlan::Reuse { reparent: false },
+        );
+    }
+
+    /// The pop-out case: the page lives in `main`, the pop-out asks for it.
+    #[test]
+    fn a_live_view_asked_by_another_window_moves_there() {
+        assert_eq!(
+            plan_browser_open(true, Some("main"), Some("detach-1a2b3c4d")),
+            BrowserOpenPlan::Reuse { reparent: true },
+        );
+    }
+
+    /// An asking window that does not exist (closed meanwhile) must not drag
+    /// the view to a fallback: it stays in the window still showing it.
+    #[test]
+    fn an_unknown_asking_window_leaves_the_view_where_it_is() {
+        assert_eq!(
+            plan_browser_open(true, Some("detach-1a2b3c4d"), None),
+            BrowserOpenPlan::Reuse { reparent: false },
+        );
+    }
+
+    /// No live view (never opened, closed, or label burned because it died):
+    /// built fresh, which is the only branch that loads the requested url.
+    #[test]
+    fn a_missing_or_dead_view_is_created() {
+        assert_eq!(plan_browser_open(false, None, Some("main")), BrowserOpenPlan::Create);
+        assert_eq!(plan_browser_open(false, None, None), BrowserOpenPlan::Create);
+    }
+
+    /// The answer of a reuse is where the page IS, not what the pane asked.
+    #[test]
+    fn a_reused_view_reports_its_own_url() {
+        assert_eq!(
+            reused_view_url(Some("https://example.com/deep#s2".into()), "https://example.com/start"),
+            "https://example.com/deep#s2",
+        );
+    }
+
+    /// Nothing known (the KVO has not spoken yet): the requested url is the
+    /// best answer, and an empty one (teardown) is not a place.
+    #[test]
+    fn an_unknown_url_falls_back_to_the_requested_one() {
+        assert_eq!(reused_view_url(None, "https://example.com/start"), "https://example.com/start");
+        assert_eq!(reused_view_url(Some(String::new()), "https://example.com/start"), "https://example.com/start");
+    }
+
+    /// The deferred close of a surface that let go of a view must not kill it
+    /// after another window took it over.
+    #[test]
+    fn a_conditional_close_spares_a_view_that_moved() {
+        assert!(!close_is_for_this_host(Some("detach-1a2b3c4d"), Some("main")));
+        assert!(close_is_for_this_host(Some("main"), Some("main")));
+    }
+
+    /// An unconditional close (a real close of a tab, an agent, an older
+    /// client) and a close of a view that is already gone always run.
+    #[test]
+    fn an_unconditional_or_viewless_close_runs() {
+        assert!(close_is_for_this_host(Some("detach-1a2b3c4d"), None));
+        assert!(close_is_for_this_host(None, Some("main")));
+        assert!(close_is_for_this_host(None, None));
     }
 }

@@ -6,8 +6,10 @@
  * topic's browser window hands the SAME contextId to the layout: the sheet in
  * the window unmounts, a layout pane mounts later. That pane used to call
  * `browser_open` again, and the shell's reuse branch (`browser_open_inner` in
- * lib.rs) NAVIGATES when the url it gets differs from the last url the client
- * asked for: the move reloaded the page (reported 03/10). A mount that finds
+ * lib.rs) navigated when the url it got differed from the last url the client
+ * had asked for: the move reloaded the page (reported 03/10). The shell no
+ * longer navigates a live view on open, and adoption still saves the round
+ * trip and covers an older shell. A mount that finds
  * its view in here ADOPTS it instead (`useTauriBrowser`), with no
  * `browser_open`.
  *
@@ -43,7 +45,8 @@
  *
  * Only this document's own record counts. A view that survived a ⌘R, or that
  * belongs to another window's document, is not in here and still goes through
- * `browser_open`, whose reuse branch is the only one that knows it.
+ * `browser_open`, whose reuse branch is the only one that knows it: it keeps
+ * the page, moves the view into the asking window, and reports its url.
  */
 
 /** The shape of `tauriInvoke` this module needs: command, args, promise. */
@@ -65,6 +68,8 @@ interface PendingMove {
   timer: ReturnType<typeof setTimeout>;
   /** The leaving surface's close, parked until the move lands or expires. */
   parkedClose: (() => void) | null;
+  /** Another window may take the view (`beginNativeViewMovesToAnotherWindow`). */
+  toAnotherWindow: boolean;
 }
 const pendingMoves = new Map<string, PendingMove>();
 
@@ -123,21 +128,31 @@ export function forgetNativeView(id: string): void {
   if (move) { clearTimeout(move.timer); pendingMoves.delete(id); }
 }
 
-/** Close a native view and forget it was open, so the next mount OPENS. */
-export function closeNativeView(id: string, invoke: Invoke): Promise<unknown> {
+/**
+ * Close a native view and forget it was open, so the next mount OPENS.
+ *
+ * `hostWindow` makes the close conditional: the shell closes the view only if
+ * it still lives in that window. The surface that LETS GO of a view passes its
+ * own window, because by the time its close runs another window may have taken
+ * the view over (`browser_open` moves a live view into the window that asks for
+ * it: a pop-out taking a page from `main`). A real close of a tab passes
+ * nothing. Either way this document forgets the view: it is not here any more.
+ */
+export function closeNativeView(id: string, invoke: Invoke, hostWindow?: string): Promise<unknown> {
   forgetNativeView(id);
-  return invoke('browser_close', { id });
+  return invoke('browser_close', hostWindow ? { id, hostWindow } : { id });
 }
 
 /**
  * The page under `id` is about to change surface. Until a mount takes the mark
  * (or it expires) the surface that lets go of the view does not close it.
  */
-export function beginNativeViewMove(id: string): void {
+export function beginNativeViewMove(id: string, toAnotherWindow = false): void {
   const previous = pendingMoves.get(id);
   if (previous) clearTimeout(previous.timer);
   const move: PendingMove = {
     parkedClose: previous?.parkedClose ?? null,
+    toAnotherWindow: toAnotherWindow || (previous?.toAnotherWindow ?? false),
     timer: setTimeout(() => {
       if (pendingMoves.get(id) !== move) return;
       pendingMoves.delete(id);
@@ -176,7 +191,33 @@ export function deferCloseToMove(id: string, close: () => void): boolean {
   const move = pendingMoves.get(id);
   if (!move) return false;
   move.parkedClose = close;
+  // Let go while another window may take it: from here on this document cannot
+  // know whether the view still exists (that window can take it and then close
+  // with it, and nothing tells us). So it is no longer recorded as open, and a
+  // mount here goes through `browser_open`, which keeps a live page and creates
+  // a destroyed one. The mark stays: that mount still takes the parked close.
+  if (move.toAnotherWindow) openedViews.delete(id);
   return true;
+}
+
+/**
+ * Another WINDOW is about to show some of this document's pages: a pop-out of
+ * topics or of a group. That window is a different document, so the handoff
+ * above cannot reach it; what can be done from here is not to close the views
+ * before it asks for them. Every view this document has open is marked as
+ * moving: one that its surface lets go of inside the timeout is parked instead
+ * of closed, and the new window's `browser_open` finds it alive and moves it
+ * (the shell reparents a live view into the window that asks). The parked close
+ * that runs at the timeout is conditional on the view still being here (see
+ * `closeNativeView`), so it frees what nobody took and spares what moved.
+ *
+ * Views that stay mounted are untouched: a mark only matters to a surface that
+ * lets go. A view let go of under such a mark is never ADOPTED by a later mount
+ * here (see `deferCloseToMove`): the pop-out may have taken it and been closed
+ * with it, so that mount asks the shell with `browser_open`.
+ */
+export function beginNativeViewMovesToAnotherWindow(): void {
+  for (const id of openedViews) beginNativeViewMove(id, true);
 }
 
 /** Ids whose view is held by nobody while a move waits for its pane: a bundle

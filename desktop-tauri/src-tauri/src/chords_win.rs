@@ -63,13 +63,22 @@ pub(crate) fn install(app: &tauri::AppHandle, pane: &tauri::Webview, host_label:
     let pane_label = pane.label().to_string();
     let res = pane.with_webview(move |platform| {
         let controller = platform.controller();
+        let pane_for_press = pane_label.clone();
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
             let Some(args) = args else { return Ok(()) };
             // A panic here would unwind into the COM vtable, where unwinding is
             // forbidden: that is an abort of the whole app on a key press. Same
             // guard, same reason, as the NSEvent block on macOS.
             let _ = crate::no_abort("chords_win", || {
-                on_accelerator(&app, &host, &args);
+                // The window that hosts the pane NOW, not the one that created
+                // it: `browser_open` reparents a live pane into a pop-out that
+                // asks for it, and the chord must act where it was typed.
+                use tauri::Manager;
+                let now_host = app
+                    .get_webview(&pane_for_press)
+                    .map(|wv| wv.window().label().to_string())
+                    .unwrap_or_else(|| host.clone());
+                on_accelerator(&app, &now_host, &args);
                 Ok(())
             });
             Ok(())
