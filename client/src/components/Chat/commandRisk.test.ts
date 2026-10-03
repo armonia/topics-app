@@ -270,6 +270,45 @@ describe('commandRisk: the second step', () => {
     });
   }
 
+  // The fifth review: watch's options that take a value (procps reads
+  // `-q 3`, `--equexit 3`, and `--int 1` as `--interval 1`), and su's
+  // util-linux forms, where options come anywhere and the words after the
+  // user go to the shell. The kind asked is the one of the command inside.
+  const fifthReview: Array<[string, RiskKind]> = [
+    ['watch -q 3 rm -rf x', 'rm'],
+    ['watch --equexit 3 rm -rf x', 'rm'],
+    ['watch --equexit=3 rm -rf x', 'rm'],
+    ['watch --int 1 rm -rf x', 'rm'],
+    ['watch --eq 3 rm -rf x', 'rm'],
+    ['watch -s /tmp/shots rm -rf x', 'rm'],
+    ['watch --shotsdir /tmp/shots git push --force', 'git-push-force'],
+    ['watch -n1 -q 3 -x rm -rf x', 'rm'],
+    ['watch --ex rm -rf x', 'rm'],
+    ['watch -d -- rm -rf x', 'rm'],
+    ["su root -- -c 'rm -rf x'", 'rm'],
+    ["su root extra -c 'rm -rf x'", 'rm'],
+    ["su - root -- -c 'git reset --hard'", 'git-reset-hard'],
+    ["su --session-command='rm -rf x'", 'rm'],
+    ["su --session-command 'rm -rf x' root", 'rm'],
+    ["su --comm='rm -rf x'", 'rm'],
+    ["su --comm 'kill -9 1' root", 'kill'],
+    ["su -s /bin/sh root -- -lc 'rm -rf x'", 'rm'],
+  ];
+  for (const [command, kind] of fifthReview) {
+    test(`${JSON.stringify(command)} asks (${kind}), not only sudo`, () => {
+      expect(kinds(command)).toContain(kind);
+    });
+  }
+
+  test('watch and su around a harmless command ask nothing more than su itself', () => {
+    for (const c of ['watch -q 3 ls -la', 'watch --int 1 git status', 'watch -s /tmp/shots -n 2 df -h', 'watch --equexit=2 -x date']) {
+      expect({ c, confirm: commandRisk(c).confirm }).toEqual({ c, confirm: [] });
+    }
+    for (const c of ["su root -- -c 'ls -la'", "su root extra -c 'git status'", "su --comm='whoami'", 'su root script.sh', 'su -']) {
+      expect({ c, kinds: kinds(c) }).toEqual({ c, kinds: ['sudo'] });
+    }
+  });
+
   test('everyday find, xargs and watch ask nothing', () => {
     for (const c of [
       "find . -name '*.ts' -exec grep -l foo {} +", 'find . -type f -exec wc -l {} \\;', "find . -exec sh -c 'echo {}' \\;",
