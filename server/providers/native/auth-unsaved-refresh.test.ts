@@ -161,7 +161,10 @@ describe("a renewal that could not be saved", () => {
   });
 });
 
-describe("a renewal that could not be saved to the Keychain", () => {
+// The Keychain path exists only on macOS: `keychainEnabled()` answers false on
+// any other platform before it reads the flag, so on the Linux CI runner these
+// cases would only assert the platform. Same guard as auth-keychain.test.ts.
+describe.skipIf(process.platform !== "darwin")("a renewal that could not be saved to the Keychain", () => {
   let item: Record<string, unknown> | null;
   let locked: boolean;
   let writes: number;
