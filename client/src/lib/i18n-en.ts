@@ -1208,7 +1208,7 @@ const EN = {
   'board.settings.modelTitle': 'Auto selects among connected, available models compatible with each task, across all providers. A fixed model applies to this board; an explicit task choice takes precedence.',
   'board.settings.modelAuto': 'Auto (all providers)',
   'board.settings.responseLanguage': 'Response language',
-  'board.settings.responseLanguageTitle': 'What language the agents dispatched on this board answer in. «As in Settings» follows the global preference, the same as chat and terminal. It applies from the next dispatch: the language goes into the system prompt, and changing it under a live session is worse than the delay.',
+  'board.settings.responseLanguageTitle': 'What language the agents dispatched on this board answer in. «As the app» follows the global preference, the same as chat and terminal. It applies from the next dispatch: the language goes into the system prompt, and changing it under a live session is worse than the delay.',
   'board.settings.langInherit': 'As the app',
   'board.settings.isolateWorktree': 'Isolate each agent in a git worktree',
   'board.settings.fanout': 'Parallel attempts',

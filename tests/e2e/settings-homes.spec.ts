@@ -591,8 +591,9 @@ test.describe("sul telefono Strumenti e Calendario sono fogli dal basso", () => 
     await expect(tile).toBeVisible();
 
     // The menu by its contextmenu, as the desktop case: what is under test is
-    // the sheet at 390. The long press itself builds `Touch` objects, which
-    // WebKit refuses to construct, and has its own specs on Chromium.
+    // the sheet at 390. The long press builds `Touch` objects, which WebKit
+    // refuses to construct; opening a pinned tile's menu by hold-and-release
+    // has no spec on any engine yet.
     const row = page.getByTestId("calendar-tile-feed");
     await tile.click({ button: "right" });
     await expect(row).toBeVisible();

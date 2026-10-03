@@ -1374,7 +1374,7 @@ const IT: Dict = {
   'board.settings.modelTitle': 'Auto sceglie per ogni task tra i modelli collegati, disponibili e compatibili, su tutti i provider. Un modello fisso vale per questa board; la scelta esplicita nel task ha la precedenza.',
   'board.settings.modelAuto': 'Auto (tutti i provider)',
   'board.settings.responseLanguage': 'Lingua delle risposte',
-  'board.settings.responseLanguageTitle': 'In che lingua rispondono gli agent dispatchati su questa board. «Come le Impostazioni» segue la preferenza globale, la stessa di chat e terminale. Vale dal prossimo dispatch: la lingua entra nel prompt di sistema, e cambiarlo sotto una sessione viva è peggio del ritardo.',
+  'board.settings.responseLanguageTitle': 'In che lingua rispondono gli agent dispatchati su questa board. «Come l’app» segue la preferenza globale, la stessa di chat e terminale. Vale dal prossimo dispatch: la lingua entra nel prompt di sistema, e cambiarlo sotto una sessione viva è peggio del ritardo.',
   'board.settings.langInherit': 'Come l’app',
   'board.settings.isolateWorktree': 'Isola ogni agent in un git worktree',
   'board.settings.fanout': 'Tentativi in parallelo',
