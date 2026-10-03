@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync 
 import { join } from "node:path";
 import { test, type ChatPage } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installReplayCli } from "./helpers/fake-claude-cli";
@@ -98,10 +98,15 @@ test.describe("/resume", () => {
   });
 
   test.beforeEach(async ({ page, request, chatPage }) => {
-    await resetPaneStore(request, [topicId]);
+    // A chat of a project lives in the project's window: that window is
+    // seeded open with this chat as its only tab, the way the UI leaves it.
+    await resetPaneStore(request, []);
+    await resetProjectPanes(request, PROJECT);
+    await seedProjectPane(request, PROJECT);
+    await seedProjectInnerChats(request, PROJECT, [topicId]);
+    await waitForPaneStoreQuiet(request);
     await goToApp(page);
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
   });
 
@@ -169,6 +174,7 @@ test.describe("/resume", () => {
     const t = await createTopic(request, name, { provider: "claude-code" });
     made.push(t.id);
     await resetPaneStore(request, [t.id]);
+    await resetProjectPanes(request, PROJECT);
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(name));
