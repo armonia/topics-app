@@ -662,7 +662,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               aria-expanded={modelOpen}
               data-testid="topic-settings-model"
               onClick={() => setModelOpen((open) => !open)}
-              className="flex w-full items-center gap-2 rounded-lg border border-app-border bg-app-inset px-3 py-2 text-left text-prose text-app-text hover:bg-app-hover"
+              className="flex w-full items-center gap-2 rounded-lg border border-app-border bg-app-inset px-3 py-2 coarse:min-h-11 text-left text-prose text-app-text hover:bg-app-hover"
             >
               {chatTopicsRoute(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot).via === 'topics' && (
                 <Route className="h-3.5 w-3.5 shrink-0 text-primary" aria-label={tr('ai.selector.route.topics')} />

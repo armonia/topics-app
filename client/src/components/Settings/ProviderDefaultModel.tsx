@@ -36,7 +36,7 @@ export function ProviderDefaultModel({ provider, label, hint, value, autoLabel, 
         aria-label={label}
         data-testid={`provider-default-model-${provider}`}
         onClick={() => setOpen((current) => !current)}
-        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-app-border bg-app-inset px-2.5 py-1 text-compact text-app-text hover:bg-app-hover disabled:opacity-40"
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-app-border bg-app-inset px-2.5 py-1 coarse:min-h-11 text-compact text-app-text hover:bg-app-hover disabled:opacity-40"
       >
         <span className="min-w-0 truncate">{value ? friendlyModelLabel(value) : autoLabel}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
