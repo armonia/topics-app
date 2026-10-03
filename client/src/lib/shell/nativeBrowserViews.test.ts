@@ -79,7 +79,16 @@ describe('nativeBrowserViews: every browser_close passes through here', () => {
   // forgets the view first: its behaviour is pinned in
   // `useTauriBrowser.move.test.ts`.
   const SRC = join(import.meta.dir, '..', '..');
-  const DIRECT_CLOSE = /[iI]nvoke\(\s*['"]browser_close['"]/;
+  // The type argument is optional in the pattern: `tauriInvoke<void>('browser_close', …)`
+  // is the same call, and a pattern that wanted `(` right after `invoke` let it through.
+  const DIRECT_CLOSE = /[iI]nvoke(?:<[^>]*>)?\(\s*['"]browser_close['"]/;
+
+  test('the pattern sees the call with and without a type argument', () => {
+    expect(DIRECT_CLOSE.test(`tauriInvoke('browser_close', { id })`)).toBe(true);
+    expect(DIRECT_CLOSE.test(`tauriInvoke<void>('browser_close', { id })`)).toBe(true);
+    expect(DIRECT_CLOSE.test(`invoke<unknown>( "browser_close", { id })`)).toBe(true);
+    expect(DIRECT_CLOSE.test(`tauriInvoke<void>('browser_close_all', {})`)).toBe(false);
+  });
 
   test('no source file sends browser_close around closeNativeView', () => {
     const offenders: string[] = [];
