@@ -11,6 +11,36 @@
           "it": "Dichiara la strada del modello su chip e fascia, non sul turno (MSEL-06, AICTRL-01)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Aggiungi la colonna della chiave d'invio sulla riga della persona, una sola riga per chiave e sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi la chiave d'invio sulla riga della persona e rifiuta il doppione anche dopo un riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riconosci la propria bolla e il messaggio in coda per chiave nella storia, non per le parole",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina una variabile del test della migration che il controllo dei nomi non riconosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi costante la lista dei gestori nel test della chiave d'invio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova che il rinvio a turno ancora aperto riceve duplicate_message e non stream_in_flight",
+          "en": "",
+          "scope": null
         }
       ]
     }
