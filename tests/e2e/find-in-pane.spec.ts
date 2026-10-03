@@ -1,6 +1,5 @@
 import { expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import {
@@ -8,7 +7,7 @@ import {
 } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { unmockChatStream } from "./helpers/sse-helpers";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
 import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
 
@@ -59,15 +58,13 @@ function bigFile(changed: boolean): string {
 }
 
 function seedProject(): void {
+  removeTmpDir(PROJECT_DIR);
   mkdirSync(PROJECT_DIR, { recursive: true });
   writeFileSync(`${PROJECT_DIR}/big.ts`, bigFile(false));
   writeFileSync(`${PROJECT_DIR}/consts.ts`, Array.from({ length: 7 }, (_, i) => `const v${i} = ${i};`).join("\n") + "\n");
   writeFileSync(`${PROJECT_DIR}/foo.txt`, "foo uno\nfoo due\nfoo tre\n");
   writeFileSync(`${PROJECT_DIR}/guida.md`, "# Installazione\n\nPrima di tutto, bun.\n");
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: PROJECT_DIR, stdio: "ignore" });
-  git("init", "-q");
-  git("-c", "user.email=e2e@example.com", "-c", "user.name=e2e", "add", "-A");
-  git("-c", "user.email=e2e@example.com", "-c", "user.name=e2e", "commit", "-qm", "init");
+  initGitRepo(PROJECT_DIR, "init");
   // One line changed: the rest of the 200 is unchanged and folds in the diff.
   writeFileSync(`${PROJECT_DIR}/big.ts`, bigFile(true));
 }

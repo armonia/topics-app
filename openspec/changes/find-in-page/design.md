@@ -421,3 +421,48 @@ pressione lunga) guadagna «Cerca» quando la pane ha un cercatore, e chiama
   a mano nell'app costruita, con un video `.webm`, su Mac e sul PC Windows: le
   lettere vanno nella barra e non nella pagina, ed Esc rimette la tastiera nella
   pagina. Il browser condiviso in modo `dom` si prova anche lui a mano.
+
+## 9. Implementazione (03/10): dove il codice si è scostato da qui sopra
+
+Scritto dopo il sì («vai tutto», ogni scelta sulla prima opzione). Main si era
+mosso dal 02/10 (impostazioni nelle loro case, correzioni di comandi e azioni,
+il free-audit): nessuno di quei cambi tocca le superfici di questa change,
+quindi niente da adattare lì. Gli scostamenti veri sono questi.
+
+- **Quale pane è «a fuoco».** Il gestore globale conosce un `focusedPanelId`
+  di primo livello, non la pane interna di un progetto. Il pane si risolve così
+  (`resolveFindPane`): prima la pane in cui sta la tastiera
+  (`[data-find-pane]` risalendo dal bersaglio, pubblicato da `PaneKeepAlive`
+  insieme a `FindPaneContext`); poi, con il fuoco sul niente o nella pagina
+  nativa (il keydown sintetico della shell ha `window` come bersaglio), la tab
+  `data-focused`; infine il pannello di primo livello. Il keydown sintetico è
+  anche ciò che segna `openedFromPage`.
+- **Esc rimette il cursore** dove stava prima di ⌘F: il registro ricorda
+  `document.activeElement` all'apertura. Nella pagina nativa si passa da
+  `browser_focus_pane`.
+- **Il terminale ha la barra che galleggia** in alto a destra invece che nel
+  flusso: una riga nel flusso ridimensiona la griglia di xterm e il programma
+  ridisegna (lo diceva già il commento in `SingleTerminalPane`). È l'unica
+  pane dove FIND-01 «nel flusso» non vale; lì non c'è una webview nativa da
+  non coprire.
+- **Evidenziazione condivisa.** `CSS.highlights` è un registro per documento:
+  due chat con la barra aperta si sarebbero sovrascritte `find-hit`. I
+  cercatori passano da `lib/findHighlights.ts`, che unisce i range per
+  documento.
+- **Editor e differenze**: l'evidenziatore di `@codemirror/search` disegna solo
+  a pannello aperto, quindi i risultati sono un campo di decorazioni nostro
+  (`lib/cmFind.ts`, `.cm-find-hit` / `.cm-find-current`). `Mod-g`,
+  `Shift-Mod-g` e F3 escono dal keymap insieme a `Mod-f`: con la barra chiusa
+  aprivano il pannello di CodeMirror. Le parti piegate si riaprono ricalcolando
+  le pieghe come le costruisce `@codemirror/merge` (non le esporta).
+- **Ragionamenti.** Una corsa di messaggi di solo lavoro si disegna come un
+  item con l'id del primo (`coalesceToolRun`), quindi una riga di ragionamento
+  si apre se è della chat corrente e contiene la parola, non solo per id.
+- **Ospite**: la rotta lo rifiuta (403) e il cercatore ripiega da sé sul testo
+  e i ragionamenti del client, senza un rilevamento dell'ospite nel client.
+- **Seed e2e**: `/api/test/seed-message` accetta `splitToolOutputs: true` per
+  scrivere una riga con l'uscita già in `message_tool_outputs`, come la lascia
+  il backfill.
+- **La finestra delle Scorciatoie** legge le descrizioni del registro come
+  stringhe, senza i18n (era così per tutte le righe): le quattro nuove sono in
+  italiano come le altre righe italiane.
