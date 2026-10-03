@@ -22,7 +22,7 @@ import type { AppContext, Topic } from "../types";
 
 const ROOT = testTmpDir("chat-client-message-id");
 let ctx: AppContext;
-let handlers: StreamHandler[] = [];
+const handlers: StreamHandler[] = [];
 let chat: ReturnType<typeof createChatRouter>;
 /** The route over the context as it is now: it reads `ctx.appendLocalMessage` once, when built. */
 let buildChat: () => ReturnType<typeof createChatRouter>;
