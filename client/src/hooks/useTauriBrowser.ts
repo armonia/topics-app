@@ -34,11 +34,13 @@ import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { onBeforeBundleReload } from '../lib/devBundleReload';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import {
+  beginNativeViewOpen,
   closeNativeView as closeRecordedNativeView,
   deferCloseToMove,
+  dropNativeViewOpen,
   isNativeViewOpened,
   movingNativeViews,
-  noteNativeViewOpened,
+  settleNativeViewOpen,
   takeNativeViewMove,
 } from '../lib/shell/nativeBrowserViews';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
@@ -872,7 +874,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // without `browser_open`: its reuse branch in lib.rs would navigate it.
     markBrowserViewLive(id);
     const applyOpened = (adopted = false) => {
-        noteNativeViewOpened(id);
         openedRef.current = true;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
         // `browser_open` ha appena restituito può essere una view RIUSATA, e
@@ -946,16 +947,34 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       requestedUrlRef.current = openUrl;
       requestedAtRef.current = Date.now();
       return new Promise<boolean>((resolve) => {
+        // Whether the open that answered still owns the view: false when a close
+        // of this id ran while it was in flight (see `nativeBrowserViews`).
+        // Settled on the answer itself, not in `onOpened`, which a pane that
+        // unmounted mid-open never reaches: its view must still be closed if
+        // the close it queued ran before the view existed.
+        let owned = false;
         attemptNativeOpen({
           // windowLabel: la webview nativa deve nascere figlia della finestra che
           // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
           // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
-          invoke: () => tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }),
+          invoke: () => {
+            const open = beginNativeViewOpen(id);
+            return tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }).then(
+              (answer) => { owned = settleNativeViewOpen(open, tauriInvoke); return answer; },
+              (e: unknown) => { dropNativeViewOpen(open); throw e; },
+            );
+          },
           // È anche l'ultimo posto da cui si passa quando la pane viene smontata
           // a metà apertura: chi aspetta l'esito riceve un `false` invece di
           // restare appeso a una promessa che nessuno risolverà più.
           isCancelled: () => { if (!cancelled) return false; resolve(false); return true; },
-          onOpened: () => { applyOpened(); resolve(true); },
+          onOpened: () => {
+            // Closed while opening: the view is not this pane's to show, and it
+            // has been closed already. The pane is going away with that close.
+            if (!owned) { setLoading(false); resolve(false); return; }
+            applyOpened();
+            resolve(true);
+          },
           onGaveUp: () => {
             setNavError({ message: trRef.current('browser.native.openFailed'), url: openUrl });
             // Chi ha chiesto l'apertura ha acceso la barra e non aspetta l'esito

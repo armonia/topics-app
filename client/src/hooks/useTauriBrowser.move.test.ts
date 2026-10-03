@@ -36,7 +36,7 @@ import * as devTypes from '../components/Browser/browserDevTypes';
 import * as paneContextModel from '../components/Browser/paneContextModel';
 import * as browserNavUrl from '../lib/browserNavUrl';
 import type { NativeBrowserHandle } from '../components/Browser/browserDevTypes';
-import { beginNativeViewMove, closeNativeView, NATIVE_VIEW_MOVE_TIMEOUT_MS } from '../lib/shell/nativeBrowserViews';
+import { beginNativeViewMove, closeNativeView, isNativeViewOpened, NATIVE_VIEW_MOVE_TIMEOUT_MS } from '../lib/shell/nativeBrowserViews';
 import { teardownNativeBrowserPane } from '../lib/nativeBrowserTeardown';
 
 // Same alias registration as the other benches of this hook: `bun test` does not
@@ -61,6 +61,9 @@ const DESTRUCTIVE = ['browser_open', 'browser_close', 'browser_navigate', 'brows
 interface Invocation { cmd: string; args: Record<string, unknown> }
 
 let invocations: Invocation[] = [];
+/** While true, `browser_open` answers only when the test releases it, in order. */
+let holdOpens = false;
+let heldOpens: Array<() => void> = [];
 /** Overlays open over the window right now, and who is told when they change. */
 let overlays: OverlayRect[] = [];
 let occlusionListeners = new Set<(rects: OverlayRect[]) => void>();
@@ -89,6 +92,7 @@ beforeAll(() => {
     releaseNativeFocus: () => {},
     tauriInvoke: (cmd: string, args: Record<string, unknown> = {}) => {
       invocations.push({ cmd, args });
+      if (cmd === 'browser_open' && holdOpens) return new Promise((resolve) => { heldOpens.push(() => resolve('')); });
       return Promise.resolve('');
     },
   }));
@@ -144,6 +148,8 @@ function eventTarget(extra: Record<string, unknown> = {}): Record<string, unknow
 
 beforeEach(() => {
   invocations = [];
+  holdOpens = false;
+  heldOpens = [];
   overlays = [];
   occlusionListeners = new Set();
   for (const k of DOM_KEYS) savedGlobals[k] = g[k];
@@ -446,5 +452,53 @@ describe('useTauriBrowser: a page in the middle of a move is not painted where i
     const after = replay(ctx, SHOWN_IN_WINDOW);
     expect(after.final).toMatchObject({ visible: true, ...IN_TAB });
     tab.unmount();
+  });
+});
+
+describe('useTauriBrowser: a close that overtakes browser_open wins', () => {
+  const invoke = (cmd: string, args?: Record<string, unknown>) => tauriShell.tauriInvoke(cmd, args);
+
+  test('closed while opening: the late view is closed, and a reopen inside the grace opens', async () => {
+    const ctx = 'ctx-open-overtaken';
+    holdOpens = true;
+    const pane = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    expect(destructive(ctx)).toEqual(['browser_open']);
+
+    // The close countdown, or an agent's close-pane over the socket, while the
+    // shell is still creating the view.
+    void closeNativeView(ctx, invoke);
+    await settle();
+    heldOpens.shift()!();
+    await settle();
+
+    expect(isNativeViewOpened(ctx), 'the late open put back a view the close had taken out').toBe(false);
+    expect(destructive(ctx), 'the view the late open produced was left alive').toEqual(['browser_open', 'browser_close', 'browser_close']);
+
+    // The pane leaves with that close and is reopened inside the close grace.
+    pane.unmount();
+    holdOpens = false;
+    invocations = [];
+    const again = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    expect(destructive(ctx), 'adopted a view the shell had already closed').toEqual(['browser_open']);
+    again.unmount();
+  });
+
+  test('unmounted while opening, its close ran first: the view that appears after is closed', async () => {
+    const ctx = 'ctx-open-orphan';
+    holdOpens = true;
+    const pane = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    pane.unmount();
+    // The deferred close leaves while the shell is still creating the view.
+    await new Promise((r) => setTimeout(r, PAST_GRACE_MS));
+    await settle();
+    expect(destructive(ctx)).toEqual(['browser_open', 'browser_close']);
+
+    heldOpens.shift()!();
+    await settle();
+    expect(destructive(ctx), 'a view born after its close has no owner left to close it').toEqual(['browser_open', 'browser_close', 'browser_close']);
+    expect(isNativeViewOpened(ctx)).toBe(false);
   });
 });
