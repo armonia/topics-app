@@ -87,6 +87,12 @@ export interface ChatMessage extends Message {
   media?: string[];               // Media file paths
   partial?: boolean;              // True if message is still streaming
   queued?: boolean;               // True if message is queued to send (offline)
+  /**
+   * On the person's bubble drawn by THIS window: the key its send carried
+   * (`clientMessageId`), which the server writes back on the row it stores.
+   * The bubble's identity until it adopts that row's id (`hooks/ownBubble.ts`).
+   */
+  clientMessageId?: string;
   streamedAt?: string;            // When streaming started (for recovery)
   // Branching support
   parentId?: string | null;       // ID of parent message in tree
@@ -849,6 +855,9 @@ export interface WSMessageNewMessage {
   /** Marks written on the row (goal continuation, goal stop, board envelope):
    *  they decide how the row is drawn and keep it out of the sidebar preview. */
   blocks?: ContentBlock[];
+  /** On the person's row: the key the send carried, so the window that sent it
+   *  renames its bubble to this row (`hooks/ownBubble.ts`). */
+  clientMessageId?: string;
   message?: { id: string; role: string; content: string; timestamp?: string };
 }
 

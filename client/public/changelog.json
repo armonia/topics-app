@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.434",
+    "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Aspettati il gruppo del menu «/» nell'elenco delle skill",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.433",
     "date": "2026-10-03",
     "sections": {
@@ -13,7 +29,32 @@
           "scope": null
         },
         {
+          "it": "Conta gli appuntati dal topic, non dalle righe caricate, e carica quelli più vecchi quando si apre la lista",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta il fuoco dentro il cursore di /effort e l'ispettore di /context",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Offri /fork solo dove il server sa biforcare la chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non chiedere due volte la stessa pagina di /resume su un doppio clic",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Alza le soglie del bundle alla misura della tornata 3b",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guarda l'entrata del menu «/» sul suo pannello, non sulla lista che contiene",
           "en": "",
           "scope": null
         }
@@ -29,12 +70,22 @@
       "perf": [],
       "internal": [
         {
+          "it": "Nomina il motore che non compatta anche quando non è collegato qui",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fai vincere la chiusura arrivata mentre browser_open era in volo",
           "en": "",
           "scope": null
         },
         {
           "it": "Ricontrolla il registro delle viste nel momento in cui la pane la adotta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi in inglese il commento della tabella delle etichette dei provider",
           "en": "",
           "scope": null
         },
@@ -207,6 +258,11 @@
         },
         {
           "it": "Registra il si' alla change model-selector",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra il si' alla change commands-ui",
           "en": "",
           "scope": null
         },
@@ -416,7 +472,27 @@
           "scope": null
         },
         {
+          "it": "Installa il CLI finto di cinque spec col helper portabile invece di command -v bun",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli il trascinamento fra finestre rimasto senza mittente e correggi i commenti che lo davano vivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Costruisci i comandi per la chat aperta: menu «/» in tre gruppi, /resume, scheda della risposta, settimana del piano, appunti visibili",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Col motore nativo assente la card parte diretta anche nel test del catalogo in scoperta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova la risposta di un comando col CLI finto e porta i cancelli statici a verde",
           "en": "",
           "scope": null
         },
@@ -426,7 +502,62 @@
           "scope": null
         },
         {
+          "it": "Fai rispondere al CLI finto con l'ultima riga del messaggio e filtra il menu con un prefisso che nessuna skill ha",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rileggi l'elenco dei comandi all'apertura del menu: il gruppo del motore arriva col primo turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai al segno dei comandi noti la lettura per il rendering statico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara le righe di /resume una volta sola in shared e conta il nuovo frame della risposta di comando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Appunta il messaggio giusto e riporta il cursore in fondo prima di filtrare /resume",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Sposta a tab il browser della topic senza ricaricarlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Filtra /resume con una parola che sta solo in un titolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri la chat di /resume nella finestra del suo progetto, seminata come la lascia la UI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lascia aperta la lista di /resume mentre chiede conferma per una sessione ancora attiva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni aperto il menu dei suggerimenti mentre un suo dialogo chiede, senza mangiarne il clic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi l'esito del 1.12, le deviazioni dell'implementazione e spunta i compiti fatti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segna i nomi delle skill nel commento della spec del menu",
           "en": "",
           "scope": null
         },
@@ -446,7 +577,17 @@
           "scope": null
         },
         {
+          "it": "Aggiungi gli screenshot dell'implementazione e il video di /resume che adotta una sessione",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Alza la baseline gz dell'entry al valore misurato dopo il merge con main, e correggi il progetto della barra e2e nei task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la crescita dell'entry comprata dai comandi della chat",
           "en": "",
           "scope": null
         },
@@ -511,6 +652,21 @@
           "scope": null
         },
         {
+          "it": "Prendi le skill del menu solo dalla chat o dal suo progetto, mai da un altro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai di /new e /reset un /clear su ogni motore con una sessione, OpenClaw a parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra i comandi di un agente ACP anche senza un turno in volo, e nomina il motore che non compatta",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Nascondi la vista nativa mentre aspetta di essere adottata da uno spostamento",
           "en": "",
           "scope": null
@@ -543,6 +699,11 @@
       "internal": [
         {
           "it": "Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proponi commands-ui: /resume elenca le sessioni Claude del progetto, il menu «/» legge i comandi dal motore",
           "en": "",
           "scope": null
         },
@@ -708,6 +869,11 @@
         },
         {
           "it": "Togli dai testi i rimandi a Impostazioni che non esistono più",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Correggi commands-ui: provider dal selettore, skill anche sul motore di Topics, /resume a pagine",
           "en": "",
           "scope": null
         },

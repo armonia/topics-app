@@ -1263,8 +1263,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (!isMachineRow(msg.blocks)) {
           applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
         }
-        // An own stream drops only the turn's echo, never a row written beside
-        // it: that one is deduplicated by id below (`ownTurnEcho`).
+        // An own stream drops only the reply's echo (`ownTurnEcho`); every other
+        // row is deduplicated by id below. The person's own row is renamed onto
+        // its bubble by `useChat` (`hooks/ownBubble.ts`), in either order.
         const own = chatHandlersRef.current.isOwnStream(msg.sessionKey);
         if (own && (ownTurnEcho(msg) || !msg.messageId)) return;
         const fullContent = msg.content ?? msg.preview ?? '';

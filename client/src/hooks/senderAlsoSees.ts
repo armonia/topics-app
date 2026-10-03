@@ -88,14 +88,17 @@ export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): bo
  * `finally` after the history reload. A row written in that window never
  * reached the pane until the next reload.
  *
- * The turn's echo: the person's row (its durable name is adopted by `useChat`
- * from the optimistic copy, `adoptDurableMessageId`) and the reply, which the
- * server announces WITHOUT blocks (`server/routes/chat.ts`, every branch that
- * closes a turn) and which the SSE already drew under a local id. A row with
- * blocks is written by the machine beside the turn: it passes, deduplicated by
- * id against what the pane already holds.
+ * The turn's echo dropped here is the reply only, which the server announces
+ * WITHOUT blocks (every branch that closes a turn) and which the SSE already
+ * drew under a local id. The person's row is not a question of whose stream
+ * it is: the server announces it with the key the send carried, and the bubble
+ * that carries the same key takes its id (`hooks/ownBubble.ts`), on an open
+ * stream or after a 500, a Stop, a network error. Any other `user` row was
+ * written by somebody else (the wake's sub-agent result, the goal's
+ * continuation, the board's envelope, another device, another agent's
+ * `send_chat_message`, with or without the very words this window sent), and
+ * passes, deduplicated by id against what the pane already holds.
  */
 export function ownTurnEcho(frame: { role?: string; blocks?: readonly unknown[] | null }): boolean {
-  if (frame.role !== 'assistant') return true;
-  return !frame.blocks || frame.blocks.length === 0;
+  return frame.role === 'assistant' && (!frame.blocks || frame.blocks.length === 0);
 }

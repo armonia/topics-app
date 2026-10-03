@@ -1,0 +1,133 @@
+import type { ChatMessage } from '../types';
+import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
+import { isClientGeneratedMessageId } from './streamCatchupMerge';
+
+/**
+ * THE KEY IS THE IDENTITY OF THE BUBBLE THIS WINDOW DRAWS FOR A SEND.
+ *
+ * Every send leaves through `useChat` `performSend` with a key
+ * (`clientMessageId`, minted once and kept by every resend of the same
+ * message), the server writes the person's row with it and announces that row
+ * with it (`server/routes/chat.ts`). The optimistic bubble carries the same
+ * key, so the announcement finds its bubble by the key alone:
+ *  - not by text: another device, another window or an agent may write the
+ *    very same words, and their row is not this window's to rename or remove;
+ *  - not by position: a row written beside the send can sit after the bubble;
+ *  - not by whether this window still streams the turn: the announcement can
+ *    arrive after the POST answered 500, after a Stop, after a network error
+ *    (verifier, 03/10: two copies that survived every reload).
+ *
+ * A bubble that has taken its row's id is that row: from then on every merge
+ * goes by identity, and nothing here touches it again.
+ */
+
+/** The bubble of the send that carried `key`, still waiting for its durable name. */
+export function waitsForName(row: ChatMessage, key: string): boolean {
+  return row.role === 'user' && row.clientMessageId === key && isClientGeneratedMessageId(row.id);
+}
+
+/**
+ * Where a row another writer announces goes while this window's send (`key`)
+ * is in flight. A frame that arrives while the send's bubble still waits for
+ * its name came before the echo of the send's own row, and the server
+ * broadcasts each row as it writes it: that row was written FIRST (an answer
+ * the send carried in front of itself, `takeOwed` in `server/routes/chat.ts`,
+ * or a row written while the POST was on its way). It goes before the bubble,
+ * where the history puts it, instead of after the reply streaming at the tail.
+ * After the echo, rows are written after the send's and go at the end.
+ */
+export function insertBeside(rows: ChatMessage[], row: ChatMessage, key: string | undefined): ChatMessage[] {
+  const at = key ? rows.findIndex((m) => waitsForName(m, key)) : -1;
+  return at < 0 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)];
+}
+
+/** The server announced a row with this key: it holds that message, whatever the POST answered. */
+export function namedByServer(rows: readonly ChatMessage[], key: string): boolean {
+  return rows.some((m) => m.role === 'user' && m.clientMessageId === key && !isClientGeneratedMessageId(m.id));
+}
+
+/**
+ * The thread with this send's bubble in it. The row that already is this
+ * message (the bubble a resend from the outbound queue finds under the same
+ * key, or the draft's first bubble, `reuseId`) takes the key and leaves its
+ * queued state: the same message is never drawn twice.
+ *
+ * `mayBeStored`: the message left once under this key and the server may hold
+ * it, while no row here carries the key (the history rows do not, and the
+ * echo may have been lost with the socket). If the person's LAST row says
+ * these very words and is the server's, nothing is drawn: it is most likely
+ * this message, and the resend's answer settles it (`duplicate_message`, or
+ * the echo of a new row). Without the key on the history rows, the text is
+ * all there is to go on.
+ */
+export function placeOwnBubble(rows: ChatMessage[], bubble: ChatMessage & { clientMessageId: string }, reuseId?: string, mayBeStored = false): ChatMessage[] {
+  const at = rows.findIndex((m) => m.role === 'user' && (m.clientMessageId === bubble.clientMessageId || (!!reuseId && m.id === reuseId)));
+  if (at < 0) {
+    const lastUser = rows.findLast((m) => m.role === 'user');
+    const stored = mayBeStored && !!lastUser && !isClientGeneratedMessageId(lastUser.id) && !lastUser.clientMessageId && lastUser.content === bubble.content;
+    return stored ? rows : [...rows, bubble];
+  }
+  const { queued: _queued, ...held } = rows[at]!;
+  const out = [...rows];
+  out[at] = { ...held, clientMessageId: bubble.clientMessageId, partial: false };
+  return out;
+}
+
+/**
+ * THE REAL NAME OF THE BUBBLE YOU JUST WROTE: the row the server stored with
+ * `key` takes the place of the bubble that waits for it. If that row is
+ * already in the thread under its own id (it was drawn before the bubble was
+ * renamed), the bubble is its double and goes.
+ *
+ * Returns the SAME array when there is nothing to adopt: no bubble waits for
+ * this key (another window's row, a row with no key, a bubble already named).
+ */
+export function adoptDurableMessageId(rows: ChatMessage[], key: string, durableId: string): ChatMessage[] {
+  if (!key || !durableId) return rows;
+  const at = rows.findIndex((m) => waitsForName(m, key));
+  if (at < 0) return rows;
+  if (rows.some((m) => m.id === durableId)) return rows.filter((_, i) => i !== at);
+  const { queued: _queued, ...bubble } = rows[at]!;
+  const out = [...rows];
+  out[at] = { ...bubble, id: durableId, partial: false };
+  return out;
+}
+
+/**
+ * What a send that did not complete leaves in the thread, by its key and its
+ * placeholder's id, never by position:
+ *  - `withdraw`: the message is the queue's again, or the server's (it
+ *    answered `duplicate_message`): the bubble goes, unless the server already
+ *    named it, and then it IS the stored row;
+ *  - `queued`: it waits in the outbound queue: the bubble stays, marked;
+ *  - `keep`: the bubble stays as it is (the server holds the row, or the
+ *    person reads the error beside it);
+ *  - `stopped`: the person pressed Stop: the bubble stays, and the reply is
+ *    closed where it stands, or goes if it holds nothing at all.
+ * Otherwise the reply's placeholder goes while it holds nothing worth keeping
+ * (a few characters at most, no thinking).
+ */
+export function afterUnfinishedSend(
+  rows: ChatMessage[],
+  key: string | undefined,
+  placeholderId: string | undefined,
+  fate: 'withdraw' | 'queued' | 'keep' | 'stopped',
+): ChatMessage[] {
+  let changed = false;
+  const out: ChatMessage[] = [];
+  for (const m of rows) {
+    if (m.id === placeholderId && m.role === 'assistant') {
+      const thin = fate === 'stopped' ? isEmptyAssistantTurn(m) : (m.content ?? '').length < 10 && !m.thinking;
+      if (thin || (fate === 'stopped' && m.partial)) changed = true;
+      if (!thin) out.push(fate === 'stopped' && m.partial ? { ...m, partial: false } : m);
+      continue;
+    }
+    if ((fate === 'withdraw' || fate === 'queued') && key && waitsForName(m, key)) {
+      changed = true;
+      if (fate === 'queued') out.push({ ...m, partial: true, queued: true });
+      continue;
+    }
+    out.push(m);
+  }
+  return changed ? out : rows;
+}

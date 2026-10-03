@@ -24,7 +24,8 @@ import {
   type HistoryCompletionMode,
 } from '../state/historyCompleteness';
 import { useRefMirror } from './useRefMirror';
-import { reconcileMessages, mergeFetchedHistory, adoptDurableMessageId } from './reconcileMessages';
+import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
+import { adoptDurableMessageId, afterUnfinishedSend, insertBeside, namedByServer, placeOwnBubble } from './ownBubble';
 import { buildRequestMessages } from './chatRequestPayload';
 import { reconcileOrphanStreams, signalsActions } from '../state/signals';
 import { clearHistoryFromCache, markHistoryFromCache } from '../state/historyFromCache';
@@ -42,9 +43,11 @@ import {
   mergeBatch,
   releaseClaim,
   releaseHold,
+  removeTurn,
   requeueFront,
   storedQueueSessions,
   unshiftTurn,
+  type QueuedTurn,
 } from '../state/chatQueue';
 import { lastStopOf, noteServerTurn, noteStopHeard, noteTurnSnapshot, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
 import { registerFeatureWeight, roughBytes } from '../lib/featureWeight';
@@ -204,6 +207,8 @@ export interface SendMessageOptions {
    * The send then adds no second row: the one on screen is this message.
    */
   userMessageId?: string;
+  /** This message already left once under `clientMessageId`, and the server may hold it (`QueuedTurn.sent`). */
+  mayBeStored?: boolean;
 }
 
 export type { QueuedMessage };
@@ -426,6 +431,34 @@ const TURN_DRAIN_RETRY_MS = 200;
 const TURN_DRAIN_MAX_ATTEMPTS = 10;
 
 const getOutboundQueue = (): QueuedMessage[] => readQueue(queueStorage, OUTBOUND_QUEUE_KEY);
+
+/**
+ * An outbound resend that meets a turn in flight waits in the turn queue,
+ * under the key it already left with (`enqueueTurn`): its bubble, still
+ * waiting for a name, leaves the thread, since the queue now shows it.
+ */
+function withdrawWaitingBubble(sessionKey: string, key: string | undefined): void {
+  if (!key) return;
+  setMessages(prev => {
+    const rows = prev[sessionKey] ?? [];
+    const next = afterUnfinishedSend(rows, key, undefined, 'withdraw');
+    return next === rows ? prev : { ...prev, [sessionKey]: next };
+  });
+}
+
+/**
+ * A claimed batch as ONE send: merged words, the head's id as the key. If it
+ * fails it goes back as it was, or, when the server may hold it, as one
+ * `sent` item with the words it left with (`requeueFront`).
+ */
+function batchSend(sessionKey: string, batch: QueuedTurn[]) {
+  const turn = mergeBatch(batch);
+  return {
+    content: turn.content,
+    options: { ...turn.options, clientMessageId: batch[0]!.id, ...(batch[0]!.sent ? { mayBeStored: true } : {}) },
+    restore: (waitsFor?: TurnRef, mayBeStored?: boolean) => requeueFront(sessionKey, batch, waitsFor, mayBeStored ? turn : undefined),
+  };
+}
 const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_QUEUE_KEY);
 
 /**
@@ -686,6 +719,9 @@ export function useChat() {
   // younger than the snapshot the end of that SSE reloads, which replaces the
   // whole thread and would drop them again.
   const wsRowsDuringOwnSseRef = useRef<Map<string, Set<string>>>(new Map());
+  // The key of the send this window has in flight, while its SSE holds the
+  // session: where a row announced beside it goes (`insertBeside`).
+  const ownSendKeyRef = useRef<Map<string, string>>(new Map());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -937,7 +973,7 @@ export function useChat() {
     for (const sk of orphans) settleTurn(sk);
   }, [clearStreamTimeout, settleTurn]);
 
-  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
+  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }, besideKey?: string) => {
     const newMessage: ChatMessage = {
       ...message,
       id: message.id || generateMessageId(),
@@ -988,13 +1024,23 @@ export function useChat() {
         updated[existing.length - 1] = { ...last, id: newMessage.id, content: newMessage.content, partial: false };
         return { ...prev, [sessionKey]: updated };
       }
-      return {
-        ...prev,
-        [sessionKey]: [...existing, newMessage],
-      };
+      return { ...prev, [sessionKey]: insertBeside(existing, newMessage, besideKey) };
     });
 
     return newMessage;
+  }, []);
+
+  /**
+   * A reload's snapshot, plus the rows a `message:new` added while this
+   * window's own SSE held the session and the snapshot does not hold yet: it
+   * replaces the whole thread, and was taken before they were written.
+   */
+  const withRowsArrivedDuringOwnSse = useCallback((sessionKey: string, held: ChatMessage[] | undefined, fetched: ChatMessage[]): ChatMessage[] => {
+    const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
+    if (!arrived || !held) return fetched;
+    const fetchedIds = new Set(fetched.map((m) => m.id));
+    const younger = held.filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id));
+    return younger.length ? [...fetched, ...younger] : fetched;
   }, []);
 
   /** `addMessage` for a row another window or the server announced. */
@@ -1004,7 +1050,7 @@ export function useChat() {
       ids.add(message.id);
       wsRowsDuringOwnSseRef.current.set(sessionKey, ids);
     }
-    return addMessage(sessionKey, message);
+    return addMessage(sessionKey, message, ownSendKeyRef.current.get(sessionKey));
   }, [addMessage]);
 
   const updateLastMessage = useCallback((sessionKey: string, updates: Partial<ChatMessage>) => {
@@ -1884,26 +1930,22 @@ export function useChat() {
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
       handleStreamEvent(event);
     }
-    // Il nome durevole del messaggio che questa finestra ha appena mandato.
-    //
-    // Il gestore dei pannelli scarta questo frame quando lo stream è nostro (la
-    // bolla è già a schermo, e riaggiungerla sarebbe il doppione che si vuole
-    // evitare), ma insieme al frame buttava via l'unica occasione di sapere
-    // sotto quale id il server ha scritto quella riga. Da qui in poi la copia
-    // ottimistica porta l'id del DB, e il ricarico della storia la riconosce
-    // per identità invece che per testo. Non aggiunge MAI niente: se non trova
-    // un segnaposto da ribattezzare, non tocca la lista.
-    if (event.type === 'message:new' && event.role === 'user' && event.messageId) {
-      const durevole = { role: 'user' as const, content: event.content ?? '', id: event.messageId };
-      const sk = event.sessionKey;
-      if (sk) {
-        setMessages(prev => {
-          const correnti = prev[sk];
-          if (!correnti || correnti.length === 0) return prev;
-          const next = adoptDurableMessageId(correnti, durevole);
-          return next === correnti ? prev : { ...prev, [sk]: next };
-        });
-      }
+    // The durable name of a message this window sent: the row the server
+    // stored with a bubble's key takes that bubble's place, whether this
+    // window still streams the turn or the send already ended (a 500, a Stop,
+    // a network error). Never another row with the same words, and it never
+    // ADDS anything (`hooks/ownBubble.ts`).
+    if (event.type === 'message:new' && event.role === 'user' && event.sessionKey && event.messageId && event.clientMessageId) {
+      const { sessionKey: sk, clientMessageId: key, messageId: durableId } = event;
+      setMessages(prev => {
+        const rows = prev[sk];
+        if (!rows) return prev;
+        const next = adoptDurableMessageId(rows, key, durableId);
+        return next === rows ? prev : { ...prev, [sk]: next };
+      });
+      // A queued item under this key went back after an error the server had
+      // already stored it through (`QueuedTurn.sent`): this row is it.
+      if (getTurnQueue(sk).some((item) => item.id === key)) removeTurn(sk, key);
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
@@ -1931,7 +1973,7 @@ export function useChat() {
    * chiamato SOLO quando il server non ha visto il messaggio: se lo stream era
    * partito, rimetterlo in coda vorrebbe dire spedirlo due volte.
    */
-  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: (waitsFor?: TurnRef) => void): Promise<boolean> => {
+  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: (waitsFor?: TurnRef, mayBeStored?: boolean) => void): Promise<boolean> => {
     if (isSendLocked(sessionKey)) {
       // Back where it came from when it came from the queue (same ids, same
       // attachments, same order); at the end of the queue when it did not.
@@ -1961,7 +2003,12 @@ export function useChat() {
     let liveAfterCut = false;
     // ...or the reload's snapshot says so, but the turn ended or was stopped while it was in flight.
     let staleSnapshot = false;
+    // The server already holds this message (`duplicate_message`): read its row once the stream is released.
+    let alreadyStored = false;
+    // The empty reply bubble this send draws, found again by its id (`afterUnfinishedSend`).
+    let placeholderId: string | undefined;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
+    ownSendKeyRef.current.set(sessionKey, idemKey);
     endedDuringOwnSseRef.current.delete(sessionKey);
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
@@ -1977,14 +2024,12 @@ export function useChat() {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
-      // With `userMessageId` the bubble is already in the session (a draft's
-      // first send): same id, so `addMessage` keeps the row that is there.
-      addMessage(sessionKey, {
-        id: options?.userMessageId,
-        role: 'user',
-        content,
-        timestamp: new Date().toISOString(),
-      });
+      // The person's bubble, named by this send's key. The row already there
+      // for this message (a draft's first send, `userMessageId`; a resend from
+      // the outbound queue, same key) takes it instead of a second bubble.
+      setMessages(prev => ({ ...prev, [sessionKey]: placeOwnBubble(prev[sessionKey] ?? [], {
+        id: options?.userMessageId ?? generateMessageId(), role: 'user', content, timestamp: new Date().toISOString(), clientMessageId: idemKey,
+      }, options?.userMessageId, options?.mayBeStored) }));
 
       // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo
       // elemento; quello senza topic usa `slice(0, -1)` come storia. Vedi
@@ -1995,12 +2040,16 @@ export function useChat() {
       beginStreaming(sessionKey);
 
       // Create placeholder assistant message immediately for inline loading
-      addMessage(sessionKey, {
+      placeholderId = addMessage(sessionKey, {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         partial: true,
-      });
+      }).id;
+      // The reply's writers find it by this name (`LiveTurnIds`): a row
+      // written beside the turn can be the last one now, and the text after it
+      // went nowhere, or into that row.
+      streamMessageIdRef.current.begin(sessionKey, placeholderId);
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages, clientMessageId: idemKey };
       if (options?.fastMode) chatRequest.fastMode = true;
@@ -2227,12 +2276,7 @@ export function useChat() {
             content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
-        setMessages(prev => {
-          const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
-          const fetchedIds = new Set(chatMessages.map((m) => m.id));
-          const younger = arrived ? (prev[sessionKey] ?? []).filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id)) : [];
-          return { ...prev, [sessionKey]: younger.length ? [...chatMessages, ...younger] : chatMessages };
-        });
+        setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
         // No [DONE], and the server still has the turn in flight: what ended is
         // the response (a proxy, an idle timeout), not the turn. It stays lit and
@@ -2258,69 +2302,48 @@ export function useChat() {
 
       return true;
     } catch (err) {
-      // User-initiated abort — just finalize, no error
+      // What stays of this send in the thread, by its key and its
+      // placeholder's id, never the last rows: a row written beside the send
+      // while its POST was in flight sits after them, and may say the same words.
+      const leave = (fate: 'withdraw' | 'queued' | 'keep' | 'stopped') => setMessages(prev => {
+        const rows = prev[sessionKey] ?? [];
+        const next = afterUnfinishedSend(rows, idemKey, placeholderId, fate);
+        return next === rows ? prev : { ...prev, [sessionKey]: next };
+      });
+      // A person's Stop: the reply closes where it stands (`stopped`).
       if (err instanceof DOMException && err.name === 'AbortError') {
-        updateLastMessage(sessionKey, { partial: false });
+        leave('stopped');
         return true;
       }
 
       console.error('Failed to send message:', err);
 
-      // 409 = stream already active for this session — queue the message for auto-send
-      // when the current stream ends (Claude Code-style message queuing)
       const is409 = !!err && typeof err === 'object' && 'status' in err && (err as { status?: unknown }).status === 409;
+      // Read the `code`, never the text: the message is the sentence a person
+      // reads, and the code travels beside it.
+      const code = is409 ? apiErrorCode(err) : undefined;
 
       /**
-       * DUE 409 CHE VOGLIONO L'OPPOSTO.
+       * TWO 409s THAT WANT OPPOSITE THINGS, AND ONLY TWO THAT RE-DECIDE THE SEND.
        *
-       * `stream_in_flight` dice «c'è già un turno in volo»: il messaggio non è
-       * arrivato e va rimesso in testa alla coda per partire dopo.
-       * `duplicate_message` dice il contrario — il server questo messaggio ce
-       * l'ha GIÀ, è la nostra stessa chiave di prima. Riaccodarlo lo farebbe
-       * spedire una seconda volta, cioè esattamente il doppione che la chiave
-       * serve a evitare. Qui si smette: le bolle ottimiste vanno via e la
-       * history si ricarica, perché la verità di questo messaggio ora sta sul
-       * server e non più in pagina.
+       * `duplicate_message`: the server already holds this message under this
+       * key. Re-queueing it would send it twice, the duplicate the key exists
+       * to prevent: the bubbles go and the history is read once the stream is
+       * released (`alreadyStored`, in `finally`; `loadHistory` skips a session
+       * this send still holds, and the stored row never appeared).
+       * `stream_in_flight`: refused BEFORE the row is written
+       * (`server/routes/chat.ts`), so the message goes back to the HEAD of the
+       * queue, its bubbles off the thread: the queue shows it as «to send».
+       * Any other 409 (`topics_routing_incompatible` can come after the row
+       * was written and announced) is an error the person reads, below.
        */
-      // Read the `code`, never the text. While `sendMessage` rethrew the raw
-      // body, `message.includes('duplicate_message')` worked by accident: the
-      // message WAS the JSON. The message is now the sentence a person reads
-      // and the code travels beside it, so searching the sentence would
-      // re-queue a message the server already has, which is the duplicate the
-      // idempotency key exists to prevent.
-      const duplicate = is409 && apiErrorCode(err) === 'duplicate_message';
-      if (duplicate) {
-        setMessages(prev => {
-          const sessionMessages = prev[sessionKey] || [];
-          let end = sessionMessages.length;
-          const last = sessionMessages[end - 1];
-          if (last?.role === 'assistant' && last.partial && !last.content) end -= 1;
-          const lastUser = sessionMessages[end - 1];
-          if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
-          return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
-        });
-        void loadHistoryRef.current?.(sessionKey);
+      if (code === 'duplicate_message') {
+        leave('withdraw');
+        alreadyStored = true;
         return true;
       }
-
-      if (is409) {
-        // «C'è già un turno in volo»: il messaggio torna IN TESTA alla coda —
-        // non in fondo, o si farebbe scavalcare da chi era dietro di lui.
-        // Spariscono ANCHE le due bolle ottimiste: il segnaposto
-        // dell'assistente e la domanda dell'utente. Prima la domanda restava in
-        // pagina come se fosse partita, mentre il testo viveva in un ref
-        // invisibile che un reload buttava via — si vedeva un messaggio spedito
-        // che non era mai esistito. Adesso l'unico posto in cui vive è la coda,
-        // e la coda si vede come bolle «da inviare» nel trascritto.
-        setMessages(prev => {
-          const sessionMessages = prev[sessionKey] || [];
-          let end = sessionMessages.length;
-          const last = sessionMessages[end - 1];
-          if (last?.role === 'assistant' && last.partial && !last.content) end -= 1;
-          const lastUser = sessionMessages[end - 1];
-          if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
-          return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
-        });
+      if (code === 'stream_in_flight') {
+        leave('withdraw');
         // The refusal names the turn in flight: taken as the server's word, and
         // the message waits for THAT turn's end, not for this window's flag.
         const refusedBy = (err as { turn?: unknown }).turn;
@@ -2343,45 +2366,24 @@ export function useChat() {
         // arrivato — e da qui non si può sapere — il rinvio lo duplicava.
         const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options, id: idemKey };
         setPendingQueue(enqueue(queueStorage, OUTBOUND_QUEUE_KEY, queued));
-        // Mark the user message as queued (keep it visible)
-        setMessages(prev => {
-          const sessionMessages = prev[sessionKey] || [];
-          const lastMsg = sessionMessages[sessionMessages.length - 1];
-          if (lastMsg?.role === 'user') {
-            const updated = [...sessionMessages];
-            updated[updated.length - 1] = { ...lastMsg, partial: true, queued: true };
-            return { ...prev, [sessionKey]: updated };
-          }
-          return prev;
-        });
-        // No banner: the per-message "Queued" badge (the `queued` flag above)
+        // The bubble stays, marked queued: no banner, the per-message badge
         // already tells the right session, and a hook-wide string does not.
+        leave('queued');
         return false;
       }
 
-      // Errore che non è né un 409 né una rete caduta prima di partire. Se il
-      // messaggio veniva dalla coda, questo è l'ULTIMO punto in cui esiste
-      // ancora: `claimHead` l'ha tolto dallo storage durevole e nessuno dei
-      // rami sopra l'ha raccolto. Senza questo, l'utente vede sparire una cosa
-      // che aveva scritto — è la promessa fatta nel commento di `claimHead`.
-      // Solo a stream mai partito: se era partito, il server ce l'ha già.
-      if (!streamStarted) restoreOnFailure?.();
+      // Every other failure. From the queue, this is the LAST place the
+      // message still exists (`claimHead` took it off durable storage): it
+      // goes back there, and only there, when the server did not take it (no
+      // stream, no 409 about this very message, no row announced with its
+      // key). Back in the queue AND on screen was two copies after the drain.
+      const backToQueue = !streamStarted && !is409 && !!restoreOnFailure && !namedByServer(messagesRef.current[sessionKey] ?? [], idemKey);
+      // The POST reached the server, which may have stored the row before
+      // failing: the message goes back under its key, alone (`mayBeStored`).
+      if (backToQueue) restoreOnFailure(undefined, true);
 
       setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to send message' }));
-
-      // Only remove last message if it's an empty assistant message (partial response)
-      setMessages(prev => {
-        const sessionMessages = prev[sessionKey] || [];
-        const lastMsg = sessionMessages[sessionMessages.length - 1];
-        // Remove if last message is assistant with empty or very short content (likely partial)
-        if (lastMsg?.role === 'assistant' && lastMsg.content.length < 10 && !lastMsg.thinking) {
-          return {
-            ...prev,
-            [sessionKey]: sessionMessages.slice(0, -1),
-          };
-        }
-        return prev;
-      });
+      leave(backToQueue ? 'withdraw' : 'keep');
 
       return false;
     } finally {
@@ -2389,12 +2391,15 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
+      ownSendKeyRef.current.delete(sessionKey);
       ownReplyClosedRef.current.delete(sessionKey);
       const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
+      // A name outliving its bubble makes the next turn write into it (`LiveTurnIds`).
+      if (streamMessageIdRef.current.get(sessionKey) === placeholderId) streamMessageIdRef.current.end(sessionKey);
       if (liveAfterCut) {
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey);
@@ -2402,9 +2407,11 @@ export function useChat() {
       // The rows on screen are that snapshot: read them again now the SSE is gone,
       // past the dedup too. A pane opened under HISTORY_DEDUP_MS ago skipped the
       // read, and a turn started meanwhile from another window stayed dark.
-      if (staleSnapshot) {
+      // The same after `duplicate_message`: the row is the server's, and only a read shows it.
+      if (staleSnapshot || alreadyStored) {
         lastHistoryFetchAtRef.current.delete(sessionKey);
-        void loadHistoryRef.current?.(sessionKey);
+        // `fresh`: a read already in flight may predate the row; it is read again after it.
+        void loadHistoryRef.current?.(sessionKey, alreadyStored ? { fresh: true } : undefined);
       } else if (liveAfterCut && swallowedAfterReply) {
         // A frame of the live turn came while the reload was in flight and the
         // gate dropped it: read again now that the socket's frames land, on a
@@ -2412,7 +2419,7 @@ export function useChat() {
         void loadHistoryRef.current?.(sessionKey, { fresh: true, keepLit: true });
       }
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse]);
 
   /**
    * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
@@ -2462,11 +2469,10 @@ export function useChat() {
     if (verdict !== 'drain') return;
     const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
     if (batch.length === 0) return;
-    const turn = mergeBatch(batch);
     // The head's id is the idempotency key: two windows that both won the claim
     // send the same key, and the server takes the batch once (`duplicate_message`).
-    const options = { ...turn.options, clientMessageId: batch[0]!.id };
-    void performSend(sessionKey, turn.content, options, (waitsFor) => requeueFront(sessionKey, batch, waitsFor))
+    const send = batchSend(sessionKey, batch);
+    void performSend(sessionKey, send.content, send.options, send.restore)
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
   }, [performSend]);
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
@@ -2531,6 +2537,7 @@ export function useChat() {
       // the close found the queue held, and nothing else asks again.
       if (content.trim()) releaseHold(sessionKey);
       enqueueTurn(sessionKey, content, options, waitsFor);
+      withdrawWaitingBubble(sessionKey, options?.clientMessageId);
       return true;
     }
 
@@ -2540,10 +2547,11 @@ export function useChat() {
       // l'umano aveva scritto prima. Parte tutta la coda in un turno solo — il
       // nuovo messaggio compreso, se le opzioni combaciano.
       enqueueTurn(sessionKey, content, options);
+      withdrawWaitingBubble(sessionKey, options?.clientMessageId);
       const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
       if (batch.length === 0) return true;
-      const turn = mergeBatch(batch);
-      return performSend(sessionKey, turn.content, { ...turn.options, clientMessageId: batch[0]!.id }, (waitsFor) => requeueFront(sessionKey, batch, waitsFor))
+      const send = batchSend(sessionKey, batch);
+      return performSend(sessionKey, send.content, send.options, send.restore)
         .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
     }
 
@@ -2982,6 +2990,10 @@ export function useChat() {
     localSSESessionsRef.current.add(sessionKey);
     const abortController = new AbortController();
     abortControllersRef.current[sessionKey] = abortController;
+    // The new answer's bubble, and whether the branch reached its end (the
+    // thread is read again once the session is released, `finally`).
+    let placeholderId: string | undefined;
+    let streamed = false;
 
     try {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
@@ -3003,10 +3015,10 @@ export function useChat() {
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
-      setMessages(prev => ({
-        ...prev,
-        [sessionKey]: chatMessages,
-      }));
+      // Like the reload at the end of a send: a row written beside the turn
+      // that reached this window over the socket while the snapshot was in
+      // flight stays.
+      setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
       const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
       finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
       hydratedSessionsRef.current.add(sessionKey);
@@ -3024,13 +3036,16 @@ export function useChat() {
       let buffer = '';
       let isInThinking = false;
 
-      // Add a placeholder partial assistant message
-      addMessage(sessionKey, {
+      // Add a placeholder partial assistant message, named for its writers as
+      // `performSend` names its own: a row arriving beside the branch can be
+      // the last one, and the answer after it went nowhere.
+      placeholderId = addMessage(sessionKey, {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         partial: true,
-      });
+      }).id;
+      streamMessageIdRef.current.begin(sessionKey, placeholderId);
 
       try {
         while (true) {
@@ -3080,14 +3095,19 @@ export function useChat() {
         reader.releaseLock();
       }
 
-      // Reload full history to get accurate sibling counts
-      await loadHistory(sessionKey);
+      // The full history, for accurate sibling counts, is read in `finally`:
+      // here the session is still this stream's and `loadHistory` skipped it.
+      streamed = true;
       // Anche questo è un turno che finisce: se qualcuno ha scritto mentre la
       // risposta si rigenerava, adesso tocca a lui.
       drainTurnQueueRef.current?.(sessionKey);
       return true;
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return true;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // A Stop: the answer closes where it stands, by its id (`stopped`).
+        setMessages(prev => ({ ...prev, [sessionKey]: afterUnfinishedSend(prev[sessionKey] ?? [], undefined, placeholderId, 'stopped') }));
+        return true;
+      }
       console.error(`Failed to ${label}:`, err);
       setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : `Failed to ${label}` }));
       return false;
@@ -3096,12 +3116,14 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
+      if (streamMessageIdRef.current.get(sessionKey) === placeholderId) streamMessageIdRef.current.end(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
+      if (streamed) void loadHistoryRef.current?.(sessionKey, { fresh: true });
     }
-  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
+  }, [addMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>

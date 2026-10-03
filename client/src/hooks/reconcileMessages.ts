@@ -143,6 +143,10 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     // was a bubble with a spinner and a locked composer until a reload. Not
     // the row of the turn streaming here: it can be younger than the read.
     if (m.role === 'assistant' && m.partial === true && !isClientGeneratedMessageId(m.id) && m.id !== opts.liveRowId) return false;
+    // A bubble still under its local name is one whose row's announcement did
+    // not reach this window (the announcement renames it, `hooks/ownBubble.ts`).
+    // The history rows do not carry the send's key (it is not stored on the
+    // row), so the text is the only way left to recognise it here.
     if (isClientGeneratedMessageId(m.id)) {
       const k = echoKey(m);
       const disponibili = k ? echiDisponibili.get(k) ?? 0 : 0;
@@ -193,41 +197,6 @@ function withServerBanners(local: ChatMessage, serverTail: ChatMessage): ChatMes
     (b) => (b.kind === 'woken' || b.kind === 'ripreso') && !localBlocks.some((l) => l.kind === b.kind),
   );
   return banners.length > 0 ? { ...local, blocks: [...banners, ...localBlocks] } : local;
-}
-
-/**
- * IL NOME VERO DELLA BOLLA CHE HAI APPENA SCRITTO.
- *
- * La finestra da cui parte il messaggio lo disegna subito, con un id coniato in
- * locale, e il `message:new` che porta l'id del DB lo scarta come «roba mia»
- * (`isOwnStream`). Quel segnaposto resta quindi senza nome vero per tutta la
- * vita della pagina, e ogni ricarico della storia deve riconoscerlo dal TESTO
- * per non disegnarlo due volte. Qui il nome arriva: la copia ottimistica adotta
- * l'id durevole, e da quel momento la dedupe torna a essere per identità.
- *
- * Si prende la PRIMA bolla con un nome provvisorio, stesso ruolo e stesso testo,
- * non l'ultima: gli annunci arrivano nell'ordine in cui il server ha scritto le
- * righe, quindi la stessa domanda mandata due volte prende i due id nell'ordine
- * giusto. Se l'id c'è già nella lista non si tocca niente.
- *
- * Restituisce l'array PRECEDENTE quando non c'è niente da adottare.
- */
-export function adoptDurableMessageId(
-  messages: ChatMessage[],
-  incoming: { role: ChatMessage['role']; content: string; id: string },
-): ChatMessage[] {
-  if (!incoming.id || !incoming.content.trim()) return messages;
-  const chiave = `${incoming.role}\n${incoming.content.trim()}`;
-  if (messages.some((m) => m.id === incoming.id)) return messages;
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (!isClientGeneratedMessageId(m.id)) continue;
-    if (echoKey(m) !== chiave) continue;
-    const out = [...messages];
-    out[i] = { ...m, id: incoming.id };
-    return out;
-  }
-  return messages;
 }
 
 /**
