@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.432",
+    "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fai vincere la chiusura arrivata mentre browser_open era in volo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricontrolla il registro delle viste nel momento in cui la pane la adotta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.431",
     "date": "2026-10-03",
     "sections": {
@@ -150,6 +171,16 @@
         },
         {
           "it": "Scrivi in inglese il commento del test sulla chiusura che passa da nativeBrowserViews",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nascondi la vista nativa mentre aspetta di essere adottata da uno spostamento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai vedere al cancello anche la browser_close con argomento di tipo",
           "en": "",
           "scope": null
         }
