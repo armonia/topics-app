@@ -25,7 +25,7 @@
 import { homedir, uptime } from "node:os";
 import { join, sep } from "node:path";
 import { atomicTempPath, writeFileAtomic } from "../lib/atomic-write";
-import { linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { probePort, realProbeDeps, type PortVerdict } from "../lib/port-squatter";
 
@@ -44,8 +44,11 @@ interface LockFile {
 }
 
 export class LiveLockError extends Error {
-  constructor(public readonly livePid: number) {
-    super(`Another Topics server is already running (pid ${livePid}).`);
+  /** `null`: the lock kept changing hands while we judged it, holder unknown. */
+  constructor(public readonly livePid: number | null) {
+    super(livePid === null
+      ? "Another Topics server is taking the lock at this same moment."
+      : `Another Topics server is already running (pid ${livePid}).`);
     this.name = "LiveLockError";
   }
 }
@@ -135,23 +138,90 @@ function parseLock(raw: string): LockFile | null {
 }
 
 /**
- * Create the lock only if there is none: written complete to a temp, then
- * `link`ed to the final name, which fails with EEXIST when the name is taken.
- * A rename would replace it unconditionally, and a plain `wx` open would show
- * a reader an empty file for a moment.
+ * Test seams of the lock: `link` stands in a filesystem without hard links,
+ * `beforeStaleRemoval` runs between judging a lock stale and removing it, the
+ * instant a competitor booting on the same home can slip its own lock in.
  */
-function createLockExclusive(body: string): boolean {
-  const tmp = atomicTempPath(lockPath());
+export const lockSeams: { link: typeof linkSync; beforeStaleRemoval: (() => void) | null } = {
+  link: linkSync,
+  beforeStaleRemoval: null,
+};
+
+/**
+ * The codes a filesystem without hard links answers `link` with (some FUSE and
+ * SMB homes): EPERM / ENOTSUP / EOPNOTSUPP / ENOSYS. EXDEV and EMLINK are not
+ * "unsupported" but end the same way: the link cannot be made here.
+ */
+const NO_HARD_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV", "EMLINK"]);
+
+/**
+ * Create `path` with `body` only if there is none. Preferred: written complete
+ * to a temp, then `link`ed to the final name, which fails with EEXIST when the
+ * name is taken (a rename would replace it unconditionally). Where the
+ * filesystem has no hard links, an exclusive `wx` create: still atomic on the
+ * NAME, at the price of a reader seeing an empty file for the microseconds
+ * before the write, which `acquireLock` treats as a lock being written.
+ */
+function createExclusive(path: string, body: string): boolean {
+  const tmp = atomicTempPath(path);
+  let linkRefused = false;
   try {
     writeFileSync(tmp, body, { flag: "wx", mode: 0o600 });
-    linkSync(tmp, lockPath());
+    lockSeams.link(tmp, path);
     return true;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw err;
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (code === "EEXIST") return false;
+    if (!NO_HARD_LINKS.has(code)) throw err;
+    linkRefused = true;
   } finally {
     try { unlinkSync(tmp); } catch { /* never created */ }
   }
+  if (!linkRefused) return false;
+  let fd: number;
+  try {
+    fd = openSync(path, "wx", 0o600);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw err;
+  }
+  try { writeSync(fd, body); } finally { closeSync(fd); }
+  return true;
+}
+
+function createLockExclusive(body: string): boolean {
+  return createExclusive(lockPath(), body);
+}
+
+/**
+ * Remove the lock we judged stale, and ONLY that one.
+ *
+ * Re-reading and then unlinking left a window: two boots judge the same stale
+ * lock, the first unlinks it and writes its own, the second (whose re-read
+ * still saw the stale bytes) unlinks the FIRST one's fresh lock and writes its
+ * own, and both go on believing they hold it. A rename is atomic: exactly one
+ * process moves away whatever is at the name. If what we moved is not what we
+ * judged, it is a competitor's fresh lock, and it goes back where it was
+ * (exclusively: if that fails, the name was taken again in that instant and
+ * the competitor that took it is the holder; either way we lose).
+ */
+function takeOverStaleLock(judged: string): void {
+  const tomb = `${lockPath()}.stale.${process.pid}.${randomBytes(4).toString("hex")}`;
+  lockSeams.beforeStaleRemoval?.();
+  try {
+    renameSync(lockPath(), tomb);
+  } catch {
+    return; // already gone: somebody else moved it, the next create decides
+  }
+  let moved: string | null = null;
+  try { moved = readFileSync(tomb, "utf-8"); } catch { /* unreadable: put it back below */ }
+  if (moved !== judged) createExclusive(lockPath(), moved ?? "");
+  try { unlinkSync(tomb); } catch { /* best effort */ }
+}
+
+/** Sleep synchronously: the lock is taken before the server has an event loop worth keeping. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
@@ -212,7 +282,10 @@ export function acquireLock(): LockFile {
   // and the create retried ONCE, so a competitor that wins that retry wins.
   for (let attempt = 0; ; attempt++) {
     if (createLockExclusive(body)) return lock;
-    const raw = readLockRaw();
+    let raw = readLockRaw();
+    // Empty: a competitor on a filesystem without hard links is between its
+    // `wx` create and its write. Give it a moment before judging the file.
+    if (raw === "") { sleepSync(50); raw = readLockRaw(); }
     const existing = raw === null ? null : parseLock(raw);
     if (existing && existing.pid === process.pid) {
       writeFileAtomic(lockPath(), body, { mode: 0o600 });
@@ -232,14 +305,12 @@ export function acquireLock(): LockFile {
         );
       }
     }
-    if (attempt >= 1) {
-      throw new Error(`Could not take ${lockPath()}: it keeps being replaced by a lock that is not live.`);
-    }
-    // Remove it only if it is still the lock we judged: a competitor may have
-    // replaced it with its own (live) one in the meantime.
-    if (raw === null || readLockRaw() === raw) {
-      try { unlinkSync(lockPath()); } catch { /* already gone */ }
-    }
+    // A second miss means the lock changed hands under us twice: another
+    // server is booting on this home right now. Losing is the safe outcome,
+    // and `server.ts` exits cleanly only on a LiveLockError.
+    if (attempt >= 1) throw new LiveLockError(existing?.pid ?? null);
+    // Remove it only if it is still the lock we judged (`takeOverStaleLock`).
+    if (raw !== null) takeOverStaleLock(raw);
   }
 }
 

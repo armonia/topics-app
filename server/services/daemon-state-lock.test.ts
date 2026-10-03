@@ -10,10 +10,10 @@
  * @covers RUNTIME-14
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { linkSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { acquireLock, LiveLockError } from "./daemon-state";
+import { acquireLock, LiveLockError, lockSeams } from "./daemon-state";
 
 const HOME_VERA = process.env.TOPICS_HOME;
 const realKill = process.kill;
@@ -81,5 +81,87 @@ describe("acquireLock", () => {
 
     expect(() => acquireLock()).toThrow(LiveLockError);
     expect(JSON.parse(readFileSync(lockFile, "utf-8")).pid).toBe(winner);
+  });
+});
+
+describe("acquireLock on a filesystem without hard links, and under a competitor", () => {
+  afterEach(() => {
+    lockSeams.link = linkSync;
+    lockSeams.beforeStaleRemoval = null;
+  });
+
+  /** `link` answering as some FUSE and SMB homes do. */
+  function noHardLinks(code = "EPERM") {
+    lockSeams.link = (() => {
+      const err = new Error(`${code}: link`) as NodeJS.ErrnoException;
+      err.code = code;
+      throw err;
+    }) as typeof linkSync;
+  }
+
+  test("no hard links: the lock is still taken, exclusively, instead of crashing the boot", () => {
+    noHardLinks();
+    expect(acquireLock().pid).toBe(process.pid);
+    expect(JSON.parse(readFileSync(lockFile, "utf-8")).pid).toBe(process.pid);
+  });
+
+  test("no hard links and a live holder: refused with a LiveLockError, the holder's lock untouched", () => {
+    noHardLinks("ENOTSUP");
+    competitor = Bun.spawn(["sleep", "30"]);
+    writeFileSync(lockFile, lockBody(competitor.pid));
+    expect(() => acquireLock()).toThrow(LiveLockError);
+    expect(JSON.parse(readFileSync(lockFile, "utf-8")).pid).toBe(competitor.pid);
+  });
+
+  test("no hard links and a dead holder: recovered", () => {
+    noHardLinks();
+    writeFileSync(lockFile, lockBody(DEAD_PID));
+    expect(acquireLock().pid).toBe(process.pid);
+  });
+
+  test("a lock that keeps changing hands ends in a LiveLockError, the one error the boot exits cleanly on", () => {
+    // Another boot replaces the stale lock while we judge it, and its lock
+    // reads as not live either: the old code threw a plain Error here, and
+    // `server.ts` rethrows anything that is not a LiveLockError.
+    const OTHER_DEAD = 999_998;
+    writeFileSync(lockFile, lockBody(DEAD_PID));
+    process.kill = ((pid: number, sig?: string | number) => {
+      if (pid === DEAD_PID || pid === OTHER_DEAD) {
+        if (pid === DEAD_PID) writeFileSync(lockFile, lockBody(OTHER_DEAD));
+        const err = new Error("ESRCH") as NodeJS.ErrnoException;
+        err.code = "ESRCH";
+        throw err;
+      }
+      return realKill.call(process, pid, sig as never);
+    }) as typeof process.kill;
+    expect(() => acquireLock()).toThrow(LiveLockError);
+  });
+
+  test("a competitor whose lock lands between our verdict and the removal keeps it, and we stop", () => {
+    // The window the re-read-then-unlink left open: two boots judge the same
+    // stale lock, the first replaces it with its own, and the second, already
+    // past its re-read, removed the first one's fresh lock and wrote its own.
+    competitor = Bun.spawn(["sleep", "30"]);
+    const winner = competitor.pid;
+    writeFileSync(lockFile, lockBody(DEAD_PID));
+    lockSeams.beforeStaleRemoval = () => writeFileSync(lockFile, lockBody(winner));
+    expect(() => acquireLock()).toThrow(LiveLockError);
+    expect(JSON.parse(readFileSync(lockFile, "utf-8")).pid).toBe(winner);
+  });
+
+  test("the same, without hard links", () => {
+    noHardLinks();
+    competitor = Bun.spawn(["sleep", "30"]);
+    const winner = competitor.pid;
+    writeFileSync(lockFile, lockBody(DEAD_PID));
+    lockSeams.beforeStaleRemoval = () => writeFileSync(lockFile, lockBody(winner));
+    expect(() => acquireLock()).toThrow(LiveLockError);
+    expect(JSON.parse(readFileSync(lockFile, "utf-8")).pid).toBe(winner);
+  });
+
+  test("no stale tomb is left beside the lock", () => {
+    writeFileSync(lockFile, lockBody(DEAD_PID));
+    acquireLock();
+    expect(readdirSync(home).filter((f) => f.includes(".stale."))).toEqual([]);
   });
 });
