@@ -236,12 +236,12 @@ test.describe("phone, 390 × 844", () => {
     await expect(page.getByTestId("model-selector-routing-line")).toBeInViewport();
     const height = await modelRow(page, "claude-opus-5-5").evaluate((el) => el.getBoundingClientRect().height);
     expect(height).toBeGreaterThanOrEqual(44);
+    await shot(page, "phone-light");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await shot(page, "phone-dark");
     // Scrolling the list keeps the heading of the company in sight.
     const sections = panel(page).getByTestId("model-selector-sections");
     await sections.evaluate((el) => { el.scrollTop = 240; });
     await expect(panel(page).getByTestId("model-section-anthropic").getByTestId("model-section-heading")).toHaveCSS("position", "sticky");
-    await shot(page, "phone-light");
-    await page.emulateMedia({ colorScheme: "dark" });
-    await shot(page, "phone-dark");
   });
 });
