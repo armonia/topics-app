@@ -34,11 +34,13 @@ import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { onBeforeBundleReload } from '../lib/devBundleReload';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import {
+  beginNativeViewOpen,
   closeNativeView as closeRecordedNativeView,
   deferCloseToMove,
+  dropNativeViewOpen,
   isNativeViewOpened,
   movingNativeViews,
-  noteNativeViewOpened,
+  settleNativeViewOpen,
   takeNativeViewMove,
 } from '../lib/shell/nativeBrowserViews';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
@@ -871,8 +873,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // A view whose close we just cancelled is ADOPTED below (`openOrAdopt`),
     // without `browser_open`: its reuse branch in lib.rs would navigate it.
     markBrowserViewLive(id);
-    const applyOpened = () => {
-        noteNativeViewOpened(id);
+    const applyOpened = (adopted = false) => {
         openedRef.current = true;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
         // `browser_open` ha appena restituito può essere una view RIUSATA, e
@@ -901,6 +902,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // agentOpsInFlight`): non si riaccendono le pane di sfondo, che è il
         // motivo per cui `browser_set_visible` esiste.
         nativeVisibleRef.current = !(nativeWantedRef.current || agentOpsInFlightRef.current > 0);
+        // An ADOPTED view can arrive hidden: a surface that let go of it inside
+        // a move hid it and parked it off-screen. Its visibility is decided
+        // here, before the occlusion check below, because that check may freeze
+        // the pane and a frozen pane's still is a screenshot of the view, blank
+        // while the view is hidden. Showing it costs nothing on screen: it is
+        // off-screen until `setBounds` places it, and `setBounds` respects the
+        // park latch and the freeze. The effect on `ready` then finds nothing
+        // to change.
+        if (adopted) void setNativeVisible(nativeWantedRef.current || agentOpsInFlightRef.current > 0);
         setReady(true);
         // La barra mostra la URL VOLUTA anche quando la view è ferma su
         // about:blank perché la porta è spenta: è l'indirizzo di questa scheda,
@@ -937,16 +947,34 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       requestedUrlRef.current = openUrl;
       requestedAtRef.current = Date.now();
       return new Promise<boolean>((resolve) => {
+        // Whether the open that answered still owns the view: false when a close
+        // of this id ran while it was in flight (see `nativeBrowserViews`).
+        // Settled on the answer itself, not in `onOpened`, which a pane that
+        // unmounted mid-open never reaches: its view must still be closed if
+        // the close it queued ran before the view existed.
+        let owned = false;
         attemptNativeOpen({
           // windowLabel: la webview nativa deve nascere figlia della finestra che
           // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
           // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
-          invoke: () => tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }),
+          invoke: () => {
+            const open = beginNativeViewOpen(id);
+            return tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }).then(
+              (answer) => { owned = settleNativeViewOpen(open, tauriInvoke); return answer; },
+              (e: unknown) => { dropNativeViewOpen(open); throw e; },
+            );
+          },
           // È anche l'ultimo posto da cui si passa quando la pane viene smontata
           // a metà apertura: chi aspetta l'esito riceve un `false` invece di
           // restare appeso a una promessa che nessuno risolverà più.
           isCancelled: () => { if (!cancelled) return false; resolve(false); return true; },
-          onOpened: () => { applyOpened(); resolve(true); },
+          onOpened: () => {
+            // Closed while opening: the view is not this pane's to show, and it
+            // has been closed already. The pane is going away with that close.
+            if (!owned) { setLoading(false); resolve(false); return; }
+            applyOpened();
+            resolve(true);
+          },
           onGaveUp: () => {
             setNavError({ message: trRef.current('browser.native.openFailed'), url: openUrl });
             // Chi ha chiesto l'apertura ha acceso la barra e non aspetta l'esito
@@ -969,9 +997,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // navigate it whenever the persisted url is not the one we last asked for.
     // Adopted on a microtask, where the open would have answered, so the effects
     // that follow see the same order of events in both cases.
+    //
+    // `liveView` was decided at mount, and a loopback probe can stand between
+    // the two for up to 1.5 s: another pane may have closed the view by now.
+    // So the record is read again right before the view is placed, and a view
+    // that is gone is opened instead of adopted, which would leave the pane
+    // empty until «ricrea».
     const openOrAdopt = (u: string): void => {
       if (!liveView) { void attemptOpen(u); return; }
-      void Promise.resolve().then(() => { if (!cancelled) applyOpened(); });
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        if (!isNativeViewOpened(id)) { void attemptOpen(u); return; }
+        applyOpened(true);
+      });
     };
     if (!gateLoopback) {
       openOrAdopt(wantedUrl);
@@ -1028,7 +1066,20 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       };
       // A move in flight: the arriving pane adopts the view whenever it mounts,
       // so nothing is queued here. The close runs only if the move expires.
-      if (deferCloseToMove(id, closeUnheld)) return;
+      if (deferCloseToMove(id, closeUnheld)) {
+        // Until it is adopted the view belongs to no surface, and it must not
+        // stay painted (and clickable) on the rect this surface just gave up:
+        // up to `NATIVE_VIEW_MOVE_TIMEOUT_MS` when nobody arrives. Hidden AND
+        // off-screen, at the size it had, so that whatever the arriving pane
+        // decides about visibility can only show it where that pane places
+        // it: its own bounds, its own park latch, its own occlusion freeze.
+        void paneInvoke('browser_set_visible', { id, visible: false });
+        void paneInvoke('browser_set_bounds', {
+          id, x: -100000, y: 0,
+          width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
+        });
+        return;
+      }
       pendingBrowserCloses.set(id, setTimeout(() => {
         pendingBrowserCloses.delete(id);
         closeUnheld();

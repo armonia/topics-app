@@ -31,6 +31,16 @@
  * `NATIVE_VIEW_MOVE_TIMEOUT_MS` the parked close runs: a move that never lands
  * does not leak a webview.
  *
+ * A CLOSE WINS OVER AN OPEN IT OVERTAKES. `browser_open` can still be in flight
+ * when a close of the same id runs (the close countdown, an agent's close-pane
+ * over the socket, the hook's own deferred close after an unmount). Recording
+ * the id when that open answered put back a view the close had just taken out,
+ * and a reopen inside the grace adopted it: an empty pane. So every open is
+ * registered when it leaves (`beginNativeViewOpen`), a close drops whatever is
+ * in flight for its id, and an open that answers after that is not recorded:
+ * the view it produced is closed, unless a newer open of the id owns the label
+ * by then (`settleNativeViewOpen`).
+ *
  * Only this document's own record counts. A view that survived a ⌘R, or that
  * belongs to another window's document, is not in here and still goes through
  * `browser_open`, whose reuse branch is the only one that knows it.
@@ -47,6 +57,10 @@ export const NATIVE_VIEW_MOVE_TIMEOUT_MS = 10_000;
 
 const openedViews = new Set<string>();
 
+/** One `browser_open` that has left and not answered yet. */
+export interface PendingNativeOpen { readonly id: string }
+const opensInFlight = new Map<string, Set<PendingNativeOpen>>();
+
 interface PendingMove {
   timer: ReturnType<typeof setTimeout>;
   /** The leaving surface's close, parked until the move lands or expires. */
@@ -54,9 +68,45 @@ interface PendingMove {
 }
 const pendingMoves = new Map<string, PendingMove>();
 
-/** `browser_open` answered for this id: the page is live in this document. */
-export function noteNativeViewOpened(id: string): void {
-  openedViews.add(id);
+/** `browser_open` is leaving for this id. Its answer goes to `settleNativeViewOpen`
+ *  when it succeeds and to `dropNativeViewOpen` when it fails. */
+export function beginNativeViewOpen(id: string): PendingNativeOpen {
+  const open: PendingNativeOpen = { id };
+  let pending = opensInFlight.get(id);
+  if (!pending) { pending = new Set(); opensInFlight.set(id, pending); }
+  pending.add(open);
+  return open;
+}
+
+/** Take a finished open out of the in-flight set; false when a close took it first. */
+function endNativeViewOpen(open: PendingNativeOpen): boolean {
+  const pending = opensInFlight.get(open.id);
+  if (!pending?.delete(open)) return false;
+  if (pending.size === 0) opensInFlight.delete(open.id);
+  return true;
+}
+
+/**
+ * `browser_open` answered. True: the page is live in this document and recorded.
+ * False: a close of the id ran while the open was in flight, and the close wins.
+ * Nothing is recorded, and the view that just appeared is closed, unless a newer
+ * open of the same id owns the label by now (recorded, or still in flight):
+ * closing it then would kill that one.
+ */
+export function settleNativeViewOpen(open: PendingNativeOpen, invoke: Invoke): boolean {
+  if (endNativeViewOpen(open)) {
+    openedViews.add(open.id);
+    return true;
+  }
+  if (!openedViews.has(open.id) && !opensInFlight.has(open.id)) {
+    void closeNativeView(open.id, invoke).catch(() => {});
+  }
+  return false;
+}
+
+/** `browser_open` failed: no view came of it, nothing to record or close. */
+export function dropNativeViewOpen(open: PendingNativeOpen): void {
+  endNativeViewOpen(open);
 }
 
 /** Whether a mount for this id may adopt a live view instead of opening one. */
@@ -64,9 +114,11 @@ export function isNativeViewOpened(id: string): boolean {
   return openedViews.has(id);
 }
 
-/** The view is gone (or about to be): forget it, and any move it was in. */
+/** The view is gone (or about to be): forget it, any move it was in, and any
+ *  open still in flight for it, which has lost to this close. */
 export function forgetNativeView(id: string): void {
   openedViews.delete(id);
+  opensInFlight.delete(id);
   const move = pendingMoves.get(id);
   if (move) { clearTimeout(move.timer); pendingMoves.delete(id); }
 }
