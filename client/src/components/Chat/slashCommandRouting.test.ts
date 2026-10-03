@@ -344,12 +344,26 @@ describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)
     }
   });
 
+  test("bare on Claude Code, `/usage` and its aliases `/cost` and `/stats` open the providers panel, where the plan is", () => {
+    // Forwarded, the CLI answered with its own table, in English, as if it
+    // were the agent's reply. The Claude plan and its 5-hour window are in
+    // the providers panel of the model chip.
+    expect(CLI.headless).toContain("usage");
+    expect(CLI.aliases.cost).toBe("usage");
+    expect(CLI.aliases.stats).toBe("usage");
+    for (const provider of ["claude-code", "claude-code-team"]) {
+      for (const text of ["/usage", "/cost", "/stats"]) {
+        expect(topicsHomeCommand(text, provider), `${text} on ${provider}`).toBe("providers");
+      }
+    }
+  });
+
   test("with arguments they travel to the CLI, which runs them: nothing is dropped", () => {
     // `/config set theme dark` used to open the menu and lose the arguments
     // without a word. Both names are in the CLI's headless list.
     expect(CLI.headless).toContain("mcp");
     expect(CLI.headless).toContain("config");
-    for (const text of ["/mcp enable github", "/config set theme dark", "/settings x"]) {
+    for (const text of ["/mcp enable github", "/config set theme dark", "/settings x", "/usage x", "/cost y"]) {
       expect(topicsHomeCommand(text, "claude-code"), text).toBeNull();
     }
   });
@@ -358,7 +372,7 @@ describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)
     // openclaw has its own `/mcp show|set|unset` and `/config show|set|unset`;
     // gemini and codex have their own `/mcp`.
     for (const provider of ["openclaw", "gemini", "codex", "topics", null, undefined]) {
-      for (const text of ["/mcp", "/mcp show", "/config", "/config set x 1", "/settings"]) {
+      for (const text of ["/mcp", "/mcp show", "/config", "/config set x 1", "/settings", "/usage", "/cost", "/stats"]) {
         expect(topicsHomeCommand(text, provider), `${text} on ${provider}`).toBeNull();
       }
     }
@@ -369,13 +383,24 @@ describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)
     expect(src).toContain("topicsHomeCommand(cmd, declared)");
     expect(src).toMatch(/=== 'tools'\) \{[^}]*composerControlsRef\.current\?\.openTools\(\)/);
     expect(src).toMatch(/=== 'userMenu'\) \{[^}]*openUserMenu\(\)/);
+    expect(src).toMatch(/=== 'providers'\) \{[^}]*composerControlsRef\.current\?\.openProviders\(\)/);
     // No unconditional branch left behind the helper's back.
-    expect(src).not.toMatch(/cmd(?: === |\.startsWith\()'\/(mcp|config|settings)/);
+    expect(src).not.toMatch(/cmd(?: === |\.startsWith\()'\/(mcp|config|settings|usage|cost|stats)/);
   });
 
-  test("the composer hands up the door to its tools panel, hung from the «+»", () => {
+  test("the composer hands up the door to its tools panel, hung from the «+», with the focus coming back to its field", () => {
     const input = read("client/src/components/Chat/ChatInput.tsx");
-    expect(input).toContain("openTools: () => openToolsRef.current?.()");
-    expect(input).toContain("openHome('tools', triggerRef.current)");
+    // Typed, so on close the focus goes back to the field the command was
+    // typed in: given to the «+», the next words typed were lost.
+    expect(input).toContain("openTools: () => openToolsRef.current?.(textareaRef.current)");
+    expect(input).toContain("openHome('tools', triggerRef.current, returnFocus)");
+  });
+
+  test("the composer hands up the door to its providers panel, hung from the model chip", () => {
+    const input = read("client/src/components/Chat/ChatInput.tsx");
+    expect(input).toContain("openProvidersRef={openProvidersRef}");
+    expect(input).toMatch(/openProviders: \(\) => \{[^}]*openProvidersRef\.current\(field\)/);
+    const picker = read("client/src/components/Chat/ProviderModelPicker.tsx");
+    expect(picker).toContain("openHome('providers', buttonRef.current, returnFocus)");
   });
 });

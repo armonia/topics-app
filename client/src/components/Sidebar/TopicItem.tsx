@@ -25,6 +25,8 @@ import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { useTouchDrag } from '@/hooks/useTouchDrag';
 import { useT } from '@/hooks/useT';
 import { WorktreeChip } from './WorktreeChip';
+import { TopicColorDot } from '@/components/Shared/TopicColorDot';
+import { topicColorInk } from '@/lib/topicColor';
 import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
@@ -237,20 +239,33 @@ export const TopicItem = memo(function TopicItem({
     // (`lib/dragPreview`). La riga porta un nome, il progetto in cui vive e i
     // segnali che la stanno chiamando: chi trascina deve riconoscere la cosa,
     // e fra due chat omonime di due progetti diversi il nome da solo non basta.
-    // Niente glifo e niente `accent`: la riga non li porta. Il glifo davanti al
-    // nome di una chat non c'è per scelta («solo le sessioni agente hanno un
-    // marchio»), e `topic.color` è un default inventato che la sidebar non
-    // dipinge da nessuna parte. Un'anteprima che mostra ciò che la cosa non ha
-    // non è l'anteprima della cosa.
+    // No glyph: the row has none (only agent sessions carry a brand mark).
+    // The accent is the topic's colour only when a person CHOSE it, the same
+    // condition under which the row paints its dot (`TopicColorDot`); a default
+    // colour is invented and stays off both. A preview that shows what the
+    // thing does not have is not a preview of the thing.
     startDragPreview(e, {
       title: topic.name,
+      // The ink of the theme on screen, the one the row's dot is painted
+      // with: the stored value is the light swatch, and on the dark chrome it
+      // is the very shade `topicColor` replaces for being too dark to see.
+      accent: topicColorInk(topic.color, document.documentElement.classList.contains('dark')),
       subtitle: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
       badges: [
         notificationCount > 0 ? String(notificationCount) : '',
         archived ? 'archiviata' : '',
       ].filter(Boolean),
     });
-  }, [topic.id, topic.name, topic.projectPath, notificationCount, archived]);
+  }, [topic.id, topic.name, topic.color, topic.projectPath, notificationCount, archived]);
+
+  // THE COLOUR THE PERSON CHOSE (TOPIC-02), and only that: a default colour
+  // draws nothing. It never takes a column of its own, because a column is what
+  // moves the name (LAYOUT-27, one name column): it fills the reserved accordion
+  // box when that box is empty, and on a row whose box holds the chevron, or a
+  // nested row that has no box, it leads the quiet rail instead.
+  const colorDot = <TopicColorDot color={topic.color} onFill={onFill} />;
+  const leadDot = !hasChildren && depth === 0 ? colorDot : null;
+  const trailDot = leadDot ? null : colorDot;
 
   return (
     <div
@@ -368,7 +383,7 @@ export const TopicItem = memo(function TopicItem({
         // Only at the top of the tree, where the project rows open: below
         // it nothing has an accordion (sub-agents nest without one), so the
         // box was 16px of air on every nested row (card 058ea722, 2026-09-03).
-        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT}>{leadDot}</span>
       ) : null}
 
       {/* IL GLIFO D'ARCHIVIO IN TESTA NON C'È PIÙ, ed è la metà visibile della
@@ -474,6 +489,7 @@ export const TopicItem = memo(function TopicItem({
           state (the ink of the time, then 36, then 28), so the button turned up
           at a different x every time. */}
       <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+        {trailDot}
         {/* Notification badge — hidden when focused so the user doesn't see a
             count for the topic they're actively looking at. */}
         {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
