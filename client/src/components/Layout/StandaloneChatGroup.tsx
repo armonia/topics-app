@@ -5,6 +5,7 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType,
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
+import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
@@ -981,6 +982,13 @@ export function StandaloneChatGroup({
               data-testid="mobile-pane-title"
               className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
+              {/* The open chat's chosen colour, before its name: the phone
+                  has no tab strip and its list is a drawer, so without this
+                  the colour the person picked shows nowhere on the screen
+                  they read the chat on (TOPIC-02). A default draws nothing. */}
+              {surfaceInFront?.type === 'chat' && surfaceInFront.topicId && (
+                <TopicColorDot color={topics[surfaceInFront.topicId]?.color} className="mr-2" />
+              )}
               <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
             </div>
           ) : (

@@ -380,4 +380,12 @@ export interface ProviderPayload<TTool = unknown> {
    * Assente per le altre strategie, che non deduplicano nulla.
    */
   inlineSlots?: { slot: string; hash: string }[];
+
+  /**
+   * `inline-system` only, and only when `userContent` is a skill invocation
+   * (`/recap …`) with context to deliver: the `<context>…</context>` block that
+   * must travel BESIDE the bare message, as a separate content block before
+   * it, never concatenated into it. Absent on every other message.
+   */
+  slashContext?: string;
 }
