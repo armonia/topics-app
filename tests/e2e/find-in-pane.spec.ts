@@ -42,6 +42,9 @@ test.use({ video: "on" });
 const PROJECT_DIR = `${canonicalTmpRoot()}/e2e-find-in-pane`;
 const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_DIR)}`;
 
+/** The keyboard on nothing: ⌘F then resolves the pane from the focused tab. */
+const blurAll = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
 const bar = (page: Page) => page.getByTestId("find-bar").filter({ visible: true }).first();
 const count = (page: Page) => bar(page).getByTestId("find-count");
 const input = (page: Page) => bar(page).getByTestId("find-input");
@@ -149,7 +152,7 @@ test.describe("Cerca nella pane: la chat", () => {
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row.locator("[aria-expanded]").first()).toHaveAttribute("aria-expanded", "false");
 
-    await page.locator('[data-testid="chat-message-list"]').first().click({ position: { x: 5, y: 5 } });
+    await blurAll(page);
     await page.keyboard.press("Meta+f");
     await page.keyboard.type("ENOENT_UNICO");
     await expect(count(page)).toHaveText("0 di 1", { timeout: 10_000 });
@@ -216,7 +219,7 @@ test.describe("Cerca nella pane: la chat", () => {
     const barClosedAt = Date.now();
     await expect(chatPage.streamingIndicator).toBeVisible();
     // Counter-proof: with the cursor out of the bar, Esc stops the turn as before.
-    await page.locator('[data-testid="chat-message-list"]').first().click({ position: { x: 5, y: 5 } });
+    await blurAll(page);
     const secondEscAt = Date.now();
     await page.keyboard.press("Escape");
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
@@ -252,7 +255,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
-    await page.locator('[data-testid="chat-message-list"]').first().click({ position: { x: 5, y: 5 } });
+    await blurAll(page);
     await page.keyboard.press("Meta+f");
     await page.keyboard.type("deploy");
     await expect(count(page)).toHaveText("0 di 2", { timeout: 10_000 });
@@ -335,7 +338,7 @@ test.describe("Cerca nella pane: file, board, dashboard", () => {
     await expect(text).not.toContainText("foo");
     await expect.poll(async () => ((await text.innerText()).match(/bar/g) ?? []).length).toBe(3);
     await text.click();
-    await page.keyboard.press("Meta+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(async () => ((await text.innerText()).match(/foo/g) ?? []).length).toBe(3);
   });
 
@@ -431,4 +434,56 @@ test.describe("Cerca nella pane: il telefono", () => {
     await expect(count(page)).toHaveText("0 di 1", { timeout: 10_000 });
     await page.screenshot({ path: test.info().outputPath("phone-find.png") });
   });
+});
+
+/**
+ * The evidence for the review of the change: the bar in light and dark, on a
+ * desktop window and on a 390 px phone, with a result current in a chat.
+ * Written under test-results/find-evidence/ (copied into the change's
+ * `screenshots/` folder by hand, never asserted on).
+ */
+test.describe("Cerca nella pane: le schermate", () => {
+  let topicId = "";
+  let topicName = "";
+
+  test.beforeAll(async ({ request }) => {
+    topicName = `e2e-find-shots-${Date.now()}`;
+    const topic = await createTopic(request, topicName);
+    topicId = topic.id;
+    const sessionKey = `topic:${topic.id.slice(0, 8)}`;
+    await seedMessage(request, { sessionKey, role: "user", content: "Dove si fa il deploy?" });
+    await seedMessage(request, { sessionKey, role: "assistant", content: "Il deploy parte dal ramo main: prima il deploy di prova, poi quello vero." });
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  for (const vp of [{ name: "desktop", width: 1280, height: 800 }, { name: "phone", width: 390, height: 844 }]) {
+    for (const scheme of ["light", "dark"] as const) {
+      test(`evidence: ${vp.name} ${scheme}`, async ({ page, request }) => {
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+        await page.emulateMedia({ colorScheme: scheme });
+        await resetPaneStore(request, [topicId]);
+        await goToApp(page);
+        await page.keyboard.press("Escape");
+        const tab = page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first();
+        await expect(tab).toBeVisible({ timeout: 15_000 });
+        if (vp.name === "phone") {
+          await tab.click({ button: "right" });
+          await page.getByTestId("tab-menu-find").click();
+        } else {
+          await blurAll(page);
+          await page.keyboard.press("Meta+f");
+        }
+        await expect(input(page)).toBeFocused();
+        await page.keyboard.type("deploy");
+        await expect(count(page)).toHaveText("0 di 3", { timeout: 10_000 });
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("Enter");
+        await expect(count(page)).toHaveText("2 di 3");
+        await page.screenshot({ path: `test-results/find-evidence/impl-${vp.name}-${scheme}.png` });
+      });
+    }
+  }
 });
