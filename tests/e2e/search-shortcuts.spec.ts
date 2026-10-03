@@ -8,22 +8,30 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * SRC — la mappa della ricerca, dopo il riordino del 2026-08-06.
+ * SRC — la mappa della ricerca.
  *
- * Prima: ⌘F trovava un PROGETTO (la lettera che in ogni app del mondo vuol dire
- * «cerca qui dentro»), ⌘P si annunciava «Quick-open file» e apriva un grep nel
- * CONTENUTO, ⌘⇧F era un alias identico di ⌘P, e ⌘⇧P non esisteva. La ricerca
- * per nome viveva solo sepolta dentro ⌘K.
+ * 2026-08-06: ⌘⇧P trova un progetto · ⌘P apre un file per nome · ⌘F cerca nel
+ * contenuto dei progetti · ⌘⇧F ritirato, perché era un alias identico di ⌘P e
+ * la stessa lettera F portava a due cose diverse, distinte solo dallo shift.
  *
- * Dopo: ⌘⇧P trova un progetto · ⌘P apre un file per nome · ⌘F cerca dentro il
- * progetto a fuoco PIÙ quelli aperti · ⌘⇧F ritirato.
+ * 2026-10-03 (change find-in-pane), IL ROVESCIO: ⌘F cerca DENTRO la pane a
+ * fuoco (la barra della chat, del terminale, del file, del browser), come in
+ * ogni applicazione del mondo; la ricerca nel contenuto dei progetti passa a
+ * ⇧⌘F e resta su ⌘F solo nelle pane che non hanno niente da cercare. ⌘F e ⇧⌘F
+ * tornano a essere la stessa lettera, ma adesso per LA STESSA ricerca con due
+ * ampiezze, qui o in tutti i progetti, come in VS Code: non è più l'ambiguità
+ * del 06/08. Quindi SRC-02 e SRC-04 passano a ⇧⌘F, SRC-03 si rovescia (⌘F in un
+ * campo di testo apre la barra della pane, non la ricerca nei progetti) e
+ * SRC-05 si rovescia (⇧⌘F apre la ricerca nel contenuto).
  *
  * E il difetto che rendeva tutto inservibile: `focusedProjectPath` riconosceva
  * solo la tab del progetto o una chat che vi appartiene. Dentro un progetto il
  * fuoco finisce quasi subito su una pane interna (terminale, git, file), che
- * non è né l'una né l'altra — quindi il progetto spariva e ⌘F non rispondeva.
+ * non è né l'una né l'altra — quindi il progetto spariva e la ricerca non
+ * rispondeva.
  *
  * @covers CMD-01
+ * @covers FIND-02
  */
 
 const PROJECT_DIR = `${canonicalTmpRoot()}/e2e-search-shortcuts`;
@@ -71,7 +79,7 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("SRC-02: ⌘P apre per NOME, ⌘F commuta su CONTENUTO senza chiudere", async ({ page, request }) => {
+  test("SRC-02: ⌘P apre per NOME, ⇧⌘F commuta su CONTENUTO senza chiudere", async ({ page, request }) => {
     await resetPaneStore(request, [PROJECT_PANE]);
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -84,35 +92,43 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     // Premere l'ALTRO tasto mentre è aperta cambia modo invece di chiudere:
     // chiudere e riaprire per passare da nome a contenuto era l'attrito che
     // questa superficie unica esiste per togliere.
-    await page.keyboard.press("Meta+f");
+    await page.keyboard.press("Meta+Shift+f");
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("file-search-mode-content")).toHaveAttribute("aria-pressed", "true");
 
     // Lo stesso tasto due volte chiude.
-    await page.keyboard.press("Meta+f");
+    await page.keyboard.press("Meta+Shift+f");
     await expect(page.getByTestId("file-search")).toHaveCount(0);
   });
 
-  test("SRC-03: ⌘F NON ruba la find a un campo di testo", async ({ page, request }) => {
-    await resetPaneStore(request, [PROJECT_PANE]);
-    await goToApp(page);
-    await page.keyboard.press("Escape");
+  test("SRC-03: ⌘F in un campo di testo apre la barra della pane, non la ricerca nei progetti", async ({ page, request }) => {
+    // Rovesciato il 2026-10-03: prima il gestore usciva su ogni campo di testo
+    // e lasciava ⌘F al campo; sul Mac il campo non ne faceva niente (la webview
+    // dell'app non ha una ricerca sua), su Windows si apriva la barra di
+    // WebView2 sopra l'interfaccia. Ora ⌘F dal campo della chat apre la barra
+    // della chat. Il Ctrl proprio del Mac resta al campo: lo prova
+    // find-in-pane.spec.ts.
+    // A chat of its own, outside any project: a project-linked chat lives
+    // inside its project window, not as a top-level tab.
+    const chat = await createTopic(request, `E2E-SearchShortcuts-chat-${Date.now()}`);
+    try {
+      await resetPaneStore(request, [chat.id]);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
 
-    const input = page.locator("textarea, input[type='text']").first();
-    if (await input.count()) {
-      await input.click({ force: true }).catch(() => {});
-      await expect(input).toBeFocused({ timeout: 5_000 });
+      const composer = page.getByTestId("chat-message-input").filter({ visible: true }).first();
+      await expect(composer).toBeVisible({ timeout: 15_000 });
+      await composer.click();
+      await expect(composer).toBeFocused({ timeout: 5_000 });
       await page.keyboard.press("Meta+f");
-      // DELIBERATE FIXED WAIT: the assertion is that the panel does NOT open.
-      // `toHaveCount(0)` is true the instant it is asked, so without a window
-      // it would pass even on a panel that opens a frame later.
-      await page.waitForTimeout(400);
-      // Il gestore esce SENZA preventDefault: la superficie a fuoco tiene la sua ⌘F.
+      await expect(page.getByTestId("find-bar").filter({ visible: true }).first()).toBeVisible({ timeout: 5_000 });
       await expect(page.getByTestId("file-search")).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, chat.id);
     }
   });
 
-  test("SRC-04: con una pane INTERNA a fuoco il progetto resta noto — ⌘F si apre", async ({ page, request }) => {
+  test("SRC-04: con una pane INTERNA a fuoco il progetto resta noto — ⇧⌘F si apre", async ({ page, request }) => {
     // È il difetto riportato: si apre un progetto dalla tab bar, il fuoco
     // scivola su una pane interna e ⌘F smetteva di rispondere perché
     // `focusedProjectPath` tornava undefined.
@@ -139,7 +155,7 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     // sonno stava sperando fosse successa.
     await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10_000 });
 
-    await page.keyboard.press("Meta+f");
+    await page.keyboard.press("Meta+Shift+f");
     const panel = page.getByTestId("file-search");
     await expect(panel).toBeVisible({ timeout: 15_000 });
     // E il perimetro nomina il progetto, non «files» generico.
@@ -147,19 +163,19 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("SRC-05: ⌘⇧F è ritirato — non apre più niente", async ({ page, request }) => {
-    // Era un alias identico di ⌘P, e rubava la lettera F mentre ⌘F faceva
-    // tutt'altro: stessa lettera, due bersagli, distinti solo dallo shift.
+  test("SRC-05: ⇧⌘F apre la ricerca nel CONTENUTO dei progetti", async ({ page, request }) => {
+    // Rovesciato il 2026-10-03 (vedi l'intestazione): ⇧⌘F è la ricerca in tutti
+    // i progetti aperti, ⌘F quella nella pane a fuoco.
     await resetPaneStore(request, [PROJECT_PANE]);
     await goToApp(page);
     await page.keyboard.press("Escape");
 
     await page.keyboard.press("Meta+Shift+f");
-    // DELIBERATE FIXED WAIT: negative assertion again. A withdrawn shortcut
-    // opens nothing, and nothing has no event.
-    await page.waitForTimeout(500);
-    await expect(page.getByTestId("file-search")).toHaveCount(0);
+    const panel = page.getByTestId("file-search");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByTestId("file-search-mode-content")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("command-palette")).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
   test("SRC-06: un progetto che non risponde viene NOMINATO sopra i risultati parziali", async ({ page, request }) => {
@@ -185,7 +201,7 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await projectTab.click({ force: true });
     await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10_000 });
 
-    await page.keyboard.press("Meta+f");
+    await page.keyboard.press("Meta+Shift+f");
     const panel = page.getByTestId("file-search");
     await expect(panel).toBeVisible({ timeout: 15_000 });
     await panel.locator("input").fill("parolachiavecercabile");
