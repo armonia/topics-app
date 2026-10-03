@@ -84,15 +84,39 @@ test.describe("sidebar: the name column", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("ROWALIGN-03: rows that draw a glyph share one column; rows without one start left of it", async ({ page }) => {
+  test("ROWALIGN-03: rows that draw a glyph share one column; rows without one start left of it", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-27" });
+    // ONE CHAT WITH A CHOSEN COLOUR AND ONE WITHOUT, both open so their rows
+    // exist. The colour dot (TOPIC-02) used to take a column of its own and
+    // pushed the coloured chat's name 14px right of the plain one's: the very
+    // crooked column this test guards, born from a decoration.
+    const stamp = Date.now();
+    const coloured = await createTopic(request, `ROWALIGN-colour-${stamp}`, { color: "#059669" });
+    // `createTopic` opens each one's tab on top of the seeded project's pane:
+    // `resetPaneStore` here would close the project and lose the other half
+    // of the comparison.
+    const plain = await createTopic(request, `ROWALIGN-plain-${stamp}`);
     await goToApp(page);
     // `.first()`: with a project seeded the sidebar carries a second tree (the
     // project's own), and a bare locator is a strict-mode violation.
     await expect(page.locator('[role="tree"]').first()).toBeVisible({ timeout: 15000 });
 
+    // The dot is drawn before anything is measured: a run where it never
+    // rendered would compare two plain rows and pass for the wrong reason.
+    const sidebar = page.locator('[aria-label="Topics sidebar"]');
+    await expect(sidebar.locator(`[aria-label="ROWALIGN-colour-${stamp}"] [data-topic-color]`)).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.locator(`[aria-label="ROWALIGN-plain-${stamp}"] [data-row-name="chat"]`)).toBeVisible();
+
     const names = await readNames(page);
     expect(names.length, "no sidebar name was measurable").toBeGreaterThan(1);
+
+    // The two chats, coloured and plain: their names start at the same x.
+    const chatLeft = (prefix: string) => names.find((n) => n.kind === "chat" && n.text.startsWith(prefix))?.left;
+    const colouredLeft = chatLeft("ROWALIGN-colour-");
+    const plainLeft = chatLeft("ROWALIGN-plain-");
+    expect(colouredLeft, "the coloured chat's name was measured").toBeDefined();
+    expect(plainLeft, "the plain chat's name was measured").toBeDefined();
+    expect(colouredLeft, `the colour dot moved the chat name: ${colouredLeft} against ${plainLeft}`).toBe(plainLeft);
 
     // Top level only: the indent step per depth is a WANTED difference, and it
     // is guarded elsewhere. The shallowest row left is the top level.
@@ -139,6 +163,7 @@ test.describe("sidebar: the name column", () => {
           "the empty leading box must be gone.",
       ).toBeLessThan(glyphStarts[0]!);
     }
+    await cleanupAll(request, { topics: [coloured.id, plain.id] });
   });
 
   // ROWNAME-TITLE: a truncated chat name has to stay READABLE on hover. The

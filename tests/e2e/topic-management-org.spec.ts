@@ -381,10 +381,14 @@ test.describe("Topic Management - Settings & Organization", () => {
     // (LAYOUT-27, one name column in the sidebar).
     const rowName = page.locator('[aria-label="Topics sidebar"]')
       .locator(`[aria-label="E2E-Beta-${TS}"] [data-row-name="chat"]`);
+    // Only x: the column is horizontal. Choosing a colour touches the topic,
+    // and a touched topic can move to another place in the timeline, so its
+    // y is the sort's business, not the dot's (seen on WebKit: x 30 → 30,
+    // y 160 → 120).
     const nameBox = async () => {
       const box = await rowName.boundingBox();
       if (!box) throw new Error("the chat name has no box");
-      return { x: Math.round(box.x), y: Math.round(box.y) };
+      return { x: Math.round(box.x) };
     };
     const plainName = await nameBox();
 
