@@ -3755,7 +3755,22 @@ export class ClaudeCodeProvider implements AIProvider {
       if (line.kind === "content" || line.kind === "partial" || line.kind === "result") pp.lastEventAt = Date.now();
       // The API's health, read off every child's stream, attended or not.
       const retry = noteApiHealth(line.kind, event);
-      if (retry) pp.lastApiRetry = retry;
+      if (retry) {
+        pp.lastApiRetry = retry;
+        // Il turno di chi aspetta lo deve DIRE: il 03/10 su topic:d740f8ae la
+        // CLI ha ritentato l'API per sei minuti e in chat c'era solo la
+        // clessidra, finché il secondo «ci sei?» ha annullato il turno muto.
+        if (handler?.onRetry) {
+          const h = handler;
+          this.tellHandlerSafely(pp, "onRetry", () => h.onRetry!({
+            attempt: retry.attempt,
+            maxAttempts: retry.maxAttempts,
+            delayMs: retry.delayMs,
+            // Stessa forma del runtime nativo (`native/retry.ts`): «API 529», «API unknown».
+            reason: `API ${retry.status}`,
+          }));
+        }
+      }
       const fate = unattendedLineFate(pp, event, line.kind);
       if (fate !== "pass") return;
     }
