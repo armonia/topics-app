@@ -1,7 +1,98 @@
 [
   {
-    "version": "2.2.429",
+    "version": "2.2.430",
     "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Manda su https l'host scritto senza schema con la porta 443 o 8443",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra l'errore anche quando revocare un link o togliere un accesso fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lega il turno vocale alla chiamata che l'ha registrato, non a una chiamata qualsiasi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proteggi e rimanda solo le impostazioni il cui PUT è fallito, e applica le altre dal server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai aspettare i topic al primo sync anche a un layout senza chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova che chiudere la pagina manda una sola DELETE keepalive del terminale chiuso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli dal PC i file che HEAD non ha piu' quando topwin sincronizza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai al gruppo del terminale un tipo che esiste nel test del primo sync",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina in inglese TLS_PORTS e unackedKeys e traduci il commento spostato in ShareControl",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza gli asset totali del bundle al valore misurato dopo le due corsie e i sei fix",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai contare l'esito di un PUT delle impostazioni solo per le chiavi di cui porta ancora il valore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rilascia il microfono se la chiamata finisce mentre il permesso e' ancora aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricava la lista dei file spediti senza rinomine e senza cartelle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riapri al primo sync le chat che lo snapshot del server ha nominato prima dei topic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza il critical path del bundle al valore misurato dopo le due corsie e i fix",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accetta l'avviso su http-cache-semantics del sito, che non ha ancora una versione corretta e non serve mai una cache condivisa",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.429",
+    "date": "2026-10-02",
     "sections": {
       "new": [],
       "fixes": [],
@@ -159,6 +250,26 @@
           "scope": null
         },
         {
+          "it": "Non trattare un 5xx di /api/auth/session come dispositivo non appaiato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ritenta la lista delle sessioni parcheggiate se la prima lettura fallisce invece di trattarla come vuota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manda la DELETE in sospeso di un terminale chiuso quando la pagina si ricarica, invece di scartarla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai chiedere un nuovo codice al riprova dopo un rifiuto del pairing",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Chiudi ogni comando trovato morto al boot prima di potare i recenti e pulire i file",
           "en": "",
           "scope": null
@@ -169,7 +280,142 @@
           "scope": null
         },
         {
+          "it": "Tieni aperto «Dimentica questo sito» con un errore quando la cancellazione fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Togli statSync, rimasto senza uso in processes.ts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra un toast quando «Rendi incognito» fallisce invece di inghiottire l'errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non mandare all'agente la mezza frase registrata prima di chiudere la chiamata vocale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricontrolla la modalità voce dopo l'ascolto prima di agire sul task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli la data dagli id di modello datati nell'etichetta leggibile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Applica la regola https-first anche all'host scritto senza schema nella barra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi il corpo d'errore con readErrorBody anche nelle tre letture di testo grezzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non memorizzare un fallimento della sonda d'installazione di sviluppo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ritira il segno di login già applicato anche se la tab si chiude prima del fallimento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Di' accanto ai tetti di spesa quando il salvataggio fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Attendi il messaggio di sistema di /status perché un errore di rete arrivi alla riga d'errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra il sink rrweb dopo i ref del parcheggio, così il primo flusso arma il timer d'inattività",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revoca la capacità remota appena creata se la richiesta delegata fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra l'errore generico quando una condivisione fallisce senza un corpo JSON o senza rete",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scarta la risposta di una ricerca messaggi superata nella palette",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Unisci un progetto creato prima dell'indice alla prima risposta invece di farne l'indice intero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non far tornare indietro un'impostazione il cui PUT è fallito: rimandalo al prossimo valore dal server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai aspettare i topic al primo sync delle chat di progetto invece di aprirli tutti come tab all'arrivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi pane e posizione della tab chiusa dalle ref al commit del conto alla rovescia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi lo stato del socket quando l'avviso della cache si aggancia al bus dopo il primo open",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scorri il log di processo anche quando cambia solo la riga non terminata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scarta al recupero gli errori di navigazione più vecchi dell'ultima navigazione richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricostruisci la webview main anche quando manca, invece di lasciare la finestra vuota fino al riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricontrolla la modalità voce con una chiamata, che il restringimento di tipo non congela",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi l'API della chiamata vocale da un effetto nel test, come chiede la regola sugli hook",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lega i test nuovi a requisiti esistenti e abbassa la baseline dei nomi non inglesi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rifai la chiusura di una tab passando dalla ref, non dal handleClosePane del primo render",
           "en": "",
           "scope": null
         },

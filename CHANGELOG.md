@@ -2,7 +2,27 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.429 — 2026-10-03
+## 2.2.430 — 2026-10-03
+
+### Sotto il cofano
+- Manda su https l'host scritto senza schema con la porta 443 o 8443
+- Mostra l'errore anche quando revocare un link o togliere un accesso fallisce
+- Lega il turno vocale alla chiamata che l'ha registrato, non a una chiamata qualsiasi
+- Proteggi e rimanda solo le impostazioni il cui PUT è fallito, e applica le altre dal server
+- Fai aspettare i topic al primo sync anche a un layout senza chat
+- Prova che chiudere la pagina manda una sola DELETE keepalive del terminale chiuso
+- Togli dal PC i file che HEAD non ha piu' quando topwin sincronizza
+- Dai al gruppo del terminale un tipo che esiste nel test del primo sync
+- Rinomina in inglese TLS_PORTS e unackedKeys e traduci il commento spostato in ShareControl
+- Alza gli asset totali del bundle al valore misurato dopo le due corsie e i sei fix
+- Fai contare l'esito di un PUT delle impostazioni solo per le chiavi di cui porta ancora il valore
+- Rilascia il microfono se la chiamata finisce mentre il permesso e' ancora aperto
+- Ricava la lista dei file spediti senza rinomine e senza cartelle
+- Riapri al primo sync le chat che lo snapshot del server ha nominato prima dei topic
+- Alza il critical path del bundle al valore misurato dopo le due corsie e i fix
+- Accetta l'avviso su http-cache-semantics del sito, che non ha ancora una versione corretta e non serve mai una cache condivisa
+
+## 2.2.429 — 2026-10-02
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-02 [skip ci]
@@ -35,9 +55,40 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Chiedi conferma anche dopo un'assegnazione con valore tra virgolette e spazi
 - Chiudi al boot un comando morto col server all'ora in cui e' finito, non all'avvio
 - Leggi il comando come lo legge la shell prima di decidere se chiedere conferma
+- Non trattare un 5xx di /api/auth/session come dispositivo non appaiato
+- Ritenta la lista delle sessioni parcheggiate se la prima lettura fallisce invece di trattarla come vuota
+- Manda la DELETE in sospeso di un terminale chiuso quando la pagina si ricarica, invece di scartarla
+- Fai chiedere un nuovo codice al riprova dopo un rifiuto del pairing
 - Chiudi ogni comando trovato morto al boot prima di potare i recenti e pulire i file
 - Prova la migration dell'ultima uscita di command_runs sul solo schema che la precede
+- Tieni aperto «Dimentica questo sito» con un errore quando la cancellazione fallisce
 - Togli statSync, rimasto senza uso in processes.ts
+- Mostra un toast quando «Rendi incognito» fallisce invece di inghiottire l'errore
+- Non mandare all'agente la mezza frase registrata prima di chiudere la chiamata vocale
+- Ricontrolla la modalità voce dopo l'ascolto prima di agire sul task
+- Togli la data dagli id di modello datati nell'etichetta leggibile
+- Applica la regola https-first anche all'host scritto senza schema nella barra
+- Leggi il corpo d'errore con readErrorBody anche nelle tre letture di testo grezzo
+- Non memorizzare un fallimento della sonda d'installazione di sviluppo
+- Ritira il segno di login già applicato anche se la tab si chiude prima del fallimento
+- Di' accanto ai tetti di spesa quando il salvataggio fallisce
+- Attendi il messaggio di sistema di /status perché un errore di rete arrivi alla riga d'errore
+- Registra il sink rrweb dopo i ref del parcheggio, così il primo flusso arma il timer d'inattività
+- Revoca la capacità remota appena creata se la richiesta delegata fallisce
+- Mostra l'errore generico quando una condivisione fallisce senza un corpo JSON o senza rete
+- Scarta la risposta di una ricerca messaggi superata nella palette
+- Unisci un progetto creato prima dell'indice alla prima risposta invece di farne l'indice intero
+- Non far tornare indietro un'impostazione il cui PUT è fallito: rimandalo al prossimo valore dal server
+- Fai aspettare i topic al primo sync delle chat di progetto invece di aprirli tutti come tab all'arrivo
+- Leggi pane e posizione della tab chiusa dalle ref al commit del conto alla rovescia
+- Leggi lo stato del socket quando l'avviso della cache si aggancia al bus dopo il primo open
+- Scorri il log di processo anche quando cambia solo la riga non terminata
+- Scarta al recupero gli errori di navigazione più vecchi dell'ultima navigazione richiesta
+- Ricostruisci la webview main anche quando manca, invece di lasciare la finestra vuota fino al riavvio
+- Ricontrolla la modalità voce con una chiamata, che il restringimento di tipo non congela
+- Leggi l'API della chiamata vocale da un effetto nel test, come chiede la regola sugli hook
+- Lega i test nuovi a requisiti esistenti e abbassa la baseline dei nomi non inglesi
+- Rifai la chiusura di una tab passando dalla ref, non dal handleClosePane del primo render
 - Chiedi conferma anche per i comandi dietro +=, function, heredoc, ${...}, i wrapper mancanti, ssh, le pipe verso una shell e zsh, in tempo lineare
 - Verifica che il boot chiuda tutte e undici le righe prima di qualunque richiesta
 
