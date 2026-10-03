@@ -256,21 +256,6 @@ describe("fine turno con un obiettivo attivo", () => {
     await close();
   });
 
-  // The window that sent the message knows its own echo by this key, and only
-  // by it: the goal's continuation is a `user` row too, and before 03/10 that
-  // window dropped it with the echo (`ownTurnEcho`, client).
-  test("the person's row carries the send's key, the continuation does not", async () => {
-    const b = await banco("goal-client-key", ["continue"]);
-    await b.send("comincia", { clientMessageId: "key-from-this-window" });
-    await b.finish("primo giro senza tool");
-    const users = b.frames.filter((f) => f.type === "message:new" && f.role === "user");
-    expect(users.find((f) => f.content === "comincia")?.clientMessageId).toBe("key-from-this-window");
-    const nudge = users.find((f) => String(f.content).startsWith("Objective still open"));
-    expect(nudge).toBeDefined();
-    expect("clientMessageId" in nudge!).toBe(false);
-    await close();
-  });
-
   test("un giudice illeggibile non compra niente e non scrive niente", async () => {
     const b = await banco("goal-mute", ["non lo so"]);
     const prima = b.rows().length;

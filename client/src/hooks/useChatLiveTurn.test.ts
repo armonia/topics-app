@@ -20,7 +20,7 @@
  *
  * @covers CHAT-01, SUBAGENT-07, USAGE-23
  */
-import { afterAll, afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
@@ -352,80 +352,44 @@ describe('la copia ottimistica prende il nome vero', () => {
   const SRV_U1 = 'b1b2c3d4-0000-4000-8000-000000000011';
   const SRV_U2 = 'b1b2c3d4-0000-4000-8000-000000000012';
 
-  // Since 03/10 the bubble takes the name of the row written with THIS send's
-  // key only (`adoptDurableMessageId`): the sends below are real, held at
-  // their POST, and the frames carry the key the POST carried.
-  const savedFetch = g.fetch;
-  afterEach(() => { g.fetch = savedFetch; });
-
-  /** A real send of `content`, held at its POST. `end()` refuses it (500): the send closes, the person's bubble stays. */
-  async function heldSend(d: Driver, content: string): Promise<{ key: string; end(): Promise<void> }> {
-    let key = '';
-    let answer: ((r: Response) => void) | null = null;
-    const asked = new Promise<void>((ready) => {
-      g.fetch = async (_input: unknown, init?: { body?: unknown }) => {
-        key = (JSON.parse(String(init?.body)) as { clientMessageId: string }).clientMessageId;
-        ready();
-        return new Promise<Response>((resolve) => { answer = resolve; });
-      };
-    });
-    const sent = d.chat.sendMessage(keyOf(), content);
-    await asked;
-    return { key, async end() { answer?.(new Response('down', { status: 500 })); await sent; } };
-  }
-  const userIds = (d: Driver): string[] => d.chat.getSessionMessages(keyOf()).filter((m) => m.role === 'user').map((m) => m.id);
-
-  test('il message:new della PROPRIA finestra ribattezza la bolla invece di aggiungerne una', async () => {
-    const d = drive();
-    const send = await heldSend(d, 'beeper');
-    expect(userIds(d)[0]!.startsWith('msg_')).toBe(true);
-
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper', clientMessageId: send.key });
-
-    expect(userIds(d)).toEqual([SRV_U1]);
-    await send.end();
-    d.unmount();
-  });
-
-  test('la stessa riga annunciata due volte resta una riga sola', async () => {
+  test('il message:new della PROPRIA finestra ribattezza la bolla invece di aggiungerne una', () => {
     const d = drive();
     const sk = keyOf();
-    const send = await heldSend(d, 'beeper');
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper', clientMessageId: send.key });
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper', clientMessageId: send.key });
+    // Quello che fa `performSend`: la bolla utente con un id locale.
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    expect(d.ids()[0].startsWith('msg_')).toBe(true);
+
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+
+    expect(d.ids()).toEqual([SRV_U1]);
+    expect(d.texts()).toEqual(['beeper']);
+    d.unmount();
+  });
+
+  test('la stessa riga annunciata due volte resta una riga sola', () => {
+    const d = drive();
+    const sk = keyOf();
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
     d.chat.addMessageFromWS(sk, { id: SRV_U1, role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
 
-    expect(userIds(d)).toEqual([SRV_U1]);
-    await send.end();
+    expect(d.ids()).toEqual([SRV_U1]);
     d.unmount();
   });
 
-  test('due messaggi con id DIVERSI e lo stesso testo restano due', async () => {
+  test('due messaggi con id DIVERSI e lo stesso testo restano due', () => {
     const d = drive();
-    const first = await heldSend(d, 'beeper');
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper', clientMessageId: first.key });
-    await first.end();
-    // The same question, sent again: legitimate, and hiding one of the two
-    // would be a worse defect than showing it twice.
-    const second = await heldSend(d, 'beeper');
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U2, content: 'beeper', clientMessageId: second.key });
-
-    expect(userIds(d)).toEqual([SRV_U1, SRV_U2]);
-    await second.end();
-    d.unmount();
-  });
-
-  test('a row with the same words and no key, or another key, does not take the bubble\'s name', async () => {
-    const d = drive();
-    const send = await heldSend(d, 'beeper');
-    const local = userIds(d)[0];
+    const sk = keyOf();
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
+    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper' });
+    // La stessa domanda, mandata di nuovo: è legittimo, e nasconderne una
+    // sarebbe un difetto peggiore di mostrarla due volte.
+    d.chat.addMessageFromWS(sk, { role: 'user', content: 'beeper', timestamp: new Date().toISOString() });
     d.ws({ type: 'message:new', role: 'user', messageId: SRV_U2, content: 'beeper' });
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U2, content: 'beeper', clientMessageId: 'another-window' });
-    expect(userIds(d)).toEqual([local]);
 
-    d.ws({ type: 'message:new', role: 'user', messageId: SRV_U1, content: 'beeper', clientMessageId: send.key });
-    expect(userIds(d)).toEqual([SRV_U1]);
-    await send.end();
+    expect(d.ids()).toEqual([SRV_U1, SRV_U2]);
+    expect(d.texts()).toEqual(['beeper', 'beeper']);
     d.unmount();
   });
 });

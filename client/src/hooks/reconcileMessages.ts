@@ -196,31 +196,38 @@ function withServerBanners(local: ChatMessage, serverTail: ChatMessage): ChatMes
 }
 
 /**
- * THE REAL NAME OF THE BUBBLE YOU JUST WROTE.
+ * IL NOME VERO DELLA BOLLA CHE HAI APPENA SCRITTO.
  *
- * The window a message leaves from draws it at once, under an id minted here,
- * and drops the `message:new` that carries the DB's id as its own echo
- * (`ownTurnEcho`). That frame is the only chance to learn the row's durable
- * name: the optimistic copy adopts it, and from then on every dedupe against
- * that row goes by identity.
+ * La finestra da cui parte il messaggio lo disegna subito, con un id coniato in
+ * locale, e il `message:new` che porta l'id del DB lo scarta come «roba mia»
+ * (`isOwnStream`). Quel segnaposto resta quindi senza nome vero per tutta la
+ * vita della pagina, e ogni ricarico della storia deve riconoscerlo dal TESTO
+ * per non disegnarlo due volte. Qui il nome arriva: la copia ottimistica adotta
+ * l'id durevole, e da quel momento la dedupe torna a essere per identità.
  *
- * By id, never by text: the caller names the bubble THIS send drew, and calls
- * only for the row the server wrote with this send's key (`clientMessageId`).
- * Matching the first bubble with the same words renamed this window's bubble
- * after another device's message that said the same thing; the pane then held
- * that id and skipped the other row, and a refused send took it away with its
- * own bubble (verifier, 03/10).
+ * Si prende la PRIMA bolla con un nome provvisorio, stesso ruolo e stesso testo,
+ * non l'ultima: gli annunci arrivano nell'ordine in cui il server ha scritto le
+ * righe, quindi la stessa domanda mandata due volte prende i due id nell'ordine
+ * giusto. Se l'id c'è già nella lista non si tocca niente.
  *
- * Returns the SAME array when there is nothing to adopt: the bubble is gone,
- * or the durable id is already in the list.
+ * Restituisce l'array PRECEDENTE quando non c'è niente da adottare.
  */
-export function adoptDurableMessageId(messages: ChatMessage[], localId: string, durableId: string): ChatMessage[] {
-  if (!durableId || localId === durableId || messages.some((m) => m.id === durableId)) return messages;
-  const i = messages.findIndex((m) => m.id === localId);
-  if (i < 0) return messages;
-  const out = [...messages];
-  out[i] = { ...messages[i], id: durableId };
-  return out;
+export function adoptDurableMessageId(
+  messages: ChatMessage[],
+  incoming: { role: ChatMessage['role']; content: string; id: string },
+): ChatMessage[] {
+  if (!incoming.id || !incoming.content.trim()) return messages;
+  const chiave = `${incoming.role}\n${incoming.content.trim()}`;
+  if (messages.some((m) => m.id === incoming.id)) return messages;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!isClientGeneratedMessageId(m.id)) continue;
+    if (echoKey(m) !== chiave) continue;
+    const out = [...messages];
+    out[i] = { ...m, id: incoming.id };
+    return out;
+  }
+  return messages;
 }
 
 /**

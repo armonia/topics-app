@@ -840,9 +840,6 @@ export interface WSMessageNewMessage {
   /** Marks written on the row (goal continuation, goal stop, board envelope):
    *  they decide how the row is drawn and keep it out of the sidebar preview. */
   blocks?: ContentBlock[];
-  /** On the person's row: the key the send carried, so the window that sent it
-   *  knows it for its own echo (`ownTurnEcho`). */
-  clientMessageId?: string;
   message?: { id: string; role: string; content: string; timestamp?: string };
 }
 

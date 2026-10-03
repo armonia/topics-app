@@ -66,8 +66,7 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
-import { senderAlsoSeesFrame, type OwnSends } from './senderAlsoSees';
-
+import { senderAlsoSeesFrame } from './senderAlsoSees';
 import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
@@ -91,29 +90,6 @@ import {
 } from './outboundQueue';
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import { apiFetch } from '../lib/shell/net';
-
-/** A session this window streams nothing into: no echo to tell apart. */
-const NO_OWN_SENDS: OwnSends = { clientIds: new Set() };
-
-/** One send of this window while its own SSE holds the session (`ownSendsRef`). */
-interface OwnSend extends OwnSends {
-  clientIds: Set<string>;
-  /** The person's optimistic bubble: its local id, then the durable one it adopts. */
-  userBubbleId?: string;
-  /** The empty assistant bubble the reply streams into. */
-  placeholderId?: string;
-}
-
-/**
- * The two bubbles a refused send drew, taken back BY ID wherever they are: a
- * row written beside the send while its POST was in flight now sits after
- * them, so "the last two rows" are no longer theirs, and that row may even
- * say the same words.
- */
-function withoutOwnBubbles(rows: ChatMessage[], send: OwnSend): ChatMessage[] {
-  const kept = rows.filter((m) => m.id !== send.userBubbleId && m.id !== send.placeholderId);
-  return kept.length === rows.length ? rows : kept;
-}
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -709,11 +685,6 @@ export function useChat() {
   // younger than the snapshot the end of that SSE reloads, which replaces the
   // whole thread and would drop them again.
   const wsRowsDuringOwnSseRef = useRef<Map<string, Set<string>>>(new Map());
-  // What this window sent while its own SSE holds the session: the key of the
-  // message, so the pane drops only that row's echo and lets every row written
-  // beside the turn through (`ownTurnEcho`), and the ids of the two bubbles the
-  // send drew, so a refusal takes back those two and nothing else.
-  const ownSendsRef = useRef<Map<string, OwnSend>>(new Map());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -1023,19 +994,6 @@ export function useChat() {
     });
 
     return newMessage;
-  }, []);
-
-  /**
-   * A reload's snapshot, plus the rows a `message:new` added while this
-   * window's own SSE held the session and the snapshot does not hold yet: it
-   * replaces the whole thread, and was taken before they were written.
-   */
-  const withRowsArrivedDuringOwnSse = useCallback((sessionKey: string, held: ChatMessage[] | undefined, fetched: ChatMessage[]): ChatMessage[] => {
-    const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
-    if (!arrived || !held) return fetched;
-    const fetchedIds = new Set(fetched.map((m) => m.id));
-    const younger = held.filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id));
-    return younger.length ? [...fetched, ...younger] : fetched;
   }, []);
 
   /** `addMessage` for a row another window or the server announced. */
@@ -1917,25 +1875,26 @@ export function useChat() {
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
       handleStreamEvent(event);
     }
-    // The durable name of the message this window has just sent. The pane
-    // handler drops this frame as the echo when the stream is ours, and with
-    // it went the only chance to learn the id the server wrote that row under.
-    // Only the row carrying THIS send's key is adopted, onto the bubble this
-    // send drew: never another device's row that says the same words
-    // (`adoptDurableMessageId`). It never ADDS anything.
-    const ownSend = event.type === 'message:new' && event.sessionKey ? ownSendsRef.current.get(event.sessionKey) : undefined;
-    if (event.type === 'message:new' && event.role === 'user' && event.messageId && ownSend?.userBubbleId
-      && event.clientMessageId && ownSend.clientIds.has(event.clientMessageId)) {
+    // Il nome durevole del messaggio che questa finestra ha appena mandato.
+    //
+    // Il gestore dei pannelli scarta questo frame quando lo stream è nostro (la
+    // bolla è già a schermo, e riaggiungerla sarebbe il doppione che si vuole
+    // evitare), ma insieme al frame buttava via l'unica occasione di sapere
+    // sotto quale id il server ha scritto quella riga. Da qui in poi la copia
+    // ottimistica porta l'id del DB, e il ricarico della storia la riconosce
+    // per identità invece che per testo. Non aggiunge MAI niente: se non trova
+    // un segnaposto da ribattezzare, non tocca la lista.
+    if (event.type === 'message:new' && event.role === 'user' && event.messageId) {
+      const durevole = { role: 'user' as const, content: event.content ?? '', id: event.messageId };
       const sk = event.sessionKey;
-      const localId = ownSend.userBubbleId;
-      const durableId = event.messageId;
-      ownSend.userBubbleId = durableId;
-      setMessages(prev => {
-        const rows = prev[sk];
-        if (!rows) return prev;
-        const next = adoptDurableMessageId(rows, localId, durableId);
-        return next === rows ? prev : { ...prev, [sk]: next };
-      });
+      if (sk) {
+        setMessages(prev => {
+          const correnti = prev[sk];
+          if (!correnti || correnti.length === 0) return prev;
+          const next = adoptDurableMessageId(correnti, durevole);
+          return next === correnti ? prev : { ...prev, [sk]: next };
+        });
+      }
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
@@ -1994,8 +1953,6 @@ export function useChat() {
     // ...or the reload's snapshot says so, but the turn ended or was stopped while it was in flight.
     let staleSnapshot = false;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
-    const ownSend: OwnSend = { clientIds: new Set([idemKey]) };
-    ownSendsRef.current.set(sessionKey, ownSend);
     endedDuringOwnSseRef.current.delete(sessionKey);
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
@@ -2013,12 +1970,12 @@ export function useChat() {
 
       // With `userMessageId` the bubble is already in the session (a draft's
       // first send): same id, so `addMessage` keeps the row that is there.
-      ownSend.userBubbleId = addMessage(sessionKey, {
+      addMessage(sessionKey, {
         id: options?.userMessageId,
         role: 'user',
         content,
         timestamp: new Date().toISOString(),
-      }).id;
+      });
 
       // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo
       // elemento; quello senza topic usa `slice(0, -1)` come storia. Vedi
@@ -2029,12 +1986,12 @@ export function useChat() {
       beginStreaming(sessionKey);
 
       // Create placeholder assistant message immediately for inline loading
-      ownSend.placeholderId = addMessage(sessionKey, {
+      addMessage(sessionKey, {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         partial: true,
-      }).id;
+      });
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages, clientMessageId: idemKey };
       if (options?.fastMode) chatRequest.fastMode = true;
@@ -2261,7 +2218,12 @@ export function useChat() {
             content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
-        setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+        setMessages(prev => {
+          const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
+          const fetchedIds = new Set(chatMessages.map((m) => m.id));
+          const younger = arrived ? (prev[sessionKey] ?? []).filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id)) : [];
+          return { ...prev, [sessionKey]: younger.length ? [...chatMessages, ...younger] : chatMessages };
+        });
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
         // No [DONE], and the server still has the turn in flight: what ended is
         // the response (a proxy, an idle timeout), not the turn. It stays lit and
@@ -2311,13 +2273,6 @@ export function useChat() {
        * history si ricarica, perché la verità di questo messaggio ora sta sul
        * server e non più in pagina.
        */
-      // Both 409s take back the two bubbles this send drew, by their ids
-      // (`withoutOwnBubbles`), never the last rows of the thread.
-      const withdrawOwnBubbles = () => setMessages(prev => {
-        const rows = prev[sessionKey] ?? [];
-        const kept = withoutOwnBubbles(rows, ownSend);
-        return kept === rows ? prev : { ...prev, [sessionKey]: kept };
-      });
       // Read the `code`, never the text. While `sendMessage` rethrew the raw
       // body, `message.includes('duplicate_message')` worked by accident: the
       // message WAS the JSON. The message is now the sentence a person reads
@@ -2326,7 +2281,15 @@ export function useChat() {
       // idempotency key exists to prevent.
       const duplicate = is409 && apiErrorCode(err) === 'duplicate_message';
       if (duplicate) {
-        withdrawOwnBubbles();
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          let end = sessionMessages.length;
+          const last = sessionMessages[end - 1];
+          if (last?.role === 'assistant' && last.partial && !last.content) end -= 1;
+          const lastUser = sessionMessages[end - 1];
+          if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
+          return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
+        });
         void loadHistoryRef.current?.(sessionKey);
         return true;
       }
@@ -2340,7 +2303,15 @@ export function useChat() {
         // invisibile che un reload buttava via — si vedeva un messaggio spedito
         // che non era mai esistito. Adesso l'unico posto in cui vive è la coda,
         // e la coda si vede come bolle «da inviare» nel trascritto.
-        withdrawOwnBubbles();
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          let end = sessionMessages.length;
+          const last = sessionMessages[end - 1];
+          if (last?.role === 'assistant' && last.partial && !last.content) end -= 1;
+          const lastUser = sessionMessages[end - 1];
+          if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
+          return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
+        });
         // The refusal names the turn in flight: taken as the server's word, and
         // the message waits for THAT turn's end, not for this window's flag.
         const refusedBy = (err as { turn?: unknown }).turn;
@@ -2389,14 +2360,18 @@ export function useChat() {
 
       setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to send message' }));
 
-      // This send's placeholder goes if it holds nothing worth keeping (empty
-      // or a few characters): found by its id, not as the last row, which may
-      // be a row written beside the send, or the reload's own reply.
+      // Only remove last message if it's an empty assistant message (partial response)
       setMessages(prev => {
         const sessionMessages = prev[sessionKey] || [];
-        const placeholder = sessionMessages.find((m) => m.id === ownSend.placeholderId);
-        if (!placeholder || placeholder.content.length >= 10 || placeholder.thinking) return prev;
-        return { ...prev, [sessionKey]: sessionMessages.filter((m) => m !== placeholder) };
+        const lastMsg = sessionMessages[sessionMessages.length - 1];
+        // Remove if last message is assistant with empty or very short content (likely partial)
+        if (lastMsg?.role === 'assistant' && lastMsg.content.length < 10 && !lastMsg.thinking) {
+          return {
+            ...prev,
+            [sessionKey]: sessionMessages.slice(0, -1),
+          };
+        }
+        return prev;
       });
 
       return false;
@@ -2405,7 +2380,6 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
-      ownSendsRef.current.delete(sessionKey);
       ownReplyClosedRef.current.delete(sessionKey);
       const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -2429,7 +2403,7 @@ export function useChat() {
         void loadHistoryRef.current?.(sessionKey, { fresh: true, keepLit: true });
       }
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
 
   /**
    * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
@@ -3020,10 +2994,10 @@ export function useChat() {
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
-      // Like the reload at the end of a send: a row written beside the turn
-      // that reached this window over the socket while the snapshot was in
-      // flight stays.
-      setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+      setMessages(prev => ({
+        ...prev,
+        [sessionKey]: chatMessages,
+      }));
       const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
       finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
       hydratedSessionsRef.current.add(sessionKey);
@@ -3113,13 +3087,12 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
-      ownSendsRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
+  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
@@ -3499,6 +3472,5 @@ export function useChat() {
     gatewayConnected,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
     isOwnStream: (sessionKey: string) => localSSESessionsRef.current.has(sessionKey),
-    ownSends: (sessionKey: string): OwnSends => ownSendsRef.current.get(sessionKey) ?? NO_OWN_SENDS,
   };
 }
