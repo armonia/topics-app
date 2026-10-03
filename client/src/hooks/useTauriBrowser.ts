@@ -871,7 +871,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // A view whose close we just cancelled is ADOPTED below (`openOrAdopt`),
     // without `browser_open`: its reuse branch in lib.rs would navigate it.
     markBrowserViewLive(id);
-    const applyOpened = () => {
+    const applyOpened = (adopted = false) => {
         noteNativeViewOpened(id);
         openedRef.current = true;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
@@ -901,6 +901,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // agentOpsInFlight`): non si riaccendono le pane di sfondo, che è il
         // motivo per cui `browser_set_visible` esiste.
         nativeVisibleRef.current = !(nativeWantedRef.current || agentOpsInFlightRef.current > 0);
+        // An ADOPTED view can arrive hidden: a surface that let go of it inside
+        // a move hid it and parked it off-screen. Its visibility is decided
+        // here, before the occlusion check below, because that check may freeze
+        // the pane and a frozen pane's still is a screenshot of the view, blank
+        // while the view is hidden. Showing it costs nothing on screen: it is
+        // off-screen until `setBounds` places it, and `setBounds` respects the
+        // park latch and the freeze. The effect on `ready` then finds nothing
+        // to change.
+        if (adopted) void setNativeVisible(nativeWantedRef.current || agentOpsInFlightRef.current > 0);
         setReady(true);
         // La barra mostra la URL VOLUTA anche quando la view è ferma su
         // about:blank perché la porta è spenta: è l'indirizzo di questa scheda,
@@ -971,7 +980,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // that follow see the same order of events in both cases.
     const openOrAdopt = (u: string): void => {
       if (!liveView) { void attemptOpen(u); return; }
-      void Promise.resolve().then(() => { if (!cancelled) applyOpened(); });
+      void Promise.resolve().then(() => { if (!cancelled) applyOpened(true); });
     };
     if (!gateLoopback) {
       openOrAdopt(wantedUrl);
@@ -1028,7 +1037,20 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       };
       // A move in flight: the arriving pane adopts the view whenever it mounts,
       // so nothing is queued here. The close runs only if the move expires.
-      if (deferCloseToMove(id, closeUnheld)) return;
+      if (deferCloseToMove(id, closeUnheld)) {
+        // Until it is adopted the view belongs to no surface, and it must not
+        // stay painted (and clickable) on the rect this surface just gave up:
+        // up to `NATIVE_VIEW_MOVE_TIMEOUT_MS` when nobody arrives. Hidden AND
+        // off-screen, at the size it had, so that whatever the arriving pane
+        // decides about visibility can only show it where that pane places
+        // it: its own bounds, its own park latch, its own occlusion freeze.
+        void paneInvoke('browser_set_visible', { id, visible: false });
+        void paneInvoke('browser_set_bounds', {
+          id, x: -100000, y: 0,
+          width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
+        });
+        return;
+      }
       pendingBrowserCloses.set(id, setTimeout(() => {
         pendingBrowserCloses.delete(id);
         closeUnheld();
