@@ -67,3 +67,15 @@ Se esce non-zero, ci si ferma qui.
 - [x] 6.6 Via `GlobalSettings.tsx`, `Settings/sections.ts`, `lib/openSettings.ts`, `topics:open-settings`, la riga Impostazioni e `showSettings`; ⌘, e la pill della palette aprono il menu col fuoco sulla prima riga; l'avviso dei limiti e il selettore del modello aprono Provider AI, i Dispositivi aprono Nodi.
 - [x] 6.7 E2E che entravano dal pannello cambiano porta; nuovo `tests/e2e/user-menu-forms.spec.ts` (code, un campo che tiene ogni tasto, Escape che chiude solo il livello, `Select` e conferma che non chiudono il menu, ⌘,, campanello, foglio a 390), con il video.
 - [x] 6.8 Screenshot chiaro e scuro, desktop e telefono: `screenshots/proposal-menu-all-*.png`.
+
+## 7. Modifica del 03/10: ogni cosa dove si usa (scelta 1)
+
+- [x] 7.1 `lib/openHome.ts` e `Settings/HomePanelHost` + `Settings/HomePanel`: un ospite per Provider e chiavi, Strumenti MCP e Calendario, ancorato (420 px), al centro senza casa a schermo, dal basso sul telefono; Piano, Macchine, Aspetto e Notifiche girati a `openUserMenu` (SETHOME-01).
+- [x] 7.2 La riga «Provider e chiavi» in fondo ad `AiExecutionMenuOptions` (quindi a ogni selettore) con `providersReadyTail`, l'ancora del selettore da `useMenuAnchor`; la riga compatta del piano Claude sopra i modelli Claude (`claudePlanCompact`); via il doppione «Apri impostazioni» dentro il selettore.
+- [x] 7.3 «Strumenti» nel «+» del composer della chat (`ComposerToolsRow`, coda letta con `?peek=1`).
+- [x] 7.4 «Calendario» nel menu della tessera fissata del calendario (`CalendarMenuRow`), con `data-home-anchor` sulla tessera.
+- [x] 7.5 Menu utente: via `EngineLevels` e i livelli Provider AI, Strumenti, Calendario; Nodi diventa il livello Macchine dentro Dispositivi, con il badge delle richieste anche sulla riga Dispositivi; `openUserMenu` perde `providers`, `tools`, `calendar`.
+- [x] 7.6 Palette: via la pill «Impostazioni» e la prop `onOpenSettings`; i comandi per nome. L'avviso dei limiti apre il pannello dei provider.
+- [x] 7.7 Dalla patch dell'integrazione abbandonata: il fuoco dato alla prima riga dopo ⌘, non viene ripreso; ⌘, col menu aperto non lo rimonta (un livello chiesto sì); i livelli con un modulo hanno `role="dialog"`; la coda del Piano mette l'avviso di scadenza prima. In più, misurato su WebKit: Tab in un modulo cammina su ogni controllo (`stepFocus`), perché il Tab di WebKit salta i bottoni e dall'ultimo campo usciva sul `<body>`; un pannello ancorato non copre mai la sua ancora (altezza al lato più grande).
+- [x] 7.8 Test: `formLevelTails.test.ts` (code nuove, due lingue); E2E `settings-homes.spec.ts` (ogni casa aperta dal suo posto, scritta, salvata, stato letto; palette; telefono); E2E esistenti che entravano dai livelli tolti cambiano porta (`openHomePanel`).
+- [x] 7.9 Screenshot `screenshots/proposal-smista-*.png` chiaro e scuro, desktop e 390 px, e il video del percorso dal selettore.

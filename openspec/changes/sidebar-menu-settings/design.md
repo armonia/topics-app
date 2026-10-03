@@ -3,11 +3,11 @@
 Le scelte che cambiano cosa vedi stanno nel blocco «Da decidere» di
 `proposal.md`; qui quelle tecniche, e il perché delle alternative scartate.
 
-## 1. Tutto va nel menu: controlli diretti e livelli con un modulo
+## 1. Ogni cosa dove si usa: controlli diretti nel menu, moduli accanto alla loro cosa
 
-Dal 02/10 (scelta 1 cambiata) ogni impostazione sta nel menu utente; cambia
-solo la FORMA. Una preferenza entra come controllo diretto se vale tutto
-questo:
+Dal 03/10 (scelta 1 cambiata la seconda volta: «smistiamo tutto») il menu
+utente tiene solo chi sei e com'è l'app. Una preferenza entra nel menu come
+controllo diretto se vale tutto questo:
 
 - **sta in una riga** di 288 px (il pavimento del menu, `ProfileMenu.tsx:106`)
   senza andare a capo: un interruttore, un segmento fino a tre voci, un passo,
@@ -36,43 +36,79 @@ questo:
 | Di chi è un dispositivo | livello della riga con le persone come radio, solo se sono più di una | Dispositivi › riga |
 | Siti sempre attivi | righe con «Togli» | Sistema, Prestazioni |
 
-Il resto è un modulo, e diventa un **livello con un modulo** (`FormLevel`):
-Provider AI (chiavi, prova, endpoint, CLI), Strumenti (MCP, permessi),
-Calendario (URL del feed), Piano (token), Nodi (indirizzo del nodo, codice da
-approvare sull'altra macchina ed esito, MACHINE-02; e le richieste da altri
-computer, con cartella e identità da scegliere per ognuna). Il corpo è il
-componente di sempre (`AIProvidersSection`, `ToolsSection`, `CalendarSection`,
-`PlanSection`, `NodesSection`), caricato alla prima apertura; il livello porta:
+Il resto è un modulo. Due moduli SONO l'account e le sue macchine e restano
+nel menu come **livelli con un modulo** (`FormLevel`): Piano (gettone), sotto
+l'account; Macchine (indirizzo del nodo, codice da approvare sull'altra
+macchina ed esito, MACHINE-02; le richieste da altri computer con cartella e
+identità), come livello in fondo a Dispositivi, perché anche quelle sono
+computer. Gli altri tre vanno **dove si usano** (SETHOME-01):
 
-- **larghezza 400 px**, non 288: una chiave o un indirizzo si scrivono in un
-  campo che si legge, e i moduli reggono già i 390 px del telefono. Mai più
-  della finestra meno i margini (`POPOVER_MARGIN`); il ribaltamento al bordo è
-  quello di `SubmenuItem`;
-- **intestazione fissa** (icona, nome, chiudi) e corpo che scorre sotto
-  `min(70vh, 560px)`, la stessa altezza massima del menu; sul telefono il
-  foglio scorre e l'intestazione resta attaccata in cima. Calendario e Piano
-  perdono il loro titolo, che sarebbe la seconda copia del nome;
+| Modulo | Casa | Porta | Coda |
+|---|---|---|---|
+| Provider e chiavi (`ProvidersLevelBody`: piano Claude in cima, poi `AIProvidersSection`) | il selettore del modello | ultima riga di `AiExecutionMenuOptions`, quindi di ogni selettore: composer della chat, composer e cassetto della card, predefiniti della board; più «Gestisci provider AI» dell'avviso dei limiti | «3 pronti», o in ambra «Nessuno pronto» / «Codex non pronto» quando non lo è quello scelto |
+| Strumenti MCP (`ToolsSection`) | il composer della chat | riga «Strumenti» del «+» (`ComposerToolsRow`) | «2 attivi», «Spenti», letta con `?peek=1` all'apertura del «+» |
+| Calendario (`CalendarSection`) | la tessera fissata di una pagina di calendario | riga «Calendario» del menu della tessera (`CalendarMenuRow`) | «Collegato», «In pausa», «Non collegato» |
+
+Un selettore che si ridisegna (proposta `docs/model-selector-1002`, non ancora
+approvata) mette in CIMA una fascia «Esegui in Topics»: la porta dei provider
+sta in FONDO apposta, così le due convivono. Il piano Claude sta anche nel
+selettore, come riga compatta sopra i modelli di Claude Code e di Topics
+(«Max 20x · 5 h al 42%», ambra oltre `PLAN_USAGE_WARN_AT`).
+
+**Il composer della card non ha un «+»** (`FloatingTaskComposer`: allegato,
+progetto, modello, priorità, avvio), quindi non ha una riga Strumenti: un
+«+» nuovo solo per quella riga sarebbe un menu in più per una cosa che la card
+non usa a ogni invio. Il suo selettore del modello ha però la riga dei
+provider, come tutti.
+
+**Il calendario senza tessera fissata non ha una porta nella colonna.** Si è
+guardato il «+» della colonna (`PaneAddMenu`, `addMenuItems.ts`: è l'elenco
+delle cose da CREARE, e un modulo di impostazione lì sarebbe la sola voce che
+non crea niente) e i vuoti della colonna (i Fissati non hanno uno stato vuoto
+con dei suggerimenti). Chi non vuole un calendario non deve vederlo: la porta
+è la palette, «Calendario», che apre il modulo come foglio al centro; chi
+fissa la pagina del suo calendario trova la riga nel menu della tessera.
+
+UN SOLO OSPITE per i tre pannelli, perché le case non sono sempre montate
+(nessuna chat aperta, nessun selettore): `Settings/HomePanelHost` ascolta
+`topics:open-home` (`lib/openHome.ts`) e decide la forma.
+
+- **ancorato** sul desktop quando la porta passa un elemento (il trigger del
+  selettore, che le righe trovano con `useMenuAnchor`, il «+», la tessera,
+  l'avviso) o quando la casa è a schermo (`data-home-anchor`, per la palette):
+  il primitivo `Menu` con `role="dialog"`, largo 420 px e mai più della
+  finestra meno i margini, corpo che scorre sotto `min(70vh, 560px)`;
+- **al centro** sul desktop senza nessuno dei due: un dialogo modale
+  (`useModalDialog`), dove Escape si ascolta in risalita, così una `Select`
+  aperta dentro si chiude per prima;
+- **dal basso** sul telefono, sempre: il foglio di `Menu`.
+
+Prima di aprire, l'ospite chiude ogni popover (il selettore che ospitava la
+porta ha per trigger proprio l'ancora, e il registro avrebbe preso il pannello
+per un suo figlio) e mette il fuoco sull'ancora, così alla chiusura il fuoco
+torna lì. La cornice del modulo è la stessa dei livelli (`FormPanelFrame`:
+intestazione fissa, Tab che gira dentro, rete d'errore); le domande chieste da
+dentro restano nel pannello (`ConfirmInsidePopoverContext`).
+
+Le richieste per Piano, Macchine, Aspetto e Notifiche passano dallo stesso
+evento e l'ospite le gira a `openUserMenu`: la palette ha UNA porta per tutti i
+comandi per nome.
+
+Ogni livello e ogni pannello porta:
+
 - **i tasti al campo**: `useMenuKeyboard` non muove il fuoco quando il tasto
   viene da un campo, `SubmenuItem` non chiude il livello con freccia sinistra
-  da un campo, Tab gira dentro il livello (`nextTrapFocus`), Escape chiude il
-  livello e basta (il contratto di `useDismissable`, figlio prima del padre);
-- **le domande restano nel menu**: il menu fornisce
-  `ConfirmInsidePopoverContext`, e una conferma chiesta da dentro
-  (`useConfirm`) non sgombera i popover come fa ogni modale ma li tiene
-  aperti, e conta come «dentro» finché c'è
-  (`popoverRegistry.shelterOpenPopovers`). La lista di una `Select` era già
-  coperta dalla catena dei genitori del registro;
+  da un campo, Tab gira dentro (`nextTrapFocus`), Escape chiude il livello o
+  il pannello e basta (il contratto di `useDismissable`, figlio prima del
+  padre); il contenuto ha `role="dialog"`, perché un campo dentro
+  `role="menu"` si annuncia come voce di menu;
+- **le domande restano**: `ConfirmInsidePopoverContext` e
+  `popoverRegistry.shelterOpenPopovers`;
 - **una coda che dice come sta** (USERMENU-10), scritta da funzioni pure
-  (`Sidebar/formLevelTails.ts`) e letta solo a menu aperto: il menu è montato
-  solo da aperto, quindi montare È aprire, e ogni coda si rilegge quando il suo
-  livello si chiude.
+  (`Sidebar/formLevelTails.ts`) e letta solo a superficie aperta: montare È
+  aprire, e ogni coda si rilegge quando il suo livello si chiude.
 
-Il posto nel menu segue le domande: Piano sotto l'account (cosa sei e cosa
-paghi), Nodi dopo Dispositivi (le macchine insieme; la riga delle richieste
-nei Dispositivi apre Nodi), Provider AI, Strumenti e Calendario in un gruppo
-sopra le preferenze (su cosa gira l'app e cosa raggiunge).
-
-L'abbonamento Claude della coda di Provider AI viene dalle credenziali della
+L'abbonamento Claude viene dalle credenziali della
 CLI, che il server legge già per il runtime nativo
 (`server/providers/native/auth.ts`). Esce solo come due etichette nella riga
 `claude-code` e nella riga `topics` dello snapshot dei provider (il runtime
@@ -82,7 +118,7 @@ un domani la CLI può aggiungere campi accanto ai token senza che uno arrivi al
 client (`server/providers/claude/subscription.ts`, test sul file di credenziali
 vero e sullo snapshot serializzato). La coda di Strumenti chiede
 `/api/mcp/fleet?peek=1`, che risponde con quel che è montato senza montare:
-aprire un menu non deve avviare una flotta di processi MCP.
+aprire un composer o il suo «+» non deve avviare una flotta di processi MCP.
 
 Restano fuori dal menu anche le cose dell'identità che non sono preferenze
 dell'app ma il tuo profilo: vanno nella tab Profilo (§4).
@@ -205,30 +241,29 @@ non nel pannello). E uno in `specs/notifications/spec.md`: NOTIF-PERM-01.
 
 ## 5. Niente finestra Impostazioni: le porte
 
-Dal 02/10 (scelta 2 cambiata) `GlobalSettings.tsx`, `Settings/sections.ts`,
-`lib/openSettings.ts` e l'evento `topics:open-settings` escono, con lo stato
-`showSettings` di `App`. Ogni porta apre il menu utente (`openUserMenu`):
+Dal 02/10 `GlobalSettings.tsx`, `Settings/sections.ts`, `lib/openSettings.ts`
+e l'evento `topics:open-settings` sono usciti, con lo stato `showSettings` di
+`App`. Dal 03/10 escono anche i livelli Provider AI, Strumenti e Calendario
+del menu (e da `openUserMenu` i loro nomi), la pill «Impostazioni» della
+palette e il «Apri impostazioni» del selettore:
 
-| Porta | Prima | Ora |
+| Porta | 02/10 | Ora |
 |---|---|---|
-| ⌘, (`useKeyboardShortcuts`) | la finestra | il menu, fuoco sulla prima riga |
-| pill «Impostazioni» della palette | la finestra | il menu, con l'indicazione ⌘, |
-| ultima riga del menu | la finestra | non c'è più |
-| avviso dei limiti del piano, «Gestisci provider AI» | finestra su Provider AI | livello Provider AI |
-| selettore del modello, «Apri impostazioni» | finestra su Provider AI | livello Provider AI |
-| riga delle richieste nei Dispositivi | finestra su Nodi | livello Nodi |
+| ⌘, (`useKeyboardShortcuts`) | il menu, fuoco sulla prima riga | uguale; col menu già aperto non lo rimonta |
+| pill «Impostazioni» della palette | il menu | non c'è più: comandi per nome («Provider e chiavi», «Strumenti MCP», «Calendario», «Piano», «Macchine», «Aspetto», «Notifiche») |
+| avviso dei limiti del piano, «Gestisci provider AI» | livello Provider AI | pannello Provider e chiavi, ancorato all'avviso |
+| selettore del modello, «Apri impostazioni» | livello Provider AI | la riga in fondo «Provider e chiavi», ancorata al selettore |
+| riga delle richieste nei Dispositivi | livello Nodi | livello Macchine, dentro Dispositivi |
+| ingranaggio del campanello | livello Notifiche | uguale |
 
 Un livello aperto da una richiesta si apre come un clic (`defaultOpen`); una
-richiesta senza livello (⌘,, la palette) mette il fuoco sulla prima riga, così
-Invio agisce e le frecce partono da lì. Sul telefono risponde il menu del
-titolo, con gli stessi livelli come fogli.
+richiesta senza livello (⌘,) mette il fuoco sulla prima riga, così Invio
+agisce e le frecce partono da lì. Sul telefono risponde il menu del titolo,
+con gli stessi livelli come fogli.
 
 Restano dove sono le impostazioni della board (`KanbanBoardPane`,
 `DispatchLoadGauge`) e quelle della singola chat (`TopicSettingsModal`): sono
 un'altra cosa, di un'altra superficie.
-
-L'alternativa della scelta 2 di allora (una tab) non serve più: non c'è una
-superficie a parte da ospitare.
 
 ## 6. Tastiera
 

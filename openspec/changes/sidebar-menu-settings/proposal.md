@@ -1,8 +1,8 @@
 ## Da decidere
 
 Menu utente e Impostazioni: 5 scelte prima del codice.
-1. Tutto nel menu, anche i moduli (scelta cambiata il 02/10, testo in `.openspec.yaml`, `modifiche`): Aspetto, Notifiche, Vista e Dispositivi sono controlli diretti, applicati subito; Provider AI, Strumenti, Calendario, Piano e Nodi sono livelli più larghi (400 px) con l'intestazione fissa e il corpo che scorre, perché ogni impostazione ha così una casa sola e la si trova dove si guarda già; ogni riga dice in coda come sta (Piano «Gratuito», Provider AI «Topics · Max 20x»), così la domanda di tutti i giorni ha risposta senza aprire niente (o, la scelta del 01/10: i cinque moduli in una finestra Impostazioni a parte, perché chiavi e URL si scrivono meglio in una finestra larga).
-2. Niente riga Impostazioni e niente finestra: ⌘, e la pill della palette aprono il menu utente col fuoco sulla prima riga, e ogni rimando che portava a una pagina del pannello (avviso dei limiti, selettore del modello, richieste dai Dispositivi) apre il livello giusto, perché un tasto che porta a un secondo elenco è il doppione che la richiesta chiede di togliere (o, la scelta del 01/10: Impostazioni resta la finestra sopra l'app, aperta da ⌘, e dall'ultima riga del menu).
+1. Ogni cosa dove si usa (scelta cambiata il 03/10, testo in `.openspec.yaml`, `modifiche`): il menu utente tiene solo chi sei e com'è l'app, cioè l'account col Piano subito sotto («Gratuito», «Team · 5 posti», in ambra a trenta giorni dalla scadenza), amici, gruppi, Dispositivi con le Macchine dentro (e il badge quando un altro computer aspetta), Aspetto, Notifiche, Vista; Provider e chiavi stanno in fondo a ogni selettore del modello («3 pronti»), gli Strumenti MCP nel «+» del composer («2 attivi»), il Calendario nel menu della tessera del calendario, e la palette li apre per nome, perché un modulo si cerca dove si usa (o, la scelta del 02/10: anche Provider AI, Strumenti e Calendario come livelli del menu utente, larghi 400 px).
+2. Niente riga Impostazioni e niente finestra: ⌘, apre il menu utente col fuoco sulla prima riga, la palette ha un comando per ogni modulo col suo nome, e ogni rimando che portava a una pagina del pannello (avviso dei limiti, selettore del modello, richieste dai Dispositivi) apre la casa giusta, perché un tasto che porta a un secondo elenco è il doppione che la richiesta chiede di togliere (o, la scelta del 01/10: Impostazioni resta la finestra sopra l'app, aperta da ⌘, e dall'ultima riga del menu).
 3. Chi sei sta in un posto solo, la tab Profilo: dalle Impostazioni escono Profilo, Seguaci e Organizzazione, e la tab prende anche quel che oggi c'è solo lì (la scheda Persone per trovare chi seguire; un pannello «Fuori da Topics» con cifre, banner, pagina pubblica con Pubblica, Revoca e costo, presenza Discord); accedi/esci resta solo in cima al menu utente, che sul telefono entra in cima al menu del titolo con amici, gruppi e dispositivi, perché oggi le stesse cose si cambiano da due o tre porte con nomi diversi e sul telefono account e dispositivi stanno solo nelle Impostazioni (o: il contrario, l'identità resta nelle Impostazioni e la tab Profilo torna solo da leggere).
 4. I dispositivi si gestiscono nel loro livello del menu, su desktop e telefono: rinomina e revoca sulla riga con conferma in linea, «di chi è» in un livello della riga (solo se le persone sono più di una), i revocati in un livello sotto, perché oggi l'elenco è disegnato due volte e il gesto che conta sta dietro «Gestisci», che apre l'altra copia (o: il livello resta un elenco da leggere e «Gestisci» continua ad aprire le Impostazioni).
 5. L'ingranaggio del campanello apre il menu utente sul livello Notifiche, unica casa di tutte le preferenze delle notifiche (i tre interruttori, il permesso dei banner di sistema col suo tasto, l'accesso al disco per «Non disturbare», questo dispositivo con ricevi, «quando Topics è già aperto» e disattiva qui, gli altri dispositivi, i progetti silenziati), perché tutte le preferenze stanno così nello stesso menu (o: vivono nel pannello del campanello, accanto alla cronologia, e il menu utente non le ha).
@@ -16,16 +16,17 @@ ok / ok ma 2 no
 
 Richiesta di Attilio del 01/10 (testo in `.openspec.yaml`). Il 02/10 ha
 cambiato le scelte 1 e 2: anche i moduli entrano nel menu, e la riga e la
-finestra Impostazioni spariscono (`modifiche` in `.openspec.yaml`; sotto,
-«Modifica del 02/10»). Il resto di questa pagina racconta la proposta del
-01/10 com'era: dove dice «pannello Impostazioni», oggi c'è un livello del menu.
+finestra Impostazioni spariscono. Il 03/10 ha cambiato di nuovo la scelta 1:
+«smistiamo tutto», ogni modulo va dove si usa (`modifiche` in
+`.openspec.yaml`; sotto, «Modifica del 02/10» e «Modifica del 03/10»). Il resto
+di questa pagina racconta la proposta del 01/10 com'era.
 
 ## Dove cambiarla
 
 | # | Dove cambiarla |
 |---|----------------|
-| 1 | `USERMENU-01`, `USERMENU-06`, `USERMENU-10`; design §1 |
-| 2 | `USERMENU-06`; design §5 |
+| 1 | `USERMENU-01`, `USERMENU-06`, `USERMENU-10`, `SETHOME-01`; design §1 |
+| 2 | `USERMENU-06`, `SETHOME-01`; design §5 |
 | 3 | `USERMENU-05`, `USERMENU-09`; `SETORG-01`, `APPSET-03`, `APPSET-05` (modificati); design §4, §7 |
 | 4 | `USERMENU-04`, `USERMENU-09`; design §3, §7 |
 | 5 | `USERMENU-03`, `NOTIF-PERM-01` (modificato); design §2 |
@@ -285,3 +286,36 @@ Restano come sono le impostazioni della board e quelle della singola chat.
 
 Screenshot (WebKit, server di test isolato), chiaro e scuro:
 `screenshots/proposal-menu-all-*.png`.
+
+## Modifica del 03/10: ogni cosa dove si usa
+
+Richiesta: «ma no il menu di opzioni l'avevamo proprio tolto perchè smistiamo
+tutto»; scelta: «Smista fuori dal menu — niente livelli di impostazioni nel
+menu utente: ogni cosa va dove si usa».
+
+- **Provider e chiavi** (chiavi, endpoint, CLI, runtime, predefiniti,
+  checkpoint): la riga in fondo a ogni selettore del modello, con in coda
+  quanti provider sono pronti, apre il pannello accanto al selettore (420 px,
+  scorre dentro; sul telefono foglio dal basso). In cima al pannello
+  l'abbonamento Claude con la finestra di 5 ore; nel selettore una riga
+  compatta sopra i modelli Claude («Max 20x · 5 h al 42%»).
+- **Strumenti MCP**: la riga «Strumenti» del «+» del composer della chat
+  («2 attivi», letta senza montare la flotta) apre il pannello accanto al «+».
+  Il composer della card non ha un «+»: non ne riceve uno.
+- **Calendario**: la riga «Calendario» del menu della tessera fissata del
+  calendario («Collegato», «In pausa», «Non collegato») apre il pannello
+  accanto alla tessera. Chi non ha un calendario fissato lo trova dalla
+  palette: la colonna non gli mostra niente.
+- **Piano** sotto l'account e **Macchine** dentro Dispositivi restano nel
+  menu, perché sono l'account e le sue macchine; la riga Dispositivi porta il
+  badge delle richieste.
+- **Palette**: via la pill «Impostazioni», dentro i comandi «Provider e
+  chiavi», «Strumenti MCP», «Calendario», «Piano», «Macchine», «Aspetto»,
+  «Notifiche»; senza la casa a schermo il pannello si apre al centro.
+
+Un solo ospite disegna i tre pannelli (`Settings/HomePanelHost`), ancorati o
+al centro; ogni porta passa da `lib/openHome.ts`.
+
+Screenshot (WebKit, server di test isolato), chiaro e scuro, desktop e 390 px:
+`screenshots/proposal-smista-*.png`; il video del percorso dal selettore:
+`screenshots/proposal-smista-providers-webkit.webm`.

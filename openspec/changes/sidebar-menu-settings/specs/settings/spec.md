@@ -19,6 +19,11 @@ copre la chat e il cambio si vede dal vivo.
 La riga del livello SHALL dire in coda come sta (per esempio «Sistema · 13
 px»), come già fa Vista.
 
+Il menu utente SHALL tenere solo chi sei e com'è l'app: l'account col suo
+Piano, le persone, i Dispositivi con le Macchine, Aspetto, Notifiche, Vista,
+Pannelli, Cronologia e Sistema. I moduli che non sono l'account (Provider e
+chiavi, Strumenti MCP, Calendario) vivono dove si usano (SETHOME-01).
+
 #### Scenario: cambiare tema dal menu
 - **GIVEN** il tema `system`
 - **WHEN** apro il menu utente, il livello Aspetto, e scelgo «Scuro»
@@ -184,35 +189,40 @@ stessa pagina nella tab Profilo.
 - **THEN** la tab Profilo non ha un campo per accedere
 - **AND** il blocco account del menu utente ce l'ha, a 1400x900 nella card e a 390x844 nel menu del titolo
 
-### Requirement: USERMENU-06 — Ogni impostazione ha una casa sola, il menu utente
+### Requirement: USERMENU-06 — Ogni impostazione ha una casa sola, dove si usa
 
 Ogni chiave di `AppSettings`, ogni preferenza dell'interfaccia e ogni modulo
-da compilare SHALL stare in esattamente UNA superficie, il menu utente (la
-card in fondo alla colonna sul desktop, il menu del titolo sul telefono); i
-comandi (pannelli, cronologia) e le scorciatoie da tastiera verso la stessa
-superficie non contano come porte. Un test unitario SHALL elencare le chiavi
-di `AppSettings` e fallire se una chiave non ha una casa dichiarata o ne ha due.
+da compilare SHALL stare in esattamente UNA superficie; i comandi (pannelli,
+cronologia), le scorciatoie da tastiera e i comandi della palette verso la
+stessa superficie non contano come porte. Un test unitario SHALL elencare le
+chiavi di `AppSettings` e fallire se una chiave non ha una casa dichiarata o ne
+ha due.
 
-NON SHALL esistere un pannello o una finestra Impostazioni, né una riga del
-menu che ne apra uno. I moduli Provider AI, Strumenti, Calendario, Piano e Nodi
-(aggiungere un nodo, MACHINE-02, e le richieste da altri computer) SHALL essere
-livelli del menu utente: larghi 400 px e mai più della finestra meno i
-margini, con l'intestazione fissa e il corpo che scorre sotto l'altezza massima
-del menu; sul telefono fogli dal basso a tutta larghezza.
+NON SHALL esistere un pannello o una finestra Impostazioni, né una riga o una
+pill che ne apra uno, né una sezione «Impostazioni» in nessun posto. Le
+preferenze di tutti i giorni (Aspetto, Notifiche, Vista) e i due moduli che
+SONO l'account e le sue macchine (Piano, sotto l'account; Macchine, dentro
+Dispositivi: aggiungere un nodo, MACHINE-02, e le richieste da altri computer)
+SHALL essere livelli del menu utente: i moduli larghi 400 px e mai più della
+finestra meno i margini, con l'intestazione fissa e il corpo che scorre sotto
+l'altezza massima del menu; sul telefono fogli dal basso a tutta larghezza.
+Provider e chiavi, Strumenti MCP e Calendario SHALL vivere dove si usano
+(SETHOME-01).
 
-Un livello con un modulo SHALL comportarsi da modulo: ogni tasto battuto in un
-campo (lettere, spazio, frecce, Home, End, Invio) SHALL arrivare al campo;
-Escape in un campo SHALL chiudere solo quel livello; Tab SHALL restare nel
-livello; una conferma chiesta dal livello e la lista di una `Select` aperta da
-lì NON SHALL chiudere il menu. Un livello aperto col passaggio del mouse SHALL
-restare aperto, quando il puntatore se ne va, appena lo si usa (un clic o un
-tasto dentro): la sua conferma e una chiave scritta a metà non SHALL perdersi.
+Un modulo, in un livello o nel suo pannello, SHALL comportarsi da modulo: ogni
+tasto battuto in un campo (lettere, spazio, frecce, Home, End, Invio) SHALL
+arrivare al campo; Escape in un campo SHALL chiudere solo quel livello o quel
+pannello; Tab SHALL restare dentro; una conferma chiesta da lì e la lista di
+una `Select` aperta da lì NON SHALL chiudere chi li ospita. Un livello aperto
+col passaggio del mouse SHALL restare aperto, quando il puntatore se ne va,
+appena lo si usa (un clic o un tasto dentro): la sua conferma e un testo
+scritto a metà non SHALL perdersi. Il contenuto di un livello o di un pannello
+con un modulo SHALL avere il ruolo `dialog` col nome del modulo, non `menu`.
 
-⌘, e la pill della palette SHALL aprire il menu utente con il fuoco sulla
-prima riga. Ogni rimando che apriva una pagina del pannello SHALL aprire il
-livello corrispondente (`openUserMenu`): l'avviso dei limiti del piano e il
-selettore del modello aprono Provider AI, la riga delle richieste dei
-Dispositivi apre Nodi. Una preferenza senza controllo SHALL uscire da `AppSettings` (oggi
+⌘, SHALL aprire il menu utente con il fuoco sulla prima riga; premuto col menu
+già aperto NON SHALL rimontarlo (un testo scritto a metà resta). L'ingranaggio
+del campanello apre Notifiche, la riga delle richieste dei Dispositivi apre
+Macchine. Una preferenza senza controllo SHALL uscire da `AppSettings` (oggi
 `voiceMode`); una che si aggiunge SHALL anche togliersi (oggi `keepLiveSites`,
 da Sistema, Prestazioni).
 
@@ -220,14 +230,19 @@ da Sistema, Prestazioni).
 - **WHEN** premo ⌘,
 - **THEN** è aperto il menu utente con il fuoco sulla riga dell'account
 - **AND** non esiste nessun elemento `settings-panel` né `topics-menu-settings`
-- **AND** il menu ha le righe Piano, Nodi, Provider AI, Strumenti, Calendario
+- **AND** il menu ha la riga Piano e non le righe Provider AI, Strumenti, Calendario, Nodi
 
-#### Scenario: un campo dentro un livello
-- **GIVEN** il livello Provider AI aperto e il campo della chiave di un provider
+#### Scenario: ⌘, col menu aperto
+- **GIVEN** il livello Piano aperto e un gettone scritto a metà
+- **WHEN** premo ⌘,
+- **THEN** il fuoco è sulla riga dell'account, il livello è ancora aperto e il gettone è ancora nel campo
+
+#### Scenario: un campo dentro un modulo
+- **GIVEN** il pannello Provider e chiavi aperto e il campo della chiave di un provider
 - **WHEN** scrivo una chiave e premo frecce, Home, End e poi Invio
 - **THEN** ogni carattere è nel campo, il fuoco non lo lascia e la chiave parte al server
-- **WHEN** premo Escape nel campo
-- **THEN** si chiude il livello e il menu resta aperto
+- **WHEN** apro la lista di una `Select` e premo Escape, poi Escape ancora
+- **THEN** il primo chiude la lista, il secondo il pannello e basta
 
 #### Scenario: una conferma dal livello
 - **GIVEN** una licenza team e il livello Piano aperto
@@ -238,9 +253,8 @@ da Sistema, Prestazioni).
 - **GIVEN** il livello Piano aperto solo passando col mouse sulla sua riga, senza clic
 - **WHEN** premo «Togli la licenza» e porto il mouse su «Annulla» nella conferma
 - **THEN** il livello è ancora aperto dietro la conferma
-- **GIVEN** il livello Provider AI aperto solo passando col mouse
-- **WHEN** scrivo una chiave a metà e il mouse esce dal livello
-- **THEN** il livello è ancora aperto e la chiave è ancora nel campo
+- **WHEN** scrivo un gettone a metà e il mouse esce dal livello
+- **THEN** il livello è ancora aperto e il gettone è ancora nel campo
 
 #### Scenario: una chiave senza casa
 - **GIVEN** una chiave aggiunta ad `AppSettings` senza una casa dichiarata
@@ -299,29 +313,37 @@ sia sul telefono.
 
 ### Requirement: USERMENU-10 — La riga di un modulo dice come sta, senza aprire niente
 
-Le righe Piano, Provider AI, Strumenti, Calendario e Nodi del menu utente SHALL
-dire in coda come stanno adesso, brevi e in cifre tabellari, come la coda di
-Vista:
+Ogni riga che apre un modulo SHALL dire in coda come sta adesso, breve e in
+cifre tabellari, come la coda di Vista, lì dove la riga sta:
 
-- Piano: il piano di Topics da `/api/license`, «Gratuito» o «Team · N posti»;
-  quando la scadenza è entro trenta giorni (`scadenzaVicina`) SHALL aggiungere
-  «scade tra N g» o «scaduto», nel tono di avviso;
-- Provider AI: il provider predefinito e, quando gira sull'abbonamento Claude
+- Piano, sotto l'account nel menu utente: il piano di Topics da
+  `/api/license`, «Gratuito» o «Team · N posti»; quando la scadenza è entro
+  trenta giorni (`scadenzaVicina`) l'avviso SHALL venire PRIMA («Scade tra
+  N g · Team · 5 posti», «Scaduto · …»), nel tono di avviso, perché la coda si
+  tronca a destra;
+- Provider e chiavi, al piede di ogni selettore del modello: quanti provider
+  possono eseguire un turno («3 pronti», `topics` escluso perché è
+  l'interruttore sopra l'elenco), o, nel tono di avviso, «Nessuno pronto» e
+  «<provider> non pronto» quando non lo è quello scelto. L'abbonamento Claude
   (Claude Code, o Topics, il runtime predefinito, che entra con le stesse
-  credenziali) e il piano è noto, l'abbonamento («Topics · Max 20x»). Il server SHALL esporre
-  dell'abbonamento solo due etichette (`subscriptionType`, `rateLimitTier`),
-  mai un token né il percorso delle credenziali; un tipo che il client non
-  conosce NON SHALL essere nominato. Dentro il livello, in cima, l'abbonamento
-  SHALL stare insieme alla finestra di 5 ore già usata;
-- Strumenti: quanti server MCP rispondono, o «Nessuno»; senza montare la flotta
-  (`?peek=1`), e senza dire «Nessuno» quando la flotta non è ancora montata;
-- Calendario: «Collegato», «In pausa» o «Non collegato»;
-- Nodi: quanti nodi; le richieste da altri computer SHALL essere un badge con
-  il numero.
+  credenziali) SHALL stare in cima al pannello insieme alla finestra di 5 ore
+  già usata, e come riga compatta («Max 20x · 5 h al 42%») accanto ai modelli
+  Claude nel selettore. Il server SHALL esporre dell'abbonamento solo due
+  etichette (`subscriptionType`, `rateLimitTier`), mai un token né il percorso
+  delle credenziali; un tipo che il client non conosce NON SHALL essere
+  nominato;
+- Strumenti, nel «+» del composer: quanti server MCP rispondono, «Spenti» o
+  «Nessuno»; senza montare la flotta (`?peek=1`), e senza dire «Nessuno» quando
+  la flotta non è ancora montata;
+- Calendario, nel menu della tessera del calendario: «Collegato», «In pausa» o
+  «Non collegato»;
+- Macchine, dentro Dispositivi: quanti nodi; le richieste da altri computer
+  SHALL essere un badge con il numero, anche sulla riga Dispositivi.
 
-Le code SHALL leggersi solo a menu aperto (nessun polling a menu chiuso) e di
-nuovo quando il loro livello si chiude, così un cambio fatto dentro si vede
-subito. Le parole SHALL venire da funzioni pure con test, nelle due lingue.
+Le code SHALL leggersi solo a superficie aperta (nessun polling a menu chiuso)
+e di nuovo quando il loro livello si chiude, così un cambio fatto dentro si
+vede subito. Le parole SHALL venire da funzioni pure con test, nelle due
+lingue.
 
 #### Scenario: il piano senza aprire niente
 - **GIVEN** il piano gratuito
@@ -329,14 +351,106 @@ subito. Le parole SHALL venire da funzioni pure con test, nelle due lingue.
 - **THEN** la riga Piano dice «Gratuito» senza aprire il suo livello
 
 #### Scenario: il piano Claude
-- **GIVEN** il runtime predefinito (Topics) e le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`
-- **WHEN** apro il menu utente
-- **THEN** la riga Provider AI dice «Topics · Max 20x»
+- **GIVEN** le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`, e la finestra di 5 ore al 42%
+- **WHEN** apro il selettore del modello sui modelli di Claude Code
+- **THEN** accanto ai modelli c'è «Max 20x · 5 h al 42%»
+- **AND** il pannello Provider e chiavi dice in cima «Abbonamento Claude Max 20x» con la finestra al 42%
 - **AND** lo snapshot dei provider serializzato non contiene nessun token
 
 #### Scenario: la scadenza vicina
 - **GIVEN** una licenza team da 5 posti che scade fra 12 giorni
-- **THEN** la riga Piano dice «Team · 5 posti · scade tra 12 g» nel tono di avviso
+- **THEN** la riga Piano dice «Scade tra 12 g · Team · 5 posti» nel tono di avviso
+
+### Requirement: SETHOME-01 — Ogni modulo vive dove si usa
+
+Richiesta del 03/10: «ma no il menu di opzioni l'avevamo proprio tolto perchè
+smistiamo tutto». Ogni modulo SHALL aprirsi accanto alla cosa che configura,
+SHALL dire lì come sta (USERMENU-10) e SHALL essere raggiungibile dalla palette
+col proprio nome:
+
+- Provider e chiavi (chiavi, endpoint, CLI, runtime, predefiniti, checkpoint):
+  una riga in FONDO a ogni selettore del modello (composer della chat,
+  composer e cassetto della card, predefiniti della board), che apre il
+  pannello ancorato al selettore; l'avviso dei limiti del piano apre lo stesso
+  pannello, ancorato all'avviso;
+- Strumenti MCP (server e permessi): la riga «Strumenti» del «+» del composer
+  della chat, che apre il pannello ancorato al «+»; aprire un composer o il suo
+  «+» NON SHALL montare la flotta;
+- Calendario (il feed iCal): la riga «Calendario» del menu della tessera
+  fissata di una pagina di calendario, che apre il pannello ancorato alla
+  tessera; chi non ha fissato un calendario non vede niente nella colonna, e lo
+  trova dalla palette;
+- Piano: sotto l'account, nel menu utente;
+- Macchine: dentro il livello Dispositivi, col badge delle richieste sulla riga
+  Dispositivi;
+- la palette SHALL avere i comandi «Provider e chiavi», «Strumenti MCP»,
+  «Calendario», «Piano», «Macchine», «Aspetto», «Notifiche», ognuno verso la
+  sua casa, e NON SHALL avere una pill o un comando «Impostazioni».
+
+I tre pannelli fuori dal menu SHALL essere disegnati da UN solo ospite
+(`Settings/HomePanelHost`): ancorati all'elemento che li ha chiesti o, senza,
+alla casa se è a schermo (`data-home-anchor`); senza nessuno dei due, sul
+desktop, un foglio al centro della finestra; sul telefono sempre un foglio dal
+basso a tutta larghezza. Sul desktop un pannello ancorato SHALL essere largo
+circa 420 px, mai più della finestra meno i margini, e scorrere dentro. Alla
+chiusura il fuoco SHALL tornare a chi lo ha aperto.
+
+#### Scenario: i provider dal selettore
+- **GIVEN** una chat aperta
+- **WHEN** apro il selettore del modello
+- **THEN** l'ultima riga è «Provider e chiavi» con in coda quanti sono pronti
+- **WHEN** la premo
+- **THEN** il selettore si chiude e il pannello Provider e chiavi si apre accanto al selettore, largo circa 420 px
+- **WHEN** scrivo una chiave e premo Invio
+- **THEN** la chiave parte al server e la risposta si legge nel pannello
+- **WHEN** premo Escape
+- **THEN** il pannello si chiude e il fuoco è sul selettore
+
+#### Scenario: gli strumenti dal composer
+- **GIVEN** una chat aperta, e la flotta MCP con due server che rispondono
+- **WHEN** apro il «+» del composer
+- **THEN** la riga «Strumenti» dice «2 attivi», e nessuna richiesta ha montato la flotta
+- **WHEN** la premo e revoco un permesso
+- **THEN** il pannello è accanto al «+» e il permesso non c'è più sul server
+
+#### Scenario: il calendario dalla sua tessera
+- **GIVEN** una pagina di calendario fissata e nessun feed
+- **WHEN** apro il menu della tessera
+- **THEN** la riga «Calendario» dice «Non collegato»
+- **WHEN** la premo, scrivo l'indirizzo del feed e salvo
+- **THEN** il pannello è accanto alla tessera e dice che un indirizzo è salvato
+- **AND** riaprendo il menu della tessera la riga dice «Collegato»
+
+#### Scenario: il piano sotto l'account
+- **WHEN** apro il menu utente
+- **THEN** la riga Piano è subito sotto l'account e dice «Gratuito»
+- **WHEN** apro il livello, scrivo un gettone e premo «Installa»
+- **THEN** il gettone parte al server
+
+#### Scenario: le macchine in Dispositivi
+- **GIVEN** una richiesta da un altro computer in attesa
+- **WHEN** apro il menu utente
+- **THEN** la riga Dispositivi porta un badge con 1
+- **WHEN** apro Dispositivi e premo la riga delle richieste
+- **THEN** si apre il livello Macchine con le richieste e l'aggiunta di un nodo
+- **WHEN** scrivo l'indirizzo di un nodo e premo Invio
+- **THEN** l'indirizzo parte al server e l'esito si legge nel livello
+
+#### Scenario: i comandi della palette
+- **GIVEN** nessuna chat aperta
+- **WHEN** cerco «Provider e chiavi» nella palette e lo scelgo
+- **THEN** il pannello si apre come foglio al centro della finestra
+- **AND** «Strumenti MCP» e «Calendario» aprono i loro pannelli, «Piano», «Macchine», «Aspetto» e «Notifiche» i loro livelli del menu utente
+- **AND** la palette non ha nessuna voce «Impostazioni»
+
+#### Scenario: niente impostazioni nel menu utente
+- **WHEN** apro il menu utente
+- **THEN** non ci sono le righe Provider AI, Strumenti, Calendario, Nodi né Impostazioni
+
+#### Scenario: l'avviso dei limiti
+- **GIVEN** l'avviso dei limiti del piano Claude nella colonna
+- **WHEN** apro i dettagli e premo «Gestisci provider AI»
+- **THEN** si apre il pannello Provider e chiavi, senza il menu utente, e Escape lo chiude riportando il fuoco sull'avviso
 
 ## MODIFIED Requirements
 
