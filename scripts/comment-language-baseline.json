@@ -237,7 +237,6 @@
     "client/src/components/Share/SessionRoot.tsx": 24,
     "client/src/components/Share/ShareControl.tsx": 82,
     "client/src/components/Shared/AddMenuIcon.tsx": 8,
-    "client/src/components/Shared/CommandMenu.tsx": 11,
     "client/src/components/Shared/CommandPalette.tsx": 82,
     "client/src/components/Shared/ConfirmDialog.tsx": 15,
     "client/src/components/Shared/ContextMenuPortal.tsx": 11,
