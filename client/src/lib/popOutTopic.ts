@@ -8,6 +8,7 @@
 // with nowhere for it to go.
 import { isTauri } from './shell/index';
 import { tauriInvoke } from './shell/tauri';
+import { beginNativeViewMovesToAnotherWindow } from './shell/nativeBrowserViews';
 import { useWindowPresenceStore } from '../state/windowPresence';
 
 const isWkWebView =
@@ -62,6 +63,12 @@ export async function popOutTopics(topicIds: string[]): Promise<boolean> {
     // return false so the caller keeps the source rather than closing into the
     // void — the topics live in the other window now).
     if (await focusIfAlreadyElsewhere(ids)) return false;
+    // Before the window exists: the source surfaces let go of their pages as
+    // soon as this resolves, and the new window asks for them only once it has
+    // booted. Marked as moving, their closes wait for it (see
+    // `beginNativeViewMovesToAnotherWindow`), so the pop-out gets the SAME
+    // native views, page state included, instead of reloading every page.
+    beginNativeViewMovesToAnotherWindow();
     try {
       const label = await tauriInvoke<string>('window_detach', { topics: ids });
       return typeof label === 'string' && label.length > 0;
