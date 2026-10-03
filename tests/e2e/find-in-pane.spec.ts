@@ -329,7 +329,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(count(page)).toHaveText("1 di 2");
   });
 
-  test("FIND-01: Enter right after the last letter goes to the first result of THAT word", async ({ page, request, chatPage }) => {
+  test("FIND-01c: Enter right after the last letter goes to the first result of THAT word", async ({ page, request, chatPage }) => {
     await resetPaneStore(request, [topicId]);
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -344,7 +344,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(count(page)).toHaveText("1 di 2", { timeout: 10_000 });
   });
 
-  test("TERM-FIND-01: the find chords never reach the running program", async ({ page, request }) => {
+  test("TERM-FIND-01b: the find chords never reach the running program", async ({ page, request }) => {
     await resetPaneStore(request, [`terminal:${termId}`]);
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -372,7 +372,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(rows).not.toContainText(/GOT [67](?!\d)/);
   });
 
-  test("FIND-02: ⌘F forwarded from a native page opens the focused pane's bar, not the pane clicked last in the DOM", async ({ page, request, chatPage }) => {
+  test("FIND-02c: ⌘F forwarded from a native page opens the focused pane's bar, not the pane clicked last in the DOM", async ({ page, request, chatPage }) => {
     await resetPaneStore(request, [topicId, `terminal:${termId}`]);
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -551,7 +551,7 @@ test.describe("Cerca nella pane: il telefono", () => {
   test.describe("with a finger", () => {
     test.use({ hasTouch: true, isMobile: true });
 
-    test("FIND-04: the bar's buttons are 44 px tap targets on a touch screen", async ({ page, request }) => {
+    test("FIND-04b: the bar's buttons are 44 px tap targets on a touch screen", async ({ page, request }) => {
       await resetPaneStore(request, [topicId]);
       await goToApp(page);
       await page.keyboard.press("Escape");

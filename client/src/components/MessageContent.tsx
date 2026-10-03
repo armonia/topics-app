@@ -1421,11 +1421,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         {turnFold ? (
           <>
             {turnFold.head.map(renderGroup)}
-            <TurnWorkRow
-              tools={turnFold.tools}
-              messageId={messageId}
-              foldedTexts={turnFold.work.flatMap((g) => (g.kind === 'text' || g.kind === 'thinking' ? [g.text] : []))}
-            >
+            <TurnWorkRow tools={turnFold.tools} work={turnFold.work} messageId={messageId}>
               {turnFold.work.map(renderGroup)}
             </TurnWorkRow>
             {turnFold.shown.map(renderGroup)}

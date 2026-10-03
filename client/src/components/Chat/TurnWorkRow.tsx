@@ -8,14 +8,17 @@
 import type { ReactNode } from 'react';
 import type { ToolCall } from '../../types';
 import { TaskWorkAccordion } from './TaskWorkAccordion';
+import type { FoldableGroup } from './turnFold';
 
-export function TurnWorkRow({ tools, children, messageId, foldedTexts }: {
+export function TurnWorkRow({ tools, work, children, messageId }: {
   tools: ToolCall[];
+  /** The groups folded, for the chat find bar: their text and reasoning. */
+  work: readonly FoldableGroup[];
   children: ReactNode;
-  /** For the chat find bar: the message, and the text and reasoning folded. */
+  /** For the chat find bar: the message the turn belongs to. */
   messageId?: string;
-  foldedTexts?: readonly string[];
 }) {
+  const foldedTexts = work.flatMap((g) => (g.kind === 'text' || g.kind === 'thinking' ? [g.text] : []));
   return (
     <TaskWorkAccordion tools={tools} testId="turn-work-fold" messageId={messageId} foldedTexts={foldedTexts}>
       {children}
