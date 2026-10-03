@@ -215,16 +215,21 @@ function putSettings(settings: AppSettings): void {
   );
 }
 
+// A PUT's outcome only counts for the keys whose current value it carried: PUTs
+// can finish out of order, and an older one must not undo what a newer one did.
 function settle(carried: Map<string, string>): void {
   for (const [key, json] of carried) {
-    failedKeys.delete(key);
     // Changed again while this PUT was in flight: the newer value is still unconfirmed.
-    if (unconfirmedKeys.get(key) === json) unconfirmedKeys.delete(key);
+    if (unconfirmedKeys.get(key) !== json) continue;
+    unconfirmedKeys.delete(key);
+    failedKeys.delete(key);
   }
 }
 
 function fail(carried: Map<string, string>): void {
-  for (const key of carried.keys()) failedKeys.add(key);
+  for (const [key, json] of carried) {
+    if (unconfirmedKeys.get(key) === json) failedKeys.add(key);
+  }
 }
 
 /** Records the syncable keys whose value differs from what is stored now. */

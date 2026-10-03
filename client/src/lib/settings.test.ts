@@ -328,3 +328,68 @@ describe('failed PUT, other keys', () => {
     expect(fetchCalls.filter((c) => c.method === 'PUT')).toHaveLength(1);
   });
 });
+
+// ── PUTs that finish out of order ───────────────────────────────────────────
+//
+// A stalled request (a phone switching networks) can finish after a newer one.
+// The outcome of a PUT may only touch the protection of a key whose value it
+// still carries: otherwise an old PUT failing late protects a value the server
+// already confirmed, and every server push re-sends it over another device's
+// change (and the server echoes every PUT back, so it never stops).
+
+describe('PUTs that finish out of order', () => {
+  type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
+  let pending: Pending[] = [];
+  const handFetch = (url: string, init?: { method?: string; body?: string }) => {
+    fetchCalls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+    return new Promise((resolve, reject) => { pending.push({ resolve, reject }); });
+  };
+  const putCount = () => fetchCalls.filter((c) => c.method === 'PUT').length;
+
+  test('an older PUT failing late does not protect a value a newer PUT confirmed', async () => {
+    pending = [];
+    markSettingsHydrated();
+    g.fetch = handFetch;
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
+    await Bun.sleep(1100);
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 20 });
+    await Bun.sleep(1100);
+    expect(putCount()).toBe(2);
+    const [put1, put2] = pending;
+    put2.resolve({ ok: true });
+    await Bun.sleep(0);
+    put1.reject(new Error('stalled request dropped'));
+    await Bun.sleep(0);
+
+    // Another device sets 21: it applies, and nothing goes up again.
+    for (let i = 0; i < 3; i++) {
+      applyServerSettings({ ...syncableSettings(DEFAULT_SETTINGS), fontSize: 21 });
+      for (const p of pending.slice(2)) p.resolve({ ok: true });
+      await Bun.sleep(0);
+    }
+    expect(loadSettings().fontSize).toBe(21);
+    expect(putCount()).toBe(2);
+  });
+
+  test('an older PUT succeeding late does not lift the protection of a newer PUT that failed', async () => {
+    pending = [];
+    markSettingsHydrated();
+    g.fetch = handFetch;
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 19 });
+    await Bun.sleep(1100);
+    saveSettings({ ...DEFAULT_SETTINGS, fontSize: 20 });
+    await Bun.sleep(1100);
+    const [put1, put2] = pending;
+    put2.reject(new Error('server down'));
+    await Bun.sleep(0);
+    put1.resolve({ ok: true });
+    await Bun.sleep(0);
+
+    // The server holds 19 from the old PUT: the local 20 stays and goes up again.
+    expect(applyServerSettings({ ...syncableSettings(DEFAULT_SETTINGS), fontSize: 19 })?.fontSize).toBe(20);
+    expect(loadSettings().fontSize).toBe(20);
+    const puts = fetchCalls.filter((c) => c.method === 'PUT');
+    expect(puts).toHaveLength(3);
+    expect((puts[2].body as AppSettings).fontSize).toBe(20);
+  });
+});
