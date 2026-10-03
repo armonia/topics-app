@@ -78,7 +78,6 @@ interface StandaloneChatGroupProps {
   /** Optional bypass-the-countdown close, plumbed to PaneTabBar's
    *  right-click "Close now" entry. Falls back to onClosePanel. */
   onClosePanelImmediate?: (topicId: string) => void;
-  onDragStart: (topicId: string) => (e: React.DragEvent) => void;
   // Chat props pass-through
   getSessionMessages: (sk: string) => ChatMessage[];
   getCompactionMarkers?: (sk: string) => CompactionMarker[];
@@ -208,7 +207,7 @@ interface StandaloneChatGroupProps {
 
 export function StandaloneChatGroup({
   topicIds, focusedPanelId,
-  onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
+  onFocusPanel, onClosePanel, onClosePanelImmediate,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, mobile = false, panelInitialTab, onPanelInitialTabConsumed,
@@ -595,19 +594,11 @@ export function StandaloneChatGroup({
           no pane focused), and gets the seen dwell from here. */}
       <SubjectInFront subjectId={focused || (!focusedPanelId && hasBox && paneId === activePaneId) ? topic.id : null} />
       <ChatPanel
-        bodyOnly
         /* The LIVE projection when there is one: renaming the coordinator, or
            recolouring it, must reach the drawer without reopening it. */
         topic={topics[topic.id] ?? topic}
         isFocused={focused}
         onFocus={() => onFocusPanel(paneId)}
-        /* The board closes the drawer (the X lives in its frame), and the
-           conversation is not dragged from here: `bodyOnly` renders neither
-           header nor handle, so these two have no target to fire from. */
-        onClose={() => { /* closing belongs to the frame, not the body */ }}
-        onDragStart={() => { /* no drag handle in `bodyOnly` */ }}
-        isDragOver={false}
-        showCloseButton={false}
         getSessionMessages={getSessionMessages}
         getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
@@ -624,7 +615,6 @@ export function StandaloneChatGroup({
         sendWS={sendWS}
         onWSMessage={onWSMessage}
         onUpdateTopic={onUpdateTopic}
-        onFocusPanel={onFocusPanel}
       />
     </>
   ), [focusedPanelId, hasBox, activePaneId, topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
@@ -906,15 +896,9 @@ export function StandaloneChatGroup({
         : sendMessage;
     return (
       <ChatPanel
-        bodyOnly
         topic={topic}
         isFocused={isPaneActive && focusedPanelId === paneId}
         onFocus={() => onFocusPanel(paneId)}
-        onClose={() => onClosePanel(paneId)}
-        onDragStart={onDragStart(paneId)}
-        onToggleSidebar={onToggleSidebar}
-        isDragOver={false}
-        showCloseButton={false}
         getSessionMessages={getSessionMessages}
         getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
@@ -933,7 +917,6 @@ export function StandaloneChatGroup({
         onUpdateTopic={isDraft ? async () => null : onUpdateTopic}
         initialTab={panelInitialTab?.[paneId]}
         onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(paneId) : undefined}
-        onFocusPanel={onFocusPanel}
       />
     );
   };

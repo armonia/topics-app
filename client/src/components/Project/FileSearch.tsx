@@ -10,6 +10,7 @@ import {
 import { useMobile } from '@/hooks/useMobile';
 import { useModalDialog } from '@/hooks/useModalDialog';
 import { useExitGhost } from '@/lib/exitGhost';
+import { shortcut } from '@/lib/shortcutLabel';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 import { useT } from '@/hooks/useT';
@@ -409,7 +410,12 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               {tr('fileSearch.partialFailure', { projects: failedRoots.map((r) => basename(r)).join(', ') })}
             </div>
           )}
-          {!loading && !regexError && !failed && query && results.length === 0 && (
+          {/* No project to search in: said here, where the person looked,
+              instead of a shortcut that opened nothing. */}
+          {projects.length === 0 && (
+            <div data-testid="file-search-no-project" className="text-center text-app-text-muted text-compact leading-4 py-6 px-3">{tr('fileSearch.noProject', { keys: shortcut('P', { shift: true }) })}</div>
+          )}
+          {projects.length > 0 && !loading && !regexError && !failed && query && results.length === 0 && (
             <div className="text-center text-app-text-muted text-compact leading-4 py-6">{tr('fileSearch.noResults')}</div>
           )}
           {!loading && (() => {

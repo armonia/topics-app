@@ -259,11 +259,14 @@ test.describe("Command Palette", () => {
       commandPalettePage.overlay.getByText("Topic", { exact: true })
     ).toBeVisible();
 
-    // Settings is now an ActionPill in the bottom bar, not a result option.
-    // Its accessible name is the localized title followed by the shortcut.
+    // The bottom bar keeps the theme pill and no settings pill any more:
+    // each form opens by its own name, where it is used (SETHOME-01).
+    await expect(
+      commandPalettePage.overlay.getByRole("button", { name: /^Tema/ })
+    ).toBeVisible();
     await expect(
       commandPalettePage.overlay.getByRole("button", { name: /^Impostazioni/ })
-    ).toBeVisible();
+    ).toHaveCount(0);
 
     // Test 4: Selecting an option closes the palette (same close mechanism for file results)
     await topicOption.click();

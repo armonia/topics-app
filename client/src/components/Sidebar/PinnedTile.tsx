@@ -19,6 +19,8 @@ import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_GRID_CLEAR_CLASS, PINNE
 import { PinnedLabelMeasure } from './pinnedLabelFit';
 import { usePinnedLabelFit } from './usePinnedLabelFit';
 import { RowSplitMap } from './RowSplitMap';
+import { isCalendarPageUrl } from '../../../../shared/calendar';
+import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
 
 /**
  * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
@@ -350,6 +352,9 @@ export function PinnedTile({
       data-pinned="true"
       data-pinned-tile={item.id}
       data-testid="pinned-tile"
+      // A pinned calendar page is the calendar's home (SETHOME-01): the
+      // calendar form opens beside it, from its menu or from the palette.
+      {...(item.type === 'browser' && isCalendarPageUrl(item.browser?.url) ? { [HOME_ANCHOR_ATTR]: 'calendar' } : {})}
       title={item.name}
       draggable={!isTouch}
       onDragStart={e => {

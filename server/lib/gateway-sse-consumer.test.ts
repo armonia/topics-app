@@ -295,3 +295,55 @@ describe("makeGatewaySseProcessor — consumeGateway", () => {
     expect(tc.id).toMatch(/^tool-\d+$/);
   });
 });
+
+/**
+ * An upstream failure arrives as a 200 SSE stream carrying one
+ * `{"error":{"message"}}` frame (see `OpenAIProvider.streamHTTP`). The
+ * consumer used to read only `choices[0].delta`, so a wrong key (401) or a
+ * rate limit (429) ended as "the AI service may be overloaded".
+ */
+describe("makeGatewaySseProcessor — upstream error frame", () => {
+  async function endOf(status: number) {
+    const { OpenAIProvider } = await import("../providers/openai");
+    const { spyOn } = await import("bun:test");
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(async () => new Response('{"error":{"message":"upstream detail"}}', { status }), { preconnect: () => {} }),
+    );
+    try {
+      const resp = await new OpenAIProvider({ type: "openai", apiKey: "fake-key" }).streamHTTP([{ role: "user", content: "hi" }]);
+      const writes: Array<{ content?: string; endReason?: string }> = [];
+      const { opts } = makeOpts({ updateLastMessage: (_sk, u) => { writes.push(u); return null; } });
+      await makeGatewaySseProcessor(opts).consumeGateway(resp.body!);
+      return writes.at(-1)!;
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  }
+
+  test("a 401 reaches the message as an auth failure, not as an overload", async () => {
+    const end = await endOf(401);
+    expect(end.endReason).toBe("error");
+    expect(end.content).toContain("OpenAI auth failed");
+    expect(end.content).not.toContain("overloaded");
+  });
+
+  test("a 429 reaches the message as a rate limit, not as an overload", async () => {
+    const end = await endOf(429);
+    expect(end.endReason).toBe("error");
+    expect(end.content).toContain("rate limit");
+    expect(end.content).not.toContain("overloaded");
+  });
+
+  test("an error frame after partial text keeps the text and still ends in error", () => {
+    const writes: Array<{ content?: string; endReason?: string }> = [];
+    const { opts } = makeOpts({ updateLastMessage: (_sk, u) => { writes.push(u); return null; } });
+    const { processLine } = makeGatewaySseProcessor(opts);
+    processLine(dataLine({ choices: [{ index: 0, delta: { content: "Half an answer" } }] }).trimEnd());
+    processLine(dataLine({ error: { message: "OpenAI service error (HTTP 500)" } }).trimEnd());
+    processLine(doneFrame.trimEnd());
+    const end = writes.at(-1)!;
+    expect(end.endReason).toBe("error");
+    expect(end.content).toContain("Half an answer");
+    expect(end.content).toContain("OpenAI service error (HTTP 500)");
+  });
+});

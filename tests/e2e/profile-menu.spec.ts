@@ -124,7 +124,9 @@ test.describe("il menu utente apre i livelli di lato", () => {
     const menu = await openProfileMenu(page);
     const host = await box(menu);
 
-    const rows = await menu.locator('[aria-haspopup="menu"]').evaluateAll(
+    // A form level declares a dialog (its body holds fields), a list level a
+    // menu: both open beside the row, so both are walked.
+    const rows = await menu.locator('[aria-haspopup="menu"], [aria-haspopup="dialog"]').evaluateAll(
       (els) => els.map((el) => el.getAttribute("data-testid") ?? ""),
     );
     // The five groups plus the two that used to be accordions: if this list
@@ -152,7 +154,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
 
     // AND ONE AT A TIME: walking the rows leaves one level open, not seven
     // panels stacked across the screen.
-    await expect(page.locator('[role="menu"][data-testid$="-menu"]')).toHaveCount(1);
+    await expect(page.locator('[role="menu"][data-testid$="-menu"], [role="dialog"][data-testid$="-menu"]:not([data-testid="profile-menu"])')).toHaveCount(1);
   });
 
   test("da tastiera: destra apre, sinistra torna indietro, Escape chiude un livello per volta", async ({ page }) => {
@@ -329,24 +331,36 @@ test.describe("il menu utente apre i livelli di lato", () => {
     expect(width, `the version level is ${width}px`).toBeGreaterThanOrEqual(260);
   });
 
-  test("la riga delle impostazioni apre il pannello, e non ne ricopia l'elenco", async ({ page }) => {
+  test("nessuna riga Impostazioni né Provider, Strumenti, Calendario: il menu tiene chi sei e com'è l'app", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     await goToApp(page);
     const menu = await openProfileMenu(page);
 
-    // THE ROW DOES THE ONE THING ITS LABEL PROMISES. It used to open a level
-    // holding a copy of `SETTINGS_SECTIONS`, so the same names were read twice
-    // - once in the menu, once inside the panel - for one destination. Card
-    // 4763a62b called that a repetition of the panel's own navigation and took
-    // the copy out: the panel is where a section is picked, because that list
-    // already lives there.
-    //
-    // So what this test pins is the ABSENCE of the second copy, not just the
-    // click: a level growing back here would be the defect returning.
-    await menu.getByTestId("topics-menu-settings").click();
-    await expect(page.getByTestId("topics-menu-settings-menu")).toHaveCount(0);
-
-    const panel = page.getByTestId("settings-panel");
-    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // THE MENU KEEPS WHO YOU ARE AND HOW THE APP LOOKS (SETHOME-01). The
+    // Settings row went on 02/10; on 03/10 the forms that are not the account
+    // left too, each for where it is used. What this pins: no settings rows,
+    // and the plan under the account, the devices after the people, the look
+    // right after them.
+    await expect(menu.getByTestId("topics-menu-settings")).toHaveCount(0);
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    for (const gone of ["topics-menu-providers", "topics-menu-tools", "topics-menu-calendar", "topics-menu-nodes"]) {
+      await expect(menu.getByTestId(gone)).toHaveCount(0);
+    }
+    for (const word of ["Provider AI", "Strumenti", "Calendario", "Impostazioni"]) {
+      await expect(menu.getByRole("menuitem", { name: word, exact: true })).toHaveCount(0);
+    }
+    const order = await menu.locator("[data-testid]").evaluateAll((els) => els
+      .map((el) => el.getAttribute("data-testid") ?? "")
+      .filter((id) => [
+        "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
+        "topics-menu-appearance",
+      ].includes(id)));
+    expect(order).toEqual([
+      "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
+      "topics-menu-appearance",
+    ]);
+    // The plan says itself without opening anything.
+    await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 10_000 });
   });
 
   test("il pulsante mostra quanti agenti stanno lavorando, ed è il numero della lista", async ({ page, request }) => {

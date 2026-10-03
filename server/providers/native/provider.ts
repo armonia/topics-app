@@ -32,7 +32,8 @@ import type { Calibration } from "./context-window";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
-import { hasCredentials, getAccessToken, readCredentials } from "./auth";
+import { hasCredentials, getAccessToken, readCredentials, unsavedCredentialsError } from "./auth";
+import { readClaudeSubscription, type ClaudeSubscription } from "../claude/subscription";
 import { topicsAppBaseUrl } from "../claude-code";
 import { getTopicWorkspaceForSession } from "../../lib/agent-workspace";
 import type {
@@ -828,6 +829,14 @@ export class NativeProvider implements AIProvider {
     return this.config.model ?? DEFAULT_MODEL;
   }
 
+  /** The Claude plan this runtime signs in with: the same credentials as the
+   *  CLI (`readCredentials`), so the same two labels. `topics` is the default
+   *  runtime, so without this the «AI providers» tail never named the plan
+   *  for most people (`claude/subscription.ts`). */
+  subscription(): ClaudeSubscription | null {
+    return readClaudeSubscription();
+  }
+
   async diagnose(): Promise<ProviderDiagnostic> {
     const creds = readCredentials();
     const requirements = [
@@ -852,7 +861,9 @@ export class NativeProvider implements AIProvider {
         name: this.name,
         status: tok ? "ready" : "unavailable",
         requirements,
-        lastError: tok ? undefined : "token non rinnovabile: rifai /login con la CLI",
+        // A renewal that only lives in memory works until the server restarts:
+        // after that the dead token on disk means a /login. Say so now.
+        lastError: tok ? unsavedCredentialsError() ?? undefined : "token non rinnovabile: rifai /login con la CLI",
       };
     } catch (err) {
       return {

@@ -683,6 +683,17 @@ export class AcpProvider implements AIProvider {
     } catch (err) {
       if (state) state.promptInFlight = false;
       const info = classifyTurnError(err, state?.aborting ?? "provider-error");
+      // The cap closes the turn, not the prompt: without a cancel the agent
+      // keeps running tools for a turn the chat shows as over, and its updates
+      // keep landing in this closed turn's row. Cancel it the way `abort` does
+      // and detach this handler; the next prompt still waits for its answer.
+      if (state?.prompt && errText(err) === "ACP_PROMPT_TIMEOUT") {
+        if (!state.aborting) {
+          state.aborting = "wall-clock";
+          this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
+        }
+        if (state.handler === handler) state.handler = undefined;
+      }
       if (info.end === "cancelled") {
         handler.onAborted?.({ result: state?.fullText ?? "", turnEnd: info });
       } else {
@@ -718,6 +729,36 @@ export class AcpProvider implements AIProvider {
     // Notifica, non richiesta: la conferma arriva come `stopReason: "cancelled"`
     // sulla `session/prompt` che è ancora in volo.
     this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
+  }
+
+  /**
+   * `/clear` (CMD-09): forget this chat's agent session, so the next prompt
+   * opens a fresh one with `session/new`.
+   *
+   * Without it `/clear` on gemini and jcode emptied the screen and said
+   * «Conversazione svuotata» while the agent kept its whole session: ACP has
+   * no clear in the protocol, `clearActionFor` found neither gesture, and the
+   * only trace was a `console.warn`. Dropping the live state is not enough on
+   * its own: the id remembered on disk would bring it back with
+   * `session/load` on the next prompt.
+   */
+  async resetSession(sessionKey: string): Promise<void> {
+    // A send queued behind the running prompt belonged to the conversation
+    // being cleared: it is dropped, never sent into the fresh session.
+    const waiting = this.waitingSends.get(sessionKey);
+    if (waiting) { waiting.cancelled = true; waiting.wake?.(); }
+    const state = this.sessions.get(sessionKey);
+    if (state) {
+      // And the prompt still running is cancelled, as claude-code kills its
+      // process: forgetting the state alone left the agent working on it.
+      if (state.prompt) {
+        if (!state.aborting) state.aborting = "user";
+        this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
+      }
+      this.sessions.delete(sessionKey);
+      this.bySessionId.delete(state.acpSessionId);
+    }
+    this.forgetRemembered(sessionKey);
   }
 
   /**
@@ -795,6 +836,11 @@ export class AcpProvider implements AIProvider {
         PROMPT_TIMEOUT_MS,
         "ACP_PROMPT_TIMEOUT",
       );
+    } catch (err) {
+      // The cap gives up on the answer, not the agent's work: cancel it, as
+      // `sendChat` does, or the throwaway session keeps running tools.
+      if (errText(err) === "ACP_PROMPT_TIMEOUT") peer.notify("session/cancel", { sessionId });
+      throw err;
     } finally {
       this.sessions.delete(key);
       this.bySessionId.delete(sessionId);

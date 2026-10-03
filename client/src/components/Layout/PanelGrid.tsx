@@ -12,8 +12,6 @@ import { useLayoutMobile } from '../../hooks/useMobile';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
-import { startDragPreview } from '../../lib/dragPreview';
-import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { detachPaneToNewSpace } from '../../lib/popOutSpace';
 import { useUnsent } from '../../state/unsentMessages';
 // A banner for a RARE state (messages that expired unsent): as a static import
@@ -1543,31 +1541,6 @@ export function PanelGrid({
   const [fullRowDrop, setFullRowDrop] = useState<'top' | 'bottom' | number | null>(null);
   const fullRowDropRef = useRefMirror(fullRowDrop);
 
-  const handleDragStart = useCallback((topicId: string) => (e: React.DragEvent) => {
-    // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
-    // so the grid you see is always the one the command acts on.
-    exitZoom();
-    setDraggingId(topicId);
-    dropConsumedRef.current = false;
-    e.dataTransfer.setData(DND_TYPES.PANEL_ID, topicId);
-    e.dataTransfer.effectAllowed = 'move';
-
-    const topic = topics[topicId];
-    // La scheda intera, decisa in un posto solo (`lib/dragPreview`). Il registro
-    // dei nodi da drenare non serve più: l'anteprima non si smonta a un rAF di
-    // distanza, resta viva per tutto il gesto e si spegne da sé su cinque porte
-    // agganciate al documento — comprese quelle per il `dragend` che nella
-    // WKWebView non arriva.
-    startDragPreview(e, {
-      title: topic?.name || 'Chat',
-      subtitle: topic?.projectPath ? getProjectLabel(topic.projectPath) : undefined,
-    });
-
-    if (windowId) {
-      sendWS({ type: 'drag:start', topicId, windowId });
-    }
-  }, [topics, windowId, sendWS, exitZoom]);
-
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     const draggedId = draggingId;
     setDraggingId(null);
@@ -2695,7 +2668,6 @@ export function PanelGrid({
         onFocusPanel={onFocusPanel}
         onClosePanel={onClosePanel}
         onClosePanelImmediate={onClosePanelImmediate}
-        onDragStart={handleDragStart}
         getSessionMessages={getSessionMessages}
         getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
@@ -2768,7 +2740,7 @@ export function PanelGrid({
       />
     ),
     [
-      focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
+      focusedPanelId, onFocusPanel, onClosePanel,
       getSessionMessages, getCompactionMarkers, isSessionLoading,
       isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,

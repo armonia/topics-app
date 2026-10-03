@@ -173,6 +173,11 @@ export class ProviderSnapshotManager extends EventEmitter {
         requirements,
         lastError: diag?.lastError,
         effortTier: provider.effortTier?.(),
+        // The Claude plan the CLI is signed in with, as two labels: declared by
+        // the provider that has one (`claude/subscription.ts`), read here.
+        subscription:
+          (provider as { subscription?: () => ProviderSnapshotEntry["subscription"] | null }).subscription?.() ??
+          undefined,
         fetchedAt: new Date().toISOString(),
       };
     } catch (err) {

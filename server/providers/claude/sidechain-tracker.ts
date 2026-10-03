@@ -246,21 +246,37 @@ export class SidechainTracker {
     status?: SidechainAction["status"],
   ): number {
     if (state.actions.length >= MAX_ACTIONS) {
-      // Once at the cap we drop the oldest non-terminal entry to keep
-      // the most recent activity visible. If everything is terminal we
-      // just stop appending — the user has more than enough to see.
-      const firstRunningIdx = state.actions.findIndex((a) => a.status === "running");
-      if (firstRunningIdx >= 0) {
-        state.actions.splice(firstRunningIdx, 1);
-      } else {
-        return state.actions.length - 1;
-      }
+      // Once at the cap the new entry always goes in, and an old one makes
+      // room: the oldest TERMINAL one (text, finished tool), so calls still in
+      // flight stay visible; the oldest running one only if nothing else is
+      // left. Returning the last index instead (as before) mapped the new
+      // call onto the previous row, whose status its result then overwrote.
+      const firstTerminalIdx = state.actions.findIndex((a) => a.status !== "running");
+      this.dropAction(state, firstTerminalIdx >= 0 ? firstTerminalIdx : 0);
     }
     const action: SidechainAction = { index: state.actions.length, toolName };
     if (summary) action.summary = summary;
     if (status) action.status = status;
     state.actions.push(action);
     return action.index;
+  }
+
+  /**
+   * Remove one row and keep everything that points INTO `actions[]` true:
+   * the `index` of each later row and the child → row map of this parent.
+   * A child whose own row is dropped loses its mapping; its result is then
+   * ignored instead of patching whatever row slid into that position.
+   */
+  private dropAction(state: SidechainState, idx: number): void {
+    state.actions.splice(idx, 1);
+    for (let i = idx; i < state.actions.length; i++) state.actions[i]!.index = i;
+    for (const [child, parent] of this.childToParent) {
+      if (parent !== state.parentToolUseId) continue;
+      const at = this.childToActionIdx.get(child);
+      if (at == null) continue;
+      if (at === idx) this.childToActionIdx.delete(child);
+      else if (at > idx) this.childToActionIdx.set(child, at - 1);
+    }
   }
 }
 

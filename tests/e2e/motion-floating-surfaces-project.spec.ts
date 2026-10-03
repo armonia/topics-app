@@ -166,7 +166,7 @@ test.describe("The surfaces of a project enter and leave on the same mechanism",
     const explorer = new FileExplorerPage(page);
     await ready(page, explorer);
     await openFileMenu(explorer, page);
-    await page.getByRole("menu").getByRole("menuitem", { name: "Copy Path" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: "Copia il percorso", exact: true }).click();
     const toast = page.getByTestId("toast").first();
     await expect(toast).toBeVisible();
     // The toast's own exit (a token transition on `opacity`), read on the

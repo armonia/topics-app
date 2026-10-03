@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from '../../shared/types';
 import { hermetic } from './fixtures/hermetic';
 import { goToApp } from './helpers';
-import { openProfileMenu } from './helpers/open-perf-panel';
+import { openHomePanel } from './helpers/user-menu';
 
 hermetic(test);
 
@@ -101,15 +101,12 @@ async function mockEndpoints(page: Page, options: { reachable?: boolean; provide
   return { saved, sentTokens };
 }
 
+/** The AI providers form is a panel of its own (SETHOME-01). */
 async function openProviders(page: Page) {
   await page.goto('/');
-  await openProfileMenu(page);
-  await page.getByTestId('topics-menu-settings').click();
-  const panel = page.getByTestId('settings-panel');
-  await expect(panel).toBeVisible();
-  await panel.locator('nav').getByRole('button', { name: 'Providers AI', exact: true }).click();
-  await expect(page.getByTestId('ai-providers-settings')).toBeVisible();
-  await expect.poll(() => panel.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
+  const level = await openHomePanel(page, 'providers');
+  await expect(page.getByTestId('ai-providers-settings')).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => level.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
 }
 
 async function fillEndpoint(page: Page, values: { label: string; url: string; token?: string }) {

@@ -200,8 +200,11 @@ describe("plan → passi del goal (3.4)", () => {
     expect(tr({ sessionUpdate: "plan", entries: [{ content: "  " }] })).toEqual([
       { kind: "plan", steps: [] },
     ]);
-    expect(tr({ sessionUpdate: "plan", entries: [] })).toEqual([]);
+    // ACP sends the WHOLE plan on every update: `entries: []` is the plan
+    // emptied, and the goal's steps must clear with it.
+    expect(tr({ sessionUpdate: "plan", entries: [] })).toEqual([{ kind: "plan", steps: [] }]);
     expect(tr({ sessionUpdate: "plan" })).toEqual([]);
+    expect(tr({ sessionUpdate: "plan", entries: "nope" as never })).toEqual([]);
   });
 });
 

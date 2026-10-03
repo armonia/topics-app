@@ -47,13 +47,16 @@ export function codexFallbackModel(configured: string | null, catalog: readonly 
   return catalog[0] ?? null;
 }
 
-/** The `model = "..."` line of ~/.codex/config.toml, top level only. */
+/**
+ * The `model = "..."` line of ~/.codex/config.toml, top level only. A TOML
+ * literal string (`model = '...'`) is the same value written by hand.
+ */
 export function readCodexConfiguredModel(configPath = join(process.env.CODEX_HOME || join(process.env.HOME || '', '.codex'), 'config.toml')): string | null {
   try {
     for (const line of readFileSync(configPath, 'utf8').split('\n')) {
       if (line.trimStart().startsWith('[')) return null;
-      const m = /^\s*model\s*=\s*"([^"]+)"/.exec(line);
-      if (m) return m[1]!;
+      const m = /^\s*model\s*=\s*(?:"([^"]+)"|'([^']+)')/.exec(line);
+      if (m) return (m[1] ?? m[2])!;
     }
   } catch { /* no config: the CLI uses its built-in default */ }
   return null;

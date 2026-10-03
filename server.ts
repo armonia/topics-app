@@ -1866,7 +1866,7 @@ const taskDispatcher = createTaskDispatcher({
     const { provider, model, topicsRouting, executor } = resolveDispatchTopicIdentity(o, snapshot);
     // Si verifica chi ESEGUE: con ON il bersaglio non parte, e pretenderne la CLI collegata bloccherebbe task sani. allow-italian: perche' il controllo e' su `executor`
     if (executor && !tryGetProvider(executor)?.connected) {
-      throw new Error(`Provider "${executor}" non disponibile: collegalo nelle Impostazioni prima di avviare il task.`);
+      throw new Error(`Provider "${executor}" non disponibile: collegalo da «Provider e chiavi», in fondo al selettore del modello, prima di avviare il task.`);
     }
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the

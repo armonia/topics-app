@@ -133,7 +133,7 @@ test.describe.serial("le superfici seguono la lingua scelta", () => {
     const tab = page.getByRole("tab", { name: new RegExp(topicName) }).first();
     await expect(tab).toBeVisible({ timeout: 15_000 });
     await tab.dispatchEvent("contextmenu");
-    const settings = page.locator("button").filter({ hasText: /^Impostazioni$/ });
+    const settings = page.locator("button").filter({ hasText: /^Impostazioni della chat$/ });
     await expect(settings).toBeVisible({ timeout: 5_000 });
     await settings.click();
 

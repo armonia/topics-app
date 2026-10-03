@@ -31,12 +31,13 @@ async function checkpointRequest<T>(endpoint: string, options?: RequestInit): Pr
   });
   if (!response.ok) {
     const text = await response.text();
-    let payload: { error?: string; plan?: RestorePlan; blockedBy?: RestoreBlockerCode } | null = null;
+    let payload: { error?: string; code?: string; plan?: RestorePlan; blockedBy?: RestoreBlockerCode } | null = null;
     try { payload = JSON.parse(text); } catch { /* not JSON: the text is the message */ }
     if (response.status === 409 && payload?.plan) {
       throw new RestoreRefusedError(payload.error || response.statusText, payload.blockedBy, payload.plan);
     }
-    throw new Error(payload?.error || text || response.statusText);
+    // The `code` rides along (`apiErrorCode`): a caller branches on it, not on the wording.
+    throw Object.assign(new Error(payload?.error || text || response.statusText), payload?.code ? { code: payload.code } : {});
   }
   return response.json();
 }

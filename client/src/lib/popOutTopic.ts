@@ -1,5 +1,5 @@
-// Pop topics out into their own OS window — shared by the pane header button
-// and the group/pane menu pop-out actions.
+// Pop topics out into their own OS window — shared by the group/pane menu
+// pop-out actions.
 //
 // Returns true only when a window actually opened (or was reused). Callers must
 // NOT close or remove the source pane on false: a blocked popup, a shell with
@@ -9,11 +9,6 @@
 import { isTauri } from './shell/index';
 import { tauriInvoke } from './shell/tauri';
 import { useWindowPresenceStore } from '../state/windowPresence';
-
-/** Pop-out is supported in every shell now: Tauri opens a real detached window
- *  (`window_detach`), web/Electron use `window.open`. Kept as an export so call
- *  sites can still gate UI on it if a future shell drops support. */
-export const canPopOut = true;
 
 const isWkWebView =
   typeof window !== 'undefined' &&

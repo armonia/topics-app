@@ -89,15 +89,38 @@ function estimateTokens(text: string): number {
  * pasted path — `/Users/someone/…`, `/tmp to check` — and stripped all context
  * from that message. On a first turn, or right after a compaction, that meant a
  * whole turn with no idea which project the work is in.
+ *
+ * EVERY NAME HERE IS A COMMAND OF THE INSTALLED CLI, measured, and
+ * `slashCommandRouting.test.ts` holds it to the list Claude Code 2.1.288 gives
+ * in `--print` (its `init.slash_commands`, plus the aliases and the names it
+ * refuses headless). Six names that no longer exist there (todos, todo,
+ * install, migrate-installer, pr-comments, and Gemini's compress) used to sit
+ * here: each travelled NAKED, without its context, and the CLI handed it to
+ * the model as a paid turn. Out of the list they are ordinary messages again.
+ *
+ * The names the CLI REFUSES in `--print` (resume, login, export, …) stay on
+ * purpose. The composer answers them locally (`cliRefused.ts`), and whatever
+ * still gets here (a board card, an API caller) is refused by the CLI at $0
+ * instead of becoming a paid prose turn behind a preamble.
  */
 const CLI_BUILTINS = new Set([
   "compact", "clear", "cost", "context", "status", "model", "config", "doctor",
   "help", "init", "login", "logout", "memory", "resume", "review", "vim",
   "release-notes", "bug", "exit", "quit", "privacy-settings", "terminal-setup",
-  "upgrade", "mcp", "agents", "hooks", "permissions", "todos", "usage", "export",
-  "rewind", "sandbox", "statusline", "output-style", "add-dir", "ide", "install",
-  "migrate-installer", "pr-comments", "security-review", "todo", "compress",
+  "upgrade", "mcp", "agents", "hooks", "permissions", "usage", "export",
+  "rewind", "sandbox", "statusline", "output-style", "add-dir", "ide",
+  "security-review",
 ]);
+
+/**
+ * Runtimes that parse a leading slash themselves: the Claude Code CLI and the
+ * ACP agents it shares the strategy with. The native engine (`topics`) is
+ * `inline-system` too, but it has no slash parser: a naked `/compact` there
+ * was a paid prose turn with no context at all.
+ */
+function parsesSlashCommands(providerName: string): boolean {
+  return providerName !== "topics";
+}
 
 function isCliBuiltin(content: string): boolean {
   const t = content.trimStart();
@@ -207,7 +230,7 @@ function adaptInlineSystem(
   //
   // Gli slot NON vengono marcati (inlineSlots resta assente): quello che è
   // cambiato parte al turno successivo, che e' un messaggio normale.
-  if (isCliBuiltin(envelope.userMessage.content)) {
+  if (parsesSlashCommands(envelope.providerName) && isCliBuiltin(envelope.userMessage.content)) {
     return {
       userContent: envelope.userMessage.content,
       adaptationNotes: [

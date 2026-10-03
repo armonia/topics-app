@@ -6,10 +6,9 @@ import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useWorktrees } from './hooks/useWorktrees';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
-import { OPEN_SETTINGS_EVENT, routeSettingsRequest, type OpenSettingsDetail, type SettingsPanelSection } from './lib/openSettings';
-import { openUserMenu } from './lib/openUserMenu';
-import { apriProfilo } from './state/profileTarget';
+import { HomePanelHost } from './components/Settings/HomePanelHost';
 import { useMenuPreferences, useUserMenuRequest } from './hooks/useUserMenuHost';
+import { ConfirmInsidePopoverContext } from './hooks/confirmInsidePopover';
 import { runNotificationAction } from './lib/notify/notificationAction';
 import { decodeNotifyTarget, openNotifyToken } from './lib/notify/notifyTarget';
 import { boardNotificationDeps } from './lib/notify/boardActionDeps';
@@ -138,7 +137,6 @@ const ChangelogModal = lazy(async () => {
 /** The voice loop board has no control and stays off (USERMENU-06: a
  *  preference with no door left `AppSettings`). */
 const VOICE_LOOP_MODE = 'off' as const;
-const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })));
 // Shared factory so the idle prefetch (App mount) and the `lazy()` boundary
 // resolve the SAME module — a first ⌘K then finds the chunk already parsed
 // instead of paying a ~25–40ms synchronous fetch+eval on the opening frame
@@ -470,29 +468,10 @@ function App() {
   // `worktreeId` rides along from a sidebar worktree section ("New topic in
   // this worktree"): the dialog opens with that worktree already picked.
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string; worktreeId?: string }>(false);
-  const [showSettings, setShowSettings] = useState(false);
-  // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
-  // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
-  // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<SettingsPanelSection | undefined>(undefined);
+  // There is no Settings window: each form lives where it is used (SETHOME-01),
+  // drawn by `HomePanelHost` below; the user menu keeps who you are and how the
+  // app looks, and ⌘, opens it (`openUserMenu`).
   const [showShortcuts, setShowShortcuts] = useState(false);
-  // The deep link into Settings, from anywhere. The identity rows are the only
-  // sender today, and they became a PANE when they moved into the Profile tab:
-  // a pane cannot reach this state through props, so it asks by event, the same
-  // way panes are opened (`topics:open-utility`). See `lib/openSettings`.
-  useEffect(() => {
-    const handleOpen = (e: Event) => {
-      // A section that left the panel lands in its new home (USERMENU-05):
-      // an old id on this event must not open the panel on its first page.
-      const route = routeSettingsRequest((e as CustomEvent<OpenSettingsDetail>).detail?.section);
-      if (route.to === 'user-menu') { openUserMenu(route.level); return; }
-      if (route.to === 'profile') { apriProfilo(route.page); return; }
-      setSettingsSection(route.section);
-      setShowSettings(true);
-    };
-    window.addEventListener(OPEN_SETTINGS_EVENT, handleOpen);
-    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handleOpen);
-  }, []);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
   // local `showNewMenu` boolean and a `newMenuBtnRef`. Both moved into
@@ -1269,7 +1248,6 @@ function App() {
     setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
-    setShowSettings,
     setShowFileSearch,
     isSessionStreaming,
     stopSession,
@@ -2048,7 +2026,6 @@ function App() {
               preferences: menuPreferences,
               splitLayoutAvailable,
               onOpenHistory: () => { setSearchScope('history'); setShowSearch(true); },
-              onOpenSettings: () => { setShowSettings(true); },
               onOpenChangelog: (version) => setShowChangelogFromMenu(version),
               onReopenClosedTab: handleReopenClosedTab,
               onOpenHistoryUrl: openHistoryUrl,
@@ -2344,6 +2321,9 @@ function App() {
           }
         >
           {isMobile && <SheetGrabber />}
+          {/* A question asked in here (a form's «remove?», «sign out?») is part
+              of the menu: the dialog leaves it open (`useConfirm`). */}
+          <ConfirmInsidePopoverContext.Provider value={true}>
           {/* WHO YOU ARE, at the top, as on the desktop card: the account, the
               people, the groups and the devices are the same component in
               both hosts (USERMENU-09). Before, the phone reached sign-in,
@@ -2376,7 +2356,6 @@ function App() {
             preferences={menuPreferences}
             splitLayoutAvailable={splitLayoutAvailable}
             onOpenHistory={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
-            onOpenSettings={() => { setShowSettings(true); setShowTopicsMenu(false); }}
             onReopenClosedTab={handleReopenClosedTab}
             onOpenHistoryUrl={openHistoryUrl}
             onClose={() => setShowTopicsMenu(false)}
@@ -2393,6 +2372,7 @@ function App() {
             isMobile={isMobile}
             onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
           />
+          </ConfirmInsidePopoverContext.Provider>
         </div>
         </>,
         document.body
@@ -2455,26 +2435,6 @@ function App() {
         </Suspense>
       )}
 
-      {/* Settings modal */}
-      {showSettings && (
-        /* A SECTION THAT BREAKS DOES NOT TAKE THE APP WITH IT. Without this
-           net an error inside Settings climbed to the root: a white screen,
-           with not even a way to close it. Measured for real — a device with no
-           `id` blew up `DevicesSection` and everything else with it (an
-           optional-chain comparison that was true against null, closed over
-           there). It is the same net the sidebar, the status bar and the panels
-           already have. */
-        <ErrorBoundary fallbackMessageKey="crash.settings">
-        <Suspense fallback={null}>
-          <GlobalSettings
-            isOpen={showSettings}
-            initialSection={settingsSection}
-            onClose={() => { setShowSettings(false); setSettingsSection(undefined); }}
-          />
-        </Suspense>
-        </ErrorBoundary>
-      )}
-
       {/* Command Palette (⌘K = everything, ⌘F = projects scope). */}
       {showSearch && (
           <CommandPaletteHost
@@ -2489,7 +2449,6 @@ function App() {
             onAddPane={handleStandaloneAddPane}
             onProjectPicker={handleOpenProjectPicker}
             onToggleTheme={toggleTheme}
-            onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
             // "Reimposta pannelli" (collapse to one tabbed cell) + "Disponi
             // automaticamente" (auto-tile into a balanced grid) — per-window
             // CustomEvent bus (same pattern as topics:open-project-picker); the
@@ -2553,6 +2512,10 @@ function App() {
           />
         </Suspense>
       )}
+
+      {/* The one host of the forms that live where they are used: providers,
+          tools, calendar (SETHOME-01). */}
+      <HomePanelHost />
 
       {import.meta.env.DEV && DevOverlay && <DevOverlay />}
 

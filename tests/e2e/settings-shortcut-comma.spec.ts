@@ -15,6 +15,10 @@ hermetic(test);
  * Ctrl+, MUST REACH SETTINGS WHILE YOU ARE TYPING, and must not reach it while
  * a terminal owns the keyboard.
  *
+ * «Settings» is the user menu since the 02/10/2026 change: every setting is one
+ * of its levels and there is no Settings window, so the shortcut opens the
+ * menu (`profile-menu`) with its first row focused.
+ *
  * Mapping the panel on Windows (card cb88f460) left one row unexplained: the
  * Settings shortcut did nothing. The handler in `useKeyboardShortcuts` yielded
  * to ANY focused text input unless `metaKey` was held, and on Windows `metaKey`
@@ -53,7 +57,7 @@ test.describe("Settings shortcut, comma", () => {
     await cleanupTerminalTopic(request, topicId);
   });
 
-  test("CMD-COMMA-01: Ctrl+, opens Settings from the chat composer", async ({ page, request }) => {
+  test("CMD-COMMA-01: Ctrl+, opens the user menu from the chat composer", async ({ page, request }) => {
     await resetTerminalWorkspace(request, topicId);
     // The permalink, not the sidebar: this spec proves a shortcut, and reaching
     // the chat through the sidebar tree is the flaky step on a crowded test
@@ -67,10 +71,14 @@ test.describe("Settings shortcut, comma", () => {
     await expect(composer).toBeFocused();
 
     await page.keyboard.press("Control+,");
-    await expect(page.getByTestId("settings-panel")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("profile-menu")).toBeVisible({ timeout: 10_000 });
+    // From the keyboard, the focus is on the menu's first row, not left in the
+    // composer: Enter acts, the arrows continue from there.
+    await expect(page.getByTestId("account-identity")).toBeFocused();
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
   });
 
-  test("CMD-COMMA-02: in the terminal Ctrl+, is the terminal's key, Meta+, still opens Settings", async ({
+  test("CMD-COMMA-02: in the terminal Ctrl+, is the terminal's key, Meta+, still opens the user menu", async ({
     page,
     request,
     terminalPage,
@@ -80,7 +88,7 @@ test.describe("Settings shortcut, comma", () => {
     await openShellViaSidebar(page, terminalPage);
     await terminalPage.focus();
 
-    const settings = page.getByTestId("settings-panel");
+    const settings = page.getByTestId("profile-menu");
     await page.keyboard.press("Control+,");
 
     // A NEGATIVE assertion needs a happens-after, not a stopwatch. `toHaveCount(0)`

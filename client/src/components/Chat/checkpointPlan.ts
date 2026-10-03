@@ -28,6 +28,21 @@ export const BLOCKER_KEY: Record<RestoreBlockerCode, string> = {
   'no-turn-mark': 'checkpoint.blocked.noTurnMark',
 };
 
+/**
+ * What a failed `/rewind` says. A refusal names its blocker; the route's
+ * «no project folder» answer (`code: no_project`) says that; anything else (a
+ * 500, the network) is said as it is. It used to say «no project folder» for
+ * EVERY failure of a chat without a project, a 500 included.
+ */
+export function rewindFailureText(
+  failure: { blockedBy?: RestoreBlockerCode; code?: string; message: string },
+  tr: Translate,
+): string {
+  if (failure.blockedBy) return tr('checkpoint.rollback.refused', { reason: tr(BLOCKER_KEY[failure.blockedBy]) });
+  if (failure.code === 'no_project') return tr('chat.rewind.noProject');
+  return failure.message;
+}
+
 /** How many skipped paths the dialog names before folding the rest. */
 export const SKIPPED_SHOWN = 5;
 

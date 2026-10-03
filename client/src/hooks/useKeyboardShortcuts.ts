@@ -22,6 +22,7 @@ import type { UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import { isDesktop, isTauri } from '../lib/shell';
 import { reloadAllWindows } from '../lib/shell/app';
 import { hasOpenModalSurface } from '../lib/modalSurface';
+import { openUserMenu } from '../lib/openUserMenu';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused, isRawKeySurfaceFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
@@ -99,8 +100,6 @@ export interface UseKeyboardShortcutsArgs {
   setSearchScope: Dispatch<SetStateAction<'all' | 'projects' | 'history'>>;
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
-  /** ⌘, — le Preferenze, come su ogni app macOS. */
-  setShowSettings: Dispatch<SetStateAction<boolean>>;
   setShowFileSearch: Dispatch<SetStateAction<false | { projectPaths: string[]; mode: 'name' | 'content' }>>;
 }
 
@@ -171,7 +170,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const {
     handleClosePanel, toggleSidebar,
     setFocusedPanelId, handleReopenClosedTab,
-    setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowSettings, setShowFileSearch,
+    setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowFileSearch,
     isSessionStreaming, stopSession,
   } = args;
 
@@ -203,9 +202,10 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         // chiudere: chiudere e riaprire per passare da nome a contenuto è
         // esattamente l'attrito che questa superficie unica toglie.
         if (prev) return prev.mode === mode ? false : { ...prev, mode };
-        const projectPaths = searchProjectPaths();
-        if (projectPaths.length === 0) return false;
-        return { projectPaths, mode };
+        // With no project anywhere the surface still opens and SAYS so
+        // (`FileSearch`): returning false here made ⌘P and ⌘F do nothing and
+        // say nothing: looking broken, which the fallback above exists to avoid.
+        return { projectPaths: searchProjectPaths(), mode };
       });
     };
 
@@ -505,7 +505,8 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
 
       // ⌘, — Settings, as on every macOS app. The command palette announced it
       // next to "Settings" (ActionPill shortcut="⌘,") long before anybody
-      // listened for it.
+      // listened for it. Every setting is a level of the user menu now, so the
+      // shortcut opens the menu, with its first row focused (USERMENU-06).
       //
       // `isMod` is `metaKey || ctrlKey`, so Ctrl+, lands here too, and on
       // Windows that is the ONLY way in: `metaKey` is always false there. The
@@ -518,7 +519,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // nothing to yield to.
       if (isMod && !e.shiftKey && e.key === ',' && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
         e.preventDefault();
-        setShowSettings(true);
+        openUserMenu();
         return;
       }
 
@@ -612,7 +613,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
-    setShowSettings,
     setShowFileSearch,
     setFocusedPanelId,
     isSessionStreaming,

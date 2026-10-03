@@ -405,7 +405,7 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
     const tab = page.locator('[role="main"]').getByText(new RegExp(`E2E-Share-Chat-${stamp}$`)).first();
     await expect(tab).toBeVisible({ timeout: 10_000 });
     await tab.dispatchEvent("contextmenu");
-    const voce = page.locator("button").filter({ hasText: /^Impostazioni$/ });
+    const voce = page.locator("button").filter({ hasText: /^Impostazioni della chat$/ });
     await expect(voce).toBeVisible({ timeout: 5_000 });
     await voce.click();
 

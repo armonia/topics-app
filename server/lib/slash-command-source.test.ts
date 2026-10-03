@@ -12,7 +12,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles } from "./slash-command-source";
+import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles, disabledSkillNames } from "./slash-command-source";
 
 let home: string;
 let cwd: string;
@@ -102,5 +102,53 @@ describe("listSlashCommandFiles", () => {
     expect(names).toContain("locale");
     expect(new Set(names).size).toBe(names.length);
     expect(list.find((x) => x.name === "vai")?.kind).toBe("skill");
+  });
+});
+
+describe("skills Claude Code has switched off are not offered", () => {
+  // `skillOverrides: { name: "off" }` in the settings the CLI reads. Ten such
+  // skills were in the menu on the Mac this was measured on; typing one was a
+  // paid turn in which the model said it could not run it.
+  test("an override «off» in the user's settings hides the skill, one without stays", () => {
+    const h = mkdtempSync(join(tmpdir(), "sc-off-home-"));
+    const c = mkdtempSync(join(tmpdir(), "sc-off-cwd-"));
+    try {
+      for (const name of ["spenta", "accesa"]) {
+        mkdirSync(join(h, ".claude", "skills", name), { recursive: true });
+        writeFileSync(join(h, ".claude", "skills", name, "SKILL.md"), `---\nname: ${name}\n---\n`);
+      }
+      writeFileSync(join(h, ".claude", "settings.json"), JSON.stringify({ skillOverrides: { spenta: "off", accesa: "on" } }));
+      const names = listSlashCommandFiles({ home: h, cwd: c }).map((x) => x.name);
+      expect(names).toContain("accesa");
+      expect(names).not.toContain("spenta");
+    } finally {
+      for (const d of [h, c]) rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test("the project's and the local settings are read too, the later winning", () => {
+    const h = mkdtempSync(join(tmpdir(), "sc-off-home-"));
+    const c = mkdtempSync(join(tmpdir(), "sc-off-cwd-"));
+    try {
+      mkdirSync(join(h, ".claude"), { recursive: true });
+      mkdirSync(join(c, ".claude"), { recursive: true });
+      writeFileSync(join(h, ".claude", "settings.json"), JSON.stringify({ skillOverrides: { a: "off", b: "off" } }));
+      writeFileSync(join(c, ".claude", "settings.json"), JSON.stringify({ skillOverrides: { c: "off" } }));
+      writeFileSync(join(c, ".claude", "settings.local.json"), JSON.stringify({ skillOverrides: { b: "on" } }));
+      expect([...disabledSkillNames(h, c)].sort()).toEqual(["a", "c"]);
+    } finally {
+      for (const d of [h, c]) rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test("no settings, or unreadable ones, switch nothing off", () => {
+    const h = mkdtempSync(join(tmpdir(), "sc-off-home-"));
+    try {
+      mkdirSync(join(h, ".claude"), { recursive: true });
+      writeFileSync(join(h, ".claude", "settings.json"), "{ non json");
+      expect(disabledSkillNames(h, h).size).toBe(0);
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
   });
 });

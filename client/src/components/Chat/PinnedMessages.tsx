@@ -1,4 +1,5 @@
 import { Pin } from 'lucide-react';
+import { useT } from '../../hooks/useT';
 import type { ChatMessage } from '../../types';
 
 interface PinnedMessagesProps {
@@ -7,12 +8,13 @@ interface PinnedMessagesProps {
 }
 
 export function PinnedMessages({ show, pinnedMessages }: PinnedMessagesProps) {
+  const tr = useT();
   if (!show || pinnedMessages.length === 0) return null;
 
   return (
     <div className="chat-measure border-b border-app-border bg-yellow-50/50 dark:bg-yellow-900/10 p-2 max-h-28 overflow-y-auto flex-shrink-0">
       <div className="text-mini font-medium text-yellow-600/70 dark:text-yellow-400/60 mb-1 flex items-center gap-1">
-        <Pin size={14} /> Pinned
+        <Pin size={14} /> {tr('chat.pinned.title')}
       </div>
       {pinnedMessages.map(msg => (
         <div key={msg.id} className="text-mini text-app-text-secondary bg-surface dark:bg-elevated rounded p-1.5 mb-1 line-clamp-2">

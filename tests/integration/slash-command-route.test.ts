@@ -215,3 +215,33 @@ describe("il resolver, con le sue cartelle sotto controllo", () => {
     expect(readSlashCommandSource("esca", { home: homeDir, cwd: workDir })).toBeNull();
   });
 });
+
+describe("the project's commands are those of the topic's project (SKILL-01)", () => {
+  // They used to come from `process.cwd()`, the server's own checkout: a chat
+  // in project X was offered this repo's commands and not X's.
+  test("`?topicId=` reads the topic's project folder, for the list and for the body", async () => {
+    const project = join(ROOT, "topic-project");
+    mkdirSync(join(project, ".claude", "commands"), { recursive: true });
+    writeFileSync(join(project, ".claude", "commands", "comando-del-progetto-x.md"), "---\ndescription: only in project X\n---\n\nBody of X.\n");
+    const router = await banco();
+    const url = new URL("http://h/api/topics");
+    const created = await router(
+      new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "slash-project-x", projectPath: project }) }),
+      url, url.pathname, "POST",
+    );
+    expect(created?.status).toBeLessThan(300);
+    const topic = (await created!.json()) as { id: string; projectPath?: string };
+    expect(topic.projectPath).toBeTruthy();
+
+    const withTopic = (await (await call(router, `/api/slash-commands?topicId=${topic.id}`)).json()) as Array<{ name: string }>;
+    expect(withTopic.map((e) => e.name)).toContain("comando-del-progetto-x");
+    const body = await call(router, `/api/slash-commands/comando-del-progetto-x?topicId=${topic.id}`);
+    expect(body.status).toBe(200);
+    expect(((await body.json()) as { body: string }).body).toContain("Body of X.");
+
+    // Without the topic, the server's own folder: the command is not there.
+    const without = (await (await call(router, "/api/slash-commands")).json()) as Array<{ name: string }>;
+    expect(without.map((e) => e.name)).not.toContain("comando-del-progetto-x");
+    expect((await call(router, "/api/slash-commands/comando-del-progetto-x")).status).toBe(404);
+  });
+});

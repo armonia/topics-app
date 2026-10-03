@@ -156,6 +156,24 @@ describe("sessione", () => {
     expect(idB).toBe(idA!);
   });
 
+  test("/clear forgets the agent session: the next prompt opens a NEW one (CMD-09)", async () => {
+    const provider = makeProvider();
+    const a = recorder();
+    await provider.sendChat("topic:clear", "primo", a.handler);
+    const before = a.full.match(/\[(sess-\d+)\//)?.[1];
+    expect(before).toBeTruthy();
+
+    await provider.resetSession("topic:clear");
+    expect(readProviderSession(getDatabase(), "finto", "topic:clear"), "the id on disk would bring it back with session/load").toBeNull();
+
+    const b = recorder();
+    await provider.sendChat("topic:clear", "dopo il clear", b.handler);
+    const after = b.full.match(/\[(sess-\d+)\//)?.[1];
+    expect(after).toBeTruthy();
+    expect(after).not.toBe(before);
+    expect(b.full).toContain("/new]");
+  });
+
   test("chat diverse → sessioni diverse", async () => {
     const provider = makeProvider();
     const a = recorder();
@@ -295,6 +313,33 @@ describe("stop e morte", () => {
     expect(rec.aborted[0]!.turnEnd).toEqual({ end: "cancelled" });
   });
 
+  test("a turn past the 30-minute cap cancels the prompt still running in the agent", async () => {
+    // The cap closed the turn in error and left the prompt alive in the agent:
+    // no `session/cancel`, so it kept running tools for a turn the chat showed
+    // as over, and its updates kept landing in that closed turn's row.
+    const realSetTimeout = globalThis.setTimeout;
+    const PROMPT_CAP_MS = 30 * 60 * 1000;
+    globalThis.setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) =>
+      realSetTimeout(fn, ms === PROMPT_CAP_MS ? 300 : ms, ...rest)) as typeof setTimeout;
+    try {
+      const provider = makeProvider();
+      const rec = recorder();
+      const turn = provider.sendChat("topic:cap", "SLOW LINGER", rec.handler);
+      await untilSlowStarted(rec);
+      await turn;
+      expect(rec.errors.join("\n")).toContain("ACP_PROMPT_TIMEOUT");
+      const state = (provider as unknown as { sessions: Map<string, { prompt?: Promise<unknown> }> }).sessions.get("topic:cap")!;
+      // The agent answers the cancel (after its tail): the prompt settles.
+      const deadline = Date.now() + 3_000;
+      while (state.prompt && Date.now() < deadline) await Bun.sleep(10);
+      expect(state.prompt).toBeUndefined();
+      // The tail of a turn already closed in error does not reach its row.
+      expect(rec.full).not.toContain("linger:tail");
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
   test("il processo che muore a metà turno diventa un errore, non una promise appesa", async () => {
     const provider = makeProvider();
     const rec = recorder();
@@ -323,6 +368,47 @@ describe("stop e morte", () => {
   });
 });
 
+/** Every notification the provider sends to the agent, from now on. */
+function notifications(provider: AcpProvider): Array<{ method: string; params: Record<string, unknown> }> {
+  const peer = (provider as unknown as { peer: { notify: (m: string, p: Record<string, unknown>) => void } }).peer;
+  const seen: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const real = peer.notify.bind(peer);
+  peer.notify = (method, params) => { seen.push({ method, params }); real(method, params); };
+  return seen;
+}
+
+describe("/clear during a running prompt (CMD-09)", () => {
+  test("cancels the prompt still running in the agent", async () => {
+    const provider = makeProvider();
+    const first = recorder();
+    const turn = provider.sendChat("topic:clearbusy", "SLOW", first.handler);
+    await untilSlowStarted(first);
+    const sent = notifications(provider);
+
+    await provider.resetSession("topic:clearbusy");
+    expect(sent.map((n) => n.method), "the agent kept working on a cleared conversation").toContain("session/cancel");
+    const outcome = await Promise.race([turn.then(() => "settled"), Bun.sleep(2_000).then(() => "still running")]);
+    expect(outcome).toBe("settled");
+    expect(first.aborted[0]?.turnEnd).toEqual({ end: "cancelled", cause: "user" });
+  });
+
+  test("drops the send queued behind it: it never reaches the fresh session", async () => {
+    const provider = makeProvider();
+    const first = recorder();
+    const turn = provider.sendChat("topic:clearqueue", "SLOW LINGER", first.handler);
+    await untilSlowStarted(first);
+    const second = recorder();
+    const waiting = provider.sendChat("topic:clearqueue", "queued", second.handler);
+
+    await provider.resetSession("topic:clearqueue");
+    const outcome = await Promise.race([waiting, Bun.sleep(2_000).then(() => "still waiting")]);
+    expect(outcome).toEqual({ notSent: true });
+    await turn;
+    expect(second.full).toBe("");
+    expect(second.done).toEqual([]);
+  });
+});
+
 describe("complete (fuori dalla chat)", () => {
   test("gira su una sessione usa-e-getta: non sporca il contesto del turno vero", async () => {
     const provider = makeProvider();
@@ -335,6 +421,24 @@ describe("complete (fuori dalla chat)", () => {
     expect(out.content).toContain("dammi un titolo");
     expect(usedSession).toBeTruthy();
     expect(usedSession).not.toBe(chatSession);
+  });
+
+  test("at its 30-minute cap it cancels the prompt in the agent, as a chat turn does", async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const PROMPT_CAP_MS = 30 * 60 * 1000;
+    const provider = makeProvider();
+    await provider.sendChat("topic:warm", "ciao", recorder().handler);
+    const sent = notifications(provider);
+    globalThis.setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) =>
+      realSetTimeout(fn, ms === PROMPT_CAP_MS ? 300 : ms, ...rest)) as typeof setTimeout;
+    try {
+      await expect(provider.complete([{ role: "user", content: "SLOW" }])).rejects.toThrow("ACP_PROMPT_TIMEOUT");
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    const cancel = sent.find((n) => n.method === "session/cancel");
+    expect(cancel, "the throwaway session kept running in the agent").toBeTruthy();
+    expect(typeof cancel!.params.sessionId).toBe("string");
   });
 });
 

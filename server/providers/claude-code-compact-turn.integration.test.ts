@@ -108,6 +108,16 @@ describe("un turno di /compact si CHIUDE (catena intera, figlio vero)", () => {
 
     const reg: Registrato = { compattazioni: 0, done: 0, errori: [] };
 
+    // 0) A conversation to compact. The fake answers `/compact` on an empty
+    //    session with the failure the real CLI gives there («Not enough
+    //    messages to compact.», no `compact_boundary`), so the chain under
+    //    test needs one ordinary turn first.
+    const zero = new Promise<void>((res, rej) => {
+      void provider.sendChat("topic:compact-test", "ciao", handler(reg, res, rej)).catch(rej);
+    });
+    await zero;
+    expect(reg.done).toBe(1);
+
     // 1) Il turno di compattazione. `sendChat` RESTITUISCE — ed è tutto il
     //    punto: prima restava appesa fino al watchdog dei 30 minuti.
     const primo = new Promise<void>((res, rej) => {
@@ -119,7 +129,7 @@ describe("un turno di /compact si CHIUDE (catena intera, figlio vero)", () => {
     // La compattazione è arrivata: il divider in chat nasce da qui.
     expect(reg.compattazioni).toBe(1);
     // …e il turno è FINITO.
-    expect(reg.done).toBe(1);
+    expect(reg.done).toBe(2);
 
     // 2) Il messaggio scritto dopo — in pagina è quello che la coda drena a
     //    fine stream. Con il turno di prima ancora aperto, la coda seriale di
@@ -130,7 +140,7 @@ describe("un turno di /compact si CHIUDE (catena intera, figlio vero)", () => {
     await secondo;
 
     expect(reg.errori).toEqual([]);
-    expect(reg.done).toBe(2);
+    expect(reg.done).toBe(3);
 
     await provider.stop();
   }, 30_000);

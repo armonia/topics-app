@@ -58,6 +58,6 @@ export function resolveTopicProvider(
   if (!name) return registry.getDefaultProvider();
   try { return registry.getProvider(name); }
   catch {
-    throw new Error(`Provider "${name}" non disponibile. Collegalo nelle Impostazioni prima di riprendere questa conversazione.`);
+    throw new Error(`Provider "${name}" non disponibile. Collegalo da «Provider e chiavi», in fondo al selettore del modello, prima di riprendere questa conversazione.`);
   }
 }

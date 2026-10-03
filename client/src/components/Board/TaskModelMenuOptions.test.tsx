@@ -104,7 +104,8 @@ describe('the task model rows', () => {
     const unavailable: ProvidersSnapshot = { ...SNAPSHOT, providers: [{ ...SNAPSHOT.providers[0]!, status: 'unavailable', lastError: 'Sign in required' }] };
     const markup = renderToStaticMarkup(<TaskModelMenuOptions snapshot={unavailable} models={[]} value="topics:claude-opus-5" onSelect={() => {}} autoLabel="Auto" />);
     expect(rows(markup).filter((row) => row.selected).map((row) => row.label)).toEqual(['Opus 5Non disponibile']);
-    expect(markup).toContain('Apri impostazioni');
+    // The way out is the selector's footer row, the providers and keys.
+    expect(markup).toContain('data-testid="ai-selector-providers"');
   });
 
   test('the catalog lists a stored model once, keeps it when its provider is gone, and adds nothing when none is stored', () => {
@@ -124,7 +125,8 @@ describe('the task model rows', () => {
     );
     expect(rows(markup).filter((row) => row.selected).map((row) => row.label)).toEqual(['Opus 4.8Non disponibile']);
     expect(markup).toContain('non è più disponibile');
-    expect(markup).toContain('Apri impostazioni');
+    // The way out is the selector's footer row, the providers and keys.
+    expect(markup).toContain('data-testid="ai-selector-providers"');
   });
 
   test('a write in flight locks every row, Auto included', () => {

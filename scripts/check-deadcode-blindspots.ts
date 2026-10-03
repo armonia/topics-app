@@ -178,7 +178,6 @@ export const KNOWN_BLIND: Array<{ file: string; reason: string }> = [
   { file: "client/src/components/Project/FileSearch.tsx", reason: "lazy+then" },
   { file: "client/src/components/Project/GitChanges.tsx", reason: "lazy+then" },
   { file: "client/src/components/Project/ProcessLogPane.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Settings/GlobalSettings.tsx", reason: "lazy+then" },
   { file: "client/src/components/Shared/KeyboardShortcuts.tsx", reason: "lazy+then" },
   { file: "client/src/components/Terminal/SingleTerminalPane.tsx", reason: "lazy+then" },
   // Tre test leggono il SORGENTE di questo file (`readFileSync(new URL(

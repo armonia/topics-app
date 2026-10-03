@@ -2,7 +2,7 @@
  * @covers GESTURE-05
  */
 import { describe, expect, it } from 'bun:test';
-import { mnemonicMatch } from './useMenuKeyboard';
+import { isTypingSurface, mnemonicMatch } from './useMenuKeyboard';
 
 /**
  * La regola della lettera nuda, isolata dal DOM. Quello che conta è che sia
@@ -36,5 +36,27 @@ describe('mnemonicMatch', () => {
 
   it('la prima corrispondenza vince', () => {
     expect(mnemonicMatch(['B', 'B'], 'b')).toBe(0);
+  });
+});
+
+/**
+ * A FIELD INSIDE A MENU OWNS ITS KEYS. The user menu hosts forms now (an API
+ * key, a calendar URL, a node address): an arrow, Home or End typed there moves
+ * the caret, and the menu's roving focus must not take the key away.
+ */
+describe('isTypingSurface', () => {
+  const el = (tagName: string, isContentEditable = false) => ({ tagName, isContentEditable }) as unknown as EventTarget;
+
+  it('fields and editable regions own their keys', () => {
+    expect(isTypingSurface(el('INPUT'))).toBe(true);
+    expect(isTypingSurface(el('TEXTAREA'))).toBe(true);
+    expect(isTypingSurface(el('SELECT'))).toBe(true);
+    expect(isTypingSurface(el('DIV', true))).toBe(true);
+  });
+
+  it('a row or the panel itself does not', () => {
+    expect(isTypingSurface(el('BUTTON'))).toBe(false);
+    expect(isTypingSurface(el('DIV'))).toBe(false);
+    expect(isTypingSurface(null)).toBe(false);
   });
 });

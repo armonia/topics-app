@@ -124,6 +124,8 @@ describe("la flotta MCP del runtime nativo", () => {
     await remountMcpFleet();
 
     const status = mcpFleetStatus();
+    // `mounted` is what tells the menu's tail "none" from "not asked yet".
+    expect(status.mounted).toBe(true);
     const fakeServer = status.servers.find((s) => s.name === "finto")!;
     expect(fakeServer.state).toBe("ready");
     expect(fakeServer.transport).toBe("http");

@@ -17,6 +17,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { openHomePanel } from "./helpers/user-menu";
 
 hermetic(test);
 
@@ -26,13 +27,11 @@ const SHOT_PATH = "test-results/settings-cli-agents.png";
 test.describe("Settings · agent CLIs", () => {
   test.describe.configure({ timeout: 60_000 });
 
+  // The providers form lives beside the model selector since the 03/10/2026
+  // change, drawn by one host (`openHomePanel`).
   async function openProviders(page: import("@playwright/test").Page) {
     await page.goto("/");
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await page.keyboard.press("Meta+Comma");
-    const panel = page.locator('[data-testid="settings-panel"]');
-    await expect(panel).toBeVisible({ timeout: 10000 });
-    await panel.locator("nav button", { hasText: /AI|Provider/i }).first().click();
+    const panel = await openHomePanel(page, "providers");
     await panel.getByTestId("ai-providers-advanced-toggle").click();
     return panel;
   }

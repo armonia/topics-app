@@ -26,13 +26,17 @@
  * THE RULE FOR ADDING A LINE: it belongs here if it can explain a surprise. A
  * field the user can read off the screen does not qualify, no matter how easy
  * it is to include.
+ *
+ * The rule was written and then not kept: the topic name, the project path and
+ * the message count were back on top of the report (measured live on
+ * 2026-10-03), every row opened with an emoji glyph in an app that draws icons,
+ * and the route never passed the fallback model, so an unpinned topic had no
+ * model line at all. All three are gone; `sessionStatus.test.ts` holds them out.
  */
 
 /** The subset of a topic this report reads. Narrow on purpose: a wider type
  *  invites lines that answer nothing. */
 export interface TopicForStatus {
-  name?: string | null;
-  projectPath?: string | null;
   model?: string | null;
   effort?: string | null;
   provider?: string | null;
@@ -59,7 +63,6 @@ const AUTONOMY: Record<string, string> = {
 
 export interface StatusOpts {
   sessionKey: string;
-  messaggi: number;
   topic: TopicForStatus | null | undefined;
   /** The model that would actually handle the next turn when the topic pins none. */
   modelloDiRipiego?: string | null;
@@ -75,36 +78,34 @@ export interface StatusOpts {
 export function sessionStatus(o: StatusOpts): string {
   const t = o.topic;
   const rows: (string | null)[] = [
-    t?.name ? `📝 Topic: ${t.name}` : null,
-    t?.projectPath ? `📁 Progetto: ${t.projectPath}` : null,
-    t?.worktreeId ? `🌿 Worktree: ${t.worktreeId}` : null,
-    `💬 Messaggi: ${o.messaggi}`,
 
     // The four that decide how the next turn behaves. The model line names its
     // source, because "the topic pins opus" and "nothing is pinned and the
     // default happens to be opus" look identical on screen and are not the
     // same fact: only the first survives a change of the default.
     t?.model
-      ? `🧠 Modello: ${t.model} (fissato su questo topic)`
+      ? `Modello: ${t.model} (fissato su questo topic)`
       : o.modelloDiRipiego
-        ? `🧠 Modello: ${o.modelloDiRipiego} (default, non fissato qui)`
+        ? `Modello: ${o.modelloDiRipiego} (default, non fissato qui)`
         : null,
-    t?.effort ? `⚡ Effort: ${t.effort}` : null,
-    t?.fastMode ? "🏎️ Fast mode: acceso" : null,
+    t?.effort ? `Effort: ${t.effort}` : null,
+    t?.fastMode ? "Fast mode: acceso" : null,
     t?.autonomyLevel
-      ? `🛡️ Autonomia: ${t.autonomyLevel}. ${AUTONOMY[t.autonomyLevel] ?? "livello sconosciuto"}`
+      ? `Autonomia: ${t.autonomyLevel}. ${AUTONOMY[t.autonomyLevel] ?? "livello sconosciuto"}`
       : null,
 
     // Two that explain a missing capability rather than a behaviour.
     t?.mcpPolicy === "bridge-only"
-      ? "🔌 MCP: solo il ponte `topics` (flotta ridotta, profilo di dispatch)"
+      ? "MCP: solo il ponte `topics` (flotta ridotta, profilo di dispatch)"
       : null,
-    t?.contextFiles?.length ? `📎 File di contesto: ${t.contextFiles.length}` : null,
+    t?.contextFiles?.length ? `File di contesto: ${t.contextFiles.length}` : null,
+    // A worktree changes WHERE the turn writes, which the tab does not show.
+    t?.worktreeId ? `Worktree: ${t.worktreeId}` : null,
 
-    t?.provider ? `🤖 Provider: ${t.provider}` : null,
+    t?.provider ? `Provider: ${t.provider}` : null,
     // Last, and only here: an internal identifier is what you copy into a bug
     // report, not what you came to read.
-    `📍 Sessione: ${o.sessionKey}`,
+    `Sessione: ${o.sessionKey}`,
   ];
   return rows.filter(Boolean).join("\n");
 }

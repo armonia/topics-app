@@ -29,8 +29,12 @@
  * at the window edge, the dismissal contract and the occlusion of a native
  * browser pane, so this file only says what goes in each level.
  *
- * The panel therefore reads as FIVE groups, hairline between each: the
- * account, the people, the agents, the commands of the column, the app.
+ * The panel reads in groups, hairline between each: what you are and what you
+ * pay (account, plan), the people (friends, groups), the machines (devices,
+ * nodes), what the app runs on and reaches (AI providers, tools, calendar), the
+ * preferences and commands of the column, the app. Every setting lives here:
+ * the forms too, in wider levels (`FormLevel`), and there is no Settings
+ * window behind a last row any more (USERMENU-06).
  *
  * ── AND THE MENU DOES NOT REPEAT THE CARD ───────────────────────────────────
  * The card that opens it already says your name and what the machine is
@@ -47,6 +51,7 @@ import { IdentityMenuItems } from './IdentityMenuItems';
 import type { IdentityMenuData } from '@/hooks/useIdentityMenuData';
 import type { WorkSignal } from './workSignals';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
+import { ConfirmInsidePopoverContext } from '@/hooks/confirmInsidePopover';
 
 /** The commands of the column, as they arrive from `App`: everything the
  *  «Topics» dropdown used to hold, minus the two things this menu decides for
@@ -96,7 +101,7 @@ function useAnchorWidth(anchorEl: HTMLElement | null, floor: number): number {
 }
 
 export function ProfileMenu({
-  anchorEl, onClose, identity, signals, commands, openLevel = null,
+  anchorEl, onClose, identity, signals, commands, openLevel = null, focusFirstRow = false, focusRequest = 0,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
@@ -107,6 +112,10 @@ export function ProfileMenu({
   commands: SidebarCommands;
   /** The level `openUserMenu` asked for, open from the first render. */
   openLevel?: UserMenuLevel | null;
+  /** Opened by ⌘, : the first row has the focus. */
+  focusFirstRow?: boolean;
+  /** Changes when the menu is asked for again while open: focus it again. */
+  focusRequest?: number;
 }) {
   const width = useAnchorWidth(anchorEl, MIN_WIDTH);
 
@@ -116,6 +125,8 @@ export function ProfileMenu({
       onClose={onClose}
       testId="profile-menu"
       width={width}
+      focusFirstRow={focusFirstRow}
+      focusRequest={focusRequest}
     >
       {/* THE PANEL SCROLLS, THE WINDOW DOES NOT. Everything the chrome knows is
           in here now, and the account block plus the performance panel opened
@@ -124,6 +135,10 @@ export function ProfileMenu({
       {/* THE MEASURE GOES DOWN TO THE LEVELS. Without it a 400 host opens
           sublevels at 230 and the menu becomes a staircase: the number written
           at each call site stays as the floor, and this raises it. */}
+      {/* A QUESTION ASKED IN HERE IS PART OF THE MENU. The forms ask before
+          they destroy («remove the licence?», «sign out?»): the dialog leaves
+          the menu open behind it, and answering is not a press outside. */}
+      <ConfirmInsidePopoverContext.Provider value={true}>
       <MenuWidthProvider width={width}>
       <div className="max-h-[min(70vh,560px)] overflow-y-auto">
         <IdentityMenuItems data={identity} width={width} onClose={onClose} openLevel={openLevel} />
@@ -143,6 +158,7 @@ export function ProfileMenu({
         />
       </div>
       </MenuWidthProvider>
+      </ConfirmInsidePopoverContext.Provider>
     </PresencePopover>
   );
 }

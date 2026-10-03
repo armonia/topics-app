@@ -151,15 +151,19 @@ test.describe("Floating surfaces enter and leave", () => {
     await expectExit(page, "notification panel", "popover", POPOVER_MAX_MS);
   });
 
-  test("MOTION-04e: settings, the veil fades in with the panel and both leave", async ({ page }) => {
+  // The forms left in the user menu (the plan, the machines) are levels: a form
+  // level moves like every level, with no veil of its own.
+  test("MOTION-04e: a form level of the user menu (Plan)", async ({ page }) => {
     await ready(page);
-    await watch(page, ':has(> [data-testid="settings-panel"])');
-    await page.keyboard.press("Meta+,");
-    await expect(page.getByTestId("settings-panel")).toBeVisible();
-    await expectEntrance(page, "settings veil", MODAL_MAX_MS, ["opacity"]);
+    await page.getByTestId("identity-me-profile").click();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+    await watch(page, '[data-testid="topics-menu-plan-menu"]');
+    await page.getByTestId("topics-menu-plan").click();
+    await expect(page.getByTestId("topics-menu-plan-menu")).toBeVisible();
+    await expectEntrance(page, "form level", POPOVER_MAX_MS, COMPOSITOR_PROPS);
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
-    await expectExit(page, "settings", "modal", MODAL_MAX_MS);
+    await expect(page.getByTestId("topics-menu-plan-menu")).toHaveCount(0);
+    await expectExit(page, "form level", "popover", POPOVER_MAX_MS);
   });
 
   test("MOTION-04f: the palette, its veil and the same exit", async ({ page }) => {
@@ -255,7 +259,7 @@ test.describe("Every other surface enters and leaves on the same mechanism", () 
     await expect(page.getByRole("menu")).toBeVisible();
     const dialog = `[role="dialog"][aria-label="${topic!.name} Settings"]`;
     await watch(page, `${dialog} > :first-child`);
-    await page.getByRole("menu").getByRole("button", { name: "Impostazioni" }).click();
+    await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
     await expect(page.locator(dialog)).toBeVisible();
     await expectEntrance(page, "chat settings veil", MODAL_MAX_MS, ["opacity"]);
     await page.keyboard.press("Escape");
@@ -597,9 +601,9 @@ test.describe("Reduced motion, everywhere", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("notification-history-panel")).toHaveCount(0);
     await page.keyboard.press("Meta+,");
-    await expect(page.getByTestId("settings-panel")).toBeVisible();
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
     await page.keyboard.press("Meta+k");
     await expect(page.getByTestId("command-palette")).toBeVisible();
     await page.keyboard.press("Escape");

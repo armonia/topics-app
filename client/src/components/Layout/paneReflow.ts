@@ -11,8 +11,11 @@
  * flashes the views. 400ms is a fixed settle window (no real drag end to key
  * off of, unlike the divider-resize start/end pairs elsewhere) — long enough
  * for the grid's CSS transition plus a layout pass.
+ *
+ * `detail.reflow` tells the native-view drag gate this start has no pointer
+ * behind it: its belt (a `pointermove` with no button) must not end it.
  */
 export function notifyPaneReflow(): void {
-  window.dispatchEvent(new Event('topics:pane-resize-start'));
-  setTimeout(() => window.dispatchEvent(new Event('topics:pane-resize-end')), 400);
+  window.dispatchEvent(new CustomEvent('topics:pane-resize-start', { detail: { reflow: true } }));
+  setTimeout(() => window.dispatchEvent(new CustomEvent('topics:pane-resize-end', { detail: { reflow: true } })), 400);
 }

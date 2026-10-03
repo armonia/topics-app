@@ -36,7 +36,7 @@ export const MODAL_LAYER: `z-[${typeof Z_MODAL}]` = 'z-[10000]';
 
 /**
  * Combined container + backdrop, for modals whose outermost element is BOTH the
- * full-screen flex centerer AND the dimming layer (e.g. GlobalSettings, the
+ * full-screen flex centerer AND the dimming layer (e.g. the confirmation and the
  * Agent dialogs). Append your own justify/items overrides if you don't want
  * dead-center.
  */

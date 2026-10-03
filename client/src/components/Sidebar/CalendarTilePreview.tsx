@@ -7,8 +7,8 @@ import { tauriInvoke } from '../../lib/shell/tauri';
  * THE HOVER PREVIEW OF A PINNED CALENDAR TILE.
  *
  * A screenshot of the browser pane already open for this pin -- never a new
- * browser, and never the ICS feed configured in Settings (that feed keeps
- * powering its own subsystem; it is just not the source here). Mounted only
+ * browser, and never the ICS feed (configured from this tile's own menu,
+ * `CalendarMenuRow`; it powers its own subsystem and is not the source here). Mounted only
  * while the tile is hovered or focused, so the request it fires happens
  * exactly once per open and nothing runs while the tile is closed.
  */

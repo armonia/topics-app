@@ -323,6 +323,12 @@ describe("the automatic turn checkpoints", () => {
     expect(read("a.txt")).toBe("a by the turn\n");
   });
 
+  test("a chat without a project folder is told so with a code, the one /rewind words as «no project»", async () => {
+    const r = await call("POST", `/api/topics/${NO_FOLDER_TOPIC}/turn-checkpoints/restore`, {});
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe("no_project");
+  });
+
   test("a safe restore applies the plan and returns it with the outcome", async () => {
     const before = await captureTurnCheckpoint(repo, SESSION, "before", "before");
     write("a.txt", "a by the turn\n");

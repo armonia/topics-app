@@ -25,6 +25,7 @@ import {
   SKIPPED_SHOWN,
   rollbackButtonState,
   rollbackDialogText,
+  rewindFailureText,
   type CheckpointPreflight,
 } from './checkpointPlan';
 
@@ -147,5 +148,29 @@ describe('the timeline wires the decision, not a copy of it', () => {
   });
   test('hovering an entry asks for the plan', () => {
     expect(src).toMatch(/onMouseEnter=\{\(\) => \{[^}]*fetchPlan\(cp\.idx\)/);
+  });
+});
+
+describe('what a failed /rewind says', () => {
+  const tr = (key: string, vars?: Record<string, string | number>) => (vars ? `${key} ${JSON.stringify(vars)}` : key);
+
+  test('only the route\'s own «no project folder» answer says so', () => {
+    expect(rewindFailureText({ code: 'no_project', message: 'This chat is not bound to a project folder' }, tr)).toBe('chat.rewind.noProject');
+  });
+
+  test('a 500 or a network failure is said as it is, project or not', () => {
+    expect(rewindFailureText({ message: 'Restore failed: disk full' }, tr)).toBe('Restore failed: disk full');
+    expect(rewindFailureText({ message: 'Failed to fetch' }, tr)).toBe('Failed to fetch');
+  });
+
+  test('a refusal names its blocker', () => {
+    expect(rewindFailureText({ blockedBy: 'no-checkpoint', message: 'Restore refused' }, tr))
+      .toBe(`checkpoint.rollback.refused ${JSON.stringify({ reason: 'checkpoint.blocked.noCheckpoint' })}`);
+  });
+
+  test('ChatPane decides with it, not with «the chat has no projectPath»', () => {
+    const src = readFileSync(join(import.meta.dir, 'ChatPane.tsx'), 'utf8');
+    expect(src).toContain('rewindFailureText({');
+    expect(src).not.toMatch(/!topic\.projectPath\s*\?\s*tr\('chat\.rewind\.noProject'\)/);
   });
 });
