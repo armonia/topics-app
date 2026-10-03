@@ -9,7 +9,7 @@
  * error the person must see.
  * @covers ATTN-15
  */
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
@@ -24,6 +24,9 @@ import {
   turnStarted,
 } from "./store";
 import { createClaudeSessionTracker } from "../lib/claude-session-tracker";
+
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
 
 const pushes: unknown[] = [];
 const rows: string[] = [];
@@ -42,7 +45,7 @@ function freshDb(): Database {
   for (const prefix of ["027-", "096-"]) {
     const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
     const sql = readFileSync(join(migDir, file), "utf-8").split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
-    for (const stmt of sql.split(";").map((s) => s.trim()).filter(Boolean)) db.run(stmt);
+    for (const statement of sql.split(";").map((s) => s.trim()).filter(Boolean)) db.run(statement);
   }
   return db;
 }

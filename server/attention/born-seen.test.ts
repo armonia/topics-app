@@ -19,6 +19,9 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { configureNotificationRegistry, __resetNotificationRegistry } from "../notification-registry";
 import { configureAttentionStore, forgetSocket, getAttention, resetAttentionStore, setSocketFocus, turnEnded, turnStarted } from "./store";
 
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
+
 let tmpRoot: string;
 beforeAll(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "attn-born-seen-"));
@@ -35,6 +38,8 @@ const pushes: unknown[] = [];
 beforeEach(() => {
   resetAttentionStore();
   getDatabase().run("DELETE FROM notification_log");
+  // The store's table outlives a test like it outlives a restart: each case starts empty.
+  getDatabase().run("DELETE FROM subject_attention");
   pushes.length = 0;
   configureAttentionStore({ sendPush: (p) => { pushes.push(p); }, describe: () => ({ name: "Chat davanti" }) });
 });

@@ -28,6 +28,9 @@ import {
 } from "./store";
 import { paneTombstoned } from "./wire";
 
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
+
 let tmpRoot: string;
 beforeAll(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "attn-recompose-"));

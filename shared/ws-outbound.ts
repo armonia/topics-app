@@ -173,6 +173,10 @@ const streamEndSchema = z.object({
   // so the failure push (server/push-triggers, `chat-error`) can say what
   // happened without re-reading the row. Absent on a clean end.
   error: z.optional(z.string()),
+  // The work the turn left running, counted as the attention state counts it
+  // (`attentionBackground`: live tasks, the wake on its way, non-recurring
+  // crons). A turn with `count > 0` is not a finished turn (ATTN-02).
+  background: z.optional(z.object({ count: z.number(), kinds: z.array(z.string()) })),
 });
 
 // ---- Coordination broadcasts (mirrors of inbound) --------------------------
@@ -1346,6 +1350,63 @@ const notificationSeenSchema = z.looseObject({
   subjects: z.optional(z.array(z.string())),
 });
 
+// ---- Attention (notifications-redesign) -------------------------------------
+
+const attentionTaskSchema = z.looseObject({
+  id: z.string(),
+  kind: z.string(),
+  label: z.string(),
+  startedAt: z.string(),
+  recurring: z.optional(z.boolean()),
+});
+
+/** One subject's attention state (`shared/attention.ts`, `AttentionSnapshot`). */
+const attentionSnapshotSchema = z.looseObject({
+  subject: z.string(),
+  state: z.enum(['idle', 'working', 'background', 'needs-you', 'finished']),
+  reason: z.nullable(z.string()),
+  outcome: z.nullable(z.string()),
+  detail: z.nullable(z.string()),
+  since: z.string(),
+  epoch: z.number(),
+  seenEpoch: z.number(),
+  lit: z.boolean(),
+  unread: z.number(),
+  turnUnseen: z.boolean(),
+  lastTurnAt: z.nullable(z.string()),
+  background: z.array(attentionTaskSchema),
+});
+
+/**
+ * Every subject that is not idle, at every open of a socket of the person:
+ * the client REPLACES its attention store with it (ATTN-07). Owner-only.
+ * Sender `server/attention/store.ts` (`attentionInitFrame`), through the WS
+ * open burst in `server.ts`.
+ */
+const attentionInitSchema = z.looseObject({
+  type: z.literal('attention:init'),
+  rows: z.array(attentionSnapshotSchema),
+});
+
+/**
+ * One subject's state changed: state, epoch, seen, unread, tasks. `live` is
+ * false for a recomposition at boot, which never announces. `announce` comes
+ * with a new epoch: the banner's words, and `bornSeen` when the subject was in
+ * front of the person. Owner-only. Sender `server/attention/store.ts`.
+ */
+const attentionUpdatedSchema = z.looseObject({
+  type: z.literal('attention:updated'),
+  row: attentionSnapshotSchema,
+  live: z.boolean(),
+  announce: z.optional(z.looseObject({
+    title: z.string(),
+    body: z.string(),
+    tag: z.string(),
+    url: z.string(),
+  })),
+  bornSeen: z.optional(z.boolean()),
+});
+
 /**
  * Whether a session has a turn open, from the server's ledger
  * (`server/lib/turn-ledger.ts`). Sent on every open/close transition, from
@@ -1541,6 +1602,9 @@ const OUTBOUND_SCHEMAS = {
   // Cronologia delle notifiche
   'notification:new': notificationNewSchema,
   'notification:seen': notificationSeenSchema,
+  // Lo stato di attenzione (notifications-redesign)
+  'attention:init': attentionInitSchema,
+  'attention:updated': attentionUpdatedSchema,
 } as const;
 
 /**

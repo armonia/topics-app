@@ -73,6 +73,11 @@ const UNCONSUMED: Record<string, string> = {
   // per una modifica di contorno, che è esattamente ciò che la nota in cima allo
   // schema dice di non fare: si decide quando si versiona.
   "external-sessions": "censimento senza superficie da quando il chip in barra è stato tolto; il dispatcher lo legge da activeAt(), non dal filo",
+  // The server half of notifications-redesign lands before the client half:
+  // the client's attention store (tasks.md 3.1) is the listener, and these two
+  // lines leave with it.
+  "attention:init": "server half of notifications-redesign; the client store that reads it is tasks.md 3.1",
+  "attention:updated": "server half of notifications-redesign; the client store that reads it is tasks.md 3.1",
 };
 
 /** Sorgenti del CLIENT: quelli che possono ascoltare. Test esclusi. */

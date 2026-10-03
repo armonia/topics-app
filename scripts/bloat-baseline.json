@@ -359,6 +359,7 @@
 
     "server.ts": 6674,
 
+    "server/attention/store.ts": {"lines": 894, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
     "server/browser-service.ts": 2361,
 
     "server/browser-tools-handler.ts": 810,
@@ -416,7 +417,7 @@
 
     "server/routes/tasks.ts": 3981,
 
-    "server/routes/terminal.ts": 3545,
+    "server/routes/terminal.ts": {"lines": 3727, "why": ["2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module."]},
 
     "server/routes/topics.control.test.ts": 855,
 
