@@ -461,3 +461,32 @@ test.describe("sul telefono il menu del titolo è il menu utente", () => {
     await expect(page.getByTestId("sidebar-topics-menu-panel").getByTestId("account-email")).toBeVisible({ timeout: 10_000 });
   });
 });
+
+test.describe("in a 390 window with a mouse the menu is a sheet, and its levels wait for a click", () => {
+  // A narrow desktop window, not a phone: the pointer is a mouse.
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: false, isMobile: false });
+
+  test("USERMENU-09b: ⌘, opens the sheet under a resting pointer, and the row under it does not open its level by hover", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-09" });
+    await goToApp(page);
+    // Where the sheet is going to rise: the pointer rests in the lower half.
+    await page.mouse.move(195, 700);
+    await page.keyboard.press("Control+,");
+    const row = page.getByTestId("topics-menu-appearance");
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    const box = await row.boundingBox();
+    expect(box, "the row is laid out").not.toBeNull();
+    // The person moves onto the row, as the hand does after a shortcut.
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 4 });
+    const level = page.getByTestId("topics-menu-appearance-menu");
+    // A NEGATIVE needs a happens-after: hover opened a level 120 ms after the
+    // pointer came to rest, so the absence is read well past that.
+    const restedAt = Date.now();
+    await expect.poll(() => Date.now() - restedAt, { timeout: 5_000, intervals: [200] }).toBeGreaterThan(800);
+    await expect(level, "a level in a sheet opened by hover alone").toHaveCount(0);
+    await expect(row).toHaveAttribute("aria-expanded", "false");
+    // The click still opens it: the level is a sheet over the sheet.
+    await row.click();
+    await expect(level).toBeVisible({ timeout: 10_000 });
+  });
+});
