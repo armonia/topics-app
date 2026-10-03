@@ -2584,6 +2584,7 @@ const EN = {
   'run.exit': 'exit {code}',
   'run.stopped': 'Stopped',
   'run.unknown': 'Outcome unknown',
+  'run.durationUnknown': 'duration unknown',
   'run.ranAt': 'ran {when}',
   'run.stop': 'Stop',
   'run.rerun': 'Run again',

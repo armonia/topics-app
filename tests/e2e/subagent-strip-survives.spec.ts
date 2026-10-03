@@ -526,7 +526,11 @@ test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the a
   await twoFrames(page);
   await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
   expect(await inProject.count(), "the tab of the sub-agent stopped while the app was closed").toBe(1);
-  await page.unroute(roster);
+  // A plain `unroute` lets the server continue a roster the handler is still
+  // sleeping on, and the handler's own `continue` then throws «Route is already
+  // handled!» (red 3/3 on main). `wait` lets the sleeping handlers finish first;
+  // this page has no other route.
+  await page.unrouteAll({ behavior: "wait" });
 
   // And the next launch keeps it too, on a roster cache that no longer lists it.
   await reloadAndAwaitVerdict(page, dormantReads, sentinelId);

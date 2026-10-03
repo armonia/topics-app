@@ -34,6 +34,7 @@
  */
 import * as React from 'react';
 
+const REACT_PORTAL = Symbol.for('react.portal');
 const INTERNALS_KEY = '__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE';
 
 interface DispatcherSlot { H: unknown }
@@ -237,6 +238,12 @@ export function mount(element: React.ReactNode): Harness {
     }
     if (Array.isArray(node)) {
       node.forEach((child, i) => walk(child as React.ReactNode, `${path}.${i}`, fiber, pass));
+      return;
+    }
+    // A portal (`createPortal`, a popover drawn into <body>) is still this
+    // tree: its children render with this component's state and context.
+    if (typeof node === 'object' && (node as { $$typeof?: unknown }).$$typeof === REACT_PORTAL) {
+      walk((node as { children?: React.ReactNode }).children, `${path}/portal`, fiber, pass);
       return;
     }
     if (!React.isValidElement(node)) return;

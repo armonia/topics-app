@@ -19,10 +19,13 @@
  * scanned word by word: past the reserved words that lead into it (`then`,
  * `do`, `!`, `{`, `function name`...), the assignments in front of it
  * (`FOO="a b" rm -rf x`, `A+=1 rm -rf x`) and the wrappers that run another
- * command (`sudo`, `env`, `xargs`, `exec -a`, `builtin`, zsh's `noglob`...).
+ * command (`sudo`, `env`, `xargs`, `exec -a`, `builtin`, `watch -x`, zsh's
+ * `noglob`...). The commands of find's `-exec`, `-execdir`, `-ok` and `-okdir`
+ * are read the same way, up to their `;` or `+`.
  * A command handed over as text is read again from that text: the payload of
- * `sh -c`/`bash -c`/`zsh -c` and of `env -S`, the words of `eval` and those
- * after `ssh host` (a command run on another machine is no less destructive),
+ * `sh -c`/`bash -c`/`zsh -c`, of `su -c` and of `env -S`, the words of `eval`,
+ * of `watch` (which hands them to `sh -c`) and those after `ssh host` (a
+ * command run on another machine is no less destructive),
  * and what a shell reads on its input: a here-string, a heredoc, or the text
  * the command before it in a pipeline was given. Only a command's own name is
  * looked at: `echo "rm -rf x"` asks nothing.
@@ -82,6 +85,35 @@ const LONG_VALUE_OPTS = new Map(Object.entries({
   '--signal': 's', '--kill-after': 'k', '--max-args': 'n', '--max-procs': 'P', '--max-lines': 'L', '--delimiter': 'd',
   '--arg-file': 'a', '--replace': 'I', '--eof': 'E', '--rcfile': 'f', '--init-file': 'f',
 }));
+/**
+ * How a program reads its options with glibc's getopt_long: the short letters
+ * (`x:` takes a value, `x::` takes one only when attached), the long names
+ * (`name` a flag, `name=` a value, `name=?` an optional value attached with
+ * `=`) and the letter each long name stands for; `permute` when options may
+ * come after the operands, as glibc does unless the letters start with `+`.
+ */
+interface LongOptionSpec { short: string; long: Record<string, string>; permute: boolean }
+/** procps-ng's watch: `+bcCd::eghq:n:prs:tvwx`, stopping at the first operand. */
+const WATCH_OPTS: LongOptionSpec = {
+  short: 'bcCd::eghq:n:prs:tvwx',
+  long: {
+    beep: 'b', color: 'c', 'no-color': 'C', 'differences=?': 'd', errexit: 'e', chgexit: 'g', 'equexit=': 'q',
+    'interval=': 'n', precise: 'p', 'no-rerun': 'r', 'shotsdir=': 's', 'no-title': 't', 'no-wrap': 'w', exec: 'x',
+    help: 'h', version: 'v',
+  },
+  permute: false,
+};
+/** util-linux's su: options anywhere among the operands; `-c` and `--session-command` are the command its shell runs. */
+const SU_OPTS: LongOptionSpec = {
+  short: 'c:fg:G:lmpPs:hVw:',
+  long: {
+    'command=': 'c', 'session-command=': 'c', fast: 'f', 'group=': 'g', 'supp-group=': 'G', login: 'l',
+    'preserve-environment': 'p', pty: 'P', 'shell=': 's', help: 'h', version: 'V', 'whitelist-environment=': 'w',
+  },
+  permute: true,
+};
+/** find's actions that run a command, up to a `;` or `+` word. */
+const FIND_EXEC = new Set(['-exec', '-execdir', '-ok', '-okdir']);
 const SSH_VALUE_OPTS = 'BbcDEeFIiJLlmOoPpQRSWw';
 /** Shells whose `-c` takes the command to run as text, and that read a script on their input otherwise. */
 const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
@@ -484,7 +516,87 @@ function wrappedCommand(name: string, words: string[], i: number): number | stri
   if (name === 'eval') return words[i + 1] === '--' ? i + 2 : i + 1;
   if (name === 'ssh') return sshCommand(words, i);
   if (SHELL_NAMES.has(name)) return shellPayload(words, i);
+  if (name === 'su') return suPayload(words, i);
+  if (name === 'watch') {
+    const { options, operands } = readLongOptions(words, i + 1, WATCH_OPTS);
+    if (!operands.length) return null;
+    // `watch -x` runs the words; otherwise it joins them and hands them to `sh -c`.
+    return options.some(([letter]) => letter === 'x') ? words.length - operands.length : operands.join(' ');
+  }
   return null;
+}
+
+/**
+ * The options and operands of `words` from `start`, read as glibc's
+ * getopt_long reads them: clusters of short letters, `--name` or any prefix
+ * of it that names one option only, `--` ending the options, and, with
+ * `permute`, options also after the operands. An unknown or ambiguous option
+ * is read as a flag: the program would refuse the line, and reading on
+ * errs toward asking.
+ */
+function readLongOptions(words: string[], start: number, spec: LongOptionSpec): { options: Array<[string, string | null]>; operands: string[] } {
+  const options: Array<[string, string | null]> = [];
+  const operands: string[] = [];
+  const longNames = Object.keys(spec.long);
+  const bare = (key: string) => key.replace(/=\??$/, '');
+  for (let i = start; i < words.length; i++) {
+    const w = words[i]!;
+    if (w === '--') { operands.push(...words.slice(i + 1)); break; }
+    if (!w.startsWith('-') || w === '-') {
+      if (!spec.permute) { operands.push(...words.slice(i)); break; }
+      operands.push(w);
+      continue;
+    }
+    if (w.startsWith('--')) {
+      const [given, attached] = w.slice(2).split(/=(.*)/s) as [string, string | undefined];
+      const exact = longNames.find((key) => bare(key) === given);
+      const prefixed = longNames.filter((key) => bare(key).startsWith(given));
+      const key = exact ?? (new Set(prefixed.map((k) => spec.long[k])).size === 1 ? prefixed[0] : undefined);
+      if (key === undefined) { options.push(['?', null]); continue; }
+      const letter = spec.long[key]!;
+      if (key.endsWith('=')) options.push([letter, attached ?? words[++i] ?? '']);
+      else options.push([letter, attached ?? null]);
+      continue;
+    }
+    for (let k = 1; k < w.length; k++) {
+      const at = spec.short.indexOf(w[k]!);
+      const takes = at >= 0 && w[k] !== ':' ? spec.short.slice(at + 1, at + 3) : '';
+      if (takes.startsWith('::')) { options.push([w[k]!, k + 1 < w.length ? w.slice(k + 1) : null]); break; }
+      if (takes.startsWith(':')) { options.push([w[k]!, k + 1 < w.length ? w.slice(k + 1) : words[++i] ?? '']); break; }
+      options.push([w[k]!, null]);
+    }
+  }
+  return { options, operands };
+}
+
+/**
+ * The text the shell of `su [options] [-] [user [args]]` runs. util-linux
+ * reads options anywhere among the words (`su root extra -c 'rm -rf x'`), and
+ * hands the words after the user to the shell, so `su root -- -c 'rm -rf x'`
+ * runs it too. Null when neither gives the shell a command: an interactive
+ * shell, or a script whose text is not here.
+ */
+function suPayload(words: string[], i: number): string | null {
+  const { options, operands } = readLongOptions(words, i + 1, SU_OPTS);
+  let command: string | null = null;
+  for (const [letter, value] of options) if (letter === 'c') command = value;
+  // `-` makes it a login shell, then comes the user; the rest is the shell's.
+  const rest = operands.slice(operands[0] === '-' ? 2 : 1);
+  if (command !== null) return command;
+  return shellPayload(['sh', ...rest], 0);
+}
+
+/** The commands find runs for each file: the words after each `-exec`-like action, up to its `;` or `+`. */
+function findCommands(args: string[]): string[][] {
+  const out: string[][] = [];
+  for (let k = 0; k < args.length; k++) {
+    if (!FIND_EXEC.has(args[k]!)) continue;
+    let end = k + 1;
+    while (end < args.length && args[end] !== ';' && args[end] !== '+') end++;
+    out.push(args.slice(k + 1, end));
+    k = end;
+  }
+  return out;
 }
 
 /** The reasons found in one simple command, as the words the shell hands over, and what it reads on its input. */
@@ -508,7 +620,7 @@ function scanWords(words: string[], scan: Scan, input: () => string[]): void {
     const name = commandName(words[i] ?? '');
     const runs = wrappedCommand(name, words, i);
     if (runs === null) break;
-    if (name === 'sudo' || name === 'doas') add('sudo', name);
+    if (name === 'sudo' || name === 'doas' || name === 'su') add('sudo', name);
     if (typeof runs === 'string') { scanText(runs, scan); return; }
     if (lastChanging >= runs && !scan.exhausted) {
       // `eval` joins its words and the shell reads them again.
@@ -522,6 +634,7 @@ function scanWords(words: string[], scan: Scan, input: () => string[]): void {
   const name = commandName(words[i] ?? '');
   // A shell with no `-c` reads its script on its input.
   if (SHELL_NAMES.has(name)) { for (const text of input()) scanText(text, scan); return; }
+  if (name === 'find') for (const command of findCommands(words.slice(i + 1))) scanWords(command, scan, () => []);
   scanCommand(name, words.slice(i + 1), add);
 }
 
@@ -546,8 +659,9 @@ function scanCommand(name: string, args: string[], add: AddReason): void {
     }
     case 'find': {
       if (args.includes('-delete')) add('find-delete', 'find -delete');
-      const exec = args.findIndex((a) => a === '-exec' || a === '-execdir');
-      if (exec >= 0 && commandName(args[exec + 1] ?? '') === 'rm') add('find-delete', `find ${args[exec]} rm`);
+      for (let k = 0; k < args.length; k++) {
+        if (FIND_EXEC.has(args[k]!) && commandName(args[k + 1] ?? '') === 'rm') add('find-delete', `find ${args[k]} rm`);
+      }
       return;
     }
     case 'kill': {
@@ -557,6 +671,8 @@ function scanCommand(name: string, args: string[], add: AddReason): void {
       return;
     }
     case 'killall': case 'pkill': add('kill', name); return;
+    // Another user's shell, `root` when none is named: the same step as sudo.
+    case 'su': add('sudo', name); return;
     case 'launchctl': {
       const sub = args.find((a) => !a.startsWith('-'));
       if (sub === 'bootout') add('launchctl', 'launchctl bootout');

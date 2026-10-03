@@ -39,6 +39,12 @@ if [ -z "$HOST" ]; then
 fi
 
 win() { ssh -o BatchMode=yes "$HOST" "cd /d $REPO_WIN && $*"; }
+# The same, reading nothing: inside a `while read` loop a plain `ssh` swallows
+# the loop's own input, so only the first batch of forty was ever sent. The
+# derived list checked 40 of the ~2400 paths the history deleted and removed
+# nothing (seen on the PC, 03/10), and a sync with more than forty stale files
+# deleted only the first forty.
+win_n() { ssh -n -o BatchMode=yes "$HOST" "cd /d $REPO_WIN && $*"; }
 # Repo-relative paths on stdin -> lines of forty quoted Windows paths, which
 # keeps each command line far under cmd's 8191 characters.
 win_batches() { tr '\n' '\0' | xargs -0 -n 40 sh -c 'printf "\"%s\" " "$@"; echo' _ | tr '/' '\\'; }
@@ -70,10 +76,24 @@ case "${1:-help}" in
       # --no-renames: with rename detection a path renamed away is an R, not a
       # D, and stayed on the PC. A directory is skipped: the history has a
       # deleted `node_modules` symlink, and `if exist` is true for the real one.
+      #
+      # A path the repo now IGNORES is left alone even if git once tracked it:
+      # it is a file somebody generates there (bench/results/, videos/INDEX.md,
+      # docs/DEAD-CODE.md), not one this script shipped. 515 of the ~2400
+      # deleted paths are such files (03/10); `git check-ignore` reads the same
+      # rules git does, negations and parent directories included.
       echo "> no list of shipped files on the PC yet: deriving it from the history..."
-      git -C "$REPO_MAC" -c core.quotePath=false log --no-renames --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u \
+      git -C "$REPO_MAC" -c core.quotePath=false log --no-renames --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u > "$tmp/deleted"
+      ignored_rc=0
+      tr '\n' '\0' < "$tmp/deleted" | git -C "$REPO_MAC" check-ignore -z --stdin > "$tmp/ignored0" || ignored_rc=$?
+      # 1 is "none of them is ignored"; anything above is git failing, and a
+      # list it could not filter is not one to delete from.
+      if [ "$ignored_rc" -gt 1 ]; then echo "x git check-ignore failed ($ignored_rc)" >&2; exit 1; fi
+      tr '\0' '\n' < "$tmp/ignored0" | sort > "$tmp/ignored"
+      echo "> $(wc -l < "$tmp/ignored" | tr -d ' ') of them are ignored by the repo now: never deleted"
+      comm -23 "$tmp/deleted" "$tmp/ignored" \
         | win_batches | while IFS= read -r batch; do
-          win "(for %f in ($batch) do @if exist %f if not exist \"%~f\\*\" echo %~f) & exit 0"
+          win_n "(for %f in ($batch) do @if exist %f if not exist \"%~f\\*\" echo %~f) & exit 0"
         done | tr -d '\r' | tr '\\' '/' | sort > "$tmp/old"
     fi
     comm -23 "$tmp/old" "$tmp/$MANIFEST" > "$tmp/stale"
@@ -82,14 +102,14 @@ case "${1:-help}" in
       sed 's/^/  - /' "$tmp/stale"
       # `del` of a file already gone is not an error.
       win_batches < "$tmp/stale" | while IFS= read -r batch; do
-        win "del /f /q $batch 2>nul & exit 0"
+        win_n "del /f /q $batch 2>nul & exit 0"
       done
       # Directories the deletions left empty, deepest first; `rd` without /s
       # refuses a directory that still holds anything, untracked files included.
       while IFS= read -r f; do d="$(dirname "$f")"; while [ "$d" != "." ]; do echo "$d"; d="$(dirname "$d")"; done; done < "$tmp/stale" \
         | sort -u | awk '{ print gsub("/", "/"), $0 }' | sort -rn | cut -d' ' -f2- \
         | win_batches | while IFS= read -r batch; do
-        win "(for %d in ($batch) do @rd %d 2>nul) & exit 0"
+        win_n "(for %d in ($batch) do @rd %d 2>nul) & exit 0"
       done
     fi
     # tar.exe has been in System32 since Windows 10 1803. The list travels in
