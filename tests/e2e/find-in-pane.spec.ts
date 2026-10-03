@@ -7,7 +7,7 @@ import {
 } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { unmockChatStream } from "./helpers/sse-helpers";
-import { canonicalTmpRoot, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { canonicalTmpRoot, initGitRepo } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
 import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
 
@@ -39,7 +39,9 @@ hermetic(test);
  */
 test.use({ video: "on" });
 
-const PROJECT_DIR = `${canonicalTmpRoot()}/e2e-find-in-pane`;
+// A directory of its own per run: deleting one the server still watches
+// throws EPERM on Windows and takes the test server down with it.
+const PROJECT_DIR = `${canonicalTmpRoot()}/e2e-find-in-pane-${Date.now()}`;
 const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_DIR)}`;
 
 /** The keyboard on nothing: ⌘F then resolves the pane from the focused tab. */
@@ -61,7 +63,6 @@ function bigFile(changed: boolean): string {
 }
 
 function seedProject(): void {
-  removeTmpDir(PROJECT_DIR);
   mkdirSync(PROJECT_DIR, { recursive: true });
   writeFileSync(`${PROJECT_DIR}/big.ts`, bigFile(false));
   writeFileSync(`${PROJECT_DIR}/consts.ts`, Array.from({ length: 7 }, (_, i) => `const v${i} = ${i};`).join("\n") + "\n");
