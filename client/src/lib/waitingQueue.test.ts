@@ -1,31 +1,37 @@
 /**
- * ⌘J's queue and step, as pure functions (CHAT-WAIT-03).
+ * ⌘J's queue and step, as pure functions (CHAT-WAIT-03, modified by
+ * notifications-redesign, tasks.md 1.13).
  *
- * The queue is the list of amber rows in the order the sidebar shows them:
- * pinned first, then the «Attende te» section. The step picks the next one
+ * The queue is the list of rows whose attention subject is `needs-you` with a
+ * question, a permission or a plan, in the order the sidebar shows them:
+ * pinned first, then the «Ti aspetta» section. The step picks the next one
  * from the focused row, and after an answer from the row the previous step
  * left, which by then has left the queue.
  *
  * Items are built as in `sidebarStateGroups.test.ts`: the subject (topic id,
- * bare terminal session id) is what the signal sets know, never the render key.
+ * bare terminal session id) is what the queue returns, never the render key.
  *
  * @covers CHAT-WAIT-03, CHAT-WAIT-04
  */
 import { describe, test, expect } from 'bun:test';
-import type { SidebarItem, SidebarSignalSources } from './buildSidebarItems';
+import type { SidebarItem } from './buildSidebarItems';
 import { nextWaiting, waitingQueue } from './waitingQueue';
+import type { AttentionReason, AttentionSnapshot } from '../../../shared/attention';
+import type { AttentionRows } from '../state/attention';
 
-const S = (...ids: string[]): ReadonlySet<string> => new Set(ids);
+function snap(subject: string, over: Partial<AttentionSnapshot>): AttentionSnapshot {
+  return {
+    subject, state: 'idle', reason: null, outcome: null, detail: null, since: '2026-10-03T10:00:00.000Z',
+    epoch: 1, seenEpoch: 0, lit: false, unread: 0, turnUnseen: false, lastTurnAt: null, background: [], ...over,
+  };
+}
 
-const noSignals: SidebarSignalSources = {
-  awaitingFeedbackTopics: S(),
-  awaitingInputTopics: S(),
-  claudePhaseAwaitingTermIds: S(),
-  claudePhaseAwaitingInputTermIds: S(),
-  liveStreamTopics: S(),
-  hydratedStreamTopics: S(),
-  claudePhaseActiveTermIds: S(),
-};
+/** Chats (`topic:`) waiting on `reason`, by topic id; `t:` ids are terminals. */
+function waiting(reason: AttentionReason, ...ids: string[]): AttentionSnapshot[] {
+  return ids.map((id) => snap(id.startsWith('t:') ? `terminal:${id.slice(2)}` : `topic:${id}`, { state: 'needs-you', reason, lit: true }));
+}
+
+const rowsOf = (...groups: AttentionSnapshot[][]): AttentionRows => new Map(groups.flat().map((r) => [r.subject, r]));
 
 function chat(topicId: string, opts: { pinned?: boolean; subAgents?: SidebarItem[] } = {}): SidebarItem {
   return {
@@ -63,23 +69,21 @@ function project(path: string, children: SidebarItem[], opts: { pinned?: boolean
   };
 }
 
-const subjects = (items: SidebarItem[], pinnedIds: string[], sig: SidebarSignalSources) =>
-  waitingQueue(items, pinnedIds, sig).map(t => t.subject);
+const subjects = (items: SidebarItem[], pinnedIds: string[], rows: AttentionRows) =>
+  waitingQueue(items, pinnedIds, rows).map(t => t.subject);
 
-describe('waitingQueue: the amber rows, in sidebar order', () => {
-  test('pinned first, then «Attende te», with a project child in its project\'s place', () => {
+describe('waitingQueue: the rows that wait for an answer, in sidebar order', () => {
+  test('pinned first, then «Ti aspetta», with a project child in its project\'s place', () => {
     // L sits above the project in the list, so it comes before P even though
     // P is the project's child: the section keeps the builder's order and
     // promotes children where their project stands.
     const items = [chat('F', { pinned: true }), chat('L'), project('/p', [chat('P')])];
-    const sig = { ...noSignals, awaitingInputTopics: S('F', 'L', 'P') };
-    expect(subjects(items, ['F'], sig)).toEqual(['F', 'L', 'P']);
+    expect(subjects(items, ['F'], rowsOf(waiting('question', 'F', 'L', 'P')))).toEqual(['F', 'L', 'P']);
   });
 
   test('the pinned order is the Pinned block\'s, not the list\'s', () => {
     const items = [chat('A', { pinned: true }), chat('B', { pinned: true })];
-    const sig = { ...noSignals, awaitingInputTopics: S('A', 'B') };
-    expect(subjects(items, ['B', 'A'], sig)).toEqual(['B', 'A']);
+    expect(subjects(items, ['B', 'A'], rowsOf(waiting('question', 'A', 'B')))).toEqual(['B', 'A']);
   });
 
   test('a chat pinned inside a project counts once, among the Pinned', () => {
@@ -88,7 +92,7 @@ describe('waitingQueue: the amber rows, in sidebar order', () => {
     // would say 3 and a step from X would land on X again.
     const x = chat('X', { pinned: true });
     const items = [chat('A'), project('/p', [x])];
-    const queue = waitingQueue(items, ['X'], { ...noSignals, awaitingInputTopics: S('X', 'A') });
+    const queue = waitingQueue(items, ['X'], rowsOf(waiting('permission', 'X', 'A')));
     expect(queue.map(t => t.subject)).toEqual(['X', 'A']);
     expect(queue.length).toBe(2);
   });
@@ -98,47 +102,53 @@ describe('waitingQueue: the amber rows, in sidebar order', () => {
     // the list below leaves it out: skipped here, its amber chat would never
     // be a target nor a number on the door.
     const items = [chat('A'), project('/p', [chat('Q')], { pinned: true })];
-    const sig = { ...noSignals, awaitingInputTopics: S('A', 'Q') };
-    expect(subjects(items, ['project:/p'], sig)).toEqual(['Q', 'A']);
+    expect(subjects(items, ['project:/p'], rowsOf(waiting('question', 'A', 'Q')))).toEqual(['Q', 'A']);
   });
 
-  test('a finished turn is not a target', () => {
-    // Blue, not amber: it exists only for sessions with hooks, and taking it
-    // would make ⌘J behave in two ways depending on the runtime.
-    const items = [chat('done'), chat('ask')];
-    const sig = { ...noSignals, awaitingFeedbackTopics: S('done'), awaitingInputTopics: S('ask') };
-    expect(subjects(items, [], sig)).toEqual(['ask']);
+  test('a finished turn is not a target, seen or not', () => {
+    const items = [chat('done'), chat('err'), chat('ask')];
+    const rows = rowsOf(
+      [snap('topic:done', { state: 'finished', outcome: 'done', lit: true })],
+      [snap('topic:err', { state: 'finished', outcome: 'error', lit: true })],
+      waiting('question', 'ask'),
+    );
+    expect(subjects(items, [], rows)).toEqual(['ask']);
   });
 
-  test('a working chat is not a target', () => {
-    const items = [chat('w'), chat('ask')];
-    const sig = { ...noSignals, liveStreamTopics: S('w', 'ask'), awaitingInputTopics: S('ask') };
-    expect(subjects(items, [], sig)).toEqual(['ask']);
+  test('a working or background chat is not a target', () => {
+    const items = [chat('w'), chat('bg'), chat('ask')];
+    const rows = rowsOf(
+      [snap('topic:w', { state: 'working' })],
+      [snap('topic:bg', { state: 'background', background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] })],
+      waiting('question', 'ask'),
+    );
+    expect(subjects(items, [], rows)).toEqual(['ask']);
+  });
+
+  test('the native runtime\'s plan to approve is a target', () => {
+    expect(subjects([chat('plan')], [], rowsOf(waiting('plan', 'plan')))).toEqual(['plan']);
+  });
+
+  test('a seen question is still a target: the look does not answer it', () => {
+    const rows = rowsOf([snap('topic:q', { state: 'needs-you', reason: 'question', lit: true, epoch: 2, seenEpoch: 2 })]);
+    expect(subjects([chat('q')], [], rows)).toEqual(['q']);
   });
 
   test('a Claude Code terminal parked on a permission is a target, in its row\'s place', () => {
     const items = [chat('a'), terminal('s1'), chat('b')];
-    const sig = {
-      ...noSignals,
-      awaitingInputTopics: S('a', 'b'),
-      claudePhaseAwaitingTermIds: S('s1'),
-      claudePhaseAwaitingInputTermIds: S('s1'),
-    };
-    const queue = waitingQueue(items, [], sig);
+    const queue = waitingQueue(items, [], rowsOf(waiting('question', 'a', 'b'), waiting('permission', 't:s1')));
     expect(queue.map(t => t.subject)).toEqual(['a', 's1', 'b']);
     expect(queue[1].kind).toBe('terminal');
   });
 
   test('a terminal whose turn is finished is not a target', () => {
-    const items = [terminal('s1')];
-    const sig = { ...noSignals, claudePhaseAwaitingTermIds: S('s1') };
-    expect(subjects(items, [], sig)).toEqual([]);
+    const rows = rowsOf([snap('terminal:s1', { state: 'finished', outcome: 'done', lit: true })]);
+    expect(subjects([terminal('s1')], [], rows)).toEqual([]);
   });
 
   test('a sub-agent nested under a chat is not a target', () => {
     const items = [chat('parent', { subAgents: [terminal('child')] })];
-    const sig = { ...noSignals, claudePhaseAwaitingTermIds: S('child'), claudePhaseAwaitingInputTermIds: S('child') };
-    expect(subjects(items, [], sig)).toEqual([]);
+    expect(subjects(items, [], rowsOf(waiting('permission', 't:child')))).toEqual([]);
   });
 });
 
