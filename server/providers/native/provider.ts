@@ -27,7 +27,7 @@ import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
 import { rehydrateHistory } from "./history-rehydrate";
-import { DEFAULT_CHARS_PER_TOKEN } from "./compaction";
+import { DEFAULT_CHARS_PER_TOKEN, compact } from "./compaction";
 import type { Calibration } from "./context-window";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
@@ -113,6 +113,31 @@ const SESSION_SWEEP_MS = 60_000;
  * MISURATA, non il timer che la chiama. Due condizioni, ed entrambe contano —
  * un turno vivo non si tocca mai, e «ferma» vuol dire ferma da più del tetto.
  */
+/** What `/compact` did on the native engine (CMDUI-06). */
+export type CompactNowResult =
+  | { compacted: true; before: number; after: number }
+  | { compacted: false; reason: "busy" }
+  | { compacted: false; before: number; reason: "nothing" };
+
+/**
+ * `/compact` ON THE NATIVE ENGINE: the compaction it does by itself near the
+ * ceiling (`compactIfNeeded`), asked for NOW and below the threshold.
+ *
+ * It needs no `StreamHandler` (there is no turn to hang one on) and RETURNS
+ * the tokens before and after, which the route turns into the same divider
+ * the automatic one draws. In place, like the automatic one: the history is
+ * the session's memory. Refused while a turn runs: that turn holds the same
+ * array, and compacting under it would mix two versions of one conversation.
+ */
+export function compactSessionNow(session: Pick<NativeSession, "history" | "calibration" | "abort">): CompactNowResult {
+  if (session.abort) return { compacted: false, reason: "busy" };
+  const c = compact(session.history, { charsPerToken: session.calibration.charsPerToken });
+  if (c.after >= c.before) return { compacted: false, before: c.before, reason: "nothing" };
+  session.history.length = 0;
+  session.history.push(...c.messages);
+  return { compacted: true, before: c.before, after: c.after };
+}
+
 export function sessionIsEvictable(
   s: { abort?: unknown; lastUsedAt: number },
   now: number,
@@ -834,6 +859,11 @@ export class NativeProvider implements AIProvider {
       },
     );
     return { content: out.text || text };
+  }
+
+  /** `/compact` typed in a chat on this engine (CMDUI-06): see `compactSessionNow`. */
+  compactNow(sessionKey: string): CompactNowResult {
+    return compactSessionNow(this.sessionFor(sessionKey));
   }
 
   async resetSession(sessionKey: string): Promise<void> {

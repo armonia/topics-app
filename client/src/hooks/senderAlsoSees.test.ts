@@ -91,6 +91,12 @@ describe('the events that also reach whoever owns the SSE', () => {
     // If it grows, it grows for a written reason: every entry costs one event
     // delivered twice to someone who already receives it on the SSE.
     expect(new Set(SENDER_ALSO_SEES).size).toBe(SENDER_ALSO_SEES.length);
-    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(7);
+    // 8 since `stream:command-answer` (CMDUI-04): the answer of a command the
+    // sender typed travels only on WS, and the card it fills is a fixed state.
+    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(8);
+  });
+
+  test('the answer of a command reaches the window that typed it (CMDUI-04)', () => {
+    expect(senderAlsoSees('stream:command-answer')).toBe(true);
   });
 });

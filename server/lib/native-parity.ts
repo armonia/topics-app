@@ -18,7 +18,7 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { skillDirs } from "./slash-command-source";
+import { disabledSkillNames, skillDirs } from "./slash-command-source";
 import { thinkingGenerationOf } from "./thinking-generation";
 
 /** Past this, a rules file is an attachment, not an instruction. */
@@ -83,9 +83,15 @@ export function descriptionFromFrontMatter(head: string): string {
  * Name and description of every installed skill, taken from the frontmatter of
  * `SKILL.md`. The body does NOT go in: that is the bargain of the mechanism — the
  * listing is always in context, the instructions load only on demand (tool `skill`).
+ *
+ * A skill switched OFF in `skillOverrides` (the settings Claude Code reads,
+ * `disabledSkillNames`) is left out (SKILL-01): it used to be listed here
+ * while the «/» menu hid it, so the native engine offered ten skills the
+ * person had turned off. One rule for the prompt and the menu.
  */
-export function listSkills(home = homedir()): SkillEntry[] {
+export function listSkills(home = homedir(), cwd: string = home): SkillEntry[] {
   const out: SkillEntry[] = [];
+  const off = disabledSkillNames(home, cwd);
   // The folders are read DIRECTLY, not through `listSlashCommandFiles`:
   // that one dedupes by name against the commands, and five skills whose name
   // is also a command (`commit`, `recap`, `vai`…) dropped out of the listing   allow-italian: `vai` is the command's own name
@@ -96,7 +102,7 @@ export function listSkills(home = homedir()): SkillEntry[] {
     let entries: string[] = [];
     try { entries = readdirSync(dir); } catch { continue; }
     for (const name of entries) {
-      if (seen.has(name)) continue;
+      if (seen.has(name) || off.has(name)) continue;
       const md = join(dir, name, "SKILL.md");
       if (!existsSync(md)) continue;
       seen.add(name);

@@ -571,9 +571,12 @@ export default defineConfig({
       // written AROUND WebKit's HTML5 drag-and-drop, not around Chromium's.
       // WKWebView does not infer `dropEffect` from `preventDefault`, so a target
       // that accepts a release without setting it makes the SOURCE's `dragend`
-      // read `dropEffect: 'none'` — which the pop-out path treats as a drag out
-      // of the window and closes the pane it had just split. Chromium cannot see
-      // that class of fault at all: it infers the effect and goes green. The
+      // read `dropEffect: 'none'`. A drop that reads as refused is the class of
+      // fault this guards: it once fed a pop-out path (a drag out of the window
+      // closed the pane it had just split), removed with the cross-window drag
+      // on 2026-10-03, and any handler that trusts `dropEffect` again inherits
+      // it. Chromium cannot see that class at all: it infers the effect and
+      // goes green. The
       // matrix runs in the `chromium` project too (it is not in its
       // `testIgnore`), because the point is the SAME tree asserted on the two
       // engines.

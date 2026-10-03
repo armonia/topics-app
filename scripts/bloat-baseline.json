@@ -263,9 +263,9 @@
 
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 1451,
 
-    "client/src/components/Chat/ChatInput.tsx": 1908,
+    "client/src/components/Chat/ChatInput.tsx": {"lines": 2085, "why": ["2026-10-03, commands-ui: +125 on main (1930), the grouped \u00ab/\u00bb menu (Topics, engine, skills) and its rows, the \u00abComandi /\u00bb row of the \u00ab+\u00bb, the /resume picker host and the control doors /permissions /fast open.", "2026-10-03, merged with main 5125e396b (tornata 3b): 2085 measured. Main 1930 -> 1944 bought +14 (the /model completion, the pinned model handed to the chip, the \u2318\u21e7M door); this branch +141 on top (the grouped menu, /resume host, control doors, and the /model completion rows typed as menu rows)."]},
 
-    "client/src/components/Chat/ChatPane.tsx": 1877,
+    "client/src/components/Chat/ChatPane.tsx": {"lines": 2092, "why": ["2026-10-03, commands-ui: +93 on main (1969), the command card's state and the stream:command-answer listener, the aliases resolved before routing, /status /help /resume /permissions /fast /rename /export, the pinned line. The card, the picker and the answer types live in their own files.", "2026-10-03, merged with main 5125e396b (tornata 3b): 2092 measured. Main 1969 -> 1986 bought +17 (\u2318F: the find bar and the chat finder, the pinned model for the route); this branch +106 on top (the command card replaces the old banner, the commands listed above)."]},
 
     "client/src/components/Chat/MessageList.tsx": 2379,
 
@@ -281,7 +281,7 @@
 
     "client/src/components/Layout/hooks/useProjectLayout.ts": 1838,
 
-    "client/src/components/MessageContent.tsx": 1417,
+    "client/src/components/MessageContent.tsx": {"lines": 1542, "why": ["2026-10-03, commands-ui: +5 on main (1537), the command mark drawn only for a name a menu knows."]},
 
     "client/src/components/Project/FileExplorer.tsx": 1711,
 
@@ -315,9 +315,9 @@
 
     "client/src/lib/buildSidebarItems.ts": 950,
 
-    "client/src/lib/i18n-en.ts": 2802,
+    "client/src/lib/i18n-en.ts": {"lines": 2863, "why": ["2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.", "2026-10-03, merged with main 5125e396b (tornata 3b): 2863 measured. Main 2790 -> 2806 bought +16 (the model selector, find-in-page and command-run strings); this branch +57 on top (the same commands-ui keys)."]},
 
-    "client/src/lib/i18n-it.ts": 3018,
+    "client/src/lib/i18n-it.ts": {"lines": 3220, "why": ["2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.", "2026-10-03, merged with main 5125e396b (tornata 3b): 3220 measured. Main 3147 -> 3163 bought +16 (the model selector, find-in-page and command-run strings); this branch +57 on top (the same commands-ui keys)."]},
 
     "client/src/lib/selectionStyles.ts": 1193,
 
@@ -401,7 +401,7 @@
 
     "server/routes/chat.outage-direct-answer.test.ts": 1030,
 
-    "server/routes/chat.ts": 3865,
+    "server/routes/chat.ts": {"lines": 4077, "why": ["2026-10-03, commands-ui: +20 on main (4057), the onCommandAnswer handler that broadcasts stream:command-answer and discards the empty assistant row the way a compaction does."]},
 
     "server/routes/e2e.ts": 815,
 
@@ -420,7 +420,9 @@
 
     "server/routes/topics.control.test.ts": 855,
 
-    "server/routes/topics.ts": 3103,
+    "server/routes/topics.ts": {"lines": 3309, "why": ["2026-10-03, commands-ui: +55 on main (3244): GET /api/topics/:id/resumable-sessions (/resume, CMDUI-03), the transcriptPath adopt-claude now accepts, the `compact` case of /api/command for the native engine, the slash menu read per provider. The reader lives in lib/resumable-claude-sessions.ts and the menu in lib/slash-command-menu.ts.", "2026-10-03, merged with main 5125e396b (tornata 3b): 3309 measured. Main 3244 -> 3254 bought +10 (find inside one conversation: the POST /api/history-find door and the e2e switch that splits stored tool outputs); this branch +55 on top (the routes listed above)."]},
+
+    "server/providers/types.ts": {"lines": 818, "why": ["2026-10-03, commands-ui: 800 on main -> 818, CommandAnswerPayload and StreamHandler.onCommandAnswer, the contract every provider shares."]},
 
     "server/services/ci-evidence.ts": 948,
 
@@ -462,7 +464,7 @@
 
     "shared/types.ts": 1594,
 
-    "shared/ws-outbound.ts": 1481,
+    "shared/ws-outbound.ts": {"lines": 1615, "why": ["2026-10-03, commands-ui: +15 on main (1600), the stream:command-answer frame schema."]},
 
     "tests/e2e/board-drawer-scroll.spec.ts": 847,
 

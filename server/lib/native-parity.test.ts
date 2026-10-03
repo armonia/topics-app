@@ -57,6 +57,15 @@ describe("listSkills", () => {
     expect(listSkills(home)[0]!.description).toBe("la prima");
   });
 
+  /** @covers SKILL-01 */
+  it("a skill switched off in skillOverrides is not listed, nor in the prompt block", () => {
+    skill("accesa", "resta");
+    skill("spenta", "esce");
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ skillOverrides: { spenta: "off" } }));
+    expect(listSkills(home).map((s) => s.name)).toEqual(["accesa"]);
+    expect(skillsBlock(home)).not.toContain("spenta");
+  });
+
   it("taglia le descrizioni lunghe: l'elenco si paga a ogni turno", () => {
     skill("prolissa", "x".repeat(400));
     expect(listSkills(home)[0]!.description.length).toBeLessThanOrEqual(181);

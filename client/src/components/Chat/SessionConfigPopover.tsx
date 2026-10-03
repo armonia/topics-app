@@ -108,11 +108,18 @@ export function SessionConfigPopover({
     });
   };
   // A typed `/effort` opens this panel, the one place the effort is set.
+  // Opened by the command, the focus goes inside, on the slider (CMDUI-02).
+  const focusOnOpenRef = useRef(false);
   useEffect(() => {
     if (!openRef) return;
-    openRef.current = () => { placePanel(); setOpen(true); };
+    openRef.current = () => { focusOnOpenRef.current = true; placePanel(); setOpen(true); };
     return () => { openRef.current = null; };
   });
+  useEffect(() => {
+    if (!open || !pos || !focusOnOpenRef.current) return;
+    focusOnOpenRef.current = false;
+    panelRef.current?.querySelector<HTMLInputElement>('[data-testid="session-effort-slider"]')?.focus();
+  }, [open, pos]);
 
   // With neither knob available there is nothing to show — stay invisible
   // rather than offer an empty panel.

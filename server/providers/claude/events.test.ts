@@ -14,6 +14,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   classifyStreamLine,
+  invokedCommandName,
+  isCommandAnswer,
+  readCliCommandList,
+  readCommandOutcome,
+  readSyntheticText,
   decodePartialStreamEvent,
   parseToolInputBuffer,
   readAssistantCallUsage,
@@ -27,6 +32,7 @@ import {
   splitCallUsage,
 } from "./events";
 import * as F from "./events.fixture";
+import RECORDED from "./fixtures/command-lines-2.1.288.json";
 
 describe("classifyStreamLine", () => {
   test("riconosce ogni riga che il provider tratta in modo diverso", () => {
@@ -310,5 +316,73 @@ describe("parseToolInputBuffer", () => {
     expect(parseToolInputBuffer("[1,2]")).toBeNull();
     expect(parseToolInputBuffer('"testo"')).toBeNull();
     expect(parseToolInputBuffer("null")).toBeNull();
+  });
+});
+
+/**
+ * The CLI's own commands and what a command answered, on lines RECORDED from
+ * Claude Code 2.1.288 (`fixtures/command-lines-2.1.288.json`).
+ *
+ * @covers CMDUI-01, CMDUI-04
+ */
+describe("the CLI's commands and a command's answer (recorded 2.1.288)", () => {
+  test("system/init becomes the list of names it will run, the user's skills included", () => {
+    const list = readCliCommandList(RECORDED.init)!;
+    const names = list.map((c) => c.name);
+    expect(names).toContain("init");
+    expect(names).toContain("code-review");
+    expect(names).toContain("vai");
+    // The alias is not in the CLI's list: the map in the client resolves it.
+    expect(names).not.toContain("review");
+  });
+
+  test("system/commands_changed carries descriptions, aliases and which ones are the CLI's own", () => {
+    const list = readCliCommandList(RECORDED.commandsChanged)!;
+    const review = list.find((c) => c.name === "code-review")!;
+    expect(review.builtin).toBe(true);
+    expect(review.aliases).toEqual(["review"]);
+    expect(review.description).toContain("Review");
+    expect(list.find((c) => c.name === "vai")?.builtin).toBeUndefined();
+    // An MCP prompt (`exa:web_search_help (MCP)`) is not a typeable name.
+    expect(list.some((c) => c.name.includes(" "))).toBe(false);
+  });
+
+  test("any other line, or an empty list, is not a list", () => {
+    expect(readCliCommandList({ type: "system", subtype: "init", slash_commands: [] })).toBeNull();
+    expect(readCliCommandList({ type: "system", subtype: "status" })).toBeNull();
+    expect(readCliCommandList(RECORDED.outputStyleResult)).toBeNull();
+  });
+
+  test("a <synthetic> answer in a turn started by a command, ended with num_turns 0 and no cost, is the command's answer", () => {
+    expect(readSyntheticText(RECORDED.outputStyleSynthetic)).toContain("Output style:");
+    expect(isCommandAnswer(invokedCommandName("/output-style") !== null, RECORDED.outputStyleResult)).toBe(true);
+  });
+
+  test("the same <synthetic> in a turn that was not a command stays a message", () => {
+    expect(isCommandAnswer(invokedCommandName("dimmi lo stile") !== null, RECORDED.outputStyleResult)).toBe(false);
+  });
+
+  test("/code-review also ends with num_turns 0, but its report cost a subagent: it stays a message", () => {
+    expect(readSyntheticText(RECORDED.reviewSynthetic)).toContain("review");
+    expect(isCommandAnswer(true, RECORDED.reviewResult)).toBe(false);
+  });
+
+  test("a turn of the model is never a command's answer", () => {
+    expect(readSyntheticText({ type: "assistant", message: { model: "claude-sonnet-5-5", content: [{ type: "text", text: "ciao" }] } })).toBeNull();
+    expect(isCommandAnswer(true, { type: "result", subtype: "success", num_turns: 1, total_cost_usd: 0.01 })).toBe(false);
+  });
+
+  test("the invoked command is read by shape: a path is not a command", () => {
+    expect(invokedCommandName("/Output-Style x")).toBe("output-style");
+    expect(invokedCommandName("  /opsx:propose")).toBe("opsx:propose");
+    expect(invokedCommandName("/tmp/file to check")).toBeNull();
+    expect(invokedCommandName("ciao /vai")).toBeNull();
+  });
+
+  test("/compact's recorded outcome line, failed and successful", () => {
+    expect(readCommandOutcome({ type: "system", subtype: "status", status: null, compact_result: "failed", compact_error: "Not enough messages to compact." }))
+      .toEqual({ command: "compact", ok: false, error: "Not enough messages to compact." });
+    expect(readCommandOutcome({ type: "system", subtype: "status", status: null, compact_result: "success" })).toEqual({ command: "compact", ok: true });
+    expect(readCommandOutcome({ type: "system", subtype: "status", status: "compacting" })).toBeNull();
   });
 });

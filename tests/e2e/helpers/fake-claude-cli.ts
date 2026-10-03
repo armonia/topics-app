@@ -61,7 +61,16 @@ function fakeCliEntry(platform: NodeJS.Platform, bun: string, script: string, en
   return `#!/usr/bin/env bash\n${exports}exec "${bun}" "${script}" "$@"\n`;
 }
 
-/** Installs `script` as the CLI; returns its removal. */
+/**
+ * Installs `script` (a bun script) as the CLI, with `env` set for it, on any
+ * platform; returns its removal. Every spec that needs its own fake CLI goes
+ * through here: a hand-written bash entry found with `command -v bun` dies in
+ * `beforeAll` on the Windows bench.
+ */
+export function installFakeCli(script: string, env: Record<string, string> = {}): () => void {
+  return install(script, env);
+}
+
 function install(script: string, env: Record<string, string> = {}): () => void {
   mkdirSync(VERSIONS_DIR, { recursive: true });
   writeFileSync(ENTRY, fakeCliEntry(process.platform, bunPath(), script, env));
@@ -94,4 +103,16 @@ const COMPACT_SCRIPT = resolve(__dirname, "fake-claude-compact.ts");
  */
 export function installCompactCli(): () => void {
   return install(COMPACT_SCRIPT);
+}
+
+const REPLAY_SCRIPT = resolve(__dirname, "fake-claude-replay.ts");
+
+/**
+ * Installs `fake-claude-replay.ts`: lines recorded from Claude Code 2.1.288
+ * (the init's `slash_commands`, `commands_changed`, the `<synthetic>` answer
+ * of a local command, `/compact`'s outcome), with its start arguments and
+ * every message written to `logPath`. Returns its removal.
+ */
+export function installReplayCli(logPath: string): () => void {
+  return install(REPLAY_SCRIPT, { FAKE_CLI_LOG: logPath });
 }

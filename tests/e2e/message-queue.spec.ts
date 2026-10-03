@@ -610,18 +610,10 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.fill("/help ");
     await chatPage.messageInput.press("Enter");
 
-    // The command answered on the spot. The line is the one `/help` really
-    // prints (`slashCommandsHelp` in ChatPane): it is quoted in full, so that a
-    // list which stops naming `/status` makes noise.
-    //
-    // The text is ITALIAN because the app runs in its default language and the
-    // descriptions now go through `tr()` (`chat.slash.status.description`), the
-    // same ones read in the composer menu. It used to be English here, and the
-    // comment on this line said the day they were translated it would go red
-    // and say so. This is that day. The command itself is NOT translated: it is
-    // what one types.
-    await expect(page.getByText("/status: Mostra lo stato della sessione").first())
-      .toBeVisible({ timeout: 10_000 });
+    // The command answered on the spot: `/help` IS the «/» menu (CMDUI-07),
+    // opened whole, `/status` in it.
+    await expect(page.getByTestId("slash-menu").locator('[data-cmd="/status"]')).toBeVisible({ timeout: 10_000 });
+    await chatPage.messageInput.fill("");
     // …and it did not end up in the queue, from where it would then have gone out
     // to the model as text.
     await expect(queuedBubbles(page)).toHaveCount(0);

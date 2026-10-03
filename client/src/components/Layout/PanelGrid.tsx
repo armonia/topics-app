@@ -290,9 +290,6 @@ interface PanelGridProps {
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-  // Cross-window drag
-  externalDragTopicId?: string | null;
-  onExternalDrop?: () => void;
   // Mobile sidebar toggle
   onToggleSidebar?: () => void;
   // Initial tab overrides for standalone panels
@@ -362,8 +359,6 @@ export function PanelGrid({
   sendWS,
   onWSMessage,
   onUpdateTopic,
-  externalDragTopicId,
-  onExternalDrop,
   onToggleSidebar,
   panelInitialTab,
   onPanelInitialTabConsumed,
@@ -2367,29 +2362,6 @@ export function PanelGrid({
     handleGridItemDropCapture(e, target);
   }, [fullRowDropRef, gridRowsRef, handleGridItemDropCapture]);
 
-  /* ---- External drop zone (cross-window drag) ---- */
-  const [showExternalDropZone, setShowExternalDropZone] = useState(false);
-  const externalDropTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (externalDragTopicId) {
-      // 200ms debounce before showing drop zone to avoid flicker
-      externalDropTimerRef.current = setTimeout(() => {
-        setShowExternalDropZone(true);
-      }, 200);
-    } else {
-      if (externalDropTimerRef.current) {
-        clearTimeout(externalDropTimerRef.current);
-        externalDropTimerRef.current = null;
-      }
-      setShowExternalDropZone(false);
-    }
-    return () => {
-      if (externalDropTimerRef.current) {
-        clearTimeout(externalDropTimerRef.current);
-      }
-    };
-  }, [externalDragTopicId]);
 
   /**
    * Resize handler invoked by `CellSubStack` when the user drags one of its
@@ -2992,23 +2964,6 @@ export function PanelGrid({
       onDragEnterCapture={(e) => { if (isStandaloneTabDrag(e)) setTabDragActive(true); }}
       onDragEnd={() => { setEmptyDragOver(false); handleGridItemDragEnd(); handleAnyDragEnd(); }}
     >
-      {/* External drop zone overlay (cross-window drag from another window) */}
-      {showExternalDropZone && externalDragTopicId && onExternalDrop && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-primary/5 backdrop-blur-[1px] cursor-copy"
-          onClick={onExternalDrop}
-          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-          onDrop={(e) => { e.preventDefault(); onExternalDrop(); }}
-        >
-          <div className="bg-surface border-2 border-dashed border-primary rounded-xl px-8 py-6 text-center shadow-lg">
-            <div className="text-display-md mb-2">{'\uD83D\uDCCC'}</div>
-            <div className="text-title font-semibold text-primary mb-1">Drop here</div>
-            <div className="text-compact text-app-text-muted">
-              Move chat to this window
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Full-width row drop strips — the project surface's two-intent model:
           a cell's bottom edge stacks under JUST that column, these strips

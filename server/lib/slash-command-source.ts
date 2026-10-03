@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync, existsSync, realpathSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
+import { readCliCommandList } from "../providers/claude/events";
 
 export type SlashCommandKind = "command" | "skill";
 
@@ -153,26 +154,104 @@ export function disabledSkillNames(home = homedir(), cwd = process.cwd()): Set<s
 const cliCommandsBySession = new Map<string, ReadonlySet<string>>();
 let latestCliCommands: ReadonlySet<string> | null = null;
 
-/** Store the `slash_commands` of a CLI `system/init` line for `sessionKey`.
- *  Anything that is not such a line, or carries no list, is ignored. */
-export function recordCliSlashCommands(sessionKey: string, initLine: unknown): void {
-  const e = initLine as { type?: unknown; subtype?: unknown; slash_commands?: unknown } | null;
-  if (!e || e.type !== "system" || e.subtype !== "init" || !Array.isArray(e.slash_commands)) return;
-  const names = new Set<string>();
-  for (const raw of e.slash_commands) {
-    if (typeof raw !== "string") continue;
-    const name = raw.startsWith("/") ? raw.slice(1) : raw;
-    if (isValidSlashCommandName(name)) names.add(name);
+/**
+ * THE ENGINE'S OWN LIST, AS THE MENU READS IT (CMDUI-01).
+ *
+ * The same lines, kept with what the menu needs: the description, the hint,
+ * the aliases and whether the name is the CLI's own (`commands_changed` says
+ * `builtin`), for Claude Code; the `available_commands_update` of an ACP agent
+ * (jcode, gemini) for those. Per session, and remembered per project and per
+ * engine: a chat that has not started its CLI yet borrows the last list seen
+ * for its project, then (only the CLI's own names) for its engine. Never a process started just to ask:
+ * a CLI is hundreds of MB on a machine short of RAM. In memory only; the first
+ * turn after a restart rebuilds it.
+ */
+export interface EngineCommand {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  builtin?: boolean;
+  aliases?: string[];
+}
+const engineBySession = new Map<string, EngineCommand[]>();
+const engineByProject = new Map<string, EngineCommand[]>();
+const engineByProvider = new Map<string, EngineCommand[]>();
+const projectKey = (provider: string, projectPath: string) => `${provider}\u0000${projectPath}`;
+
+/**
+ * Store an engine's list for `sessionKey` (and its project and engine). A
+ * list WITHOUT descriptions (Claude Code's `init`) keeps the descriptions an
+ * earlier `commands_changed` of the same session gave, name by name.
+ */
+export function recordEngineCommands(
+  sessionKey: string,
+  commands: readonly EngineCommand[],
+  ctx: { provider: string; projectPath?: string | null },
+): void {
+  const valid = commands.filter((c) => isValidSlashCommandName(c.name));
+  if (valid.length === 0) return;
+  const before = new Map((engineBySession.get(sessionKey) ?? []).map((c) => [c.name, c] as const));
+  const merged = valid.map((c) => {
+    const old = before.get(c.name);
+    return old && !c.description ? { ...old, ...c, description: old.description, argumentHint: c.argumentHint ?? old.argumentHint, builtin: c.builtin ?? old.builtin, aliases: c.aliases ?? old.aliases } : { ...c };
+  });
+  engineBySession.set(sessionKey, merged);
+  if (ctx.projectPath) engineByProject.set(projectKey(ctx.provider, ctx.projectPath), merged);
+  engineByProvider.set(ctx.provider, merged);
+}
+
+/**
+ * The list the menu shows for a chat: its session's, else the last one seen
+ * for its project on the same engine, else the last one of the engine. Null
+ * when the engine has said nothing since the server started.
+ *
+ * `from` says where it came from, because only the session's and the
+ * project's lists may be trusted whole: a list borrowed from ANOTHER project
+ * carries that project's own skills and commands (`.claude/skills`), and
+ * offering them here is a `/name` the CLI does not expand, a paid prose turn.
+ * From such a list the caller keeps only what is the same for every project.
+ */
+export interface EngineCommandList {
+  commands: EngineCommand[];
+  from: "session" | "project" | "engine";
+}
+export function engineCommandsFor(q: { sessionKey?: string | null; provider: string; projectPath?: string | null }): EngineCommandList | null {
+  if (q.sessionKey) {
+    const own = engineBySession.get(q.sessionKey);
+    if (own) return { commands: own, from: "session" };
   }
+  if (q.projectPath) {
+    const ofProject = engineByProject.get(projectKey(q.provider, q.projectPath));
+    if (ofProject) return { commands: ofProject, from: "project" };
+  }
+  const ofEngine = engineByProvider.get(q.provider);
+  return ofEngine ? { commands: ofEngine, from: "engine" } : null;
+}
+
+/**
+ * Store a Claude CLI line for `sessionKey`: the names of a `system/init`
+ * (`slash_commands`) or the entries of a `system/commands_changed`. Anything
+ * else, or a line with no list, is ignored. `cwd` is the folder the CLI says
+ * it runs in (the init's own `cwd`), the project the list is remembered for.
+ */
+export function recordCliSlashCommands(sessionKey: string, line: unknown): void {
+  const list = readCliCommandList(line);
+  if (!list) return;
+  const names = new Set(list.map((c) => c.name).filter(isValidSlashCommandName));
   if (names.size === 0) return;
   cliCommandsBySession.set(sessionKey, names);
   latestCliCommands = names;
+  const cwd = (line as { cwd?: unknown }).cwd;
+  recordEngineCommands(sessionKey, list, { provider: "claude-code", projectPath: typeof cwd === "string" ? cwd : null });
 }
 
 /** Forget every recorded list. For tests. */
 export function resetCliSlashCommands(): void {
   cliCommandsBySession.clear();
   latestCliCommands = null;
+  engineBySession.clear();
+  engineByProject.clear();
+  engineByProvider.clear();
 }
 
 /**
@@ -199,13 +278,16 @@ export function isKnownSlashCommand(
   opts: { home?: string; cwd?: string | null; cliSessionKey?: string | null } = {},
 ): boolean {
   if (!isValidSlashCommandName(name)) return false;
+  const home = opts.home ?? homedir();
+  const cwd = opts.cwd ?? null;
+  // A skill switched off in `skillOverrides` is not expanded by the CLI: a
+  // typed `/name` is prose there, and must keep its context in front.
+  if (disabledSkillNames(home, cwd ?? home).has(name)) return false;
   if (name.includes(":")) return true;
   if (opts.cliSessionKey) {
     const reported = cliCommandsBySession.get(opts.cliSessionKey) ?? latestCliCommands;
     if (reported?.has(name)) return true;
   }
-  const home = opts.home ?? homedir();
-  const cwd = opts.cwd ?? null;
   const files = [
     join(home, ".claude", "commands", `${name}.md`),
     ...skillDirs(home).map((dir) => join(dir, name, "SKILL.md")),

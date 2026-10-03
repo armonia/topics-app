@@ -1,0 +1,380 @@
+{
+ "init": {
+  "type": "system",
+  "subtype": "init",
+  "session_id": "10e41ba8-17a2-447e-aa61-574761cf4ee7",
+  "model": "claude-sonnet-5-5",
+  "slash_commands": [
+   "vai",
+   "recap",
+   "__remote-workflow",
+   "advisor",
+   "agents",
+   "auto-mode-setup",
+   "autocompact",
+   "batch",
+   "claude-api",
+   "clear",
+   "code-review",
+   "color",
+   "compact",
+   "config",
+   "context",
+   "debug",
+   "design",
+   "design-consent",
+   "design-revoke",
+   "design-sync",
+   "doctor",
+   "effort",
+   "extra-usage",
+   "fast",
+   "fewer-permission-prompts",
+   "focus",
+   "goal",
+   "heapdump",
+   "import",
+   "init",
+   "insights",
+   "list-agents",
+   "loop",
+   "mcp",
+   "model",
+   "output-style",
+   "plugin-authoring",
+   "reload-plugins",
+   "reload-skills",
+   "rename",
+   "run",
+   "run-skill-generator",
+   "schedule",
+   "security-review",
+   "simplify",
+   "skill-doctor",
+   "team-onboarding",
+   "update-config",
+   "usage",
+   "usage-credits",
+   "verify",
+   "workflow-authoring",
+   "workflow-launch-exec"
+  ],
+  "cwd": "/tmp/probe"
+ },
+ "outputStyleSynthetic": {
+  "type": "assistant",
+  "message": {
+   "diagnostics": null,
+   "id": "07d7b6b5-be55-42fe-a5e0-bc168a62d95c",
+   "container": null,
+   "model": "<synthetic>",
+   "role": "assistant",
+   "stop_details": null,
+   "stop_reason": "end_turn",
+   "stop_sequence": null,
+   "type": "message",
+   "usage": {
+    "output_tokens_details": null,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "server_tool_use": {
+     "web_search_requests": 0,
+     "web_fetch_requests": 0
+    },
+    "service_tier": null,
+    "cache_creation": {
+     "ephemeral_1h_input_tokens": 0,
+     "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": null,
+    "iterations": null,
+    "speed": null,
+    "fallback_credit": null
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Output style: Attention-kind\n\nAvailable styles:\n- default\n- Proactive: Claude executes immediately, minimizes interruptions, and prefers action over planning\n- Concise: Claude responds tersely, leading with results and skipping preamble and narration\n- Explanatory: Claude explains its implementation choices and codebase patterns\n- Learning: Claude pauses and asks you to write small pieces of code for hands-on practice\n- Attention-kind (current): ADHD-friendly. Plain English, front-loaded answers, short by default, expands only on what's vital.\n- Rundown: Briefing style. Opens with a TL;DR, state as checkboxes, choices tagged with emoji. Built for updates and standups.\n- Spartan: Blunt Spartan mode for ADHD. Answer-first, arrow points, zero warmth or filler. Maximum signal, minimum words.\n\nUsage: /output-style <style>"
+    }
+   ],
+   "context_management": null
+  },
+  "parent_tool_use_id": null,
+  "local_command_source": "<local-command-stdout>Output style: Attention-kind\n\nAvailable styles:\n- default\n- Proactive: Claude executes immediately, minimizes interruptions, and prefers action over planning\n- Concise: Claude responds tersely, leading with results and skipping preamble and narration\n- Explanatory: Claude explains its implementation choices and codebase patterns\n- Learning: Claude pauses and asks you to write small pieces of code for hands-on practice\n- Attention-kind (current): ADHD-friendly. Plain English, front-loaded answers, short by default, expands only on what's vital.\n- Rundown: Briefing style. Opens with a TL;DR, state as checkboxes, choices tagged with emoji. Built for updates and standups.\n- Spartan: Blunt Spartan mode for ADHD. Answer-first, arrow points, zero warmth or filler. Maximum signal, minimum words.\n\nUsage: /output-style <style></local-command-stdout>",
+  "session_id": "10e41ba8-17a2-447e-aa61-574761cf4ee7",
+  "uuid": "e095cfbb-aef4-4a68-91f3-eb6ee49fded1",
+  "timestamp": "2026-10-02T21:52:08.765Z",
+  "local_command_run": {
+   "command": "output-style",
+   "args": ""
+  }
+ },
+ "outputStyleResult": {
+  "is_error": false,
+  "duration_api_ms": 0,
+  "num_turns": 0,
+  "stop_reason": null,
+  "session_id": "10e41ba8-17a2-447e-aa61-574761cf4ee7",
+  "total_cost_usd": 0,
+  "usage": {
+   "output_tokens_details": {
+    "thinking_tokens": 0
+   },
+   "input_tokens": 0,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "output_tokens": 0,
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 0,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "",
+   "iterations": [],
+   "speed": "standard",
+   "fallback_credit": null
+  },
+  "modelUsage": {},
+  "permission_denials": [],
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+   "spawned": 0,
+   "requested": {
+    "background": 0,
+    "foreground": 0,
+    "unset": 0
+   },
+   "started_in_background": 0,
+   "max_depth": 0,
+   "spawned_by_subagents": 0,
+   "completed": 0,
+   "failed": 0,
+   "killed": {
+    "parent": 0,
+    "user": 0,
+    "system": 0
+   },
+   "refused": {
+    "depth_limit": 0,
+    "concurrency_limit": 0,
+    "budget": 0
+   },
+   "by_type": {}
+  },
+  "subtype": "success",
+  "result": "Output style: Attention-kind\n\nAvailable styles:\n- default\n- Proactive: Claude executes immediately, minimizes interruptions, and prefers action over planning\n- Concise: Claude responds tersely, leading with results and skipping preamble and narration\n- Explanatory: Claude explains its implementation choices and codebase patterns\n- Learning: Claude pauses and asks you to write small pieces of code for hands-on practice\n- Attention-kind (current): ADHD-friendly. Plain English, front-loaded answers, short by default, expands only on what's vital.\n- Rundown: Briefing style. Opens with a TL;DR, state as checkboxes, choices tagged with emoji. Built for updates and standups.\n- Spartan: Blunt Spartan mode for ADHD. Answer-first, arrow points, zero warmth or filler. Maximum signal, minimum words.\n\nUsage: /output-style <style>",
+  "local_command": "output_style",
+  "type": "result",
+  "duration_ms": 18,
+  "uuid": "88c2a5f7-8d27-4410-a492-ba8f1a85f342",
+  "queued_turn_count": 0,
+  "result_index": 0
+ },
+ "commandsChanged": {
+  "type": "system",
+  "subtype": "commands_changed",
+  "commands": [
+   {
+    "name": "recap",
+    "description": "Riassume in due righe cosa e' cambiato in questa sessione (user)",
+    "argumentHint": ""
+   },
+   {
+    "name": "vai",
+    "description": "Procedi autonomamente su tutto — solido e pulito, verifica, committa, riporta a fine (user)",
+    "argumentHint": "scope opzionale,es. \"solo il bug X\""
+   },
+   {
+    "name": "marketing:brand-review",
+    "description": "(marketing) Review content against your brand voice, style guide, and messaging pillars, flagging deviations by severity with specific before/after fixes. Use when checking a draft before it ships, when auditing copy for voice consistency and terminology, or when screening for unsubstantiated claims, missing disclaimers, and other legal flags.",
+    "argumentHint": "<content to review>",
+    "aliases": [
+     "brand-review"
+    ]
+   },
+   {
+    "name": "code-review",
+    "description": "Review the current diff, or a PR number/branch/path target, for correctness bugs (plus reuse/simplification/efficiency cleanups where the model's review recipe covers them) at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud (requires claude.ai account access)); with no level given, it reuses the level you typed last. Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review. Pass --max-findings <n> to report up to n findings, or --max-findings all for every finding. The choice stays until you pass --max-findings default. For ultra on a GitHub.com PR target, --post asks to post the finished review’s findings to the PR as a single comment from the user’s GitHub account (not a review; the launch dialog still confirms in interactive sessions, while non-interactive mode posts on the flag alone) and --no-post hides that option.",
+    "argumentHint": "[low|medium|high|xhigh|max|ultra] [--fix] [--comment] [<pr#>|<branch>|<path>] [--max-findings <n>|all]",
+    "aliases": [
+     "review"
+    ],
+    "builtin": true
+   },
+   {
+    "name": "clear",
+    "description": "Start a new session with empty context; previous session stays on disk (resumable with /resume)",
+    "argumentHint": "[name]",
+    "aliases": [
+     "reset",
+     "new"
+    ],
+    "builtin": true
+   },
+   {
+    "name": "compact",
+    "description": "Free up context by summarizing the conversation so far",
+    "argumentHint": "<optional custom summarization instructions>",
+    "builtin": true
+   },
+   {
+    "name": "init",
+    "description": "Initialize a new CLAUDE.md file with codebase documentation",
+    "argumentHint": "",
+    "builtin": true
+   },
+   {
+    "name": "usage",
+    "description": "Show session cost, plan usage, and what's contributing to your limits",
+    "argumentHint": "",
+    "aliases": [
+     "cost",
+     "stats"
+    ],
+    "builtin": true
+   },
+   {
+    "name": "exa:web_search_help (MCP)",
+    "description": "Get help with web search using Exa",
+    "argumentHint": ""
+   }
+  ],
+  "uuid": "7930c6db-b747-4960-aee9-f61369fac7fb",
+  "session_id": "a814d780-83be-43d2-9892-38a25cddc387"
+ },
+ "reviewSynthetic": {
+  "type": "assistant",
+  "message": {
+   "diagnostics": null,
+   "id": "0e5b1ca2-b47b-4147-b989-0a6c3e501cdd",
+   "container": null,
+   "model": "<synthetic>",
+   "role": "assistant",
+   "stop_details": null,
+   "stop_reason": "end_turn",
+   "stop_sequence": null,
+   "type": "message",
+   "usage": {
+    "output_tokens_details": null,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "server_tool_use": {
+     "web_search_requests": 0,
+     "web_fetch_requests": 0
+    },
+    "service_tier": null,
+    "cache_creation": {
+     "ephemeral_1h_input_tokens": 0,
+     "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": null,
+    "iterations": null,
+    "speed": null,
+    "fallback_credit": null
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "I couldn't review anything, so there are no findings to report.\n\n**No diff to read.** The working directory (`/tmp/probe`) is not a git repository."
+    }
+   ],
+   "context_management": null
+  },
+  "parent_tool_use_id": null,
+  "local_command_source": "<local-command-stdout>I couldn't review anything, so there are no findings to report.\n\n**No diff to read.** The working directory (`/tmp/probe`) is not a git repository.</local-command-stdout>",
+  "session_id": "a814d780-83be-43d2-9892-38a25cddc387",
+  "uuid": "998054de-b13e-4dcf-b9b7-07a9a6cc3b26",
+  "timestamp": "2026-10-02T21:52:39.339Z"
+ },
+ "reviewResult": {
+  "is_error": false,
+  "duration_api_ms": 0,
+  "num_turns": 0,
+  "stop_reason": null,
+  "session_id": "a814d780-83be-43d2-9892-38a25cddc387",
+  "total_cost_usd": 0.09108210000000001,
+  "usage": {
+   "output_tokens_details": {
+    "thinking_tokens": 0
+   },
+   "input_tokens": 0,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "output_tokens": 0,
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 0,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "",
+   "iterations": [],
+   "speed": "standard",
+   "fallback_credit": null
+  },
+  "modelUsage": {
+   "claude-sonnet-5-5": {
+    "inputTokens": 4,
+    "outputTokens": 519,
+    "cacheReadInputTokens": 29333,
+    "cacheCreationInputTokens": 32007,
+    "webSearchRequests": 0,
+    "costUSD": 0.09108210000000001,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 74,
+    "canonicalModel": "claude-sonnet-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "permission_denials": [],
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+   "spawned": 0,
+   "requested": {
+    "background": 0,
+    "foreground": 0,
+    "unset": 0
+   },
+   "started_in_background": 0,
+   "max_depth": 0,
+   "spawned_by_subagents": 0,
+   "completed": 0,
+   "failed": 0,
+   "killed": {
+    "parent": 0,
+    "user": 0,
+    "system": 0
+   },
+   "refused": {
+    "depth_limit": 0,
+    "concurrency_limit": 0,
+    "budget": 0
+   },
+   "by_type": {}
+  },
+  "subtype": "success",
+  "result": "I couldn't review anything, so there are no findings to report.\n\n**No diff to read.** The working directory (`/tmp/probe`) is not a git repository.",
+  "local_command": "review",
+  "type": "result",
+  "duration_ms": 14923,
+  "uuid": "4fea4f8d-1a85-4699-a90c-8a23bc5c5839",
+  "queued_turn_count": 0,
+  "result_index": 0
+ },
+ "_source": "Claude Code 2.1.288 driven with Topics' flags (`--print --input-format stream-json --output-format stream-json`), recorded 2026-10-02/03: `/output-style` (a local command) and `/review` (the alias of `/code-review`, a forked subagent at $0.091). Trimmed: the init's list keeps the CLI's own names plus two skills, `commands_changed` nine entries, the review text is shortened and paths are replaced."
+}

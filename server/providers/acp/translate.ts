@@ -73,6 +73,8 @@ export interface AcpSessionUpdate {
   used?: number;
   size?: number;
   cost?: { amount?: number; currency?: string };
+  /** available_commands_update: `{name, description, input: {hint}}` each. */
+  availableCommands?: unknown[];
   /** plan */
   entries?: Array<{ content?: string; priority?: string; status?: string }>;
   [key: string]: unknown;
@@ -95,7 +97,14 @@ export type AcpTranslated =
    * `priority` di ACP si scarta: non abbiamo una superficie che la mostri, e
    * un campo persistito che nessuno legge invecchia peggio di uno assente.
    */
-  | { kind: "plan"; steps: Array<{ content: string; status: GoalStepStatus }> };
+  | { kind: "plan"; steps: Array<{ content: string; status: GoalStepStatus }> }
+  /**
+   * The commands the agent says it runs (`available_commands_update`): the
+   * WHOLE list each time, so whoever receives it replaces (CMDUI-01). Measured:
+   * jcode 0.90.0 announces 3 (`/model`, `/models`, `/effort`), gemini-cli
+   * 0.55.1 the entries of its ACP command handler.
+   */
+  | { kind: "commands"; commands: Array<{ name: string; description?: string; argumentHint?: string }> };
 
 /**
  * Stato minimo fra un update e l'altro: quali tool call sono già state
@@ -164,8 +173,21 @@ export function translateSessionUpdate(
     // `user_message_chunk` è l'eco del nostro stesso prompt (replay di
     // `session/load`): ri-emetterlo duplicherebbe il messaggio dell'umano.
     // Gli altri sono superfici che non abbiamo.
+    case "available_commands_update": {
+      const list = Array.isArray(update.availableCommands) ? update.availableCommands : [];
+      const commands = list.flatMap((raw) => {
+        const c = raw as { name?: unknown; description?: unknown; input?: { hint?: unknown } | null };
+        const name = typeof c?.name === "string" ? c.name.replace(/^\//, "") : "";
+        if (!/^[a-zA-Z0-9_][a-zA-Z0-9:_-]*$/.test(name)) return [];
+        return [{
+          name,
+          ...(typeof c.description === "string" && c.description ? { description: c.description } : {}),
+          ...(typeof c.input?.hint === "string" && c.input.hint ? { argumentHint: c.input.hint } : {}),
+        }];
+      });
+      return commands.length ? [{ kind: "commands", commands }] : [];
+    }
     case "user_message_chunk":
-    case "available_commands_update":
     case "current_mode_update":
     case "config_option_update":
     case "session_info_update":

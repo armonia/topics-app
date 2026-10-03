@@ -770,20 +770,34 @@
     "alone; together they do not. Both are the growth the notes above describe (the",
     "selector's chip and band, ⌘F's registry, bar and finders in the eager surfaces), so",
     "entry and critical path are raised to the measured values. Total assets",
-    "(8.656.287, +1,3%) stay inside their tolerance and are not raised."
+    "(8.656.287, +1,3%) stay inside their tolerance and are not raised.",
+    "",
+    "2026-10-03, feat/commands-ui-1003 merged with main 5125e396b (tornata 3b),",
+    "build:client on this Mac: entry 1.647.998 / 523.275, critical path 2.266.809 /",
+    "683.292, total assets 8.680.229. Main's side is the tornata 3b note above (entry",
+    "1.628.328 / 517.381, critical path 2.247.659 / 677.344: the model selector's chip",
+    "and band, ⌘F's registry, bar and finders). This branch buys +19.670 raw / +5.894 gz",
+    "in the entry and +19.150 / +5.948 on the critical path: the grouped «/» menu and",
+    "the alias map (Chat/commandMap.ts, slashCommands.ts), the command card and its",
+    "types (CommandAnswerCard.tsx, lib/commandAnswer.ts), the /resume picker, the",
+    "pinned line and list, the week bar, the board hint, and their strings in both",
+    "languages (i18n is eager by choice), all hung off the eager composer and chat.",
+    "Alone, on main b4875e1be, it measured +18.386 / +5.507. Each number was inside 2%",
+    "of main's; all three are set to the measured values so the next change starts",
+    "from what is actually shipped."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1628328,
-    "gz": 517381
+    "raw": 1647998,
+    "gz": 523275
   },
   "critical_path": {
-    "raw": 2247659,
-    "gz": 677344,
+    "raw": 2266809,
+    "gz": 683292,
     "files": 5
   },
   "total_assets": {
-    "raw": 8549179
+    "raw": 8680229
   }
 }

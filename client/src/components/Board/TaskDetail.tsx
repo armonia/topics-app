@@ -85,6 +85,7 @@ import { MachineStopLine } from '../Chat/MachineStopLine';
 import { backgroundNoticeOf } from '../Chat/machineRow';
 import { BackgroundNoticeLine } from '../Chat/BackgroundNoticeLine';
 import { TaskSessionUserRow } from './TaskSessionUserRow';
+import { BoardCommandHint } from './BoardCommandHint';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
  *  task-owned tiling group driven by the app's real GroupLayout engine (split /
@@ -3096,6 +3097,10 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                 <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
               </div>
             )}
+            <BoardCommandHint
+              text={draft}
+              onOpenSession={onOpenTopic && canOpenTaskSession(sessionState) && task?.assignedTopicId ? () => onOpenTopic(task.assignedTopicId!) : undefined}
+            />
             <div data-testid="task-composer" className={COMPOSER_CARD}>
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 p-2">

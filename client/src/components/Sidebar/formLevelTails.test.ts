@@ -15,7 +15,7 @@ import { describe, expect, test } from 'bun:test';
 import { t, missingKeys, ensureLocaleLoaded, type Locale } from '../../lib/i18n';
 import {
   calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersReadyTail, runsOnClaudePlan,
-  subscriptionLabel, toolsTail, usageLine,
+  subscriptionLabel, toolsTail, usageLine, weekUsageLine,
 } from './formLevelTails';
 import type { ProvidersSnapshot } from '../../types';
 
@@ -220,5 +220,25 @@ describe('nodeRequestsLabel', () => {
     expect(nodeRequestsLabel(1, it)).toBe('1 richiesta da un altro computer aspetta una risposta');
     expect(nodeRequestsLabel(1, (key, vars) => t(key, 'en', vars))).toBe('1 request from another computer is waiting for an answer');
     expect(nodeRequestsLabel(3, it)).toBe('3 richieste da altri computer aspettano una risposta');
+  });
+});
+
+/** @covers CMDUI-05 */
+describe('the week after the five hours', () => {
+  const max = { type: 'max', tier: 'default_claude_max_20x' };
+
+  test('the compact line adds the week after the five hours', () => {
+    expect(claudePlanCompact(max, { utilization: 38 }, it, { utilization: 78 })).toEqual({ text: 'Max 20x · 5 h al 38% · sett. 78%', warn: true });
+    expect(claudePlanCompact(max, { utilization: 10 }, it, { utilization: 20 })).toEqual({ text: 'Max 20x · 5 h al 10% · sett. 20%', warn: false });
+  });
+
+  test('the week alone warns too: its block stops work for days', () => {
+    expect(claudePlanCompact(null, null, it, { utilization: 90 })).toEqual({ text: 'sett. 90%', warn: true });
+  });
+
+  test('the panel line names the day and the hour of the reset', () => {
+    expect(weekUsageLine({ utilization: 77.6, resetsAtMs: 1 }, () => 'sab 13:00', it)).toBe('Settimana al 78% · riparte sab 13:00');
+    expect(weekUsageLine({ utilization: 12, resetsAtMs: null }, () => 'x', it)).toBe('Settimana al 12%');
+    expect(weekUsageLine(null, () => 'x', it)).toBeNull();
   });
 });

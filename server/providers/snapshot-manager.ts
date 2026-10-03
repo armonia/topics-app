@@ -13,30 +13,12 @@ import { EventEmitter } from "node:events";
 import { listProviders, getProvider, getDefaultProviderName, providerPreferenceRank } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
 import { publishDeclaredWindows } from "../usage/declared-windows";
+import { providerLabel } from "../../shared/provider-labels";
 
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
-const PROVIDER_LABELS: Record<string, string> = {
-  openclaw: "OpenClaw",
-  claude: "Claude (API)",
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  openai: "OpenAI",
-};
-
-/**
- * L'etichetta mostrata nel picker. I nomi non in tabella arrivano dagli agenti
- * ACP, che li prendono da `ACP_AGENTS`: quindi (a) il lookup passa da
- * `hasOwnProperty`, altrimenti un agente chiamato `toString` restituirebbe una
- * FUNZIONE al posto di una stringa, e (b) `gemini` si presenta come `Gemini`
- * invece che tutto minuscolo in mezzo a nomi propri.
- */
-export function labelFor(name: string): string {
-  if (Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, name)) {
-    return PROVIDER_LABELS[name]!;
-  }
-  return name.charAt(0).toUpperCase() + name.slice(1);
-}
+/** The label shown in the picker: one table, shared with the client (`shared/provider-labels.ts`). */
+export const labelFor = providerLabel;
 
 // Il tier di effort NON si decide più qui.
 //

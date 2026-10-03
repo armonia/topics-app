@@ -14,21 +14,20 @@
  * next poll is ~15 s away and the refresh `stream:start` triggers is long
  * done: only the `background:changed` push can name it within 5 s.
  */
-import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
+import { installFakeCli } from "./helpers/fake-claude-cli";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_HOME } from "./helpers/test-server";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
 
-const VERSIONS_DIR = join(E2E_HOME, ".local", "share", "claude", "versions");
-/** Sorted above any real version: the server resolves the CLI at every spawn and takes the highest. */
-const CLI_ENTRY = join(VERSIONS_DIR, "999.0.3-e2e-monitor");
+/** The removal of the fake CLI the running test installed. */
+let removeCli: (() => void) | null = null;
 // allow-italian: the exact aria-label shipped in i18n-chat-it.ts.
 const STOP = 'button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]';
 const LINE = '[data-testid="background-work-line"]';
@@ -36,14 +35,9 @@ const SESSION_ID = "00000000-0000-4000-8000-0000000000b7";
 
 /** Puts the fake CLI in front of the test server's; its switches live in `dir`, its transcript where the server looks for it. */
 function installMonitorCli(dir: string, cwd: string): void {
-  // The server spawns the CLI with a trimmed environment: bun by absolute path.
-  const bun = execSync("command -v bun").toString().trim();
-  mkdirSync(VERSIONS_DIR, { recursive: true });
-  const script = resolve(__dirname, "helpers/fake-claude-monitor.ts");
   // The server finds the transcript under ITS home, from the cwd and session id of the CLI's init.
   const transcript = join(E2E_HOME, ".claude", "projects", claudeProjectDirName(cwd), `${SESSION_ID}.jsonl`);
-  writeFileSync(CLI_ENTRY, `#!/usr/bin/env bash\nexport MONWATCH_DIR="${dir}"\nexport MONWATCH_CWD="${cwd}"\nexport MONWATCH_TRANSCRIPT="${transcript}"\nexec "${bun}" "${script}" "$@"\n`);
-  chmodSync(CLI_ENTRY, 0o755);
+  removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-monitor.ts"), { MONWATCH_DIR: dir, MONWATCH_CWD: cwd, MONWATCH_TRANSCRIPT: transcript });
 }
 
 hermetic(test);
@@ -53,7 +47,8 @@ test.describe("a Monitor in the chat", () => {
 
   let dir = "";
   test.afterEach(() => {
-    rmSync(CLI_ENTRY, { force: true });
+    removeCli?.();
+    removeCli = null;
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 

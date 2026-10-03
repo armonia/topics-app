@@ -292,8 +292,6 @@ export interface UsePanelLifecycleReturn {
     panelInitialTab: Record<string, PanelTab>;
     contextMenu: ContextMenuState | null;
     expandedProjects: string[];
-    externalDragTopicId: string | null;
-    externalDragSourceWindow: string | null;
     pendingBrowserPane: string | null;
     pendingSoloPanelId: string | null;
   };
@@ -330,7 +328,6 @@ export interface UsePanelLifecycleReturn {
     // accetta già `UtilityPanelType`, e questa firma la restringeva — un tipo
     // nuovo (`profile`) compilava nel modulo e veniva rifiutato a chi chiama.
     handleOpenAsPage: (type: UtilityPanelType) => void;
-    handleExternalDrop: () => void;
     handleReopenClosedTab: (record: ClosedTabRecord) => Promise<void>;
     handleProjectActiveTopicChange: (projectPath: string, topicId: string | null) => void;
     handleProjectOpenPanesChange: (projectPath: string, paneIds: string[]) => void;
@@ -638,9 +635,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // panes without re-subscribing on every layout change.
   const projectOpenPanesRef = useRefMirror(projectOpenPanes);
 
-  // Cross-window drag state
-  const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
-  const [externalDragSourceWindow, setExternalDragSourceWindow] = useState<string | null>(null);
 
   const [pendingProjectPane, setPendingProjectPane] = useState<PendingProjectPane | null>(null);
   const [panelInitialTab, setPanelInitialTab] = useState<Record<string, PanelTab>>({});
@@ -1428,30 +1422,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
   }, [onWSMessage, openPanelsRef, topicsRef]);
 
-  // WS Cluster 5: cross-window drag
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type === 'drag:start' && msg.sourceWindowId !== windowId) {
-        setExternalDragTopicId(msg.topicId ?? null);
-        // `sourceWindowId` is now optional on the wire (some emit sites only
-        // set `windowId`); coalesce so the state setter, which is
-        // `string | null`, never sees `undefined`.
-        setExternalDragSourceWindow(msg.sourceWindowId ?? null);
-      }
-      if (msg.type === 'drag:end' && msg.sourceWindowId !== windowId) {
-        setExternalDragTopicId(null);
-        setExternalDragSourceWindow(null);
-      }
-      if (msg.type === 'drag:accepted' && msg.sourceWindowId === windowId) {
-        if (msg.topicId) {
-          setOpenPanels(prev => prev.filter(id => id !== msg.topicId));
-          if (focusedPanelIdRef.current === msg.topicId) {
-            setFocusedPanelId(null);
-          }
-        }
-      }
-    });
-  }, [onWSMessage, windowId, focusedPanelIdRef]);
 
   // ---- 17. Drain queue + reload histories on WS reconnect ----
   // Hung off the socket's own re-open, NOT off the connection status: that
@@ -2541,22 +2511,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setContextMenu({ x: e.clientX, y: e.clientY, topic });
   }, []);
 
-  const handleExternalDrop = useCallback(() => {
-    if (externalDragTopicId && externalDragSourceWindow) {
-      if (!openPanels.includes(externalDragTopicId)) {
-        setOpenPanels(prev => [...prev, externalDragTopicId]);
-        setFocusedPanelId(externalDragTopicId);
-      }
-      sendWS({
-        type: 'drag:drop',
-        topicId: externalDragTopicId,
-        windowId: windowId,
-        sourceWindowId: externalDragSourceWindow,
-      });
-      setExternalDragTopicId(null);
-      setExternalDragSourceWindow(null);
-    }
-  }, [externalDragTopicId, externalDragSourceWindow, openPanels, sendWS, windowId]);
 
   // In-flight reopen guard, keyed by closed-record id. ⇧⌘T can momentarily fire
   // from two surfaces at once (the Electron native menu accelerator + the
@@ -2773,8 +2727,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       panelInitialTab,
       contextMenu,
       expandedProjects,
-      externalDragTopicId,
-      externalDragSourceWindow,
       pendingBrowserPane,
       pendingSoloPanelId,
     },
@@ -2801,7 +2753,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       handleCloseTerminal,
       handleTerminalClick,
       handleOpenAsPage,
-      handleExternalDrop,
       handleReopenClosedTab,
       handleProjectActiveTopicChange,
       handleProjectOpenPanesChange,
