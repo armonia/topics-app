@@ -76,8 +76,22 @@ case "${1:-help}" in
       # --no-renames: with rename detection a path renamed away is an R, not a
       # D, and stayed on the PC. A directory is skipped: the history has a
       # deleted `node_modules` symlink, and `if exist` is true for the real one.
+      #
+      # A path the repo now IGNORES is left alone even if git once tracked it:
+      # it is a file somebody generates there (bench/results/, videos/INDEX.md,
+      # docs/DEAD-CODE.md), not one this script shipped. 515 of the ~2400
+      # deleted paths are such files (03/10); `git check-ignore` reads the same
+      # rules git does, negations and parent directories included.
       echo "> no list of shipped files on the PC yet: deriving it from the history..."
-      git -C "$REPO_MAC" -c core.quotePath=false log --no-renames --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u \
+      git -C "$REPO_MAC" -c core.quotePath=false log --no-renames --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u > "$tmp/deleted"
+      ignored_rc=0
+      tr '\n' '\0' < "$tmp/deleted" | git -C "$REPO_MAC" check-ignore -z --stdin > "$tmp/ignored0" || ignored_rc=$?
+      # 1 is "none of them is ignored"; anything above is git failing, and a
+      # list it could not filter is not one to delete from.
+      if [ "$ignored_rc" -gt 1 ]; then echo "x git check-ignore failed ($ignored_rc)" >&2; exit 1; fi
+      tr '\0' '\n' < "$tmp/ignored0" | sort > "$tmp/ignored"
+      echo "> $(wc -l < "$tmp/ignored" | tr -d ' ') of them are ignored by the repo now: never deleted"
+      comm -23 "$tmp/deleted" "$tmp/ignored" \
         | win_batches | while IFS= read -r batch; do
           win_n "(for %f in ($batch) do @if exist %f if not exist \"%~f\\*\" echo %~f) & exit 0"
         done | tr -d '\r' | tr '\\' '/' | sort > "$tmp/old"
