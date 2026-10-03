@@ -12,7 +12,7 @@
 
 import type { Database } from 'bun:sqlite';
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { promises as fsp, statSync } from 'fs';
+import { promises as fsp, statSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import {
   applyHook,
@@ -422,6 +422,27 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return { ...next, jsonlOffset: fileSizeOrZero(next.jsonlPath) };
   }
 
+  /**
+   * Il path che SessionStart dichiara puo' non esistere: una `--resume` da
+   * un'altra cwd (chat spostata di progetto) fa dichiarare alla CLI la cartella
+   * NUOVA mentre continua ad appendere al file dove la sessione e' nata
+   * (misurato su 2.1.287, topic:d740f8ae, 03/10). Se il file dichiarato non c'e'
+   * e il transcript con quell'id esiste altrove, si segue quello. Una sessione
+   * appena nata (nessun file da nessuna parte) tiene il path dichiarato.
+   */
+  function withLiveTranscript(payload: HookPayload): HookPayload {
+    const declared = payload.transcript_path;
+    if (typeof declared !== 'string' || existsSync(declared)) return payload;
+    const root = `${homeDir}/.claude/projects`;
+    let dirs: string[];
+    try { dirs = readdirSync(root); } catch { return payload; }
+    for (const dir of dirs) {
+      const candidate = `${root}/${dir}/${payload.session_id}.jsonl`;
+      if (existsSync(candidate)) return { ...payload, transcript_path: candidate };
+    }
+    return payload;
+  }
+
   function ingestHook(payload: HookPayload, overrideNow?: number): IngestResult {
     const t = overrideNow ?? now();
     const sid = payload.session_id;
@@ -441,6 +462,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     if (!checkDedup(sid, event, t)) {
       return { kind: 'duplicate', claudeSessionId: sid };
     }
+    if (event === 'SessionStart') payload = withLiveTranscript(payload);
 
     // Topic sessions live in the DB; topic-less terminal sessions in-memory.
     const dbPrev = repo.loadByClaudeSessionId(sid);
