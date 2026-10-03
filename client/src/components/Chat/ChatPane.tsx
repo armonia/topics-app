@@ -991,9 +991,10 @@ function ChatPaneComponent({
     // filtered by (`ChatInput`): the refusals and the aliases below are
     // Claude Code's, and other providers run those names themselves.
     const declared = topic.provider || getProvidersSnapshotState().snapshot?.providers.find((p) => p.isDefault)?.name || null;
-    // AN ALIAS IS ITS COMMAND (CMDUI-01): `/cost` is `/usage`, `/new` and
-    // `/reset` are `/clear` on Claude Code. Resolved before every branch; the
-    // text that travels to the engine, when one does, is the one typed.
+    // AN ALIAS IS ITS COMMAND (CMDUI-01): `/cost` is `/usage` on Claude Code,
+    // `/new` and `/reset` are `/clear` on every engine but OpenClaw. Resolved
+    // before every branch; the text that travels to the engine, when one does,
+    // is the one typed.
     const invoked = invokedName(text);
     const canonical = invoked ? canonicalCommand(invoked, declared) : null;
     const cmd = canonical ? `/${canonical}${text.trimStart().slice(invoked!.length + 1)}`.toLowerCase().trim() : text.toLowerCase().trim();
@@ -1048,10 +1049,10 @@ function ChatPaneComponent({
     // wrong one.
     // A draft has no ring and no inspector yet: say so instead of nothing.
     if (cmd === '/context') { if (isDraftTopicId(topic.id)) { setCommandResult({ type: 'success', message: tr('chat.context.draft') }); return true; } setCommandResult(null); composerControlsRef.current?.openContext(); return true; }
-    // `/new` and `/reset` are Claude Code's own aliases of `/clear`: forwarded,
-    // the live process forgot while the screen kept the history and Topics
-    // kept the old session id for the next `--resume`. On openclaw they are
-    // the gateway's own reset and travel as typed (`isClearCommand`).
+    // `/new` and `/reset` are `/clear` on every engine with a session
+    // (CMDUI-06): on Claude Code forwarded, the live process forgot while the
+    // screen kept the history; elsewhere they were prose to the model. On
+    // openclaw they are the gateway's own reset and travel as typed (`isClearCommand`).
     if (isClearCommand(cmd, declared)) { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     // The typed level travels (`/reasoning off`); bare, the gateway toggles.
     if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { const level = text.trim().slice('/reasoning'.length).trim() || undefined; setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey, level); setCommandResult({ type: 'success', message: r.message || tr('chat.command.reasoningToggled') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
@@ -1140,7 +1141,7 @@ function ChatPaneComponent({
     }
     // An engine that does not compact on request says so, by name (CMDUI-06).
     if (cmd === '/compact' && declared && !topicsEntryFor('compact', declared)) {
-      setCommandResult({ type: 'error', message: tr('chat.compact.unsupported', { engine: declared }) });
+      setCommandResult({ type: 'error', message: tr('chat.compact.unsupported', { engine: getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === declared)?.label ?? declared }) });
       return true;
     }
     if (cmd === '/compact') {

@@ -152,6 +152,9 @@ test.describe("the «/» menu of a chat", () => {
     await expect(groups(page).nth(0)).toHaveAttribute("aria-label", "Topics");
     await expect(row(page, "/compact")).toHaveCount(0);
     await expect(row(page, "/vai")).toHaveCount(0);
+    // Typed anyway, /compact is answered by the engine's name, not its id (CMDUI-06).
+    await send(chatPage, page, "/compact");
+    await expect(page.getByTestId("chat-command-result")).toContainText("Codex non compatta a richiesta", { timeout: 15_000 });
   });
 
   test("the keyboard crosses the groups without stopping on a header, and Enter on /status runs it at once", async ({ page, request, chatPage }) => {
