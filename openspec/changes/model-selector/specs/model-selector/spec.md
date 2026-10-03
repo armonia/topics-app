@@ -177,7 +177,7 @@ Ogni lettura della preferenza SHALL passare da una funzione sola, `topicsRoute`.
 - **GIVEN** una chat con `provider: codex`, preferenza `null` o accesa
 - **WHEN** l'utente invia
 - **THEN** il turno parte, diretto su Codex
-- **AND** il turno porta «via Codex»
+- **AND** la fascia dice «diretto»
 
 #### Scenario: card mai toccata
 - **GIVEN** una card con preferenza `null` e il default della board `null`, su `claude-code:claude-opus-5-5`

@@ -174,10 +174,12 @@ Una fork di una chat `null` resta `null`, e quindi accesa come la madre.
   e il motore `ready`, il giudice si sceglie solo tra i modelli che il motore
   serve, e gira sul motore come oggi (`task-auto-model.ts:121-125`). Altrimenti
   resta come oggi.
-- **Il turno dice da dove è passato.** L'etichetta del modello sul turno (già
-  conservata, MP-TASK-05) prende «via Topics» o «via Codex». È questo che evita
-  il no-op silenzioso vietato da AICTRL-01: il turno non si blocca più, ma la
-  strada si dichiara sempre.
+- **La strada la dicono chip e fascia, non il turno** (emendamento del 03/10,
+  scelta del maintainer). La prima stesura voleva «via Topics» o «via Codex»
+  sull'etichetta del modello di ogni turno; ma la strada è della chat, e
+  conservarla per turno vorrebbe una colonna e la sua migrazione, che questa
+  change esclude. Il no-op silenzioso vietato da AICTRL-01 resta evitato: il
+  turno non si blocca, e prima dell'invio chip e fascia dicono dove andrà.
 
 ### 2.3 Dati esistenti e sessioni riusate (scelta 2)
 
