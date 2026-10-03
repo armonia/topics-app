@@ -36,7 +36,6 @@ import { openProfileMenu } from "./helpers/open-perf-panel";
 import { openUserMenuLevel } from "./helpers/user-menu";
 import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, calendarTile, navigateToSidebar, setPins } from "./helpers/pinned-calendar-tile";
 import { E2E_BASE } from "./helpers/test-server";
-import { longPress } from "./helpers/long-press";
 
 const test = base.extend<{ bp: BrowserProcessPage }>({
   bp: async ({ page }, use) => {
@@ -591,9 +590,12 @@ test.describe("sul telefono Strumenti e Calendario sono fogli dal basso", () => 
     const tile = calendarTile(page);
     await expect(tile).toBeVisible();
 
-    // On a phone the tile's menu is a long press (TOUCH parity), held until it is up.
+    // The menu by its contextmenu, as the desktop case: what is under test is
+    // the sheet at 390. The long press itself builds `Touch` objects, which
+    // WebKit refuses to construct, and has its own specs on Chromium.
     const row = page.getByTestId("calendar-tile-feed");
-    await longPress(page, '[data-testid="sidebar-pinned-section"] [data-testid="pinned-tile"]', { until: row });
+    await tile.click({ button: "right" });
+    await expect(row).toBeVisible();
     await expect(page.getByTestId("calendar-tile-feed-tail")).toHaveText(/^(Non collegato|Collegato|In pausa)$/, { timeout: 10_000 });
     await row.tap();
     const panel = page.getByTestId("home-panel-calendar");
