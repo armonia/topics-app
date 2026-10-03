@@ -114,4 +114,25 @@ describe('useVoiceCall · hanging up', () => {
     await settle();
     expect(sent).toEqual([]);
   });
+
+  test('hanging up during the microphone prompt leaves the microphone off', async () => {
+    // The permission prompt answers only when released: the person hangs up
+    // while it is still open.
+    let grant: () => void = () => {};
+    let micStopped = false;
+    const stream = { getTracks: () => [{ stop() { micStopped = true; } }] };
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true, writable: true,
+      value: { mediaDevices: { getUserMedia: () => new Promise((resolve) => { grant = () => resolve(stream); }) } },
+    });
+    FakeRecorder.last = null;
+    const { api } = drive();
+    api().startCall();
+    await settle();
+    api().endCall();
+    grant();
+    await settle();
+    expect(FakeRecorder.last).toBeNull();
+    expect(micStopped).toBe(true);
+  });
 });

@@ -324,6 +324,8 @@ export function useVoiceCall(
     const sameCall = () => isCallActiveRef.current && callGenRef.current === gen;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
+      // Hung up while the permission prompt was open: release the mic, start nothing.
+      if (!sameCall()) { stream.getTracks().forEach((t) => t.stop()); return; }
       streamRef.current = stream;
 
       try {
