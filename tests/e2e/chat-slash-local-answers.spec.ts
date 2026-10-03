@@ -139,6 +139,12 @@ test.describe("slash commands answered in the composer", () => {
     await expect(tools.getByTestId("mcp-fleet-panel")).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
     await expect(tools).toHaveCount(0);
+    // Typed, so the focus goes back to the field it was typed in: given to the
+    // «+», the next words went nowhere.
+    await expect(chatPage.messageInput).toBeFocused();
+    await page.keyboard.type("dopo");
+    await expect(chatPage.messageInput).toHaveValue("dopo");
+    await chatPage.messageInput.fill("");
 
     for (const typed of ["/config", "/settings"]) {
       await type(chatPage, page, typed);
@@ -149,6 +155,27 @@ test.describe("slash commands answered in the composer", () => {
     }
     await expect(result(page)).toHaveCount(0);
     expect(received(), "the CLI printed its own lists about a configuration Topics does not read").toEqual([]);
+  });
+
+  test("/usage and /cost open the providers panel beside the model chip, where the plan is", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    // Forwarded, the CLI answered with its own table, in English, as if it
+    // were the agent's reply.
+    const picker = page.getByTestId("provider-model-picker");
+    for (const typed of ["/usage", "/cost"]) {
+      await type(chatPage, page, typed);
+      const panel = page.getByTestId("home-panel-providers");
+      await expect(panel, typed).toBeVisible({ timeout: 10_000 });
+      // Beside the chip of THIS composer, not a centred sheet.
+      const [p, c] = [await panel.boundingBox(), await picker.boundingBox()];
+      expect(p && c, "panel and chip are laid out").toBeTruthy();
+      expect(Math.abs(p!.y + p!.height - c!.y) < 40 || Math.abs(p!.y - (c!.y + c!.height)) < 40, `${typed}: hung from the chip`).toBe(true);
+      await page.keyboard.press("Escape");
+      await expect(panel).toHaveCount(0);
+      await expect(chatPage.messageInput, typed).toBeFocused();
+    }
+    await expect(result(page)).toHaveCount(0);
+    expect(received(), "the CLI answered a question about the plan in English").toEqual([]);
   });
 
   test("/new asks the /clear confirmation and sends nothing to the CLI", async ({ page, chatPage }) => {
@@ -190,12 +217,13 @@ test.describe("slash commands answered in the composer", () => {
   test("with arguments /mcp and /config travel to the CLI instead of opening a panel and dropping them", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     // Placed after every test that asserts an empty log: this one fills it.
-    for (const typed of ["/config set theme dark", "/mcp enable demo-server"]) {
+    for (const typed of ["/config set theme dark", "/mcp enable demo-server", "/usage oggi"]) {
       await type(chatPage, page, typed);
       await expect.poll(() => received().some((t) => t.includes(typed)), { timeout: 30_000, message: typed }).toBe(true);
     }
     await expect(page.getByTestId("profile-menu")).toHaveCount(0);
     await expect(page.getByTestId("home-panel-tools")).toHaveCount(0);
+    await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
   });
 
   test("an ordinary message still reaches the CLI: the log above is not empty by construction", async ({ page, chatPage }) => {
@@ -211,7 +239,7 @@ test.describe("on a provider that is not Claude Code, the names travel as typed"
   // `/memory` itself. The bench runs no openclaw gateway, so what is asserted is the
   // composer's side only: the message is SENT, nothing answers it here and no
   // /clear confirmation opens. What openclaw does with it is not visible here.
-  for (const text of ["/login", "/new", "/mcp show", "/config"]) {
+  for (const text of ["/login", "/new", "/mcp show", "/config", "/usage"]) {
     test(`${text} on an openclaw topic is sent, not answered or confirmed in the composer`, async ({ page, request, chatPage }) => {
       test.info().annotations.push({ type: "spec", description: "CMD-08" });
       const name = `slash-openclaw-${text.slice(1).replace(/\s+/g, "-")}-${Date.now()}`;

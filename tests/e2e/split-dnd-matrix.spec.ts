@@ -741,9 +741,10 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
     // No drop at all: the release happens where the app has no target, at
     // negative coordinates. The other half of row 9 (the pane detaches into its
-    // own window) is native-only -- `handleDragEnd` gates it behind
-    // `isNativeApp` -- so from a browser the assertable half is the invariant:
-    // nothing is lost, and no leaf is left empty.
+    // own window) has no code path any more: the grid's drag-end handler that
+    // did it read a dragged id only the removed ChatPanel header ever set. The
+    // assertable half is the invariant: nothing is lost, and no leaf is left
+    // empty.
     await startDrag(page, `[data-pane-id="${idC}"]`);
     await endDrag(page, { x: -40, y: -40 });
 

@@ -26,7 +26,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { closeAllPopovers, closePopoversAround } from '@/lib/popoverRegistry';
-import { HOME_ANCHOR_ATTR, OPEN_HOME_EVENT, isPanelHome, type OpenHomeDetail, type PanelHome } from '@/lib/openHome';
+import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, OPEN_HOME_EVENT, isPanelHome, type OpenHomeDetail, type PanelHome } from '@/lib/openHome';
 import { openUserMenu, type UserMenuLevel } from '@/lib/openUserMenu';
 import type { HomeRequest } from './HomePanel';
 
@@ -51,11 +51,15 @@ const MENU_LEVEL: Record<Exclude<OpenHomeDetail['home'], PanelHome>, UserMenuLev
  * a transform (`translateX(-100%)`), so the pinned calendar tile keeps its
  * client rects at x -250, and the panel hung from it, and Escape gave the
  * focus to a tile nobody can see.
+ *
+ * The FOCUSED pane's first: with two chats on screen there are two «+» and two
+ * model chips, and the first in the document is the left pane's, whichever
+ * pane the person is in (`HOME_ANCHOR_FOCUSED_ATTR`).
  */
 function mountedAnchor(home: PanelHome): HTMLElement | null {
-  const all = document.querySelectorAll<HTMLElement>(`[${HOME_ANCHOR_ATTR}~="${home}"]`);
-  for (const el of all) if (onScreen(el.getBoundingClientRect())) return el;
-  return null;
+  const visible = Array.from(document.querySelectorAll<HTMLElement>(`[${HOME_ANCHOR_ATTR}~="${home}"]`))
+    .filter((el) => onScreen(el.getBoundingClientRect()));
+  return visible.find((el) => el.hasAttribute(HOME_ANCHOR_FOCUSED_ATTR)) ?? visible[0] ?? null;
 }
 
 /** Its middle is inside the window: a sliver left by a slide does not count. */
@@ -85,7 +89,8 @@ export function HomePanelHost() {
       // around their model selector): it is the panel's parent.
       if (anchor) closePopoversAround(anchor);
       else closeAllPopovers();
-      setRequest((r) => ({ home: detail.home as PanelHome, anchor, n: (r?.n ?? 0) + 1 }));
+      const returnFocus = detail.returnFocus?.isConnected ? detail.returnFocus : null;
+      setRequest((r) => ({ home: detail.home as PanelHome, anchor, returnFocus, n: (r?.n ?? 0) + 1 }));
     };
     window.addEventListener(OPEN_HOME_EVENT, onRequest);
     return () => window.removeEventListener(OPEN_HOME_EVENT, onRequest);

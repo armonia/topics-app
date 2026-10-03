@@ -300,6 +300,7 @@ const IT: Dict = {
   'pair.newPersonName': 'Nome della nuova persona',
   'ctx.renameTopic': 'Rinomina topic',
   'ctx.pickColour': 'Scegli colore',
+  'ctx.clearColour': 'Nessun colore',
   'ctx.archive.q1': 'Vuoi archiviare',
   'ctx.archive.q2': '? Verrà spostato tra gli archiviati (puoi riaprirlo quando vuoi).',
   'task.id.copy.aria': 'ID del task {id}: copia',

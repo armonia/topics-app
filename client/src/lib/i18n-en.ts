@@ -299,6 +299,7 @@ const EN = {
   'pair.newPersonName': 'New person’s name',
   'ctx.renameTopic': 'Rename topic',
   'ctx.pickColour': 'Pick a colour',
+  'ctx.clearColour': 'No colour',
   'ctx.archive.q1': 'Archive',
   'ctx.archive.q2': '? It moves to the archived list (you can reopen it whenever you want).',
   'task.id.copy.aria': 'Task ID {id}: copy',

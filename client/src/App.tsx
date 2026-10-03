@@ -2238,7 +2238,6 @@ function App() {
           sendWS={sendWS}
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}
-          windowId={windowId}
           externalDragTopicId={externalDragTopicId}
           onExternalDrop={handleExternalDrop}
           onToggleSidebar={toggleSidebar}

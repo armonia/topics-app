@@ -253,9 +253,16 @@ export function SubmenuItem({
   // Hover opens with a MOUSE only: a finger that lands on the row is a tap,
   // and a level that opened on touch-down would be a level nobody asked for
   // if the finger was only scrolling past. Touch and pen wait for the click.
+  //
+  // And NEVER IN A SHEET (`isMobile`, the bottom sheet `Menu` draws under
+  // 768 px), mouse or not: the sheet rises from the bottom of the window, so
+  // it opens right under a pointer that has not moved, and the row there
+  // opened its level by itself (a 390 px window, ⌘, : the «Amici» sheet stacked
+  // on top of the menu nobody had read yet). A level in a sheet is a sheet over
+  // the sheet: it opens on click, tap or keyboard.
   const onPointerEnter = (e: React.PointerEvent) => {
     cancelClose();
-    if (e.pointerType !== 'mouse') return;
+    if (e.pointerType !== 'mouse' || isMobile) return;
     if (open) return;
     cancelHoverOpen();
     openTimer.current = setTimeout(() => {
@@ -264,7 +271,7 @@ export function SubmenuItem({
     }, HOVER_OPEN_MS);
   };
   const onPointerLeave = (e: React.PointerEvent) => {
-    if (e.pointerType !== 'mouse') return;
+    if (e.pointerType !== 'mouse' || isMobile) return;
     cancelHoverOpen();
     scheduleClose();
   };

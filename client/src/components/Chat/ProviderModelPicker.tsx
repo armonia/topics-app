@@ -10,7 +10,7 @@ import { chatTopicsRoute, resolveTopicsRoutingTarget } from '../../lib/topicsRou
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { splitModelId, catalogModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
-import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
+import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/openHome';
 
 export interface ProviderModelOverride {
   provider: string;
@@ -26,10 +26,15 @@ interface Props {
   onTopicsRoutingChange?: (next: boolean) => void;
   /** Filled with this menu's door, for a typed `/model` and ⌘⇧M (`toggle`). */
   openRef?: React.RefObject<((mode?: 'open' | 'toggle') => void) | null>;
+  /** Filled with the providers panel's door hung from this chip, for a typed
+   *  `/usage` or `/cost`; the focus goes back to `returnFocus` on close. */
+  openProvidersRef?: React.RefObject<((returnFocus?: HTMLElement | null) => void) | null>;
+  /** This chip's pane is the focused one: a door with no anchor (the palette) opens here. */
+  paneFocused?: boolean;
 }
 
 /** The chat composer's model selector (`ModelSelector`, scope `chat`, variant `compact`). */
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange, openRef }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange, openRef, openProvidersRef, paneFocused = false }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const openNowRef = useRef(open);
@@ -106,6 +111,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     };
     return () => { openRef.current = null; };
   }, [openRef]);
+  useEffect(() => {
+    if (!openProvidersRef) return;
+    openProvidersRef.current = (returnFocus) => openHome('providers', buttonRef.current, returnFocus);
+    return () => { openProvidersRef.current = null; };
+  }, [openProvidersRef]);
   // MSEL-07: a mark on the chip when the current choice runs through Topics.
   const route = useMemo(
     () => chatTopicsRoute(topicsRouting, override, defaultProviderLabel, snapshot),
@@ -128,7 +138,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         data-testid="provider-model-picker"
         // The providers' home (SETHOME-01): a door with no anchor of its own
         // (the palette) opens the providers panel beside this chip.
-        {...{ [HOME_ANCHOR_ATTR]: 'providers' }}
+        {...{ [HOME_ANCHOR_ATTR]: 'providers', [HOME_ANCHOR_FOCUSED_ATTR]: paneFocused ? '' : undefined }}
         data-model={activeModelId ?? undefined}
         data-load-state={loadState === 'idle' ? undefined : loadState}
         aria-haspopup="listbox"

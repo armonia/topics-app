@@ -51,7 +51,7 @@ const ComposerToolsRow = lazy(async () => {
   const { ComposerToolsRow: Row } = await import('./ComposerToolsRow');
   return { default: Row };
 });
-import { HOME_ANCHOR_ATTR, openHome } from '../../lib/openHome';
+import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/openHome';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -83,6 +83,7 @@ function AddMenu({
   allowAttachments,
   allowSlashCommands,
   openToolsRef,
+  paneFocused,
 }: {
   isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; uploading: boolean;
@@ -103,8 +104,11 @@ function AddMenu({
   allowAttachments: boolean;
   /** Its tool profile is server-owned, so generic slash shortcuts stay hidden. */
   allowSlashCommands: boolean;
-  /** Filled with the door a typed `/mcp` uses: the tools panel, hung from this «+». */
-  openToolsRef?: React.MutableRefObject<(() => void) | null>;
+  /** Filled with the door a typed `/mcp` uses: the tools panel, hung from this
+   *  «+», handing the focus back on close to `returnFocus` (the composer's field). */
+  openToolsRef?: React.MutableRefObject<((returnFocus?: HTMLElement | null) => void) | null>;
+  /** This composer's pane is the focused one: a door with no anchor (the palette) opens here. */
+  paneFocused: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -117,7 +121,7 @@ function AddMenu({
   // opens, hung from the same «+» (only where that row exists).
   useEffect(() => {
     if (!openToolsRef) return;
-    openToolsRef.current = allowSlashCommands ? () => openHome('tools', triggerRef.current) : null;
+    openToolsRef.current = allowSlashCommands ? (returnFocus) => openHome('tools', triggerRef.current, returnFocus) : null;
     return () => { openToolsRef.current = null; };
   }, [openToolsRef, allowSlashCommands]);
 
@@ -131,7 +135,10 @@ function AddMenu({
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="composer-add-menu"
-        {...{ [HOME_ANCHOR_ATTR]: allowSlashCommands ? 'tools' : undefined }}
+        {...{
+          [HOME_ANCHOR_ATTR]: allowSlashCommands ? 'tools' : undefined,
+          [HOME_ANCHOR_FOCUSED_ATTR]: allowSlashCommands && paneFocused ? '' : undefined,
+        }}
         className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
           open || anyActive
             ? 'text-primary bg-primary/10'
@@ -364,6 +371,8 @@ export interface ComposerControls {
   openContext: () => void;
   /** The MCP tools panel of the «+» (`/mcp`). */
   openTools: () => void;
+  /** The AI providers panel of the model chip, with the Claude plan (`/usage`, `/cost`). */
+  openProviders: () => void;
 }
 
 export function ChatInput({
@@ -585,17 +594,27 @@ export function ChatInput({
   // hand their door up; the inspector's state lives here.
   const openModelRef = useRef<((mode?: 'open' | 'toggle') => void) | null>(null);
   const openEffortRef = useRef<(() => void) | null>(null);
-  const openToolsRef = useRef<(() => void) | null>(null);
+  const openToolsRef = useRef<((returnFocus?: HTMLElement | null) => void) | null>(null);
+  const openProvidersRef = useRef<((returnFocus?: HTMLElement | null) => void) | null>(null);
   useEffect(() => {
     if (!controlsRef) return;
     controlsRef.current = {
       openModel: () => openModelRef.current?.(),
       openEffort: () => openEffortRef.current?.(),
       openContext: () => { if (!isDraftTopic && !isGlobalOrchestrator) setShowContextPopover(true); },
-      openTools: () => openToolsRef.current?.(),
+      // Opened by a TYPED command: on close the focus goes back to the field
+      // it was typed in, so the next words land in the composer.
+      openTools: () => openToolsRef.current?.(textareaRef.current),
+      // No chip in this composer (no provider override here): the host still
+      // opens the panel, beside a chip on screen or as a sheet.
+      openProviders: () => {
+        const field = textareaRef.current;
+        if (openProvidersRef.current) openProvidersRef.current(field);
+        else openHome('providers', null, field);
+      },
     };
     return () => { controlsRef.current = null; };
-  }, [controlsRef, isDraftTopic, isGlobalOrchestrator]);
+  }, [controlsRef, isDraftTopic, isGlobalOrchestrator, textareaRef]);
 
   // External triggers (the per-pane header "Context Inspector" button in the
   // various layouts) still reach the inspector through this window event — they
@@ -1519,6 +1538,7 @@ export function ChatInput({
                 allowAttachments={!isGlobalOrchestrator}
                 allowSlashCommands={!isGlobalOrchestrator}
                 openToolsRef={openToolsRef}
+                paneFocused={isFocused}
               />
 
               {/* `min-w-[4rem]` è il pavimento del campo: con `flex-1` la base è
@@ -1786,6 +1806,8 @@ export function ChatInput({
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}
                   openRef={openModelRef}
+                  openProvidersRef={openProvidersRef}
+                  paneFocused={isFocused}
                 />
               )}
               {/* The knobs you change MID conversation, in their own surface:

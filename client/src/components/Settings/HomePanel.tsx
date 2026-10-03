@@ -53,6 +53,8 @@ const PANELS: Record<PanelHome, { icon: Glyph; label: string; body: () => React.
 export interface HomeRequest {
   home: PanelHome;
   anchor: HTMLElement | null;
+  /** Where the focus goes back on close instead of the anchor (a typed command's field). */
+  returnFocus?: HTMLElement | null;
   /** Changes on every request: the same panel asked twice opens fresh. */
   n: number;
 }
@@ -80,14 +82,16 @@ export function HomePanel({ request, onClose }: { request: HomeRequest; onClose:
   // then (WebKit does not focus a button on click), and Escape left the focus
   // there instead of on the selector. Only when the close orphaned it: a
   // focus the person moved elsewhere stays where it is.
-  const anchor = request.anchor;
+  // A panel a TYPED command opened (`/mcp`, `/usage`) gives it back to the
+  // field the command was typed in: on the «+» the next words were lost.
+  const back = request.returnFocus ?? request.anchor;
   useEffect(() => () => {
-    if (!anchor?.isConnected) return;
+    if (!back?.isConnected) return;
     const active = document.activeElement as HTMLElement | null;
     if (!active || active === document.body || !active.isConnected || active.closest(`[data-testid="${testId}"]`)) {
-      anchor.focus({ preventScroll: true });
+      back.focus({ preventScroll: true });
     }
-  }, [anchor, testId]);
+  }, [back, testId]);
 
   return (
     // A question a form asks («remove this key?») is part of the panel: it
