@@ -11,14 +11,14 @@ hermetic(test);
 /**
  * Slice 6 verification: picker keyboard nav.
  *
- * The picker must be navigable with the keyboard alone. Since the shared
- * execution-first selector (task 05807e8e, MP-TASK-07) it has two levels:
- * the first lists Automatic and the execution engines, Enter on an engine
- * replaces the panel with that engine's models, and Enter on a model selects
- * it. ↓/↑ move the real DOM focus between rows (the roving focus of the shared
- * `Menu`), so the highlight is `document.activeElement`, not an attribute.
+ * The picker must be navigable with the keyboard alone. Since the one
+ * selector (MSEL-02, MSEL-08) there is one level: the search has the focus on
+ * desktop, ↓ enters the list at Automatic, the arrows cross the rows of every
+ * company, and Enter selects. ↓/↑ move the real DOM focus between rows (the
+ * roving focus of the shared `Menu`), so the highlight is
+ * `document.activeElement`, not an attribute.
  *
- * @covers CHAT-DEF-03
+ * @covers CHAT-DEF-03, MSEL-08
  */
 test.describe.serial("Provider/Model picker keyboard navigation", () => {
   let topicId: string;
@@ -60,49 +60,26 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
 
     // Focus has to STAY in the popover. This was the real fault behind this
     // test's "flaky" reputation: when the pane became active it gave the focus
-    // to the composer 50 ms later, taking it back from the picker's freshly
-    // focused search field of the time (measured: field at 25 ms, textarea at
-    // 29 ms). The arrows then landed in the textarea and keyboard navigation
-    // did nothing. The shared `Menu` focuses its panel once it is placed, so
-    // the panel is what must hold the focus here. Asserting it fails the
-    // cause, not the symptom.
-    await expect(popover).toBeFocused();
+    // to the composer 50 ms later, taking it back from the picker. The one
+    // selector puts it in its search field (MSEL-03), so the field is what
+    // must hold the focus here.
+    const search = popover.getByTestId("model-selector-search");
+    await expect(search).toBeFocused();
 
-    // First level: the first ArrowDown lands on the first row (Automatic).
-    // Had the composer stolen the focus, the key would have gone there.
+    // The first ArrowDown lands on Automatic. Had the composer stolen the
+    // focus, the key would have gone there.
     await page.keyboard.press("ArrowDown");
-    await expect(popover.locator("[data-ai-selector-auto]")).toBeFocused();
+    await expect(popover.getByTestId("model-row-automatic")).toBeFocused();
 
-    // Walk down to the engine the isolated test server makes ready (its
-    // `claude` stub, scripts/start-test-server.sh). The list also shows the
-    // unavailable engines, in the server's order, so the number of steps is
-    // read from the rendered rows instead of being hard-coded.
-    const runtime = popover.locator('button[data-provider="claude-code"]');
-    await expect(runtime).toBeVisible();
-    const runtimeIndex = await popover
-      .locator("button:not([disabled])")
-      .evaluateAll((rows) => rows.findIndex((row) => row.getAttribute("data-provider") === "claude-code"));
-    for (let step = 0; step < runtimeIndex; step++) await page.keyboard.press("ArrowDown");
-    await expect(runtime).toBeFocused();
-
-    // Enter opens the engine: the panel is replaced and the focus moves to the
-    // back row of the new level, so the arrows keep working after the swap.
-    await page.keyboard.press("Enter");
-    await expect(popover.getByTestId("ai-selector-back")).toBeFocused();
-
-    // Need at least 2 enabled model rows to test ArrowDown selection.
-    const enabledRows = popover.locator("button:not([disabled])[data-model]");
+    // The rows the isolated test server makes ready (its `claude` stub).
+    const enabledRows = popover.locator('[data-testid="model-row"][data-provider="claude-code"]:not([aria-disabled="true"])');
+    await expect(enabledRows.first()).toBeVisible();
     const enabledCount = await enabledRows.count();
     if (enabledCount < 2) {
       test.skip(true, `Need ≥ 2 ready claude-code models in env; got ${enabledCount}`);
     }
-
-    // The model identity is read from `data-model`, never from the row text:
-    // the button shows a label meant for the eyes (the `[1m]` mode split into
-    // a badge) while the row carries the raw CLI id.
+    // The model identity is read from `data-model`, never from the row text.
     const firstModel = await enabledRows.nth(0).getAttribute("data-model");
-
-    // Back row, then first model, then second model.
     await page.keyboard.press("ArrowDown");
     await expect(enabledRows.nth(0)).toBeFocused();
     await page.keyboard.press("ArrowDown");
@@ -187,7 +164,7 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     // different fact and it did not leave together with the tier badge. Task
     // 05807e8e moved it from a "Default" pill on the provider group to the hint
     // of the Automatic row, which is where the shared selector keeps it.
-    await expect(popover.locator("[data-ai-selector-auto]")).toHaveAttribute(
+    await expect(popover.getByTestId("model-row-automatic")).toHaveAttribute(
       "title",
       `Default: ${claudeCode?.label ?? "claude-code"}`,
     );

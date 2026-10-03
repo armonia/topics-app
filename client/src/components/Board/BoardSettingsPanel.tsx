@@ -17,12 +17,11 @@ import { useRef, useState } from 'react';
 import { ChevronDown, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
-import { Menu } from '../Shared/Menu';
 import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { friendlyModelLabel } from './format';
-import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { boardTopicsRoutingSwitch } from '../../lib/topicsRoutingGate';
 import {
   GlobalSettingsSection,
@@ -123,29 +122,23 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           <span className="truncate">{s.dispatchModel && s.dispatchModel !== 'auto' ? friendlyModelLabel(s.dispatchModel) : tr('board.settings.modelAuto')}</span>
           <ChevronDown className="h-3 w-3 shrink-0" />
         </button>
-        <Menu
+        {/* AICTRL-05: stesso selettore del composer e del cassetto, ma un asse
+            SEPARATO: `dispatchTopicsRouting` e' il default di QUESTA board,
+            non tocca mai `dispatchModel`. Vince solo quando il task non ha
+            impostato il proprio (vedi shared/board.ts). */}
+        <TaskModelSelector
           open={modelOpen}
           anchorRef={modelButtonRef}
           onClose={() => setModelOpen(false)}
           align="right"
-          minWidth={240}
-          role="listbox"
+          testId="board-model-popover"
           ariaLabel={tr('board.settings.model')}
-        >
-          {/* AICTRL-05: stesso switch del composer e del cassetto, stesso
-              componente (`TaskModelMenuOptions` → `AiExecutionMenuOptions`),
-              ma un asse SEPARATO: `dispatchTopicsRouting` e' il default di
-              QUESTA board, non tocca mai `dispatchModel`. Vince solo quando il
-              task non ha impostato il proprio (vedi shared/board.ts). */}
-          <TaskModelMenuOptions
-            models={models}
-            value={!s.dispatchModel || s.dispatchModel === 'auto' ? null : s.dispatchModel}
-            onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); setModelOpen(false); }}
-            autoLabel={tr('board.settings.modelAuto')}
-            autoTitle={tr('board.settings.modelTitle')}
-            topicsRouting={topicsRoutingSwitch}
-          />
-        </Menu>
+          variant="full"
+          value={!s.dispatchModel || s.dispatchModel === 'auto' ? null : s.dispatchModel}
+          onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); setModelOpen(false); }}
+          automatic={{ label: tr('board.settings.modelAuto'), hint: tr('board.settings.modelTitle') }}
+          topicsRouting={topicsRoutingSwitch}
+        />
       </div>
 
       {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si

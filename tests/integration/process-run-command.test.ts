@@ -74,10 +74,10 @@ async function makeBench() {
     complete: async () => ({ content: "" }),
   } as unknown as AIProvider;
   const chat = createChatRouter(ctx, {
-    // A topic with the light routing switch on stands for one whose pinned
-    // provider the native engine cannot run: the real resolver throws this.
+    // A chat bound to the Topics engine itself while the engine is down: the
+    // one refusal the real resolver still throws (MSEL-06), a 409 no turn clears.
     resolveProvider: (topic: Topic | null) => {
-      if (topic?.topicsRouting) throw new TopicsRoutingIncompatibleError("openai", "not routable");
+      if (topic?.provider === "topics") throw new TopicsRoutingIncompatibleError("topics", "engine down");
       return provider;
     },
     detectLocalhostAutoNav: () => {},
@@ -362,12 +362,12 @@ describe("the end of a command reaches the topic that launched it", () => {
     expect(await scriptRow(processId)).toMatchObject({ status: "error", exitCode: 1 });
   });
 
-  // The route refuses with a 409 that no turn clears: the topic's routing
-  // cannot reach its provider until somebody changes a setting. Waited on as
+  // The route refuses with a 409 that no turn clears: the chat is bound to the
+  // Topics engine and the engine is down until somebody changes a setting. Waited on as
   // if the session were busy, the wake posted twice a second forever and the
   // topic's chain never ran another one.
   test("a refusal that is not a busy session ends the wait: no row, and the wake stays owed", async () => {
-    const topic = newTopic({ topicsRouting: true });
+    const topic = newTopic({ provider: "topics" });
     const refused = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "hi" }] });
     expect(refused.status).toBe(409);
     expect(await refused.json()).toMatchObject({ code: "topics_routing_incompatible" });

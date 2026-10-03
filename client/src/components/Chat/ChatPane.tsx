@@ -781,6 +781,9 @@ function ChatPaneComponent({
   // snapshot dentro ChatPane — che si ridisegnerebbe a ogni push (lo stato
   // della fast mode ne manda uno a ogni inizio e fine turno).
   const defaultProviderLabel = topic.provider ?? undefined;
+  // MSEL-06: with no runtime pinned the server judges the route on the
+  // topic's model (`/model`), so the chip and the band are given it too.
+  const pinnedModel = topic.provider ? null : topic.model ?? null;
 
   const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(m), [toast]));
   const isUploading = uploading || voiceUploading;
@@ -1523,9 +1526,9 @@ function ChatPaneComponent({
       return;
     }
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
-    // AICTRL-05: gate finale, non estetico. Lo snapshot si legge senza abbonarsi (un hook qui ridisegnerebbe ChatPane a ogni push) e l'unico sblocco e' spegnere lo switch: provider e modello non si toccano mai da soli. allow-italian: perche' si legge lo store invece dell'hook
+    // MSEL-06: lo switch non blocca piu' l'invio. Resta la chat legacy legata al motore stesso col motore giu', dove un «diretto» non esiste. Lo snapshot si legge senza abbonarsi (un hook qui ridisegnerebbe ChatPane a ogni push). allow-italian: perche' si legge lo store invece dell'hook
     if (topicsRoutingBlocked(topicsRouting, providerOverride, defaultProviderLabel, getProvidersSnapshotState().snapshot)) {
-      toast.error(tr('chat.topicsRouting.blocked'));
+      toast.error(tr('chat.topicsEngine.down'));
       return;
     }
     let finalMessage = message.trim();
@@ -1903,7 +1906,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} pinnedModel={pinnedModel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
         {/* The phone's button row, when this chat owns its band (`bandOwned` in
             App): a box at the foot of the block and not a padding, because the
             block's height is read from `contentRect`, which leaves padding out.

@@ -1,13 +1,12 @@
 /**
  * AICTRL-01: il registry PRODUTTIVO deve passare al resolver la lista dei modelli nativi, o il cancello sul modello non esiste. allow-italian: la regola che il file difende
  * Il registry vero lo costruiva senza quella lista, e senza lista la verifica risponde sempre "servito": il ramo "il motore non serve questo modello" era irraggiungibile fuori dai test. allow-italian: nomina il codice morto trovato in review
- * @covers AICTRL-01
+ * @covers AICTRL-01, MSEL-06
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createTopicProviderResolver, topicsNativeModels } from './topic-provider-resolver';
-import { TopicsRoutingIncompatibleError } from './resolve-topic-provider';
 import type { ProvidersSnapshot } from '../../shared/types';
 
 function snapshot(nativeModels: string[] | null): ProvidersSnapshot {
@@ -40,13 +39,10 @@ function resolverOver(nativeModels: string[] | null) {
 }
 
 describe('il registry produttivo porta i modelli del motore nativo', () => {
-  it('blocca il turno quando il motore nativo NON serve il modello pinnato', () => {
+  it('quando il motore nativo NON serve il modello pinnato, il turno va diretto sul provider pinnato', () => {
     const resolve = resolverOver(['claude-opus-5']);
-    let thrown: unknown;
-    try { resolve({ provider: 'claude-code', model: 'claude-sonnet-5', topicsRouting: true }); }
-    catch (err) { thrown = err; }
-    expect(thrown).toBeInstanceOf(TopicsRoutingIncompatibleError);
-    expect((thrown as TopicsRoutingIncompatibleError).message).toContain('claude-sonnet-5');
+    expect(resolve({ provider: 'claude-code', model: 'claude-sonnet-5', topicsRouting: true })).toBe(claudeCode);
+    expect(resolve({ provider: 'claude-code', model: 'claude-sonnet-5', topicsRouting: null })).toBe(claudeCode);
   });
 
   it('lascia passare il modello che il motore nativo serve davvero', () => {
@@ -62,7 +58,12 @@ describe('il registry produttivo porta i modelli del motore nativo', () => {
   });
 
   it('con lo switch spento la lista non c`entra: il provider pinnato risponde lui', () => {
-    expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-sonnet-5' })).toBe(claudeCode);
+    expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: false })).toBe(claudeCode);
+  });
+
+  it('una chat mai toccata (null) col modello servito passa dal motore', () => {
+    expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null })).toBe(native);
+    expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-opus-5' })).toBe(native);
   });
 });
 

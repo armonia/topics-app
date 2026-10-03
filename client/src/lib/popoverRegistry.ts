@@ -255,7 +255,7 @@ export function descendantPopoverNodes(parent: PopoverEntry): Array<Node | null>
   return nodes;
 }
 
-/** Quanti popover sono aperti adesso. Solo per test/diagnostica. */
+/** How many popovers are open now. `useModalDialog` reads it to yield Escape to a popover opened inside the dialog. */
 export function openPopoverCount(): number {
   return open.size;
 }

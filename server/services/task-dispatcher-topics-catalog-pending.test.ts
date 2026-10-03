@@ -4,7 +4,7 @@
  * La semantica giusta e' quella gia' in uso per il warm-up di Codex: pending, quindi defer e requeue, tentativo NON consumato. allow-italian: dice a quale precedente si allinea
  * Il seam e' quello vero: `createTopic` qui fa quello che fa `server.ts`, cioe' chiama `resolveDispatchTopicIdentity` con lo snapshot. allow-italian: dice quale porta di produzione viene esercitata
  *
- * @covers AICTRL-01
+ * @covers AICTRL-01 MSEL-06
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -98,7 +98,8 @@ function harness(snapshot: ProvidersSnapshot | null, overrides: Partial<Dispatch
     },
     createWorktree: async () => "wt-1",
     deleteWorktree: async () => {},
-    runTurn: async (sessionKey: string) => { turns.push(sessionKey); return undefined as TurnEndInfo | undefined; },
+    // Il turno resta in volo: una fine immediata farebbe ripartire la card e conterebbe due turni. allow-italian: dice perche' il finto non risolve mai
+    runTurn: (sessionKey: string) => { turns.push(sessionKey); return new Promise<TurnEndInfo | void>(() => {}); },
     broadcast: () => {},
     graceMs: 10,
     retryBackoffMs: 0,
@@ -149,12 +150,13 @@ describe("AICTRL-01: catalogo Topics in scoperta = attesa, non blocco", () => {
     expect((await run(null, { model: null })).svc.get("t1")!.task.dispatchState).toBe("queued");
   });
 
-  it("la recinzione: motore nativo ASSENTE resta un blocco permanente col motivo", async () => {
-    // Senza questa riga il fix comprerebbe l'attesa al prezzo di un blocco che non arriva mai: un motore che non c'e' non compare enumerando. allow-italian: dice perche' questo caso NON deve aspettare
+  it("la recinzione: motore nativo ASSENTE = la card parte diretta, non si parcheggia (MSEL-06)", async () => {
+    // Un motore che non c'e' non compare enumerando, quindi niente attesa; ma con l'interruttore acceso «quando possibile» la card gira sul suo provider invece di bloccarsi. allow-italian: dice perche' questo caso non aspetta e non blocca
     const h = await run(ABSENT);
 
     const task = h.svc.get("t1")!.task;
-    expect(task.dispatchState).toBe("blocked");
-    expect(task.dispatchError ?? "").toContain("claude-code");
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(task.dispatchState).not.toBe("queued");
+    expect(h.turns).toHaveLength(1);
   });
 });

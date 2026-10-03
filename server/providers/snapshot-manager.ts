@@ -10,7 +10,7 @@
  * single-workspace web app.
  */
 import { EventEmitter } from "node:events";
-import { listProviders, getProvider, getDefaultProviderName } from "./index";
+import { listProviders, getProvider, getDefaultProviderName, providerPreferenceRank } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
 import { publishDeclaredWindows } from "../usage/declared-windows";
 
@@ -170,6 +170,10 @@ export class ProviderSnapshotManager extends EventEmitter {
         // wearing a 1M window, a number nobody measured.
         modelContextWindows:
           (provider as { contextWindows?: () => Record<string, number> }).contextWindows?.() ?? undefined,
+        // MSEL-09: label, description, retirement and generation, declared by
+        // the provider from its own catalog (Codex's cache, Claude Code's list).
+        modelInfo:
+          (provider as { modelInfo?: (models: readonly string[]) => ProviderSnapshotEntry["modelInfo"] }).modelInfo?.(models) ?? undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: provider.effortTier?.(),
@@ -257,10 +261,14 @@ export class ProviderSnapshotManager extends EventEmitter {
 
   private toSnapshot(defaultName: string | null): ProvidersSnapshot {
     return {
-      providers: [...this.entries.values()].map((e) => ({
-        ...e,
-        isDefault: e.name === defaultName,
-      })),
+      // MSEL-05: the order the server itself prefers (subscription first, then
+      // the APIs): the selector picks a row's engine by it.
+      providers: [...this.entries.values()]
+        .sort((a, b) => providerPreferenceRank(a.name) - providerPreferenceRank(b.name))
+        .map((e) => ({
+          ...e,
+          isDefault: e.name === defaultName,
+        })),
       defaultProvider: defaultName,
       generatedAt: new Date().toISOString(),
     };
