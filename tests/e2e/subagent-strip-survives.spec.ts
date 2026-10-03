@@ -515,16 +515,7 @@ test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the a
   // project window then rules on the first roster that comes in, and nothing
   // orders that ruling after the page's record of the end.
   const roster = (url: URL) => url.pathname === "/api/terminal/sessions";
-  // `unroute` does not wait for a handler already sleeping: a roster asked for
-  // just before it would be continued after the reload below has cancelled it,
-  // and Playwright fails the test on that late `continue`. So the handlers in
-  // flight are awaited before the page moves on.
-  const delayedRosters = new Set<Promise<void>>();
-  await page.route(roster, (route) => {
-    const held = (async () => { await new Promise((r) => setTimeout(r, 600)); await route.continue(); })();
-    delayedRosters.add(held);
-    return held.finally(() => delayedRosters.delete(held));
-  });
+  await page.route(roster, async (route) => { await new Promise((r) => setTimeout(r, 600)); await route.continue(); });
   const before = dormantReads();
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
@@ -535,8 +526,11 @@ test("SUBSTRIP-01i: inside a project, the tab of a sub-agent stopped while the a
   await twoFrames(page);
   await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
   expect(await inProject.count(), "the tab of the sub-agent stopped while the app was closed").toBe(1);
-  await page.unroute(roster);
-  await Promise.all(delayedRosters);
+  // A plain `unroute` lets the server continue a roster the handler is still
+  // sleeping on, and the handler's own `continue` then throws «Route is already
+  // handled!» (red 3/3 on main). `wait` lets the sleeping handlers finish first;
+  // this page has no other route.
+  await page.unrouteAll({ behavior: "wait" });
 
   // And the next launch keeps it too, on a roster cache that no longer lists it.
   await reloadAndAwaitVerdict(page, dormantReads, sentinelId);
