@@ -50,7 +50,7 @@ rossi; diventano verdi con le sezioni 2 e 3.
   sveglia a fuoco sul soggetto, la riga nasce vista e nessuna spinta parte; con la socket
   non sveglia la riga nasce non vista, una sola; con solo una socket OSPITE sveglia a
   fuoco la riga nasce non vista.
-- [ ] 1.6 `client/src/state/attention.surfaces.test.ts` (BG-1…4, BELL-1, TERM-1, TERM-2,
+- [x] 1.6 `client/src/state/attention.surfaces.test.ts` (BG-1…4, BELL-1, TERM-1, TERM-2,
   ARCH-1, bgwait-3): i nove casi di `evidence/client-surfaces-disagree.test.ts.txt` e il
   caso di `bgwait-3`, scritti su `attentionOf`, `rollupAttention` e il conteggio del
   chrome a partire da frame `attention:*`.
@@ -63,7 +63,7 @@ rossi; diventano verdi con le sezioni 2 e 3.
   righe; un visto per l'epoca 4 non spegne la 5; un `turnAt` vecchio non copre il turno
   dopo; una socket ospite viene scartata; un visto in `background` porta T7 a `idle`,
   senza visto T7 dà `finished(done)`.
-- [ ] 1.10 `client/src/hooks/useCompletionNotifier.background.test.ts` (D1, BG-2): finestra
+- [x] 1.10 `client/src/hooks/useCompletionNotifier.background.test.ts` (D1, BG-2): finestra
   principale nascosta, tre `message:new` di turni risvegliati e i frame `attention:*`
   della stessa attesa → zero banner fino all'annuncio, poi UNO.
 - [x] 1.11 `server/attention/process-ended.test.ts` (ATTN-15): reaper su una chat vista e
@@ -74,7 +74,7 @@ rossi; diventano verdi con le sezioni 2 e 3.
   `finished(done)` non vista all'epoca 7 e una card in review → stesse epoche, nessuna
   riga; unarchive di una chat archiviata mentre era finita → `idle`, nessuna epoca;
   tombstone della pane di un terminale finito → `idle`, riga vista.
-- [ ] 1.13 `client/src/lib/buildSidebarItems.attention.test.ts`,
+- [x] 1.13 `client/src/lib/buildSidebarItems.attention.test.ts`,
   `client/src/lib/waitingQueue.test.ts`, `BoardTabCounts` (ATTN-14, ATTN-16,
   CHAT-WAIT-03): una chat senza tab accesa resta, vista sparisce dalla cima (F5); la coda
   di ⌘J nasce da `needs-you` e prende il piano nativo, non `finished`; la tab board conta
@@ -134,53 +134,53 @@ rossi; diventano verdi con le sezioni 2 e 3.
 
 ## 3. Client
 
-- [ ] 3.1 `client/src/state/attention.ts`: store da `attention:init` (sostituisce) e
+- [x] 3.1 `client/src/state/attention.ts`: store da `attention:init` (sostituisce) e
   `attention:updated` (applica); `attentionOf`, `rollupAttention`, conteggio del chrome.
   Test unitari.
-- [ ] 3.2 `useSignalsSync.ts` e `signals.ts`: via `chatFinishedTopics`,
+- [x] 3.2 `useSignalsSync.ts` e `signals.ts`: via `chatFinishedTopics`,
   `terminalFinishedIds`, `claudeAttentionTopics`, `reconcileTerminalSignals` e gli insiemi
   di attesa come fonti di attenzione; `backgroundWorkTopics` e `state/backgroundWork.ts`
   non alimentano più glifo, `StreamingIndicator`, `BackgroundWorkLine` e Stop (il poll
   resta per `runningServices.ts`); `seenSubjects` resta solo come ottimismo. I test esistenti che fissano i
   segni per finestra si riscrivono sul contratto nuovo, uno per uno.
-- [ ] 3.3 Superfici: `PaneTabBar.tsx`, `TabSlot.tsx`, `TopicItem.tsx`, `TopicTree.tsx`
+- [x] 3.3 Superfici: `PaneTabBar.tsx`, `TabSlot.tsx`, `TopicItem.tsx`, `TopicTree.tsx`
   (righe dei terminali), `useSpaceCards.ts`, `buildSidebarItems.ts` (vista per stato con
   le quattro sezioni; presenza e ordine da `lit` e `since`, via `lastNotifiedAt`), menu
   agenti, `BackgroundWorkLine.tsx`, `StreamingIndicator`, Stop del composer,
   `BoardTabCounts.tsx` (numero da `rollupAttention` dei `task:`, via la cache del numero).
   Fa passare 1.6, 1.13.
-- [ ] 3.4 Conteggio: `attentionTotal.ts` e `useTabNotifications.tsx` contano i soggetti
+- [x] 3.4 Conteggio: `attentionTotal.ts` e `useTabNotifications.tsx` contano i soggetti
   accesi; via `useUnseenNotificationsStore` e `extraCounts` dal numero; numero su tab e
   riga solo se acceso (TAB-BADGE-01, PARITY-01 modificati); la tray elenca chat e
   terminali contati. Test di parità di CHROME-COUNT-01: righe di sidebar accese + numero
   della tab board generale = numero del chrome.
-- [ ] 3.5 `useCompletionNotifier.tsx`: banner solo da `announce`, claim su
+- [x] 3.5 `useCompletionNotifier.tsx`: banner solo da `announce`, claim su
   `subject#epoch`, poi il cancello di Non disturbare (QUIET-01); via i rami
   `session:state`, `stream:end` e `message:new` (`decideMessageBanner`) e i POST di righe.
   Test: la chat a fuoco con l'impostazione spenta non suona (difetto D); due finestre un
   banner; 1.10.
-- [ ] 3.6 `paneSeen.ts` e `useWebSocket.ts`: la soglia di visto manda `{subject, epoch}`
+- [x] 3.6 `paneSeen.ts` e `useWebSocket.ts`: la soglia di visto manda `{subject, epoch}`
   alla porta nuova (`{subject, epoch, turnAt}`, anche in `background` con `turnUnseen`);
   `focus` con soggetto e veglia a ogni cambio di pane e di `visibilitychange`.
-- [ ] 3.7 `lib/waitingQueue.ts` e il gestore di ⌘J (CHAT-WAIT-03 modificato): mete da
+- [x] 3.7 `lib/waitingQueue.ts` e il gestore di ⌘J (CHAT-WAIT-03 modificato): mete da
   `attentionOf` (`needs-you` con `question`, `permission`, `plan`), sezione «Ti aspetta»;
   `handleTerminalRowClick` manda il visto. `waitingCount` (`App.tsx:1359`) e la porta di
   CHAT-WAIT-04 leggono la stessa coda, invariati. Fa passare 1.13.
-- [ ] 3.8 PWA: a ogni `attention:init` ritira con `registration.getNotifications()` le
+- [x] 3.8 PWA: a ogni `attention:init` ritira con `registration.getNotifications()` le
   notifiche dei soggetti non più accesi e riscrive il badge; `sw.js` scrive sul badge il
   numero del payload della spinta. Test sul selettore delle notifiche da ritirare.
 
 ## 4. Inbox e desktop
 
-- [ ] 4.1 `components/Sidebar/Inbox.tsx` al posto di `NotificationHistoryButton.tsx`:
+- [x] 4.1 `components/Sidebar/Inbox.tsx` al posto di `NotificationHistoryButton.tsx`:
   tasto, popover, foglio sotto i 768 px, linguette «Ora» e «Cronologia» (design §9).
-- [ ] 4.2 Sezioni «Ti aspettano» e «Finite», righe, azioni, «Segna visto», «Segna tutte
+- [x] 4.2 Sezioni «Ti aspettano» e «Finite», righe, azioni, «Segna visto», «Segna tutte
   viste», apertura sul punto (domanda, cassetto della card).
-- [ ] 4.3 Riga quieta «N in background · M al lavoro», che si apre sul posto.
-- [ ] 4.4 i18n `lib/i18n-it.ts` e `lib/i18n-en.ts`.
-- [ ] 4.5 `desktop-tauri/src-tauri/src/lib.rs`: `set_app_status` solo dalla finestra
+- [x] 4.3 Riga quieta «N in background · M al lavoro», che si apre sul posto.
+- [x] 4.4 i18n `lib/i18n-it.ts` e `lib/i18n-en.ts`.
+- [x] 4.5 `desktop-tauri/src-tauri/src/lib.rs`: `set_app_status` solo dalla finestra
   principale; il client lo chiama solo da lì. Test Rust sull'etichetta del chiamante.
-- [ ] 4.6 Scorciatoia «Apri Da guardare» nel registro di oggi `shared/shortcuts.ts`, con
+- [x] 4.6 Scorciatoia «Apri Da guardare» nel registro di oggi `shared/shortcuts.ts`, con
   `shortcuts_generated.rs` rigenerato; default ⇧⌘I se libera nel registro, se no la prima
   libera fra ⇧⌘N e ⌥⌘I, scritta qui. Nessuna dipendenza da `remappable-shortcuts`.
 

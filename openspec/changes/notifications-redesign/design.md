@@ -647,3 +647,46 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
 - **Avvisi di sistema**: nuovo genere `system` in `shared/notification-log.ts`; il
   disgelo riscrive la riga del congelamento (stessa chiave di ciclo) invece di
   aggiungerne una.
+
+### Metà client (sezioni 3 e 4 di `tasks.md`)
+
+- **Il visto ottimista vive nello store di attenzione** (`localSeen` in
+  `state/attention.ts`), non in un `seenSubjects` di `signals.ts`: chi spegne e chi
+  disegna leggono la stessa mappa, e il primo frame del server con `seenEpoch` uguale o
+  un'epoca nuova lo sostituisce. `sendAttentionSeenItems` spegne in locale solo se
+  l'epoca mostrata è ancora quella corrente.
+- **La riga dei compiti in background** (`BackgroundWorkLine.tsx`) prende la PRESENZA
+  dai compiti dello store di attenzione e i DETTAGLI dal poll di prima (`processId`,
+  risvegli, «fermo da»): i compiti dello stato non li portano. Un `command` dello stato
+  è sostituito dalle voci per processo del poll quando ci sono.
+- **Un solo scrittore del badge**: sotto Tauri scrive solo la finestra principale
+  (`isMainWindow()` sul client, `accepts_app_status_from` in `lib.rs`); la PWA usa
+  `setAppBadge` solo fuori da Tauri, e il service worker scrive il `badge` del payload.
+- **`focus` con `subject: null`**: il gestore in `server.ts` ora distingue «nessun
+  soggetto davanti» (`subject: null`) da un client vecchio che il campo non lo manda
+  (ricade sul `topicId`). Senza, una finestra sveglia su una pane vuota teneva viva la
+  chat di prima.
+- **Tasto della inbox**: numero blu (la variante di sempre), ambra appena c'è un
+  `needs-you`. Il pannello è il primitivo `Menu` (foglio sotto i 768 px, Esc che rende
+  il fuoco al tasto): apre in 90 ms, il `popover-enter` dei menu, non 120.
+- **Le card nella inbox non hanno il progetto**: il board si legge nel cassetto della
+  card, la riga dice la card (prima riga del testo).
+- **Le righe di «Cronologia» si aprono** (Invio o clic portano al soggetto) ma non
+  segnano niente: la linguetta è in sola lettura come dice ATTN-09.
+- **Scorciatoia ⇧⌘I**, libera nel registro: `shared/shortcuts.ts` e
+  `shortcuts_generated.rs` rigenerato con `scripts/gen-shortcuts.ts`.
+- **Testid cambiati**: le sezioni della vista per stato sono
+  `sidebar-state-section-{needs-you|finished|background|working|rest}`; il tasto e il
+  pannello sono `inbox-button`, `inbox-panel`, `inbox-row`, `inbox-mark-seen`,
+  `inbox-mark-all`, `inbox-quiet` (prima `notification-history-*`); `data-attention`
+  vale `needs-you|error|done`. Gli e2e che li citano li riscrive la sezione 5.
+- **Tolti, non lasciati come alias**: `extraCounts`, `notifyPane`/`clearPane`,
+  `NotificationHistoryButton.tsx`, `state/notificationUnseen.ts` e i moduli client
+  `lib/notify/{chatFinished,messageBanner,terminalNotify,dispatchedTopic,muteGate,
+  reviewQuestion,pushVoice}.ts` con i loro test. Le loro regole hanno un gemello sul
+  server (regola 2 di `compose`, `isTopicSilenced` e `buildAnnouncement` in
+  `push-triggers`) e in `announceBanner.test.ts` per la parte che resta al client.
+- **Le righe dei terminali nel menu del tray** portano il prefisso `terminal:`, così il
+  gestore della navigazione apre il terminale e non cerca una chat con quell'id.
+- **`attention:init`/`attention:updated` escono da `UNCONSUMED`** di
+  `ws-outbound-coverage.test.ts`: il client li ascolta.
