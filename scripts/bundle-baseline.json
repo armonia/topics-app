@@ -741,13 +741,23 @@
     "their own branches; the merge kept the numbers already written here, because",
     "the three together measure inside 2% of them with build:client on this Mac:",
     "entry 1.593.672 / 505.499, critical path 2.211.374 / 665.133 (ceiling 677.271,",
-    "12 KB of room against CI's ~0,9 KB more), total assets 8.569.090. Nothing raised."
+    "12 KB of room against CI's ~0,9 KB more), total assets 8.569.090. Nothing raised.",
+    "",
+    "2026-10-03, feat/commands-ui-1003: entry_eager raised to this branch's measure,",
+    "1.614.893 raw / 511.953 gz. main b4875e1be built on the same Mac measures",
+    "1.596.507 / 506.446, so the change buys +18.386 raw / +5.507 gz in the entry:",
+    "the grouped «/» menu and the alias map (Chat/commandMap.ts, slashCommands.ts),",
+    "the command card and its types (CommandAnswerCard.tsx, lib/commandAnswer.ts),",
+    "the /resume picker, the pinned line and list, the week bar, the board hint, and",
+    "their strings in both languages (i18n is eager by choice). They all hang off the",
+    "composer and the chat, which are eager. critical_path (2.233.094 / 671.831) and",
+    "total assets (8.596.295) stay inside 2% and are not raised."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1579035,
-    "gz": 499151
+    "raw": 1614893,
+    "gz": 511953
   },
   "critical_path": {
     "raw": 2211033,
