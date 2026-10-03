@@ -27,9 +27,9 @@ import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
-import { SLASH_COMMANDS } from './slashCommands';
+import { offeredSlashCommands } from './slashCommands';
 import { ChatInput, type ComposerControls } from './ChatInput';
-import { cliRefusedCommand } from './cliRefused';
+import { cliRefusedCommand, isClearCommand } from './cliRefused';
 import { shortcut } from '../../lib/shortcutLabel';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { restoreLastTurnCheckpoint, RestoreRefusedError } from '../../hooks/useCheckpoints';
@@ -89,8 +89,8 @@ import { apiFetch } from '../../lib/shell/net';
  * only exists once a language is chosen, and it changes when the language does.
  * The command itself is not translated, it is what one types.
  */
-const slashCommandsHelp = (tr: (key: string) => string) =>
-  SLASH_COMMANDS.map((c) => `${c.cmd}: ${tr(c.descriptionKey)}`);
+const slashCommandsHelp = (tr: (key: string) => string, provider: string | null) =>
+  offeredSlashCommands(provider).map((c) => `${c.cmd}: ${tr(c.descriptionKey)}`);
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -974,19 +974,25 @@ function ChatPaneComponent({
       setCommandResult({ type: 'error', message: tr('chat.orchestrator.slashBlocked') });
       return true;
     }
-    if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // The provider the topic DECLARES (CMD-08), the same one the menu is
+    // filtered by (`ChatInput`): the refusals and the /new alias below are
+    // Claude Code's, and other providers run those names themselves.
+    const declared = topic.provider || getProvidersSnapshotState().snapshot?.providers.find((p) => p.isDefault)?.name || null;
+    if (cmd === '/status' || cmd.startsWith('/status ')) { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     // `/context` opens the inspector the ring opens. It used to print the
     // envelope's own estimate in a banner while the ring, one row below, read
     // the model's real count: two answers to one question, the banner the
     // wrong one.
-    if (cmd === '/context') { setCommandResult(null); composerControlsRef.current?.openContext(); return true; }
+    // A draft has no ring and no inspector yet: say so instead of nothing.
+    if (cmd === '/context') { if (isDraftTopicId(topic.id)) { setCommandResult({ type: 'success', message: tr('chat.context.draft') }); return true; } setCommandResult(null); composerControlsRef.current?.openContext(); return true; }
     // `/new` and `/reset` are Claude Code's own aliases of `/clear`: forwarded,
     // the live process forgot while the screen kept the history and Topics
-    // kept the old session id for the next `--resume`.
-    if (cmd === '/clear' || cmd === '/new' || cmd === '/reset') { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // kept the old session id for the next `--resume`. On openclaw they are
+    // the gateway's own reset and travel as typed (`isClearCommand`).
+    if (isClearCommand(cmd, declared)) { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     // The typed level travels (`/reasoning off`); bare, the gateway toggles.
     if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { const level = text.trim().slice('/reasoning'.length).trim() || undefined; setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey, level); setCommandResult({ type: 'success', message: r.message || tr('chat.command.reasoningToggled') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/help') { setCommandResult({ type: 'success', message: slashCommandsHelp(tr).join('\n'), stays: true }); return true; }
+    if (cmd === '/help' || cmd.startsWith('/help ')) { setCommandResult({ type: 'success', message: slashCommandsHelp(tr, declared).join('\n'), stays: true }); return true; }
     if (cmd === '/fork' || cmd.startsWith('/fork ')) { await forkHere(text.trim().slice('/fork'.length)); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it
@@ -1009,7 +1015,7 @@ function ChatPaneComponent({
     // filler: "your files are back" and "the chat is back" are two different
     // promises, Topics only keeps the first, and a user who assumes the second
     // discovers the mismatch later, at the worst possible moment.
-    if (cmd === '/rewind' || cmd === '/checkpoint') {
+    if (cmd === '/rewind' || cmd.startsWith('/rewind ') || cmd === '/checkpoint') {
       setCommandLoading(true);
       try {
         const r = await restoreLastTurnCheckpoint(topic.id);
@@ -1185,15 +1191,17 @@ function ChatPaneComponent({
     // (CMD-06): answered here, saying what to use in Topics instead
     // (`cliRefused.ts`). They used to reach the CLI, which can only answer
     // «/X isn't available in this environment.», in English, as the agent.
-    const refusedCli = cliRefusedCommand(text);
+    const refusedCli = cliRefusedCommand(text, declared);
     if (refusedCli) {
-      if (refusedCli.answer.action === 'export' && currentMessages.length > 0) handleExportConversation();
-      setCommandResult({ type: 'success', stays: true, message: tr(refusedCli.answer.key, { name: refusedCli.name, reopen: shortcut('T', { shift: true }), palette: shortcut('K'), close: shortcut('W') }) });
+      // An empty chat has nothing to download: the sentence must not say it started.
+      const exportsNothing = refusedCli.answer.action === 'export' && currentMessages.length === 0;
+      if (refusedCli.answer.action === 'export' && !exportsNothing) handleExportConversation();
+      setCommandResult({ type: 'success', stays: true, message: tr(exportsNothing ? 'chat.cliRefused.exportEmpty' : refusedCli.answer.key, { name: refusedCli.name, reopen: shortcut('T', { shift: true }), palette: shortcut('K'), close: shortcut('W') }) });
       return true;
     }
 
     return false;
-  }, [topic.sessionKey, topic.id, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation]);
+  }, [topic.sessionKey, topic.id, topic.projectPath, topic.provider, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other

@@ -36,7 +36,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CLI_REFUSED } from "./cliRefused";
+import { CLI_REFUSED, cliRefusedCommand, isClearCommand } from "./cliRefused";
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -68,8 +68,21 @@ const handled = (c: string) => new RegExp(`['"\`]/${c}['"\` ]`).test(CHAT_PANE);
  * comment, so `/browser` and `/model` read as covered while their bare form
  * went to the model as prose. Only a comparison of the whole command counts.
  */
-const bareIn = (src: string, c: string) => new RegExp(`cmd === '/${c}'`).test(src);
+const bareIn = (src: string, c: string) => new RegExp(`cmd === '/${c}'`).test(withoutComments(src));
 const handledBare = (c: string) => bareIn(CHAT_PANE, c);
+
+/**
+ * The source without its comments. A comparison quoted in a comment
+ * (`// cmd === '/frob'`) is not a branch, and it used to count as one: only
+ * whole-line `//` comments, trailing `// ...` after code and `/* *\/` blocks
+ * are removed, so a `//` inside a URL string is left alone.
+ */
+function withoutComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[ \t])\/\/.*$/gm, "$1");
+}
+
+/** Does `ChatPane` also act on the command typed WITH an argument (`/help me`)? */
+const handledWithArg = (c: string) => new RegExp(`cmd\\.startsWith\\('/${c} '\\)`).test(withoutComments(CHAT_PANE));
 
 /**
  * What the installed Claude Code does in `--print`, measured on 2.1.288 (see
@@ -133,10 +146,16 @@ describe("`/help` cannot fall behind the menu", () => {
   // second list.
   test("the help text is built from the same array the menu uses", () => {
     const line = CHAT_PANE.match(/const slashCommandsHelp\s*=\s*([^;]+);/)?.[1] ?? "";
-    expect(line, "`/help` is a hand-written list again").toContain("SLASH_COMMANDS.map");
+    expect(line, "`/help` is a hand-written list again").toContain("offeredSlashCommands(provider).map");
     expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
-      "import { SLASH_COMMANDS } from './slashCommands'",
+      "import { offeredSlashCommands } from './slashCommands'",
     );
+  });
+
+  test("and filtered by the same provider the menu is filtered by", () => {
+    // `/help` listed «/reasoning» on claude-code while typing `/rea` offered
+    // nothing: the menu was filtered by the declared provider, /help was not.
+    expect(CHAT_PANE).toContain("slashCommandsHelp(tr, declared)");
   });
 });
 
@@ -214,8 +233,15 @@ describe("a name the CLI refuses headless is answered in the composer", () => {
     expect(runnable).toEqual([]);
   });
 
-  test("and `ChatPane` consults it", () => {
-    expect(CHAT_PANE).toContain("cliRefusedCommand(");
+  test("and `ChatPane` consults it, with the declared provider", () => {
+    expect(CHAT_PANE).toContain("cliRefusedCommand(text, declared)");
+  });
+
+  test("a refused name answered by a branch is answered with an argument too", () => {
+    // `/help me` and `/status now` used to reach the CLI, which refuses them
+    // in English: only the bare form had a branch.
+    const leaking = CLI.refused.filter((n) => handledBare(n) && !(n in CLI_REFUSED) && !handledWithArg(n));
+    expect(leaking, "typed with an argument, these still reach a CLI that refuses them").toEqual([]);
   });
 
   test("the check can fail", () => {
@@ -250,15 +276,57 @@ describe("every menu entry does something when picked", () => {
     expect(bareIn(sample, "model")).toBe(false);
     expect(bareIn("if (cmd === '/browser') {}", "browser")).toBe(true);
   });
+
+  test("a comparison quoted in a comment is not a branch", () => {
+    expect(bareIn("// cmd === '/frob' is not handled", "frob")).toBe(false);
+    expect(bareIn("/* cmd === '/frob' */", "frob")).toBe(false);
+    expect(bareIn("const x = 1; // cmd === '/frob'", "frob")).toBe(false);
+    expect(bareIn("if (cmd === '/frob') {} // handled", "frob")).toBe(true);
+  });
 });
 
-describe("`/new` and `/reset` are `/clear`", () => {
+describe("`/new` and `/reset` are `/clear`, on Claude Code", () => {
   // Claude Code's aliases of /clear (measured: each emits conversation_reset
   // and changes the session id). Forwarded, the live process forgot while the
   // screen kept the history and Topics kept the old session id.
   test("both reach the clear branch, behind the same confirmation", () => {
-    for (const c of ["new", "reset"]) expect(handledBare(c), `/${c}`).toBe(true);
+    for (const c of ["/new", "/reset", "/clear"]) expect(isClearCommand(c, "claude-code"), c).toBe(true);
+    expect(isClearCommand("/clear", "openclaw")).toBe(true);
+    expect(CHAT_PANE).toContain("isClearCommand(cmd, declared)");
     expect(CLI.aliases.new).toBe("clear");
     expect(CLI.aliases.reset).toBe("clear");
+  });
+
+  test("on openclaw they are the gateway's own reset gestures and travel as typed", () => {
+    // openclaw lists /new and /reset among its commands, and has no /clear.
+    for (const c of ["/new", "/reset"]) {
+      expect(isClearCommand(c, "openclaw"), c).toBe(false);
+      expect(isClearCommand(c, "gemini"), c).toBe(false);
+    }
+  });
+});
+
+describe("the refusals are Claude Code's, so only a Claude Code topic gets them (CMD-08)", () => {
+  // The table was measured on Claude Code. gemini answers `/memory list`
+  // itself (measured, gemini-cli 0.55.1 over ACP: «No GEMINI.md files in
+  // use.», 0 tokens); `/login` and `/export` are openclaw's own commands.
+  // Answered in the composer as «terminal commands of Claude Code», they were
+  // blocked on the providers that run them.
+  test("a Claude Code topic is answered in the composer", () => {
+    expect(cliRefusedCommand("/resume abc", "claude-code")?.name).toBe("resume");
+    expect(cliRefusedCommand("/memory show", "claude-code-team")?.name).toBe("memory");
+  });
+
+  test("a gemini or openclaw topic is not intercepted", () => {
+    for (const provider of ["gemini", "openclaw", "codex", "topics"]) {
+      for (const text of ["/memory list", "/login", "/export", "/resume abc"]) {
+        expect(cliRefusedCommand(text, provider), `${text} on ${provider}`).toBeNull();
+      }
+    }
+  });
+
+  test("an undeclared provider is not intercepted: the provider answers for itself", () => {
+    expect(cliRefusedCommand("/resume", null)).toBeNull();
+    expect(cliRefusedCommand("/resume", undefined)).toBeNull();
   });
 });

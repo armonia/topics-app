@@ -32,7 +32,7 @@ test.describe.configure({ timeout: 120_000 });
  * measured on the real CLI (see `claudeCliCommands.fixture.json`), and
  * `slashCommandRouting.test.ts` holds the lists to them.
  *
- * @covers CMD-06, CMD-07, CMD-09
+ * @covers CMD-06, CMD-07, CMD-08, CMD-09
  */
 
 const LOG = join(E2E_HOME, "fake-cli-slash-local.jsonl");
@@ -166,6 +166,34 @@ test.describe("slash commands answered in the composer", () => {
     await type(chatPage, page, "messaggio-normale-di-controllo");
     await expect.poll(() => received().some((t) => t.includes("messaggio-normale-di-controllo")), { timeout: 30_000 }).toBe(true);
   });
+});
+
+test.describe("on a provider that is not Claude Code, the names travel as typed", () => {
+  // CMD-08: the refusals and the /new alias are Claude Code's. openclaw has
+  // its own `/login`, `/export`, `/new` and `/reset`, gemini answers `/memory`
+  // itself. The bench runs no openclaw gateway, so what is asserted is the
+  // composer's side only: the message is SENT, nothing answers it here and no
+  // /clear confirmation opens. What openclaw does with it is not visible here.
+  for (const text of ["/login", "/new"]) {
+    test(`${text} on an openclaw topic is sent, not answered or confirmed in the composer`, async ({ page, request, chatPage }) => {
+      test.info().annotations.push({ type: "spec", description: "CMD-08" });
+      const name = `slash-openclaw-${text.slice(1)}-${Date.now()}`;
+      const topic = await createTopic(request, name, { provider: "openclaw" });
+      try {
+        await resetPaneStore(request, [topic.id]);
+        await goToApp(page);
+        await page.keyboard.press("Escape");
+        await openTopic(page, new RegExp(name));
+        await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+        await type(chatPage, page, text);
+        await expect(chatPage.messageList).toContainText(text, { timeout: 15_000 });
+        await expect(page.getByRole("dialog").filter({ hasText: "Svuoto la conversazione?" })).toHaveCount(0);
+        await expect(result(page).filter({ hasText: /Claude Code/ })).toHaveCount(0);
+      } finally {
+        await deleteTopic(request, topic.id);
+      }
+    });
+  }
 });
 
 test.describe("/compact says how it went", () => {

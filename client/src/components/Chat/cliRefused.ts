@@ -57,15 +57,46 @@ export const CLI_REFUSED: Readonly<Record<string, CliRefusedAnswer>> = {
 };
 
 /**
- * The refused command a message invokes, if any. Same first-token rule as the
- * server's `isCliBuiltin`: the name is what follows the slash up to the first
- * space, lower-cased, and a first token containing a slash is a path.
+ * Does the topic DECLARE Claude Code (CMD-08)? Every fact in this file was
+ * measured on Claude Code's CLI, and other providers run some of these names
+ * themselves: gemini answers `/memory list` locally (measured, gemini-cli
+ * 0.55.1 over ACP, 0 tokens), openclaw has its own `/login`, `/export`, `/new`
+ * and `/reset`. `claude-code-team` is the legacy name of the same provider
+ * (`server/routes/commandRouting.ts` `declaredProviderName`). An undeclared
+ * provider is not assumed: the provider then answers for itself, as before.
  */
-export function cliRefusedCommand(text: string): { name: string; answer: CliRefusedAnswer } | null {
+export function declaresClaudeCode(declaredProvider: string | null | undefined): boolean {
+  const p = declaredProvider?.trim();
+  return p === 'claude-code' || p === 'claude-code-team';
+}
+
+/**
+ * The refused command a message invokes, if any, on a topic whose declared
+ * provider is `declaredProvider`. Same first-token rule as the server's
+ * `isCliBuiltin`: the name is what follows the slash up to the first space,
+ * lower-cased, and a first token containing a slash is a path.
+ */
+export function cliRefusedCommand(
+  text: string,
+  declaredProvider: string | null | undefined,
+): { name: string; answer: CliRefusedAnswer } | null {
+  if (!declaresClaudeCode(declaredProvider)) return null;
   const t = text.trimStart();
   if (!t.startsWith('/')) return null;
   const name = (t.slice(1).split(/\s/, 1)[0] ?? '').toLowerCase();
   if (!name || name.includes('/')) return null;
   const answer = Object.prototype.hasOwnProperty.call(CLI_REFUSED, name) ? CLI_REFUSED[name] : undefined;
   return answer ? { name, answer } : null;
+}
+
+/**
+ * Is `cmd` (lower-cased, trimmed) Topics' `/clear`? `/new` and `/reset` are
+ * Claude Code's aliases of it: forwarded there, the live process forgot while
+ * the screen kept the history and Topics kept the old session id. On openclaw
+ * the same two words are the gateway's own reset gestures, and openclaw has no
+ * `/clear`, so elsewhere they travel as typed.
+ */
+export function isClearCommand(cmd: string, declaredProvider: string | null | undefined): boolean {
+  if (cmd === '/clear') return true;
+  return (cmd === '/new' || cmd === '/reset') && declaresClaudeCode(declaredProvider);
 }
