@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronsDown, History, SquareTerminal } from 'lucide-react';
 import { SuggestionMenu } from '../Shared/SuggestionMenu';
 import { Spinner } from '../Shared/Spinner';
@@ -44,6 +44,10 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
   const [failed, setFailed] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [adopting, setAdopting] = useState<string | null>(null);
+  // While the dialog asks, a click on it is not a click outside the list:
+  // «Annulla» leaves the list where it was.
+  const confirmingRef = useRef(false);
+  const closeUnlessAsking = useCallback(() => { if (!confirmingRef.current) onClose(); }, [onClose]);
 
   const loadPage = useCallback(async (before: string | null) => {
     setLoading(true);
@@ -81,11 +85,20 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
     const s = row.session;
     // Two processes writing one session fork it: a session still running in a
     // terminal is continued here only if the person says so.
-    if (s.active && !(await confirm({
-      title: tr('chat.resume.activeTitle'),
-      body: tr('chat.resume.activeBody'),
-      confirmLabel: tr('chat.resume.activeConfirm'),
-    }))) return;
+    if (s.active) {
+      confirmingRef.current = true;
+      let go = false;
+      try {
+        go = await confirm({
+          title: tr('chat.resume.activeTitle'),
+          body: tr('chat.resume.activeBody'),
+          confirmLabel: tr('chat.resume.activeConfirm'),
+        });
+      } finally {
+        confirmingRef.current = false;
+      }
+      if (!go) { inputRef.current?.focus(); return; }
+    }
     setAdopting(s.sessionId);
     try {
       const topic = await topicsApi.adoptClaudeSession({ sessionId: s.sessionId, transcriptPath: s.transcriptPath, ...(s.title ? { name: s.title } : {}) });
@@ -96,7 +109,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
     } finally {
       setAdopting(null);
     }
-  }, [adopting, loadPage, cursor, confirm, tr, toast, onAdopted]);
+  }, [adopting, loadPage, cursor, confirm, tr, toast, onAdopted, inputRef]);
 
   // The keys of the field while the list is open.
   useEffect(() => {
@@ -137,7 +150,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
       items={rows}
       getKey={(r) => (r.kind === 'more' ? '__more' : r.session.sessionId)}
       selectedIndex={selected}
-      onClose={onClose}
+      onClose={closeUnlessAsking}
       inputRef={inputRef}
       headerIcon={<History size={12} className="text-app-text-secondary" />}
       headerLabel={tr('chat.resume.header')}
