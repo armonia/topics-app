@@ -10,6 +10,7 @@ import { unmockChatStream } from "./helpers/sse-helpers";
 import { canonicalTmpRoot, initGitRepo } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
 import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
+import { splitViaContextMenu } from "./helpers/layout";
 
 hermetic(test);
 
@@ -50,6 +51,10 @@ const blurAll = (page: Page) => page.evaluate(() => (document.activeElement as H
 const bar = (page: Page) => page.getByTestId("find-bar").filter({ visible: true }).first();
 const count = (page: Page) => bar(page).getByTestId("find-count");
 const input = (page: Page) => bar(page).getByTestId("find-input");
+/** The app modifier: ⌘ on the Mac, Ctrl elsewhere (where Ctrl+F is also a terminal byte). */
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+const findCurrentSize = (page: Page) => page.evaluate(() =>
+  (CSS as unknown as { highlights?: Map<string, { size: number }> }).highlights?.get("find-current")?.size ?? 0);
 
 /** Two hundred lines, «zibaldone» on line 150, nothing else that matches. */
 function bigFile(changed: boolean): string {
@@ -106,6 +111,20 @@ test.describe("Cerca nella pane: la chat", () => {
       ],
       splitToolOutputs: true,
     });
+    // A finished turn with two tools and an answer: `turnFold` folds its work
+    // into one closed row, and «ENOENT_PIEGATO» lives only in the second
+    // tool's output, stored apart.
+    const folded = `${"una riga di uscita qualsiasi\n".repeat(200)}cat: /etc/manca: ENOENT_PIEGATO\n`;
+    await seedMessage(request, {
+      sessionKey, role: "assistant", content: "Fatto, il secondo manca.",
+      timestamp: new Date(t0 + (total + 1) * 1000).toISOString(), sortOrder: t0 + total + 1,
+      blocks: [
+        { kind: "tool", toolCall: { id: "tc-fold-1", name: "Bash", args: { command: "cat /etc/hosts" }, status: "success", detail: { type: "shell", command: "cat /etc/hosts", output: "127.0.0.1 localhost\n", exitCode: 0 } } },
+        { kind: "tool", toolCall: { id: "tc-fold-2", name: "Bash", args: { command: "cat /etc/manca" }, status: "error", detail: { type: "shell", command: "cat /etc/manca", output: folded, exitCode: 1 } } },
+        { kind: "text", text: "Fatto, il secondo manca." },
+      ],
+      splitToolOutputs: true,
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -114,6 +133,27 @@ test.describe("Cerca nella pane: la chat", () => {
 
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);
+  });
+
+  test("CHAT-FIND-02: a result inside a folded finished turn opens the fold and the row, and is painted", async ({ page, chatPage }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    const fold = page.getByTestId("turn-work-fold").filter({ visible: true }).last();
+    await expect(fold).toHaveAttribute("data-open", "false", { timeout: 15_000 });
+    const row = page.getByTestId("tool-call-row-tc-fold-2");
+    await expect(row).toHaveCount(0);
+
+    await blurAll(page);
+    await page.keyboard.press(`${MOD}+f`);
+    await page.keyboard.type("ENOENT_PIEGATO");
+    await expect(count(page)).toHaveText("0 di 1", { timeout: 10_000 });
+    await page.keyboard.press("Enter");
+    await expect(count(page)).toHaveText("1 di 1");
+    await expect(fold).toHaveAttribute("data-open", "true", { timeout: 10_000 });
+    await expect(row).toContainText("ENOENT_PIEGATO", { timeout: 10_000 });
+    await expect.poll(() => findCurrentSize(page), { timeout: 10_000 }).toBeGreaterThan(0);
   });
 
   test("CHAT-FIND-01: ⌘F from the composer opens the chat's bar; a word only in the first message is found", async ({ page, chatPage }) => {
@@ -287,6 +327,74 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await page.locator(`[data-pane-id="${topicId}"]`).first().click();
     await expect(input(page)).toHaveValue("deploy");
     await expect(count(page)).toHaveText("1 di 2");
+  });
+
+  test("FIND-01: Enter right after the last letter goes to the first result of THAT word", async ({ page, request, chatPage }) => {
+    await resetPaneStore(request, [topicId]);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await blurAll(page);
+    await page.keyboard.press(`${MOD}+f`);
+    // No wait for the counter: the chat's search is still on its debounce
+    // (and then on the route) when Enter arrives.
+    await page.keyboard.type("deploy");
+    await page.keyboard.press("Enter");
+    await expect(count(page)).toHaveText("1 di 2", { timeout: 10_000 });
+  });
+
+  test("TERM-FIND-01: the find chords never reach the running program", async ({ page, request }) => {
+    await resetPaneStore(request, [`terminal:${termId}`]);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await page.locator(`[data-pane-id="terminal:${termId}"]`).first().click();
+    const term = page.locator('[data-testid="single-terminal-pane"]').filter({ visible: true }).first();
+    await expect(term).toBeVisible({ timeout: 15_000 });
+    await term.locator(".xterm").first().click();
+    // A program in raw mode prints the bytes it receives: Ctrl+F and Ctrl+G
+    // would arrive as 6 and 7. «q» (113) ends it, and proves it was listening.
+    await page.keyboard.type(`node -e "process.stdin.setRawMode(true);console.log('RE'+'ADY');process.stdin.on('data',d=>{console.log('GOT '+[...d].join(' '));if(d.includes(113))process.exit()})"\n`);
+    const rows = term.locator(".xterm-rows");
+    await expect(rows).toContainText("READY", { timeout: 20_000 });
+    await page.keyboard.press(`${MOD}+f`);
+    await expect(term.getByTestId("find-bar")).toBeVisible();
+    await page.keyboard.type("READY");
+    await expect(term.getByTestId("find-count")).toHaveText(/di [1-9]/, { timeout: 10_000 });
+    // ⌘G with the keyboard back in the terminal and the bar still open.
+    await term.locator(".xterm").first().click();
+    await expect(term.getByTestId("find-bar")).toBeVisible();
+    await page.keyboard.press(`${MOD}+g`);
+    await page.keyboard.type("q");
+    await expect(rows).toContainText("GOT 113", { timeout: 10_000 });
+    // Everything the program received came before its «q»: none of it was a
+    // chord. No `\b`: the rows' text runs together («GOT 6GOT 113»).
+    await expect(rows).not.toContainText(/GOT [67](?!\d)/);
+  });
+
+  test("FIND-02: ⌘F forwarded from a native page opens the focused pane's bar, not the pane clicked last in the DOM", async ({ page, request, chatPage }) => {
+    await resetPaneStore(request, [topicId, `terminal:${termId}`]);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await splitViaContextMenu(page, "Dividi a destra", 1);
+    await page.locator(`[role="tab"][data-pane-id="terminal:${termId}"]`).first().click();
+    const focusedTerm = page.locator(`[role="tab"][data-focused="true"][data-pane-id="terminal:${termId}"]`);
+    await expect(focusedTerm).toHaveCount(1, { timeout: 5_000 });
+    // What a click into a native page leaves behind: the last DOM pointerdown
+    // is still the one in the chat, while the focus moved to the other pane.
+    await page.evaluate((id) => {
+      document.querySelector(`[data-find-pane="${id}"]`)!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: false }));
+    }, topicId);
+    await expect(focusedTerm).toHaveCount(1);
+    await blurAll(page);
+    // The shell's forwarded chord (`app_chord_dispatch_js`): target = window.
+    await page.evaluate((mac) => window.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "f", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true,
+    })), process.platform === "darwin");
+    await expect(page.locator('[data-testid="single-terminal-pane"] [data-testid="find-bar"]').filter({ visible: true })).toHaveCount(1);
+    await expect(page.locator(`[data-find-pane="${topicId}"] [data-testid="find-bar"]`)).toHaveCount(0);
   });
 });
 

@@ -92,6 +92,27 @@ describe('the bar belongs to the pane (FIND-01)', () => {
     expect(getFindState('p').query).toBe('w');
   });
 
+  test('Enter right after the last letter steps through THAT word on an async engine', async () => {
+    // The chat and the native browser: search() resolves later (debounce,
+    // route round trip, IPC). The step must wait for it, or it moves through
+    // the previous word and the search landing resets the index to 0.
+    let hits: string[] = [];
+    let at = 0;
+    const words: Record<string, string[]> = { ab: ['a1'], zibaldone: ['z1', 'z2'] };
+    registerFinder('chat', {
+      debounceMs: 250,
+      search: (q) => new Promise<number>((res) => setTimeout(() => { hits = words[q] ?? []; at = 0; res(hits.length); }, 20)),
+      step: () => { at = (at % Math.max(hits.length, 1)) + 1; return { index: hits.length ? at : 0, total: hits.length }; },
+      clear() {},
+    });
+    openFind('chat');
+    setFindQuery('chat', 'zibaldone');
+    await stepFind('chat', true);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(getFindState('chat').total).toBe(2);
+    expect(getFindState('chat').index).toBe(1);
+  });
+
   test('a stale unregister (old mount) does not drop the new registration', () => {
     const off = registerFinder('p', fakeFinder(1));
     registerFinder('p', fakeFinder(2));
