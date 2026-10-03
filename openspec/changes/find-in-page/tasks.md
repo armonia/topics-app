@@ -11,7 +11,7 @@ Se esce non-zero, ci si ferma qui.
 - [x] 1.4 `client/src/components/Browser/findInPageModel.test.ts`: il contatore tradotto «3 di 12» / «3 of 12» (FIND-01). Le asserzioni di BROWSER-FIND-01 restano.
 - [x] 1.5 `client/src/lib/domFind.test.ts`: conteggio e ordine su un documento fatto a mano, ricalcolo dopo una mutazione (FILE-FIND-02, BROWSER-FIND-04).
 - [x] 1.6 Rust, `cargo test --lib` sul Mac: `mac_chord_dispatch_tests` (`lib.rs`) e `chords.rs` con ⌘F/Ctrl+F e ⌘G/Ctrl+G inoltrati e ingoiati. `page_chords_stay_with_the_page` (`chords.rs:172-180`) perde `'f'`: è il contratto che cambia (BROWSER-FIND-02), non un test indebolito; lo dice il messaggio del commit.
-- [ ] 1.7 `tests/e2e/find-in-pane.spec.ts` su `:13334`, WebKit, messaggi seminati con `tests/e2e/helpers/seed-messages.ts`:
+- [x] 1.7 `tests/e2e/find-in-pane.spec.ts` su `:13334`, WebKit, messaggi seminati con `tests/e2e/helpers/seed-messages.ts`:
   - parola solo nel primo messaggio di una chat oltre `HISTORY_FIRST_PAGE`;
   - parola solo nell'uscita di uno strumento chiuso, seminata in modo che finisca in `message_tool_outputs`: conteggio, poi la sezione si apre;
   - ⌘F dal campo della chat, e Ctrl+F dal campo che non apre niente;
@@ -70,11 +70,19 @@ Se esce non-zero, ci si ferma qui.
 
 ## 7. Verifica
 
-- [ ] 7.1 I test del §1 verdi; `bunx tsc` di client e server; rails statiche; `cargo test --lib`.
-- [ ] 7.2 Video `.webm` dell'E2E 1.7 (chat lunga, strumento chiuso, Esc durante lo streaming).
+- [x] 7.1 I test del §1 verdi; `bunx tsc` di client e server; rails statiche; `cargo test --lib`.
+- [x] 7.2 Video `.webm` dell'E2E 1.7 (chat lunga, strumento chiuso, Esc durante lo streaming).
 - [ ] 7.3 Video a mano nell'app Mac costruita:
   - ⌘F col cursore in un campo di una pagina vera di una pane browser: le lettere vanno nella barra, ed Esc rimette la tastiera nella pagina;
   - due pane browser aperte, una sola barra;
   - una pane condivisa in modo `dom`: dopo Invio il risultato resta in vista anche quando la pagina condivisa scorre.
 
   Stesso giro sul PC Windows (4.3).
+
+Stato al 03/10 (implementazione): 1.7 e 7.2 girati su Chromium del PC Windows
+(il Mac era sopra carico 18 per tutto il giro, WebKit mai partito); il video è
+`screenshots/impl-chat-tool-output.webm` e `screenshots/impl-esc-streaming.webm`.
+4.3 e 7.3 restano aperti: chiedono l'app costruita e un giro a mano con la
+tastiera dentro una pagina vera di una pane browser nativa, che un e2e non
+raggiunge (il finto Tauri parla con la produzione).
+
