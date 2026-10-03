@@ -12,7 +12,6 @@ import { useLayoutMobile } from '../../hooks/useMobile';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
-import { detachPaneToNewSpace } from '../../lib/popOutSpace';
 import { useUnsent } from '../../state/unsentMessages';
 // A banner for a RARE state (messages that expired unsent): as a static import
 // it and its grouping sat in the eager entry for every boot (3 KB raw,
@@ -224,9 +223,6 @@ function removeKeyFromRow(
 }
 
 
-// Check if running in native macOS app (has webkit message handlers)
-const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
-
 /**
  * The grid key of the sub-stack SLOT under the pointer, read off the
  * `[data-split-leaf]` that `CellSubStack` publishes for every slot. Undefined
@@ -295,7 +291,6 @@ interface PanelGridProps {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   // Cross-window drag
-  windowId?: string;
   externalDragTopicId?: string | null;
   onExternalDrop?: () => void;
   // Mobile sidebar toggle
@@ -367,7 +362,6 @@ export function PanelGrid({
   sendWS,
   onWSMessage,
   onUpdateTopic,
-  windowId,
   externalDragTopicId,
   onExternalDrop,
   onToggleSidebar,
@@ -1508,14 +1502,7 @@ export function PanelGrid({
     onPendingSoloPanelIdConsumed?.();
   }, [pendingSoloPanelId, openPanels, soloTopicIds, onPendingSoloPanelIdConsumed, handleSplitPane]);
 
-  /* ---- drag state (for cross-window panel drag) ---- */
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  // Set the instant an in-app drop target consumes the current drag (the grid
-  // drop-capture). The drag-out pop-out in handleDragEnd reads this so a drop
-  // that landed on a split/cell is NEVER mistaken for a drag outside the window
-  // — defense-in-depth on top of the dropEffect='move' signal, since WKWebView
-  // can still report a stale dragend dropEffect/coords. Reset on every dragstart.
-  const dropConsumedRef = useRef(false);
+  /* ---- drag state ---- */
   const [emptyDragOver, setEmptyDragOver] = useState(false);
   /**
    * True while a tab or grid-item drag is in progress anywhere within the
@@ -1541,43 +1528,6 @@ export function PanelGrid({
   const [fullRowDrop, setFullRowDrop] = useState<'top' | 'bottom' | number | null>(null);
   const fullRowDropRef = useRefMirror(fullRowDrop);
 
-  const handleDragEnd = useCallback((e: React.DragEvent) => {
-    const draggedId = draggingId;
-    setDraggingId(null);
-    setEmptyDragOver(false);
-
-    if (windowId && draggedId) {
-      sendWS({ type: 'drag:end', topicId: draggedId, windowId });
-    }
-
-    // Pop-out to new window if dragged outside (native app only). Skip entirely
-    // when an in-app drop target already consumed this drag — on WKWebView the
-    // dragend dropEffect can read 'none' even after a successful in-window split
-    // (the bug that closed panes dropped onto a split). dropConsumedRef is the
-    // reliable signal; dropEffect alone is not, on WebKit.
-    if (isNativeApp && draggedId && !dropConsumedRef.current && e.dataTransfer.dropEffect === 'none') {
-      const { clientX, clientY } = e;
-      const windowWidth = window.innerWidth;
-      const windowHeight = window.innerHeight;
-
-      if (clientX < 0 || clientX > windowWidth || clientY < 0 || clientY > windowHeight) {
-        // FUORI dalla finestra = la tab vuole una casa sua: le si dà un GRUPPO
-        // nuovo e la finestra di quel gruppo (`detachPaneToNewSpace`). Prima
-        // qui nasceva una pop-out `?topics=`, cioè una vista morta senza
-        // pane-store, e la pane di partenza andava chiusa a mano. Ora non si
-        // chiude niente: cambiando gruppo la tab lascia da sola l'insieme
-        // visibile di questa finestra, e se la finestra non si apre il gruppo
-        // si scioglie e la tab torna dov'era.
-        void detachPaneToNewSpace(draggedId);
-      }
-    }
-    // `onClosePanel` NON è più una dipendenza: era il residuo del vecchio
-    // pop-out, che dopo aver aperto la finestra nuova chiudeva a mano la pane di
-    // partenza. Da quando fuori dalla finestra si va con `detachPaneToNewSpace`
-    // (vedi il commento sopra) questo corpo non lo legge più, quindi non c'è
-    // nessuna closure da tenere fresca — solo un'identità che cambiava a ogni
-    // render del padre e riarmava il callback per niente.
-  }, [draggingId, windowId, sendWS]);
 
   /* ---- Grid item drag & edge-drop ---- */
   const [draggingGridKey, setDraggingGridKey] = useState<string | null>(null);
@@ -1776,8 +1726,7 @@ export function PanelGrid({
     e.stopPropagation(); // Prevent children from also handling this edge drag
     // WKWebView (Tauri) does NOT infer dropEffect from preventDefault the way
     // Chromium does — if the accepting target never sets it, the SOURCE's
-    // `dragend` reports dropEffect:'none', which the pop-out path
-    // (handleDragEnd) reads as "dropped outside the app" and CLOSES the pane.
+    // `dragend` reports dropEffect:'none', i.e. "dropped outside the app".
     // Signal acceptance explicitly so an in-window split drop is never mistaken
     // for a drag-out. (effectAllowed is 'move' for all our drags.)
     e.dataTransfer.dropEffect = 'move';
@@ -1817,9 +1766,7 @@ export function PanelGrid({
   // source — leaving the grid's edge-drop preview and the drag-active
   // affordances painted. `drop` still bubbles to the window AFTER React's own
   // onDrop has consumed gridDropTargetRef, so resetting the VISUAL drag state on
-  // both events guarantees nothing is left over. `draggingId` is intentionally
-  // NOT cleared here — handleDragEnd owns it for the WS drag:end signal and the
-  // pop-out-on-drag-outside path (where no `drop` event fires at all).
+  // both events guarantees nothing is left over.
   useEffect(() => {
     const clearDragVisuals = () => {
       setGridDropTarget(null);
@@ -1923,7 +1870,6 @@ export function PanelGrid({
         setTabDragActive(false);
         setFullRowDrop(null);
         fullRowDropRef.current = null;
-        dropConsumedRef.current = true;
         const targetKey = centerMergeTargetKey(
           // Re-read from the live event, like the zone above: a fast release can
           // land a frame after the last dragover. An explicit target is a strip
@@ -1974,9 +1920,6 @@ export function PanelGrid({
     setTabDragActive(false);
     setFullRowDrop(null);
     fullRowDropRef.current = null;
-    // The drag landed on an in-app target — the dragend pop-out must NOT treat
-    // it as a drag-out-of-window (which would close the pane after the split).
-    dropConsumedRef.current = true;
 
     // Sidebar drag (PANEL_ID only — no GRID_ITEM, no PANE_TAB): OPEN the topic
     // into the workspace E LASCIARLA NELLA CELLA SU CUI È CADUTA.
@@ -3047,7 +2990,7 @@ export function PanelGrid({
       // above) — flags a STANDALONE tab drag so the full-width row strips
       // mount for it and only it (project-internal drags keep their own).
       onDragEnterCapture={(e) => { if (isStandaloneTabDrag(e)) setTabDragActive(true); }}
-      onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); handleAnyDragEnd(); }}
+      onDragEnd={() => { setEmptyDragOver(false); handleGridItemDragEnd(); handleAnyDragEnd(); }}
     >
       {/* External drop zone overlay (cross-window drag from another window) */}
       {showExternalDropZone && externalDragTopicId && onExternalDrop && (

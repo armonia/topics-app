@@ -522,8 +522,7 @@ export function StandaloneChatGroup({
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     // WKWebView (Tauri) needs an explicit dropEffect or the source dragend reads
-    // 'none' and the pop-out path closes the dragged pane (this merge drop has
-    // its own handler, so PanelGrid's dropConsumedRef guard doesn't cover it).
+    // 'none', as if the tab had been dropped outside the app.
     e.dataTransfer.dropEffect = 'move';
     // ONE indicator, and this card owns it only when nobody else does. For a tab
     // of the GRID's own scope, PanelGrid already paints this cell's centre
