@@ -24,7 +24,7 @@ Quello che è verde resta verde. Le suite intere le fa la CI.
 Ognuno nasce dal repro in `evidence/`, riscritto contro il contratto nuovo. Oggi sono
 rossi; diventano verdi con le sezioni 2 e 3.
 
-- [ ] 1.1 `server/routes/chat.background-turn-end.test.ts` (D1, bgwait-1): sulla rotta
+- [x] 1.1 `server/routes/chat.background-turn-end.test.ts` (D1, bgwait-1): sulla rotta
   vera col provider registrato e la sessione registrata del 25/09
   (`background-work.fixture.ts`), un turno che lancia Agent, Bash e Monitor chiude con
   `stream:end.background.count = 3`, stato `background`, zero righe di cronologia, zero
@@ -32,21 +32,21 @@ rossi; diventano verdi con le sezioni 2 e 3.
   epoca nuova per tutta la sessione. Un turno che crea un cron ricorrente chiude con
   `background.count = 0` e `finished(done)`, mentre `backgroundOfTurn` dice ancora
   `backgroundWork: true` al goal loop.
-- [ ] 1.2 `server/lib/claude-session-state.background-tasks.test.ts` (D2, A, bgwait-2):
+- [x] 1.2 `server/lib/claude-session-state.background-tasks.test.ts` (D2, A, bgwait-2):
   chat e terminale, Bash e Agent con `run_in_background`, Workflow, CronCreate non
   ricorrente → `watching`; CronCreate ricorrente (nella mappa, segnato ricorrente) e Bash
   in primo piano → `awaiting-user`;
   il Monitor scaduto della fixture `claude-cli-2.1.285-monitor-wakes.transcript.jsonl`
   esce dall'insieme; uno di due tornati resta `watching`.
-- [ ] 1.3 `server/attention/holds.test.ts` (D6, D8): `PreToolUse` di
+- [x] 1.3 `server/attention/holds.test.ts` (D6, D8): `PreToolUse` di
   `mcp__topics__ask_user_question` e l'evento del bridge danno `needs-you(question)`;
   il permission bridge dà `needs-you(permission)`; il pannello del piano dà
   `needs-you(plan)` e nessuna riga `chat-message`. Con la sessione di una card
   `in_progress` l'attesa va su `task:<id>` (`needs-you(permission)`) e il topic resta
   `idle`; la risposta la spegne.
-- [ ] 1.4 `server/routes/chat.empty-wake.test.ts` (D7): turno risvegliato scartato →
+- [x] 1.4 `server/routes/chat.empty-wake.test.ts` (D7): turno risvegliato scartato →
   non-letto invariato, nessuna epoca.
-- [ ] 1.5 `server/attention/born-seen.test.ts` (D3): con zero iscrizioni e una socket
+- [x] 1.5 `server/attention/born-seen.test.ts` (D3): con zero iscrizioni e una socket
   sveglia a fuoco sul soggetto, la riga nasce vista e nessuna spinta parte; con la socket
   non sveglia la riga nasce non vista, una sola; con solo una socket OSPITE sveglia a
   fuoco la riga nasce non vista.
@@ -54,23 +54,23 @@ rossi; diventano verdi con le sezioni 2 e 3.
   ARCH-1, bgwait-3): i nove casi di `evidence/client-surfaces-disagree.test.ts.txt` e il
   caso di `bgwait-3`, scritti su `attentionOf`, `rollupAttention` e il conteggio del
   chrome a partire da frame `attention:*`.
-- [ ] 1.7 `server/services/tasks.parked-requeue.test.ts` (D4, F3): park → todo spegne il
+- [x] 1.7 `server/services/tasks.parked-requeue.test.ts` (D4, F3): park → todo spegne il
   soggetto e segna vista la riga `task-parked`; anche cancellata e archiviata.
-- [ ] 1.8 `server/services/archive-topic.attention.test.ts` (ARCH-1, B3/C): dopo
+- [x] 1.8 `server/services/archive-topic.attention.test.ts` (ARCH-1, B3/C): dopo
   `archiveTopicFully` il soggetto è `idle` e le righe sono viste; un turno risvegliato
   dopo non crea epoche.
-- [ ] 1.9 `server/attention/seen-door.test.ts` (E, B4): la porta annuncia anche senza
+- [x] 1.9 `server/attention/seen-door.test.ts` (E, B4): la porta annuncia anche senza
   righe; un visto per l'epoca 4 non spegne la 5; un `turnAt` vecchio non copre il turno
   dopo; una socket ospite viene scartata; un visto in `background` porta T7 a `idle`,
   senza visto T7 dà `finished(done)`.
 - [ ] 1.10 `client/src/hooks/useCompletionNotifier.background.test.ts` (D1, BG-2): finestra
   principale nascosta, tre `message:new` di turni risvegliati e i frame `attention:*`
   della stessa attesa → zero banner fino all'annuncio, poi UNO.
-- [ ] 1.11 `server/attention/process-ended.test.ts` (ATTN-15): reaper su una chat vista e
+- [x] 1.11 `server/attention/process-ended.test.ts` (ATTN-15): reaper su una chat vista e
   senza compiti → nessuna epoca; tetto di vita con un Agent in volo → `finished(error)`;
   `markPtyCrash` su un terminale in `working` → `finished(error)`; riavvio senza processo
   con un compito in volo → `finished(error)` con `live: false`.
-- [ ] 1.12 `server/attention/recompose.test.ts` (ATTN-07, ATTN-13): ricarico con una chat
+- [x] 1.12 `server/attention/recompose.test.ts` (ATTN-07, ATTN-13): ricarico con una chat
   `finished(done)` non vista all'epoca 7 e una card in review → stesse epoche, nessuna
   riga; unarchive di una chat archiviata mentre era finita → `idle`, nessuna epoca;
   tombstone della pane di un terminale finito → `idle`, riga vista.
@@ -86,25 +86,25 @@ rossi; diventano verdi con le sezioni 2 e 3.
   `<ts>-subject-attention.sql` (design §2.1). Test che la esegue su un DB sintetico,
   come `tests/integration/migration-074-messages-timestamp-index.test.ts`; manifest
   embedded rigenerato.
-- [ ] 2.2 `server/attention/compose.ts`: funzione pura. Test a tabella sulle nove regole
+- [x] 2.2 `server/attention/compose.ts`: funzione pura. Test a tabella sulle nove regole
   di precedenza e sulle transizioni T1…T17 di design §4.
-- [ ] 2.3 `server/attention/store.ts`: epoca legata alla causa (design §4.1), visto con
+- [x] 2.3 `server/attention/store.ts`: epoca legata alla causa (design §4.1), visto con
   `seen_epoch` e `seen_at`, scrittura, `attention:init` a ogni apertura della socket della
   persona, `attention:updated` anche al cambio del solo non-letto o di `turnUnseen`.
   Test: epoca +1 solo per una causa nuova; la stessa causa ricomposta non fa epoche;
   istantanea con `live: false`.
-- [ ] 2.4 `providers/claude/background-work.ts`: `attentionBackground` (compiti vivi,
+- [x] 2.4 `providers/claude/background-work.ts`: `attentionBackground` (compiti vivi,
   `wake-queued`, cron non ricorrenti), `backgroundState` invariato per il goal loop.
   `routes/chat.ts`: `background` nel frame `stream:end` da `attentionBackground`;
   `finalizeTurnActivity` solo con un messaggio visibile; il pannello del piano apre
   `hold(plan)`; un errore con `resumesByItself` non fa epoca. Fa passare 1.1, 1.4.
-- [ ] 2.5 `lib/claude-session-state.ts` e `claude-session-tracker.ts`: i compiti per id
+- [x] 2.5 `lib/claude-session-state.ts` e `claude-session-tracker.ts`: i compiti per id
   scritti nello store (unico detentore) al posto di `monitorArmed`, e `applyHook` che allo
   `Stop` riceve dallo store il numero di compiti che contano;
   `mcp__topics__ask_user_question` fra i tool di attesa; `wire.ts` ascolta
   `human-hold-events` e, per la sessione di una card in volo, scrive l'attesa su
   `task:<id>` (il dispatcher espone la sua ricerca sessione → card). Fa passare 1.2, 1.3.
-- [ ] 2.6 Annunci (design §10.1): riga scritta dallo store, `announce` nel frame, spinta
+- [x] 2.6 Annunci (design §10.1): riga scritta dallo store, `announce` nel frame, spinta
   per ogni annuncio non nato visto col numero corrente nel payload, cancelli di silenzio,
   archiviato e agente di board (Non disturbare resta nel client). `maybeSendPush` esce da
   `broadcastToAll`; review e parcheggio passano dalle
@@ -112,24 +112,24 @@ rossi; diventano verdi con le sezioni 2 e 3.
   ATTN-11, compreso «una chat archiviata si risveglia» (F2); i test esistenti di
   `push-triggers` riscritti sul punto nuovo, nessuno cancellato senza il suo gemello.
   Fa passare 1.5.
-- [ ] 2.7 La porta del visto `POST /api/attention/seen` con `{subject, epoch, turnAt}`;
+- [x] 2.7 La porta del visto `POST /api/attention/seen` con `{subject, epoch, turnAt}`;
   `POST /api/topics/:id/read` e `/api/notifications/seen` come alias; frame `focus` con
   `{subject, awake}`, registrato per il nato visto solo dalle socket della persona;
   `lib/grants.ts` tiene `attention:*` fuori dagli ospiti. Fa passare 1.9.
-- [ ] 2.8 Avvisi di sistema (ATTN-10): swap-freeze, riavvio trattenuto e GC dei worktree
+- [x] 2.8 Avvisi di sistema (ATTN-10): swap-freeze, riavvio trattenuto e GC dei worktree
   scrivono `kind: 'system'` su `system:<chiave>`, una riga per ciclo. Test: un ciclo
   congela/scongela = una riga, nessun soggetto `topic:` acceso.
-- [ ] 2.9 Test di confine con `git grep`: solo `server/attention/store.ts` scrive
+- [x] 2.9 Test di confine con `git grep`: solo `server/attention/store.ts` scrive
   `subject_attention`, e nessun file fuori da lì scrive righe di tipo `chat-message`,
   `session` o `chat-error`.
-- [ ] 2.10 `archive-topic.ts`, cancellazione, unarchive (`routes/topics.ts:254-376`),
+- [x] 2.10 `archive-topic.ts`, cancellazione, unarchive (`routes/topics.ts:254-376`),
   `services/tasks.ts`, pane store e bridge PTY: archiviato, cancellato, terminale chiuso
   e stato della card come ingressi; T13 segna viste epoca e ultimo turno. Fa passare 1.7,
   1.8.
-- [ ] 2.11 Ricomposizione a ogni avvio (ATTN-07, T19): rilettura degli ingressi riletti,
+- [x] 2.11 Ricomposizione a ogni avvio (ATTN-07, T19): rilettura degli ingressi riletti,
   `processEnded { cause: 'restart' }` ai soggetti senza processo vivo, `live: false`;
   tabella vuota → solo ingressi veri. Test sul DB sintetico. Fa passare 1.12.
-- [ ] 2.12 `processEnded` (ATTN-15): `SessionEnd`, uscita del PTY e del figlio CLI, reaper,
+- [x] 2.12 `processEnded` (ATTN-15): `SessionEnd`, uscita del PTY e del figlio CLI, reaper,
   tetto di vita, `markPtyCrash`, uccisione dello swap. Fa passare 1.11.
 
 ## 3. Client

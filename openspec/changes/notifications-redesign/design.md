@@ -583,3 +583,67 @@ dello swap, invece, è una fine di processo (§5.5).
   l'unico.
 - **Il telefono con la PWA chiusa** vede il visto solo alla prossima apertura (§6): una
   spinta silenziosa che lo spenga non esiste su iOS.
+
+## Implementazione: dove il codice si scosta
+
+Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perché.
+
+- **Forma dei frame.** `attention:init { rows: AttentionSnapshot[] }` e
+  `attention:updated { row, live, announce?, bornSeen? }` (tipi in `shared/attention.ts`,
+  schemi in `shared/ws-outbound.ts`). `row` porta anche `unread`, `turnUnseen`,
+  `lastTurnAt` e i compiti per id, così il client non legge altro. Finché il client
+  nuovo non c'è, i due tipi stanno in `UNCONSUMED` di `ws-outbound-coverage.test.ts`.
+- **Lo stato della card entra dal servizio dei task, non da ogni transizione.**
+  `createTaskService` avvolge i metodi che possono muovere una card
+  (`CARD_MOVING_METHODS` in `services/tasks.ts`) e dopo ognuno rilegge la riga e scrive
+  `setCard`. Le scritture SQL dirette sono una ventina: avvolgere i metodi copre anche
+  quelle future, e il test 1.7 lo prova senza broadcast. Conseguenza: l'`announce:
+  false` di `releaseAndEmit` (N card parcheggiate da una causa sola) non vale più,
+  ogni card ha la sua epoca e la sua spinta.
+- **`maybeSendPush` è tolta, non lasciata come alias.** `push-triggers.ts` tiene le
+  parole (`buildAnnouncement`, testi e tasti di PUSH-04/05 invariati), il significato
+  della fine di un turno (`classifyTurnEnd`, gli stessi cancelli di
+  `isCleanChatTurnEnd`) e `isTopicSilenced`. I 56 test di prima sono riscritti sul punto
+  nuovo (58 ora): testi e tasti su `buildAnnouncement`, cancelli del turno su
+  `classifyTurnEnd`, silenzio, archivio e «stessa attesa» sullo store.
+- **Chiavi di dedup delle righe invariate** (`chat:<id>`, `chat-error:<id>`,
+  `session:<id>:awaiting-approval`, `task-review:<id>`...), con `group_key` = soggetto:
+  il client vecchio che posta ancora la sua riga di banner viene deduplicato. Costo: due
+  epoche dello stesso soggetto entro 10 s scrivono una riga sola.
+- **Le porte vecchie sono alias «visto adesso».** `POST /api/topics/:id/read` e
+  `/api/notifications/seen` chiamano la porta nuova con l'epoca e l'ultimo turno
+  correnti (`seenItemNow`); il «segna tutto» con `upTo` del client vecchio continua a
+  segnare le righe come prima. La porta nuova sta dentro `notificationsRouter`
+  (`routes/attention.ts`), per non aggiungere un router alla tabella delle rotte.
+- **`applyHook` tiene `monitorArmed` come ripiego.** Il quarto argomento
+  `{ countingTasks }` decide `watching` allo `Stop`; il tracker lo passa sempre (dallo
+  store), un chiamante puro che non lo passa ricade sul flag di prima.
+- **Un compito entra al `PreToolUse`** sotto l'id della chiamata (Bash e Agent con
+  `run_in_background`, Monitor, Workflow) e viene ri-chiavato all'id della CLI al
+  `PostToolUse`: un turno che chiude prima del `PostToolUse` aspetta già. Il CronCreate
+  entra solo al `PostToolUse` (serve `recurring`).
+- **Un cron non ricorrente di un terminale** esce con `CronDelete` o con la fine del
+  processo: il transcript non dice quando scatta. In chat lo dice lo snapshot della CLI.
+- **`run_command`** entra nella mappa della chat come un compito solo (`command`) letto
+  a fine turno da `commandWakeState`, non uno per processo.
+- **Terminali**: con hook il turno è `UserPromptSubmit`/`Stop` (e le righe del
+  transcript per i turni che la CLI apre da sola); senza hook è `terminal:activity`
+  (busy/finished) per i claude-code che non hanno mai mandato un hook. La chiusura è
+  `retireTerminalSession` (tab chiusa, orfano spazzato) più il tombstone della pane nella
+  cascata di ritiro (`services/retirement.ts`): non c'è un ingresso «closed» separato
+  dal pane store.
+- **Fine del processo di una chat**: il provider la dice con `observeProcessEnded`;
+  il turno aperto lo chiude la rotta col suo errore (`turnClosedByRoute`), lo store
+  conta solo i compiti in volo. Un `SessionEnd` è sempre trattato come chiesto dalla
+  persona.
+- **Avvio**: la ricomposizione parte dopo la riadozione dei turni sopravvissuti. Un
+  processo è vivo se il provider ha ancora lavoro in background (chat) o se la riga di
+  `terminal_sessions` non è `dormant` (terminali). Le attese dei bridge non si
+  rileggono: dopo un riavvio le mappe sono vuote e l'attesa non esiste più (ATTN-01).
+- **Una risposta rigenerata (`routes/edit.ts`) è un turno finito (T2)**: prima non
+  spingeva niente; ora vale come ogni turno, e se la chat è davanti nasce vista.
+- **Il `detail` della fine del processo** è scritto dal server in italiano
+  («Il processo è finito con N compiti in volo»), come le altre righe di cronologia.
+- **Avvisi di sistema**: nuovo genere `system` in `shared/notification-log.ts`; il
+  disgelo riscrive la riga del congelamento (stessa chiave di ciclo) invece di
+  aggiungerne una.
