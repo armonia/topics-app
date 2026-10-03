@@ -43,7 +43,7 @@ const registry = {
   getDefaultProvider: () => claudeCode,
   getTopicsModels: () => ["claude-opus-5-5"],
 };
-type Via = "topics" | "direct";
+type Via = "topics" | "direct" | "pending";
 
 describe("MSEL-06: one reading, the same route in every reader", () => {
   test("chat scope: a null preference reads ON, and every chat reader sends Opus through the engine", () => {

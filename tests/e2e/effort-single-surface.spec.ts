@@ -74,17 +74,12 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
       }
     };
 
-    // The selector has two levels now: execution engines first, then that
-    // engine's models. The effort must be absent from BOTH, or the model list
-    // could grow its controls back behind the first level unnoticed.
-    await expect(popover.getByTestId("ai-selector-runtimes")).toBeVisible();
+    // One panel since the one selector (MSEL-02): every company, every row,
+    // and the effort in none of them.
+    await expect(popover.getByTestId("model-selector-panel")).toBeVisible();
     await assertNoEffort();
-    // Every registered engine is listed, ready or not, so there is always one
-    // to enter; an unavailable one still opens its level with the reason.
-    const runtime = popover.locator("button[data-provider]").first();
-    await expect(runtime).toBeVisible();
-    await runtime.click();
-    await expect(popover.getByTestId("ai-selector-models")).toBeVisible();
+    // The folded older generations must not grow it back either.
+    for (const older of await popover.getByTestId("model-section-older").all()) await older.click();
     await assertNoEffort();
   });
 
@@ -258,11 +253,12 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     await picker.click();
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
-    // The topic carries an explicit claude-code choice, so the execution-first
-    // selector (card 05807e8e) opens straight on that engine's model level.
-    const models = popover.getByTestId("ai-selector-models");
+    // The topic carries an explicit claude-code choice; the one selector shows
+    // every row of that engine in its company section (MSEL-02), the saved one
+    // included even when it is unavailable.
+    const models = popover.getByTestId("model-selector-sections");
     await expect(models).toBeVisible();
-    const rows = models.locator('[role="option"][data-model]');
+    const rows = models.locator('[data-testid="model-row"][data-provider="claude-code"]');
     // The list is never empty here, even on a CI runner with no `claude`
     // binary: the saved `claude-haiku-4-5` stays as a disabled "unavailable"
     // row (MP-TASK-06), and that row must state its window like every other.

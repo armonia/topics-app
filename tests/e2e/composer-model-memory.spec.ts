@@ -53,10 +53,8 @@ test.describe.serial("Composer — memoria del modello sulle chat nuove", () => 
     // (scripts/start-test-server.sh); "the first button" is "Claude (API)",
     // which is not, and left this test conditionally skipping instead of
     // asserting (card ac9e80cc).
-    const runtime = popover.locator('button[data-provider="claude-code"]');
-    await expect(runtime).toBeVisible({ timeout: 5000 });
-    await runtime.click();
-    const rows = popover.locator("button[data-model]:not([disabled])");
+    // One panel (MSEL-02): the engine's rows are there without opening it.
+    const rows = popover.locator('[data-testid="model-row"][data-provider="claude-code"]:not([aria-disabled="true"])');
     await expect(rows.first()).toBeVisible({ timeout: 5000 });
     // Una riga DIVERSA da quella gia' attiva, altrimenti «resta scelto» non
     // distingue la memoria dal default.

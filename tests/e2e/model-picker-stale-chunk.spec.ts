@@ -115,8 +115,8 @@ test.describe("model chip: a menu chunk that fails to load is never silent", () 
     await chip.click();
     const popover = page.getByTestId("provider-model-popover");
     await expect(popover).toBeVisible();
-    await expect(popover.locator("[data-ai-selector-auto]")).toBeVisible();
-    await expect(popover.locator('button[data-provider="claude-code"]')).toBeVisible();
+    await expect(popover.getByTestId("model-row-automatic")).toBeVisible();
+    await expect(popover.locator('[data-testid="model-row"][data-provider="claude-code"]').first()).toBeVisible();
     await expect(chip).not.toHaveAttribute("data-load-state", "failed");
 
     // A missing chunk is a caught failure, not an uncaught page error.

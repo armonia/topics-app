@@ -224,9 +224,9 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
       else if (layout === 'columns') moveColumn(-1);
     }
   };
-  const meta = [
-    scope === 'chat' && usable ? `${win.known ? '' : '≈'}${formatContextWindow(win.tokens)}` : null,
-  ].filter(Boolean);
+  // The window, in chat: it is what tells two similar rows apart, so it is
+  // there on every row, the unavailable stored one included (EFFORTUI-01).
+  const windowText = scope === 'chat' ? `${win.known ? '' : '≈'}${formatContextWindow(win.tokens)}` : null;
   return (
     <div
       ref={rowRef}
@@ -270,9 +270,17 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
             1M
           </button>
         )}
-        {layout === 'list' && meta.map((text) => (
-          <span key={text} data-testid={`model-window-${id}`} data-context-tokens={win.tokens} className="shrink-0 text-micro tabular-nums text-app-text-muted">{text}</span>
-        ))}
+        {windowText && (
+          <span
+            data-testid={`model-window-${id}`}
+            data-context-tokens={win.tokens}
+            data-context-known={win.known ? 'true' : 'false'}
+            title={win.known ? tr('model.ctxWindow', { n: win.tokens.toLocaleString('it-IT') }) : tr('model.ctxWindow.guess', { n: win.tokens.toLocaleString('it-IT') })}
+            className="shrink-0 text-micro tabular-nums text-app-text-muted"
+          >
+            {windowText}
+          </span>
+        )}
         {layout === 'list' && usable && <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} onToggle={() => setSegment((v) => !v)} />}
         <span className="flex w-3 shrink-0 justify-center" aria-hidden="true">
           {selected && <Check className={`h-3 w-3 ${usable ? 'text-emerald-400' : 'text-amber-300'}`} />}
@@ -280,7 +288,6 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
       </span>
       {layout === 'columns' && usable && (
         <span className="flex w-full min-w-0 items-center gap-1.5 text-micro text-app-text-muted">
-          {meta.map((text) => <span key={text} data-testid={`model-window-${id}`} data-context-tokens={win.tokens} className="tabular-nums">{text}</span>)}
           <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} onToggle={() => setSegment((v) => !v)} />
         </span>
       )}

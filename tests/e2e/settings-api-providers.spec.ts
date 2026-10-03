@@ -134,8 +134,8 @@ for (const device of [
         });
         const picker = page.getByTestId('provider-model-picker');
         await picker.click();
-        await page.getByTestId('provider-model-popover').locator('[data-provider="openai"]').click();
-        await page.getByTestId('provider-model-popover').locator('[data-model="gpt-test"]').click();
+        // One panel (MSEL-02): the row names its engine, no engine level to open.
+        await page.getByTestId('provider-model-popover').locator('[data-testid="model-row"][data-model="gpt-test"][data-provider="openai"]').click();
         await expect(picker).toHaveAttribute('data-model', 'gpt-test');
         const input = page.getByRole('textbox', { name: /Campo del messaggio/ });
         await input.fill('GPT selection test');
