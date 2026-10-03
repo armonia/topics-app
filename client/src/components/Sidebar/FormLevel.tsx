@@ -118,10 +118,16 @@ export function FormPanelFrame({ icon: Icon, label, testId, maxHeight, children 
     <div
       ref={frame}
       data-testid={`${testId}-form`}
+      data-form-frame=""
+      // Focusable but not a Tab stop: a panel that opens with the focus on its
+      // frame has its first Tab walked by `onKeyDown` above. Focused on the
+      // menu's container instead, the keydown never reached this handler and
+      // WebKit's own Tab left the panel on the first press.
+      tabIndex={-1}
       onKeyDown={onKeyDown}
       // The cap of the menu itself (`ProfileMenu`). On the phone the sheet
       // already caps and scrolls, and the header sticks instead.
-      className={`flex flex-col ${isMobile ? '' : 'max-h-[min(70vh,560px)]'}`}
+      className={`flex flex-col outline-none ${isMobile ? '' : 'max-h-[min(70vh,560px)]'}`}
       style={!isMobile && maxHeight !== undefined ? { maxHeight } : undefined}
     >
       <div

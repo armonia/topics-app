@@ -2,7 +2,8 @@
  * EACH FORM LIVES WHERE IT IS USED (SETHOME-01, the 03/10/2026 change).
  *
  * The maintainer, on the forms that had moved into the user menu: «ma no il
- * menu di opzioni l'avevamo proprio tolto perchè smistiamo tutto». So the menu
+ * menu di opzioni l'avevamo proprio tolto perchè smistiamo tutto» (allow-italian:
+ * the request quoted verbatim). So the menu
  * keeps who you are and how the app looks, and every other form opens beside
  * the thing it configures:
  *
@@ -27,7 +28,10 @@ import type { AddressInfo } from "net";
 import { hermetic } from "./fixtures/hermetic";
 import { BrowserProcessPage } from "./fixtures/browser.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { mkdirSync, writeFileSync } from "fs";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
+import { removeTmpDir } from "./helpers/file-project";
+import { projectRow } from "./helpers/project-row";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { openUserMenuLevel } from "./helpers/user-menu";
 import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, calendarTile, navigateToSidebar, setPins } from "./helpers/pinned-calendar-tile";
@@ -76,7 +80,7 @@ async function claudeMaxMachine(page: Page) {
 
 /** Two boxes touch or overlap on one axis and sit next to each other on the
  *  other: the panel hangs from its anchor, not from the middle of the window. */
-async function hangsFrom(panel: Locator, anchor: Locator) {
+async function expectBeside(panel: Locator, anchor: Locator) {
   const p = await panel.evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect);
   const a = await anchor.evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect);
   const gapV = Math.max(p.top - a.bottom, a.top - p.bottom);
@@ -87,6 +91,22 @@ async function hangsFrom(panel: Locator, anchor: Locator) {
   const beside = (overlapsH && gapV >= 0 && gapV <= 16) || (overlapsV && gapH >= 0 && gapH <= 16);
   expect(beside, `panel ${JSON.stringify(p)} beside anchor ${JSON.stringify(a)}`).toBe(true);
   return p;
+}
+
+/** Each key moves the focus to a control inside `panel`. */
+async function expectTabStaysIn(page: Page, panel: Locator, keys: string[]) {
+  for (const key of keys) {
+    await page.keyboard.press(key);
+    const where = await panel.evaluate((el) => {
+      const a = document.activeElement as HTMLElement | null;
+      return {
+        inside: !!a && el.contains(a),
+        control: !!a?.matches("button, input, select, textarea, a[href], [role=combobox], [role=switch], [role=checkbox]"),
+        what: `${a?.tagName} ${a?.getAttribute("data-testid") ?? ""}`,
+      };
+    });
+    expect(where.inside && where.control, `after ${key}: ${where.what}`).toBe(true);
+  }
 }
 
 test.describe("ogni modulo vive dove si usa", () => {
@@ -121,7 +141,11 @@ test.describe("ogni modulo vive dove si usa", () => {
       // A FOOTER: the last row of the selector.
       const last = await selector.locator("button").last().getAttribute("data-testid");
       expect(last).toBe("ai-selector-providers");
-      // The Claude plan, beside the Claude models.
+      // The Claude plan on the list the selector opens on: a chat with no
+      // override never drills in, and the plan is read without opening more.
+      await expect(selector.getByTestId("ai-selector-runtimes").getByTestId("ai-selector-claude-plan"))
+        .toHaveText("Max 20x · 5 h al 42%");
+      // And beside the Claude models.
       await selector.locator('[data-provider="claude-code"]').click();
       await expect(selector.getByTestId("ai-selector-claude-plan")).toHaveText("Max 20x · 5 h al 42%");
       await expect(selector.getByTestId("ai-selector-providers")).toBeVisible();
@@ -131,13 +155,18 @@ test.describe("ogni modulo vive dove si usa", () => {
       const panel = page.getByTestId("home-panel-providers");
       await expect(panel).toBeVisible();
       await expect(panel).toHaveAttribute("role", "dialog");
-      const box = await hangsFrom(panel, picker);
+      const box = await expectBeside(panel, picker);
       expect(Math.round(box.width)).toBeGreaterThanOrEqual(400);
       expect(Math.round(box.width)).toBeLessThanOrEqual(440);
       expect(box.bottom).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight) + 1);
       // The plan at the top of the panel, with its five hours.
       await expect(panel.getByTestId("providers-claude-plan")).toContainText("Abbonamento Claude Max 20x", { timeout: 15_000 });
       await expect(panel.getByTestId("providers-claude-usage")).toContainText("42%");
+      // THE FIRST TAB, from where the panel put the focus on opening, lands on
+      // one of its controls and stays there (WebKit's own Tab skipped the
+      // buttons and left for the page on the first press).
+      await expect.poll(() => panel.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      await expectTabStaysIn(page, panel, ["Tab", "Tab", "Shift+Tab", "Shift+Tab"]);
 
       // A form: typed, saved, answered.
       const setup = panel.getByTestId("api-provider-setup-openai");
@@ -212,7 +241,7 @@ test.describe("ogni modulo vive dove si usa", () => {
       await row.click();
       const panel = page.getByTestId("home-panel-tools");
       await expect(panel).toBeVisible();
-      await hangsFrom(panel, plus);
+      await expectBeside(panel, plus);
       await expect(panel.getByTestId("mcp-fleet-panel")).toBeVisible({ timeout: 15_000 });
       // A grant revoked here is revoked on the server.
       const grant = panel.locator(`[data-testid="tool-grant-${tool}"]`);
@@ -336,17 +365,19 @@ test.describe("ogni modulo vive dove si usa", () => {
     const providers = page.getByTestId("home-panel-providers");
     await expect(providers).toBeVisible();
     await expect(providers).toHaveAttribute("data-popover-owner", "centred");
-    const centre = await providers.evaluate((el) => {
+    const middle = await providers.evaluate((el) => {
       const b = el.getBoundingClientRect();
       return { mid: b.left + b.width / 2, vw: window.innerWidth };
     });
-    expect(Math.abs(centre.mid - centre.vw / 2)).toBeLessThanOrEqual(2);
+    expect(Math.abs(middle.mid - middle.vw / 2)).toBeLessThanOrEqual(2);
     await expect(providers.getByTestId("ai-providers-settings")).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
     await expect(providers).toHaveCount(0);
 
     await run("Strumenti MCP", "palette-home-tools");
     await expect(page.getByTestId("home-panel-tools").getByTestId("mcp-fleet-panel")).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => page.getByTestId("home-panel-tools").evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    await expectTabStaysIn(page, page.getByTestId("home-panel-tools"), ["Tab", "Shift+Tab"]);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("home-panel-tools")).toHaveCount(0);
 
@@ -409,7 +440,7 @@ test.describe("il calendario si apre dalla sua tessera", () => {
     await row.click();
     const panel = page.getByTestId("home-panel-calendar");
     await expect(panel).toBeVisible();
-    await hangsFrom(panel, tile);
+    await expectBeside(panel, tile);
 
     const field = panel.getByTestId("calendar-feed-url");
     await field.fill(`${origin}/feed.ics`);
@@ -422,6 +453,42 @@ test.describe("il calendario si apre dalla sua tessera", () => {
     // The tile's menu says it now, without opening the form.
     await tile.click({ button: "right" });
     await expect(page.getByTestId("calendar-tile-feed-tail")).toHaveText("Collegato", { timeout: 10_000 });
+  });
+
+  test("SETHOME-01i: con la colonna chiusa la tessera non è a schermo, e la palette apre il calendario al centro", async ({ page, bp }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    await bp.mockBrowserContexts([{ id: CAL_CTX_ID, url: CAL_URL, title: "Calendar", lastActivity: Date.now() }]);
+    await bp.mockRemoteBrowserPane({ connected: true, url: CAL_URL, title: "Calendar", hasScreenshot: true });
+    await setPins(page, [CAL_PANE_ID]);
+    await navigateToSidebar(page);
+    const tile = calendarTile(page);
+    await expect(tile).toBeVisible();
+    // The collapsed column slides off with a transform: the tile is still laid
+    // out, off the left edge.
+    await page.keyboard.press("Meta+b");
+    await expect.poll(() => tile.evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(0);
+
+    const palette = page.getByTestId("command-palette");
+    await expect(async () => {
+      await page.keyboard.press("Meta+k");
+      await expect(palette).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+    await palette.getByRole("textbox").first().fill("Calendario");
+    await palette.getByTestId("palette-home-calendar").click();
+    await expect(palette).toHaveCount(0);
+    const panel = page.getByTestId("home-panel-calendar");
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute("data-popover-owner", "centred");
+    const box = await panel.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return { left: b.left, mid: b.left + b.width / 2, vw: window.innerWidth };
+    });
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(box.mid - box.vw / 2)).toBeLessThanOrEqual(2);
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    // The focus does not go to a tile nobody can see.
+    await expect(tile).not.toBeFocused();
   });
 });
 
@@ -459,6 +526,77 @@ test.describe("sul telefono il modulo dei provider è un foglio dal basso", () =
       await expect(panel).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id);
+    }
+  });
+});
+
+const BOARD_STAMP = Date.now();
+const BOARD_NAME = "homesboard";
+const BOARD_ROOT = `/tmp/e2e-${BOARD_NAME}-${BOARD_STAMP}`;
+const BOARD_DIR = `${BOARD_ROOT}/${BOARD_NAME}`;
+
+test.describe("i predefiniti della board aprono i provider accanto al loro selettore", () => {
+  test.afterAll(() => removeTmpDir(BOARD_ROOT));
+
+  test("SETHOME-01h: il piede del selettore nei predefiniti della board apre il pannello accanto al selettore, e le impostazioni della board restano", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    test.setTimeout(90_000);
+    mkdirSync(BOARD_DIR, { recursive: true });
+    writeFileSync(`${BOARD_DIR}/package.json`, JSON.stringify({ name: BOARD_NAME }, null, 2));
+    const topic = await createTopic(request, `${BOARD_NAME}-${BOARD_STAMP}`, { projectPath: BOARD_DIR });
+    try {
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, BOARD_DIR);
+      await seedProjectPane(request, BOARD_DIR);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      const projects = page.getByRole("button", { name: /sezione Progetti/ });
+      if ((await projects.count()) > 0 && (await projects.getAttribute("aria-expanded")) === "false") await projects.click();
+      const row = projectRow(page, BOARD_NAME);
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await row.click();
+      await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 15_000 });
+      if (!(await page.getByTestId("kanban-board").isVisible().catch(() => false))) {
+        // The «+» that has a Board entry: the window's own, whichever it is.
+        const triggers = page.getByTestId("pane-add-menu-trigger");
+        const item = page.getByTestId("pane-add-menu-kanban");
+        for (let i = (await triggers.count()) - 1; i >= 0; i--) {
+          const trigger = triggers.nth(i);
+          if (!(await trigger.isVisible().catch(() => false))) continue;
+          if (!(await trigger.click({ timeout: 3_000 }).then(() => true, () => false))) continue;
+          if (await item.waitFor({ state: "visible", timeout: 2_000 }).then(() => true, () => false)) break;
+          await page.keyboard.press("Escape");
+        }
+        await item.click();
+      }
+      const board = page.getByTestId("kanban-board");
+      await expect(board).toBeVisible({ timeout: 15_000 });
+
+      await board.getByRole("button", { name: /Impostazioni auto-dispatch/ }).click();
+      const settings = page.getByTestId("board-settings-menu");
+      await expect(settings).toBeVisible();
+      const selector = page.getByTestId("board-model-selector");
+      await selector.click();
+      const footer = page.getByTestId("ai-selector-providers");
+      await expect(footer).toBeVisible({ timeout: 15_000 });
+      await footer.click();
+
+      const panel = page.getByTestId("home-panel-providers");
+      await expect(panel).toBeVisible();
+      // The board settings hold the selector: they stay, and the panel hangs
+      // from the selector, not from a detached element in the corner.
+      await expect(settings).toBeVisible();
+      await expectBeside(panel, selector);
+      await expect(panel.getByTestId("ai-providers-settings")).toBeVisible({ timeout: 15_000 });
+
+      // Escape closes the panel only, and the focus is back on the selector.
+      await page.keyboard.press("Escape");
+      await expect(panel).toHaveCount(0);
+      await expect(settings).toBeVisible();
+      await expect(selector).toBeFocused();
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 });

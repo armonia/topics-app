@@ -3,9 +3,10 @@
  *
  * The tile is the agenda the person looks at; the iCal feed is where the agenda
  * the agents read comes from. Both are «my calendar», so the form lives in the
- * tile's own menu, with its state in the tail («Collegato», «In pausa», «Non
- * collegato»), and opens beside the tile. Nobody who never pinned a calendar
- * sees it in the column: for them the door is the palette's «Calendario».
+ * tile's own menu, with its state in the tail, and opens beside the tile.
+ * The tail: «Collegato», «In pausa», «Non collegato» (allow-italian: UI labels).
+ * Nobody who never pinned a calendar sees it in the column: for them the door
+ * is the palette's «Calendario».
  */
 import { useEffect, useState } from 'react';
 import { CalendarDays } from 'lucide-react';

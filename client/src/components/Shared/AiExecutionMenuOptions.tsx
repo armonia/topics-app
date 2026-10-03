@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, KeyRound, Route, Sparkles } from 'lucide-react';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
 import { taskExecutionOptions, topicsRoutingAvailable } from '../../../../shared/task-coding-models';
@@ -338,6 +338,7 @@ export function AiExecutionMenuOptions({
     );
   }
 
+  const planRow = executions.find((entry) => runsOnClaudePlan(entry.name))?.name;
   return (
     <div ref={panelRef} className="w-[min(22rem,calc(100vw-1rem))] max-w-full py-1" data-testid="ai-selector-runtimes">
       {routingRow}
@@ -359,22 +360,28 @@ export function AiExecutionMenuOptions({
         {value.provider === null && value.model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
       </button>
       {executions.map((entry) => (
-        <button
-          key={entry.name}
-          data-provider={entry.name}
-          role="option"
-          aria-selected={value.provider === entry.name}
-          disabled={disabled}
-          className={`${POPOVER_ITEM} disabled:opacity-40`}
-          onClick={() => openProvider(entry.name)}
-          title={entry.status === 'ready' ? tr('ai.selector.chooseModel') : entry.reason || tr('ai.selector.unavailable')}
-        >
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${entry.status === 'ready' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-          <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-          <span className="text-micro text-app-text-muted">
-            {entry.status === 'ready' ? tr('ai.selector.ready') : tr('ai.selector.unavailableShort')}
-          </span>
-        </button>
+        <Fragment key={entry.name}>
+          <button
+            data-provider={entry.name}
+            role="option"
+            aria-selected={value.provider === entry.name}
+            disabled={disabled}
+            className={`${POPOVER_ITEM} disabled:opacity-40`}
+            onClick={() => openProvider(entry.name)}
+            title={entry.status === 'ready' ? tr('ai.selector.chooseModel') : entry.reason || tr('ai.selector.unavailable')}
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${entry.status === 'ready' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            <span className="text-micro text-app-text-muted">
+              {entry.status === 'ready' ? tr('ai.selector.ready') : tr('ai.selector.unavailableShort')}
+            </span>
+          </button>
+          {/* The plan these runtimes spend, on the list the selector opens on: a
+              chat with no override never drills in, and the plan has to be read
+              without opening anything more than the selector. Once, under the
+              first runtime that runs on it. */}
+          {entry.name === planRow && <ClaudePlanCompactLine snapshot={snapshot} />}
+        </Fragment>
       ))}
       {executions.length === 0 && (
         <div className="px-3 py-4 text-center text-mini text-app-text-muted">

@@ -7,6 +7,7 @@ import {
   descendantPopoverNodes,
   openPopoverCount,
   popoversToClose,
+  popoversToCloseAround,
   registerOpenPopover,
   shelterOpenPopovers,
   shelteredNodes,
@@ -29,6 +30,8 @@ const CONTAINS: Record<string, string[]> = {
   // A host whose row opens a level, and a control inside the level.
   'panel-H': ['trigger-L'],
   'panel-L': ['row-in-L'],
+  // The board settings hold a model selector in their body.
+  'panel-BS': ['trigger-S'],
 };
 
 const contains = (parent: unknown, child: unknown) =>
@@ -99,6 +102,28 @@ describe('popoversToClose', () => {
     openEntries[0].nodes = () => [null, null];
     const victims = popoversToClose(openEntries, opener('trigger-B'), contains as never);
     expect(victims.map((v) => v.label)).toEqual(['A']);
+  });
+});
+
+describe('popoversToCloseAround', () => {
+  it('closes the door, keeps the menu that holds the anchor in its body', () => {
+    // The board settings, the model selector opened inside them, and an
+    // unrelated menu. The providers panel hangs from the selector's trigger:
+    // the selector (its trigger IS the anchor) goes, the board settings stay,
+    // or the anchor is unmounted and the panel lands in the corner.
+    const openEntries = [
+      entry('board', 'gear', 'panel-BS'),
+      entry('selector', 'trigger-S', 'panel-S'),
+      entry('other', 'trigger-B', 'panel-B'),
+    ];
+    const victims = popoversToCloseAround(openEntries, 'trigger-S' as never, contains as never);
+    expect(victims.map((v) => v.label)).toEqual(['selector', 'other']);
+  });
+
+  it('with the anchor in no panel, closes everything: the chat selector, the «+»', () => {
+    const openEntries = [entry('selector', 'trigger-S', 'panel-S'), entry('A', 'trigger-A', 'panel-A')];
+    const victims = popoversToCloseAround(openEntries, 'trigger-S' as never, contains as never);
+    expect(victims.map((v) => v.label)).toEqual(['selector', 'A']);
   });
 });
 

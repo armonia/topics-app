@@ -2,7 +2,8 @@
  * THE ELEMENT A MENU HANGS FROM, for the rows inside it.
  *
  * A row that opens something beside the menu's trigger once the menu has gone
- * (the model selector's «Provider e chiavi» opens the providers panel next to
+ * (the model selector's «Provider e chiavi», allow-italian: quoted UI label,
+ * opens the providers panel next to
  * the selector) needs that trigger, and the rows are written once for four
  * selectors that each keep their own ref. `Menu` provides it; outside a `Menu`
  * it is `null`. A module of its own: a component file that also exports a hook

@@ -167,6 +167,41 @@ export function closeAllPopovers(): void {
 }
 
 /**
+ * Who makes way for a panel hung from `anchor`, the element its door handed
+ * over (`Settings/HomePanelHost`): every open popover but those that hold
+ * `anchor` inside their PANEL, and the chain of levels above them.
+ *
+ * The door's own menu goes even though it "holds" the anchor: its TRIGGER is
+ * the anchor (the model selector, the «+»), and `popoversToClose` would take
+ * the panel for its child and keep both open. The menu that holds the
+ * selector in its body (the board settings) stays: closing it with everything
+ * else unmounted the anchor, and the panel was placed against a detached
+ * element at 0,0, over the sidebar.
+ *
+ * Pure like `popoversToClose`: `contains` is injected.
+ */
+export function popoversToCloseAround<T extends { nodes: () => Array<Node | null>; trigger?: () => Node | null }>(
+  openEntries: readonly T[],
+  anchor: Node,
+  contains: (parent: Node, child: Node) => boolean,
+): T[] {
+  const isDoor = (entry: T) => {
+    const own = entry.trigger?.();
+    return !!own && (own === anchor || contains(own, anchor));
+  };
+  const keep = ancestors(openEntries.filter((entry) => !isDoor(entry)), anchor, contains);
+  return openEntries.filter((entry) => !keep.has(entry));
+}
+
+/** Closes what `popoversToCloseAround` says, on the open popovers. */
+export function closePopoversAround(anchor: Node): void {
+  for (const victim of popoversToCloseAround([...open], anchor, domContains)) {
+    forget(victim);
+    victim.close();
+  }
+}
+
+/**
  * I nodi dei popover aperti che si sono dichiarati SOTTO-SUPERFICI
  * (`exclusive: false`).
  *

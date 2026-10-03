@@ -327,8 +327,10 @@ cifre tabellari, come la coda di Vista, lì dove la riga sta:
   «<provider> non pronto» quando non lo è quello scelto. L'abbonamento Claude
   (Claude Code, o Topics, il runtime predefinito, che entra con le stesse
   credenziali) SHALL stare in cima al pannello insieme alla finestra di 5 ore
-  già usata, e come riga compatta («Max 20x · 5 h al 42%») accanto ai modelli
-  Claude nel selettore. Il server SHALL esporre dell'abbonamento solo due
+  già usata, e come riga compatta («Max 20x · 5 h al 42%») nel selettore:
+  sotto la riga Claude Code dell'elenco con cui il selettore si apre (una
+  chat senza scelta propria non entra mai nei modelli) e accanto ai modelli
+  Claude. Il server SHALL esporre dell'abbonamento solo due
   etichette (`subscriptionType`, `rateLimitTier`), mai un token né il percorso
   delle credenziali; un tipo che il client non conosce NON SHALL essere
   nominato;
@@ -352,8 +354,9 @@ lingue.
 
 #### Scenario: il piano Claude
 - **GIVEN** le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`, e la finestra di 5 ore al 42%
-- **WHEN** apro il selettore del modello sui modelli di Claude Code
-- **THEN** accanto ai modelli c'è «Max 20x · 5 h al 42%»
+- **WHEN** apro il selettore del modello di una chat che usa il predefinito
+- **THEN** sotto la riga Claude Code c'è «Max 20x · 5 h al 42%», senza aprire altro
+- **AND** entrando nei modelli di Claude Code la stessa riga sta accanto ai modelli
 - **AND** il pannello Provider e chiavi dice in cima «Abbonamento Claude Max 20x» con la finestra al 42%
 - **AND** lo snapshot dei provider serializzato non contiene nessun token
 
@@ -389,11 +392,16 @@ col proprio nome:
 
 I tre pannelli fuori dal menu SHALL essere disegnati da UN solo ospite
 (`Settings/HomePanelHost`): ancorati all'elemento che li ha chiesti o, senza,
-alla casa se è a schermo (`data-home-anchor`); senza nessuno dei due, sul
-desktop, un foglio al centro della finestra; sul telefono sempre un foglio dal
-basso a tutta larghezza. Sul desktop un pannello ancorato SHALL essere largo
-circa 420 px, mai più della finestra meno i margini, e scorrere dentro. Alla
-chiusura il fuoco SHALL tornare a chi lo ha aperto.
+alla casa se è a schermo (`data-home-anchor`, col centro dentro la finestra:
+una tessera scivolata fuori con la colonna chiusa non lo è); senza nessuno dei
+due, sul desktop, un foglio al centro della finestra; sul telefono sempre un
+foglio dal basso a tutta larghezza. Sul desktop un pannello ancorato SHALL
+essere largo circa 420 px, mai più della finestra meno i margini, e scorrere
+dentro. Il menu da cui è partita la richiesta si chiude, ma un menu che
+contiene l'ancora nel suo corpo (le impostazioni della board attorno al loro
+selettore) SHALL restare aperto. All'apertura il fuoco SHALL essere nel
+pannello e il primo Tab SHALL portarlo a un suo controllo. Alla chiusura il
+fuoco SHALL tornare all'ancora.
 
 #### Scenario: i provider dal selettore
 - **GIVEN** una chat aperta
@@ -405,6 +413,25 @@ chiusura il fuoco SHALL tornare a chi lo ha aperto.
 - **THEN** la chiave parte al server e la risposta si legge nel pannello
 - **WHEN** premo Escape
 - **THEN** il pannello si chiude e il fuoco è sul selettore
+
+#### Scenario: il primo Tab resta nel pannello
+- **GIVEN** il pannello Provider e chiavi appena aperto dal selettore, o Strumenti MCP dalla palette
+- **WHEN** premo Tab, e poi Maiusc+Tab
+- **THEN** ogni volta il fuoco è su un controllo del pannello
+
+#### Scenario: i provider dai predefiniti della board
+- **GIVEN** le impostazioni della board aperte, a 1280×800
+- **WHEN** apro il loro selettore del modello e premo «Provider e chiavi»
+- **THEN** il pannello si apre accanto al selettore e le impostazioni della board restano aperte
+- **WHEN** premo Escape
+- **THEN** si chiude solo il pannello e il fuoco è sul selettore
+
+#### Scenario: il calendario con la colonna chiusa
+- **GIVEN** una pagina di calendario fissata e la colonna chiusa con ⌘B
+- **WHEN** scelgo «Calendario» nella palette
+- **THEN** il pannello si apre come foglio al centro della finestra, non appeso alla tessera fuori schermo
+- **WHEN** premo Escape
+- **THEN** il fuoco non è sulla tessera
 
 #### Scenario: gli strumenti dal composer
 - **GIVEN** una chat aperta, e la flotta MCP con due server che rispondono
@@ -449,7 +476,7 @@ chiusura il fuoco SHALL tornare a chi lo ha aperto.
 
 #### Scenario: l'avviso dei limiti
 - **GIVEN** l'avviso dei limiti del piano Claude nella colonna
-- **WHEN** apro i dettagli e premo «Gestisci provider AI»
+- **WHEN** apro i dettagli e premo «Provider e chiavi»
 - **THEN** si apre il pannello Provider e chiavi, senza il menu utente, e Escape lo chiude riportando il fuoco sull'avviso
 
 ## MODIFIED Requirements

@@ -25,7 +25,7 @@
  * (`FormPanelFrame`), on the same `Menu` primitive.
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { closeAllPopovers } from '@/lib/popoverRegistry';
+import { closeAllPopovers, closePopoversAround } from '@/lib/popoverRegistry';
 import { HOME_ANCHOR_ATTR, OPEN_HOME_EVENT, isPanelHome, type OpenHomeDetail, type PanelHome } from '@/lib/openHome';
 import { openUserMenu, type UserMenuLevel } from '@/lib/openUserMenu';
 import type { HomeRequest } from './HomePanel';
@@ -45,11 +45,24 @@ const MENU_LEVEL: Record<Exclude<OpenHomeDetail['home'], PanelHome>, UserMenuLev
   notifications: 'notifications',
 };
 
-/** The home's own element, when one is on screen: the first that is laid out. */
+/**
+ * The home's own element, when one is ON SCREEN: the first whose box meets the
+ * window. Being laid out is not enough: the collapsed sidebar slides off with
+ * a transform (`translateX(-100%)`), so the pinned calendar tile keeps its
+ * client rects at x -250, and the panel hung from it, and Escape gave the
+ * focus to a tile nobody can see.
+ */
 function mountedAnchor(home: PanelHome): HTMLElement | null {
   const all = document.querySelectorAll<HTMLElement>(`[${HOME_ANCHOR_ATTR}~="${home}"]`);
-  for (const el of all) if (el.getClientRects().length > 0) return el;
+  for (const el of all) if (onScreen(el.getBoundingClientRect())) return el;
   return null;
+}
+
+/** Its middle is inside the window: a sliver left by a slide does not count. */
+function onScreen(r: DOMRect): boolean {
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  return r.width > 0 && r.height > 0 && x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
 }
 
 export function HomePanelHost() {
@@ -67,11 +80,11 @@ export function HomePanelHost() {
       const anchor = detail.anchor?.isConnected ? detail.anchor : mountedAnchor(detail.home);
       // The menu that held the door (the model selector, the «+», the tile's
       // menu) goes away first: its trigger is the anchor, so the registry
-      // would otherwise take this panel for its child and keep both open.
-      closeAllPopovers();
-      // The focus sits on the anchor before the panel opens, so it comes back
-      // there on close, wherever the door was (a row of a menu that is gone).
-      anchor?.focus({ preventScroll: true });
+      // would otherwise take this panel for its child and keep both open. A
+      // menu that holds the anchor in its body stays (the board settings
+      // around their model selector): it is the panel's parent.
+      if (anchor) closePopoversAround(anchor);
+      else closeAllPopovers();
       setRequest((r) => ({ home: detail.home as PanelHome, anchor, n: (r?.n ?? 0) + 1 }));
     };
     window.addEventListener(OPEN_HOME_EVENT, onRequest);

@@ -42,7 +42,7 @@ const CalendarSection = lazy(async () => {
 const PANEL_WIDTH = 420;
 
 /** Where the centred sheet's top edge sits: the palette's own height. */
-const CENTRED_TOP = '12vh';
+const CENTERED_TOP = '12vh';
 
 const PANELS: Record<PanelHome, { icon: Glyph; label: string; body: () => React.ReactNode }> = {
   providers: { icon: KeyRound, label: 'home.providers', body: () => <ProvidersLevelBody /> },
@@ -60,7 +60,7 @@ export interface HomeRequest {
 export function HomePanel({ request, onClose }: { request: HomeRequest; onClose: () => void }) {
   const tr = useT();
   const { isMobile } = useMobile();
-  const centred = !request.anchor && !isMobile;
+  const centered = !request.anchor && !isMobile;
   const anchorRef = useRef<HTMLElement | null>(request.anchor);
   const panel = PANELS[request.home];
   const label = tr(panel.label);
@@ -73,16 +73,32 @@ export function HomePanel({ request, onClose }: { request: HomeRequest; onClose:
   // of the two sides, read once on open.
   const room = request.anchor && !isMobile ? roomBeside(request.anchor) : undefined;
 
+  // ON CLOSE THE FOCUS GOES BACK TO THE ANCHOR, said here rather than left to
+  // `Menu`, which gives it back to what held it when the panel opened. That
+  // was the menu the door sat in: the model selector inside the board
+  // settings had given the focus back to the board settings' own panel by
+  // then (WebKit does not focus a button on click), and Escape left the focus
+  // there instead of on the selector. Only when the close orphaned it: a
+  // focus the person moved elsewhere stays where it is.
+  const anchor = request.anchor;
+  useEffect(() => () => {
+    if (!anchor?.isConnected) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || active === document.body || !active.isConnected || active.closest(`[data-testid="${testId}"]`)) {
+      anchor.focus({ preventScroll: true });
+    }
+  }, [anchor, testId]);
+
   return (
     // A question a form asks («remove this key?») is part of the panel: it
     // opens inside it and answering it is not a press outside.
     <ConfirmInsidePopoverContext.Provider value={true}>
-      {centred && <CentredAnchor anchorRef={anchorRef} width={width} />}
+      {centered && <CenteredAnchor anchorRef={anchorRef} width={width} />}
       <Menu
         open
         anchorRef={anchorRef}
         onClose={onClose}
-        gap={centred ? 0 : undefined}
+        gap={centered ? 0 : undefined}
         // A form is not a list of menu items (fields inside role=menu are
         // announced as items): a dialog named after the form.
         role="dialog"
@@ -90,8 +106,9 @@ export function HomePanel({ request, onClose }: { request: HomeRequest; onClose:
         minWidth={width}
         maxWidth={width}
         unmanagedFocus
+        restoreFocus={false}
         testId={testId}
-        owner={centred ? 'centred' : undefined}
+        owner={centered ? 'centred' : undefined}
         className="overflow-hidden"
       >
         <FocusOnOpen />
@@ -116,11 +133,14 @@ function roomBeside(anchor: HTMLElement): number {
  * The panel takes the focus once it is placed, so Escape and Tab belong to it
  * from the first press. `unmanagedFocus` keeps `Menu`'s arrows away from the
  * fields, and with them `Menu`'s own focus on open: this puts that one back.
+ * On the FRAME, not on the menu's container: the frame walks Tab, and a
+ * keydown aimed at its parent never reaches it.
  */
 function FocusOnOpen() {
   const marker = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    const panel = marker.current?.closest<HTMLElement>('[data-popover]');
+    const popover = marker.current?.closest<HTMLElement>('[data-popover]');
+    const panel = popover?.querySelector<HTMLElement>('[data-form-frame]') ?? popover;
     if (!panel) return;
     // The panel is placed (and visible) one frame after it mounts.
     const id = requestAnimationFrame(() => panel.focus({ preventScroll: true }));
@@ -134,7 +154,7 @@ function FocusOnOpen() {
  * centred under the top of the window, for the panel to hang from; and a light
  * veil under it. A press on the veil is a press outside, which closes.
  */
-function CentredAnchor({ anchorRef, width }: { anchorRef: React.MutableRefObject<HTMLElement | null>; width: number }) {
+function CenteredAnchor({ anchorRef, width }: { anchorRef: React.MutableRefObject<HTMLElement | null>; width: number }) {
   const veil = useRef<HTMLDivElement>(null);
   // The veil fades out with the panel instead of vanishing in one frame.
   useExitGhost(veil, true, 'modal');
@@ -151,7 +171,7 @@ function CentredAnchor({ anchorRef, width }: { anchorRef: React.MutableRefObject
         aria-hidden="true"
         data-testid="home-panel-centre"
         className="pointer-events-none fixed h-0"
-        style={{ top: CENTRED_TOP, left: `calc(50% - ${width / 2}px)`, width }}
+        style={{ top: CENTERED_TOP, left: `calc(50% - ${width / 2}px)`, width }}
       />
     </>,
     document.body,

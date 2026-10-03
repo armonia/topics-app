@@ -2,7 +2,8 @@
  * THE MCP TOOLS, where the agent that uses them is asked: a row of the
  * composer's «+» (SETHOME-01).
  *
- * The tail says how many servers answer («3 attivi», «Spenti»), read with the
+ * The tail says how many servers answer («3 attivi», «Spenti», allow-italian:
+ * quoted UI labels), read with the
  * PEEK route when the «+» opens: opening a composer, or this menu, never mounts
  * the fleet (`/api/mcp/fleet?peek=1`). The row opens the tools panel hung from
  * the «+» itself, through the one host of these forms (`openHome`).
