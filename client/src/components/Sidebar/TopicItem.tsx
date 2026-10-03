@@ -26,7 +26,7 @@ import { useTouchDrag } from '@/hooks/useTouchDrag';
 import { useT } from '@/hooks/useT';
 import { WorktreeChip } from './WorktreeChip';
 import { TopicColorDot } from '@/components/Shared/TopicColorDot';
-import { topicColorInks } from '@/lib/topicColor';
+import { topicColorInk } from '@/lib/topicColor';
 import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
@@ -246,7 +246,10 @@ export const TopicItem = memo(function TopicItem({
     // thing does not have is not a preview of the thing.
     startDragPreview(e, {
       title: topic.name,
-      accent: topicColorInks(topic.color)?.value,
+      // The ink of the theme on screen, the one the row's dot is painted
+      // with: the stored value is the light swatch, and on the dark chrome it
+      // is the very shade `topicColor` replaces for being too dark to see.
+      accent: topicColorInk(topic.color, document.documentElement.classList.contains('dark')),
       subtitle: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
       badges: [
         notificationCount > 0 ? String(notificationCount) : '',

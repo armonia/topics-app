@@ -22,6 +22,18 @@ import { useT } from '../../hooks/useT';
 import { SwitchTrack } from '../Shared/Switch';
 import { useConfirm } from '../../hooks/useConfirm';
 import { apiFetch } from '../../lib/shell/net';
+import { storableTopicColor, topicColorInks } from '../../lib/topicColor';
+import { fromHex, toHex } from '../../lib/iconTint';
+
+/** What the native picker holds while there is no colour: a neutral grey,
+ *  hidden under the dashed swatch, so the panel does not open on black. */
+const NO_COLOUR_PLACEHOLDER = '#808080';
+
+/** `#abc` → `#aabbcc`: a native colour input accepts only the long form. */
+function fullHex(hex: string): string {
+  const rgb = fromHex(hex);
+  return rgb ? toHex(rgb) : NO_COLOUR_PLACEHOLDER;
+}
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -120,6 +132,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
   const [topicName, setTopicName] = useState(topic.name);
   const [topicColor, setTopicColor] = useState(topic.color);
+  // What the colour field shows: a choice, or the explicit «no colour» state
+  // (an empty value or one of the code's defaults, see `topicColorInks`).
+  const chosenColor = topicColorInks(topicColor);
   const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
   // THE PROMPT IS NOT IN THE LIST any more (see shared/types.ts): the topic
   // prop that reaches this modal carries `hasSystemPrompt`, not the text. Until
@@ -365,14 +380,43 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             <label className="block text-prose font-medium text-app-text mb-2">
               Color
             </label>
+            {/* «NO COLOUR» IS A STATE OF ITS OWN, not a value of the picker.
+                A native colour input cannot be empty: given '' it shows
+                #000000, and confirming the panel untouched then saved black.
+                With no choice the input holds a neutral placeholder under a
+                dashed swatch and saves nothing until a colour is picked. A
+                pick that equals one of the code's defaults is stored so that
+                it still reads as chosen (`storableTopicColor`). */}
             <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={topicColor}
-                onChange={e => setTopicColor(e.target.value)}
-                className="w-8 h-8 rounded border border-app-border-light cursor-pointer"
-              />
-              <span className="text-compact text-app-text-muted">{topicColor}</span>
+              <span className="relative w-8 h-8 shrink-0">
+                <input
+                  type="color"
+                  data-testid="topic-color-input"
+                  aria-label={tr('ctx.pickColour')}
+                  value={chosenColor ? fullHex(chosenColor.value) : NO_COLOUR_PLACEHOLDER}
+                  onChange={e => setTopicColor(storableTopicColor(e.target.value))}
+                  className={`block w-8 h-8 rounded border border-app-border-light cursor-pointer ${chosenColor ? '' : 'opacity-0'}`}
+                />
+                {!chosenColor && (
+                  <span
+                    aria-hidden="true"
+                    data-testid="topic-color-none"
+                    className="pointer-events-none absolute inset-0 rounded border border-dashed border-app-text-tertiary"
+                  />
+                )}
+              </span>
+              <span data-testid="topic-color-value" className="text-compact text-app-text-muted">
+                {chosenColor ? chosenColor.value : tr('ctx.clearColour')}
+              </span>
+              {chosenColor && (
+                <button
+                  type="button"
+                  onClick={() => setTopicColor('')}
+                  className="ml-auto text-compact px-2 py-1 rounded text-app-text-secondary hover:bg-app-hover transition-colors"
+                >
+                  {tr('ctx.clearColour')}
+                </button>
+              )}
             </div>
           </div>
 
