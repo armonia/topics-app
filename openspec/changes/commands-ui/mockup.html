@@ -65,6 +65,20 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
 .live{display:inline-flex;align-items:center;gap:4px;color:var(--ok);font-size:11px}
 .live i{width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block}
 .in{color:var(--dim);font-size:11px}
+.more{display:flex;align-items:center;gap:6px;padding:7px 12px;color:var(--accent);font-size:12px;border-top:1px solid var(--border)}
+.phone .more{min-height:44px}
+/* model selector */
+.msel .grp2{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);padding:8px 12px 3px}
+.msel .plan{display:flex;justify-content:space-between;gap:8px;padding:2px 12px 6px;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.msel .plan .w{color:var(--warn)}
+.msel .foot2{border-top:1px solid var(--border);margin-top:4px}
+/* pins */
+.pinrow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:5px 10px}
+.pinrow b{color:var(--text);font-weight:600}
+.pinrow .chev{margin-left:auto;color:var(--dim)}
+.pinned{border-left:2px solid var(--warn);padding-left:10px;position:relative}
+.pinned .pm{position:absolute;right:-4px;top:0;color:var(--warn)}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}
 .search{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border)}
 .search .q{flex:1;color:var(--text)}
 .search .q .car{display:inline-block;width:1px;height:14px;background:var(--accent);vertical-align:-2px;margin-left:1px}
@@ -153,6 +167,9 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
   <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
   <symbol id="out" viewBox="0 0 24 24"><path d="M7 7h10v10M7 17 17 7"/></symbol>
+  <symbol id="pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
   <symbol id="bot" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></symbol>
  </defs>
 </svg>
@@ -176,7 +193,7 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
     <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/res</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
     <div class="foot"><span><svg class="i s12"><use href="#shield"/></svg> Agisce</span><svg class="i s12"><use href="#zap"/></svg><span class="ring"></span><span class="sel">Opus 5 <span class="pill">1M</span></span><span class="pill">HIGH</span></div>
    </div>
-   <p class="cap">Quindici voci in una lista sola, uguale su ogni motore. Quattro non fanno niente di utile su Claude Code (/resume, /agents, /browser senza indirizzo, /reasoning) e due scrivono testo dove c'è già un controllo (/model e /effort senza argomento).</p>
+   <p class="cap">Quattordici voci in una lista sola, uguale su ogni motore. Quattro non fanno niente di utile su Claude Code (/resume, /agents, /browser senza indirizzo, /reasoning) e due scrivono testo dove c'è già un controllo (/model e /effort senza argomento).</p>
   </div>
   <div>
    <div class="pane today">
@@ -200,14 +217,14 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
      <div class="it"><svg class="i ic"><use href="#brain"/></svg><span class="c">/effort</span><span class="d">Sforzo di ragionamento</span><span class="tag open">apre il controllo</span></div>
      <div class="it"><svg class="i ic"><use href="#gauge"/></svg><span class="c">/context</span><span class="d">Quanto contesto resta</span><span class="tag open">apre l'ispettore</span></div>
      <div class="it"><svg class="i ic"><use href="#compact"/></svg><span class="c">/compact</span><span class="d">Compatta il contesto adesso</span><span></span></div>
-     <div class="it"><svg class="i ic"><use href="#chart"/></svg><span class="c">/usage</span><span class="d">Quanto resta del piano Claude</span><span class="tag open">apre il menu</span></div>
+     <div class="it"><svg class="i ic"><use href="#chart"/></svg><span class="c">/usage</span><span class="d">Quanto resta del piano Claude</span><span class="tag open">apre i provider</span></div>
      <div class="it"><svg class="i ic"><use href="#info"/></svg><span class="c">/status</span><span class="d">Cosa decide il prossimo turno</span><span></span></div>
      <div class="it"><svg class="i ic"><use href="#trash"/></svg><span class="c">/clear</span><span class="d">Svuota la conversazione</span><span></span></div>
      <div class="it"><svg class="i ic"><use href="#target"/></svg><span class="c">/goal</span><span class="d">Obiettivo della chat</span><span></span></div>
      <div class="it"><svg class="i ic"><use href="#branch"/></svg><span class="c">/fork</span><span class="d">Dirama in una chat nuova</span><span></span></div>
      <div class="grp">Claude Code <span class="src">· dall'elenco della CLI</span></div>
      <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/init</span><span class="d">Scrive il CLAUDE.md del progetto</span><span class="tag turn">turno</span></div>
-     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/review</span><span class="d">Rivede le modifiche del ramo</span><span class="tag turn">turno</span></div>
+     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/code-review</span><span class="d">Rivede le modifiche del ramo (anche /review)</span><span class="tag turn">turno</span></div>
      <div class="it"><svg class="i ic"><use href="#plug"/></svg><span class="c">/mcp</span><span class="d">Server MCP</span><span class="tag open">apre Strumenti</span></div>
      <div class="grp">Le tue skill</div>
      <div class="it"><svg class="i ic"><use href="#spark"/></svg><span class="c">/vai</span><span class="d">Esegui il piano approvato</span><span class="tag turn">turno</span></div>
@@ -217,7 +234,7 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
     <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
     <div class="foot"><span><svg class="i s12"><use href="#shield"/></svg> Agisce</span><svg class="i s12"><use href="#zap"/></svg><span class="ring"></span><span class="sel">Opus 5 <span class="pill">1M</span></span><span class="pill">HIGH</span></div>
    </div>
-   <p class="cap"><b>Scelta 2.</b> Il gruppo del motore viene dall'elenco che la CLI dà all'avvio (119 nomi su questo Mac, misurato), filtrato da una mappa di Topics: un nome che Topics ha già come controllo apre il controllo, un nome solo da terminale non compare. Su Codex e sulle API c'è solo il gruppo Topics; su jcode e Gemini i comandi che annunciano. Il menu resta attaccato al composer anche sul telefono, perché lo guida quello che scrivi.</p>
+   <p class="cap"><b>Scelta 2.</b> Il gruppo del motore viene dall'elenco che la CLI dà all'avvio (119 nomi su questo Mac, 77 oggi fuori dal menu, misurato), filtrato da una mappa di Topics: un nome che Topics ha già come controllo apre il controllo, un nome solo da terminale non compare, un alias (/review, /cost) è il suo comando e non una riga in più. Su Codex e sulle API c'è solo il gruppo Topics; sul motore di Topics anche le tue skill, che carica col suo tool <code>skill</code>; su jcode e Gemini i comandi che annunciano. Il menu resta attaccato al composer anche sul telefono, perché lo guida quello che scrivi.</p>
   </div>
   <div>
    <div class="pane">
@@ -227,7 +244,7 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
      <div class="it on"><svg class="i ic"><use href="#history"/></svg><span class="c">/resume</span><span class="d">Riprendi una sessione Claude di questo progetto</span><span class="tag open">elenco</span></div>
      <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/rename</span><span class="d">Rinomina la chat</span><span></span></div>
      <div class="grp">Claude Code</div>
-     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/review</span><span class="d">Rivede le modifiche del ramo</span><span class="tag turn">turno</span></div>
+     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/reload-skills</span><span class="d">Rilegge le skill dal disco</span><span></span></div>
      <div class="grp">Le tue skill</div>
      <div class="it"><svg class="i ic"><use href="#spark"/></svg><span class="c">/recap</span><span class="d">Riassunto della sessione</span><span class="tag turn">turno</span></div>
     </div>
@@ -259,14 +276,15 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
     <div class="pop" role="listbox">
      <div class="hd"><svg class="i"><use href="#history"/></svg><span>Riprendi una sessione</span><b>topics-app</b><span class="rt"><kbd>↵</kbd> apri</span></div>
      <div class="search"><svg class="i" style="color:var(--dim)"><use href="#search"/></svg><span class="q">menu<span class="car"></span></span><span class="in">3 di 14</span></div>
-     <div class="rs on"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Menu utente: i cinque moduli dentro il menu</span><span class="when">2 h fa</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>feat/menu-utente-tutto-1002</span><span class="live"><i></i>attiva adesso</span></span></div>
+     <div class="rs on"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Smista le impostazioni dove si usano</span><span class="when">2 h fa</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>feat/impostazioni-dove-si-usano-1003</span><span class="live"><i></i>attiva adesso</span></span></div>
      <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Il menu del titolo sul telefono copre la lista</span><span class="when">ieri</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>fix/mobile-list-under-chrome-1001</span></span></div>
      <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">perché il menu delle skill mostra quelle spente?</span><span class="when">3 g fa</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>main</span><span class="in">titolo dall'ultima domanda</span></span></div>
+     <div class="more"><svg class="i s12"><use href="#down"/></svg>Carica più vecchie</div>
      <div class="ft"><span>Si apre come chat nuova con la sua storia e continua la stessa sessione; una sessione attiva adesso chiede conferma. Le chat di Topics non sono qui: stanno nella colonna e in ⌘K.</span></div>
     </div>
     <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/resume menu</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
    </div>
-   <p class="cap"><b>Scelta 1.</b> Fonte: i transcript in <code>~/.claude/projects/&lt;progetto&gt;/</code> che nessuna chat di Topics possiede (lo stesso censimento delle sessioni esterne, senza la finestra di 8 ore). Titolo: quello dato con /rename, poi quello generato, poi l'ultima domanda, tutti negli ultimi 64 KB del file (su questo Mac 11, 3 e 24 file su 24). Invio chiama l'adozione che esiste già (<code>POST /api/topics/adopt-claude</code>); una sessione già adottata non è nell'elenco, perché è una chat nella colonna.</p>
+   <p class="cap"><b>Scelta 1.</b> Fonte: i transcript in <code>~/.claude/projects/&lt;progetto&gt;/</code> che nessuna chat di Topics possiede, letti solo nelle cartelle del progetto e 20 alla volta (su topics-app 27 in 30 giorni contro 2.423 di tutto l'archivio), con una cache sua che non svuota quella del censimento delle sessioni esterne. Titolo: quello dato con /rename, poi quello generato, poi l'ultima domanda, tutti negli ultimi 64 KB del file (su questo Mac 11, 3 e 24 file su 24). Invio chiama l'adozione che esiste già (<code>POST /api/topics/adopt-claude</code>); una sessione già adottata non è nell'elenco, perché è una chat nella colonna.</p>
   </div>
   <div>
    <div class="pane">
@@ -317,31 +335,54 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
   </div>
  </div>
 
- <h2>Proposta: /usage apre il livello Provider AI del menu utente, col misuratore del piano Claude in cima</h2>
+ <h2>Proposta: /usage e /cost aprono Provider e chiavi dal selettore del modello; la scelta 4 aggiunge la settimana</h2>
  <div class="row2">
   <div class="um">
-   <div class="umc">
-    <div class="urow"><span class="av">A</span><span class="l"><b>Attilio</b><br><span class="tl">attilio@…</span></span></div>
-    <div class="hr"></div>
-    <div class="urow"><svg class="i"><use href="#file"/></svg><span class="l">Piano</span><span class="tl">Gratuito</span><svg class="i s12" style="color:var(--dim)"><use href="#right"/></svg></div>
-    <div class="urow open"><svg class="i"><use href="#cpu"/></svg><span class="l">Provider AI</span><span class="tl">Claude Code · Max 20x · 38%</span><svg class="i s12" style="color:var(--dim)"><use href="#right"/></svg></div>
-    <div class="urow"><svg class="i"><use href="#plug"/></svg><span class="l">Strumenti</span><span class="tl">4 connessi</span><svg class="i s12" style="color:var(--dim)"><use href="#right"/></svg></div>
-    <div class="urow"><svg class="i"><use href="#target"/></svg><span class="l">Aspetto</span><span class="tl">Sistema · 13 px</span><svg class="i s12" style="color:var(--dim)"><use href="#right"/></svg></div>
+   <div class="umc msel">
+    <div class="grp2">Claude Code</div>
+    <div class="plan"><span>Max 20x</span><span>5 h al 38% · <span class="w">sett. 78%</span></span></div>
+    <div class="urow open"><svg class="i s12" style="color:var(--accent)"><use href="#check"/></svg><span class="l">Opus 5</span><span class="tl">1M</span></div>
+    <div class="urow"><span style="width:12px"></span><span class="l">Sonnet 5.5</span><span class="tl"></span></div>
+    <div class="grp2">Codex</div>
+    <div class="urow"><span style="width:12px"></span><span class="l">GPT-5.5</span><span class="tl"></span></div>
+    <div class="foot2"><div class="urow"><svg class="i"><use href="#key"/></svg><span class="l">Provider e chiavi</span><span class="tl">3 pronti</span><svg class="i s12" style="color:var(--dim)"><use href="#right"/></svg></div></div>
    </div>
    <div class="lvl">
-    <div class="lh"><svg class="i"><use href="#cpu"/></svg>Provider AI<span class="x"><svg class="i"><use href="#x"/></svg></span></div>
+    <div class="lh"><svg class="i"><use href="#key"/></svg>Provider e chiavi<span class="x"><svg class="i"><use href="#x"/></svg></span></div>
     <div class="meter">
-     <div class="mh"><b>Piano Claude · Max 20x</b><span>letto all'ultimo turno, 01:02</span></div>
+     <div class="mh"><b>Abbonamento Claude Max 20x</b><span>letto all'ultimo turno, 01:02</span></div>
      <div class="bar"><div class="bl"><span>Finestra di 5 ore</span><span>38% · si azzera alle 01:29</span></div><div class="tr"><i style="width:38%"></i></div></div>
-     <div class="bar w"><div class="bl"><span>Settimana</span><span>78% · si azzera sab 09:59</span></div><div class="tr"><i style="width:78%"></i></div></div>
+     <div class="bar w"><div class="bl"><span>Settimana <span class="tag open">scelta 4</span></span><span>78% · si azzera sab 09:59</span></div><div class="tr"><i style="width:78%"></i></div></div>
     </div>
-    <div class="ghost">Il resto del modulo Provider AI, com'è (predefinito, modello, effort, checkpoint per turno, avanzate)<div class="gl" style="width:80%"></div><div class="gl" style="width:60%"></div><div class="gl" style="width:70%"></div></div>
+    <div class="ghost">Il resto del pannello, com'è in <code>sidebar-menu-settings</code> (chiavi, endpoint, CLI, runtime, predefiniti, checkpoint)<div class="gl" style="width:80%"></div><div class="gl" style="width:60%"></div><div class="gl" style="width:70%"></div></div>
    </div>
   </div>
-  <p class="cap" style="max-width:420px"><b>Scelta 4.</b> Le cifre arrivano già a ogni turno di Claude Code (<code>rate_limit_event</code>, <code>state/planUsage.ts</code>) ma oggi si vedono solo sopra la soglia dell'avviso. Il livello è quello del menu utente che sta assorbendo le Impostazioni (<code>sidebar-menu-settings</code>); la coda della riga dice la percentuale delle 5 ore. Senza una lettura: «nessuna lettura ancora: arriva col primo turno».</p>
+  <p class="cap" style="max-width:420px">Il pannello è quello che si apre dall'ultima riga del selettore del modello (SETHOME-01): /usage e /cost lo aprono accanto al selettore di questo composer. Abbonamento, finestra di 5 ore e «Max 20x · 5 h al 38%» sono già decisi lì. <b>Scelta 4.</b> Aggiunge solo la settimana: la seconda barra, con giorno e ora dell'azzeramento, e «sett. 78%» in coda alla riga del piano nel selettore. Le cifre arrivano già a ogni turno (<code>rate_limit_event</code>, <code>state/planUsage.ts</code> tiene <code>sevenDay</code>). Senza una lettura: «nessuna lettura ancora: arriva col primo turno».</p>
  </div>
 
- <h2>Proposta (scelta 5): nel cassetto della card uno «/» non diventa prosa in silenzio</h2>
+ <h2>Proposta (scelta 5): un messaggio appuntato si vede, e si vede che resta nel contesto</h2>
+ <div class="row2">
+  <div>
+   <div class="pane">
+    <div class="pinrow"><svg class="i s12" style="color:var(--warn)"><use href="#pin"/></svg><b>1 appuntato</b><span>· resta nel contesto dell'agente</span><svg class="i s12 chev"><use href="#down"/></svg></div>
+    <div class="msg-u">Il deploy va fatto solo da main, mai da un ramo.</div>
+    <div class="msg-a pinned">Chiaro: da qui in avanti il deploy parte solo da <code>main</code>. Lo tengo come regola per questa chat.<svg class="i s12 pm"><use href="#pin"/></svg></div>
+    <div class="msg-u">Ok, ora sistemiamo il test rosso.</div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt ph">Messaggio…</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap" style="max-width:600px">Oggi «Appunta» salva l'appunto e lo mette nel contesto di ogni turno (<code>server/context/assemble.ts:843-845</code>), ma l'elenco non si apre da nessuna parte e si vede solo l'icona diventare gialla. Con la scelta consigliata il messaggio porta il segno e la riga in cima apre l'elenco già scritto (<code>PinnedMessages</code>), da cui si stacca. L'alternativa toglie il gesto e gli appunti escono dal contesto.</p>
+  </div>
+  <div>
+   <div class="umc" style="width:300px">
+    <div class="urow"><span class="dot" style="background:#059669"></span><span class="l">Deploy della landing</span><span class="tl">2 min</span></div>
+    <div class="urow open"><span style="width:6px"></span><span class="l">audit dei comandi</span><span class="tl">ora</span></div>
+    <div class="urow"><span class="dot" style="background:#be185d"></span><span class="l">Fattura di settembre</span><span class="tl">ieri</span></div>
+   </div>
+   <p class="cap" style="max-width:300px">Compreso: il colore scelto con «Cambia colore» si vede come un pallino sulla riga e sulla tab; una chat senza colore scelto resta com'è.</p>
+  </div>
+ </div>
+
+ <h2>Compreso: nel cassetto della card uno «/» non diventa prosa in silenzio</h2>
  <div class="row2">
   <div class="drawer">
    <div class="tt2">Rifai la scheda del provider</div>
@@ -349,7 +390,7 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
    <div class="hint"><svg class="i"><use href="#bot"/></svg><span>I comandi vanno dati nella chat dell'agente.</span><a>Apri la sessione <svg class="i s12"><use href="#out"/></svg></a></div>
    <div class="composer"><span class="txt">/compact</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
   </div>
-  <p class="cap" style="max-width:420px">Oggi «/compact» scritto qui arriva all'agente come «Human update on task…» e lui non compatta (letto nel codice). Con la scelta 5 consigliata la riga compare appena il testo inizia con un nome di comando noto, e Invio manda comunque il testo, come oggi. L'alternativa porta lo stesso menu «/» nel cassetto.</p>
+  <p class="cap" style="max-width:420px">Oggi «/compact» scritto qui arriva all'agente come «Human update on task…» e lui non compatta (letto nel codice). La riga compare appena il testo inizia con un nome di comando noto, e Invio manda comunque il testo, come oggi. Un menu «/» nel cassetto si decide nella change <code>conversazione-unica-della-card</code>, che rifà il cassetto.</p>
  </div>
 
  <h2>Telefono, 390 px</h2>
@@ -381,9 +422,10 @@ kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border
     <div class="spacer" style="height:70px"></div>
     <div class="pop" role="listbox">
      <div class="hd"><svg class="i"><use href="#history"/></svg><span>Riprendi</span><b>topics-app</b></div>
-     <div class="rs on"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Menu utente: i cinque moduli dentro…</span><span class="when">2 h</span><span class="mt"><span class="br">feat/menu-utente-tutto-1002</span><span class="live"><i></i>attiva</span></span></div>
+     <div class="rs on"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Smista le impostazioni dove si usano</span><span class="when">2 h</span><span class="mt"><span class="br">feat/impostazioni-dove-si-usano-1003</span><span class="live"><i></i>attiva</span></span></div>
      <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Il menu del titolo copre la lista</span><span class="when">ieri</span><span class="mt"><span class="br">fix/mobile-list-under-chrome-1001</span></span></div>
      <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">perché il menu delle skill mostra…</span><span class="when">3 g</span><span class="mt"><span class="br">main</span></span></div>
+     <div class="more"><svg class="i s12"><use href="#down"/></svg>Carica più vecchie</div>
     </div>
     <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/resume</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
    </div>
