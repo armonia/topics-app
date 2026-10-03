@@ -269,13 +269,15 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(term).toBeVisible({ timeout: 15_000 });
     await expect(term.getByTestId("find-bar")).toHaveCount(0);
     await term.locator(".xterm").first().click();
-    await page.keyboard.type("seq 1 300\n");
-    await expect(term.locator(".xterm-rows")).toContainText("300", { timeout: 15_000 });
+    // Node, not `seq`: the same three hundred lines from bash, zsh, cmd or PowerShell.
+    await page.keyboard.type(`node -e "for(let i=1;i<=300;i++)console.log('linea '+i)"\n`);
+    await expect(term.locator(".xterm-rows")).toContainText("linea 300", { timeout: 15_000 });
     await page.keyboard.press("Meta+f");
     await expect(term.getByTestId("find-bar")).toBeVisible();
-    await page.keyboard.type("150");
-    await expect(term.getByTestId("find-count")).not.toHaveText(/^0 di 0$/, { timeout: 10_000 });
-    await expect(term.locator(".xterm-rows")).toContainText("150");
+    await page.keyboard.type("linea 150");
+    // Once on screen: the command line holds «150» too, but not «linea 150».
+    await expect(term.getByTestId("find-count")).toHaveText(/^[01] di 1$/, { timeout: 10_000 });
+    await expect(term.locator(".xterm-rows")).toContainText("linea 150");
     await page.screenshot({ path: test.info().outputPath("terminal-find.png") });
     // Nothing went to the program: the shell line holds no «150» typed by the bar.
     await page.keyboard.press("Escape");
@@ -421,14 +423,14 @@ test.describe("Cerca nella pane: il telefono", () => {
     if (topicId) await deleteTopic(request, topicId);
   });
 
-  test("FIND-04: «Cerca» in the tab menu opens the chat's bar", async ({ page, request }) => {
+  test("FIND-04: «Cerca» on the phone opens the chat's bar", async ({ page, request }) => {
     await resetPaneStore(request, [topicId]);
     await goToApp(page);
     await page.keyboard.press("Escape");
-    const tab = page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first();
-    await expect(tab).toBeVisible({ timeout: 15_000 });
-    await tab.click({ button: "right" });
-    await page.getByTestId("tab-menu-find").click();
+    // No tab strip on a phone: «Cerca» sits at the end of the pane's title row.
+    const find = page.getByTestId("mobile-pane-find").filter({ visible: true }).first();
+    await expect(find).toBeVisible({ timeout: 15_000 });
+    await find.click();
     await expect(bar(page)).toBeVisible();
     await expect(input(page)).toBeFocused();
     await page.keyboard.type("risposta");
@@ -468,12 +470,10 @@ test.describe("Cerca nella pane: le schermate", () => {
         await resetPaneStore(request, [topicId]);
         await goToApp(page);
         await page.keyboard.press("Escape");
-        const tab = page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first();
-        await expect(tab).toBeVisible({ timeout: 15_000 });
         if (vp.name === "phone") {
-          await tab.click({ button: "right" });
-          await page.getByTestId("tab-menu-find").click();
+          await page.getByTestId("mobile-pane-find").filter({ visible: true }).first().click({ timeout: 15_000 });
         } else {
+          await expect(page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
           await blurAll(page);
           await page.keyboard.press("Meta+f");
         }

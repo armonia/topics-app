@@ -466,3 +466,11 @@ quindi niente da adattare lì. Gli scostamenti veri sono questi.
 - **La finestra delle Scorciatoie** legge le descrizioni del registro come
   stringhe, senza i18n (era così per tutte le righe): le quattro nuove sono in
   italiano come le altre righe italiane.
+- **Il telefono non ha più la striscia delle tab** (dal commit «da mobile la
+  barra delle tab in alto non serve»): al suo posto c'è il nome della
+  superficie. «Cerca» quindi sta in fondo a quella riga (`mobile-pane-find`,
+  icona lucide `Search`), solo per una pane con un cercatore; la voce «Cerca»
+  nel menu della tab resta per desktop e tablet, dove la striscia c'è.
+- **Il cursore su niente dopo un clic sul testo** (anteprima Markdown, una
+  trascrizione): ⌘F va alla pane dell'ultimo clic, se è ancora a schermo,
+  prima della tab `data-focused`.

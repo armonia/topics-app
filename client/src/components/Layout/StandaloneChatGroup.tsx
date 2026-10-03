@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
+import { Search } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -41,7 +42,7 @@ import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
-import { FindPaneContext } from '../../state/findRegistry';
+import { FindPaneContext, openFind, useHasFinder } from '../../state/findRegistry';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { PaneEventLevel, StagedPane } from './PaneStage';
 import type { ZoomScope } from './zoomScope';
@@ -987,6 +988,7 @@ export function StandaloneChatGroup({
               className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
               <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
+              <MobileFindButton paneId={activePaneId} />
             </div>
           ) : (
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
@@ -1072,5 +1074,29 @@ export function StandaloneChatGroup({
         </Suspense>
       )}
     </>
+  );
+}
+
+/**
+ * «Cerca» on the phone (FIND-04). The phone has no tab strip since the strip
+ * gave way to the surface's title, so the tab menu that carries «Cerca» on a
+ * desktop is not there: the command sits at the end of the title row, and
+ * only for a pane that has a finder.
+ */
+function MobileFindButton({ paneId }: { paneId: string | null | undefined }) {
+  const tr = useT();
+  const has = useHasFinder(paneId);
+  if (!paneId || !has) return null;
+  return (
+    <button
+      type="button"
+      data-testid="mobile-pane-find"
+      aria-label={tr('find.label')}
+      title={tr('find.label')}
+      onClick={() => { openFind(paneId); }}
+      className="ml-auto mr-1 w-11 h-11 flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag"
+    >
+      <Search size={16} aria-hidden />
+    </button>
   );
 }

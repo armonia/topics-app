@@ -218,15 +218,30 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     let rightCmdTapAt = 0;
     const disarmRightCmdTap = () => { rightCmdTapAt = 0; };
 
+    // The pane of the last pointer press, for ⌘F with the keyboard on nothing.
+    let lastPointerPane: string | null = null;
+    const notePointerPane = (e: Event) => {
+      const t = e.target instanceof Element ? e.target : null;
+      lastPointerPane = t?.closest('[data-find-pane]')?.getAttribute('data-find-pane') ?? null;
+    };
+
     /**
      * The pane a find chord is about: the one the keyboard is in, else the
      * focused tab (`data-focused`, the active pane of the focused group of the
      * focused surface), else the app-level panel. See `resolveFindPane`.
      */
     const findPaneOf = (e: KeyboardEvent): string | null => {
-      const el = e.target instanceof Element && e.target !== document.body && e.target !== document.documentElement
-        ? e.target
-        : null;
+      let el: { closest(s: string): { getAttribute(n: string): string | null } | null } | null =
+        e.target instanceof Element && e.target !== document.body && e.target !== document.documentElement
+          ? e.target
+          : null;
+      // The keyboard on nothing after a click on text (a Markdown preview, a
+      // transcript): the pane clicked last is the one in front of the person,
+      // as long as it is still on screen.
+      const clicked = lastPointerPane;
+      if (!el && clicked && document.querySelector<HTMLElement>(`[data-find-pane="${CSS.escape(clicked)}"]`)?.offsetParent) {
+        el = { closest: () => ({ getAttribute: () => clicked }) };
+      }
       const tabs = Array.from(document.querySelectorAll('[role="tab"][data-focused="true"][data-pane-id]'))
         .map((t) => t.getAttribute('data-pane-id'))
         .filter((id): id is string => !!id);
@@ -667,12 +682,14 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     window.addEventListener('keydown', handler, true);
     window.addEventListener('keyup', onKeyUp, true);
     window.addEventListener('mousedown', disarmRightCmdTap, true);
+    window.addEventListener('pointerdown', notePointerPane, true);
     window.addEventListener('wheel', disarmRightCmdTap, true);
     window.addEventListener('blur', disarmRightCmdTap);
     return () => {
       window.removeEventListener('keydown', handler, true);
       window.removeEventListener('keyup', onKeyUp, true);
       window.removeEventListener('mousedown', disarmRightCmdTap, true);
+      window.removeEventListener('pointerdown', notePointerPane, true);
       window.removeEventListener('wheel', disarmRightCmdTap, true);
       window.removeEventListener('blur', disarmRightCmdTap);
     };

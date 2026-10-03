@@ -143,6 +143,15 @@ export function hasFinder(paneId: string | null | undefined): boolean {
   return !!paneId && finders.has(paneId);
 }
 
+/** React binding: does `paneId` have a finder right now. */
+export function useHasFinder(paneId: string | null | undefined): boolean {
+  return useSyncExternalStore(
+    (fn) => (paneId ? subscribeFind(paneId, fn) : () => {}),
+    () => hasFinder(paneId),
+    () => false,
+  );
+}
+
 /** The pane with no finder but somewhere to put the cursor (the board's filter). */
 export function registerFindFallback(paneId: string, focus: () => void): () => void {
   fallbacks.set(paneId, focus);
