@@ -92,36 +92,51 @@ async function openPanel(): Promise<void> {
   await settle();
 }
 
-describe('a removal the server refuses, in the share panel', () => {
-  test('«Remove access» refused: the panel says why, and the row stays', async () => {
-    deleteAnswer = 'refused';
-    await openPanel();
-    const remove = byLabel(translate('share.removeAccess', 'it', { name: 'Anna' }))!;
-    expect(remove).toBeDefined();
-    (remove.props.onClick as () => void)();
-    await settle();
-    expect(deletes.some((u) => u.includes('/api/auth/shares?') && u.includes('subjectId=d-1'))).toBe(true);
-    // Before the fix: nothing was written, the panel looked like a click that did nothing.
-    expect(shownError()).toEqual([translate('auth.err.unknown_device', 'it')]);
-    expect(byLabel(translate('share.removeAccess', 'it', { name: 'Anna' }))).toBeDefined();
-  });
+/** The two removals the panel offers: which button, and which DELETE it sends. */
+const REMOVALS = [
+  {
+    what: '«Remove access»',
+    label: () => translate('share.removeAccess', 'it', { name: 'Anna' }),
+    sent: (u: string) => u.includes('/api/auth/shares?') && u.includes('subjectId=d-1'),
+  },
+  {
+    what: '«Revoke link»',
+    label: () => translate('share.revokeLink', 'it'),
+    sent: (u: string) => u.includes('/api/auth/share-links?ref=L-1'),
+  },
+];
+/** The two ways a DELETE fails, and what the panel must say for each. */
+const FAILURES = [
+  { how: 'refused by the server', answer: 'refused' as const, says: () => translate('auth.err.unknown_device', 'it') },
+  { how: 'with the network down', answer: 'offline' as const, says: () => translate('auth.err.generic', 'it') },
+];
 
-  test('«Revoke link» with the network down: the panel says it failed, not an unhandled rejection', async () => {
-    deleteAnswer = 'offline';
-    const unhandled: unknown[] = [];
-    const onUnhandled = (e: unknown) => { unhandled.push(e); };
-    process.on('unhandledRejection', onUnhandled);
-    try {
-      await openPanel();
-      const revoke = byLabel(translate('share.revokeLink', 'it'))!;
-      expect(revoke).toBeDefined();
-      (revoke.props.onClick as () => void)();
-      await settle();
-      expect(deletes.some((u) => u.includes('/api/auth/share-links?ref=L-1'))).toBe(true);
-      expect(shownError()).toEqual([translate('auth.err.generic', 'it')]);
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off('unhandledRejection', onUnhandled);
+// Every removal against every failure: the review found the old pair covered
+// one cell each (refusal on «Remove access», network on «Revoke link»), so
+// either handler could lose the other half of its catch without a red.
+describe('a removal that fails, in the share panel', () => {
+  for (const removal of REMOVALS) {
+    for (const failure of FAILURES) {
+      test(`${removal.what} ${failure.how}: the panel says why, the row stays, nothing goes unhandled`, async () => {
+        deleteAnswer = failure.answer;
+        const unhandled: unknown[] = [];
+        const onUnhandled = (e: unknown) => { unhandled.push(e); };
+        process.on('unhandledRejection', onUnhandled);
+        try {
+          await openPanel();
+          const button = byLabel(removal.label());
+          expect(button).toBeDefined();
+          (button!.props.onClick as () => void)();
+          await settle();
+          expect(deletes.some(removal.sent)).toBe(true);
+          // Before the fix: nothing was written, the panel looked like a click that did nothing.
+          expect(shownError()).toEqual([failure.says()]);
+          expect(byLabel(removal.label())).toBeDefined();
+          expect(unhandled).toEqual([]);
+        } finally {
+          process.off('unhandledRejection', onUnhandled);
+        }
+      });
     }
-  });
+  }
 });
