@@ -21,6 +21,7 @@ import type { Pane } from '../../../types';
 import type { ClosedTerminalMeta } from '../types';
 import { createPaneId, getTerminalSessionFromPaneId } from './paneConfig';
 import { apiFetch } from '../../../lib/shell/net';
+import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 
 /**
  * Legacy ClosedTabRecord shape. Preserved verbatim so consumers importing the
@@ -43,7 +44,7 @@ export interface ClosedTabRecord {
 }
 
 // Module-level resource — see RESEARCH.md pitfall #4 (timers can't live in Immer state).
-const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const cleanupTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; fn: (unloading: boolean) => void }>();
 // Tombstone: terminal sessionIds the user just closed. Persisted in
 // localStorage so they survive page reloads (the in-memory cleanupTimers
 // don't). The project window's "auto-add active terminal sessions"
@@ -208,11 +209,54 @@ export function importTombstones(kind: TombstoneKind, incoming: TombstoneEntry[]
   return changed;
 }
 
-// Wire a one-shot beforeunload listener so any pending cleanup timers
-// (terminal DELETEs scheduled with a grace window) are force-flushed
-// before the page unloads. Without this, a reload within the grace
-// window leaks the server-side session — and the terminal-sync effect
-// re-injects a phantom pane on the next load.
+/**
+ * Run every pending cleanup NOW, telling it the page is going away. A reload
+ * inside the grace window used to drop the timers without running them: the
+ * DELETE never left, the PTY of a closed shell stayed up on the server (a shell
+ * is never parked), and once the 5-minute tombstone expired the terminal-sync
+ * effect brought it back as a phantom tab. `unloading` lets the callback send
+ * its request with `keepalive`, the only kind that survives the unload.
+ */
+export function flushTerminalCleanups(): void {
+  for (const [id, entry] of cleanupTimers.entries()) {
+    clearTimeout(entry.timer);
+    cleanupTimers.delete(id);
+    entry.fn(true);
+  }
+}
+
+/**
+ * Wire the flush to beforeunload and pagehide. On a normal unload both fire,
+ * beforeunload first: its flush empties the map, so the pagehide that follows
+ * has nothing left and each pending cleanup runs ONCE. Either can also fire
+ * alone: iOS Safari fires only pagehide, and pagehide also fires when the page
+ * enters the back/forward cache, in which case the DELETE leaves early for a
+ * page that may come back (the tab is closed anyway; only the undo window is
+ * cut short). Exported so a test can drive it with its own event target.
+ */
+export function wireTerminalCleanupFlush(target: Pick<EventTarget, 'addEventListener'>): void {
+  target.addEventListener('beforeunload', flushTerminalCleanups);
+  target.addEventListener('pagehide', flushTerminalCleanups);
+}
+
+/**
+ * The cleanup a closed terminal tab schedules (see `scheduleTerminalCleanup`).
+ * After the grace window: the retrying DELETE, then the tombstone goes. With
+ * the page going away inside the window: one `keepalive` DELETE, the only
+ * request that outlives the unload, and the tombstone stays in case it does
+ * not land.
+ */
+export function closedTerminalCleanup(sessionId: string): (unloading: boolean) => void {
+  return (unloading) => {
+    if (unloading) {
+      apiFetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+      return;
+    }
+    deleteTerminalSession(sessionId);
+    clearTerminalTombstone(sessionId);
+  };
+}
+
 // `typeof window.addEventListener === 'function'` guards a partial-window test
 // environment: under `bun test` (no DOM) another test file can leave a stub
 // `globalThis.window` object without `addEventListener`, and module-load order
@@ -221,17 +265,7 @@ export function importTombstones(kind: TombstoneKind, incoming: TombstoneEntry[]
 // unchanged there.
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !(window as unknown as { __termCleanupHooked?: boolean }).__termCleanupHooked) {
   (window as unknown as { __termCleanupHooked: boolean }).__termCleanupHooked = true;
-  window.addEventListener('beforeunload', () => {
-    for (const [id, timer] of cleanupTimers.entries()) {
-      clearTimeout(timer);
-      cleanupTimers.delete(id);
-      // Tombstone is already in place from the close site; the actual
-      // DELETE is best-effort (sendBeacon survives unload, plain fetch
-      // may not). The tombstone alone is enough for client-side
-      // de-dup; the server-side session can be reaped by its own
-      // dormant-cleanup logic later.
-    }
-  });
+  wireTerminalCleanupFlush(window);
 }
 
 /**
@@ -387,21 +421,21 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
 export function scheduleTerminalCleanup(
   recordId: string,
   delayMs: number,
-  fn: () => void,
+  fn: (unloading: boolean) => void,
 ): void {
   const existing = cleanupTimers.get(recordId);
-  if (existing) clearTimeout(existing);
-  const t = setTimeout(() => {
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
     cleanupTimers.delete(recordId);
-    fn();
+    fn(false);
   }, delayMs);
-  cleanupTimers.set(recordId, t);
+  cleanupTimers.set(recordId, { timer, fn });
 }
 
 export function cancelTerminalCleanup(recordId: string): void {
-  const t = cleanupTimers.get(recordId);
-  if (t) {
-    clearTimeout(t);
+  const entry = cleanupTimers.get(recordId);
+  if (entry) {
+    clearTimeout(entry.timer);
     cleanupTimers.delete(recordId);
   }
 }

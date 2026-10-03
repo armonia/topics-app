@@ -50,13 +50,16 @@ export function SpendCapControl() {
   // back to a local string while somebody is editing. The draft is dropped on
   // commit, which is the moment the store becomes right again.
   const [draft, setDraft] = useState<CapDraft>({});
+  const [saveFailed, setSaveFailed] = useState(false);
 
   if (!spend) return null;
 
   const commit = (which: 'task' | 'day', raw: string) => {
     const dollars = raw.trim() === '' ? 0 : Number(raw);
     const cents = Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : 0;
-    void saveSpendCaps(which === 'task' ? { perTaskCents: cents } : { perDayCents: cents });
+    setSaveFailed(false);
+    void saveSpendCaps(which === 'task' ? { perTaskCents: cents } : { perDayCents: cents })
+      .then((ok) => { if (!ok) setSaveFailed(true); });
     // `saveSpendCaps` publishes the new value optimistically and synchronously,
     // so letting the draft go here shows the committed cap, not the old one.
     setDraft((d) => ({ ...d, [which]: undefined }));
@@ -123,6 +126,11 @@ export function SpendCapControl() {
           />
         </label>
       </div>
+      {saveFailed && (
+        <p role="alert" className="text-mini leading-snug text-red-500" data-testid="spend-cap-error">
+          {tr('board.spend.saveFailed')}
+        </p>
+      )}
 
       {/* THE DISTANCE from the cap, and ONLY if there is a cap. Without one this
           line does not exist: there is no distance from a limit nobody chose, and

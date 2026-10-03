@@ -5,7 +5,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, type LucideIcon, Share2 } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -15,7 +15,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
-import { topicsApi, projectsApi } from '@/lib/api';
+import { topicsApi } from '@/lib/api';
 import { createPaneId, getProjectPathFromPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
 import { CalendarTilePreview } from './CalendarTilePreview';
@@ -26,6 +26,7 @@ import { DND_TYPES } from '@/lib/dndTypes';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo, Worktree } from '@/types';
 import { groupProjectChildrenByWorktree, worktreeChipFor, type WorktreeLabel } from '@/lib/sidebarWorktrees';
 import { WorktreeSection } from './WorktreeSection';
+import { EntryIncognito } from './EntryIncognito';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { CodexIcon } from '@/components/Shared/CodexIcon';
@@ -2339,47 +2340,6 @@ export function TopicTree({
         </div>
       )}
     </div>
-  );
-}
-
-// ── «Incognito» sul progetto ───────────────────────────────────────────────────
-/**
- * L'unica leva umana della 092: un progetto è dell'organizzazione a meno che
- * qualcuno non dica di no.
- *
- * Si carica da sé perché la sidebar conosce i progetti per PATH (l'indice della
- * board), non come righe di `projects`: il record con l'interruttore lo si
- * chiede quando il menu si apre, e non un istante prima — un fetch per ogni riga
- * di progetto disegnata sarebbe una richiesta a vuoto per ogni apertura
- * dell'app.
- *
- * Finché non si sa, la voce NON si disegna. Disegnarla con uno stato indovinato
- * significherebbe mostrare «Rendi incognito» su un progetto che lo è già, cioè
- * offrire un gesto che non fa quello che dice.
- */
-function EntryIncognito({ projectPath, onDone }: { projectPath: string; onDone: () => void }) {
-  const [progetto, setProgetto] = useState<{ id: string; incognito: boolean } | null>(null);
-  useEffect(() => {
-    let vivo = true;
-    projectsApi
-      .byPath(projectPath)
-      .then(p => { if (vivo && p) setProgetto({ id: p.id, incognito: p.incognito === true }); })
-      .catch(() => {});
-    return () => { vivo = false; };
-  }, [projectPath]);
-
-  if (!progetto) return null;
-  return (
-    <button
-      onClick={() => {
-        projectsApi.update(progetto.id, { incognito: !progetto.incognito }).catch(() => {});
-        onDone();
-      }}
-      className={POPOVER_ITEM}
-    >
-      {progetto.incognito ? <Eye size={14} /> : <EyeOff size={14} />}
-      <span>{progetto.incognito ? 'Mostra al gruppo' : 'Rendi incognito'}</span>
-    </button>
   );
 }
 

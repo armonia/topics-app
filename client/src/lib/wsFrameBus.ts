@@ -127,6 +127,14 @@ type LifecycleHandler = (event: WSLifecycleEvent) => void;
 const lifecycleHandlers = new Set<LifecycleHandler>();
 /** How many times the socket has opened in this page's life. */
 let opens = 0;
+/** The last lifecycle event, so a subscriber that registers late can know
+ *  where the socket stands: the bus does not replay it. */
+let lastLifecycle: WSLifecycleEvent | null = null;
+
+/** Is the socket open right now (as far as the last lifecycle event says). */
+export function isSocketOpen(): boolean {
+  return lastLifecycle === 'open';
+}
 
 export function subscribeLifecycle(handler: LifecycleHandler): () => void {
   lifecycleHandlers.add(handler);
@@ -156,6 +164,7 @@ export function subscribeReconnect(handler: () => void): () => void {
 
 export function dispatchLifecycle(event: WSLifecycleEvent): void {
   if (event === 'open') opens += 1;
+  lastLifecycle = event;
   for (const handler of lifecycleHandlers) {
     try {
       handler(event);

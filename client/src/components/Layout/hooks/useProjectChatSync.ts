@@ -20,9 +20,9 @@
  *    `applyChatReconciliation` / `reopenChatPane` (functional updaters
  *    inside layout, no stale-closure races).
  *
- * `initialChatsSyncedRef` is shared via `gateRefs` (single source of truth).
- * Whichever runs first (server-hydrate OR mount effect) flips the flag; the
- * other observes the flip and skips its first-run branch.
+ * `initialChatsSyncedRef` is shared via `gateRefs`: server-hydrate and the
+ * mount effect both flip it. The effect's own first sync is keyed on
+ * `firstSyncPathRef` instead, and waits until the project's topics are known.
  *
  * NOTE on args.focusedGroupId: the PLAN's documented signature lists
  * `panes` + `groups` but not `focusedGroupId`. Mirroring the original
@@ -51,6 +51,10 @@ import type {
 export interface UseProjectChatSyncArgs {
   projectPath: string;
   topics: Record<string, Topic>;
+  /** The topics list has not answered yet and nothing was cached
+   *  (`useTopicsPending`). An empty `topics` then means "not known", not
+   *  "this project has none": the first sync waits for it. */
+  topicsPending?: boolean;
   /** Snapshot from `useProjectPersistenceLoad`. Read once on first sync to
    *  restore last-session open chats + active chat. */
   initial: PersistedSnapshot | null;
@@ -92,6 +96,7 @@ export function useProjectChatSync(
   const {
     projectPath,
     topics,
+    topicsPending = false,
     initial,
     panes,
     groups,
@@ -125,6 +130,17 @@ export function useProjectChatSync(
   // populates `prevTopicIdsSetRef` at the end of that run, subsequent runs
   // see the prior snapshot and only treat genuinely-new ids as additions.
   const prevTopicIdsSetRef = useRef<Set<string>>(new Set());
+  // The project whose first sync ran with its topic list KNOWN. Until then
+  // `prevTopicIdsSetRef` is not a baseline: taken while the topics were still
+  // unknown it is empty, and the delta branch would open EVERY topic of the
+  // project as a tab - the closed ones included - and skip the saved active
+  // chat. The shared gate cannot tell: server-hydrate raises it too.
+  const firstSyncPathRef = useRef<string | null>(null);
+  // Open chats a server snapshot named while their topics were still unknown
+  // (`onServerHydrate` can open only known ones). On a fresh device `initial`
+  // is null, so this is the ONLY record of what was open: the first sync
+  // restores these alongside `initial.openChatTopicIds` once the topics land.
+  const deferredOpenRef = useRef<Set<string>>(new Set());
 
   // --- topicIds: sorted list of topics belonging to this project ---
   const topicIds = useMemo(
@@ -158,13 +174,18 @@ export function useProjectChatSync(
     // archiving a project's ONLY topic leave a ghost chat pane for the rest
     // of the session: the KNOWN-archived topic could never be removed while
     // currentSet stayed empty.
+    //
+    // The SAVE is unblocked, the first sync is NOT done: with chat panes whose
+    // topics `topics` does not know yet, the list is not "this project has no
+    // topics" but "the topics have not arrived". The first sync waits for them.
     const existingChatPanes = curPanes.filter(p => p.type === 'chat');
-    if (currentSet.size === 0 && existingChatPanes.length > 0) {
-      if (!gateRefs.initialChatsSyncedRef.current) {
-        gateRefs.initialChatsSyncedRef.current = true;
-        markChatSyncDone();
-      }
-    }
+    // Two ways to tell: chat panes whose topics are missing, or (a layout with
+    // no chat panes at all) the topics list itself still pending. Missing the
+    // second one took an EMPTY baseline and opened every topic on arrival.
+    const topicsUnknown =
+      currentSet.size === 0 &&
+      (topicsPending || existingChatPanes.some(p => !!p.topicId && !topics[p.topicId]));
+    if (currentSet.size === 0 && existingChatPanes.length > 0) markChatSyncDone();
 
     // Remove chat panes whose topic no longer belongs in the project — but ONLY
     // when the topic is KNOWN. A chat pane whose topic is still LOADING (absent
@@ -196,13 +217,17 @@ export function useProjectChatSync(
     );
 
     // On first sync only: restore chats that were open last session +
-    // restore the saved active chat.
-    if (!gateRefs.initialChatsSyncedRef.current) {
+    // restore the saved active chat. With the topics still unknown there is
+    // nothing to restore against and no baseline to take: neither branch runs.
+    const firstSync = firstSyncPathRef.current !== projectPath;
+    if (firstSync && !topicsUnknown) {
+      firstSyncPathRef.current = projectPath;
       gateRefs.initialChatsSyncedRef.current = true;
       markChatSyncDone();
 
       const persisted = initialRef.current;
-      const openSet = new Set(persisted?.openChatTopicIds || []);
+      const openSet = new Set([...(persisted?.openChatTopicIds || []), ...deferredOpenRef.current]);
+      deferredOpenRef.current = new Set();
       // `topicIds` is already filtered by `t.projectPath === projectPath`
       // (see line 112-122), so iterating it is safe — the only way a foreign
       // topic enters the chat-pane set is via the seed loop in
@@ -244,7 +269,7 @@ export function useProjectChatSync(
           };
         }
       }
-    } else {
+    } else if (!firstSync) {
       // Post-first-sync: surface topics that JUST arrived (delta vs the
       // previous topicIds snapshot) as new chat panes. This handles the
       // cross-window case where another window (Electron vs browser) creates
@@ -297,10 +322,10 @@ export function useProjectChatSync(
     // ripartire sul proprio output — un ciclo, non una sincronizzazione.
     // `applyChatReconciliation` è una prop che il chiamante non memoizza, e
     // passa comunque per updater funzionali (vedi l'intestazione del file),
-    // quindi non invecchia. Gli ingressi veri sono i tre elencati: quali topic
-    // esistono, come si chiamano, e in quale progetto.
+    // quindi non invecchia. Gli ingressi veri sono quelli elencati: quali topic
+    // esistono, come si chiamano, e in quale progetto (più se l'elenco è ancora in arrivo).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicIds, topics, projectPath]);
+  }, [topicIds, topics, topicsPending, projectPath]);
 
   // --- Server-fetch hydration callback ---
   // Replaces the inline shim that lived in ProjectWindow.tsx during Commits 2-3.
@@ -397,8 +422,11 @@ export function useProjectChatSync(
           // used to strip a lagging topic from the shared set (the chat-sync
           // reconcile removes any chat pane not in `topicIds`, and the ensuing
           // save would PUT the smaller set). When the topic actually loads via
-          // WS, chat-sync's delta-add opens it.
+          // WS, chat-sync opens it: the first sync (`deferredOpenRef`), or the delta-add.
           const ftopic = topics[tid];
+          // Unknown before the first sync: remember it, the first sync opens
+          // it when the topics arrive. After it, the delta branch does.
+          if (!ftopic && firstSyncPathRef.current !== projectPath) deferredOpenRef.current.add(tid);
           if (!ftopic || ftopic.archived || ftopic.projectPath !== projectPath) continue;
           stubs.push({
             id: createPaneId('chat', tid),

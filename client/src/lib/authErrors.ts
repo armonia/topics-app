@@ -28,3 +28,15 @@ import { isCodiceAuth } from '../../../shared/auth-codes';
 export function chiaveErroreAuth(codice: string | null | undefined): string {
   return isCodiceAuth(codice) ? `auth.err.${codice}` : 'auth.err.generic';
 }
+
+/**
+ * The key for a refused response, read off its body.
+ *
+ * Never throws: a refusal that is not JSON (a proxy's 502 page) is still a
+ * refusal, and reading it with a bare `r.json()` threw, left the rejection
+ * unhandled and showed the person nothing.
+ */
+export async function authRefusalKey(r: Response): Promise<string> {
+  const body = await r.json().catch(() => null) as { error?: string } | null;
+  return chiaveErroreAuth(body?.error);
+}

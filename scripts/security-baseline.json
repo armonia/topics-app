@@ -9,12 +9,21 @@
     "Si riscrive con `bun run check:security --update-baseline`, e va fatto NELLO STESSO",
     "commit che accetta o cura l avviso: e il diff a dire cosa si e deciso di tenersi.",
     "Che un avviso sparisca non fa mai rosso, ma il comando lo dice: quello e il momento di",
-    "riscrivere la baseline, o marcisce."
+    "riscrivere la baseline, o marcisce.",
+    "03/10: accettato http-cache-semantics GHSA-ch52-4w7c-c8xp (landing, via astro). Nessuna versione corretta esiste (<= 4.2.0, senza patch). Il sito e' una build statica: astro lo usa solo in build/dev, mai come cache condivisa fra utenti, che e' la condizione dell'avviso. Si toglie appena esce la patch."
   ],
-  "updated": "2026-09-08",
+  "updated": "2026-10-03",
   "advisories": {
     ".": [],
     "client": [],
-    "landing": []
+    "landing": [
+      {
+        "package": "http-cache-semantics",
+        "id": 1240991,
+        "severity": "high",
+        "title": "http-cache-semantics max-stale handling can disclose cross-user cached responses",
+        "url": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
+      }
+    ]
   }
 }

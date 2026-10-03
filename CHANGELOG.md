@@ -2,6 +2,45 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.429 — 2026-10-03
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-02 [skip ci]
+- Chiedi conferma anche per i comandi distruttivi dentro ssh, sh -c, eval, timeout e caffeinate
+- Non far cadere la chat su un tipo di blocco che il bundle non conosce
+- Tieni la coda di un'ultima riga oltre 256 KB e chiudi gli unknown all'ultima ora nota
+- Muovi i passi del menu utente con destra e sinistra, e lascia su e giù alle righe
+- Fai di «Mostra tutto» di un risultato lungo una piega come le altre, con le parole del catalogo
+- Lascia il fuoco sull'intestazione di una piega aperta da tastiera
+- Porta pannelli e marcatore del browser dove sta chi li chiede
+- Apri la porta che serve la pagina quando un server ne ascolta più d'una
+- Chiedi per ultime le icone disegnate da più tempo, così il server non le smette di guardare
+- Tieni nello store l'orologio della riga «Server fermato»
+- Allinea tre testi rimasti indietro
+- Tipizza l'elenco dei sondaggi letto dallo store dei server
+- Mostra il rifiuto di uno spawn_agent come stato della sua card
+- Non svegliare il padre con lo stop che ha chiesto lui
+- Sotto-agenti: roster a ogni send_to_agent, modello effettivo, lettura incrementale, slot liberati
+- Rientra nei binari: ToolCards sotto le 800 righe, commenti e nomi in inglese, test dichiarato
+- Avvisa il marcatore dalla prima scrittura locale del layout di progetto
+- Rinomina loc in location nel test del marcatore
+- Riporta in fondo la chat dopo aver aperto la riga del tool, un fotogramma alla volta
+- Non prendere per pagina il 404 in HTML di un'API, e fra due pagine apri la porta del dev server
+- Chiedi conferma anche quando il comando passato come testo apre con un'assegnazione
+- Chiudi una corsa sconosciuta all'ultima uscita scritta sulla sua riga, che sopravvive al riavvio
+- Chiama rifiuto solo la risposta 400 o 429 della route di spawn, non ogni spawn_agent fallito
+- Applica nel test della migration di command_runs solo le migration precedenti
+- Scrivi la riga dello stop chiesto dal padre solo a turno del padre finito, senza svegliarlo
+- Sposta in lib/command-runs il passo di scrittura dell'ultima uscita e registra processes.ts a 2213 righe
+- Chiedi conferma anche dopo un'assegnazione con valore tra virgolette e spazi
+- Chiudi al boot un comando morto col server all'ora in cui e' finito, non all'avvio
+- Leggi il comando come lo legge la shell prima di decidere se chiedere conferma
+- Chiudi ogni comando trovato morto al boot prima di potare i recenti e pulire i file
+- Prova la migration dell'ultima uscita di command_runs sul solo schema che la precede
+- Togli statSync, rimasto senza uso in processes.ts
+- Chiedi conferma anche per i comandi dietro +=, function, heredoc, ${...}, i wrapper mancanti, ssh, le pipe verso una shell e zsh, in tempo lineare
+- Verifica che il boot chiuda tutte e undici le righe prima di qualunque richiesta
+
 ## 2.2.428 — 2026-10-02
 
 ### Sotto il cofano

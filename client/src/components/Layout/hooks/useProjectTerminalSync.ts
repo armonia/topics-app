@@ -165,8 +165,9 @@ export function useProjectTerminalSync({
           // always a parked one.
           //
           // So the prune waits until it knows. If the dormant fetch fails the
-          // flag is raised anyway with an empty set: from there on the behaviour
-          // is exactly what it was - never worse.
+          // flag stays down and the guard asks again with backoff: an empty set
+          // from a failed read would prune every parked tab never seen in the
+          // roster, and the loss would be saved at once.
           //
           // AND THE SAME HOLDS FOR EVERY LATER DISAPPEARANCE, not just for the
           // race at mount. `/exit` in a live claude tab parks the row and
@@ -253,6 +254,6 @@ export function useProjectTerminalSync({
         syncTerminals(m.sessions as TerminalRosterEntry[], (msg as { reconciled?: boolean }).reconciled === true);
       }
     });
-    return () => { stopEnded(); stopRoster(); };
+    return () => { guard.dispose(); stopEnded(); stopRoster(); };
   }, [onWSMessage, projectPath, topicsRef, setPanes]);
 }

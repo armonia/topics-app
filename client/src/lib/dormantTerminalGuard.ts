@@ -41,10 +41,13 @@ export interface DormantTerminalGuard {
   readonly dormantIds: ReadonlySet<string>;
   /** Ids a read taken AFTER their disappearance did not list: prune them. */
   readonly confirmedGoneIds: ReadonlySet<string>;
-  /** Initial read (mount). Raises `loaded` even when it fails. */
+  /** Initial read (mount). A failure leaves `loaded` down and is retried with
+   *  backoff: an empty set read from a failed request is not knowledge. */
   load(): void;
   /** These pane sessions just left the roster: re-read before pruning them. */
   recheck(ids: Iterable<string>): void;
+  /** Stops a pending retry of the initial read (unmount). */
+  dispose(): void;
 }
 
 async function fetchDormantIds(fresh: boolean): Promise<readonly string[]> {
@@ -75,7 +78,11 @@ export interface DormantTerminalGuardOptions {
   onUpdate: (knowledge: DormantKnowledge) => void;
   /** Seam for tests; defaults to the real endpoint. */
   fetcher?: DormantIdsFetcher;
+  /** First retry delay of a failed initial read, doubled up to 30 s. */
+  retryBaseMs?: number;
 }
+
+const LOAD_RETRY_MAX_MS = 30_000;
 
 export function createDormantTerminalGuard(options: DormantTerminalGuardOptions): DormantTerminalGuard {
   const fetcher = options.fetcher ?? fetchDormantIds;
@@ -85,14 +92,22 @@ export function createDormantTerminalGuard(options: DormantTerminalGuardOptions)
   /** Ids whose fate this run is meant to settle. */
   let pending = new Set<string>();
   let inFlight = false;
+  const retryBaseMs = options.retryBaseMs ?? 1_000;
+  let loadAttempts = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
 
   const run = () => {
-    if (inFlight) return;
+    if (inFlight || disposed) return;
     inFlight = true;
     const asked = pending;
     pending = new Set<string>();
+    let failedLoad = false;
     void fetcher(asked.size > 0)
       .then(ids => {
+        loaded = true;
+        // A recheck answered first: the retry of the boot read has nothing left to learn.
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
         dormantIds = new Set(ids);
         // Asked about, and the FRESH answer does not park it: really gone. This
         // is the only way a pane ever gets pruned after a disappearance, and it
@@ -100,14 +115,28 @@ export function createDormantTerminalGuard(options: DormantTerminalGuardOptions)
         for (const id of asked) if (!dormantIds.has(id)) confirmedGoneIds.add(id);
       })
       .catch(() => {
+        // The INITIAL read failed (server restarting, a network blip): an empty
+        // set from a request that never answered would let the prune drop every
+        // parked tab it has not seen in the roster. Stay unloaded - the prune
+        // keeps everything - and ask again with backoff.
+        if (!loaded && asked.size === 0) {
+          failedLoad = true;
+          return;
+        }
         // No answer. Not knowing must not turn into "never prune": settle the
         // ids we asked about as gone, which is exactly the behaviour that
         // preceded this guard - never worse.
+        loaded = true;
         for (const id of asked) confirmedGoneIds.add(id);
       })
       .finally(() => {
-        loaded = true;
         inFlight = false;
+        if (failedLoad) {
+          if (disposed) return;
+          const delay = Math.min(retryBaseMs * 2 ** loadAttempts++, LOAD_RETRY_MAX_MS);
+          retryTimer = setTimeout(() => { retryTimer = null; run(); }, delay);
+          return;
+        }
         options.onUpdate({ dormantIds, confirmedGoneIds: new Set(confirmedGoneIds) });
         // Ids that vanished while this read was in flight were not covered by
         // it: they get their own read, on their own answer.
@@ -130,6 +159,11 @@ export function createDormantTerminalGuard(options: DormantTerminalGuardOptions)
         added = true;
       }
       if (added) run();
+    },
+    dispose() {
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
     },
   };
 }

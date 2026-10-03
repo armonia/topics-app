@@ -235,6 +235,28 @@ describe('httpsFirstUrl', () => {
     expect(normalizeUrl('http://localhost:3000/')).toBe('http://localhost:3000/');
     expect(normalizeUrl('http://127.0.0.1:5173/app')).toBe('http://127.0.0.1:5173/app');
   });
+
+  it('a bare host typed without a scheme follows the same rule', () => {
+    // `.local`, a LAN address and a dev-server port do not speak TLS: forcing
+    // https on them left the pane blank.
+    expect(normalizeUrl('myserver.local')).toBe('http://myserver.local');
+    expect(normalizeUrl('192.168.1.5:3000')).toBe('http://192.168.1.5:3000');
+    expect(normalizeUrl('10.0.0.2/admin')).toBe('http://10.0.0.2/admin');
+    // A public domain still goes to https.
+    expect(normalizeUrl('github.com/x')).toBe('https://github.com/x');
+  });
+
+  it('a bare host typed with a TLS port goes to https, not http on the TLS port', () => {
+    expect(normalizeUrl('example.com:443')).toBe('https://example.com');
+    expect(normalizeUrl('example.com:443/path?q=1')).toBe('https://example.com/path?q=1');
+    expect(normalizeUrl('example.com:8443/admin')).toBe('https://example.com:8443/admin');
+    // The port says TLS even on a LAN address or a `.local` name.
+    expect(normalizeUrl('192.168.1.2:8443')).toBe('https://192.168.1.2:8443');
+    expect(normalizeUrl('nas.local:443')).toBe('https://nas.local');
+    // Any other port keeps the LAN/dev rule: plain http.
+    expect(normalizeUrl('nas.local:8080')).toBe('http://nas.local:8080');
+    expect(normalizeUrl('example.com:8080')).toBe('http://example.com:8080');
+  });
 });
 
 describe('un riferimento a un file di questo server', () => {

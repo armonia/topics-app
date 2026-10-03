@@ -25,13 +25,23 @@ function probeDevInstall(): Promise<boolean> {
     // Shared with useSystemStatus / paneUsage, which ask the same endpoint at
     // boot; low priority because nothing on screen waits for this answer.
     devInstallProbe = coalescedFetch('/api/system/status', { priority: 'low' }, { ttlMs: BOOT_READ_TTL_MS })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error(`system/status ${r.status}`);
+        return r.json();
+      })
       .then((d) => !!d?.server?.devReload)
       // Nel dubbio NO: il verso giusto in cui sbagliare è non mostrare una
       // superficie interna a un'installazione utente.
-      .catch(() => false);
+      // But only THIS time: a failure is not an answer, and memoizing it hid
+      // the dev surfaces until a reload. The next caller asks again.
+      .catch(() => { devInstallProbe = null; return false; });
   }
   return devInstallProbe;
+}
+
+/** Test-only: forget the memoized probe. */
+export function __resetDevInstallForTests(): void {
+  devInstallProbe = null;
 }
 
 export function useDevInstall(): boolean {

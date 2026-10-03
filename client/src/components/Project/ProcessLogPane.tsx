@@ -174,12 +174,13 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
     };
   }, [processId, onMessage]);
 
-  // Auto-scroll to bottom when output changes
+  // Auto-scroll to bottom when what the `<pre>` shows changes - `pending`
+  // included: a prompt or a progress bar with no newline changes only that.
   useEffect(() => {
     if (autoScrollRef.current && preRef.current) {
       preRef.current.scrollTop = preRef.current.scrollHeight;
     }
-  }, [output]);
+  }, [output, pending]);
 
   const handleStop = useCallback(async () => {
     try {

@@ -5,7 +5,7 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType,
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadProjectSidebar, loadTerminal } from '../../state/pane/panePreload';
-import { useTopics } from '../../contexts/TopicsContext';
+import { useTopics, useTopicsPending } from '../../contexts/TopicsContext';
 import { readProjectSidebarWidth } from '../Project/projectSidebarHeights';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
@@ -126,6 +126,7 @@ export function ProjectWindowPane({
 
   // Topics from TopicsContext — was a drilled prop.
   const topics = useTopics();
+  const topicsPending = useTopicsPending();
 
   // The pane id this ProjectWindow renders under at the parent layout level.
   // Computed once per projectPath; used wherever we need to compare against
@@ -283,6 +284,7 @@ export function ProjectWindowPane({
   const chatSync = useProjectChatSync({
     projectPath,
     topics,
+    topicsPending,
     initial: loaded.initial,
     panes,
     groups,

@@ -263,6 +263,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
    * `url` STATE is one render behind. See `pickNavError`.
    */
   const requestedUrlRef = useRef('');
+  /** When `requestedUrlRef` was stamped (epoch ms): a queued failure older than
+   *  this was superseded by that navigation, even one back to the same url. */
+  const requestedAtRef = useRef(0);
   const nativeViewUrlRef = useRef('');
   /**
    * Scheda PARCHEGGIATA: punta a una porta locale su cui non c'è nessuno in
@@ -908,6 +911,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // recreate). Stamped here and in `navigate` so the catch-up drain of the
       // did-fail queue can tell "we are still on this" from "we left long ago".
       requestedUrlRef.current = openUrl;
+      requestedAtRef.current = Date.now();
       return new Promise<boolean>((resolve) => {
         attemptNativeOpen({
           // windowLabel: la webview nativa deve nascere figlia della finestra che
@@ -1020,6 +1024,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // The catch-up drain of the did-fail queue reads it to tell a failure of
       // the page we are on from one we asked to leave (see pickNavError).
       requestedUrlRef.current = norm;
+      requestedAtRef.current = Date.now();
       setLoading(true);
       setNavError(null); // a fresh attempt owns the strip
       // Una scheda parcheggiata non ha una webview da navigare: chi digita un
@@ -1328,7 +1333,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     let stop = false;
     const tick = (catchUp: boolean) => {
       if (stop) return;
-      void tauriInvoke<Array<{ url: string; description: string; code: number }>>(
+      void tauriInvoke<Array<{ url: string; description: string; code: number; at?: number }>>(
         'browser_take_nav_errors',
         { id },
       )
@@ -1336,7 +1341,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           if (stop) return;
           const last = pickNavError(
             events,
-            catchUp ? { requested: requestedUrlRef.current, view: nativeViewUrlRef.current } : null,
+            catchUp ? { requested: requestedUrlRef.current, view: nativeViewUrlRef.current, requestedAt: requestedAtRef.current } : null,
           );
           if (!last) return;
           // La traduzione sta in `navErrorMessage`: qui arriva la stringa di

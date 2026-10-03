@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { componiLink } from '../../../../shared/relay-crypto';
 import { Share2, X, UserPlus, Globe, Copy, Check, Link2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { chiaveErroreAuth } from '../../lib/authErrors';
+import { authRefusalKey, chiaveErroreAuth } from '../../lib/authErrors';
 import { copyText } from '../../lib/clipboard';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
 import { AgentStartControl } from './AgentStartControl';
 import { apiFetch } from '../../lib/shell/net';
+import { shareRequestError } from './shareRequest';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -213,7 +214,10 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const condividi = async (sog: Subject, level: GrantLevel = 'read') => {
     setInCorso(true);
     try {
-      const r = await apiFetch('/api/auth/shares', {
+      // The server sends a CODE (`shared/auth-codes.ts`), not a sentence: this
+      // used to be `setErrore(body.error)`, which printed the server's Italian
+      // prose under an English title.
+      const err = await shareRequestError(() => apiFetch('/api/auth/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -221,11 +225,10 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
           resourceType, resourceId, level,
           subjectType: sog.subjectType, subjectId: sog.subjectId,
         }),
-      });
-      // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
-      // c'era `setErrore(body.error)`, che stampava la prosa italiana del
-      // server sotto un titolo inglese.
-      if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
+      }));
+      // A failure stops here: `carica()` clears the error on success, so
+      // reloading after a refusal erased the message it had just written.
+      if (err) { setErrore(t(err)); return; }
       await carica();
     } finally { setInCorso(false); }
   };
@@ -255,18 +258,25 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         credentials: 'same-origin',
         body: JSON.stringify({ resourceType, resourceId }),
       });
-      if (!r.ok) { setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error))); return; }
+      if (!r.ok) { setErrore(t(await authRefusalKey(r))); return; }
       const { ref, key } = await r.json() as { ref: string; key: string };
       setAppenaCreato(componiLink(relay.baseUrl, relay.relayId, ref, key));
       setCopiato(false);
       await carica();
+    } catch {
+      // Same as `condividi`: called with `void`, a throw here was silent.
+      setErrore(t(chiaveErroreAuth(undefined)));
     } finally { setInCorso(false); }
   };
 
+  // Same failure path as `condividi`: these were a bare try/finally, so a
+  // refused DELETE left the row standing without a word and a network error
+  // was an unhandled rejection.
   const revocaLink = async (ref: string) => {
     setInCorso(true);
     try {
-      await apiFetch(`/api/auth/share-links?ref=${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'same-origin' });
+      const err = await shareRequestError(() => apiFetch(`/api/auth/share-links?ref=${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'same-origin' }));
+      if (err) { setErrore(t(err)); return; }
       setAppenaCreato(null);
       await carica();
     } finally { setInCorso(false); }
@@ -275,9 +285,10 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const togli = async (s: Share) => {
     setInCorso(true);
     try {
-      await apiFetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
+      const err = await shareRequestError(() => apiFetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
         method: 'DELETE', credentials: 'same-origin',
-      });
+      }));
+      if (err) { setErrore(t(err)); return; }
       await carica();
     } finally { setInCorso(false); }
   };

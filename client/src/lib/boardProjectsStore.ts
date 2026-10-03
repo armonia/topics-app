@@ -26,6 +26,9 @@ let projects: BoardProjectRef[] | null = null;
  *  da MOSTRARE prima di creare (è una deduzione, non una configurazione). */
 let newProjectDir: string | null = null;
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
+/** Projects created while the index was still `null`: they join the first
+ *  answer instead of becoming the index themselves (see `addBoardProject`). */
+let addedBeforeIndex: BoardProjectRef[] = [];
 const listeners = new Set<() => void>();
 /**
  * Quando l'ultima fetch è FALLITA, e il ritardo prima di riprovare.
@@ -73,7 +76,9 @@ async function fetchOnce(): Promise<BoardProjectRef[] | null> {
   inflight = (async () => {
     try {
       const res = await boardApi.projects();
-      projects = res.projects.slice().sort(byName);
+      const ids = new Set(res.projects.map((p) => p.projectId));
+      projects = [...res.projects, ...addedBeforeIndex.filter((p) => !ids.has(p.projectId))].sort(byName);
+      addedBeforeIndex = [];
       newProjectDir = res.newProjectDir ?? null;
       lastFailAt = 0;
     } catch {
@@ -169,8 +174,17 @@ export function subscribeBoardProjects(cb: () => void): () => void {
  * ordine), così un doppio invio non fa lampeggiare i menu aperti.
  */
 export function addBoardProject(p: BoardProjectRef): void {
-  if (projects?.some((x) => x.projectId === p.projectId)) return;
-  projects = [...(projects ?? []), p].sort(byName);
+  // INDEX NOT IN YET: the project waits for the answer, it does not replace
+  // it. Writing `[p]` made one project the whole index, and every recovery path
+  // (`fetchOnce`, `armRecovery`, the mount) looks at `projects === null`: the
+  // picker kept that single project for the life of the document.
+  if (projects === null) {
+    if (!addedBeforeIndex.some((x) => x.projectId === p.projectId)) addedBeforeIndex.push(p);
+    if (!inflight) void fetchOnce();
+    return;
+  }
+  if (projects.some((x) => x.projectId === p.projectId)) return;
+  projects = [...projects, p].sort(byName);
   publish();
 }
 

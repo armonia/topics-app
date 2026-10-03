@@ -45,8 +45,8 @@ import {
   captureClosedTab,
   reopenClosedTab,
   scheduleTerminalCleanup,
+  closedTerminalCleanup,
   addTerminalTombstone,
-  clearTerminalTombstone,
   addBrowserTombstone,
   addViewTombstone,
   clearBrowserTombstone,
@@ -93,7 +93,6 @@ import { useProjectTerminalSync } from './useProjectTerminalSync';
 import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
 import { createTerminalSession } from '../../../lib/terminalActions';
-import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 import { dismissSubAgent } from '../../../state/endedSubAgents';
 import { useToast } from '../../Shared/Toast';
 import { useT } from '../../../hooks/useT';
@@ -656,8 +655,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // AND re-fire at T+3s via the enqueue-time commit closure, whose stale
       // captured state re-runs the whole close against a different layout.
       cancelPendingAction(`close-tab:${paneId}`);
-      const pane = panes.find(p => p.id === paneId);
-      const group = groups.find(g => g.id === groupId);
+      // From the refs, like the rows below: a countdown close runs the callback
+      // captured 3 s earlier, and a reorder in between left the closure's
+      // `groupIndex` stale - ⌘Z then put the tab back in the wrong slot.
+      const pane = panesRef.current.find(p => p.id === paneId);
+      const group = groupsRef.current.find(g => g.id === groupId);
       const groupIndex = group ? group.paneIds.indexOf(paneId) : 0;
 
       if (pane) {
@@ -694,10 +696,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             // tombstoned ids, so a reload before the cleanup timer fires
             // can no longer resurrect this terminal as a phantom pane.
             addTerminalTombstone(sessionId);
-            scheduleTerminalCleanup(record.id, 60_000, () => {
-              deleteTerminalSession(sessionId);
-              clearTerminalTombstone(sessionId);
-            });
+            scheduleTerminalCleanup(record.id, 60_000, closedTerminalCleanup(sessionId));
           }
         } else if (pane.type === 'browser') {
           // Tear down the server-side Playwright context that backs this
@@ -837,8 +836,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
               window.dispatchEvent(new CustomEvent('topic-unarchive-on-open', { detail: { topicId: capturedRecord.pane.topicId } }));
             }
           },
+          // Through the ref: this callback is memoized on stable deps, so the
+          // `handleClosePane` in its closure is the one from an early render,
+          // whose `panes` miss any tab opened since - redo would find no pane.
           redo: () => {
-            handleClosePane(capturedRecord.groupId, capturedRecord.pane.id);
+            handleClosePaneRef.current?.(capturedRecord.groupId, capturedRecord.pane.id);
           },
         });
       }
@@ -865,8 +867,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const nextFocus = fallbackFocusedGroupId(focusedGroupIdRef.current, nextGroups);
       if (nextFocus !== focusedGroupIdRef.current) setFocusedGroupId(nextFocus);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClosePane is declared AFTER this callback (forward const, TDZ); it is only invoked inside the redo handler at undo-stack-replay time, where it re-enters the full deferred-close pipeline and re-reads live state, so a stale closure is benign
-    [panes, groups, projectPath, pushClosedTab, removeClosedTab],
+    [projectPath, pushClosedTab, removeClosedTab, tr, panesRef, groupsRef, rowsRef, rowHeightsRef, focusedGroupIdRef],
   );
 
   // RECLAIM: hand a browser pane back to the topic window.

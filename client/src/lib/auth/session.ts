@@ -19,7 +19,14 @@ export { getSession, subscribeSession, markUnpaired, __resetSessionForTests, typ
 export async function refreshSession(): Promise<SessionState> {
   try {
     const r = await apiFetch('/api/auth/session', { credentials: 'same-origin' });
-    if (!r.ok) { markUnpaired(undefined); return getSession(); }
+    if (!r.ok) {
+      // Only a refusal says "not paired". A 5xx/502 is a server restarting or a
+      // proxy in front of it: same as the network being down, and calling it
+      // unpaired would unmount the app of a device that is fine.
+      if (r.status === 401 || r.status === 403) markUnpaired(undefined);
+      else if (getSession().status === 'loading') publishSession({ status: 'loading' });
+      return getSession();
+    }
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
       deviceId?: string; code?: string; role?: 'owner' | 'guest'; personId?: string | null;

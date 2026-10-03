@@ -24,6 +24,12 @@
  * Dropping an entry that matches NEITHER is deliberate even when the failure was
  * genuine: after a hidden period, an error about a URL the view no longer points
  * at is history, and the strip claims something about the page on screen NOW.
+ *
+ * A matching URL is not enough on its own: "X fails, Y fails, X reloads fine"
+ * leaves an X entry in the queue that matches `requested`, and lit the strip
+ * over a page that works. So an entry OLDER than the last requested navigation
+ * (`at` from the native queue against `requestedAt`) is history too, whatever
+ * its URL.
  */
 
 /** One entry of the Rust did-fail queue, as `browser_take_nav_errors` sends it. */
@@ -31,6 +37,8 @@ export interface NativeNavError {
   url: string;
   description: string;
   code: number;
+  /** When the native queue took the failure, epoch ms (absent from older shells). */
+  at?: number;
 }
 
 /** The two URLs a catch-up read is allowed to accept an error for. */
@@ -39,6 +47,8 @@ export interface NavErrorFreshness {
   requested: string;
   /** Last URL the native nav-state drain reported for the view. */
   view: string;
+  /** When `requested` was asked for, epoch ms (0 = never). */
+  requestedAt?: number;
 }
 
 /**
@@ -68,13 +78,15 @@ function canonicalize(u: string): string {
 
 function asNavError(e: unknown): NativeNavError | null {
   if (!e || typeof e !== 'object') return null;
-  const o = e as { url?: unknown; description?: unknown; code?: unknown };
+  const o = e as { url?: unknown; description?: unknown; code?: unknown; at?: unknown };
   if (typeof o.url !== 'string') return null;
-  return {
+  const out: NativeNavError = {
     url: o.url,
     description: typeof o.description === 'string' ? o.description : '',
     code: typeof o.code === 'number' ? o.code : 0,
   };
+  if (typeof o.at === 'number') out.at = o.at;
+  return out;
 }
 
 /**
@@ -95,6 +107,9 @@ export function pickNavError(
     // No basis at all (a pane that has never navigated and never been told a
     // URL): judging would mean dropping every error forever, so accept.
     if (!fresh.requested && !fresh.view) return e;
+    // Taken before the last navigation this client asked for: that navigation
+    // has superseded it, even when it went back to the same URL.
+    if (fresh.requestedAt && e.at !== undefined && e.at < fresh.requestedAt) continue;
     if (sameTarget(e.url, fresh.requested) || sameTarget(e.url, fresh.view)) return e;
   }
   return null;

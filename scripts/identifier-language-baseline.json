@@ -854,8 +854,7 @@
       "sfissaDalDito",
       "soloIlResto",
       "utilType",
-      "versoIFissati",
-      "vivo"
+      "versoIFissati"
     ],
     "client/src/components/Sidebar/boardProjectChips.test.ts": [
       "RICCO",

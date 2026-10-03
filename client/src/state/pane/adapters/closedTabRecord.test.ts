@@ -2,6 +2,9 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   scheduleTerminalCleanup,
   cancelTerminalCleanup,
+  flushTerminalCleanups,
+  wireTerminalCleanupFlush,
+  closedTerminalCleanup,
   reopenClosedTab,
   selectProjectBrowserReopen,
   type ClosedTabRecord,
@@ -268,5 +271,65 @@ describe("selectProjectBrowserReopen (pinned-browser reopen routing)", () => {
 
   test("empty stack → null", () => {
     expect(selectProjectBrowserReopen([], "browser:ctx1")).toBeNull();
+  });
+});
+
+/**
+ * A RELOAD INSIDE THE GRACE WINDOW RUNS THE CLEANUP, IT DOES NOT DROP IT.
+ * The unload hook only cleared the timers: the DELETE of a closed terminal
+ * never left, its PTY stayed up, and the tab came back once the tombstone
+ * expired. The flush is what the beforeunload/pagehide hook runs.
+ */
+describe("flushTerminalCleanups", () => {
+  test("runs a pending cleanup now, flagged as unloading, and only once", async () => {
+    const calls: boolean[] = [];
+    scheduleTerminalCleanup("test-flush-1", 50, (unloading) => { calls.push(unloading); });
+    flushTerminalCleanups();
+    expect(calls).toEqual([true]);
+    await wait(120);
+    expect(calls).toEqual([true]);
+  });
+});
+
+/**
+ * THE WIRING, NOT JUST THE FLUSH. A closed terminal's pending cleanup must
+ * reach the server as ONE keepalive DELETE when the page goes away, whichever
+ * of beforeunload / pagehide fires, and both firing must not send it twice.
+ * Driven through the real hook-up function and the real cleanup the close
+ * site schedules; only `fetch` and the event target are stand-ins.
+ */
+describe("unload wiring of a closed terminal's cleanup", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  function recordFetch() {
+    const calls: { url: string; method?: string; keepalive?: boolean }[] = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method, keepalive: init?.keepalive });
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  test("beforeunload then pagehide sends the keepalive DELETE exactly once", async () => {
+    const calls = recordFetch();
+    const target = new EventTarget();
+    wireTerminalCleanupFlush(target);
+    scheduleTerminalCleanup("rec-unload-1", 60_000, closedTerminalCleanup("sess-unload-1"));
+    target.dispatchEvent(new Event("beforeunload"));
+    target.dispatchEvent(new Event("pagehide"));
+    await wait(0);
+    const deletes = calls.filter((c) => c.method === "DELETE");
+    expect(deletes).toEqual([{ url: "/api/terminal/sessions/sess-unload-1", method: "DELETE", keepalive: true }]);
+  });
+
+  test("pagehide alone (iOS) sends it too", async () => {
+    const calls = recordFetch();
+    const target = new EventTarget();
+    wireTerminalCleanupFlush(target);
+    scheduleTerminalCleanup("rec-unload-2", 60_000, closedTerminalCleanup("sess-unload-2"));
+    target.dispatchEvent(new Event("pagehide"));
+    await wait(0);
+    expect(calls.filter((c) => c.method === "DELETE" && c.keepalive === true)).toHaveLength(1);
   });
 });

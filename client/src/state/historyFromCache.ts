@@ -27,7 +27,7 @@
  * so the call site cannot forget the rule.
  */
 import { useSyncExternalStore } from 'react';
-import { subscribeLifecycle } from '../lib/wsFrameBus';
+import { isSocketOpen, subscribeLifecycle } from '../lib/wsFrameBus';
 
 /** Session keys whose last `loadHistory` fell back to the local copy. */
 const fromCache = new Set<string>();
@@ -57,6 +57,12 @@ function announce(): void {
 function wire(): void {
   if (wired) return;
   wired = true;
+  // The bus does not replay the current state, and the first reader can mount
+  // well after the first `open` (a window that starts with no chat): read it,
+  // or the notice stays off until the next reconnect.
+  // Nobody is listening yet (`subscribe` adds after this), so no announce:
+  // React reads the snapshot again once it has subscribed.
+  socketOpen = isSocketOpen();
   subscribeLifecycle((event) => {
     const next = event === 'open';
     if (next === socketOpen) return;

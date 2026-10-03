@@ -47,4 +47,10 @@ describe('friendlyModelLabel', () => {
     expect(friendlyModelLabel('codex:gpt-5.6-sol')).toBe('GPT-5.6-sol · Codex');
     expect(friendlyModelLabel('claude-code:auto')).toBe('Automatic · Claude Code');
   });
+
+  test('a dated snapshot id drops the date instead of gluing it to the version', () => {
+    // `claude-haiku-4-5-20251001` is in the native provider's MODELS list.
+    expect(friendlyModelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(friendlyModelLabel('claude-haiku-4-5-20251001[1m]')).toBe('Haiku 4.5 · 1M');
+  });
 });

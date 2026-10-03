@@ -47,6 +47,7 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
   const tr = useT();
   const [plan, setPlan] = useState<ForgetSitePlan | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -67,9 +68,13 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
   const confirm = () => {
     if (blocked || !plan) return;
     setBusy(true);
-    void forgetSite(contextId, plan.displayNames, backend)
-      .catch(() => 0)
-      .then(() => { onForgotten(); onClose(); });
+    setFailed(false);
+    // Reload and close ONLY on success: closing on a failure too told the
+    // person the site was forgotten while its cookies were still on disk.
+    forgetSite(contextId, plan.displayNames, backend).then(
+      () => { onForgotten(); onClose(); },
+      () => { setBusy(false); setFailed(true); },
+    );
   };
 
   return (
@@ -117,6 +122,11 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
             </p>
             <p className="text-app-text-muted mt-1">{tr('forget.noUndo')}</p>
           </>
+        )}
+        {failed && (
+          <p data-testid="forget-site-error" role="alert" className="mt-2 text-red-500">
+            {tr('forget.failed')}
+          </p>
         )}
       </div>
     </ConfirmDialog>
