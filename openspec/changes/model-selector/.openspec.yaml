@@ -1,6 +1,6 @@
 name: model-selector
-status: proposed
+status: approved
 creato: 2026-10-02
 richiesta: "poi instrada topics dovrebbe essere di default attivo e instrada forse non si capisce, potremmo spiegarlo meglio e farlo anche graficamente rilevante. inoltre potremmo fare ricerca bene per far meglio il selettore, uniformarlo ovunque sia refactorando e differenziando l'utile, asicurandoti che sia bne impaginato e che si possano vedere contemporaneamente i modelli di aziende diverse e non navigare tutto il dropdown nel sottomenu"
-approvato:
-risposta:
+approvato: 2026-10-03 13:31
+risposta: "vai tutto ?"
