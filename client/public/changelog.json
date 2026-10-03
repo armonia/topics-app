@@ -1,5 +1,162 @@
 [
   {
+    "version": "2.2.431",
+    "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Di' «nessuna cartella di progetto» a /rewind solo quando la rotta risponde no_project",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli l'intestazione morta di ChatPanel, con il CommandMenu e il trascinamento che serviva solo a lei",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi a settings-homes i casi a 390 px di Strumenti e Calendario come fogli dal basso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli canPopOut e useSpawnedBrowser rimasti senza uso, registra la crescita di api.ts e ChatInput.tsx e dichiara cosa copre il test del cron",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri il menu della tessera del calendario col menu contestuale nel caso a 390 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea PALETTE-04 alla palette senza la pill Impostazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra il colore scelto per un topic come un punto sulla riga in sidebar e sulla sua tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Consegna il contesto accanto a un'invocazione di skill invece di metterlo davanti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai precedere /compact da un turno nel test della catena di compattazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi in inglese il commento di PALETTE-04 sulla pill delle impostazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Annota nella baseline del bundle che l'integrazione resta nel 2% senza alzare niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova il contesto di una skill dalla route alla sessione ripristinata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Metti il punto colore nella casella che la riga riserva gia', senza spostare il nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova in ROWALIGN-03 che il punto colore non sposta il nome di una chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra il colore scelto anche sulla tessera fissata e sul telefono, e rendi «nessun colore» uno stato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riconosci una skill dalla lista di comandi della CLI, non solo dal disco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riporta i nomi in inglese e chat.ts sotto il suo tetto di righe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri pannello e menu da /mcp e /config solo a vuoto e solo su Claude Code",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea ai nomi nuovi il tooltip della lingua della board, il provider mancante e il commento di SETHOME-01k",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai girare solo su macOS i casi del Portachiavi del rinnovo non salvato, come gli altri test del Portachiavi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-03 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Togli da PanelGrid il trascinamento fuori finestra rimasto senza chi lo accende",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nel foglio dal basso i livelli del menu si aprono solo con un clic, mai al passaggio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi il finto CLI delle e2e installabile anche su Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/usage e /cost aprono i provider, e un pannello aperto da un comando scritto rende il fuoco al campo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri le impostazioni della chat dalla voce col nome che ha su main nella spec del colore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sposta a tab il browser della topic senza ricaricarlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai dello spostamento a tab un passaggio di mano e non adottare mai una vista già chiusa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi in inglese il commento del test sulla chiusura che passa da nativeBrowserViews",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.430",
     "date": "2026-10-03",
     "sections": {
@@ -7,6 +164,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Manda su https l'host scritto senza schema con la porta 443 o 8443",
           "en": "",
@@ -58,6 +220,61 @@
           "scope": null
         },
         {
+          "it": "Manda il thinking adaptive a ogni modello Claude non esplicitamente legacy",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni in memoria il refresh token ruotato quando il salvataggio fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra il motivo vero di un errore upstream invece di «sovraccarico»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai arrivare lo Stop anche al figlio nato negli ultimi due secondi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Annulla nell'agente ACP il prompt che supera il tetto di 30 minuti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Emetti il piano ACP svuotato quando arriva entries vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi anche il modello Codex scritto fra apici singoli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai spazio alla nuova azione del sub-agente oltre le 200 righe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rispondi 502 quando il gateway dei cron fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prendi il lock del demone in modo esclusivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non lasciare che il primo movimento del puntatore chiuda un reflow delle pane",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fai contare l'esito di un PUT delle impostazioni solo per le chiavi di cui porta ancora il valore",
           "en": "",
           "scope": null
@@ -73,6 +290,21 @@
           "scope": null
         },
         {
+          "it": "Rispondi nel composer ai comandi che la CLI non può eseguire e correggi le azioni senza destinazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta ogni modulo dove si usa e togli i livelli di impostazioni dal menu utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la modifica del 03/10 nella change sidebar-menu-settings, con SETHOME-01 e le prove",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Riapri al primo sync le chat che lo snapshot del server ha nominato prima dei topic",
           "en": "",
           "scope": null
@@ -84,6 +316,51 @@
         },
         {
           "it": "Accetta l'avviso su http-cache-semantics del sito, che non ha ancora una versione corretta e non serve mai una cache condivisa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rispondi ai comandi rifiutati da Claude Code solo sui topic Claude Code",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni il fuoco nei pannelli, appendili all'ancora giusta e mostra il piano Claude appena si apre il selettore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli dai testi i rimandi a Impostazioni che non esistono più",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri da /mcp il pannello Strumenti del «+» e da /config e /settings il menu utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prendi il lock anche senza hard link, perdi con LiveLockError e togli solo il lock giudicato stantio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non riscrivere le credenziali dopo un logout mentre una coppia rinnovata aspetta in memoria",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Annulla nell'agente ACP il prompt di complete al tetto dei 30 minuti e quello in corso al /clear",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra nel pannello cron il motivo del 502 della lista invece di «Failed to load»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Metti alla prova il cablaggio della rotta per il modello di ripiego di /status e il livello di /reasoning",
           "en": "",
           "scope": null
         }
@@ -245,7 +522,27 @@
           "scope": null
         },
         {
+          "it": "Dichiara nello snapshot dei provider il piano Claude, solo come due etichette",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Insegna ai menu a ospitare un modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta i cinque moduli nel menu utente e togli il pannello Impostazioni",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Leggi il comando come lo legge la shell prima di decidere se chiedere conferma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta gli E2E dal pannello Impostazioni ai livelli del menu utente",
           "en": "",
           "scope": null
         },
@@ -340,12 +637,27 @@
           "scope": null
         },
         {
+          "it": "Segui la prima riga del menu quando arriva tardi, e nomi e commenti in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Registra il sink rrweb dopo i ref del parcheggio, così il primo flusso arma il timer d'inattività",
           "en": "",
           "scope": null
         },
         {
+          "it": "Registra la modifica del 02/10 nella change sidebar-menu-settings",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Revoca la capacità remota appena creata se la richiesta delegata fallisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accetta in toolsTail una flotta che non dice ancora mounting e mounted",
           "en": "",
           "scope": null
         },
@@ -415,7 +727,22 @@
           "scope": null
         },
         {
+          "it": "Tieni api.ts e providers/types.ts sotto i tetti di check:bloat, e dichiara finti i token dei test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Usa il Translate di shared invece di dichiararne un secondo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Rifai la chiusura di una tab passando dalla ref, non dal handleClosePane del primo render",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi il video WebKit di user-menu-forms: un modulo dentro il menu che tiene ogni tasto",
           "en": "",
           "scope": null
         },
@@ -426,6 +753,16 @@
         },
         {
           "it": "Verifica che il boot chiuda tutte e undici le righe prima di qualunque richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomina il piano Claude anche col runtime predefinito topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni aperto un livello aperto al passaggio appena lo si usa",
           "en": "",
           "scope": null
         }

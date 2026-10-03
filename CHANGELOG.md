@@ -2,9 +2,43 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.431 — 2026-10-03
+
+### Sotto il cofano
+- Di' «nessuna cartella di progetto» a /rewind solo quando la rotta risponde no_project
+- Togli l'intestazione morta di ChatPanel, con il CommandMenu e il trascinamento che serviva solo a lei
+- Aggiungi a settings-homes i casi a 390 px di Strumenti e Calendario come fogli dal basso
+- Togli canPopOut e useSpawnedBrowser rimasti senza uso, registra la crescita di api.ts e ChatInput.tsx e dichiara cosa copre il test del cron
+- Apri il menu della tessera del calendario col menu contestuale nel caso a 390 px
+- Allinea PALETTE-04 alla palette senza la pill Impostazioni
+- Mostra il colore scelto per un topic come un punto sulla riga in sidebar e sulla sua tab
+- Consegna il contesto accanto a un'invocazione di skill invece di metterlo davanti
+- Fai precedere /compact da un turno nel test della catena di compattazione
+- Scrivi in inglese il commento di PALETTE-04 sulla pill delle impostazioni
+- Annota nella baseline del bundle che l'integrazione resta nel 2% senza alzare niente
+- Prova il contesto di una skill dalla route alla sessione ripristinata
+- Metti il punto colore nella casella che la riga riserva gia', senza spostare il nome
+- Prova in ROWALIGN-03 che il punto colore non sposta il nome di una chat
+- Mostra il colore scelto anche sulla tessera fissata e sul telefono, e rendi «nessun colore» uno stato
+- Riconosci una skill dalla lista di comandi della CLI, non solo dal disco
+- Riporta i nomi in inglese e chat.ts sotto il suo tetto di righe
+- Apri pannello e menu da /mcp e /config solo a vuoto e solo su Claude Code
+- Allinea ai nomi nuovi il tooltip della lingua della board, il provider mancante e il commento di SETHOME-01k
+- Fai girare solo su macOS i casi del Portachiavi del rinnovo non salvato, come gli altri test del Portachiavi
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-03 [skip ci]
+- Togli da PanelGrid il trascinamento fuori finestra rimasto senza chi lo accende
+- Nel foglio dal basso i livelli del menu si aprono solo con un clic, mai al passaggio
+- Rendi il finto CLI delle e2e installabile anche su Windows
+- /usage e /cost aprono i provider, e un pannello aperto da un comando scritto rende il fuoco al campo
+- Apri le impostazioni della chat dalla voce col nome che ha su main nella spec del colore
+- Sposta a tab il browser della topic senza ricaricarlo
+- Fai dello spostamento a tab un passaggio di mano e non adottare mai una vista già chiusa
+- Scrivi in inglese il commento del test sulla chiusura che passa da nativeBrowserViews
+
 ## 2.2.430 — 2026-10-03
 
 ### Sotto il cofano
+- Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno
 - Manda su https l'host scritto senza schema con la porta 443 o 8443
 - Mostra l'errore anche quando revocare un link o togliere un accesso fallisce
 - Lega il turno vocale alla chiamata che l'ha registrato, non a una chiamata qualsiasi
@@ -15,12 +49,35 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Dai al gruppo del terminale un tipo che esiste nel test del primo sync
 - Rinomina in inglese TLS_PORTS e unackedKeys e traduci il commento spostato in ShareControl
 - Alza gli asset totali del bundle al valore misurato dopo le due corsie e i sei fix
+- Manda il thinking adaptive a ogni modello Claude non esplicitamente legacy
+- Tieni in memoria il refresh token ruotato quando il salvataggio fallisce
+- Mostra il motivo vero di un errore upstream invece di «sovraccarico»
+- Fai arrivare lo Stop anche al figlio nato negli ultimi due secondi
+- Annulla nell'agente ACP il prompt che supera il tetto di 30 minuti
+- Emetti il piano ACP svuotato quando arriva entries vuoto
+- Leggi anche il modello Codex scritto fra apici singoli
+- Fai spazio alla nuova azione del sub-agente oltre le 200 righe
+- Rispondi 502 quando il gateway dei cron fallisce
+- Prendi il lock del demone in modo esclusivo
+- Non lasciare che il primo movimento del puntatore chiuda un reflow delle pane
 - Fai contare l'esito di un PUT delle impostazioni solo per le chiavi di cui porta ancora il valore
 - Rilascia il microfono se la chiamata finisce mentre il permesso e' ancora aperto
 - Ricava la lista dei file spediti senza rinomine e senza cartelle
+- Rispondi nel composer ai comandi che la CLI non può eseguire e correggi le azioni senza destinazione
+- Porta ogni modulo dove si usa e togli i livelli di impostazioni dal menu utente
+- Registra la modifica del 03/10 nella change sidebar-menu-settings, con SETHOME-01 e le prove
 - Riapri al primo sync le chat che lo snapshot del server ha nominato prima dei topic
 - Alza il critical path del bundle al valore misurato dopo le due corsie e i fix
 - Accetta l'avviso su http-cache-semantics del sito, che non ha ancora una versione corretta e non serve mai una cache condivisa
+- Rispondi ai comandi rifiutati da Claude Code solo sui topic Claude Code
+- Tieni il fuoco nei pannelli, appendili all'ancora giusta e mostra il piano Claude appena si apre il selettore
+- Togli dai testi i rimandi a Impostazioni che non esistono più
+- Apri da /mcp il pannello Strumenti del «+» e da /config e /settings il menu utente
+- Prendi il lock anche senza hard link, perdi con LiveLockError e togli solo il lock giudicato stantio
+- Non riscrivere le credenziali dopo un logout mentre una coppia rinnovata aspetta in memoria
+- Annulla nell'agente ACP il prompt di complete al tetto dei 30 minuti e quello in corso al /clear
+- Mostra nel pannello cron il motivo del 502 della lista invece di «Failed to load»
+- Metti alla prova il cablaggio della rotta per il modello di ripiego di /status e il livello di /reasoning
 
 ## 2.2.429 — 2026-10-02
 
@@ -54,7 +111,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Sposta in lib/command-runs il passo di scrittura dell'ultima uscita e registra processes.ts a 2213 righe
 - Chiedi conferma anche dopo un'assegnazione con valore tra virgolette e spazi
 - Chiudi al boot un comando morto col server all'ora in cui e' finito, non all'avvio
+- Dichiara nello snapshot dei provider il piano Claude, solo come due etichette
+- Insegna ai menu a ospitare un modulo
+- Porta i cinque moduli nel menu utente e togli il pannello Impostazioni
 - Leggi il comando come lo legge la shell prima di decidere se chiedere conferma
+- Porta gli E2E dal pannello Impostazioni ai livelli del menu utente
 - Non trattare un 5xx di /api/auth/session come dispositivo non appaiato
 - Ritenta la lista delle sessioni parcheggiate se la prima lettura fallisce invece di trattarla come vuota
 - Manda la DELETE in sospeso di un terminale chiuso quando la pagina si ricarica, invece di scartarla
@@ -73,8 +134,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Ritira il segno di login già applicato anche se la tab si chiude prima del fallimento
 - Di' accanto ai tetti di spesa quando il salvataggio fallisce
 - Attendi il messaggio di sistema di /status perché un errore di rete arrivi alla riga d'errore
+- Segui la prima riga del menu quando arriva tardi, e nomi e commenti in inglese
 - Registra il sink rrweb dopo i ref del parcheggio, così il primo flusso arma il timer d'inattività
+- Registra la modifica del 02/10 nella change sidebar-menu-settings
 - Revoca la capacità remota appena creata se la richiesta delegata fallisce
+- Accetta in toolsTail una flotta che non dice ancora mounting e mounted
 - Mostra l'errore generico quando una condivisione fallisce senza un corpo JSON o senza rete
 - Scarta la risposta di una ricerca messaggi superata nella palette
 - Unisci un progetto creato prima dell'indice alla prima risposta invece di farne l'indice intero
@@ -88,9 +152,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Ricontrolla la modalità voce con una chiamata, che il restringimento di tipo non congela
 - Leggi l'API della chiamata vocale da un effetto nel test, come chiede la regola sugli hook
 - Lega i test nuovi a requisiti esistenti e abbassa la baseline dei nomi non inglesi
+- Tieni api.ts e providers/types.ts sotto i tetti di check:bloat, e dichiara finti i token dei test
+- Usa il Translate di shared invece di dichiararne un secondo
 - Rifai la chiusura di una tab passando dalla ref, non dal handleClosePane del primo render
+- Aggiungi il video WebKit di user-menu-forms: un modulo dentro il menu che tiene ogni tasto
 - Chiedi conferma anche per i comandi dietro +=, function, heredoc, ${...}, i wrapper mancanti, ssh, le pipe verso una shell e zsh, in tempo lineare
 - Verifica che il boot chiuda tutte e undici le righe prima di qualunque richiesta
+- Nomina il piano Claude anche col runtime predefinito topics
+- Tieni aperto un livello aperto al passaggio appena lo si usa
 
 ## 2.2.428 — 2026-10-02
 
