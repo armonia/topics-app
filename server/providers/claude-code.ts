@@ -78,7 +78,7 @@ import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent, type StopCause, type TurnEndInfo } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
-import { defaultChatModel, discoverClaudeModels } from "./claude-models";
+import { claudeModelGenerations, defaultChatModel, discoverClaudeModels } from "./claude-models";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
 import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
@@ -2405,6 +2405,11 @@ export class ClaudeCodeProvider implements AIProvider {
       requirements,
       lastError: this.cliCompat?.reason ?? undefined,
     };
+  }
+
+  /** MSEL-09: the generation of each model the CLI lists (`newestOfFamily`). */
+  modelInfo(models: readonly string[]): Record<string, { generation: 'current' | 'older' }> {
+    return claudeModelGenerations(models);
   }
 
   async listModels(): Promise<string[]> {

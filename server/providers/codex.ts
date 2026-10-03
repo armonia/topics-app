@@ -42,7 +42,8 @@ import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
 import { buildCodexArgs, buildCodexForkArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
 import { codexForkOf, codexForkPoint } from "./codex/fork";
 import { consumeFork } from "../lib/chat-fork-store";
-import { readCodexModels, codexFallbackModel, readCodexConfiguredModel } from "./codex/models";
+import { readCodexModels, codexFallbackModel, readCodexConfiguredModel, codexContextWindows, codexModelInfo } from "./codex/models";
+import type { ModelInfo } from "../../shared/types";
 import { codexRolloutExists, readSubagentFileChanges } from "../lib/codex-session";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -1359,6 +1360,17 @@ export class CodexProvider implements AIProvider {
     // Empty list signals "use whatever the CLI has configured" — picker shows
     // the provider but no model rows; user can still trigger via no-override.
     return readCodexModels().map(model => model.slug);
+  }
+
+  /** MSEL-04: the window Codex works with, declared from its own cache, so
+   *  the GPT rows stop reading the static table's 400k and ≈1M. */
+  contextWindows(): Record<string, number> {
+    return codexContextWindows(readCodexModels());
+  }
+
+  /** MSEL-09: label, description, retirement and generation from the same cache. */
+  modelInfo(): Record<string, ModelInfo> {
+    return codexModelInfo(readCodexModels());
   }
 
   /**

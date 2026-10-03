@@ -539,12 +539,32 @@ export interface ProviderSnapshotEntry {
    * Key = model id, value = tokens.
    */
   modelContextWindows?: Record<string, number>;
+  /**
+   * MSEL-09: what the provider's own catalog says about EACH model, when it
+   * says anything. Same rule as the windows above: declared by the provider,
+   * never written by hand in the client. Key = model id.
+   */
+  modelInfo?: Record<string, ModelInfo>;
   /** The Claude plan the CLI is signed in with (`pro`, `max`) and its tier
    *  (`default_claude_max_20x`): two labels and never a credential
    *  (`server/providers/claude/subscription.ts`). Absent = not known. */
   subscription?: { type: string | null; tier: string | null };
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
+}
+
+/** One model as its provider's catalog describes it (MSEL-09). */
+export interface ModelInfo {
+  /** The catalog's display name (Codex `display_name`). */
+  label?: string;
+  /** One line from the catalog, already cut to 400 characters. */
+  description?: string;
+  /** ISO 8601: when the provider retires the model. */
+  retiresAt?: string;
+  /** The model the provider names as its replacement. */
+  replacement?: string;
+  /** `older` models sit under «Altri modelli» in the selector. */
+  generation?: 'current' | 'older';
 }
 
 /** Full snapshot broadcast over WS / served from REST. */

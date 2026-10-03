@@ -1,11 +1,12 @@
 /**
- * @covers CHAT-DEF-03
+ * @covers CHAT-DEF-03, MSEL-09
  *
  * The model list in the picker is current.
  */
 import { describe, expect, test } from "bun:test";
 import { contextWindowFor } from "../../shared/context-window";
 import {
+  claudeModelGenerations,
   defaultChatModel,
   FALLBACK_MODELS,
   familyOf,
@@ -219,5 +220,21 @@ describe("longVariantOf", () => {
 
   test("lista vuota: nessuna prova che l'host regga il milione → id nudo", () => {
     expect(longVariantOf("claude-opus-5", [])).toBe("claude-opus-5");
+  });
+});
+
+describe('MSEL-09: claudeModelGenerations', () => {
+  test('the newest of each family is current with its [1m] twin, the rest older (catalog measured on 2026-10-02)', () => {
+    const ids = [
+      'claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5', 'claude-sonnet-5-5[1m]', 'claude-haiku-4-5',
+      'claude-fable-5-1', 'claude-opus-4-8', 'claude-opus-4-8[1m]', 'claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'claude-haiku-3-5',
+    ];
+    const g = claudeModelGenerations(ids);
+    expect(Object.keys(g).filter((id) => g[id]!.generation === 'current').sort()).toEqual([
+      'claude-fable-5-1', 'claude-haiku-4-5', 'claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5', 'claude-sonnet-5-5[1m]',
+    ]);
+    expect(Object.keys(g).filter((id) => g[id]!.generation === 'older').sort()).toEqual([
+      'claude-haiku-3-5', 'claude-opus-4-8', 'claude-opus-4-8[1m]', 'claude-sonnet-4-6', 'claude-sonnet-4-6[1m]',
+    ]);
   });
 });
