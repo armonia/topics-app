@@ -87,7 +87,8 @@ export function slashMenuEntries(q: SlashMenuQuery): SlashMenuEntry[] {
     return listSkills(home, q.cwd).map((s) => ({ name: s.name, description: s.description.slice(0, 100), kind: "skill" as const, group: "skills" as const }));
   }
 
-  const said = engineCommandsFor({ sessionKey: q.sessionKey, provider: q.provider, projectPath: q.projectPath });
+  const found = engineCommandsFor({ sessionKey: q.sessionKey, provider: q.provider, projectPath: q.projectPath });
+  const said = found?.commands ?? null;
 
   if (q.provider === "claude-code") {
     const skills = disk();
@@ -97,9 +98,13 @@ export function slashMenuEntries(q: SlashMenuQuery): SlashMenuEntry[] {
     const isOwn = (c: EngineCommand) => (marksOwnCommands ? c.builtin === true : CLI_OWN.has(c.name));
     const engine = said.filter(isOwn).map((c) => fromEngine(c, "engine"));
     const onDisk = new Set(skills.map((s) => s.name));
-    // A list borrowed from another chat may carry a skill switched off here.
+    // A list borrowed from another chat of this project may carry a skill
+    // switched off here. One borrowed from ANOTHER project gives only the
+    // CLI's own names: its other names are that project's skills.
     const off = disabledSkillNames(home, q.cwd);
-    const extra = said.filter((c) => !isOwn(c) && !onDisk.has(c.name) && !off.has(c.name)).map((c) => fromEngine(c, "skills"));
+    const extra = found!.from === "engine"
+      ? []
+      : said.filter((c) => !isOwn(c) && !onDisk.has(c.name) && !off.has(c.name)).map((c) => fromEngine(c, "skills"));
     // A disk entry without a description takes the CLI's.
     const described = new Map(said.map((c) => [c.name, c.description ?? ""] as const));
     for (const s of skills) if (!s.description) s.description = (described.get(s.name) ?? "").slice(0, 100);
@@ -107,7 +112,9 @@ export function slashMenuEntries(q: SlashMenuQuery): SlashMenuEntry[] {
   }
 
   // An ACP agent's announced commands; nothing for an engine that announces none.
-  return said ? sortByName(said.map((c) => fromEngine(c, "engine"))) : [];
+  // Only this chat's or this project's: an agent's list carries the project's
+  // own commands too, and nothing in it tells which they are.
+  return said && found!.from !== "engine" ? sortByName(said.map((c) => fromEngine(c, "engine"))) : [];
 }
 
 function sortByName(list: SlashMenuEntry[]): SlashMenuEntry[] {

@@ -50,6 +50,22 @@ describe("slashMenuEntries", () => {
     expect(names(list, "skills")).toContain("plugin-thing");
   });
 
+  test("a new chat borrows only the CLI's own names from ANOTHER project's list, never that project's skills", () => {
+    const other = mkdtempSync(join(tmpdir(), "menu-other-"));
+    try {
+      recordCliSlashCommands("topic:aaaa", { type: "system", subtype: "init", cwd: other, slash_commands: ["compact", "init", "code-review", "deploy-a"] });
+      const list = slashMenuEntries({ provider: "claude-code", sessionKey: "topic:bbbb", projectPath: cwd, cwd, home });
+      expect(names(list, "engine")).toEqual(["code-review", "compact", "init"]);
+      expect(names(list, "skills")).toEqual(["recap", "vai"]);
+    } finally { rmSync(other, { recursive: true, force: true }); }
+  });
+
+  test("a new chat borrows its OWN project's list whole, a skill switched off here still hidden", () => {
+    recordCliSlashCommands("topic:aaaa", { type: "system", subtype: "init", cwd, slash_commands: ["init", "plugin-skill", "spenta"] });
+    const list = slashMenuEntries({ provider: "claude-code", sessionKey: "topic:bbbb", projectPath: cwd, cwd, home });
+    expect(names(list, "skills")).toEqual(["plugin-skill", "recap", "vai"]);
+  });
+
   test("a Claude Code chat with no list seen yet: the skills from the folders, no engine group", () => {
     const list = slashMenuEntries({ provider: "claude-code", sessionKey: "topic:new", projectPath: cwd, cwd, home });
     expect(names(list, "engine")).toEqual([]);
@@ -74,6 +90,8 @@ describe("slashMenuEntries", () => {
     const list = slashMenuEntries({ provider: "jcode", sessionKey: "topic:other", projectPath: cwd, cwd, home });
     expect(names(list, "engine")).toEqual(["model", "models"]);
     expect(names(list, "skills")).toEqual([]);
+    // Another project's announcement is not this chat's: it may carry that project's commands.
+    expect(slashMenuEntries({ provider: "jcode", sessionKey: "topic:other", projectPath: "/p/elsewhere", cwd, home })).toEqual([]);
   });
 
   test("no topic (a draft before its engine is known): the folders, as before", () => {

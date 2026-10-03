@@ -162,7 +162,7 @@ let latestCliCommands: ReadonlySet<string> | null = null;
  * `builtin`), for Claude Code; the `available_commands_update` of an ACP agent
  * (jcode, gemini) for those. Per session, and remembered per project and per
  * engine: a chat that has not started its CLI yet borrows the last list seen
- * for its project, then for its engine. Never a process started just to ask:
+ * for its project, then (only the CLI's own names) for its engine. Never a process started just to ask:
  * a CLI is hundreds of MB on a machine short of RAM. In memory only; the first
  * turn after a restart rebuilds it.
  */
@@ -204,17 +204,28 @@ export function recordEngineCommands(
  * The list the menu shows for a chat: its session's, else the last one seen
  * for its project on the same engine, else the last one of the engine. Null
  * when the engine has said nothing since the server started.
+ *
+ * `from` says where it came from, because only the session's and the
+ * project's lists may be trusted whole: a list borrowed from ANOTHER project
+ * carries that project's own skills and commands (`.claude/skills`), and
+ * offering them here is a `/name` the CLI does not expand, a paid prose turn.
+ * From such a list the caller keeps only what is the same for every project.
  */
-export function engineCommandsFor(q: { sessionKey?: string | null; provider: string; projectPath?: string | null }): EngineCommand[] | null {
+export interface EngineCommandList {
+  commands: EngineCommand[];
+  from: "session" | "project" | "engine";
+}
+export function engineCommandsFor(q: { sessionKey?: string | null; provider: string; projectPath?: string | null }): EngineCommandList | null {
   if (q.sessionKey) {
     const own = engineBySession.get(q.sessionKey);
-    if (own) return own;
+    if (own) return { commands: own, from: "session" };
   }
   if (q.projectPath) {
     const ofProject = engineByProject.get(projectKey(q.provider, q.projectPath));
-    if (ofProject) return ofProject;
+    if (ofProject) return { commands: ofProject, from: "project" };
   }
-  return engineByProvider.get(q.provider) ?? null;
+  const ofEngine = engineByProvider.get(q.provider);
+  return ofEngine ? { commands: ofEngine, from: "engine" } : null;
 }
 
 /**

@@ -262,7 +262,9 @@ describe("the engine's list for the menu: the session's, then its project's, the
     resetCliSlashCommands();
     recordCliSlashCommands("topic:m", { type: "system", subtype: "commands_changed", commands: [{ name: "init", description: "Initialize", builtin: true }, { name: "vai", description: "Procedi" }] });
     recordCliSlashCommands("topic:m", { type: "system", subtype: "init", cwd: "/p/uno", slash_commands: ["init", "vai", "simplify"] });
-    const list = engineCommandsFor({ sessionKey: "topic:m", provider: "claude-code" })!;
+    const found = engineCommandsFor({ sessionKey: "topic:m", provider: "claude-code" })!;
+    expect(found.from).toBe("session");
+    const list = found.commands;
     expect(list.map((c) => c.name)).toEqual(["init", "vai", "simplify"]);
     expect(list[0]).toMatchObject({ description: "Initialize", builtin: true });
   });
@@ -271,11 +273,12 @@ describe("the engine's list for the menu: the session's, then its project's, the
     resetCliSlashCommands();
     recordCliSlashCommands("topic:a", { type: "system", subtype: "init", cwd: "/p/uno", slash_commands: ["only-uno"] });
     recordCliSlashCommands("topic:b", { type: "system", subtype: "init", cwd: "/p/due", slash_commands: ["only-due"] });
-    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "claude-code", projectPath: "/p/uno" })!.map((c) => c.name)).toEqual(["only-uno"]);
-    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "claude-code", projectPath: "/p/tre" })!.map((c) => c.name)).toEqual(["only-due"]);
+    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "claude-code", projectPath: "/p/uno" })).toMatchObject({ from: "project", commands: [{ name: "only-uno" }] });
+    // Another project's list is marked as such: the menu keeps only the CLI's own names from it.
+    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "claude-code", projectPath: "/p/tre" })).toMatchObject({ from: "engine", commands: [{ name: "only-due" }] });
     expect(engineCommandsFor({ sessionKey: "topic:new", provider: "gemini" })).toBeNull();
     recordEngineCommands("topic:g", [{ name: "memory", description: "Memory" }], { provider: "gemini", projectPath: "/p/uno" });
-    expect(engineCommandsFor({ provider: "gemini", projectPath: "/p/uno" })!.map((c) => c.name)).toEqual(["memory"]);
+    expect(engineCommandsFor({ provider: "gemini", projectPath: "/p/uno" })!.commands.map((c) => c.name)).toEqual(["memory"]);
   });
 
   test("nothing seen since the start: no list, and nothing is spawned to get one", () => {
