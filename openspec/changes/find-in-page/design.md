@@ -124,8 +124,8 @@ e.metaKey || usesCtrl || !isTextInputFocused(e.target)
 ```
 
 `usesCtrl` è in `lib/shortcutLabel.ts:34` (vero su Windows e Linux, anche fuori
-dalla shell). Sul Mac: ⌘F va sempre alla barra, e Ctrl+F col cursore in un
-campo, in un terminale o in un editor resta a loro, come oggi. Su Windows
+dalla shell). Sul Mac: ⌘F va sempre alla barra, e Ctrl+F resta a chi ha il
+cursore (campo, terminale, editor o niente), come oggi e come ⌘G. Su Windows
 Ctrl+F è l'unico modo, quindi va sempre alla barra, **anche nel terminale**:
 lì readline perde Ctrl+F (avanti di un carattere; resta la freccia destra). È il
 costo dichiarato nella scelta 1, ed è lo stesso di VS Code.
@@ -473,4 +473,8 @@ quindi niente da adattare lì. Gli scostamenti veri sono questi.
   nel menu della tab resta per desktop e tablet, dove la striscia c'è.
 - **Il cursore su niente dopo un clic sul testo** (anteprima Markdown, una
   trascrizione): ⌘F va alla pane dell'ultimo clic, se è ancora a schermo,
-  prima della tab `data-focused`.
+  prima della tab `data-focused`. Non per il ⌘F inoltrato dalla shell da una
+  pagina nativa (bersaglio `window`): un clic nella pagina non lascia un
+  `pointerdown` nel DOM, quindi l'ultimo clic lì è vecchio e vale la tab a
+  fuoco. Il tasto consumato chiama anche `stopPropagation`, altrimenti nel
+  terminale arrivava al programma come ^F / ^G.
