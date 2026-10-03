@@ -36,7 +36,7 @@ import * as devTypes from '../components/Browser/browserDevTypes';
 import * as paneContextModel from '../components/Browser/paneContextModel';
 import * as browserNavUrl from '../lib/browserNavUrl';
 import type { NativeBrowserHandle } from '../components/Browser/browserDevTypes';
-import { beginNativeViewMove, closeNativeView, NATIVE_VIEW_MOVE_TIMEOUT_MS } from '../lib/shell/nativeBrowserViews';
+import { beginNativeViewMove, closeNativeView, isNativeViewOpened, NATIVE_VIEW_MOVE_TIMEOUT_MS } from '../lib/shell/nativeBrowserViews';
 import { teardownNativeBrowserPane } from '../lib/nativeBrowserTeardown';
 
 // Same alias registration as the other benches of this hook: `bun test` does not
@@ -61,6 +61,12 @@ const DESTRUCTIVE = ['browser_open', 'browser_close', 'browser_navigate', 'brows
 interface Invocation { cmd: string; args: Record<string, unknown> }
 
 let invocations: Invocation[] = [];
+/** While true, `browser_open` answers only when the test releases it, in order. */
+let holdOpens = false;
+let heldOpens: Array<() => void> = [];
+/** Overlays open over the window right now, and who is told when they change. */
+let overlays: OverlayRect[] = [];
+let occlusionListeners = new Set<(rects: OverlayRect[]) => void>();
 
 const realTauri = {
   tauriInvoke: tauriShell.tauriInvoke,
@@ -86,13 +92,20 @@ beforeAll(() => {
     releaseNativeFocus: () => {},
     tauriInvoke: (cmd: string, args: Record<string, unknown> = {}) => {
       invocations.push({ cmd, args });
+      if (cmd === 'browser_open' && holdOpens) return new Promise((resolve) => { heldOpens.push(() => resolve('')); });
       return Promise.resolve('');
     },
   }));
+  // The real decision (`decideFreeze`) is kept; only the overlay feed, a
+  // body-wide MutationObserver in production, is driven by the test.
   mock.module('../lib/shell/browserOcclusion', () => ({
     ...realOcclusion,
-    currentOverlays: () => [] as OverlayRect[],
-    onOcclusionChange: (fn: (rects: OverlayRect[]) => void) => { fn([]); return () => {}; },
+    currentOverlays: () => overlays,
+    onOcclusionChange: (fn: (rects: OverlayRect[]) => void) => {
+      occlusionListeners.add(fn);
+      fn([...overlays]);
+      return () => { occlusionListeners.delete(fn); };
+    },
   }));
 });
 
@@ -135,6 +148,10 @@ function eventTarget(extra: Record<string, unknown> = {}): Record<string, unknow
 
 beforeEach(() => {
   invocations = [];
+  holdOpens = false;
+  heldOpens = [];
+  overlays = [];
+  occlusionListeners = new Set();
   for (const k of DOM_KEYS) savedGlobals[k] = g[k];
   g.window = eventTarget({ location: { protocol: 'http:', host: '127.0.0.1:3333', href: 'http://127.0.0.1:3333/' } });
   g.document = eventTarget({ hidden: false, visibilityState: 'visible', querySelector: () => null });
@@ -154,9 +171,9 @@ async function settle(): Promise<void> {
 }
 
 /** One surface hosting the page: the window's sheet, or the layout's tab. */
-function surface(contextId: string, url: string, seen: NativeBrowserHandle[]) {
+function surface(contextId: string, url: string, seen: NativeBrowserHandle[], visible = true) {
   return mount(createElement(function Surface(): null {
-    seen.push(useTauriBrowser(contextId, url, true));
+    seen.push(useTauriBrowser(contextId, url, visible));
     return null;
   }));
 }
@@ -320,6 +337,208 @@ describe('useTauriBrowser: moving a live page to another surface keeps it', () =
       expect(destructive(ctx), 'a lost move leaked its webview').toEqual(['browser_close']);
     } finally {
       jest.useRealTimers();
+    }
+  });
+});
+
+/** What the shell has been told about one view: its visibility and its rect. */
+interface ViewState { visible: boolean; x: number; y: number; width: number; height: number }
+
+const onScreen = (v: ViewState): boolean => v.visible && v.x > -100000;
+
+/**
+ * Replay what reached the shell for `id`, from a known state, and report every
+ * state in which the view was PAINTED (visible and on-screen), plus whether a
+ * screenshot was asked of it while it was hidden (a blank still).
+ */
+function replay(id: string, from: ViewState) {
+  const state = { ...from };
+  const painted: ViewState[] = onScreen(state) ? [{ ...state }] : [];
+  let shotWhileHidden = false;
+  for (const { cmd, args } of invocations) {
+    if (args.id !== id) continue;
+    if (cmd === 'browser_set_visible') state.visible = args.visible === true;
+    else if (cmd === 'browser_set_bounds') {
+      Object.assign(state, { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) });
+    } else if (cmd === 'browser_screenshot') {
+      if (!state.visible) shotWhileHidden = true;
+      continue;
+    } else continue;
+    if (onScreen(state)) painted.push({ ...state });
+  }
+  return { painted, shotWhileHidden, final: state };
+}
+
+/** The view as the sheet left it: shown, on the window's rect. */
+const SHOWN_IN_WINDOW: ViewState = { visible: true, ...IN_WINDOW };
+
+describe('useTauriBrowser: a page in the middle of a move is not painted where it was', () => {
+  /** Open in the window, start the move, let the sheet go: the view is now held by nobody. */
+  async function letGo(ctx: string): Promise<void> {
+    const sheet = await openInWindow(ctx);
+    beginNativeViewMove(ctx);
+    sheet.unmount();
+    await settle();
+  }
+
+  test('the sheet that lets go hides the view at once, not after the move', async () => {
+    const ctx = 'ctx-ghost-park';
+    await letGo(ctx);
+    const { painted, final } = replay(ctx, SHOWN_IN_WINDOW);
+    expect(final.visible, 'the parked view is still visible').toBe(false);
+    expect(painted.slice(1), 'the parked view was painted again after the sheet let go').toEqual([]);
+    expect(onScreen(final), 'the parked view stays painted on the rect the sheet gave up').toBe(false);
+    // Nobody arrives: the close still runs as before, at the safety timeout.
+    expect(destructive(ctx)).toEqual([]);
+  });
+
+  test('adopted by a visible tab: painted again only on the tab, never on the old rect', async () => {
+    const ctx = 'ctx-ghost-adopt';
+    await letGo(ctx);
+    const seen: NativeBrowserHandle[] = [];
+    const tab = surface(ctx, 'https://example.com/inbox?after=login', seen);
+    await settle();
+    seen[seen.length - 1]!.setBounds(IN_TAB);
+    await settle();
+
+    const { painted, final } = replay(ctx, SHOWN_IN_WINDOW);
+    expect(painted.slice(1).map(({ x, y }) => ({ x, y })), 'shown somewhere other than the tab').toEqual(
+      painted.slice(1).map(() => ({ x: IN_TAB.x, y: IN_TAB.y })),
+    );
+    expect(painted.length, 'shown on the old rect after the sheet let go').toBeGreaterThan(1);
+    expect(final).toMatchObject({ visible: true, ...IN_TAB });
+    expect(destructive(ctx)).toEqual([]);
+    tab.unmount();
+  });
+
+  test('adopted by a tab that is not visible: it stays hidden, and off the old rect', async () => {
+    const ctx = 'ctx-ghost-hidden';
+    await letGo(ctx);
+    const seen: NativeBrowserHandle[] = [];
+    const tab = surface(ctx, 'https://example.com/inbox?after=login', seen, false);
+    await settle();
+    // What the placeholder pushes for a pane that is not shown.
+    seen[seen.length - 1]!.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    await settle();
+
+    const { painted, final } = replay(ctx, SHOWN_IN_WINDOW);
+    expect(painted.slice(1), 'a pane that is not visible painted the page').toEqual([]);
+    expect(final.visible).toBe(false);
+    tab.unmount();
+  });
+
+  test('adopted under an open overlay: not painted until it closes, and its still is not blank', async () => {
+    const ctx = 'ctx-ghost-overlay';
+    await letGo(ctx);
+    // A menu open over the tab's slot when the page arrives.
+    overlays = [{ left: IN_TAB.x, top: IN_TAB.y, right: IN_TAB.x + 200, bottom: IN_TAB.y + 200 }];
+    const seen: NativeBrowserHandle[] = [];
+    const tab = surface(ctx, 'https://example.com/inbox?after=login', seen);
+    await settle();
+    seen[seen.length - 1]!.setBounds(IN_TAB);
+    await settle();
+    await new Promise((r) => setTimeout(r, 50));
+    await settle();
+
+    const covered = replay(ctx, SHOWN_IN_WINDOW);
+    expect(covered.painted.slice(1), 'painted over the overlay, or on the old rect').toEqual([]);
+    expect(invocations.some((i) => i.cmd === 'browser_screenshot' && i.args.id === ctx), 'no freeze under the overlay').toBe(true);
+    expect(covered.shotWhileHidden, 'the still under the overlay was taken of a hidden view').toBe(false);
+
+    // The menu closes: the page comes back, on the tab.
+    overlays = [];
+    for (const fn of occlusionListeners) fn([]);
+    await settle();
+    const after = replay(ctx, SHOWN_IN_WINDOW);
+    expect(after.final).toMatchObject({ visible: true, ...IN_TAB });
+    tab.unmount();
+  });
+});
+
+describe('useTauriBrowser: a close that overtakes browser_open wins', () => {
+  const invoke = (cmd: string, args?: Record<string, unknown>) => tauriShell.tauriInvoke(cmd, args);
+
+  test('closed while opening: the late view is closed, and a reopen inside the grace opens', async () => {
+    const ctx = 'ctx-open-overtaken';
+    holdOpens = true;
+    const pane = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    expect(destructive(ctx)).toEqual(['browser_open']);
+
+    // The close countdown, or an agent's close-pane over the socket, while the
+    // shell is still creating the view.
+    void closeNativeView(ctx, invoke);
+    await settle();
+    heldOpens.shift()!();
+    await settle();
+
+    expect(isNativeViewOpened(ctx), 'the late open put back a view the close had taken out').toBe(false);
+    expect(destructive(ctx), 'the view the late open produced was left alive').toEqual(['browser_open', 'browser_close', 'browser_close']);
+
+    // The pane leaves with that close and is reopened inside the close grace.
+    pane.unmount();
+    holdOpens = false;
+    invocations = [];
+    const again = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    expect(destructive(ctx), 'adopted a view the shell had already closed').toEqual(['browser_open']);
+    again.unmount();
+  });
+
+  test('unmounted while opening, its close ran first: the view that appears after is closed', async () => {
+    const ctx = 'ctx-open-orphan';
+    holdOpens = true;
+    const pane = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    pane.unmount();
+    // The deferred close leaves while the shell is still creating the view.
+    await new Promise((r) => setTimeout(r, PAST_GRACE_MS));
+    await settle();
+    expect(destructive(ctx)).toEqual(['browser_open', 'browser_close']);
+
+    heldOpens.shift()!();
+    await settle();
+    expect(destructive(ctx), 'a view born after its close has no owner left to close it').toEqual(['browser_open', 'browser_close', 'browser_close']);
+    expect(isNativeViewOpened(ctx)).toBe(false);
+  });
+});
+
+describe('useTauriBrowser: adoption is decided again when it happens', () => {
+  const invoke = (cmd: string, args?: Record<string, unknown>) => tauriShell.tauriInvoke(cmd, args);
+
+  test('a view closed during the loopback probe is not adopted: the pane opens a new one', async () => {
+    const ctx = 'ctx-adopt-probe';
+    // The probe of a local port, held until the test answers it.
+    let answerProbe: (listening: boolean) => void = () => {};
+    const realFetch = g.fetch;
+    g.fetch = ((u: string) => {
+      if (!String(u).includes('/api/browsers/port-listening')) return Promise.resolve({ ok: false, json: async () => ({}) });
+      return new Promise((resolve) => {
+        answerProbe = (listening) => resolve({ ok: true, json: async () => ({ listening }) });
+      });
+    }) as unknown;
+    try {
+      const sheet = await openInWindow(ctx);
+      beginNativeViewMove(ctx);
+      sheet.unmount();
+      await settle();
+      // The tab takes the move at mount, on a local url: it waits for the probe.
+      const seen: NativeBrowserHandle[] = [];
+      const tab = surface(ctx, 'http://localhost:5173/app', seen);
+      await settle();
+      expect(destructive(ctx)).toEqual([]);
+
+      // Meanwhile another pane closes the page (a close funnel, the countdown).
+      void closeNativeView(ctx, invoke);
+      await settle();
+      answerProbe(true);
+      await settle();
+
+      expect(destructive(ctx), 'adopted a view another pane had closed').toEqual(['browser_close', 'browser_open']);
+      expect(seen[seen.length - 1]!.ready).toBe(true);
+      tab.unmount();
+    } finally {
+      g.fetch = realFetch;
     }
   });
 });
