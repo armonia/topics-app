@@ -132,7 +132,7 @@ for (const mobile of [false, true]) {
         } else await notice.click();
 
         const defaultBefore = (await (await request.get('/api/providers/snapshot')).json()).defaultProvider;
-        await details.getByRole('menuitem', { name: 'Gestisci provider AI' }).click();
+        await details.getByRole('menuitem', { name: 'Provider e chiavi' }).click();
         await expect(details).toHaveCount(0);
         // The door lands on the AI providers panel, beside the notice itself
         // (SETHOME-01): no user menu in between.

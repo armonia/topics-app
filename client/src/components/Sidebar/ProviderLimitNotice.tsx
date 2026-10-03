@@ -66,7 +66,7 @@ export function ProviderLimitNotice({ hold, usage }: {
         </div>
         <div className="border-t border-app-border px-1 pt-1">
           <button type="button" role="menuitem" onClick={() => { setOpen(false); openHome('providers', anchorRef.current); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-compact text-app-text hover:bg-app-hover">
-            <KeyRound size={14} aria-hidden="true" />{tr('statusBar.providerHold.manage')}
+            <KeyRound size={14} aria-hidden="true" />{tr('home.providers')}
           </button>
         </div>
       </Menu>

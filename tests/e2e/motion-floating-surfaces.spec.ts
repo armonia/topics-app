@@ -259,7 +259,7 @@ test.describe("Every other surface enters and leaves on the same mechanism", () 
     await expect(page.getByRole("menu")).toBeVisible();
     const dialog = `[role="dialog"][aria-label="${topic!.name} Settings"]`;
     await watch(page, `${dialog} > :first-child`);
-    await page.getByRole("menu").getByRole("button", { name: "Impostazioni" }).click();
+    await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
     await expect(page.locator(dialog)).toBeVisible();
     await expectEntrance(page, "chat settings veil", MODAL_MAX_MS, ["opacity"]);
     await page.keyboard.press("Escape");

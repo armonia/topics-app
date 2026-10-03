@@ -149,7 +149,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       </div>
 
       {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si
-          intende lo stesso VALORE EFFETTIVO: «Come le Impostazioni» non copia
+          intende lo stesso VALORE EFFETTIVO: «Come l’app» non copia
           la scelta globale, la EREDITA (il ripiego lo fa il server, in un punto
           solo). Copiare il valore vorrebbe dire che cambiare la preferenza
           globale non muove le board che l'avevano già letta. */}

@@ -174,8 +174,8 @@ test.describe("Topic Management - Settings & Organization", () => {
     // Right-click using dispatchEvent to avoid DOM detachment
     await topicTabText.dispatchEvent("contextmenu");
 
-    // Wait for and click "Impostazioni" in the tab context menu
-    const settingsMenuItem = page.locator('button').filter({ hasText: /^Impostazioni$/ });
+    // Wait for and click "Impostazioni della chat" in the tab context menu
+    const settingsMenuItem = page.locator('button').filter({ hasText: /^Impostazioni della chat$/ });
     await expect(settingsMenuItem).toBeVisible({ timeout: 3000 });
     await settingsMenuItem.click();
 
@@ -240,7 +240,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     const topicTabReload = mainAreaReload.getByText(new RegExp(`E2E-Alpha-${TS}`)).first();
     await expect(topicTabReload).toBeVisible({ timeout: 3000 });
     await topicTabReload.dispatchEvent("contextmenu");
-    const settingsMenuReload = page.locator('button').filter({ hasText: /^Impostazioni$/ });
+    const settingsMenuReload = page.locator('button').filter({ hasText: /^Impostazioni della chat$/ });
     await expect(settingsMenuReload).toBeVisible({ timeout: 3000 });
     await settingsMenuReload.click();
     await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5000 });

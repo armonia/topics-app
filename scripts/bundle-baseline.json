@@ -697,12 +697,12 @@
     "feat/impostazioni-dove-si-usano-1003 (a75fcbe33, origin/main merged in) already",
     "measured 8.554.025, over the 2% ceiling (8.545.363) before this branch touched a",
     "line: that is main's growth since the last raise, recorded here, not bought here.",
-    "This branch adds +9.963 raw, all in LAZY chunks: the host of the forms that live",
-    "where they are used (Settings/HomePanel), the palette's commands by name, the",
-    "composer's tools row and the calendar tile's menu row (SETHOME-01). The entry",
-    "grows +3.385 raw / +1.159 gz (the one listener, `HomePanelHost`, and the footer",
-    "glue) and critical_path stays inside its tolerance (664.284 <= 664.403 gz), so",
-    "neither of those two numbers is raised."
+    "This branch adds +9.963 raw in all. Most of it is in LAZY chunks: the panel of",
+    "the forms that live where they are used (Settings/HomePanel), the palette's",
+    "commands by name, the composer's tools row and the calendar tile's menu row",
+    "(SETHOME-01). The rest, +3.385 raw / +1.159 gz, is in the entry (the one",
+    "listener, `HomePanelHost`, and the footer glue), and critical_path stays inside",
+    "its tolerance (664.284 <= 664.403 gz), so neither of those two numbers is raised."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,

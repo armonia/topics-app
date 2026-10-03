@@ -45,7 +45,7 @@ computer. Gli altri tre vanno **dove si usano** (SETHOME-01):
 
 | Modulo | Casa | Porta | Coda |
 |---|---|---|---|
-| Provider e chiavi (`ProvidersLevelBody`: piano Claude in cima, poi `AIProvidersSection`) | il selettore del modello | ultima riga di `AiExecutionMenuOptions`, quindi di ogni selettore: composer della chat, composer e cassetto della card, predefiniti della board; più «Gestisci provider AI» dell'avviso dei limiti | «3 pronti», o in ambra «Nessuno pronto» / «Codex non pronto» quando non lo è quello scelto |
+| Provider e chiavi (`ProvidersLevelBody`: piano Claude in cima, poi `AIProvidersSection`) | il selettore del modello | ultima riga di `AiExecutionMenuOptions`, quindi di ogni selettore: composer della chat, composer e cassetto della card, predefiniti della board; più «Provider e chiavi» dell'avviso dei limiti | «3 pronti», o in ambra «Nessuno pronto» / «Codex non pronto» quando non lo è quello scelto |
 | Strumenti MCP (`ToolsSection`) | il composer della chat | riga «Strumenti» del «+» (`ComposerToolsRow`) | «2 attivi», «Spenti», letta con `?peek=1` all'apertura del «+» |
 | Calendario (`CalendarSection`) | la tessera fissata di una pagina di calendario | riga «Calendario» del menu della tessera (`CalendarMenuRow`) | «Collegato», «In pausa», «Non collegato» |
 
@@ -251,7 +251,7 @@ palette e il «Apri impostazioni» del selettore:
 |---|---|---|
 | ⌘, (`useKeyboardShortcuts`) | il menu, fuoco sulla prima riga | uguale; col menu già aperto non lo rimonta |
 | pill «Impostazioni» della palette | il menu | non c'è più: comandi per nome («Provider e chiavi», «Strumenti MCP», «Calendario», «Piano», «Macchine», «Aspetto», «Notifiche») |
-| avviso dei limiti del piano, «Gestisci provider AI» | livello Provider AI | pannello Provider e chiavi, ancorato all'avviso |
+| avviso dei limiti del piano, «Provider e chiavi» | livello Provider AI | pannello Provider e chiavi, ancorato all'avviso |
 | selettore del modello, «Apri impostazioni» | livello Provider AI | la riga in fondo «Provider e chiavi», ancorata al selettore |
 | riga delle richieste nei Dispositivi | livello Nodi | livello Macchine, dentro Dispositivi |
 | ingranaggio del campanello | livello Notifiche | uguale |
