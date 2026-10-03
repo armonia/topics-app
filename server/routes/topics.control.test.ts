@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTopicsRouter } from "./topics";
+import { registerProvider, removeProvider } from "../providers";
 import type { Topic } from "../types";
 import { projectHash } from "../../shared/project-keys";
 
@@ -851,5 +852,71 @@ describe("global coordinator direct-route invariants", () => {
       expect(h.topics.get("ordinary")?.archived).toBe(false);
       expect(h.topics.get("coordinator")?.archived).toBe(true);
     } finally { h.cleanup(); }
+  });
+});
+
+// The wiring of two answers of POST /api/command whose rules are pure and
+// tested in `commandRouting.test.ts` / `sessionStatus.test.ts`: these cases
+// fail if the route stops passing the declared provider's fallback model to
+// `/status` (CMD-07) or stops carrying the typed `/reasoning` level (CMD-08).
+describe("POST /api/command — /status names the fallback model, /reasoning carries the typed level", () => {
+  test("/status on an unpinned topic names the default model of the provider it DECLARES", async () => {
+    const h = makeHarness();
+    const provider = registerProvider({ type: "openai", apiKey: "sk-fake-wiring" });
+    provider.defaultModel = () => "gpt-wiring-fallback";
+    try {
+      h.topics.set("unpinned", makeTopic({ id: "unpinned", provider: "openai" }));
+      const res = (await h.call("POST", "/api/command", { command: "status", sessionKey: "topic:unpinned" }))!;
+      expect(res.status).toBe(200);
+      const { output } = await res.json() as { output: string };
+      expect(output).toContain("gpt-wiring-fallback");
+
+      // Pinned: the pinned model, never the fallback.
+      h.topics.set("pinned", makeTopic({ id: "pinned", provider: "openai", model: "gpt-pinned-here" }));
+      const pinned = await ((await h.call("POST", "/api/command", { command: "status", sessionKey: "topic:pinned" }))!).json() as { output: string };
+      expect(pinned.output).toContain("gpt-pinned-here");
+      expect(pinned.output).not.toContain("gpt-wiring-fallback");
+    } finally {
+      removeProvider("openai");
+      h.cleanup();
+    }
+  });
+
+  test("/reasoning on openclaw sends the level typed, lower-cased, and bare toggles", async () => {
+    const h = makeHarness();
+    const realFetch = globalThis.fetch;
+    const sent: string[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content: string }> };
+      sent.push(body.messages?.[0]?.content ?? "");
+      return new Response("ok", { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      h.topics.set("oc", makeTopic({ id: "oc", provider: "openclaw" }));
+      const typed = await ((await h.call("POST", "/api/command", { command: "reasoning", sessionKey: "topic:oc", args: { level: " OFF " } }))!).json() as { level: string | null };
+      expect(typed.level).toBe("off");
+      const bare = await ((await h.call("POST", "/api/command", { command: "reasoning", sessionKey: "topic:oc" }))!).json() as { level: string | null };
+      expect(bare.level).toBeNull();
+      expect(sent).toEqual(["/reasoning off", "/reasoning"]);
+    } finally {
+      globalThis.fetch = realFetch;
+      h.cleanup();
+    }
+  });
+
+  test("/reasoning elsewhere names the provider the topic declares, and reaches no gateway", async () => {
+    const h = makeHarness();
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; return new Response("ok"); }) as unknown as typeof fetch;
+    try {
+      h.topics.set("cx", makeTopic({ id: "cx", provider: "codex" }));
+      const res = await ((await h.call("POST", "/api/command", { command: "reasoning", sessionKey: "topic:cx", args: { level: "on" } }))!).json() as { message: string };
+      expect(res.message).toContain("Su codex");
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = realFetch;
+      h.cleanup();
+    }
   });
 });
