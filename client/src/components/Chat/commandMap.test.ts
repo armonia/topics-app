@@ -78,7 +78,7 @@ describe('every control names a control that exists, in both languages', () => {
     expect(controls.length).toBeGreaterThanOrEqual(8);
     for (const c of controls) {
       expect(c.opensKey, c.cmd).toBeTruthy();
-      for (const lang of ['it', 'en'] as const) expect(t(c.opensKey!, lang), `${c.cmd} ${lang}`).not.toBe(c.opensKey);
+      for (const language of ['it', 'en'] as const) expect(t(c.opensKey!, language), `${c.cmd} ${language}`).not.toBe(c.opensKey);
     }
   });
 
@@ -93,7 +93,7 @@ describe('every control names a control that exists, in both languages', () => {
 
   test('every description exists in Italian and in English', () => {
     for (const c of SLASH_COMMANDS) {
-      for (const lang of ['it', 'en'] as const) expect(t(c.descriptionKey, lang), `${c.cmd} ${lang}`).not.toBe(c.descriptionKey);
+      for (const language of ['it', 'en'] as const) expect(t(c.descriptionKey, language), `${c.cmd} ${language}`).not.toBe(c.descriptionKey);
     }
   });
 });

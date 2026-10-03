@@ -19,7 +19,7 @@ test.describe.configure({ timeout: 180_000 });
  * OPENS ONE AS A CHAT THAT CONTINUES IT (CMDUI-03).
  *
  * The transcripts are files under the test server's HOME, written the way the
- * CLI writes them, with their mtimes set by hand: «Menu utente» (a
+ * CLI writes them, with their mtimes set by hand: «Menu utente» (a  allow-italian: fixture title
  * `custom-title`), one with only its `last-prompt`, one touched two minutes
  * ago (still running in a terminal), twenty-two old ones, one already held by
  * a chat and one in another project's folder. The CLI of the chat that

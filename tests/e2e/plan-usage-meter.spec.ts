@@ -13,7 +13,7 @@ test.use({ video: "on" });
 test.describe.configure({ timeout: 120_000 });
 
 /**
- * /usage AND /cost OPEN «PROVIDER E CHIAVI» BESIDE THE MODEL SELECTOR, WITH THE
+ * /usage AND /cost OPEN "PROVIDERS AND KEYS" BESIDE THE MODEL SELECTOR, WITH THE
  * WEEK UNDER THE FIVE HOURS (CMDUI-05).
  *
  * The reading goes through `POST /api/test/plan-usage`, the same function the

@@ -105,11 +105,11 @@ export function parseTranscriptTitle(text: string): { title: string | null; sour
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line.startsWith("{") || !/"type":"(custom-title|ai-title|last-prompt)"/.test(line)) continue;
-    let obj: { type?: unknown; customTitle?: unknown; aiTitle?: unknown; lastPrompt?: unknown };
-    try { obj = JSON.parse(line); } catch { continue; }
-    if (obj.type === "custom-title" && typeof obj.customTitle === "string" && obj.customTitle.trim()) custom = obj.customTitle.trim();
-    else if (obj.type === "ai-title" && typeof obj.aiTitle === "string" && obj.aiTitle.trim()) ai = obj.aiTitle.trim();
-    else if (obj.type === "last-prompt" && typeof obj.lastPrompt === "string" && obj.lastPrompt.trim()) prompt = obj.lastPrompt.trim();
+    let record: { type?: unknown; customTitle?: unknown; aiTitle?: unknown; lastPrompt?: unknown };
+    try { record = JSON.parse(line); } catch { continue; }
+    if (record.type === "custom-title" && typeof record.customTitle === "string" && record.customTitle.trim()) custom = record.customTitle.trim();
+    else if (record.type === "ai-title" && typeof record.aiTitle === "string" && record.aiTitle.trim()) ai = record.aiTitle.trim();
+    else if (record.type === "last-prompt" && typeof record.lastPrompt === "string" && record.lastPrompt.trim()) prompt = record.lastPrompt.trim();
   }
   if (custom) return { title: custom, source: "custom" };
   if (ai) return { title: ai, source: "ai" };
@@ -148,11 +148,6 @@ function remember(path: string, mtimeMs: number, size: number, parsed: Parsed): 
 /** Drop the cache (tests). */
 export function clearResumableCache(): void {
   cache.clear();
-}
-
-/** The cache's size (tests). */
-export function resumableCacheSize(): number {
-  return cache.size;
 }
 
 /** The order of the list: newest first, then the session id, so a cursor is exact even on equal mtimes. */

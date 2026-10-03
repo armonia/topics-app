@@ -546,11 +546,8 @@ describe("stripAllImages", () => {
  * @covers CMDUI-06
  */
 describe("compactSessionNow: /compact on the native engine", () => {
-  // Imported here so the rest of the file keeps testing the pure module alone.
-  const load = () => import("./provider");
-
   test("below the threshold it compacts all the same, and returns the tokens before and after", async () => {
-    const { compactSessionNow } = await load();
+    const { compactSessionNow } = await import("./provider");
     const history = longHistory(20, 4000);
     expect(needsCompaction(history, 1_000_000)).toBe(false);
     const session = { history, calibration: { charsPerToken: 4 } };
@@ -564,13 +561,13 @@ describe("compactSessionNow: /compact on the native engine", () => {
   });
 
   test("a short conversation has nothing to free, and says so", async () => {
-    const { compactSessionNow } = await load();
+    const { compactSessionNow } = await import("./provider");
     const r = compactSessionNow({ history: longHistory(1, 100), calibration: { charsPerToken: 4 } });
     expect(r).toMatchObject({ compacted: false, reason: "nothing" });
   });
 
   test("with a turn in flight it refuses, and the history is untouched", async () => {
-    const { compactSessionNow } = await load();
+    const { compactSessionNow } = await import("./provider");
     const history = longHistory(20, 4000);
     const before = JSON.stringify(history);
     const r = compactSessionNow({ history, calibration: { charsPerToken: 4 }, abort: new AbortController() });

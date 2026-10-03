@@ -24,11 +24,11 @@ export interface CommandAnswerRow {
 
 export interface CommandAnswer {
   readonly kind: CommandAnswerKind;
-  /** What the card is about, in the reader's language («Stato della sessione»). */
+  /** What the card is about, in the reader's language ("Session status"). */
   readonly title: string;
   readonly rows?: readonly CommandAnswerRow[];
   readonly body?: string;
-  /** One gesture of Topics that does what was asked («Apri un terminale»). */
+  /** One gesture of Topics that does what was asked ("Open a terminal"). */
   readonly action?: { readonly label: string; readonly run: () => void };
 }
 

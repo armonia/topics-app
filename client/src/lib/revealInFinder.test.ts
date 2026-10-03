@@ -1,5 +1,5 @@
 /**
- * «Mostra nel Finder» only where the Finder that opens is in front of whoever
+ * "Show in Finder" only where the Finder that opens is in front of whoever
  * clicked: the desktop shell on a loopback server.
  *
  * @covers FILE-03

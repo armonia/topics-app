@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import {
   Brain, ChevronsDownUp, Cpu, Download, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, History, Info, PenLine,
-  Plug, RotateCcw, Settings2, ShieldCheck, Target, TerminalSquare, Trash2, Wallet, Zap,
+  Plug, RotateCcw, Settings2, ShieldCheck, Target, Trash2, Wallet, Zap,
 } from 'lucide-react';
 
 /**
@@ -32,7 +32,7 @@ export interface SlashCommandEntry {
   readonly icon: ComponentType<{ size?: number; className?: string }>;
   /** `control` opens a control of Topics (or sets it with an argument); `topics` is run by Topics. */
   readonly kind: 'topics' | 'control';
-  /** For a control: what it opens, said on its row («apre il selettore»). */
+  /** For a control: what it opens, said on its row ("opens the picker"). */
   readonly opensKey?: string;
   /** It wants an argument: picking it inserts `/x ` and waits instead of running. */
   readonly takesArgs?: boolean;
@@ -84,9 +84,6 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain, kind: 'topics', onlyOn: OPENCLAW },
   { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle, kind: 'topics' },
 ];
-
-/** The icon of a row of the engine's group or of the skills. */
-export const ENGINE_COMMAND_ICON = TerminalSquare;
 
 /**
  * The entries offered to a topic whose DECLARED provider is `provider`

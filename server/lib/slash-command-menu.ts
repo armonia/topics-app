@@ -42,10 +42,10 @@ const CLI_OWN = new Set<string>(CLI_COMMANDS.headless);
 /** The first description line of a command or skill file, as the menu shows it. */
 export function describeSlashFile(file: string): string {
   try {
-    const txt = readFileSync(file, "utf-8");
-    const fm = txt.match(/^---[\s\S]*?\n\s*description:\s*(.+?)\s*(?:\n|$)/i);
+    const text = readFileSync(file, "utf-8");
+    const fm = text.match(/^---[\s\S]*?\n\s*description:\s*(.+?)\s*(?:\n|$)/i);
     if (fm) return fm[1]!.replace(/^["']|["']$/g, "").slice(0, 100);
-    for (const line of txt.split("\n")) {
+    for (const line of text.split("\n")) {
       const t = line.trim();
       if (!t || t === "---" || t.startsWith("#")) continue;
       return t.slice(0, 100);
@@ -93,8 +93,8 @@ export function slashMenuEntries(q: SlashMenuQuery): SlashMenuEntry[] {
     const skills = disk();
     if (!said) return sortByName(skills);
     // `builtin` is known once `commands_changed` has spoken; before, the measured list.
-    const knowsBuiltin = said.some((c) => c.builtin !== undefined);
-    const isOwn = (c: EngineCommand) => (knowsBuiltin ? c.builtin === true : CLI_OWN.has(c.name));
+    const marksOwnCommands = said.some((c) => c.builtin !== undefined);
+    const isOwn = (c: EngineCommand) => (marksOwnCommands ? c.builtin === true : CLI_OWN.has(c.name));
     const engine = said.filter(isOwn).map((c) => fromEngine(c, "engine"));
     const onDisk = new Set(skills.map((s) => s.name));
     // A list borrowed from another chat may carry a skill switched off here.

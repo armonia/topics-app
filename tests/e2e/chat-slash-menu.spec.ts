@@ -18,7 +18,7 @@ test.describe.configure({ timeout: 150_000 });
  * The CLI is `fake-claude-replay.ts`: it plays the `system/init` Claude Code
  * 2.1.288 wrote (its `slash_commands`) and writes down every message it is
  * handed, so «the CLI received `/review`» is read from its log. The person's
- * skills are folders under the test server's HOME: `vai`, and `spenta`,
+ * skills are folders under the test server's HOME: `vai`, and `spenta`,  allow-italian: skill names
  * switched off in `skillOverrides`.
  *
  * @covers CMDUI-01, CMDUI-07, CMD-06, SKILL-01

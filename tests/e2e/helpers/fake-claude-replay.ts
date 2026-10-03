@@ -5,7 +5,7 @@
  * the specs of the commands (CMDUI-01..07).
  *
  * What it plays, as the real CLI wrote it when driven with Topics' flags:
- *   - `system/init` with `slash_commands` (the CLI's own names, plus `vai` and
+ *   - `system/init` with `slash_commands` (the CLI's own names, plus `vai` and  allow-italian: skill name
  *     `recap`), on every turn, with the cwd it runs in;
  *   - `system/commands_changed` with descriptions and the `builtin` flag,
  *     after the first ordinary turn;

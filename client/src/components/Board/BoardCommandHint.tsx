@@ -3,7 +3,7 @@ import { useT } from '../../hooks/useT';
 import { startsWithMapCommand } from '../Chat/commandMap';
 
 /**
- * «I comandi vanno dati nella chat dell'agente» (CMDUI-08), above a composer
+ * The hint that commands go to the agent's own chat (CMDUI-08), above a composer
  * of the board (the drawer's, a card's comment) when what is written there
  * starts with a command. Sent from here a command is text: with an agent it
  * becomes an «update on the task» the agent reads as prose, without one a

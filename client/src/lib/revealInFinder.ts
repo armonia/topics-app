@@ -1,5 +1,5 @@
 /**
- * WHERE «MOSTRA NEL FINDER» SHOWS SOMETHING (FILE-03).
+ * WHERE "SHOW IN FINDER" SHOWS SOMETHING (FILE-03).
  *
  * The reveal runs on the SERVER (`open -R`, `server/routes/files.ts`): from a
  * phone, a browser on another computer or a LAN client it opened Finder on

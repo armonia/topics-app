@@ -211,8 +211,8 @@ export function engineCommandsFor(q: { sessionKey?: string | null; provider: str
     if (own) return own;
   }
   if (q.projectPath) {
-    const proj = engineByProject.get(projectKey(q.provider, q.projectPath));
-    if (proj) return proj;
+    const ofProject = engineByProject.get(projectKey(q.provider, q.projectPath));
+    if (ofProject) return ofProject;
   }
   return engineByProvider.get(q.provider) ?? null;
 }
