@@ -349,6 +349,8 @@ interface ChatInputProps {
   effort?: string | null;
   onEffortChange?: (effort: string | null) => void;
   defaultProviderLabel?: string;
+  /** The topic's model when no runtime is pinned, for the route the chip shows. */
+  pinnedModel?: string | null;
   /**
    * Context Inspector plumbing. The inspector now renders as a popover anchored
    * to the composer's context ring (was a docked side panel owned by the parent
@@ -424,6 +426,7 @@ export function ChatInput({
   effort,
   onEffortChange,
   defaultProviderLabel,
+  pinnedModel,
   onUpdateTopic,
   onMessage,
   controlsRef,
@@ -1802,6 +1805,7 @@ export function ChatInput({
                 <ProviderModelPicker
                   override={providerOverride ?? null}
                   defaultProviderLabel={defaultProviderLabel}
+                  pinnedModel={pinnedModel}
                   onChange={onProviderOverrideChange}
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}

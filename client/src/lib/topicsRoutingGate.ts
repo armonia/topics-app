@@ -1,7 +1,7 @@
 /** AICTRL-05 + MSEL-06: lo switch lato client, logica pura. Ogni lettura passa da `topicsRoute` (shared/task-coding-models.ts): un bersaglio che il motore non raggiunge va diretto e la strada si dichiara, l'invio non si blocca piu'. allow-italian: contratto dello switch, prosa gia' italiana in tutto il modulo */
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from "../types";
 import { resolveEffectiveProvider, type ProviderSelection } from "./effortTiers";
-import { effectiveTopicsRouting, taskModelSelection, topicsRoute, type TopicsRoute } from "../../../shared/task-coding-models";
+import { automaticChatTarget, effectiveTopicsRouting, taskModelSelection, topicsRoute, type TopicsRoute } from "../../../shared/task-coding-models";
 
 /** Lo switch del default BOARD: una board mai toccata (null) col dispatchModel legacy `topics:<model>` si legge ON, che un `!!` mostrava spenta. allow-italian: il difetto che questa funzione ripara */
 export function boardTopicsRoutingEnabled(
@@ -58,19 +58,37 @@ export function resolveTopicsRoutingTarget(
   return resolveEffectiveProvider(entries, override, defaultProviderLabel);
 }
 
-/** MSEL-06: the route of a chat turn, as the selector band and the chip show it.
- *  Automatic with no pin is the snapshot's default, resolved BEFORE the route,
- *  as the server resolver does (`resolveTopicProvider`). */
+/** MSEL-06: the target a chat turn is judged on, the one the server resolver
+ *  (`resolveTopicProvider`) judges. Automatic is the snapshot's default,
+ *  resolved BEFORE the route. `pinnedModel` is the topic's model when no
+ *  runtime is pinned (what `/model` writes): it goes with the default, or to
+ *  the engine for a card topic the engine picked (`automaticChatTarget`). */
+export function chatRouteTarget(
+  topicsRouting: boolean | null | undefined,
+  override: ProviderSelection | null,
+  defaultProviderLabel: string | undefined,
+  snapshot: ProvidersSnapshot | null,
+  pinnedModel?: string | null,
+): { provider: string | null; model: string | null } {
+  const defaultProvider = snapshot?.defaultProvider ?? null;
+  if (!override && !defaultProviderLabel && pinnedModel) {
+    return { provider: automaticChatTarget(topicsRouting, pinnedModel, defaultProvider), model: pinnedModel };
+  }
+  const target = resolveTopicsRoutingTarget(snapshot?.providers ?? [], override, defaultProviderLabel);
+  return target ? { provider: target.provider ?? null, model: target.model ?? null } : { provider: defaultProvider, model: null };
+}
+
+/** MSEL-06: the route of a chat turn, as the selector band and the chip show it. */
 export function chatTopicsRoute(
   topicsRouting: boolean | null | undefined,
   override: ProviderSelection | null,
   defaultProviderLabel: string | undefined,
   snapshot: ProvidersSnapshot | null,
+  pinnedModel?: string | null,
 ): TopicsRoute {
-  const target = resolveTopicsRoutingTarget(snapshot?.providers ?? [], override, defaultProviderLabel);
   return topicsRoute(
     topicsRouting,
-    target ?? { provider: snapshot?.defaultProvider ?? null, model: null },
+    chatRouteTarget(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
     snapshot,
     'chat',
   );

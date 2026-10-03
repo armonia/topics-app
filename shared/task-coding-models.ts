@@ -148,6 +148,21 @@ export function topicsCatalogPending(snapshot?: ProvidersSnapshot | null): boole
   return snapshot.providers.some((entry) => entry.name === 'topics' && entry.status === 'loading');
 }
 
+/** MSEL-06: the target of a chat turn with no runtime pinned, for the server
+ *  resolver and the chip/band alike. Automatic is the default provider. The
+ *  one exception is a topic whose switch was WRITTEN on with a Claude model
+ *  and no runtime: a card topic the engine picked (`resolveDispatchTopicIdentity`
+ *  leaves the runtime empty), whose target is the engine itself. A preference
+ *  never written does not take that path, so a `/model` on a chat with an
+ *  API or Codex default stays on that default. */
+export function automaticChatTarget(
+  stored: boolean | null | undefined,
+  model: string | null | undefined,
+  defaultProvider: string | null,
+): string | null {
+  return stored === true && model?.startsWith('claude-') ? 'topics' : defaultProvider;
+}
+
 /** Whether the switch ON runs this runtime and model through the engine: the
  * same answer as `topicsRoute` with the preference ON. A null provider means
  * Automatic, routable while the engine is ready. */

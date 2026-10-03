@@ -562,11 +562,14 @@ Scarti, uno per riga, col motivo:
 - **`←` `→` sulle colonne.** Su una riga con più motori aprono e chiudono il
   segmento del motore (MSEL-08); altrimenti, a colonne, passano alla colonna
   accanto. ↓ ↑ attraversano comunque tutte le sezioni in ordine.
-- **Un modello Claude senza runtime pinnato punta al motore** quando la
-  preferenza è accesa (`resolveTopicProvider`, `dispatchTopicBinding`): è il
-  caso di `/model claude-…` in una chat in Automatico e della card che il
-  classificatore ha messo sul motore. Risolto «come a interruttore spento»
-  andava sul default, che può essere Codex, con un modello Claude.
+- **Un modello Claude senza runtime pinnato punta al motore** solo quando la
+  preferenza è stata SCRITTA accesa (`automaticChatTarget`, letto da
+  `resolveTopicProvider` e da `chatRouteTarget` per chip e fascia;
+  `dispatchTopicBinding` lato card): è la card che il classificatore ha messo
+  sul motore, che lascia il runtime vuoto. Con la preferenza mai scritta
+  (`null`), `/model claude-…` in una chat in Automatico resta sul default con
+  quel modello: un default API o Codex non si sposta, e chip e fascia
+  giudicano lo stesso bersaglio del server (`topics-route-one-reading`).
 - **In chat il motore in scoperta vale «diretto»**, non `pending`: aspetta solo
   una card. `topicsRoute` restituisce `pending` solo con lo scope `task`.
 - **Un catalogo del motore vuoto vale «non verificabile»** anche lato card,

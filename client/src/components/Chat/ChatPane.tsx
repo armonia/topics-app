@@ -781,6 +781,9 @@ function ChatPaneComponent({
   // snapshot dentro ChatPane — che si ridisegnerebbe a ogni push (lo stato
   // della fast mode ne manda uno a ogni inizio e fine turno).
   const defaultProviderLabel = topic.provider ?? undefined;
+  // MSEL-06: with no runtime pinned the server judges the route on the
+  // topic's model (`/model`), so the chip and the band are given it too.
+  const pinnedModel = topic.provider ? null : topic.model ?? null;
 
   const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(m), [toast]));
   const isUploading = uploading || voiceUploading;
@@ -1903,7 +1906,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} pinnedModel={pinnedModel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
         {/* The phone's button row, when this chat owns its band (`bandOwned` in
             App): a box at the foot of the block and not a padding, because the
             block's height is read from `contentRect`, which leaves padding out.

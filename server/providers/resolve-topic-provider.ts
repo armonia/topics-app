@@ -1,6 +1,6 @@
 import type { AIProvider } from './types';
 import type { ProvidersSnapshot } from '../../shared/types';
-import { effectiveTopicsRouting, topicsRoute } from '../../shared/task-coding-models';
+import { automaticChatTarget, effectiveTopicsRouting, topicsRoute } from '../../shared/task-coding-models';
 
 /** The one case the switch can still refuse: a legacy topic pinned to
  * `provider: "topics"` (AICTRL-04) names the engine itself, so with the engine
@@ -48,10 +48,10 @@ export function resolveTopicProvider(
     defaultProvider: null,
     generatedAt: '',
   };
-  // Automatic resolves to the default first; a Claude model pinned without a
-  // runtime (`/model`, or a card the engine picked) names the Claude family,
-  // whatever the default: the engine is then its target.
-  const target = name ?? (topic?.model?.startsWith('claude-') ? 'topics' : fallback!.name);
+  // Automatic resolves to the default first, with the pinned model; only a
+  // card topic the engine picked (switch written ON) targets the engine.
+  // The chip and the band read the same function (`chatRouteTarget`).
+  const target = name ?? automaticChatTarget(topic?.topicsRouting, topic?.model, fallback!.name);
   const route = topicsRoute(topic?.topicsRouting, { provider: target, model: topic?.model ?? null }, engine, 'chat');
   if (route.via === 'topics' && native) return native;
   return fallback ?? direct(name, registry);

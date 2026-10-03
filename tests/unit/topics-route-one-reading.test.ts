@@ -25,7 +25,7 @@ import { resolveTopicProvider } from "../../server/providers/resolve-topic-provi
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "../../server/services/dispatch-topic-identity";
 import { pickAutomaticTaskModel } from "../../server/services/task-auto-model";
 import type { AIProvider } from "../../server/providers/types";
-import { boardTopicsRoutingEnabled, chatTopicsRoute, surfaceTopicsRoutingEnabled, topicsRoutingBlocked } from "../../client/src/lib/topicsRoutingGate";
+import { boardTopicsRoutingEnabled, chatRouteTarget, chatTopicsRoute, surfaceTopicsRoutingEnabled, topicsRoutingBlocked } from "../../client/src/lib/topicsRoutingGate";
 
 const at = "2026-10-03T00:00:00Z";
 const entry = (name: string, models: string[]) => ({ name, label: name, status: "ready" as const, isDefault: false, models, capabilities: ["coding-tasks"], requirements: [], fetchedAt: at });
@@ -58,6 +58,33 @@ describe("one reading, the same route in every reader", () => {
       topicsRoutingBlocked: topicsRoutingBlocked(null, target, undefined, SNAPSHOT) ? "direct" : "topics",
     };
     for (const [reader, via] of Object.entries(readers)) expect([reader, via]).toEqual([reader, expected]);
+  });
+
+  // Automatic with a model pinned (what `/model` writes): the server and the
+  // chip/band must judge the same target. A null preference resolves the
+  // default first, so an API or Codex default stays where it is.
+  test("chat scope, no provider and a pinned model: the server and the chip/band take the same route", () => {
+    const api = { ...entry("claude", ["claude-opus-5-5"]), capabilities: [] };
+    const rows: Array<[string, boolean | null, string, string, Via]> = [
+      ["/model opus, default Claude API", null, "claude-opus-5-5", "claude", "direct"],
+      ["/model opus, default Codex", null, "claude-opus-5-5", "codex", "direct"],
+      ["/model haiku-3-5 (not served), default Claude Code", null, "claude-haiku-3-5", "claude-code", "direct"],
+      ["/model opus, default Claude Code", null, "claude-opus-5-5", "claude-code", "topics"],
+      // A card topic the engine picked: the switch written ON, no runtime pinned.
+      ["written ON, opus, default Claude API", true, "claude-opus-5-5", "claude", "topics"],
+    ];
+    for (const [label, stored, model, def, expected] of rows) {
+      const snapshot: ProvidersSnapshot = {
+        providers: [...SNAPSHOT.providers, api].map((row) => ({ ...row, isDefault: row.name === def })),
+        defaultProvider: def,
+        generatedAt: at,
+      };
+      const providers = { ...registry, getDefaultProvider: () => ({ name: def, connected: true } as AIProvider) };
+      const server = resolveTopicProvider({ provider: null, model, topicsRouting: stored }, providers).name === "topics" ? "topics" : "direct";
+      const chip = chatTopicsRoute(stored, null, undefined, snapshot, model).via === "topics" ? "topics" : "direct";
+      const band = topicsRoute(stored, chatRouteTarget(stored, null, undefined, snapshot, model), snapshot, "chat").via === "topics" ? "topics" : "direct";
+      expect([label, server, chip, band]).toEqual([label, expected, expected, expected]);
+    }
   });
 
   test("task scope: a null preference reads OFF, and every card reader runs Opus direct on Claude Code", async () => {

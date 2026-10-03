@@ -6,7 +6,7 @@ import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
 import { loadModelList, modelListReady } from '../Shared/ModelSelector/modelListLazy';
 import { isChunkLoadError } from '../../lib/chunkReloadGuard';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
-import { chatTopicsRoute, resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
+import { chatRouteTarget, chatTopicsRoute } from '../../lib/topicsRoutingGate';
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { splitModelId, catalogModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
@@ -20,6 +20,9 @@ export interface ProviderModelOverride {
 interface Props {
   override: ProviderModelOverride | null;
   defaultProviderLabel?: string;
+  /** The topic's model when no runtime is pinned (what `/model` writes): the
+   *  server judges the route on it, so the chip and the band do too. */
+  pinnedModel?: string | null;
   onChange: (override: ProviderModelOverride | null) => void;
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
@@ -34,7 +37,7 @@ interface Props {
 }
 
 /** The chat composer's model selector (`ModelSelector`, scope `chat`, variant `compact`). */
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange, openRef, openProvidersRef, paneFocused = false }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, pinnedModel = null, onChange, topicsRouting, onTopicsRoutingChange, openRef, openProvidersRef, paneFocused = false }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const openNowRef = useRef(open);
@@ -56,8 +59,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // targets, which needs the topic's pin even with no active override — `value`
   // below stays override-only on purpose, it drives the panel/checkmark UI.
   const routingTarget = useMemo(
-    () => resolveTopicsRoutingTarget(entries, override, defaultProviderLabel),
-    [entries, override, defaultProviderLabel],
+    () => chatRouteTarget(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
+    [topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel],
   );
   const activeModelId = effective?.model ?? override?.model ?? null;
   const { name: modelName } = splitModelId(activeModelId ?? '');
@@ -118,8 +121,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   }, [openProvidersRef]);
   // MSEL-07: a mark on the chip when the current choice runs through Topics.
   const route = useMemo(
-    () => chatTopicsRoute(topicsRouting, override, defaultProviderLabel, snapshot),
-    [topicsRouting, override, defaultProviderLabel, snapshot],
+    () => chatTopicsRoute(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
+    [topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel],
   );
   const routingEnabled = effectiveTopicsRouting(topicsRouting, null, 'chat');
   const failed = loadState === 'failed' || loadState === 'broken';
@@ -187,7 +190,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         scope="chat"
         variant="compact"
         value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
-        routingTarget={{ provider: routingTarget?.provider ?? null, model: routingTarget?.model ?? null }}
+        routingTarget={routingTarget}
         onSelect={(selection) => {
           onChange(selection.provider && selection.model
             ? { provider: selection.provider, model: selection.model }
