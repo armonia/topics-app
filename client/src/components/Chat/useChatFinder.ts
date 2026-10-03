@@ -173,8 +173,10 @@ export function useChatFinder(args: {
     const schedulePaint = () => {
       for (const t of paintTimers) clearTimeout(t);
       // The jump scrolls on the next frame, a row that opens fetches its
-      // output: paint now, and again when those have landed.
-      paintTimers = [0, 250, 700, 1500].map((ms) => setTimeout(paint, ms));
+      // output: paint now (the current match moves with the counter, not a
+      // tick after it), and again when those have landed.
+      paint();
+      paintTimers = [100, 300, 700, 1500].map((ms) => setTimeout(paint, ms));
     };
 
     const watch = () => {
