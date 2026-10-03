@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.436",
+    "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Dichiara la strada del modello su chip e fascia, non sul turno (MSEL-06, AICTRL-01)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.434",
     "date": "2026-10-03",
     "sections": {
