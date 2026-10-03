@@ -127,11 +127,24 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(search).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(page.getByTestId("model-row-automatic")).toBeFocused();
-    await page.keyboard.press("ArrowDown");
-    await expect(modelRow(page, "claude-opus-5-5")).toBeFocused();
+    // ↓ only, from Automatic to Opus and on to GPT-6.1-Sol across the sections.
+    // The path is recorded, so a red says where the focus went instead.
+    const path: string[] = [];
+    const walkTo = async (model: string) => {
+      const target = modelRow(page, model);
+      for (let i = 0; i < 24 && !(await target.evaluate((el) => el === document.activeElement)); i++) {
+        await page.keyboard.press("ArrowDown");
+        path.push(await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          return el ? `${el.dataset.testid ?? el.tagName}:${el.dataset.model ?? el.dataset.provider ?? ""}` : "none";
+        }));
+      }
+      await expect(target, `focus path: ${path.join(" > ")}`).toBeFocused();
+    };
+    await walkTo("claude-opus-5-5");
+    expect(path, "Opus is the first row after Automatic").toHaveLength(1);
+    await walkTo("gpt-6.1-sol");
     const target = modelRow(page, "gpt-6.1-sol");
-    for (let i = 0; i < 20 && !(await target.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press("ArrowDown");
-    await expect(target).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(panel(page)).toHaveCount(0);
     await expect(picker).toHaveAttribute("data-model", "gpt-6.1-sol");

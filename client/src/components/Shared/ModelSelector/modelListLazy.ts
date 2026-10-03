@@ -20,8 +20,8 @@
  * functions loses fast refresh (`react-refresh/only-export-components`).
  */
 import type { ComponentProps, ComponentType } from 'react';
-import { lazyWarm, warm, warmed } from '@/lib/lazyWarm';
-import { reimportChunk } from '@/lib/chunkReloadGuard';
+import { lazyWarm, warm, warmed } from '../../../lib/lazyWarm';
+import { reimportChunk } from '../../../lib/chunkReloadGuard';
 // Type-only: erased from the output, so the module stays out of this chunk.
 import type { ModelList as Body } from './ModelList';
 

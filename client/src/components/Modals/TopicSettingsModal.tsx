@@ -15,7 +15,7 @@ import { ShareControl } from '../Share/ShareControl';
 import { buildTabLinkForTarget } from '../../lib/tabLink';
 import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { friendlyModelLabel } from '../../lib/modelLabel';
+import { catalogModelLabel } from '../../lib/modelLabel';
 import { chatTopicsRoute } from '../../lib/topicsRoutingGate';
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
@@ -668,7 +668,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 <Route className="h-3.5 w-3.5 shrink-0 text-primary" aria-label={tr('ai.selector.route.topics')} />
               )}
               <span className="min-w-0 flex-1 truncate">
-                {model ? friendlyModelLabel(model) : tr('topic.settings.modelDefault')}
+                {model ? catalogModelLabel(snapshot, provider, model) : tr('topic.settings.modelDefault')}
                 {provider && <span className="text-app-text-muted"> · {snapshot?.providers.find((entry) => entry.name === provider)?.label ?? provider}</span>}
               </span>
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />

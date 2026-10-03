@@ -8,7 +8,7 @@ import { isChunkLoadError } from '../../lib/chunkReloadGuard';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { chatTopicsRoute, resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
-import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
+import { splitModelId, catalogModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
 
@@ -145,7 +145,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
           </span>
         )}
         <span className="max-w-[160px] truncate @max-[380px]:max-w-[70px]">
-          {modelName ? friendlyModelLabel(modelName) : 'Model'}
+          {modelName ? catalogModelLabel(snapshot, effective?.provider, modelName) : 'Model'}
         </span>
         <span
           data-testid="model-context-badge"
