@@ -71,31 +71,35 @@ export function closeRun(db: Database, id: string, end: {
   return res.changes > 0;
 }
 
-/** How often a run writes the time of its output on its row: the error of its `unknown` end. */
-const OUTPUT_NOTE_MS = 5_000;
+/** How often a run writes on its row that it is alive: the error of its `unknown` end. */
+const ALIVE_NOTE_MS = 5_000;
 /** When each running run last wrote that time (ms). */
-const outputNotedAt = new Map<string, number>();
+const aliveNotedAt = new Map<string, number>();
 
 /**
- * The run printed at `now`: kept on its row while it is `running`, at most
- * every `OUTPUT_NOTE_MS`. The boot after a restart deletes the log of every
+ * The run was alive at `now`: the registry still had it running, printing or
+ * not. Kept on its row while it is `running`, at most every `ALIVE_NOTE_MS`,
+ * in `last_output_at`. The boot after a restart deletes the log of every
  * process the registry does not know, and with it the log's own time; the row
  * is what says when a run lost with the server was last alive (migration
- * `20261002192446-command-runs-last-output.sql`).
+ * `20261002192446-command-runs-last-output.sql`). Written only when it
+ * printed, a silent `sleep 600` lost with the machine kept no time at all and
+ * closed at its start, 0 s long; and a run that printed and then went quiet
+ * kept the first line of its last five seconds of output.
  */
-export function noteRunOutput(db: Database, id: string, now = Date.now()): void {
-  const last = outputNotedAt.get(id);
-  if (last !== undefined && now - last < OUTPUT_NOTE_MS) return;
-  outputNotedAt.set(id, now);
+export function noteRunAlive(db: Database, id: string, now = Date.now()): void {
+  const last = aliveNotedAt.get(id);
+  if (last !== undefined && now - last < ALIVE_NOTE_MS) return;
+  aliveNotedAt.set(id, now);
   try {
     db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ? AND status = 'running'").run(new Date(now).toISOString(), id);
   } catch (err) {
-    console.warn(`[command-runs] noting the output of ${id} failed:`, err);
+    console.warn(`[command-runs] noting that ${id} is alive failed:`, err);
   }
 }
 
-/** When the run of `id` last printed, as its row says; null when it never did, or is gone. */
-export function runLastOutputAt(db: Database, id: string): string | null {
+/** When the run of `id` was last known alive, as its row says; null when it never said, or is gone. */
+export function runLastAliveAt(db: Database, id: string): string | null {
   const row = db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(id) as { last_output_at: string | null } | null;
   return row?.last_output_at ?? null;
 }
@@ -140,15 +144,15 @@ export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">,
   const status: Exclude<RunStatus, "running"> = row.stopped ? "stopped"
     : row.exitCode === undefined ? "unknown"
     : row.exitCode === 0 ? "done" : "error";
-  outputNotedAt.delete(row.processId);
+  aliveNotedAt.delete(row.processId);
   const { output, droppedLines } = tailForStorage(row.output, row.droppedLines ?? 0);
   try {
     let endedAt = row.completedAt ?? new Date().toISOString();
     // With no exit code it ended when it was last known alive, and the row may
-    // know a later output than the registry: the machine went down with it and
-    // its log is gone. A live end is now, after any output the row has.
-    const lastOutput = status === "unknown" ? runLastOutputAt(ctx.db, row.processId) : null;
-    if (lastOutput && Date.parse(lastOutput) > Date.parse(endedAt)) endedAt = lastOutput;
+    // know a later moment than the registry: the machine went down with it and
+    // its log is gone, or it never printed. A live end is now, after anything the row has.
+    const lastAlive = status === "unknown" ? runLastAliveAt(ctx.db, row.processId) : null;
+    if (lastAlive && Date.parse(lastAlive) > Date.parse(endedAt)) endedAt = lastAlive;
     const closed = closeRun(ctx.db, row.processId, {
       status, exitCode: status === "done" || status === "error" ? row.exitCode ?? null : null,
       endedAt, output, droppedLines,
@@ -165,8 +169,9 @@ export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">,
  * Close the row of a run the registry no longer has (`GET`, `reconcile` says
  * `gone`) from what its files still say: the exit file's code and time, the
  * end of its log. Without an exit file it is unknown, ended at its log's last
- * write, or at the row's last output when the log is gone too (a normal boot
- * sweeps the logs of the processes it does not know), never before its start.
+ * write or at the last moment the row saw it alive, whichever is later (a
+ * normal boot sweeps the logs of the processes it does not know), never
+ * before its start.
  */
 export function closeLostRun(ctx: Pick<AppContext, "db" | "broadcastToAll">, run: {
   processId: string; startedAt: string; exitPath: string; logPath: string;

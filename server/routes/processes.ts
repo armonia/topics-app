@@ -27,7 +27,7 @@ import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
-import { closeLostRun, closeRegistryRun, noteRunOutput } from "../lib/command-runs";
+import { closeLostRun, closeRegistryRun, noteRunAlive } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
@@ -651,9 +651,11 @@ function tickTails(): void {
   for (const sp of runningScripts.values()) {
     if (!sp.tail) continue;
     live++;
-    if (!pumpTail(sp) || !_broadcastCtx) continue;
-    notifyScriptOutput(_broadcastCtx, sp.processId);
-    if (isPersonRun(sp)) noteRunOutput(_broadcastCtx.db, sp.processId);
+    const printed = pumpTail(sp);
+    if (!_broadcastCtx) continue;
+    if (printed) notifyScriptOutput(_broadcastCtx, sp.processId);
+    // Every tick, printing or not: what its row says when the server goes down with it.
+    if (isPersonRun(sp)) noteRunAlive(_broadcastCtx.db, sp.processId);
   }
   if (!live && tailTimer) { clearInterval(tailTimer); tailTimer = null; }
 }

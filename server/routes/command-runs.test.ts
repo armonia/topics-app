@@ -26,7 +26,7 @@ process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
 const { commandWakeState, createProcessesRouter, logPathOf, sessionsAwaitingCommandWake } = await import("./processes");
 const { isGuestAllowedPath, isGuestSafeFrameType } = await import("../lib/grants");
-const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunOutput } = await import("../lib/command-runs");
+const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunAlive } = await import("../lib/command-runs");
 
 let ctx: AppContext;
 let processes: ReturnType<typeof createProcessesRouter>;
@@ -325,6 +325,10 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     const byBlock = new Map((await runs(topic, messageId)).map((r) => [r.blockKey, r]));
     expect(byBlock.get(0)).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput.toISOString() });
     expect(byBlock.get(1)).toMatchObject({ status: "unknown", exitCode: null, endedAt: startedAt });
+    // Closed by a GET, and every other open screen is told: not only the one that asked.
+    for (const runId of [`gone-log-${seq}`, `gone-nolog-${seq}`]) {
+      expect(frames).toContainEqual({ type: "command-run:updated", sessionKey: topic.sessionKey, messageId, runId, status: "unknown" });
+    }
   });
 
   test("a run the registry no longer knows whose exit file is still there closes from it: its code, its time, its output", async () => {
@@ -352,7 +356,7 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     const id = `gone-row-${seq}`;
     insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
     // What the registry wrote while the run printed, before the server went down and the boot swept its log.
-    noteRunOutput(ctx.db, id, Date.parse(lastOutput));
+    noteRunAlive(ctx.db, id, Date.parse(lastOutput));
     const [run] = await runs(topic, messageId);
     expect(run).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput });
     expect(Date.parse(run!.endedAt!) - Date.parse(run!.startedAt)).toBe(450_000);
@@ -367,6 +371,24 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     const at = lastOutputAt();
     expect(at).not.toBeNull();
     expect(Date.parse(at!)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect((await runs(topic, messageId))[0]!.status).toBe("running");
+    expect((await call("POST", `/api/scripts/${run.processId}/stop`)).status).toBe(200);
+    await ended(topic, messageId, run.runId);
+  }, 30_000);
+
+  test("a run that prints nothing still has its row say when it was last known alive, and keep saying it", async () => {
+    // `sleep 600` lost with the machine: no exit file, a log whose time is its
+    // start, and a row with no time of its own closed it at its start, 0 s long.
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const run = await start(topic, messageId, "sleep 30");
+    const aliveAt = () => (ctx.db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(run.runId) as { last_output_at: string | null }).last_output_at;
+    await until(() => aliveAt() !== null);
+    const first = aliveAt();
+    expect(first).not.toBeNull();
+    // Still running and still silent a few seconds later: the row moved on with it.
+    await until(() => aliveAt() !== first);
+    expect(Date.parse(aliveAt()!)).toBeGreaterThan(Date.parse(first!));
     expect((await runs(topic, messageId))[0]!.status).toBe("running");
     expect((await call("POST", `/api/scripts/${run.processId}/stop`)).status).toBe(200);
     await ended(topic, messageId, run.runId);
