@@ -71,6 +71,12 @@ export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): bo
   return frame.late === true || senderAlsoSees(frame.type);
 }
 
+/** What this window sent on the own stream it still holds: the keys and the text of each message. */
+export interface OwnSends {
+  clientIds: ReadonlySet<string>;
+  contents: ReadonlySet<string>;
+}
+
 /**
  * A `message:new` for a session whose turn THIS window streams over its own SSE:
  * is it that turn coming back, or a row written beside it?
@@ -84,14 +90,24 @@ export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): bo
  * `finally` after the history reload. A row written in that window never
  * reached the pane until the next reload.
  *
- * The turn's echo: the person's row (its durable name is adopted by `useChat`
- * from the optimistic copy, `adoptDurableMessageId`) and the reply, which the
- * server announces WITHOUT blocks (`server/routes/chat.ts`, every branch that
- * closes a turn) and which the SSE already drew under a local id. A row with
- * blocks is written by the machine beside the turn: it passes, deduplicated by
- * id against what the pane already holds.
+ * The turn's echo is two rows, and only those two:
+ *  · the person's row of the message THIS window sent: the server announces it
+ *    with the `clientMessageId` the send carried (`server/routes/chat.ts`), or,
+ *    from a server that does not, with the very text that was sent. Any other
+ *    `user` row is written by the machine beside the turn: the wake's
+ *    sub-agent result, the goal's continuation, the board's envelope, an owed
+ *    answer the send carried in front of itself.
+ *  · the reply, which the server announces WITHOUT blocks (every branch that
+ *    closes a turn) and which the SSE already drew under a local id.
+ * Everything else passes, deduplicated by id against what the pane already
+ * holds.
  */
-export function ownTurnEcho(frame: { role?: string; blocks?: readonly unknown[] | null }): boolean {
-  if (frame.role !== 'assistant') return true;
-  return !frame.blocks || frame.blocks.length === 0;
+export function ownTurnEcho(
+  frame: { role?: string; blocks?: readonly unknown[] | null; content?: string; preview?: string; clientMessageId?: string },
+  sent: OwnSends,
+): boolean {
+  if (frame.role === 'assistant') return !frame.blocks || frame.blocks.length === 0;
+  if (frame.role !== 'user') return false;
+  if (frame.clientMessageId) return sent.clientIds.has(frame.clientMessageId);
+  return sent.contents.has(frame.content ?? frame.preview ?? '');
 }

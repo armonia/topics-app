@@ -94,12 +94,18 @@ function drivenSse() {
 let sse: ReturnType<typeof drivenSse>;
 let historyAsked: (() => void) | null;
 let releaseHistory: ((messages: unknown[]) => void) | null;
+/** The key the last send carried, as the server echoes it on the person's row. */
+let sentClientId: string | null;
 
 function installFetch(): void {
-  g.fetch = async (input: unknown) => {
+  g.fetch = async (input: unknown, init?: { body?: unknown }) => {
     const url = typeof input === 'string' ? input : (input as { url: string }).url;
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-    if (url.endsWith('/api/chat')) return new Response(sse.body, { status: 200 });
+    if (url.endsWith('/api/chat')) {
+      sentClientId = (JSON.parse(String(init?.body)) as { clientMessageId?: string }).clientMessageId ?? null;
+      return new Response(sse.body, { status: 200 });
+    }
+    if (url.endsWith('/regenerate')) return new Response(sse.body, { status: 200 });
     if (url.includes('/api/history/')) {
       // HELD: the window between the end of the SSE and the end of its reload.
       const messages = await new Promise<unknown[]>((resolve) => {
@@ -131,7 +137,7 @@ function mountBoth() {
       onWSMessage: (h: (msg: WSMessage) => void) => { lifecycleHandlers.add(h); return () => { lifecycleHandlers.delete(h); }; },
       sendWS: () => {}, windowId: 'owner-window',
       chatStreamHandlers: {
-        isOwnStream: chat.isOwnStream, isSessionStreaming: chat.isSessionStreaming,
+        isOwnStream: chat.isOwnStream, ownSends: chat.ownSends, isSessionStreaming: chat.isSessionStreaming,
         getSessionMessages: chat.getSessionMessages, addMessageFromWS: chat.addMessageFromWS,
         clearSession: chat.clearSession, loadHistory: chat.loadHistory,
         appendMediaToLastAssistant: chat.appendMediaToLastAssistant, sendMessage: chat.sendMessage, drainQueue: chat.drainQueue,
@@ -155,6 +161,8 @@ function mountBoth() {
       harness.rerender();
     },
     rows: () => chat().getSessionMessages(SK).map((m) => ({ id: m.id, role: m.role, content: m.content })),
+    /** The person's rows that hold the blocks the machine marks them with. */
+    markedUserRows: () => chat().getSessionMessages(SK).filter((m) => m.role === 'user' && (m.blocks?.length ?? 0) > 0).map((m) => m.id),
     rerender: () => harness.rerender(),
     unmount: () => harness.unmount(),
   };
@@ -179,6 +187,7 @@ beforeEach(() => {
   sse = drivenSse();
   historyAsked = null;
   releaseHistory = null;
+  sentClientId = null;
   installFetch();
 });
 
@@ -266,6 +275,118 @@ describe('a row written beside the own turn', () => {
     releaseHistory!(SNAPSHOT_BEFORE_ROW);
     await sent;
     await settle();
+    app.unmount();
+  });
+});
+
+/**
+ * The same class with `user` rows (verifier, 03/10): the pane took every
+ * non-assistant row of an own stream for the turn's echo. But the machine
+ * writes `user` rows beside the turn too, each with its mark: the wake's
+ * sub-agent result, the goal's continuation, the board's envelope. Only the
+ * row of the message THIS window sent is its echo, known by the key the send
+ * carried.
+ */
+const BESIDE_USER_ROWS = () => [
+  {
+    id: 'row-wake', content: 'Sub-agent «child» finished.',
+    blocks: [{ kind: 'subagent-result', results: [{ agentId: 'child', status: 'completed' }] }],
+  },
+  { id: 'row-nudge', content: 'Objective still open: finish the migration.', blocks: [{ kind: 'goal-nudge', attempt: 1 }] },
+  { id: 'row-envelope', content: 'Card #12: carry on.', blocks: [{ kind: 'dispatched-envelope' }] },
+];
+
+describe('a user row written beside the own turn', () => {
+  test('the wake\'s result, the goal nudge and the board\'s envelope reach the pane and survive the older snapshot', async () => {
+    const app = mountBoth();
+    const asked = new Promise<void>((r) => { historyAsked = r; });
+    const sent = app.chat().sendMessage(SK, PROMPT);
+    await settle();
+    sse.content(REPLY);
+    sse.done();
+    await asked;
+    await settle();
+    expect(app.chat().isOwnStream(SK)).toBe(true);
+    expect(sentClientId).toBeTruthy();
+
+    // The own echo comes back WITH a mark (a repeated message is marked too):
+    // the key says it is ours, and it is not drawn twice.
+    app.ws({
+      type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-user', content: PROMPT,
+      clientMessageId: sentClientId, blocks: [{ kind: 'repeated', count: 2 }],
+    });
+    for (const row of BESIDE_USER_ROWS()) {
+      app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: row.id, content: row.content, blocks: row.blocks });
+    }
+    await settle();
+    // Before the fix: every user row of an own stream was dropped as echo.
+    expect(app.markedUserRows()).toEqual(['row-wake', 'row-nudge', 'row-envelope']);
+    expect(app.rows().filter((r) => r.role === 'user' && r.content === PROMPT)).toHaveLength(1);
+
+    releaseHistory!(SNAPSHOT_BEFORE_ROW);
+    await sent;
+    await settle();
+    app.rerender();
+    expect(app.rows().map((r) => r.id)).toEqual(['row-user', 'row-reply', 'row-wake', 'row-nudge', 'row-envelope']);
+    app.unmount();
+  });
+
+  test('a user row without the key and with the sent text is the echo of an older server: dropped', async () => {
+    const app = mountBoth();
+    const asked = new Promise<void>((r) => { historyAsked = r; });
+    const sent = app.chat().sendMessage(SK, PROMPT);
+    await settle();
+    sse.content(REPLY);
+    sse.done();
+    await asked;
+    await settle();
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-user-elsewhere', content: PROMPT });
+    // Another window's message, with its own key: not ours.
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-other', content: 'from the phone', clientMessageId: 'phone-key' });
+    await settle();
+    expect(app.rows().filter((r) => r.role === 'user').map((r) => r.content)).toEqual([PROMPT, 'from the phone']);
+    releaseHistory!(SNAPSHOT_BEFORE_ROW);
+    await sent;
+    await settle();
+    app.unmount();
+  });
+
+  test('regenerate: a row that arrives while its reload is in flight stays in the pane', async () => {
+    const app = mountBoth();
+    // A thread already on screen.
+    let asked = new Promise<void>((r) => { historyAsked = r; });
+    const first = app.chat().sendMessage(SK, PROMPT);
+    await settle();
+    sse.content(REPLY);
+    sse.done();
+    await asked;
+    releaseHistory!(SNAPSHOT_BEFORE_ROW);
+    await first;
+    await settle();
+
+    sse = drivenSse();
+    asked = new Promise<void>((r) => { historyAsked = r; });
+    const regenerated = app.chat().regenerateMessage(SK, 'row-reply');
+    await asked;
+    expect(app.chat().isOwnStream(SK)).toBe(true);
+    const wake = BESIDE_USER_ROWS()[0]!;
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: wake.id, content: wake.content, blocks: wake.blocks });
+    app.ws(STOP_ROW());
+    await settle();
+    expect(app.rows().map((r) => r.id)).toContain(wake.id);
+
+    // The branch's snapshot, taken before both rows were written.
+    releaseHistory!([...SNAPSHOT_BEFORE_ROW, { id: 'row-reply-2', role: 'assistant', content: '', timestamp: '2026-10-03T10:00:05.000Z', partial: true }]);
+    await settle();
+    sse.content('Again.');
+    sse.done();
+    await regenerated;
+    await settle();
+    app.rerender();
+    // Before the fix: the branch reload replaced the thread and both were gone.
+    const ids = app.rows().map((r) => r.id);
+    expect(ids).toContain(wake.id);
+    expect(ids).toContain(STOP_ID);
     app.unmount();
   });
 });
