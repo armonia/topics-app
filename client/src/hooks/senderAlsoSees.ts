@@ -26,6 +26,8 @@
  *  · `stream:tool_detail` - a sub-agent's live progress. A whole snapshot that
  *    replaces the previous one.
  *  · `stream:compaction` - the compaction divider. An upsert by marker id.
+ *  · `stream:command-answer` - the answer of a command (CMDUI-04): only on WS,
+ *    and it REPLACES the card's content, so twice is the same card.
  *  · `stream:tool_update` - the live output of a running command (CHAT-TOOL-09).
  *    It REPLACES `result` with the whole current tail, and the window you sent
  *    from, the one surely watching, saw only a spinner for minutes. A partial
@@ -44,6 +46,7 @@ export type SenderVisibleEventType =
   | 'stream:tool_user_input_required'
   | 'stream:tool_detail'
   | 'stream:compaction'
+  | 'stream:command-answer'
   | 'stream:tool_update';
 
 /** The exceptions, in one place, so a test can count them. */
@@ -54,6 +57,7 @@ export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
   'stream:tool_user_input_required',
   'stream:tool_detail',
   'stream:compaction',
+  'stream:command-answer',
   'stream:tool_update',
 ];
 

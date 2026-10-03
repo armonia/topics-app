@@ -53,6 +53,7 @@ import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
+import { BoardCommandHint } from './BoardCommandHint';
 
 // ── Column ────────────────────────────────────────────────────────────────
 export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
@@ -1761,6 +1762,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               card in corso.
               Nel drawer restano bottoni (vedi TaskChoiceRow): lì la card la
               stai già guardando apposta. */}
+          <BoardCommandHint text={freeText} onOpenSession={canOpenSession ? () => onOpenTopic!(task.assignedTopicId!) : undefined} />
           <div className="flex items-center gap-1">
             <input
               ref={freeTextRef}
@@ -1835,6 +1837,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               si scrive per esteso e si vede il thread (`task-reply-quiet-note`).
               Qui la card resta quello che deve essere in review: un elenco di
               uscite, e una riga per dire perche'. */}
+          <BoardCommandHint text={freeText} onOpenSession={canOpenSession ? () => onOpenTopic!(task.assignedTopicId!) : undefined} />
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             <input
               ref={freeTextRef}

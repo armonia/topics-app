@@ -54,6 +54,10 @@ import {
   splitCallUsage,
   type AssistantBlock,
   type CallUsage,
+  invokedCommandName,
+  isCommandAnswer,
+  readCommandOutcome,
+  readSyntheticText,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
@@ -1070,6 +1074,12 @@ interface PersistentProcess {
   pendingReject: ((err: Error) => void) | null;
   /** Accumulated full text for onTextDelta */
   fullText: string;
+  /** The command the message of this turn invokes (`/output-style` → `output-style`), or null. */
+  commandTurn?: string | null;
+  /** The `<synthetic>` text of a command turn, held until its `result` says whose it is (CMDUI-04). */
+  syntheticHeld?: string;
+  /** `/compact`'s outcome as the CLI reported it in this turn (`system/status`). */
+  commandOutcome?: { ok: boolean; error?: string };
   /** Tool calls announced but not yet resulted. */
   activeToolCalls: Set<string>;
   /** Tool calls that have already had their result emitted — the Claude CLI
@@ -1790,6 +1800,9 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.streamHandler = handler;
     pp.preRegistered = null;
     pp.fullText = "";
+    pp.commandTurn = invokedCommandName(message);
+    pp.syntheticHeld = undefined;
+    pp.commandOutcome = undefined;
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
     pp.billedCallIds?.clear();
@@ -3704,7 +3717,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // in every mode: a replayed init is the same session's word, and after a
     // restart it is what tells the next skill turn its shape
     // (`isKnownSlashCommand`).
-    if (line.label === "system/init") recordCliSlashCommands(pp.sessionKey, event);
+    if (line.label === "system/init" || line.label === "system/commands_changed") recordCliSlashCommands(pp.sessionKey, event);
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
@@ -3798,6 +3811,12 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Filter noise
     if (line.kind === "noise") {
+      // What `/compact` says of itself (`system/status` with `compact_result`):
+      // the outcome the command card shows, kept for this turn's `result`.
+      if (!pp.replayMute && !pp.replaySilent && pp.commandTurn) {
+        const outcome = readCommandOutcome(event);
+        if (outcome) pp.commandOutcome = { ok: outcome.ok, ...(outcome.error ? { error: outcome.error } : {}) };
+      }
       // A LEFTOVER TASK NOTIFICATION IS A TURN OF ITS OWN. A resumed session
       // that had a background task when it last ended delivers the task's
       // notification before it reads the next message, and answers it with an
@@ -3917,11 +3936,27 @@ export class ClaudeCodeProvider implements AIProvider {
       }
 
       if (handler) {
+        // THE ANSWER OF A COMMAND IS NOT A REPLY (CMDUI-04). The text the CLI
+        // wrote itself in a command turn waited here for the `result`: a local
+        // command (no model turn, nothing spent) hands it to the command card
+        // and the turn ends with nothing to save; anything else gets it back as
+        // the reply it would have been.
+        const held = pp.syntheticHeld;
+        pp.syntheticHeld = undefined;
+        let answered = false;
+        if ((held || pp.commandOutcome) && pp.commandTurn && handler.onCommandAnswer && isCommandAnswer(true, event)) {
+          handler.onCommandAnswer({ command: pp.commandTurn, text: held ?? pp.commandOutcome?.error ?? "", ...(pp.commandOutcome ? { outcome: pp.commandOutcome } : {}) });
+          answered = true;
+        } else if (held) {
+          pp.fullText += held;
+          handler.onTextDelta(held, pp.fullText);
+        }
+        pp.commandOutcome = undefined;
         // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle
         // il dispatcher lo deduceva dalla durata («probabile timeout»).
         const turnEnd = classifyResultEvent(event);
         handler.onDone({
-          result: resultText,
+          result: answered ? "" : resultText,
           // AGGREGATO del turno (somma di ogni chiamata), non la dimensione del
           // contesto: leggerlo come tale è ciò che faceva dichiarare al divider
           // di compattazione un'esplosione subito dopo un dimezzamento.
@@ -4093,6 +4128,8 @@ export class ClaudeCodeProvider implements AIProvider {
       // dentro la risposta: il prompt di `/recap` compariva prima della risposta,
       // incollato senza nemmeno uno spazio. Verificato sul wire della CLI.
       const injected = event.type === "user";
+      // The CLI's own words in a command turn wait for the `result` (see there).
+      const heldSynthetic = !injected && !!pp.commandTurn && readSyntheticText(event) !== null;
       // Il modello ha ripreso a parlare: nessun corpo di skill sta più
       // arrivando. Chi era in coda ci resta senza (una skill può non avere
       // corpo) invece di intercettare il prossimo testo iniettato.
@@ -4101,6 +4138,10 @@ export class ClaudeCodeProvider implements AIProvider {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
           if (injected) {
             this.absorbInjectedText(pp, handler, block.text, event.isSynthetic === true);
+            continue;
+          }
+          if (heldSynthetic) {
+            pp.syntheticHeld = (pp.syntheticHeld ?? "") + block.text;
             continue;
           }
           pp.fullText += block.text;

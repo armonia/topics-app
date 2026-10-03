@@ -3,7 +3,7 @@ import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
-import { join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall, UnreadData } from "../types";
@@ -78,7 +78,11 @@ import { markAnswerNotOwed, markAnswerOwed } from "../lib/owed-answers";
 import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
-import { readSlashCommandSource, isValidSlashCommandName, listSlashCommandFiles } from "../lib/slash-command-source";
+import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
+import { slashMenuEntries } from "../lib/slash-command-menu";
+import { insertCompactionMarkerIfNew } from "../db/compaction-markers";
+import type { CompactNowResult } from "../providers/native/provider";
+import { listResumableClaudeSessions } from "../lib/resumable-claude-sessions";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
 import { decodeCol } from "../../shared/message-blob";
@@ -1305,33 +1309,46 @@ export function createTopicsRouter(
     }
 
     if (method === "GET" && pathname === "/api/slash-commands") {
-      const descOf = (file: string): string => {
-        try {
-          const txt = readFileSync(file, "utf-8");
-          const fm = txt.match(/^---[\s\S]*?\n\s*description:\s*(.+?)\s*(?:\n|$)/i);
-          if (fm) return fm[1].replace(/^["']|["']$/g, "").slice(0, 100);
-          for (const line of txt.split("\n")) {
-            const t = line.trim();
-            if (!t || t === "---" || t.startsWith("#")) continue;
-            return t.slice(0, 100);
-          }
-        } catch { /* unreadable — no description */ }
-        return "";
-      };
       // Which files are commands and skills, and which one wins a shared name,
       // is decided in ONE place: `listSlashCommandFiles`, the same folders and
-      // precedence `readSlashCommandSource` opens. This route used to walk the
-      // folders itself with `isDirectory()`, which is false for a link to a
-      // folder, so every symlinked skill vanished from the / menu while its
-      // body still opened.
+      // precedence `readSlashCommandSource` opens.
       //
       // The project's commands come from the TOPIC's project (`?topicId=`),
-      // the folder its CLI runs in (SKILL-01 «then the project's»). They used
-      // to come from `process.cwd()`, the server's own checkout: a chat in
-      // project X was offered this repo's commands and not X's.
-      const out = listSlashCommandFiles({ cwd: slashCommandProjectRoot(url) }).map(({ name, file, kind }) => ({ name, description: descOf(file), kind }));
-      out.sort((a, b) => a.name.localeCompare(b.name));
-      return json(out);
+      // the folder its CLI runs in (SKILL-01 «then the project's»). And the
+      // list is the one of the engine the topic DECLARES (CMDUI-01): the
+      // engine's own group and «your skills» only where the engine expands
+      // them (`slash-command-menu.ts`). A draft passes its `?provider=`.
+      const topicId = url.searchParams.get("topicId");
+      const topic = topicId ? getTopicById(topicId) : null;
+      const asked = url.searchParams.get("provider");
+      const provider = topic ? declaredProviderName(topic.provider, getDefaultProviderName()) ?? null
+        : asked ? declaredProviderName(asked) ?? null : null;
+      return json(slashMenuEntries({
+        provider,
+        sessionKey: topic?.sessionKey ?? null,
+        projectPath: topic?.projectPath ?? null,
+        cwd: slashCommandProjectRoot(url),
+      }));
+    }
+
+    // GET /api/topics/:id/resumable-sessions — `/resume` (CMDUI-03): the
+    // Claude Code sessions of this topic's project that no chat holds, one
+    // page at a time (`?before=` is the previous page's cursor). Its own
+    // reading and its own cache: the census of external sessions is not
+    // touched (`resumable-claude-sessions.ts`).
+    {
+      const m = method === "GET" ? /^\/api\/topics\/([^/]+)\/resumable-sessions$/.exec(pathname) : null;
+      if (m) {
+        const topic = getTopicById(decodeURIComponent(m[1]!));
+        if (!topic) return json({ error: "topic not found", code: "not_found" }, 404);
+        if (!topic.projectPath) return json({ error: "this chat has no project", code: "no_project" }, 404);
+        const owned = new Set(
+          (ctx.db.prepare(`SELECT claude_session_id FROM claude_code_sessions WHERE claude_session_id IS NOT NULL`).all() as Array<{ claude_session_id: string }>)
+            .map((r) => r.claude_session_id),
+        );
+        const page = await listResumableClaudeSessions({ projectPath: topic.projectPath, ownedSessionIds: owned, before: url.searchParams.get("before") });
+        return json(page);
+      }
     }
 
     if (method === "POST" && pathname === "/api/topics") {
@@ -1518,9 +1535,14 @@ export function createTopicsRouter(
         }
 
         // Locate the transcript by id: scan the project store for <id>.jsonl.
+        // `/resume` already knows where it is (`transcriptPath` of its row),
+        // and is believed only for a file named after the id, one folder
+        // under the store: never a path the client made up.
         const projectsDir = join(homedir(), ".claude", "projects");
         let transcriptPath: string | null = null;
-        try {
+        const hinted = typeof body?.transcriptPath === "string" ? resolve(body.transcriptPath) : null;
+        if (hinted && dirname(dirname(hinted)) === resolve(projectsDir) && basename(hinted) === `${sessionId}.jsonl` && existsSync(hinted)) transcriptPath = hinted;
+        if (!transcriptPath) try {
           for (const dir of readdirSync(projectsDir)) {
             const candidate = join(projectsDir, dir, `${sessionId}.jsonl`);
             if (existsSync(candidate)) { transcriptPath = candidate; break; }
@@ -3112,6 +3134,39 @@ export function createTopicsRouter(
             broadcastToAll({ type: "topic:updated", topic });
             const pending = (topic.effort ?? null) !== prevEffort ? refreshAndSay(ctx, () => resolveProvider(topic), topic, { effort: true }) : {};
             return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
+          }
+          case "compact": {
+            // `/compact` on an engine that compacts on request but has no
+            // command parser: Topics' native engine (CMDUI-06). The CLI does
+            // its own on Claude Code, the gateway on OpenClaw; there the
+            // message travels as typed and never reaches this branch.
+            const engine = providerForSessionKey(sessionKey) as AIProvider & { compactNow?: (key: string) => CompactNowResult };
+            if (typeof engine.compactNow !== "function") {
+              return json({ error: "this engine does not compact on request", code: "compact_unsupported" }, 400);
+            }
+            const r = engine.compactNow(sessionKey);
+            if (!r.compacted && r.reason === "busy") return json({ error: "a turn is running", code: "turn_in_progress" }, 409);
+            if (!r.compacted) return json({ ok: true, command: "compact", compacted: false });
+            // The same divider the automatic compaction draws, marked manual.
+            const owner = getTopicBySessionKey(sessionKey);
+            const stored = insertCompactionMarkerIfNew(db, {
+              sessionKey,
+              topicId: owner?.id ?? null,
+              afterMessageId: loadLocalMessages(sessionKey).at(-1)?.id ?? null,
+              marker: { trigger: "manual", preTokens: r.before, postTokens: r.after },
+            });
+            broadcastToAll({
+              type: "stream:compaction",
+              sessionKey,
+              topicId: owner?.id,
+              markerId: stored.id,
+              afterMessageId: stored.afterMessageId,
+              trigger: stored.trigger,
+              ...(stored.preTokens != null ? { preTokens: stored.preTokens } : {}),
+              ...(stored.postTokens != null ? { postTokens: stored.postTokens } : {}),
+              createdAt: stored.createdAt,
+            });
+            return json({ ok: true, command: "compact", compacted: true, before: r.before, after: r.after });
           }
           case "reasoning": {
             // The level the person TYPED, or none. It used to default to "on",

@@ -104,3 +104,15 @@ const COMPACT_SCRIPT = resolve(__dirname, "fake-claude-compact.ts");
 export function installCompactCli(): () => void {
   return install(COMPACT_SCRIPT);
 }
+
+const REPLAY_SCRIPT = resolve(__dirname, "fake-claude-replay.ts");
+
+/**
+ * Installs `fake-claude-replay.ts`: lines recorded from Claude Code 2.1.288
+ * (the init's `slash_commands`, `commands_changed`, the `<synthetic>` answer
+ * of a local command, `/compact`'s outcome), with its start arguments and
+ * every message written to `logPath`. Returns its removal.
+ */
+export function installReplayCli(logPath: string): () => void {
+  return install(REPLAY_SCRIPT, { FAKE_CLI_LOG: logPath });
+}

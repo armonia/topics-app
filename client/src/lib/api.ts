@@ -176,12 +176,20 @@ export const topicsApi = {
     });
   },
 
-  /* (Qui stava `adoptClaudeSession`, che adottava in una topic una sessione
-     Claude avviata a mano in un terminale. L'unico gesto che la chiamava era il
-     «Continua qui» del chip in barra della kanban, tolto il 13/08. L'endpoint
-     `POST /topics/adopt-claude` esiste ancora ed è provato da ADOPT-01: il
-     giorno in cui l'adozione torna ad avere una superficie, il client la
-     richiama da lì. Un metodo senza chiamanti, invece, marcisce.) */
+  /**
+   * Adopt a Claude Code session born outside Topics as a chat that continues
+   * it (`/resume`, CMDUI-03). `transcriptPath` is the one `/resume` listed, so
+   * the server does not walk every folder of the store to find it.
+   */
+  async adoptClaudeSession(data: { sessionId: string; transcriptPath?: string; name?: string }): Promise<Topic> {
+    return request<Topic>('/topics/adopt-claude', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  /** One page of the project's Claude Code sessions no chat holds (`/resume`). */
+  async resumableSessions(topicId: string, before?: string | null): Promise<ResumablePage> {
+    const q = before ? `?before=${encodeURIComponent(before)}` : '';
+    return request<ResumablePage>(`/topics/${encodeURIComponent(topicId)}/resumable-sessions${q}`);
+  },
 
   /**
    * Fork a chat into a new one (CHAT-FORK-01): a topic with a copy of the
@@ -1019,22 +1027,42 @@ export interface CommandResult {
   pending?: 'background-work';
 }
 
-export interface CustomSlashCommand { name: string; description: string; kind: 'command' | 'skill'; }
+export interface CustomSlashCommand {
+  name: string;
+  description: string;
+  kind: 'command' | 'skill';
+  /** `engine` = the engine's own command, `skills` = the person's commands and skills (CMDUI-01). */
+  group?: 'engine' | 'skills';
+  argumentHint?: string;
+}
+
+/** A row of `/resume` (`GET /topics/:id/resumable-sessions`). */
+export interface ResumableSession {
+  sessionId: string;
+  title: string | null;
+  titleSource: 'custom' | 'ai' | 'prompt' | null;
+  branch: string | null;
+  cwd: string;
+  lastActivityAt: number;
+  active: boolean;
+  transcriptPath: string;
+}
+export interface ResumablePage { sessions: ResumableSession[]; more: boolean; cursor: string | null }
 
 /**
- * Cache di processo della lista comandi. La lista è GLOBALE — non dipende dalla
- * topic — ma a chiederla è `ChatInput`, che esiste una volta per pane: aprendo
- * dodici tab si facevano dodici richieste identiche, ognuna col suo parse e il
- * suo setState. Una sola promise condivisa le collassa, e siccome è anche la
- * promise in volo, N composer montati nello stesso tick aspettano tutti quella.
+ * Cache di processo della lista comandi, per topic: a chiederla è `ChatInput`,
+ * che esiste una volta per pane, e una sola promise condivisa collassa le
+ * richieste di dodici tab aperte nello stesso tick.
  *
- * La lista cambia solo quando l'utente aggiunge un comando o una skill su
- * disco: fuori dalla portata dell'app, e comunque roba da ricarica — che
- * ricrea il modulo e con esso la cache. Se un giorno servisse invalidarla a
- * caldo, basta azzerare `slashCommandsCache`.
+ * DURA POCO, adesso. La lista non è più solo il disco: il gruppo del motore è
+ * quello che la CLI dice al suo primo turno (CMDUI-01), quindi una chat nuova
+ * la vede vuota e, un turno dopo, piena. Tenuta per sempre restava vuota fino
+ * alla ricarica. Il menu la richiede quando si apre; dentro `SLASH_LIST_TTL_MS`
+ * risponde la promise già in mano.
  */
-/** One list per project folder: the menu reads the topic's project (`?topicId=`). */
-const slashCommandsCache = new Map<string, Promise<CustomSlashCommand[]>>();
+const SLASH_LIST_TTL_MS = 30_000;
+/** One list per topic (or per draft's provider): the menu reads the topic's engine and project. */
+const slashCommandsCache = new Map<string, { at: number; list: Promise<CustomSlashCommand[]> }>();
 
 /** The user's custom slash commands + skills (for composer autocomplete). The
  *  headless CLI expands them; the composer only surfaces them. Best-effort. */
@@ -1051,18 +1079,19 @@ export const slashCommandsApi = {
     return request(`/slash-commands/${encodeURIComponent(name)}${q}`);
   },
 
-  async list(topicId?: string): Promise<CustomSlashCommand[]> {
-    const key = topicId ?? '';
-    let cached = slashCommandsCache.get(key);
-    if (!cached) {
-      // A failed request must not stay cached: the next caller retries.
-      cached = request<CustomSlashCommand[]>(`/slash-commands${topicId ? `?topicId=${encodeURIComponent(topicId)}` : ''}`).catch((e) => {
-        slashCommandsCache.delete(key);
-        throw e;
-      });
-      slashCommandsCache.set(key, cached);
-    }
-    return cached;
+  /** The list for a topic (`topicId`), or for a draft that declares `provider`. */
+  async list(topicId?: string, provider?: string | null): Promise<CustomSlashCommand[]> {
+    const key = topicId ? `t:${topicId}` : `p:${provider ?? ''}`;
+    const hit = slashCommandsCache.get(key);
+    if (hit && Date.now() - hit.at < SLASH_LIST_TTL_MS) return hit.list;
+    const q = topicId ? `?topicId=${encodeURIComponent(topicId)}` : provider ? `?provider=${encodeURIComponent(provider)}` : '';
+    // A failed request must not stay cached: the next caller retries.
+    const list = request<CustomSlashCommand[]>(`/slash-commands${q}`).catch((e) => {
+      slashCommandsCache.delete(key);
+      throw e;
+    });
+    slashCommandsCache.set(key, { at: Date.now(), list });
+    return list;
   },
 };
 

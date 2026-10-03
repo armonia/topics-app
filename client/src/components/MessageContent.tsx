@@ -33,6 +33,7 @@ import { ImageLightbox, ZoomableImage } from './Shared/ImageLightbox';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
+import { useKnownSlashName } from '../state/knownSlashNames';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 import { getSession, subscribeSession } from '../lib/auth/session';
 import { CommandRunContext, type CommandRunTarget } from './Chat/commandRunContext';
@@ -1173,10 +1174,14 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
   // Il messaggio è un comando? Vale solo per il ramo `user`; memoizzato qui
   // perché gli hook non possono stare dopo un `return` condizionale.
-  const slashInvocation = useMemo(
+  const parsedInvocation = useMemo(
     () => (role === 'user' ? parseSlashInvocation(cleanText) : null),
     [role, cleanText],
   );
+  // The mark is drawn for a name the menu knows (SKILL-04): a «/parolainventata»
+  // travels as an ordinary message and reads as one.
+  const knownInvocation = useKnownSlashName(parsedInvocation?.command);
+  const slashInvocation = knownInvocation ? parsedInvocation : null;
 
   // Raggruppamento della timeline dei blocchi, calcolato UNA volta per `blocks`.
   //

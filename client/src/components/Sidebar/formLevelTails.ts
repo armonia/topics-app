@@ -130,12 +130,18 @@ export function claudePlanCompact(
   sub: ProviderSnapshotEntry['subscription'] | null | undefined,
   fiveHour: { utilization: number } | null | undefined,
   tr: Translate,
+  sevenDay?: { utilization: number } | null,
 ): Tail | null {
   const plan = subscriptionLabel(sub);
   const usage = fiveHour ? tr('home.claudeUsage', { pct: Math.round(fiveHour.utilization) }) : null;
-  if (!plan && !usage) return null;
-  const text = plan && usage ? `${plan} · ${usage}` : (plan ?? usage!);
-  return { text, warn: !!fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT };
+  // The week after the five hours (CMDUI-05): its block stops work for days,
+  // and the figure arrives with the same reading.
+  const week = sevenDay ? tr('home.claudeWeek', { pct: Math.round(sevenDay.utilization) }) : null;
+  const parts = [plan, usage, week].filter((p): p is string => !!p);
+  if (!plan && !usage && !week) return null;
+  const text = parts.join(' · ');
+  const warn = (!!fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT) || (!!sevenDay && sevenDay.utilization >= PLAN_USAGE_WARN_AT);
+  return { text, warn };
 }
 
 /** How many MCP servers are mounted and answering. A fleet never mounted (or
@@ -173,6 +179,22 @@ export function nodeRequestsLabel(n: number, tr: Translate): string {
  * 20:49». The plan and how much of it is spent read together, inside the
  * AI providers level. Null without a reading.
  */
+/**
+ * «Week at 78% · resets Sat 13:00» (CMDUI-05). The day is said too: a weekly
+ * reset named by its hour alone is a different day to every reader.
+ */
+export function weekUsageLine(
+  window: { utilization: number; resetsAtMs: number | null } | null,
+  formatDayTime: (ms: number) => string,
+  tr: Translate,
+): string | null {
+  if (!window) return null;
+  const pct = Math.round(window.utilization);
+  return window.resetsAtMs === null
+    ? tr('userMenu.usage.week', { pct })
+    : tr('userMenu.usage.weekReset', { pct, when: formatDayTime(window.resetsAtMs) });
+}
+
 export function usageLine(
   window: { utilization: number; resetsAtMs: number | null } | null,
   formatTime: (ms: number) => string,

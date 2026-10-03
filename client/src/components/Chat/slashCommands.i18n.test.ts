@@ -36,6 +36,15 @@ const DESCRIPTIONS: string[] = [
   'chat.slash.goal.description',
   'chat.slash.fork.description',
   'chat.slash.help.description',
+  'chat.slash.resume.description',
+  'chat.slash.permissions.description',
+  'chat.slash.fast.description',
+  'chat.slash.usage.description',
+  'chat.slash.mcp.description',
+  'chat.slash.config.description',
+  'chat.slash.rewind.description',
+  'chat.slash.rename.description',
+  'chat.slash.export.description',
 ];
 
 describe('le descrizioni dei comandi slash', () => {
@@ -81,7 +90,9 @@ describe('the answers to commands the CLI refuses in Topics', () => {
   it('exist in both languages, and name the command they answer when it varies', async () => {
     const { CLI_REFUSED } = await import('./cliRefused');
     const keys = new Set(Object.values(CLI_REFUSED).map((a) => a.key));
-    expect(keys.size).toBeGreaterThan(3);
+    // Three since `/resume`, `/export` and `/permissions` are Topics' own
+    // (CMDUI-02, CMDUI-03): the terminal's commands, `/exit`, `/memory`.
+    expect(keys.size).toBeGreaterThanOrEqual(3);
     for (const key of keys) {
       for (const lingua of ['it', 'en'] as const) {
         const rendered = t(key, lingua, { name: 'vim' });

@@ -1,10 +1,14 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download, RotateCw } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download, RotateCw, SquareSlash } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { COMPOSER_CARD, COMPOSER_TEXTAREA } from './composerStyles';
-import { offeredSlashCommands, type SlashCommandEntry } from './slashCommands';
+import { offeredSlashCommands } from './slashCommands';
+import { engineRow } from './commandMap';
+import { ResumePicker } from './ResumePicker';
+import { SuggestionMenu } from '../Shared/SuggestionMenu';
+import { rememberSlashNames } from '../../state/knownSlashNames';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useServerTurnAsked, useSessionBackgroundWork, useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
@@ -58,6 +62,19 @@ import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 
 
+/** A row of the «/» menu (CMDUI-01). */
+interface SlashMenuItem {
+  cmd: string;
+  description: string;
+  group: 'topics' | 'engine' | 'skills';
+  /** It makes the model work: a paid turn, said on the row. */
+  turn: boolean;
+  /** For a control, what it opens. */
+  opens?: string;
+  /** Picking it inserts `/x ` instead of running it. */
+  takesArgs: boolean;
+}
+
 // ---- Add Menu (allegati + voce + comandi) ----
 //
 // Era il menu «⋯» in fondo a destra, e conteneva SOLO i comandi e la voce.
@@ -76,8 +93,7 @@ function AddMenu({
   voiceCallSupported, sttSupported, uploading,
   dictationBusy, dictationModel,
   toggleCall, toggleListening, stopSpeaking, setAutoTTS,
-  slashCommands,
-  onSlashCommand,
+  onOpenCommands,
   onAttach,
   onExport,
   allowAttachments,
@@ -93,9 +109,8 @@ function AddMenu({
   dictationModel: string | null;
   toggleCall: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
-  /** The commands this topic's provider is offered (`offeredSlashCommands`). */
-  slashCommands: readonly SlashCommandEntry[];
-  onSlashCommand: (cmd: string) => void;
+  /** Opens the «/» menu: the one row that stands for every command (CMDUI-07). */
+  onOpenCommands: () => void;
   /** Apre il selettore di file (la vecchia graffetta). */
   onAttach: () => void;
   /** Export the conversation as a Markdown download (absent → row hidden). */
@@ -112,9 +127,6 @@ function AddMenu({
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  // `SLASH_COMMANDS` carries keys, not sentences: it is a module, so it is the
-  // two places that DRAW that resolve them. This is one, the `/` menu below is
-  // the other.
   const tr = useT();
 
   // `/mcp` typed in the composer opens the same panel the «Strumenti» row
@@ -249,26 +261,21 @@ function AddMenu({
           </Suspense>
         )}
 
+        {/* The commands used to be repeated here, one row each, as the door
+            «always reachable». The «/» menu is that door now, built for this
+            chat (CMDUI-07): one row opens it, so the two lists cannot drift. */}
         {allowSlashCommands && <>
-        {/* Divider */}
         <div className="h-px bg-app-border my-1" />
-
-        {/* Slash commands */}
-        {slashCommands.map((cmd) => {
-          const Icon = cmd.icon;
-          return (
-            <button
-              key={cmd.cmd}
-              type="button"
-              onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-compact transition-colors hover:bg-app-hover text-app-text"
-            >
-              <Icon size={14} className="text-app-text-muted" />
-              <span className="font-mono text-primary text-mini whitespace-nowrap">{cmd.cmd}</span>
-              <span className="text-mini text-app-text-muted text-right truncate">{tr(cmd.descriptionKey)}</span>
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => { setOpen(false); onOpenCommands(); }}
+          className={`${rowClass} text-app-text`}
+          data-testid="composer-open-commands"
+        >
+          <SquareSlash size={14} />
+          {tr('chat.composer.commands')}
+          <span className="ml-auto font-mono text-mini text-app-text-muted">/</span>
+        </button>
         </>}
       </Menu>
     </>
@@ -362,6 +369,8 @@ interface ChatInputProps {
    * effort panel, `/context` the context inspector.
    */
   controlsRef?: React.RefObject<ComposerControls | null>;
+  /** Runs a command picked from the «/» menu, as if it had been typed and sent (CMDUI-07). */
+  onRunCommand?: (text: string) => void;
 }
 
 /** See `ChatInputProps.controlsRef`. */
@@ -369,6 +378,14 @@ export interface ComposerControls {
   openModel: () => void;
   openEffort: () => void;
   openContext: () => void;
+  /** The autonomy selector (`/permissions`). */
+  openAutonomy: () => void;
+  /** The fast-mode switch, focused (`/fast`). */
+  openFast: () => void;
+  /** The «/» menu, whole (`/help`). */
+  openCommands: () => void;
+  /** The list of `/resume`, filtered by `filter`. */
+  openResume: (filter?: string) => void;
   /** The MCP tools panel of the «+» (`/mcp`). */
   openTools: () => void;
   /** The AI providers panel of the model chip, with the Claude plan (`/usage`, `/cost`). */
@@ -427,6 +444,7 @@ export function ChatInput({
   onUpdateTopic,
   onMessage,
   controlsRef,
+  onRunCommand,
 }: ChatInputProps) {
   const tr = useT();
   const toast = useToast();
@@ -596,6 +614,11 @@ export function ChatInput({
   // hand their door up; the inspector's state lives here.
   const openModelRef = useRef<(() => void) | null>(null);
   const openEffortRef = useRef<(() => void) | null>(null);
+  const openAutonomyRef = useRef<(() => void) | null>(null);
+  const fastButtonRef = useRef<HTMLButtonElement>(null);
+  // `/help`, `/resume` and the «Comandi /» row of the «+» open the «/» menu
+  // from outside the field: the field is given the text and the focus.
+  const openSlashMenuRef = useRef<((text: string) => void) | null>(null);
   const openToolsRef = useRef<((returnFocus?: HTMLElement | null) => void) | null>(null);
   const openProvidersRef = useRef<((returnFocus?: HTMLElement | null) => void) | null>(null);
   useEffect(() => {
@@ -603,6 +626,10 @@ export function ChatInput({
     controlsRef.current = {
       openModel: () => openModelRef.current?.(),
       openEffort: () => openEffortRef.current?.(),
+      openAutonomy: () => openAutonomyRef.current?.(),
+      openFast: () => fastButtonRef.current?.focus(),
+      openCommands: () => openSlashMenuRef.current?.('/'),
+      openResume: (filter) => openSlashMenuRef.current?.(`/resume ${filter ?? ''}`),
       openContext: () => { if (!isDraftTopic && !isGlobalOrchestrator) setShowContextPopover(true); },
       // Opened by a TYPED command: on close the focus goes back to the field
       // it was typed in, so the next words land in the composer.
@@ -697,18 +724,22 @@ export function ChatInput({
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
   const [slashFilter, setSlashFilter] = useState('');
-  const slashMenuRef = useRef<HTMLDivElement>(null);
-  // The user's custom commands/skills (/vai, /commit, /recap, …) for
-  // autocomplete. Fetched once per topic: the project's commands are those of
-  // THIS topic's project (SKILL-01); the headless CLI expands them on send.
+  // The list of `/resume` (CMDUI-03) takes the menu's place while the field
+  // reads `/resume …`; the words after it filter the list.
+  const [resumeOpen, setResumeOpen] = useState(false);
+  // The engine's commands and the person's skills (/vai, /commit, /init, …),
+  // for the engine this topic DECLARES (CMDUI-01). Asked again each time the
+  // menu opens: the engine's group arrives with its CLI's first turn.
   const [customCmds, setCustomCmds] = useState<CustomSlashCommand[]>([]);
   const slashListTopicId = isDraftTopic ? undefined : topic.id;
-  useEffect(() => {
-    if (isGlobalOrchestrator) return;
+  const loadSlashList = useCallback(() => {
+    if (isGlobalOrchestrator) return () => {};
     let alive = true;
-    slashCommandsApi.list(slashListTopicId).then((c) => { if (alive) setCustomCmds(c); }).catch(() => { /* best-effort */ });
+    slashCommandsApi.list(slashListTopicId, declaredProvider).then((c) => { if (alive) { setCustomCmds(c); rememberSlashNames(c.map((x) => x.name)); } }).catch(() => { /* best-effort */ });
     return () => { alive = false; };
-  }, [isGlobalOrchestrator, slashListTopicId]);
+  }, [isGlobalOrchestrator, slashListTopicId, declaredProvider]);
+  useEffect(() => loadSlashList(), [loadSlashList]);
+  useEffect(() => { if (showSlashMenu) return loadSlashList(); return undefined; }, [showSlashMenu, loadSlashList]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
@@ -914,39 +945,90 @@ export function ChatInput({
     return () => window.removeEventListener('chat:attach-image', handler as EventListener);
   }, [setPendingImages, composerId]);
 
-  // Built-in app commands (handled by the composer) + the user's custom
-  // commands/skills (which fall through to the child, expanded by the CLI).
-  // Built-in wins on a name clash. The menu render only reads {cmd, description}.
-  const allSlashCommands = useMemo(() => {
+  // THE «/» MENU, IN THREE GROUPS (CMDUI-01): what Topics runs or opens, the
+  // engine's own commands as the engine listed them, the person's skills
+  // where the engine expands them. Every name goes through the map
+  // (`commandMap.ts`): an alias is its command, a refused or hidden name has
+  // no row, a name that makes the model work says «turno».
+  const engineLabel = useMemo(() => {
+    if (!declaredProvider) return '';
+    const p = providersSnapshot?.providers.find((x) => x.name === declaredProvider);
+    return p?.label ?? (declaredProvider === 'claude-code' || declaredProvider === 'claude-code-team' ? 'Claude Code' : declaredProvider);
+  }, [declaredProvider, providersSnapshot]);
+  const allSlashCommands = useMemo((): SlashMenuItem[] => {
     if (isGlobalOrchestrator) return [];
-    const builtin = offeredCommands.map((c) => ({ cmd: c.cmd, description: tr(c.descriptionKey) }));
-    const builtinNames = new Set(builtin.map((c) => c.cmd));
-    const custom = customCmds
-      .map((c) => ({ cmd: '/' + c.name, description: c.description || (c.kind === 'skill' ? 'Skill' : 'Comando') }))
-      .filter((c) => !builtinNames.has(c.cmd));
-    return [...builtin, ...custom];
+    const rows: SlashMenuItem[] = offeredCommands.map((c) => ({
+      cmd: c.cmd, description: tr(c.descriptionKey), group: 'topics', turn: false,
+      opens: c.opensKey ? tr(c.opensKey) : undefined, takesArgs: !!c.takesArgs,
+    }));
+    const taken = new Set(rows.map((r) => r.cmd));
+    for (const c of customCmds) {
+      const cmd = '/' + c.name;
+      if (taken.has(cmd)) continue;
+      if ((c.group ?? 'skills') === 'engine') {
+        const row = engineRow(c.name, declaredProvider);
+        if (!row) continue;
+        rows.push({ cmd, description: c.description, group: 'engine', turn: row.turn, takesArgs: !!c.argumentHint || row.turn });
+      } else {
+        // A skill (or a command of the person's) is a prompt: it makes the
+        // model work, and it may want words after it, so it is inserted.
+        rows.push({ cmd, description: c.description || tr(c.kind === 'skill' ? 'chat.slash.kind.skill' : 'chat.slash.kind.command'), group: 'skills', turn: true, takesArgs: true });
+      }
+      taken.add(cmd);
+    }
+    return rows;
     // `tr` changes identity when the catalogue of the chosen language lands:
     // without it here the menu would keep the fallback language until something
     // else redrew it.
-  }, [customCmds, tr, isGlobalOrchestrator, offeredCommands]);
+  }, [customCmds, tr, isGlobalOrchestrator, offeredCommands, declaredProvider]);
 
-  const filteredSlashCommands = allSlashCommands.filter(c =>
-    c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
+  const filteredSlashCommands = useMemo(
+    () => allSlashCommands.filter((c) => c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())),
+    [allSlashCommands, slashFilter],
   );
+  // `/resume`'s list is shown while the field still says `/resume`.
+  const resumeVisible = resumeOpen && /^\/resume(\s|$)/i.test(message);
+  const slashMenuOpen = showSlashMenu && !resumeVisible && filteredSlashCommands.length > 0;
+  const closeSlashMenu = useCallback(() => { setShowSlashMenu(false); setSlashFilter(''); }, []);
 
-  // Unified dismissal for the slash-command menu: capture-phase outside-pointer
-  // + Escape close. The textarea stays "inside" (arrow/Enter selection is
-  // handled by handleKeyDown) and the caret is left untouched.
-  const slashMenuOpen = showSlashMenu && filteredSlashCommands.length > 0;
-  useDismissable({
-    open: slashMenuOpen,
-    onClose: () => { setShowSlashMenu(false); setSlashFilter(''); },
-    refs: [textareaRef, slashMenuRef],
-    restoreFocus: false,
-  });
-  // Closing leaves the DOM at once as before; an inert copy fades out
-  // (lib/exitGhost, MOTION-04) instead of the menu vanishing in one frame.
-  useExitGhost(slashMenuRef, slashMenuOpen);
+  /**
+   * A row picked (click, Enter, Tab). A command that wants no words RUNS
+   * (CMDUI-07: it used to be inserted and wait for a second Enter); one that
+   * wants them, or a prompt that makes the model work, is inserted with its
+   * space. `/resume` opens its own list in the menu's place.
+   */
+  const pickSlash = useCallback((item: SlashMenuItem) => {
+    closeSlashMenu();
+    if (item.cmd === '/resume' && topic.projectPath && !isDraftTopic) {
+      setMessage('/resume ');
+      setResumeOpen(true);
+      textareaRef.current?.focus();
+      return;
+    }
+    if (item.takesArgs || !onRunCommand) {
+      setMessage(item.cmd + ' ');
+      textareaRef.current?.focus();
+      return;
+    }
+    setMessage('');
+    onRunCommand(item.cmd);
+  }, [closeSlashMenu, topic.projectPath, isDraftTopic, setMessage, textareaRef, onRunCommand]);
+
+  useEffect(() => {
+    openSlashMenuRef.current = (text: string) => {
+      setMessage(text);
+      if (/^\/resume(\s|$)/i.test(text) && topic.projectPath && !isDraftTopic) {
+        setResumeOpen(true);
+      } else {
+        setShowSlashMenu(true);
+        setSlashFilter(text.split(/\s/, 1)[0] ?? '/');
+        setSlashMenuIndex(0);
+      }
+      textareaRef.current?.focus();
+    };
+    return () => { openSlashMenuRef.current = null; };
+  }, [setMessage, textareaRef, topic.projectPath, isDraftTopic]);
+
 
   const handleMentionSelect = useCallback((file: MentionedFile) => {
     if (mentionStartPos >= 0) {
@@ -979,6 +1061,11 @@ export function ChatInput({
       setShowSlashMenu(false);
       setSlashFilter('');
     }
+    // `/resume ` typed by hand opens its list, on a chat with a project; the
+    // words after it filter (CMDUI-03). Without a project the command is sent
+    // and its card says why.
+    if (/^\/resume\s/i.test(value) && topic.projectPath && !isDraftTopic && !isGlobalOrchestrator) setResumeOpen(true);
+    else if (!/^\/resume(\s|$)/i.test(value)) setResumeOpen(false);
 
     // Detect @ trigger for a FILE mention
     {
@@ -1077,17 +1164,25 @@ export function ChatInput({
       if (e.key === 'Escape') { e.preventDefault(); setShowMentionMenu(false); setMentionStartPos(-1); return; }
     }
 
-    // Handle slash menu navigation
-    if (showSlashMenu && filteredSlashCommands.length > 0) {
+    // Handle slash menu navigation: the arrows cross the groups, the headers
+    // are not rows (CMDUI-07).
+    if (slashMenuOpen) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSlashMenuIndex(i => (i + 1) % filteredSlashCommands.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSlashMenuIndex(i => (i - 1 + filteredSlashCommands.length) % filteredSlashCommands.length); return; }
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         const selected = filteredSlashCommands[slashMenuIndex];
-        if (selected) { setMessage(selected.cmd + ' '); setShowSlashMenu(false); setSlashFilter(''); }
+        if (selected) pickSlash(selected);
         return;
       }
-      if (e.key === 'Escape') { e.preventDefault(); setShowSlashMenu(false); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeSlashMenu(); return; }
+    }
+    // `/resume` typed whole and sent: its list, instead of a message.
+    if (e.key === 'Enter' && !e.shiftKey && !resumeVisible && /^\/resume\s*$/i.test(message) && topic.projectPath && !isDraftTopic && !isGlobalOrchestrator) {
+      e.preventDefault();
+      setMessage('/resume ');
+      setResumeOpen(true);
+      return;
     }
     
     if (handleHistoryArrow(e)) return;
@@ -1448,7 +1543,7 @@ export function ChatInput({
 
             {/* Row 0b: Reply preview (inside card) */}
             {replyingTo && (
-              <div className="mx-3 mt-2 flex items-center gap-1.5">
+              <div data-testid="chat-reply-preview" className="mx-3 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-primary rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-mini text-app-text-tertiary font-medium">
@@ -1519,11 +1614,7 @@ export function ChatInput({
                 toggleListening={toggleListening}
                 stopSpeaking={stopSpeaking}
                 setAutoTTS={setAutoTTS}
-                slashCommands={offeredCommands}
-                onSlashCommand={(cmd) => {
-                  setMessage(cmd + ' ');
-                  textareaRef.current?.focus();
-                }}
+                onOpenCommands={() => openSlashMenuRef.current?.('/')}
                 allowAttachments={!isGlobalOrchestrator}
                 allowSlashCommands={!isGlobalOrchestrator}
                 openToolsRef={openToolsRef}
@@ -1681,7 +1772,7 @@ export function ChatInput({
                   risponde (veloce, quale modello, quanto ci pensa) e stanno
                   dietro, nell'ordine in cui le si cambia. */}
               {onAutonomyChange && (
-                <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
+                <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} openRef={openAutonomyRef} />
               )}
               {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
                   stessa cosa: un interruttore in localStorage che iniettava
@@ -1697,6 +1788,7 @@ export function ChatInput({
                   esce nel formato di sempre. */}
               {onToggleFastMode && fastUi && (
                 <button
+                  ref={fastButtonRef}
                   type="button"
                   onClick={onToggleFastMode}
                   className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
@@ -1815,31 +1907,64 @@ export function ChatInput({
             )}
 
             {/* Popover menus (anchored to form) */}
-            {slashMenuOpen && (
-              <div ref={slashMenuRef} role="listbox" className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} z-50 py-1.5 max-h-48 overflow-y-auto`}>
-                {filteredSlashCommands.map((cmd, idx) => (
-                  <button
-                    key={cmd.cmd}
-                    type="button"
-                    role="option"
-                    aria-selected={idx === slashMenuIndex}
-                    onClick={() => {
-                      setMessage(cmd.cmd + ' ');
-                      setShowSlashMenu(false);
-                      setSlashFilter('');
-                      textareaRef.current?.focus();
-                    }}
-                    className={`w-full px-3 py-1.5 text-left grid grid-cols-[auto_1fr] gap-x-3 items-baseline transition-colors ${
-                      idx === slashMenuIndex
-                        ? 'bg-primary/10 text-app-text'
-                        : 'text-app-text hover:bg-app-hover'
-                    }`}
-                  >
-                    <span className="text-compact font-mono text-primary whitespace-nowrap">{cmd.cmd}</span>
-                    <span className="text-mini text-app-text-muted truncate">{cmd.description}</span>
-                  </button>
-                ))}
-              </div>
+            {/* The «/» menu (CMDUI-01, CMDUI-07): the shell every «type, see,
+                pick» field uses, held to the composer on the phone too (a
+                sheet would cover the field that drives it). */}
+            <SuggestionMenu<SlashMenuItem>
+              visible={slashMenuOpen}
+              items={filteredSlashCommands}
+              getKey={(i) => i.cmd}
+              selectedIndex={slashMenuIndex}
+              onClose={closeSlashMenu}
+              inputRef={textareaRef}
+              headerIcon={<SquareSlash size={12} className="text-app-text-secondary" />}
+              headerLabel={tr('chat.slash.header')}
+              filterBadge={slashFilter.length > 1 ? slashFilter : undefined}
+              hint={isMobile ? '' : tr('chat.slash.hint')}
+              listboxLabel={tr('chat.slash.header')}
+              groupOf={(i) => i.group}
+              groupLabel={(g) => (g === 'topics' ? 'Topics' : g === 'engine' ? engineLabel : tr('chat.slash.group.skills'))}
+              footer={tr('chat.slash.footer')}
+              maxHeightClass={isMobile ? 'max-h-[50vh]' : 'max-h-80'}
+              testId="slash-menu"
+              renderItem={(item, idx, { selected }) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  data-testid="slash-menu-row"
+                  data-cmd={item.cmd}
+                  data-group={item.group}
+                  data-turn={item.turn ? 'true' : undefined}
+                  // The field keeps the focus: the caret stays where it was.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickSlash(item)}
+                  onMouseEnter={() => setSlashMenuIndex(idx)}
+                  className={`w-full px-3 ${isMobile ? 'min-h-[44px] py-2' : 'py-1.5'} text-left flex items-center gap-3 transition-colors ${
+                    selected ? 'bg-primary/10' : 'hover:bg-app-hover'
+                  }`}
+                >
+                  {/* On the phone the right-hand label goes and the colour of
+                      the name stays: neutral for what makes the model work. */}
+                  <span className={`text-compact font-mono whitespace-nowrap ${item.turn ? 'text-app-text' : 'text-primary'}`}>{item.cmd}</span>
+                  <span className="text-mini text-app-text-muted truncate flex-1 min-w-0">{item.description}</span>
+                  {!isMobile && (item.opens || item.turn) && (
+                    <span data-testid="slash-menu-mark" className="text-micro text-app-text-tertiary whitespace-nowrap shrink-0">
+                      {item.opens ? tr('chat.slash.opens', { what: item.opens }) : tr('chat.slash.turn')}
+                    </span>
+                  )}
+                </button>
+              )}
+            />
+            {resumeVisible && topic.projectPath && (
+              <ResumePicker
+                topicId={topic.id}
+                filter={message.replace(/^\/resume\s*/i, '')}
+                inputRef={textareaRef}
+                isMobile={isMobile}
+                onClose={() => setResumeOpen(false)}
+                onAdopted={() => { setResumeOpen(false); setMessage(''); }}
+              />
             )}
 
             {topic.projectPath && (

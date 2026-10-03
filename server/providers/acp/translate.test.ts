@@ -208,9 +208,33 @@ describe("plan → passi del goal (3.4)", () => {
   });
 });
 
+/** @covers CMDUI-01 */
+describe("available_commands_update → the agent's commands for the «/» menu", () => {
+  test("jcode's announcement, recorded on 0.90.0, becomes three commands with their hints", () => {
+    const update = {
+      availableCommands: [
+        { description: "Switch the model for this session, or show the current model", input: { hint: "model id (optional)" }, name: "model" },
+        { description: "List models available from the active provider", name: "models" },
+        { description: "Set reasoning effort, or show the current effort", input: { hint: "none|minimal|low|medium|high|xhigh|max (optional)" }, name: "effort" },
+      ],
+      sessionUpdate: "available_commands_update",
+    };
+    expect(tr(update)).toEqual([{ kind: "commands", commands: [
+      { name: "model", description: "Switch the model for this session, or show the current model", argumentHint: "model id (optional)" },
+      { name: "models", description: "List models available from the active provider" },
+      { name: "effort", description: "Set reasoning effort, or show the current effort", argumentHint: "none|minimal|low|medium|high|xhigh|max (optional)" },
+    ] }]);
+  });
+
+  test("an empty or malformed announcement says nothing", () => {
+    expect(tr({ sessionUpdate: "available_commands_update" })).toEqual([]);
+    expect(tr({ sessionUpdate: "available_commands_update", availableCommands: [{ name: "a b" }, { name: 3 }] })).toEqual([]);
+  });
+});
+
 describe("rami muti, di proposito", () => {
   test("le altre superfici che non abbiamo restano mute", () => {
-    for (const s of ["available_commands_update", "current_mode_update", "config_option_update", "session_info_update"]) {
+    for (const s of ["current_mode_update", "config_option_update", "session_info_update"]) {
       expect(tr({ sessionUpdate: s })).toEqual([]);
     }
   });

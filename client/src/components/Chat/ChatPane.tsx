@@ -6,7 +6,8 @@ import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
 import { TopicBrowserWindow, useTopicBrowserPresence, usePaneWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
-import { X } from 'lucide-react';
+import { Pin } from 'lucide-react';
+import { requestScrollToMessage } from '../../state/scrollToMessage';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, chatApi, apiErrorCode, type CommandResult } from '../../lib/api';
@@ -27,7 +28,9 @@ import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
-import { offeredSlashCommands } from './slashCommands';
+import { canonicalCommand, invokedName, topicsEntryFor } from './commandMap';
+import { CommandAnswerCard } from './CommandAnswerCard';
+import { COMMAND_ANSWER_EVENT, statusRows, type CommandAnswer, type CommandAnswerEventDetail } from '../../lib/commandAnswer';
 import { ChatInput, type ComposerControls } from './ChatInput';
 import { cliRefusedCommand, isClearCommand, topicsHomeCommand } from './cliRefused';
 import { shortcut } from '../../lib/shortcutLabel';
@@ -76,22 +79,6 @@ import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAtt
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
 import { apiFetch } from '../../lib/shell/net';
-
-/**
- * The text `/help` prints, DERIVED from the composer's own menu.
- *
- * It used to be a second hand-written array right here, and the two drifted the
- * way two hand-kept lists always do: `/help` named ten commands while the menu
- * offered more. The one place a user goes to ask "what can I type here" gave
- * the shorter, older answer — and there is no way to notice, because both
- * lists look complete on their own.
- *
- * A FUNCTION and not a constant, because the array carries i18n KEYS: the text
- * only exists once a language is chosen, and it changes when the language does.
- * The command itself is not translated, it is what one types.
- */
-const slashCommandsHelp = (tr: (key: string) => string, provider: string | null) =>
-  offeredSlashCommands(provider).map((c) => `${c.cmd}: ${tr(c.descriptionKey)}`);
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -316,21 +303,30 @@ function ChatPaneComponent({
   const [fileDragOver, setFileDragOver] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
-  const [showPinned] = useState(false);
+  // The list of pinned messages, opened from the line above the messages (CMDUI-10).
+  const [showPinned, setShowPinned] = useState(false);
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
   const [, setCommandLoading] = useState(false);
   /**
-   * The answer of a typed command. `stays`: it does not close by itself. Only a
-   * one-line confirmation (model, effort, browser opening) closes after five
-   * seconds; a timer used to close every result, so a fifteen-line `/help`, a
-   * four-line `/rewind` report and the «compacting» notice of an operation
-   * that takes minutes were all gone before anyone had read them.
+   * The answer of a command: a card at the end of the conversation, a state
+   * of THIS SCREEN (CMDUI-04). Never saved, never in the history sent to the
+   * engine, gone on reload. It closes with its X, with the next message, or
+   * when another command replaces it: no timer. It used to be a strip a timer
+   * closed after five seconds, fourteen lines of `/help` included.
    */
-  const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string; stays?: boolean } | null>(null);
+  const [commandAnswer, setCommandAnswer] = useState<CommandAnswer | null>(null);
+  /** The title of the card the running command fills: `/name`, set as the command is read. */
+  const commandTitleRef = useRef('');
+  /** The command's words in the card: a sentence, or a refusal. */
+  const setCommandResult = useCallback((r: { type: 'success' | 'error'; message: string; action?: CommandAnswer['action'] } | null) => {
+    setCommandAnswer(r ? { kind: r.type === 'error' ? 'error' : 'text', title: commandTitleRef.current, body: r.message, ...(r.action ? { action: r.action } : {}) } : null);
+  }, []);
   /**
    * A compaction waiting for its outcome: the marker count before it, how many
    * messages the chat had, whether its turn has been seen running.
    */
+  /** What the engine said about the last `/compact` (its command answer). */
+  const compactSaidRef = useRef<string | null>(null);
   const compactWatchRef = useRef<{ before: number; messagesBefore: number; sawIdle: boolean; sawTurn: boolean } | null>(null);
   /** The composer's doors to its own controls, for a typed `/model`, `/effort` or `/context`. */
   const composerControlsRef = useRef<ComposerControls | null>(null);
@@ -542,12 +538,12 @@ function ChatPaneComponent({
       const last = markers[markers.length - 1];
       const pre = last?.preTokens;
       const post = last?.postTokens;
-      setCommandResult({
-        type: 'success',
-        message:
-          typeof pre === 'number' && typeof post === 'number'
-            ? tr('chat.compact.done', { before: pre.toLocaleString(), after: post.toLocaleString() })
-            : tr('chat.compact.doneNoCount'),
+      setCommandAnswer({
+        kind: 'facts',
+        title: '/compact',
+        body: typeof pre === 'number' && typeof post === 'number'
+          ? tr('chat.compact.done', { before: pre.toLocaleString(), after: post.toLocaleString() })
+          : tr('chat.compact.doneNoCount'),
       });
       return;
     }
@@ -556,14 +552,33 @@ function ChatPaneComponent({
     if (currentStreaming) { if (w.sawIdle) w.sawTurn = true; return; }
     if (!w.sawTurn) { w.sawIdle = true; return; }
     compactWatchRef.current = null;
-    // The reason is what the CLI said in that turn, when it said something.
-    const said = currentMessages.slice(w.messagesBefore).filter((m) => m.role === 'assistant' && m.content?.trim()).at(-1)?.content.trim();
-    setCommandResult({
-      type: 'error',
-      stays: true,
-      message: said ? tr('chat.compact.notDone', { reason: said }) : tr('chat.compact.notDoneNoReason'),
-    });
-  }, [currentMarkers, currentStreaming, currentMessages, tr]);
+    // The reason is what the CLI said in that turn (its command answer, which
+    // is never a message of the chat any more), when it said something.
+    const said = compactSaidRef.current;
+    setCommandAnswer({ kind: 'error', title: '/compact', body: said ? tr('chat.compact.notDone', { reason: said }) : tr('chat.compact.notDoneNoReason') });
+  }, [currentMarkers, currentStreaming, tr]);
+
+  // THE ANSWER OF A COMMAND, from the engine (CMDUI-04): the CLI's own words
+  // for a local command, and `/compact`'s outcome. Into the card, never into
+  // the thread. A failed compaction closes its watch with the CLI's reason.
+  useEffect(() => {
+    const onAnswer = (e: Event) => {
+      const d = (e as CustomEvent<CommandAnswerEventDetail>).detail;
+      if (!d || d.sessionKey !== topic.sessionKey) return;
+      if (d.command === 'compact') {
+        const reason = d.outcome?.error ?? d.text;
+        compactSaidRef.current = reason || null;
+        if (d.outcome?.ok === true) return; // the marker tells the tokens
+        compactWatchRef.current = null;
+        setCommandAnswer({ kind: 'error', title: '/compact', body: reason ? tr('chat.compact.notDone', { reason }) : tr('chat.compact.notDoneNoReason') });
+        return;
+      }
+      if (!d.text) return;
+      setCommandAnswer({ kind: 'text', title: `/${d.command}`, body: d.text });
+    };
+    window.addEventListener(COMMAND_ANSWER_EVENT, onAnswer);
+    return () => window.removeEventListener(COMMAND_ANSWER_EVENT, onAnswer);
+  }, [topic.sessionKey, tr]);
 
   // Picker keeps a simple local override per pane. On first paint we seed it
   // from the topic's persisted `provider`/`model` (set previously via PATCH);
@@ -943,7 +958,7 @@ function ChatPaneComponent({
       const key = ({ turn_in_progress: 'chat.fork.busy', fork_unsupported: 'chat.fork.unsupported', nothing_to_fork: 'chat.fork.nothing' } as Record<string, string>)[apiErrorCode(e) ?? ''];
       setCommandResult({ type: 'error', message: key ? tr(key) : errMessage(e) });
     }
-  }, [topic.id, topic.name, sendMessage, loadHistory, tr]);
+  }, [topic.id, topic.name, sendMessage, loadHistory, tr, setCommandResult]);
   const handleFork = useCallback(() => { void forkHere(); }, [forkHere]);
   // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
   const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);
@@ -969,17 +984,64 @@ function ChatPaneComponent({
     URL.revokeObjectURL(url);
   }, [currentMessages, topic.name]);
 
+  /** `toggleFastMode` is declared further down: `/fast on|off` reaches it through here. */
+  const toggleFastModeRef = useRef<(() => void) | null>(null);
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
-    const cmd = text.toLowerCase().trim();
+    // The provider the topic DECLARES (CMD-08), the same one the menu is
+    // filtered by (`ChatInput`): the refusals and the aliases below are
+    // Claude Code's, and other providers run those names themselves.
+    const declared = topic.provider || getProvidersSnapshotState().snapshot?.providers.find((p) => p.isDefault)?.name || null;
+    // AN ALIAS IS ITS COMMAND (CMDUI-01): `/cost` is `/usage`, `/new` and
+    // `/reset` are `/clear` on Claude Code. Resolved before every branch; the
+    // text that travels to the engine, when one does, is the one typed.
+    const invoked = invokedName(text);
+    const canonical = invoked ? canonicalCommand(invoked, declared) : null;
+    const cmd = canonical ? `/${canonical}${text.trimStart().slice(invoked!.length + 1)}`.toLowerCase().trim() : text.toLowerCase().trim();
+    commandTitleRef.current = canonical ? `/${canonical}` : '';
     if (isGlobalOrchestrator && cmd.startsWith('/')) {
       setCommandResult({ type: 'error', message: tr('chat.orchestrator.slashBlocked') });
       return true;
     }
-    // The provider the topic DECLARES (CMD-08), the same one the menu is
-    // filtered by (`ChatInput`): the refusals and the /new alias below are
-    // Claude Code's, and other providers run those names themselves.
-    const declared = topic.provider || getProvidersSnapshotState().snapshot?.providers.find((p) => p.isDefault)?.name || null;
-    if (cmd === '/status' || cmd.startsWith('/status ')) { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // `/status` is the facts that decide the next turn (CMD-07), as rows.
+    if (cmd === '/status' || cmd.startsWith('/status ')) { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandAnswer({ kind: 'facts', title: tr('chat.command.title.status'), rows: statusRows(r.output || '') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // `/help` IS the menu, whole (CMDUI-07): a second list would drift from it.
+    // After the send has emptied the field: the menu puts its own `/` there.
+    if (cmd === '/help' || cmd.startsWith('/help ')) { setCommandAnswer(null); setTimeout(() => composerControlsRef.current?.openCommands(), 0); return true; }
+    // `/resume` (CMDUI-03): the sessions of this project born outside Topics.
+    // Its list opens over the composer; without a project there is none.
+    if (cmd === '/resume' || cmd.startsWith('/resume ')) {
+      if (!topic.projectPath || isDraftTopicId(topic.id)) { setCommandResult({ type: 'error', message: tr('chat.resume.noProject') }); return true; }
+      setCommandAnswer(null);
+      const filter = text.trim().slice('/resume'.length).trim();
+      setTimeout(() => composerControlsRef.current?.openResume(filter), 0);
+      return true;
+    }
+    // `/permissions` opens the autonomy selector beside the field (CMDUI-02).
+    if (cmd === '/permissions' || cmd.startsWith('/permissions ')) { setCommandAnswer(null); composerControlsRef.current?.openAutonomy(); return true; }
+    // `/fast` is the fast-mode switch, where there is one; `/fast on|off` sets it.
+    if ((cmd === '/fast' || cmd.startsWith('/fast ')) && topicsEntryFor('fast', declared)) {
+      const want = cmd.slice('/fast'.length).trim();
+      if (!want) { setCommandAnswer(null); composerControlsRef.current?.openFast(); return true; }
+      if (want !== 'on' && want !== 'off') { setCommandResult({ type: 'error', message: tr('chat.fast.usage') }); return true; }
+      if ((want === 'on') !== fastMode) toggleFastModeRef.current?.();
+      setCommandResult({ type: 'success', message: tr(want === 'on' ? 'chat.fast.on' : 'chat.fast.off') });
+      return true;
+    }
+    // `/rename <name>` names the chat of Topics, not the CLI's session.
+    if (cmd === '/rename' || cmd.startsWith('/rename ')) {
+      const name = text.trim().slice(text.trim().split(/\s/, 1)[0]!.length).trim();
+      if (!name) { setCommandResult({ type: 'error', message: tr('chat.rename.usage') }); return true; }
+      await onUpdateTopic(topic.id, { name });
+      setCommandResult({ type: 'success', message: tr('chat.rename.done', { name }) });
+      return true;
+    }
+    // `/export` downloads the chat as Markdown (OpenClaw keeps its own).
+    if ((cmd === '/export' || cmd.startsWith('/export ')) && topicsEntryFor('export', declared)) {
+      if (currentMessages.length === 0) { setCommandResult({ type: 'error', message: tr('chat.export.empty') }); return true; }
+      handleExportConversation();
+      setCommandResult({ type: 'success', message: tr('chat.export.done') });
+      return true;
+    }
     // `/context` opens the inspector the ring opens. It used to print the
     // envelope's own estimate in a banner while the ring, one row below, read
     // the model's real count: two answers to one question, the banner the
@@ -993,7 +1055,6 @@ function ChatPaneComponent({
     if (isClearCommand(cmd, declared)) { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     // The typed level travels (`/reasoning off`); bare, the gateway toggles.
     if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { const level = text.trim().slice('/reasoning'.length).trim() || undefined; setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey, level); setCommandResult({ type: 'success', message: r.message || tr('chat.command.reasoningToggled') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/help' || cmd.startsWith('/help ')) { setCommandResult({ type: 'success', message: slashCommandsHelp(tr, declared).join('\n'), stays: true }); return true; }
     if (cmd === '/fork' || cmd.startsWith('/fork ')) { await forkHere(text.trim().slice('/fork'.length)); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it
@@ -1023,7 +1084,6 @@ function ChatPaneComponent({
         const when = r.checkpoint.createdAt ? new Date(r.checkpoint.createdAt).toLocaleTimeString() : '';
         setCommandResult({
           type: 'success',
-          stays: true,
           message: [
             `Albero ripristinato al checkpoint «${r.checkpoint.label}»${when ? ` (${when})` : ''}.`,
             `${r.restored} file rimessi a posto, ${r.removed} creati dal turno rimossi.`,
@@ -1064,13 +1124,29 @@ function ChatPaneComponent({
     // e quanto puo' durare, si manda il testo alla CLI perche' faccia il lavoro,
     // e si lascia che sia il divider a raccontare il risultato. Non intercettarlo
     // e basta non funzionerebbe: senza `sendMessage` la CLI non compatta.
+    if (cmd === '/compact' && declared === 'topics') {
+      // The native engine has no command parser: it compacts now, through
+      // Topics (CMDUI-06), and the divider arrives like the automatic one's.
+      setCommandAnswer({ kind: 'running', title: '/compact', body: tr('chat.compact.running') });
+      try {
+        const r = await commandApi.execute(topic.sessionKey, 'compact') as { compacted?: boolean; before?: number; after?: number };
+        setCommandAnswer(r.compacted && typeof r.before === 'number' && typeof r.after === 'number'
+          ? { kind: 'facts', title: '/compact', body: tr('chat.compact.done', { before: r.before.toLocaleString(), after: r.after.toLocaleString() }) }
+          : { kind: 'text', title: '/compact', body: tr('chat.compact.nothing') });
+      } catch (e) {
+        setCommandAnswer({ kind: 'error', title: '/compact', body: apiErrorCode(e) === 'turn_in_progress' ? tr('chat.compact.busy') : errMessage(e) });
+      }
+      return true;
+    }
+    // An engine that does not compact on request says so, by name (CMDUI-06).
+    if (cmd === '/compact' && declared && !topicsEntryFor('compact', declared)) {
+      setCommandResult({ type: 'error', message: tr('chat.compact.unsupported', { engine: declared }) });
+      return true;
+    }
     if (cmd === '/compact') {
       const markersBefore = getCompactionMarkers?.(topic.sessionKey)?.length ?? 0;
-      setCommandResult({
-        type: 'success',
-        stays: true,
-        message: tr('chat.compact.running'),
-      });
+      compactSaidRef.current = null;
+      setCommandAnswer({ kind: 'running', title: '/compact', body: tr('chat.compact.running') });
       void sendMessage(topic.sessionKey, '/compact').catch(() => {
         setCommandResult({ type: 'error', message: tr('chat.compact.failed') });
       });
@@ -1154,7 +1230,7 @@ function ChatPaneComponent({
       try {
         const r = await commandApi.project(topic.sessionKey, sub, value || undefined);
         const info = projectInfoLines(r, tr);
-        setCommandResult({ type: 'success', message: info.join('\n'), stays: info.length > 1 });
+        setCommandResult({ type: 'success', message: info.join('\n') });
       } catch (e) {
         const key = PROJECT_ERROR_KEY[apiErrorCode(e) ?? ''];
         setCommandResult({ type: 'error', message: key ? tr(key, { value }) : errMessage(e) });
@@ -1195,17 +1271,19 @@ function ChatPaneComponent({
     // (CMD-06): answered here, saying what to use in Topics instead
     // (`cliRefused.ts`). They used to reach the CLI, which can only answer
     // «/X isn't available in this environment.», in English, as the agent.
-    const refusedCli = cliRefusedCommand(text, declared);
+    const refusedCli = cliRefusedCommand(cmd, declared);
     if (refusedCli) {
-      // An empty chat has nothing to download: the sentence must not say it started.
-      const exportsNothing = refusedCli.answer.action === 'export' && currentMessages.length === 0;
-      if (refusedCli.answer.action === 'export' && !exportsNothing) handleExportConversation();
-      setCommandResult({ type: 'success', stays: true, message: tr(exportsNothing ? 'chat.cliRefused.exportEmpty' : refusedCli.answer.key, { name: refusedCli.name, reopen: shortcut('T', { shift: true }), palette: shortcut('K'), close: shortcut('W') }) });
+      // A command of the terminal offers a terminal in the project, with the
+      // CLI typed and not run: there the command works.
+      const action = refusedCli.answer.terminal
+        ? { label: tr('chat.cliRefused.openTerminal'), run: () => { window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { sessionKey: topic.sessionKey, command: 'claude' } })); } }
+        : undefined;
+      setCommandResult({ type: 'success', message: tr(refusedCli.answer.key, { name: refusedCli.name, close: shortcut('W') }), action });
       return true;
     }
 
     return false;
-  }, [topic.sessionKey, topic.id, topic.provider, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation]);
+  }, [topic.sessionKey, topic.id, topic.provider, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation, setCommandResult, fastMode, onUpdateTopic]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -1229,6 +1307,7 @@ function ChatPaneComponent({
       void onUpdateTopic(topic.id, { fastMode: next });
     }
   }, [topic.id, onUpdateTopic]);
+  toggleFastModeRef.current = toggleFastMode;
 
   /**
    * La decisione presa sul piano che il turno ha proposto senza poterlo
@@ -1450,12 +1529,6 @@ function ChatPaneComponent({
     await switchBranch(topic.sessionKey, messageId, branchIndex);
   }, [switchBranch, topic.sessionKey]);
 
-  // Only a one-line confirmation closes by itself (see `commandResult`).
-  useEffect(() => {
-    if (!commandResult || commandResult.stays || commandResult.type !== 'success' || commandResult.message.includes('\n')) return;
-    const t = setTimeout(() => setCommandResult(null), 5000);
-    return () => clearTimeout(t);
-  }, [commandResult]);
   useEffect(() => {
     if (!isFocused || isGlobalOrchestrator) return;
     const h = (e: KeyboardEvent) => {
@@ -1515,13 +1588,16 @@ function ChatPaneComponent({
   };
   sendMessageRef.current = (text: string) => sendMessage(topic.sessionKey, text, currentSendOptions());
 
-  const handleSendMessage = async (e?: React.SubmitEvent) => {
+  const messageInField = message;
+  /** `typed`: the text to send instead of the field's (a command picked from the «/» menu). */
+  const handleSendMessage = async (e?: React.SubmitEvent, typed?: string) => {
     if (e) e.preventDefault();
     // Edit mode: submit the edit
-    if (editingMessage) {
+    if (editingMessage && typed === undefined) {
       await handleSubmitEdit();
       return;
     }
+    const message = typed ?? messageInField;
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
     // AICTRL-05: gate finale, non estetico. Lo snapshot si legge senza abbonarsi (un hook qui ridisegnerebbe ChatPane a ogni push) e l'unico sblocco e' spegnere lo switch: provider e modello non si toccano mai da soli. allow-italian: perche' si legge lo store invece dell'hook
     if (topicsRoutingBlocked(topicsRouting, providerOverride, defaultProviderLabel, getProvidersSnapshotState().snapshot)) {
@@ -1538,15 +1614,20 @@ function ChatPaneComponent({
     // A result that stays until it is closed also goes when the next message
     // is written: it answered the previous command, not this one. A running
     // compaction keeps its notice.
-    if (!compactWatchRef.current) setCommandResult(null);
+    if (!compactWatchRef.current) setCommandAnswer(null);
     // Da qui in giù si COMPONE, sempre: allegati, immagini, file citati con @ e
     // la citazione della risposta. Prima questa parte stava dopo il `return`
     // dell'accodamento, quindi un messaggio scritto mentre l'agente rispondeva
     // partiva nudo — e uno di sole immagini non partiva affatto. Chi decide se
     // spedire adesso o mettere in coda è `sendMessage` (`state/chatQueue.ts`),
     // che riceve il messaggio già completo.
-    const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = replyingTo, curMentioned = [...mentionedFiles];
-    setMessage(''); setPendingFiles([]); setPendingImages([]); setMentionedFiles([]); setReplyingTo(null);
+    // AN INVOCATION TAKES NO QUOTE (CMDUI-07): the engine reads a command only
+    // at the very start of the message, so a quote in front turned `/new`
+    // into prose (measured: `> first message\n\n/new` reached the CLI). The
+    // quote stays armed for the next message.
+    const invocation = invokedName(finalMessage) !== null;
+    const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = invocation ? null : replyingTo, curMentioned = [...mentionedFiles];
+    setMessage(''); setPendingFiles([]); setPendingImages([]); setMentionedFiles([]); if (!invocation) setReplyingTo(null);
     if (curFiles.length > 0 || curImages.length > 0) {
       setUploading(true);
       try {
@@ -1774,14 +1855,6 @@ function ChatPaneComponent({
       {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && browserWindow.mode === 'hidden' && (
         <TopicBrowserReopen topicId={topic.id} />
       )}
-      {commandResult && (
-        <div data-testid="chat-command-result" data-result-type={commandResult.type} className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
-          <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
-          <button aria-label={tr('chat.command.dismiss')} onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
-            <X size={12} />
-          </button>
-        </div>
-      )}
       {/* Il verso di ritorno: questa chat è la SESSIONE di un task? Allora da
           qui si torna alla sua SCHEDA, che è dove si decide. Muta in ogni
           altra chat. */}
@@ -1811,7 +1884,26 @@ function ChatPaneComponent({
           </button>
         </div>
       )}
-      <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
+      {/* What stays in the agent's context, said where it is read (CMDUI-10):
+          «Appunta» put messages there and nothing showed it. */}
+      {pinnedMessages.length > 0 && (
+        <button
+          type="button"
+          data-testid="chat-pinned-line"
+          aria-expanded={showPinned}
+          onClick={() => setShowPinned((v) => !v)}
+          className="chat-measure px-3 py-1 flex items-center gap-1.5 flex-shrink-0 text-mini text-app-text-secondary hover:text-app-text text-left"
+        >
+          <Pin size={12} className="text-yellow-500 flex-shrink-0" aria-hidden="true" />
+          <span className="truncate">{tr(pinnedMessages.length === 1 ? 'chat.pinned.lineOne' : 'chat.pinned.lineMany', { n: pinnedMessages.length })}</span>
+        </button>
+      )}
+      <PinnedMessages
+        show={showPinned && pinnedMessages.length > 0}
+        pinnedMessages={pinnedMessages}
+        onGoTo={(id) => { setShowPinned(false); requestScrollToMessage(topic.id, id); }}
+        onUnpin={(m) => { void handleTogglePin(m); }}
+      />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
       <ChatTopicContext.Provider value={topic.id}>
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
@@ -1896,7 +1988,8 @@ function ChatPaneComponent({
         {/* What this chat wrote and never reached the server: in flow, right
             above the composer that would send it again, never over it. */}
         <UnsentStrip sessionKey={topic.sessionKey} />
-        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
+        {commandAnswer && <CommandAnswerCard answer={commandAnswer} isMobile={isMobile} onDismiss={() => { if (commandAnswer.kind === 'running') compactWatchRef.current = null; setCommandAnswer(null); }} />}
+        <ChatInput onRunCommand={(text) => { void handleSendMessage(undefined, text); }} autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,
           // quindi non vedevano il banner di stato ne' l'esito. Ora le tre

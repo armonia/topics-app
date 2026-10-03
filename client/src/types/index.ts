@@ -687,6 +687,15 @@ export interface WSStreamErrorMessage {
  *  `GET /api/history`. UNA dichiarazione in shared/types.ts: la copia locale
  *  ometteva `topicId` e `sessionKey`, che il server manda comunque. */
 export type { StoredCompactionMarker as CompactionMarker } from '../../../shared/types';
+/** The answer of a command, for the chat's command card (CMDUI-04). Never saved. */
+export interface WSStreamCommandAnswerMessage {
+  type: 'stream:command-answer';
+  sessionKey: string;
+  topicId?: string;
+  command: string;
+  text: string;
+  outcome?: { ok: boolean; error?: string };
+}
 export interface WSStreamCompactionMessage {
   type: 'stream:compaction';
   sessionKey: string;
@@ -1262,6 +1271,7 @@ export type WSMessage =
   | WSStreamRetryMessage
   | WSStreamErrorMessage
   | WSStreamCompactionMessage
+  | WSStreamCommandAnswerMessage
   | WSStreamContextMessage
   | WSStreamToolUserInputRequiredMessage
   | WSStreamToolPermissionRequiredMessage

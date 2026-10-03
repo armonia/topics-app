@@ -120,6 +120,130 @@ export function readApiRetry(event: unknown): { outage: boolean } | null {
   return { outage: isApiDownStatus(e.error_status) };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// The CLI's own commands, and what a command answered (CMDUI-01, CMDUI-04)
+
+/** One command the CLI says it will run where Topics drives it. */
+export interface CliCommand {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  /** The CLI's own (or bundled) command, not a skill or command of the user's. Known only from `commands_changed`. */
+  builtin?: boolean;
+  aliases?: string[];
+}
+
+/**
+ * The commands a `system/init` (`slash_commands`, names only) or a
+ * `system/commands_changed` (`commands`, with description, hint, aliases and
+ * the `builtin` flag) line lists. Both measured on Claude Code 2.1.288:
+ * 119 names in `init`, 120 entries in `commands_changed`. Null for any other
+ * line, or one without a list: an empty list must never replace a real one.
+ */
+export function readCliCommandList(event: unknown): CliCommand[] | null {
+  const e = asRecord(event);
+  if (!e || e.type !== "system") return null;
+  const out: CliCommand[] = [];
+  if (e.subtype === "init" && Array.isArray(e.slash_commands)) {
+    for (const raw of e.slash_commands) {
+      if (typeof raw !== "string") continue;
+      const name = raw.startsWith("/") ? raw.slice(1) : raw;
+      if (COMMAND_NAME.test(name)) out.push({ name });
+    }
+  } else if (e.subtype === "commands_changed" && Array.isArray(e.commands)) {
+    for (const raw of e.commands) {
+      const c = asRecord(raw);
+      const name = typeof c?.name === "string" ? c.name : "";
+      // `exa:web_search_help (MCP)`: a prompt of an MCP server, not something a person types.
+      if (!COMMAND_NAME.test(name)) continue;
+      const entry: CliCommand = { name };
+      if (typeof c?.description === "string" && c.description) entry.description = c.description;
+      if (typeof c?.argumentHint === "string" && c.argumentHint) entry.argumentHint = c.argumentHint;
+      if (c?.builtin === true) entry.builtin = true;
+      if (Array.isArray(c?.aliases)) {
+        const aliases = c.aliases.filter((a): a is string => typeof a === "string" && COMMAND_NAME.test(a));
+        if (aliases.length) entry.aliases = aliases;
+      }
+      out.push(entry);
+    }
+  } else {
+    return null;
+  }
+  return out.length ? out : null;
+}
+
+/** The name shape the CLI parses as a command (`looksLikeCommand`, Claude Code 2.1.288). */
+const COMMAND_NAME = /^[a-zA-Z0-9_][a-zA-Z0-9:_-]*$/;
+
+/**
+ * The command a message INVOKES, by shape: `/name` at the very start, the name
+ * in the CLI's command shape. A pasted path (`/tmp/x`) has a slash inside its
+ * first token and is not one. Lower-cased. Null for anything else.
+ */
+export function invokedCommandName(text: string): string | null {
+  const t = text.trimStart();
+  if (!t.startsWith("/")) return null;
+  const first = t.slice(1).split(/\s/, 1)[0] ?? "";
+  return COMMAND_NAME.test(first) ? first.toLowerCase() : null;
+}
+
+/**
+ * The outcome of a command the CLI reports in a `system/status` line, today
+ * only `/compact`'s (`compact_result`, recorded on 2.1.288):
+ *   {"type":"system","subtype":"status","status":null,"compact_result":"failed","compact_error":"Not enough messages to compact."}
+ * Null for any other line.
+ */
+export function readCommandOutcome(event: unknown): { command: "compact"; ok: boolean; error?: string } | null {
+  const e = asRecord(event);
+  if (!e || e.type !== "system" || e.subtype !== "status" || typeof e.compact_result !== "string") return null;
+  const ok = e.compact_result === "success";
+  const error = typeof e.compact_error === "string" && e.compact_error ? e.compact_error : undefined;
+  return { command: "compact", ok, ...(error ? { error } : {}) };
+}
+
+/**
+ * The text of an assistant message the CLI WROTE ITSELF (`model: "<synthetic>"`):
+ * the answer of a local command (`/output-style`, a refusal, «Not enough
+ * messages to compact.»). Null for a message of the model, or any other line.
+ */
+export function readSyntheticText(event: unknown): string | null {
+  const e = asRecord(event);
+  if (!e || e.type !== "assistant") return null;
+  const msg = asRecord(e.message);
+  if (msg?.model !== "<synthetic>") return null;
+  const blocks = readEventContent(event) ?? [];
+  const text = blocks.map((b) => (b.type === "text" && typeof b.text === "string" ? b.text : "")).join("");
+  return text || null;
+}
+
+/**
+ * Did this `result` close a turn the CLI answered BY ITSELF: no model turn
+ * (`num_turns: 0`) and nothing spent? Measured on every local command of
+ * 2.1.288 (`/output-style`, `/context`, the refusals): `num_turns: 0`,
+ * `total_cost_usd: 0`. `/code-review` ALSO ends with `num_turns: 0` and a
+ * `<synthetic>` message, but that message is the report of the subagent it
+ * forked and the turn cost $0.091: that one is the model's work, and stays a
+ * message of the chat.
+ */
+export function isLocalCommandResult(event: unknown): boolean {
+  const e = asRecord(event);
+  if (!e || e.type !== "result" || e.num_turns !== 0 || e.is_error === true) return false;
+  const cost = e.total_cost_usd;
+  return cost === undefined || cost === null || cost === 0;
+}
+
+/**
+ * Is the `<synthetic>` text of a turn the ANSWER OF A COMMAND (shown in the
+ * chat's command card, never saved) rather than a message of the chat? Only
+ * when the turn started from a command (`invokedCommandName` of what the person
+ * sent) AND ended as a local command does (`isLocalCommandResult`). A
+ * `<synthetic>` in a turn that was not a command is a CLI error, and stays a
+ * message as it always was.
+ */
+export function isCommandAnswer(turnInvokedCommand: boolean, resultEvent: unknown): boolean {
+  return turnInvokedCommand && isLocalCommandResult(resultEvent);
+}
+
 /**
  * L'evento è stato emesso da una SOTTO-SESSIONE (il figlio di un `Task`)?
  * La CLI lo marca con `parent_tool_use_id` al livello più esterno. Torna l'id

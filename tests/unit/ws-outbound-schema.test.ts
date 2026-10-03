@@ -224,6 +224,7 @@ describe('outbound registry contract', () => {
       'session:state',
       'stream:alive',
       'stream:catchup',
+      'stream:command-answer',
       'stream:compaction',
       'stream:content_chunk',
       'stream:context',

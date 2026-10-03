@@ -91,7 +91,7 @@ const handledWithArg = (c: string) => new RegExp(`cmd\\.startsWith\\('/${c} '\\)
  * re-measured and this file says which lists fell behind.
  */
 const CLI: { headless: string[]; aliases: Record<string, string>; refused: string[] } = JSON.parse(
-  read("client/src/components/Chat/claudeCliCommands.fixture.json"),
+  read("shared/claude-cli-commands.json"),
 );
 const cliRuns = new Set([...CLI.headless, ...Object.keys(CLI.aliases)]);
 const cliRefuses = new Set(CLI.refused);
@@ -132,30 +132,14 @@ describe("no menu entry leads nowhere", () => {
 
 describe("`/help` cannot fall behind the menu", () => {
   // It used to be a second hand-written array in `ChatPane`, and the two
-  // drifted: `/help` named ten commands while the menu offered more. The one
-  // place a user goes to ask "what can I type here" gave the shorter, older
-  // answer, and neither list looked incomplete on its own.
-  //
-  // The cure was to DERIVE it, so this test guards against the cure being
-  // undone rather than against the drift — a hand-written list can drift again
-  // the day after anyone syncs it.
-  //
-  // It is a FUNCTION of `tr` now rather than a constant, because the array
-  // carries i18n keys and the text only exists once a language is chosen. What
-  // is guarded is unchanged: the lines come from `SLASH_COMMANDS`, not from a
-  // second list.
-  test("the help text is built from the same array the menu uses", () => {
-    const line = CHAT_PANE.match(/const slashCommandsHelp\s*=\s*([^;]+);/)?.[1] ?? "";
-    expect(line, "`/help` is a hand-written list again").toContain("offeredSlashCommands(provider).map");
-    expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
-      "import { offeredSlashCommands } from './slashCommands'",
-    );
-  });
-
-  test("and filtered by the same provider the menu is filtered by", () => {
-    // `/help` listed «/reasoning» on claude-code while typing `/rea` offered
-    // nothing: the menu was filtered by the declared provider, /help was not.
-    expect(CHAT_PANE).toContain("slashCommandsHelp(tr, declared)");
+  // drifted: `/help` named ten commands while the menu offered more. Then it
+  // was a list DERIVED from the menu's array, printed in a strip that closed
+  // in five seconds. Now `/help` IS the menu (CMDUI-07, CMD-06): it opens it,
+  // whole, with its three groups, so there is no second list to drift.
+  test("`/help` opens the «/» menu instead of printing a list", () => {
+    const src = withoutComments(CHAT_PANE);
+    expect(src).toMatch(/cmd === '\/help'[^\n]*composerControlsRef\.current\?\.openCommands\(\)/);
+    expect(src, "a hand-written help list is back").not.toContain("slashCommandsHelp");
   });
 });
 
@@ -233,8 +217,8 @@ describe("a name the CLI refuses headless is answered in the composer", () => {
     expect(runnable).toEqual([]);
   });
 
-  test("and `ChatPane` consults it, with the declared provider", () => {
-    expect(CHAT_PANE).toContain("cliRefusedCommand(text, declared)");
+  test("and `ChatPane` consults it, with the declared provider, on the name the alias stands for", () => {
+    expect(CHAT_PANE).toContain("cliRefusedCommand(cmd, declared)");
   });
 
   test("a refused name answered by a branch is answered with an argument too", () => {
@@ -313,8 +297,11 @@ describe("the refusals are Claude Code's, so only a Claude Code topic gets them 
   // Answered in the composer as «terminal commands of Claude Code», they were
   // blocked on the providers that run them.
   test("a Claude Code topic is answered in the composer", () => {
-    expect(cliRefusedCommand("/resume abc", "claude-code")?.name).toBe("resume");
+    expect(cliRefusedCommand("/vim abc", "claude-code")?.name).toBe("vim");
     expect(cliRefusedCommand("/memory show", "claude-code-team")?.name).toBe("memory");
+    // `/resume`, `/export` and `/permissions` are Topics' own now
+    // (CMDUI-02, CMDUI-03): a branch that does the thing, not a sentence.
+    for (const c of ["/resume", "/export", "/permissions"]) expect(cliRefusedCommand(c, "claude-code"), c).toBeNull();
   });
 
   test("a gemini or openclaw topic is not intercepted", () => {
@@ -368,13 +355,24 @@ describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)
     }
   });
 
-  test("on another provider they are that provider's own commands and travel as typed (CMD-08)", () => {
-    // openclaw has its own `/mcp show|set|unset` and `/config show|set|unset`;
-    // gemini and codex have their own `/mcp`.
-    for (const provider of ["openclaw", "gemini", "codex", "topics", null, undefined]) {
+  test("on OpenClaw they are the gateway's own commands and travel as typed (CMD-08)", () => {
+    // openclaw has its own `/mcp show|set|unset` and `/config show|set|unset`.
+    // An undeclared provider is not assumed either.
+    for (const provider of ["openclaw", null, undefined]) {
       for (const text of ["/mcp", "/mcp show", "/config", "/config set x 1", "/settings", "/usage", "/cost", "/stats"]) {
         expect(topicsHomeCommand(text, provider), `${text} on ${provider}`).toBeNull();
       }
+    }
+  });
+
+  test("on the engines with no such command they open Topics' panels too (CMDUI-02)", () => {
+    // `codex exec` parses no command, the native engine has no parser, and the
+    // ACP agents announce neither name: there `/mcp` was prose to the model.
+    for (const provider of ["codex", "topics", "gemini", "jcode"]) {
+      expect(topicsHomeCommand("/mcp", provider), provider).toBe("tools");
+      expect(topicsHomeCommand("/config", provider), provider).toBe("userMenu");
+      expect(topicsHomeCommand("/usage", provider), provider).toBe("providers");
+      expect(topicsHomeCommand("/mcp show", provider), provider).toBeNull();
     }
   });
 

@@ -12,7 +12,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles, disabledSkillNames, isKnownSlashCommand, recordCliSlashCommands, resetCliSlashCommands } from "./slash-command-source";
+import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles, disabledSkillNames, isKnownSlashCommand, recordCliSlashCommands, resetCliSlashCommands, engineCommandsFor, recordEngineCommands } from "./slash-command-source";
 
 let home: string;
 let cwd: string;
@@ -227,5 +227,59 @@ describe("the CLI's own list of slash commands (system/init)", () => {
     recordCliSlashCommands("topic:a", null);
     expect(isKnownSlashCommand("x1", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
     expect(isKnownSlashCommand("simplify", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
+  });
+});
+
+describe("a skill switched off is not a command the CLI expands", () => {
+  test("isKnownSlashCommand says no for a skill «off» in skillOverrides, on disk or in the CLI's list", () => {
+    const h = mkdtempSync(join(tmpdir(), "sc-offknown-home-"));
+    const c = mkdtempSync(join(tmpdir(), "sc-offknown-cwd-"));
+    try {
+      for (const name of ["spenta", "accesa"]) {
+        mkdirSync(join(h, ".claude", "skills", name), { recursive: true });
+        writeFileSync(join(h, ".claude", "skills", name, "SKILL.md"), `---\nname: ${name}\n---\n`);
+      }
+      writeFileSync(join(h, ".claude", "settings.json"), JSON.stringify({ skillOverrides: { spenta: "off" } }));
+      resetCliSlashCommands();
+      recordCliSlashCommands("topic:off", { type: "system", subtype: "init", slash_commands: ["spenta", "accesa"] });
+      expect(isKnownSlashCommand("accesa", { home: h, cwd: c, cliSessionKey: "topic:off" })).toBe(true);
+      expect(isKnownSlashCommand("spenta", { home: h, cwd: c })).toBe(false);
+      expect(isKnownSlashCommand("spenta", { home: h, cwd: c, cliSessionKey: "topic:off" })).toBe(false);
+      // The project's own settings switch it off too.
+      mkdirSync(join(c, ".claude"), { recursive: true });
+      writeFileSync(join(c, ".claude", "settings.json"), JSON.stringify({ skillOverrides: { accesa: "off" } }));
+      expect(isKnownSlashCommand("accesa", { home: h, cwd: c })).toBe(false);
+    } finally {
+      resetCliSlashCommands();
+      for (const d of [h, c]) rmSync(d, { recursive: true, force: true });
+    }
+  });
+});
+
+/** @covers CMDUI-01 */
+describe("the engine's list for the menu: the session's, then its project's, then the engine's", () => {
+  test("init gives the names, commands_changed the descriptions, and a later init keeps them", () => {
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:m", { type: "system", subtype: "commands_changed", commands: [{ name: "init", description: "Initialize", builtin: true }, { name: "vai", description: "Procedi" }] });
+    recordCliSlashCommands("topic:m", { type: "system", subtype: "init", cwd: "/p/uno", slash_commands: ["init", "vai", "simplify"] });
+    const list = engineCommandsFor({ sessionKey: "topic:m", provider: "claude-code" })!;
+    expect(list.map((c) => c.name)).toEqual(["init", "vai", "simplify"]);
+    expect(list[0]).toMatchObject({ description: "Initialize", builtin: true });
+  });
+
+  test("a chat that has not started its CLI borrows its project's list, then the engine's; another engine has none", () => {
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:a", { type: "system", subtype: "init", cwd: "/p/uno", slash_commands: ["only-uno"] });
+    recordCliSlashCommands("topic:b", { type: "system", subtype: "init", cwd: "/p/due", slash_commands: ["only-due"] });
+    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "claude-code", projectPath: "/p/uno" })!.map((c) => c.name)).toEqual(["only-uno"]);
+    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "claude-code", projectPath: "/p/tre" })!.map((c) => c.name)).toEqual(["only-due"]);
+    expect(engineCommandsFor({ sessionKey: "topic:new", provider: "gemini" })).toBeNull();
+    recordEngineCommands("topic:g", [{ name: "memory", description: "Memory" }], { provider: "gemini", projectPath: "/p/uno" });
+    expect(engineCommandsFor({ provider: "gemini", projectPath: "/p/uno" })!.map((c) => c.name)).toEqual(["memory"]);
+  });
+
+  test("nothing seen since the start: no list, and nothing is spawned to get one", () => {
+    resetCliSlashCommands();
+    expect(engineCommandsFor({ sessionKey: "topic:x", provider: "claude-code", projectPath: "/p/uno" })).toBeNull();
   });
 });
