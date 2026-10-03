@@ -6,6 +6,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Dichiara la strada del modello su chip e fascia, non sul turno (MSEL-06, AICTRL-01)
+- Aggiungi la colonna della chiave d'invio sulla riga della persona, una sola riga per chiave e sessione
+- Scrivi la chiave d'invio sulla riga della persona e rifiuta il doppione anche dopo un riavvio
+- Riconosci la propria bolla e il messaggio in coda per chiave nella storia, non per le parole
+- Rinomina una variabile del test della migration che il controllo dei nomi non riconosce
+- Rendi costante la lista dei gestori nel test della chiave d'invio
+- Prova che il rinvio a turno ancora aperto riceve duplicate_message e non stream_in_flight
 
 ## 2.2.434 — 2026-10-03
 
