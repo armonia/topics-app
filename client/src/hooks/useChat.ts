@@ -24,7 +24,8 @@ import {
   type HistoryCompletionMode,
 } from '../state/historyCompleteness';
 import { useRefMirror } from './useRefMirror';
-import { reconcileMessages, mergeFetchedHistory, adoptDurableMessageId } from './reconcileMessages';
+import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
+import { adoptDurableMessageId, afterUnfinishedSend, namedByServer, placeOwnBubble } from './ownBubble';
 import { buildRequestMessages } from './chatRequestPayload';
 import { reconcileOrphanStreams, signalsActions } from '../state/signals';
 import { clearHistoryFromCache, markHistoryFromCache } from '../state/historyFromCache';
@@ -66,8 +67,7 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
-import { senderAlsoSeesFrame, type OwnSends } from './senderAlsoSees';
-
+import { senderAlsoSeesFrame } from './senderAlsoSees';
 import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
@@ -91,29 +91,6 @@ import {
 } from './outboundQueue';
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import { apiFetch } from '../lib/shell/net';
-
-/** A session this window streams nothing into: no echo to tell apart. */
-const NO_OWN_SENDS: OwnSends = { clientIds: new Set() };
-
-/** One send of this window while its own SSE holds the session (`ownSendsRef`). */
-interface OwnSend extends OwnSends {
-  clientIds: Set<string>;
-  /** The person's optimistic bubble: its local id, then the durable one it adopts. */
-  userBubbleId?: string;
-  /** The empty assistant bubble the reply streams into. */
-  placeholderId?: string;
-}
-
-/**
- * The two bubbles a refused send drew, taken back BY ID wherever they are: a
- * row written beside the send while its POST was in flight now sits after
- * them, so "the last two rows" are no longer theirs, and that row may even
- * say the same words.
- */
-function withoutOwnBubbles(rows: ChatMessage[], send: OwnSend): ChatMessage[] {
-  const kept = rows.filter((m) => m.id !== send.userBubbleId && m.id !== send.placeholderId);
-  return kept.length === rows.length ? rows : kept;
-}
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -709,11 +686,6 @@ export function useChat() {
   // younger than the snapshot the end of that SSE reloads, which replaces the
   // whole thread and would drop them again.
   const wsRowsDuringOwnSseRef = useRef<Map<string, Set<string>>>(new Map());
-  // What this window sent while its own SSE holds the session: the key of the
-  // message, so the pane drops only that row's echo and lets every row written
-  // beside the turn through (`ownTurnEcho`), and the ids of the two bubbles the
-  // send drew, so a refusal takes back those two and nothing else.
-  const ownSendsRef = useRef<Map<string, OwnSend>>(new Map());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -1917,23 +1889,17 @@ export function useChat() {
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
       handleStreamEvent(event);
     }
-    // The durable name of the message this window has just sent. The pane
-    // handler drops this frame as the echo when the stream is ours, and with
-    // it went the only chance to learn the id the server wrote that row under.
-    // Only the row carrying THIS send's key is adopted, onto the bubble this
-    // send drew: never another device's row that says the same words
-    // (`adoptDurableMessageId`). It never ADDS anything.
-    const ownSend = event.type === 'message:new' && event.sessionKey ? ownSendsRef.current.get(event.sessionKey) : undefined;
-    if (event.type === 'message:new' && event.role === 'user' && event.messageId && ownSend?.userBubbleId
-      && event.clientMessageId && ownSend.clientIds.has(event.clientMessageId)) {
-      const sk = event.sessionKey;
-      const localId = ownSend.userBubbleId;
-      const durableId = event.messageId;
-      ownSend.userBubbleId = durableId;
+    // The durable name of a message this window sent: the row the server
+    // stored with a bubble's key takes that bubble's place, whether this
+    // window still streams the turn or the send already ended (a 500, a Stop,
+    // a network error). Never another row with the same words, and it never
+    // ADDS anything (`hooks/ownBubble.ts`).
+    if (event.type === 'message:new' && event.role === 'user' && event.sessionKey && event.messageId && event.clientMessageId) {
+      const { sessionKey: sk, clientMessageId: key, messageId: durableId } = event;
       setMessages(prev => {
         const rows = prev[sk];
         if (!rows) return prev;
-        const next = adoptDurableMessageId(rows, localId, durableId);
+        const next = adoptDurableMessageId(rows, key, durableId);
         return next === rows ? prev : { ...prev, [sk]: next };
       });
     }
@@ -1993,9 +1959,11 @@ export function useChat() {
     let liveAfterCut = false;
     // ...or the reload's snapshot says so, but the turn ended or was stopped while it was in flight.
     let staleSnapshot = false;
+    // The server already holds this message (`duplicate_message`): read its row once the stream is released.
+    let alreadyStored = false;
+    // The empty reply bubble this send draws, found again by its id (`afterUnfinishedSend`).
+    let placeholderId: string | undefined;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
-    const ownSend: OwnSend = { clientIds: new Set([idemKey]) };
-    ownSendsRef.current.set(sessionKey, ownSend);
     endedDuringOwnSseRef.current.delete(sessionKey);
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
@@ -2011,14 +1979,12 @@ export function useChat() {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
-      // With `userMessageId` the bubble is already in the session (a draft's
-      // first send): same id, so `addMessage` keeps the row that is there.
-      ownSend.userBubbleId = addMessage(sessionKey, {
-        id: options?.userMessageId,
-        role: 'user',
-        content,
-        timestamp: new Date().toISOString(),
-      }).id;
+      // The person's bubble, named by this send's key. The row already there
+      // for this message (a draft's first send, `userMessageId`; a resend from
+      // the outbound queue, same key) takes it instead of a second bubble.
+      setMessages(prev => ({ ...prev, [sessionKey]: placeOwnBubble(prev[sessionKey] ?? [], {
+        id: options?.userMessageId ?? generateMessageId(), role: 'user', content, timestamp: new Date().toISOString(), clientMessageId: idemKey,
+      }, options?.userMessageId) }));
 
       // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo
       // elemento; quello senza topic usa `slice(0, -1)` come storia. Vedi
@@ -2029,7 +1995,7 @@ export function useChat() {
       beginStreaming(sessionKey);
 
       // Create placeholder assistant message immediately for inline loading
-      ownSend.placeholderId = addMessage(sessionKey, {
+      placeholderId = addMessage(sessionKey, {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
@@ -2295,52 +2261,40 @@ export function useChat() {
 
       console.error('Failed to send message:', err);
 
-      // 409 = stream already active for this session — queue the message for auto-send
-      // when the current stream ends (Claude Code-style message queuing)
       const is409 = !!err && typeof err === 'object' && 'status' in err && (err as { status?: unknown }).status === 409;
+      // Read the `code`, never the text: the message is the sentence a person
+      // reads, and the code travels beside it.
+      const code = is409 ? apiErrorCode(err) : undefined;
+      // What stays of this send in the thread, by its key and its
+      // placeholder's id, never the last rows: a row written beside the send
+      // while its POST was in flight sits after them, and may say the same words.
+      const leave = (fate: 'withdraw' | 'queued' | 'keep') => setMessages(prev => {
+        const rows = prev[sessionKey] ?? [];
+        const next = afterUnfinishedSend(rows, idemKey, placeholderId, fate);
+        return next === rows ? prev : { ...prev, [sessionKey]: next };
+      });
 
       /**
-       * DUE 409 CHE VOGLIONO L'OPPOSTO.
+       * TWO 409s THAT WANT OPPOSITE THINGS, AND ONLY TWO THAT RE-DECIDE THE SEND.
        *
-       * `stream_in_flight` dice «c'è già un turno in volo»: il messaggio non è
-       * arrivato e va rimesso in testa alla coda per partire dopo.
-       * `duplicate_message` dice il contrario — il server questo messaggio ce
-       * l'ha GIÀ, è la nostra stessa chiave di prima. Riaccodarlo lo farebbe
-       * spedire una seconda volta, cioè esattamente il doppione che la chiave
-       * serve a evitare. Qui si smette: le bolle ottimiste vanno via e la
-       * history si ricarica, perché la verità di questo messaggio ora sta sul
-       * server e non più in pagina.
+       * `duplicate_message`: the server already holds this message under this
+       * key. Re-queueing it would send it twice, the duplicate the key exists
+       * to prevent: the bubbles go and the history is read once the stream is
+       * released (`alreadyStored`, in `finally`; `loadHistory` skips a session
+       * this send still holds, and the stored row never appeared).
+       * `stream_in_flight`: refused BEFORE the row is written
+       * (`server/routes/chat.ts`), so the message goes back to the HEAD of the
+       * queue, its bubbles off the thread: the queue shows it as «to send».
+       * Any other 409 (`topics_routing_incompatible` can come after the row
+       * was written and announced) is an error the person reads, below.
        */
-      // Both 409s take back the two bubbles this send drew, by their ids
-      // (`withoutOwnBubbles`), never the last rows of the thread.
-      const withdrawOwnBubbles = () => setMessages(prev => {
-        const rows = prev[sessionKey] ?? [];
-        const kept = withoutOwnBubbles(rows, ownSend);
-        return kept === rows ? prev : { ...prev, [sessionKey]: kept };
-      });
-      // Read the `code`, never the text. While `sendMessage` rethrew the raw
-      // body, `message.includes('duplicate_message')` worked by accident: the
-      // message WAS the JSON. The message is now the sentence a person reads
-      // and the code travels beside it, so searching the sentence would
-      // re-queue a message the server already has, which is the duplicate the
-      // idempotency key exists to prevent.
-      const duplicate = is409 && apiErrorCode(err) === 'duplicate_message';
-      if (duplicate) {
-        withdrawOwnBubbles();
-        void loadHistoryRef.current?.(sessionKey);
+      if (code === 'duplicate_message') {
+        leave('withdraw');
+        alreadyStored = true;
         return true;
       }
-
-      if (is409) {
-        // «C'è già un turno in volo»: il messaggio torna IN TESTA alla coda —
-        // non in fondo, o si farebbe scavalcare da chi era dietro di lui.
-        // Spariscono ANCHE le due bolle ottimiste: il segnaposto
-        // dell'assistente e la domanda dell'utente. Prima la domanda restava in
-        // pagina come se fosse partita, mentre il testo viveva in un ref
-        // invisibile che un reload buttava via — si vedeva un messaggio spedito
-        // che non era mai esistito. Adesso l'unico posto in cui vive è la coda,
-        // e la coda si vede come bolle «da inviare» nel trascritto.
-        withdrawOwnBubbles();
+      if (code === 'stream_in_flight') {
+        leave('withdraw');
         // The refusal names the turn in flight: taken as the server's word, and
         // the message waits for THAT turn's end, not for this window's flag.
         const refusedBy = (err as { turn?: unknown }).turn;
@@ -2363,41 +2317,22 @@ export function useChat() {
         // arrivato — e da qui non si può sapere — il rinvio lo duplicava.
         const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options, id: idemKey };
         setPendingQueue(enqueue(queueStorage, OUTBOUND_QUEUE_KEY, queued));
-        // Mark the user message as queued (keep it visible)
-        setMessages(prev => {
-          const sessionMessages = prev[sessionKey] || [];
-          const lastMsg = sessionMessages[sessionMessages.length - 1];
-          if (lastMsg?.role === 'user') {
-            const updated = [...sessionMessages];
-            updated[updated.length - 1] = { ...lastMsg, partial: true, queued: true };
-            return { ...prev, [sessionKey]: updated };
-          }
-          return prev;
-        });
-        // No banner: the per-message "Queued" badge (the `queued` flag above)
+        // The bubble stays, marked queued: no banner, the per-message badge
         // already tells the right session, and a hook-wide string does not.
+        leave('queued');
         return false;
       }
 
-      // Errore che non è né un 409 né una rete caduta prima di partire. Se il
-      // messaggio veniva dalla coda, questo è l'ULTIMO punto in cui esiste
-      // ancora: `claimHead` l'ha tolto dallo storage durevole e nessuno dei
-      // rami sopra l'ha raccolto. Senza questo, l'utente vede sparire una cosa
-      // che aveva scritto — è la promessa fatta nel commento di `claimHead`.
-      // Solo a stream mai partito: se era partito, il server ce l'ha già.
-      if (!streamStarted) restoreOnFailure?.();
+      // Every other failure. From the queue, this is the LAST place the
+      // message still exists (`claimHead` took it off durable storage): it
+      // goes back there, and only there, when the server did not take it (no
+      // stream, no 409 about this very message, no row announced with its
+      // key). Back in the queue AND on screen was two copies after the drain.
+      const backToQueue = !streamStarted && !is409 && !!restoreOnFailure && !namedByServer(messagesRef.current[sessionKey] ?? [], idemKey);
+      if (backToQueue) restoreOnFailure();
 
       setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to send message' }));
-
-      // This send's placeholder goes if it holds nothing worth keeping (empty
-      // or a few characters): found by its id, not as the last row, which may
-      // be a row written beside the send, or the reload's own reply.
-      setMessages(prev => {
-        const sessionMessages = prev[sessionKey] || [];
-        const placeholder = sessionMessages.find((m) => m.id === ownSend.placeholderId);
-        if (!placeholder || placeholder.content.length >= 10 || placeholder.thinking) return prev;
-        return { ...prev, [sessionKey]: sessionMessages.filter((m) => m !== placeholder) };
-      });
+      leave(backToQueue ? 'withdraw' : 'keep');
 
       return false;
     } finally {
@@ -2405,7 +2340,6 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
-      ownSendsRef.current.delete(sessionKey);
       ownReplyClosedRef.current.delete(sessionKey);
       const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -2419,7 +2353,8 @@ export function useChat() {
       // The rows on screen are that snapshot: read them again now the SSE is gone,
       // past the dedup too. A pane opened under HISTORY_DEDUP_MS ago skipped the
       // read, and a turn started meanwhile from another window stayed dark.
-      if (staleSnapshot) {
+      // The same after `duplicate_message`: the row is the server's, and only a read shows it.
+      if (staleSnapshot || alreadyStored) {
         lastHistoryFetchAtRef.current.delete(sessionKey);
         void loadHistoryRef.current?.(sessionKey);
       } else if (liveAfterCut && swallowedAfterReply) {
@@ -3113,7 +3048,6 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
-      ownSendsRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
@@ -3499,6 +3433,5 @@ export function useChat() {
     gatewayConnected,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
     isOwnStream: (sessionKey: string) => localSSESessionsRef.current.has(sessionKey),
-    ownSends: (sessionKey: string): OwnSends => ownSendsRef.current.get(sessionKey) ?? NO_OWN_SENDS,
   };
 }

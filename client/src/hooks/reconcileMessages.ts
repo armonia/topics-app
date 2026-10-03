@@ -143,6 +143,10 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     // was a bubble with a spinner and a locked composer until a reload. Not
     // the row of the turn streaming here: it can be younger than the read.
     if (m.role === 'assistant' && m.partial === true && !isClientGeneratedMessageId(m.id) && m.id !== opts.liveRowId) return false;
+    // A bubble still under its local name is one whose row's announcement did
+    // not reach this window (the announcement renames it, `hooks/ownBubble.ts`).
+    // The history rows do not carry the send's key (it is not stored on the
+    // row), so the text is the only way left to recognise it here.
     if (isClientGeneratedMessageId(m.id)) {
       const k = echoKey(m);
       const disponibili = k ? echiDisponibili.get(k) ?? 0 : 0;
@@ -193,34 +197,6 @@ function withServerBanners(local: ChatMessage, serverTail: ChatMessage): ChatMes
     (b) => (b.kind === 'woken' || b.kind === 'ripreso') && !localBlocks.some((l) => l.kind === b.kind),
   );
   return banners.length > 0 ? { ...local, blocks: [...banners, ...localBlocks] } : local;
-}
-
-/**
- * THE REAL NAME OF THE BUBBLE YOU JUST WROTE.
- *
- * The window a message leaves from draws it at once, under an id minted here,
- * and drops the `message:new` that carries the DB's id as its own echo
- * (`ownTurnEcho`). That frame is the only chance to learn the row's durable
- * name: the optimistic copy adopts it, and from then on every dedupe against
- * that row goes by identity.
- *
- * By id, never by text: the caller names the bubble THIS send drew, and calls
- * only for the row the server wrote with this send's key (`clientMessageId`).
- * Matching the first bubble with the same words renamed this window's bubble
- * after another device's message that said the same thing; the pane then held
- * that id and skipped the other row, and a refused send took it away with its
- * own bubble (verifier, 03/10).
- *
- * Returns the SAME array when there is nothing to adopt: the bubble is gone,
- * or the durable id is already in the list.
- */
-export function adoptDurableMessageId(messages: ChatMessage[], localId: string, durableId: string): ChatMessage[] {
-  if (!durableId || localId === durableId || messages.some((m) => m.id === durableId)) return messages;
-  const i = messages.findIndex((m) => m.id === localId);
-  if (i < 0) return messages;
-  const out = [...messages];
-  out[i] = { ...messages[i], id: durableId };
-  return out;
 }
 
 /**

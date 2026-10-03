@@ -563,7 +563,6 @@ function App() {
     error: chatError,
     gatewayConnected: _gatewayConnected,
     isOwnStream,
-    ownSends,
   } = useChat();
 
 
@@ -750,7 +749,7 @@ function App() {
     isPinnedRef,
     onWSMessage, sendWS, windowId,
     chatStreamHandlers: {
-      isOwnStream, ownSends, isSessionStreaming, getSessionMessages, addMessageFromWS, clearSession,
+      isOwnStream, isSessionStreaming, getSessionMessages, addMessageFromWS, clearSession,
       loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
     },
     setSidebarCollapsed,

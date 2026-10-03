@@ -706,7 +706,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // The marks travel WITH the frame (without them every other window
           // drew the goal continuation as the person's own bubble until a
           // reload, 23/09), and so does the send's key: the window that sent
-          // it drops only this row as its echo (`ownTurnEcho`, client).
+          // it renames its bubble to this row (`hooks/ownBubble.ts`, client).
           broadcastToAll({
             type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
             messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100),
