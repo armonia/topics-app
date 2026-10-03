@@ -107,7 +107,19 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
         }}
       >
         <Suspense fallback={null}>
-          <ModelList {...list} onClose={onClose} layout={columns ? 'columns' : 'list'} focusSearch={!isMobile} />
+          <ModelList
+            {...list}
+            // A choice closes the popover and gives the focus back to the
+            // trigger (MSEL-08, MP-TASK-07), after whatever the surface does
+            // with the choice in the same pass.
+            onSelect={(selection) => {
+              list.onSelect(selection);
+              requestAnimationFrame(() => requestAnimationFrame(() => anchorRef.current?.focus({ preventScroll: true })));
+            }}
+            onClose={onClose}
+            layout={columns ? 'columns' : 'list'}
+            focusSearch={!isMobile}
+          />
         </Suspense>
       </div>
     </Menu>
