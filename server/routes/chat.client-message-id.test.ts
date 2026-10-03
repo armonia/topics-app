@@ -112,6 +112,20 @@ describe("a resend under a key the table already holds", () => {
     expect(userRows(sk, "deploy the branch")).toHaveLength(1);
   });
 
+  test("the resend arrives while the stored message's own turn still runs: duplicate_message, not stream_in_flight", async () => {
+    // Asked of the table before the turn gate: answered stream_in_flight, the
+    // window would queue the message again behind its own turn.
+    const sk = topic("restart-dup-turn-open");
+    const key = `k-${crypto.randomUUID()}`;
+    expect((await post(sk, "migrate the db", key)).status).toBe(200);
+    forgetInMemoryKeys();
+    const again = await post(sk, "migrate the db", key);
+    await endTurns();
+    expect(again.status).toBe(409);
+    expect((await again.json()).code).toBe("duplicate_message");
+    expect(userRows(sk, "migrate the db")).toHaveLength(1);
+  });
+
   test("the same words under another key are another message, stored", async () => {
     const sk = topic("same-words-new-key");
     expect((await post(sk, "ok", `k-${crypto.randomUUID()}`)).status).toBe(200);
