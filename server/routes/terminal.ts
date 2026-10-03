@@ -60,6 +60,7 @@ import { isGlobalOrchestratorSession } from "../services/global-orchestrator-ses
 import { createAgentWorktree, resolveAgentProject, worktreeReadyMs } from "../services/worktree-for-agent";
 import type { SubAgentExitInfo } from "./subagent-exit";
 import { agentWorkspaceForSession } from "../lib/agent-workspace";
+import { terminalActivity as attentionOfActivity, terminalClosed, terminalExited } from "../attention/terminal-turns";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
 interface TerminalSession {
@@ -468,6 +469,7 @@ function markTerminalActivity(id: string) {
   if (!a.busy) {
     a.busy = true;
     _broadcastToAll?.({ type: 'terminal:activity', id, busy: true, kind: session.type });
+    attentionOfActivity(id, session, true, _tracker);
   }
   if (a.timer) clearTimeout(a.timer);
   a.timer = setTimeout(() => {
@@ -477,6 +479,7 @@ function markTerminalActivity(id: string) {
     // turn. `finished:true` lets the client raise a notification (it filters
     // to claude-code). `kind` carries the session type for that decision.
     _broadcastToAll?.({ type: 'terminal:activity', id, busy: false, finished: true, kind: session.type });
+    attentionOfActivity(id, session, false, _tracker);
     // Codex has no hooks (claude-hooks drives autoNameClaudeSession), so this
     // busy→idle transition IS its turn boundary: re-derive the tab name from
     // the rollout's latest user prompt. Guarded on a captured rollout id; a
@@ -1218,6 +1221,7 @@ function handleBridgeMessage(msg: any) {
       // not go on with.
       if (exitedSession) {
         reportChildEnd(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null, reloadingSessionIds.has(msg.id) ? 'reloaded' : 'exited');
+        terminalExited(msg.id, msg.exitCode === 0 || reloadingSessionIds.has(msg.id));
       }
       break;
     }
@@ -2595,6 +2599,7 @@ export function retireTerminalSession(id: string, ending: 'closed' | 'swept' = '
   // Il browser che questo terminale puo' aver aperto (contextId `term-<id>`).
   // Best-effort: nessun contesto = no-op innocuo.
   terminalBrowserCloser?.(`term-${id}`);
+  terminalClosed(id);
   broadcastTerminalSessions();
   return true;
 }

@@ -28,11 +28,14 @@ import { SidechainTracker } from "../providers/claude/sidechain-tracker";
 import { recordedBackgroundSession, recordedSessionCron } from "../providers/claude/background-work.fixture";
 import { backgroundOfTurn } from "../services/goal-continuation";
 import { getDatabase } from "../db";
-import { configureAttentionStore, getAttention } from "../attention/store";
+import { configureAttentionStore, getAttention, resetAttentionStore } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import type { StreamHandler } from "../providers/types";
 import type { AppContext } from "../types";
 import type { Topic } from "../types";
+
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
 
 const ROOT = testTmpDir("chat-bg-turn-end-attn");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -185,8 +188,9 @@ describe("a chat turn that leaves background work running", () => {
     const lines = recordedSessionCron().map(({ event }) => {
       // The recording armed a one-shot; the same lines with `recurring: true`
       // are what CronCreate answers for a /loop.
+      // Dated now: a cron armed on 25/09 is past the two-hour bound today.
       const r = (event as { tool_use_result?: Record<string, unknown> }).tool_use_result;
-      if (r && typeof r.id === "string" && "recurring" in r) return { ...event, tool_use_result: { ...r, recurring: true } };
+      if (r && typeof r.id === "string" && "recurring" in r) return { ...event, timestamp: new Date().toISOString(), tool_use_result: { ...r, recurring: true } };
       return event;
     });
     const firstResult = lines.findIndex((e) => e.type === "result");
@@ -202,6 +206,8 @@ describe("a chat turn that leaves background work running", () => {
     const subject = topicSubject(h.topic.id);
     expect(getAttention(subject).state).toBe("finished");
     expect(getAttention(subject).outcome).toBe("done");
+    // The cron is in the map, marked recurring: shown, never counted.
+    expect(getAttention(subject).background).toEqual([expect.objectContaining({ kind: "cron", recurring: true })]);
     // The goal loop's own reading is unchanged: the armed cron defers its verdict.
     expect(backgroundOfTurn(h.provider, h.pp.sessionKey).backgroundWork).toBe(true);
   });

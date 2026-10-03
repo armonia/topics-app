@@ -6,6 +6,8 @@ import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
 import { regenerationPromptBlock, type EvidenceToolCall } from "./regenerate-evidence";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
+import { turnEnded, turnStarted } from "../attention/store";
+import { topicSubject } from "../../shared/attention";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -158,6 +160,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       // Il provider di questa topic regge un riavvio? Vedi `ActiveStream`.
       startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
       broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+      if (matchedTopic) turnStarted(topicSubject(matchedTopic.id));
 
       const originalBody = resp.body!;
       const SAVE_INTERVAL = 10;
@@ -210,12 +213,19 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         onDone: (msgId: string) => {
           // edit.ts-specific: broadcast stream:end and update unread count
           broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: msgId });
-          if (matchedTopic) updateUnreadCount(matchedTopic.id);
+          if (matchedTopic) {
+            // A regenerated answer is a finished turn like any other (T2).
+            turnEnded(topicSubject(matchedTopic.id), { turnId: msgId, outcome: "done" });
+            updateUnreadCount(matchedTopic.id);
+          }
         },
         onStreamEnd: () => {
           // edit.ts-specific: update unread count for the topic (abrupt end,
           // stream:end already broadcast by the shared module's finally block).
-          if (matchedTopic) updateUnreadCount(matchedTopic.id);
+          if (matchedTopic) {
+            turnEnded(topicSubject(matchedTopic.id), {});
+            updateUnreadCount(matchedTopic.id);
+          }
         },
         logTag: "[Stream:Edit]",
         abortController,

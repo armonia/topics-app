@@ -161,7 +161,7 @@ import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
-import { sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
+import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -180,7 +180,10 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { recordAndAnnounce } from "./server/notification-registry";
+import { attentionInitFrame, forgetSocket, processEnded, recomposeAttentionOnBoot, setSocketFocus } from "./server/attention/store";
+import { chatBackgroundChanged, chatSubjectOfSession, configureAttentionWire, wireHumanHolds } from "./server/attention/wire";
+import { closeSystemCycle, openSystemCycle, recordSystemNotice } from "./server/attention/system-notices";
+import { isAttentionSubject, terminalIdOfSubject, terminalSubject, topicIdOfSubject, topicSubject } from "./shared/attention";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
@@ -768,6 +771,14 @@ const claudeSessionTracker = createClaudeSessionTracker({
   db: ctx.db,
   broadcast: ctx.broadcastToAll,
   ptyIdleMs: getClaudeSessionPtyIdleMs,
+  // The attention subject of a session: its chat, or the terminal it runs in
+  // (notifications-redesign). A session nobody owns keeps a subject of its own.
+  attentionSubject: (s) => {
+    if (s.sessionKey) return chatSubjectOfSession(s.sessionKey) ?? `session:${s.sessionKey}`;
+    const terminalId = getAgentPtyCliPids().find((p) => p.claudeSessionId === s.claudeSessionId)?.sessionId
+      ?? (ctx.db.query("SELECT id FROM terminal_sessions WHERE claude_session_id = ? LIMIT 1").get(s.claudeSessionId) as { id?: string } | null)?.id;
+    return terminalId ? terminalSubject(terminalId) : `claude:${s.claudeSessionId}`;
+  },
   // Message-import sink for ADOPTED sessions: the sweep reads the transcript
   // tail and appends the terminal's new turns into the topic's chat.
   importSink: {
@@ -816,6 +827,15 @@ ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why, cron) => {
 ClaudeCodeProvider.observeBackgroundChanged((sessionKey) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) ctx.broadcastToAll({ type: "background:changed", topicId: topic.id, sessionKey });
+  // The same change, for the attention state: the chat's task map is the CLI's snapshot.
+  const work = sessionAttentionBackground(sessionKey);
+  if (work) chatBackgroundChanged(sessionKey, work.tasks);
+});
+// The CLI is gone: what the chat waited on will never answer (ATTN-15). The
+// open turn is the route's to close, with the error it caught.
+ClaudeCodeProvider.observeProcessEnded((sessionKey, cause, byPerson) => {
+  const subject = chatSubjectOfSession(sessionKey);
+  if (subject) processEnded(subject, { cause, byPerson, turnClosedByRoute: true });
 });
 ClaudeCodeProvider.observeConfigOwed((sessionKey, changes) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
@@ -4191,6 +4211,10 @@ const opzioniServer = {
           : tutti;
         inviaIniziale({ type: "unread:init", data: suoi });
       }
+      // The attention state, whole, at every open of a socket of the person
+      // (ATTN-07): the client replaces its store with it, so a seen lost while
+      // a phone slept is not lost for good. Never to a guest.
+      if (!ospiteWS) inviaIniziale(attentionInitFrame());
       // `ui-state:init` e `providers:snapshot` NON hanno una versione ristretta,
       // e non devono averla: il primo è l'area di lavoro del proprietario — le
       // sue finestre, il suo layout — e il secondo la configurazione della
@@ -4606,6 +4630,14 @@ const opzioniServer = {
         switch (data.type) {
           case 'focus':
             ws.data.focusedTopicId = data.topicId;
+            // What this window has in front and whether it is awake: an epoch
+            // born there is born seen (ATTN-06). A guest's focus never counts.
+            {
+              const subject = typeof data.subject === 'string' && isAttentionSubject(data.subject)
+                ? data.subject
+                : data.topicId ? topicSubject(data.topicId) : null;
+              setSocketFocus(ws.data.id, { subject, awake: data.awake ?? true }, { guest: guestSocket });
+            }
             break;
           case 'subscribe': {
             // P6: the set of topics this connection currently has open, used to
@@ -4737,6 +4769,7 @@ const opzioniServer = {
       // to this ws object lingers elsewhere.
       wsClients.delete(ws);
       ws.data.focusedTopicId = null;
+      forgetSocket(ws.data.id);
       console.log(`[WS] Client disconnected: ${ws.data.id} (total: ${wsClients.size})`);
       // Presence self-heal: if this socket had declared a window, re-broadcast
       // so peers drop its "open elsewhere" markers the instant it dies. Removed
@@ -5148,20 +5181,22 @@ const swapFreezer = createSwapFreezer({
   announce: (event) => {
     announceSwapFreeze();
     try {
+      // A fact about the Mac, not about the chat that owns the command: a row of
+      // kind `system`, one per freeze cycle, the thaw rewriting the freeze's row
+      // (notifications-redesign, ATTN-10, defect D5).
       const it = event.view;
-      recordAndAnnounce({
-        kind: "session",
-        title: event.kind === "frozen"
-          ? `Congelato: ${it.command}` // allow-italian: notification history is written in Italian like every other row
-          : `Scongelato: ${it.command}`, // allow-italian: same row
-        body: event.kind === "frozen"
-          ? `Il Mac e' in swap: il comando tiene ${it.footprintGB.toFixed(1)} GB e riprende entro 10 minuti.` // allow-italian: same row
-          : `Ripreso dopo ${Math.round(event.frozenMs / 1000)} s (${event.reason}).`, // allow-italian: same row
-        targetKind: it.topicId ? "topic" : null,
-        targetId: it.topicId,
-        dedupeKey: `swap-freeze:${it.id}:${event.kind}`,
-        source: "push",
-      });
+      const key = `swap-freeze:${it.id}`;
+      if (event.kind === "frozen") {
+        openSystemCycle(key, {
+          title: `Congelato: ${it.command}`, // allow-italian: notification history is written in Italian like every other row
+          body: `Il Mac e' in swap: il comando tiene ${it.footprintGB.toFixed(1)} GB e riprende entro 10 minuti.`, // allow-italian: same row
+        });
+      } else {
+        closeSystemCycle(key, {
+          title: `Congelato e ripreso: ${it.command}`, // allow-italian: same row
+          body: `Ripreso dopo ${Math.round(event.frozenMs / 1000)} s (${event.reason}).`, // allow-italian: same row
+        });
+      }
     } catch { /* a notification that cannot be written must not stop the freeze */ }
   },
 });
@@ -5717,6 +5752,55 @@ void survivingTurnsAdopted
     },
     log: (m) => console.log(`[subagent-wake] ${m}`),
   }));
+// THE ATTENTION STATE AT EVERY START (notifications-redesign, section 7):
+// once the surviving turns and their children are adopted, the store reads
+// its table again, the re-read inputs from where they live, ends the subjects
+// whose process is gone, and recomposes everything with no epoch and no
+// announce. The waits of the bridges are wired from here on.
+configureAttentionWire({ cardForSession: (sk) => taskDispatcher.taskForSession(sk) });
+wireHumanHolds();
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => {
+    try {
+      recomposeAttentionOnBoot({
+        liveProcess: (subject) => {
+          const topicId = topicIdOfSubject(subject);
+          if (topicId) {
+            const sk = ctx.getTopicById(topicId)?.sessionKey;
+            return !!sk && sessionHasBackgroundWork(sk);
+          }
+          const terminalId = terminalIdOfSubject(subject);
+          if (terminalId) {
+            const row = ctx.db.query("SELECT status FROM terminal_sessions WHERE id = ?").get(terminalId) as { status?: string } | null;
+            return !!row && row.status !== "dormant";
+          }
+          return true;
+        },
+        cards: () => (ctx.db.query(
+          `SELECT id, status, dispatch_error, review_at, updated_at FROM tasks
+            WHERE archived = 0 AND (status = 'review' OR (status = 'backlog' AND dispatch_state IN ('failed', 'blocked', 'waited_out')))`,
+        ).all() as Array<{ id: string; status: string; dispatch_error: string | null; review_at: string | null; updated_at: string }>)
+          .map((r) => r.status === "review"
+            ? { taskId: r.id, status: "review" as const, since: r.review_at ?? r.updated_at }
+            : { taskId: r.id, status: "parked" as const, since: r.updated_at, detail: r.dispatch_error }),
+        archived: (subjects) => new Set(subjects.filter((subject) => {
+          const topicId = topicIdOfSubject(subject);
+          if (!topicId) return false;
+          const topic = ctx.getTopicById(topicId);
+          return !topic || topic.archived;
+        })),
+        closed: (subjects) => new Set(subjects.filter((subject) => {
+          const terminalId = terminalIdOfSubject(subject);
+          if (!terminalId) return false;
+          return !ctx.db.query("SELECT 1 FROM terminal_sessions WHERE id = ?").get(terminalId);
+        })),
+        dispatched: () => taskDispatcher.sessionsInFlight().map((sk) => chatSubjectOfSession(sk)).filter((x): x is string => !!x),
+      });
+    } catch (err) {
+      console.error("[attention] boot recomposition failed:", err);
+    }
+  });
 survivingTurnsAdopted
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
@@ -6560,16 +6644,8 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
         if (avviso) {
           avvisato = true;
           try {
-            const topicId = holder ? (ctx.getTopicBySessionKey(holder)?.id ?? null) : null;
-            recordAndAnnounce({
-              kind: "session",
-              title: avviso.title,
-              body: avviso.body,
-              targetKind: topicId ? "topic" : null,
-              targetId: topicId,
-              dedupeKey: avviso.dedupeKey,
-              source: "push",
-            });
+            // The server's restart, not the chat's: a `system` row, one per wait (ATTN-10).
+            recordSystemNotice({ key: "restart-held", cycle: avviso.dedupeKey, title: avviso.title, body: avviso.body });
           } catch (err) {
             console.warn("[quiescence] avviso di riavvio trattenuto non registrato:", err);
           }

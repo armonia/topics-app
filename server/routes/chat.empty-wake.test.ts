@@ -11,10 +11,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
-import { configureAttentionStore, getAttention, setBackgroundTasks } from "../attention/store";
+import { configureAttentionStore, getAttention, setBackgroundTasks, resetAttentionStore } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { Topic } from "../types";
+
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
 
 const ROOT = testTmpDir("chat-empty-wake-attn");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));

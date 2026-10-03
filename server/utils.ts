@@ -26,8 +26,12 @@ import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
 import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
-import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
-import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
+import { isTopicSilenced } from "./push-triggers";
+import { configureAttentionStore } from "./attention/store";
+import { configureAttentionWire } from "./attention/wire";
+import { recordSystemNotice } from "./attention/system-notices";
+import { topicIdOfSubject, topicSubject } from "../shared/attention";
+import { configureNotificationRegistry } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
@@ -291,6 +295,7 @@ export function createAppContext(baseDir: string): AppContext {
     insertTopicDisabledSource: db.prepare(`INSERT OR IGNORE INTO topic_disabled_sources (topic_id, source_id) VALUES (?, ?)`),
     // Unread
     getAllUnread: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread`),
+    getUnreadOne: db.prepare(`SELECT unread_count FROM unread WHERE topic_id = ?`),
     // All but the zeroed rows of archived topics (1,128 of 1,146 on prod).
     getUnreadForInit: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread u
       WHERE u.unread_count > 0 OR NOT EXISTS (SELECT 1 FROM topics t WHERE t.id = u.topic_id AND t.archived = 1)`),
@@ -989,12 +994,10 @@ export function createAppContext(baseDir: string): AppContext {
       if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
       sendFrame(ws, payload, presentedMessage.type);
     }
-    // Trigger push notifications for meaningful events
-    try { maybeSendPush(presentedMessage as Record<string, any>); } catch (err) {
-      // Push is best-effort, but a persistent throw here means notifications
-      // are silently dead — surface it (throttled) instead of never knowing.
-      warnThrottled("maybeSendPush", `[Push] maybeSendPush threw:`, err);
-    }
+    // No push from here any more (notifications-redesign, design section
+    // 10.1): a frame is not a fact. The push and the history row of a new
+    // epoch are decided by the attention store, which hands its own frame to
+    // this function like every other writer.
   }
 
   /**
@@ -1018,11 +1021,8 @@ export function createAppContext(baseDir: string): AppContext {
    * non è fra i tipi ammessi, quindi a un ospite non parte né la riga né la
    * ritratta, esattamente come prima che questa fan-out esistesse.
    *
-   * Niente `maybeSendPush`: nessun `project:*` è fra i tipi che fanno partire una
-   * notifica (`server/push-triggers.ts`), e chiamarlo qui vorrebbe dire che il
-   * giorno in cui uno ci finisse la notifica uscirebbe senza passare da questo
-   * filtro — cioè col nome del progetto sopra. Se serve, si aggiunge di qui
-   * DOPO aver deciso a chi.
+   * No push from here: a push is the attention store's, for a new epoch of a
+   * subject (`server/attention/store.ts`), never a reaction to a frame.
    */
   function broadcastProject(type: TipoFrameProgetto, project: Project): void {
     const guests = guestSocketFilter();
@@ -1181,7 +1181,8 @@ export function createAppContext(baseDir: string): AppContext {
     killTree: undefined,   // iniettato da server.ts dopo createProcessesRouter
     listOwnedScripts: undefined, // idem
     // A folder that survives the delete: the row stays, the human must know.
-    notify: (input) => { recordAndAnnounce(input); },
+    // A fact about the machine, not a chat's: a `system` row of its own (ATTN-10).
+    notify: (input) => { recordSystemNotice({ key: "worktree-gc", cycle: input.dedupeKey, title: input.title, body: input.body }); },
   };
   const worktreeManager = createWorktreeManager(
     { broadcastToAll } as AppContext,
@@ -1280,27 +1281,39 @@ export function createAppContext(baseDir: string): AppContext {
     return getTopicById(topicId);
   }
 
-  // Il modulo push-triggers è puro; qui gli passiamo i dati che gli servono e
-  // che vivono sul DB — il nome del topic per il titolo della push di fine
-  // risposta, e la riga + le impostazioni su cui `isTopicSilenced` decide il
-  // silenzio (archiviato, mutato, o dentro un progetto mutato). Un topic che
-  // non esiste più conta come zittito: non c'è niente da nominare e nessuno da
-  // svegliare.
-  //
-  // `mutedProjects` si LEGGE al momento della push, non si memorizza qui: muti
-  // un progetto e un valore preso al bootstrap resterebbe quello di ore prima.
-  // Una SELECT per chiave vale la freschezza, tanto più che le push di fine
-  // risposta sono rare (una per turno di chat umana, già a valle di cinque gate).
-  configurePushTriggers({
-    getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
-    isTopicSilenced: (topicId) => isTopicSilenced(getTopicById(topicId), readMutedProjects(db)),
-    // Ogni push mandata lascia una riga nel registro (migration 102). La push è
-    // la metà "ad app chiusa" della notifica: senza questo aggancio la
-    // cronologia avrebbe un buco proprio dove serve di più — quando torni al
-    // computer e vuoi sapere cosa è successo mentre non c'eri.
-    recordNotification: (input) => { recordAndAnnounce(input); },
-    // `session:state` names only the session: the waiting-for-you push needs the topic.
-    topicIdForSessionKey: (sessionKey) => getTopicBySessionKey(sessionKey)?.id ?? null,
+  // THE ATTENTION STORE (notifications-redesign): the one writer of a
+  // subject's state, its epoch, its history row and its push. Here it gets the
+  // data it needs that live in the DB: where to announce, a chat's unread, and
+  // the words of an announce: the name of the chat or the card, the mute
+  // (`isTopicSilenced`: archived, muted, or inside a muted project, read at the
+  // moment of the announce, never cached), and a card's pending question.
+  configureAttentionStore({
+    db: () => db,
+    broadcast: (frame) => broadcastToAll(frame),
+    unreadOf: (topicId) => (stmts.getUnreadOne.get(topicId) as { unread_count?: number } | null)?.unread_count ?? 0,
+    resetUnread: (topicId) => {
+      const current = (stmts.getUnreadOne.get(topicId) as { unread_count?: number } | null)?.unread_count ?? 0;
+      if (current <= 0) return;
+      saveUnreadEntries({ [topicId]: { lastReadAt: new Date().toISOString(), unreadCount: 0 } });
+      broadcastToAll({ type: "unread:updated", topicId, unreadCount: 0 });
+    },
+    describe: (subject) => {
+      const topicId = topicIdOfSubject(subject);
+      if (topicId) {
+        const topic = getTopicById(topicId);
+        return { name: topic?.name ?? null, silenced: isTopicSilenced(topic, readMutedProjects(db)) };
+      }
+      // A card's words travel with its state (`setCard`, from the task service).
+      return null;
+    },
+  }, { fresh: true });
+  // The chat behind a session key, for the waits and the background work that
+  // know only the session.
+  configureAttentionWire({
+    subjectForSessionKey: (sessionKey) => {
+      const topic = getTopicBySessionKey(sessionKey);
+      return topic ? topicSubject(topic.id) : null;
+    },
   });
 
   // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove

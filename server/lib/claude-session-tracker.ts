@@ -38,6 +38,8 @@ import { findForkContinuation } from './transcript-fork';
 import { basename } from 'path';
 import { parseTranscriptDelta } from './claude-transcript-import';
 import type { StoredMessage } from '../types';
+import { applyTaskChanges, countingTasks, processEnded } from '../attention/store';
+import { hookTasks, syncAttention, transcriptTasks } from '../attention/tracker-sync';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
 
@@ -134,7 +136,17 @@ export interface ClaudeSessionTrackerOptions {
    * La scansione legge i transcript vicini: va fatta di rado. Default 10s.
    */
   forkScanCooldownMs?: number;
+  /**
+   * The attention subject of a session (`topic:<id>` for a chat, `terminal:<id>`
+   * for a terminal), where its tasks in flight, its waits and, for a terminal,
+   * its turns are written (notifications-redesign, design section 5.2). The
+   * server injects the mapping; without it each tracker keeps subjects of its
+   * own, so two trackers (two test files) never share a task map.
+   */
+  attentionSubject?: (s: { sessionKey: string | null; claudeSessionId: string }) => string | null;
 }
+
+let trackerInstances = 0;
 
 interface DedupEntry {
   lastEventAt: number;
@@ -179,6 +191,12 @@ export interface ClaudeSessionTracker {
    * Torna `false` se non c'era nessuna attesa armata (idempotente).
    */
   noteWatchDelivered(sessionKey: string, now?: number): boolean;
+  /**
+   * One line of a session's transcript, applied as the live tail applies it:
+   * the phase (causally gated) and the tasks it reports finished. The tail
+   * calls the same code for every line it reads.
+   */
+  ingestTranscriptLine(claudeSessionId: string, line: string, now?: number): boolean;
   /**
    * Register a topic-less terminal claude session so its hooks resolve. These
    * have no `claude_code_sessions` row (the table's PK is a topic session_key
@@ -282,6 +300,14 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const isSessionLocallyDriven = opts.isSessionLocallyDriven ?? (() => false);
   const forkStaleMs = opts.forkStaleMs ?? 8_000;
   const forkScanCooldownMs = opts.forkScanCooldownMs ?? 10_000;
+  const instanceTag = ++trackerInstances;
+  const subjectOfSession = opts.attentionSubject
+    ?? ((s: { sessionKey: string | null; claudeSessionId: string }) => `tracker${instanceTag}:${s.sessionKey ?? s.claudeSessionId}`);
+  function subjectOf(s: ClaudeSessionState): string | null {
+    try { return subjectOfSession({ sessionKey: s.sessionKey, claudeSessionId: s.claudeSessionId }); } catch { return null; }
+  }
+
+
 
   /**
    * LE ATTESE ARMATE, che il DB non sa tenere.
@@ -448,18 +474,24 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       // Il flag dell'attesa si rimette PRIMA di applicare l'hook (il DB l'ha
       // perso) e si rilegge DOPO (l'hook può averlo acceso o spento). Vedi
       // `attesArmate`.
-      const next = snapOffsetIfPathChanged(dbPrev, applyHook(conAttesa(dbPrev), payload, t));
+      const subject = subjectOf(dbPrev);
+      hookTasks(subject, payload, t);
+      const next = snapOffsetIfPathChanged(dbPrev, applyHook(conAttesa(dbPrev), payload, t, { countingTasks: subject ? countingTasks(subject) : 0 }));
       if (next.sessionKey) {
         if (next.monitorArmed) attesArmate.add(next.sessionKey);
         else attesArmate.delete(next.sessionKey);
       }
       const res = commit(dbPrev, next);
+      syncAttention(subject, dbPrev, res.state, event, false, t);
       return { kind: 'ok', state: res.state, changed: res.changed };
     }
     const memPrev = terminalStates.get(sid);
     if (memPrev) {
-      const next = snapOffsetIfPathChanged(memPrev, applyHook(memPrev, payload, t));
+      const subject = subjectOf(memPrev);
+      hookTasks(subject, payload, t);
+      const next = snapOffsetIfPathChanged(memPrev, applyHook(memPrev, payload, t, { countingTasks: subject ? countingTasks(subject) : 0 }));
       const res = commitTerminal(memPrev, next);
+      syncAttention(subject, memPrev, res.state, event, true, t);
       return { kind: 'ok', state: res.state, changed: res.changed };
     }
     return { kind: 'unknown-session', claudeSessionId: sid };
@@ -468,10 +500,15 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   function notePtyCrash(claudeSessionId: string, exitCode: number, overrideNow?: number): boolean {
     const t = overrideNow ?? now();
     const dbPrev = repo.loadByClaudeSessionId(claudeSessionId);
+    const prev = dbPrev ?? terminalStates.get(claudeSessionId);
+    if (!prev) return false;
+    // The crash ends the process: what was in flight will never answer (T16).
+    const subject = subjectOf(prev);
+    if (subject) {
+      try { processEnded(subject, { cause: 'crash' }); } catch (err) { console.warn('[claude-session-tracker] attention crash failed', err); }
+    }
     if (dbPrev) return commit(dbPrev, markPtyCrash(dbPrev, exitCode, t)).changed;
-    const memPrev = terminalStates.get(claudeSessionId);
-    if (memPrev) return commitTerminal(memPrev, markPtyCrash(memPrev, exitCode, t)).changed;
-    return false;
+    return commitTerminal(prev, markPtyCrash(prev, exitCode, t)).changed;
   }
 
   function noteDormant(claudeSessionId: string, overrideNow?: number): boolean {
@@ -509,10 +546,28 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
    */
   function noteWatchDelivered(sessionKey: string, overrideNow?: number): boolean {
     const t = overrideNow ?? now();
-    if (!attesArmate.delete(sessionKey)) return false; // nessuna attesa: no-op
     const prev = repo.loadBySessionKey(sessionKey);
+    // The delivered Monitor leaves the subject's task map (its one holder).
+    const subject = prev ? subjectOf(prev) : null;
+    const removed = subject ? applyTaskChanges(subject, [{ op: 'remove-kind', kind: 'monitor' }]) : false;
+    if (!attesArmate.delete(sessionKey)) return removed; // nessuna attesa: no-op
+    if (!prev) return removed;
+    return commit(prev, { ...prev, monitorArmed: false, updatedAt: t, rev: prev.rev + 1 }).changed || removed;
+  }
+
+  function ingestTranscriptLine(claudeSessionId: string, line: string, overrideNow?: number): boolean {
+    const t = overrideNow ?? now();
+    const dbPrev = repo.loadByClaudeSessionId(claudeSessionId);
+    const prev = dbPrev ?? terminalStates.get(claudeSessionId);
     if (!prev) return false;
-    return commit(prev, { ...prev, monitorArmed: false, updatedAt: t, rev: prev.rev + 1 }).changed;
+    const subject = subjectOf(prev);
+    transcriptTasks(subject, line);
+    const ev = parseJsonlLine(line);
+    if (!ev) return false;
+    const next = applyJsonlEvent(prev, ev, t);
+    const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
+    if (!dbPrev) syncAttention(subject, prev, res.state, null, true, t);
+    return res.changed;
   }
 
   function registerTerminalSession(claudeSessionId: string, regOpts?: { cwd?: string; now?: number }): void {
@@ -675,7 +730,9 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         await fh.read(buf, 0, len, sess.jsonlOffset);
         const { lines, remainder } = splitJsonlChunk(buf.toString('utf-8'));
         let cur = sess;
+        const subject = subjectOf(sess);
         for (const line of lines) {
+          transcriptTasks(subject, line);
           const ev = parseJsonlLine(line);
           if (!ev) continue;
           cur = applyJsonlEvent(cur, ev, t);
@@ -740,6 +797,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       if (terminalStates.get(sess.claudeSessionId) !== sess) continue; // hook won mid-read
       terminalStates.set(sess.claudeSessionId, next);
       if (next.rev !== sess.rev) scheduleBroadcast(next);
+      // A turn the CLI opened by itself (a report, a Monitor's event) is a turn of the terminal.
+      syncAttention(subjectOf(next), sess, next, null, true, t);
       updated += 1;
     }
     return updated;
@@ -981,6 +1040,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     noteDormant,
     notePtyActivity,
     noteWatchDelivered,
+    ingestTranscriptLine,
     registerTerminalSession,
     dropTerminalSession,
     reapOnce,

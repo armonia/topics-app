@@ -133,6 +133,15 @@ export function isKnownHookEvent(name: string): name is HookEventName {
 }
 
 /**
+ * The question tool of the Topics MCP server. A headless chat cannot use the
+ * built-in AskUserQuestion (`HEADLESS_DISALLOWED_TOOLS`, providers/claude/args.ts)
+ * and asks every question through this one: without it here, a chat blocked
+ * on a question read as `tool-running`, working, and nobody was told
+ * (notifications-redesign, defect D6).
+ */
+const TOPICS_ASK_TOOL = 'mcp__topics__ask_user_question';
+
+/**
  * Built-in tools whose PreToolUse means "Claude is now BLOCKED on a human
  * answer", not "Claude is doing work". They must drive the amber act-now tier
  * (awaiting-approval), never the working spinner (tool-running):
@@ -148,7 +157,7 @@ export function isKnownHookEvent(name: string): name is HookEventName {
  * PostToolUse for either arrives once the user has answered/approved and takes
  * us back to running (see the PostToolUse case).
  */
-const HUMAN_INPUT_TOOLS = new Set<string>(['AskUserQuestion', 'ExitPlanMode']);
+const HUMAN_INPUT_TOOLS = new Set<string>(['AskUserQuestion', 'ExitPlanMode', TOPICS_ASK_TOOL]);
 
 /**
  * I tool che ARMANO UN'ATTESA: partono e non finiscono con la loro chiamata.
@@ -203,7 +212,7 @@ function humanInputApproval(toolName: string | undefined, toolInput: unknown, no
     const q = questions[0] as { question?: unknown } | undefined;
     if (q && typeof q.question === 'string' && q.question.trim()) prompt = q.question;
   }
-  return { kind: 'other', prompt, requestedAt: now };
+  return { kind: 'other', prompt, requestedAt: now, question: true };
 }
 
 /**
@@ -220,7 +229,15 @@ export function applyHook(
   prev: ClaudeSessionState,
   hook: HookPayload,
   now: number,
+  /**
+   * `countingTasks`: how many tasks this session left in flight that count
+   * (not a recurring cron), as the attention store, their one holder, says it
+   * (notifications-redesign, design section 5.3). The tracker always passes
+   * it; a caller that does not falls back on the legacy `monitorArmed`.
+   */
+  opts: { countingTasks?: number } = {},
 ): ClaudeSessionState {
+  const waiting = opts.countingTasks !== undefined ? opts.countingTasks > 0 : !!prev.monitorArmed;
   const base: ClaudeSessionState = {
     ...prev,
     lastHookAt: now,
@@ -335,13 +352,12 @@ export function applyHook(
     }
 
     case 'Stop':
-      // Turn ended. If a Monitor is still armed, the session is not idle — it's
-      // parked WATCHING for a background event, so keep the ring on. Otherwise
-      // the turn simply finished → awaiting-user. This is the guard that makes
-      // 'watching' survive: the monitor is armed DURING the turn (MonitorArmed),
-      // then Stop fires; without consulting the flag, Stop would clobber it.
+      // Turn ended. With a task of its own still in flight (a background Bash
+      // or Agent, a Workflow, a Monitor, a one-shot cron: MONITOR-04), the
+      // session is not idle: it is parked WATCHING for the report, which will
+      // wake it. Otherwise the turn simply finished → awaiting-user.
       return transition(base, {
-        phase: prev.monitorArmed ? 'watching' : 'awaiting-user',
+        phase: waiting ? 'watching' : 'awaiting-user',
         pendingApproval: undefined,
         lastTool: undefined,
       }, now);
@@ -371,10 +387,10 @@ export function applyHook(
 
     case 'MonitorClosed':
       // The Monitor/watch was closed (completed, cancelled, or timed out). Clear
-      // the armed flag. If we were WATCHING, the session is now idle → awaiting-user;
-      // otherwise the phase already reflects live work (a woken turn), so leave it
-      // and just drop the flag.
-      if (prev.phase === 'watching') {
+      // the armed flag. If we were WATCHING with nothing else in flight, the
+      // session is now idle → awaiting-user; otherwise the phase already
+      // reflects live work (a woken turn, another task), so leave it.
+      if (prev.phase === 'watching' && !(opts.countingTasks !== undefined && opts.countingTasks > 0)) {
         return transition(base, {
           phase: 'awaiting-user',
           monitorArmed: false,

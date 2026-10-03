@@ -15,12 +15,15 @@
  * copied from `tests/fixtures/claude-cli-2.1.282-*.ndjson`.
  * @covers ATTN-03
  */
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
 import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks } from '../attention/store';
+
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
 
 const T0 = 1_700_000_000_000;
 
@@ -40,7 +43,7 @@ function freshDb(): Database {
   for (const prefix of ['027-', '096-']) {
     const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
     const sql = readFileSync(join(migDir, file), 'utf-8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
-    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(stmt);
+    for (const statement of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(statement);
   }
   return db;
 }
@@ -68,7 +71,7 @@ const BASH_BG: Tool = { tool_name: 'Bash', tool_input: { command: 'sleep 600 && 
   tool_response: { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: 'b7kapz0ad' } };
 const AGENT_BG: Tool = { tool_name: 'Agent', tool_input: { description: 'verify render', prompt: '...', run_in_background: true },
   tool_response: { isAsync: true, status: 'async_launched', agentId: 'a4bb623e3ab5ee41a', description: 'verify render' } };
-const WORKFLOW: Tool = { tool_name: 'Workflow', tool_input: { name: 'release' },
+const FLOW_TOOL: Tool = { tool_name: 'Workflow', tool_input: { name: 'release' },
   tool_response: 'Workflow started in the background. Task ID: wf91a2b3c' };
 const CRON_ONCE: Tool = { tool_name: 'CronCreate', tool_input: { cron: '57 9 25 9 *', prompt: 'check CI', recurring: false },
   tool_response: { id: 'afc60409', humanSchedule: '57 9 25 9 *', recurring: false, durable: false } };
@@ -106,7 +109,7 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
   beforeEach(() => { resetAttentionStore(); configureAttentionStore({ db: () => null, sendPush: () => {}, recordRow: () => null }); });
 
   for (const { label, make } of KINDS) {
-    for (const [name, tool] of [['Bash run_in_background', BASH_BG], ['Agent run_in_background', AGENT_BG], ['Workflow', WORKFLOW], ['one-shot CronCreate', CRON_ONCE]] as const) {
+    for (const [name, tool] of [['Bash run_in_background', BASH_BG], ['Agent run_in_background', AGENT_BG], ['Workflow', FLOW_TOOL], ['one-shot CronCreate', CRON_ONCE]] as const) {
       it(`${label}: a ${name} parks the session watching, with its task counted`, () => {
         const { tracker, sid, subject } = make([]);
         turn([tool]).forEach((h, i) => tracker.ingestHook({ ...h, session_id: sid } as never, T0 + 200 * (i + 1)));

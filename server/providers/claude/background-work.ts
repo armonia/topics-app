@@ -35,6 +35,7 @@
 import { readBackgroundTasks, readParentToolUseId } from "./events";
 import type { BackgroundWorkDetail } from "../../../shared/background-work";
 import { readMonitorEnd } from "./wake-source";
+import type { AttentionTaskMap } from "../../../shared/attention";
 
 export type { BackgroundWorkDetail };
 
@@ -404,4 +405,52 @@ export function backgroundWorkKey(work: BackgroundWork | undefined): string {
 /** Is there background work alive, or a wake about to answer it, as of `now`? */
 export function isBackgroundWorkAlive(work: BackgroundWork | undefined, now: number): boolean {
   return hasTaskWork(work, now) || hasArmedCron(work, now);
+}
+
+/** The work as the attention state counts it (notifications-redesign, design section 5.2). */
+export interface AttentionBackground {
+  /** Every task in flight by id, recurring crons included, marked. */
+  tasks: AttentionTaskMap;
+  /** The tasks that keep the chat waiting: not a recurring cron. */
+  count: number;
+  /** Their kinds, once each: what `stream:end.background.kinds` says. */
+  kinds: string[];
+}
+
+function attentionKind(type: string, monitor: boolean): string {
+  if (monitor) return "monitor";
+  if (type.includes("agent")) return "agent";
+  if (type.includes("workflow")) return "workflow";
+  return "bash";
+}
+
+/**
+ * What the chat waits on, for the attention state: the listed tasks alive
+ * (`hasLiveTasks`), the wake the CLI is about to start (`isWakeQueued`: the
+ * report arrived, its turn is coming) and the session crons, a recurring one
+ * marked so it is shown and never counted. NOT `backgroundState`, which the
+ * goal loop reads and which says `running` while a recurring cron is armed,
+ * for two hours: right for a loop that must defer its verdict, wrong for a
+ * chat that would stay grey forever under a calendar.
+ */
+export function attentionBackgroundOf(work: BackgroundWork | undefined, now: number): AttentionBackground {
+  const tasks: AttentionTaskMap = {};
+  if (work && hasLiveTasks(work, now)) {
+    for (const [id, t] of work.tasks) {
+      tasks[id] = {
+        kind: attentionKind(t.type, work.facts.get(id)?.monitor === true),
+        label: t.description || t.type,
+        startedAt: new Date(t.startedAt ?? now).toISOString(),
+      };
+    }
+  }
+  for (const [id, c] of work?.crons ?? []) {
+    if (now - c.armedAt >= BACKGROUND_WORK_CAP_MS) continue;
+    tasks[id] = { kind: "cron", label: c.schedule, startedAt: new Date(c.armedAt).toISOString(), ...(c.recurring ? { recurring: true } : {}) };
+  }
+  if (work && isWakeQueued(work, now)) {
+    tasks.wake = { kind: "wake", label: work.lastReport?.description ?? "wake", startedAt: new Date(work.wakeQueuedAt ?? now).toISOString() };
+  }
+  const counting = Object.values(tasks).filter((t) => !t.recurring);
+  return { tasks, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
 }

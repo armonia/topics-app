@@ -40,6 +40,12 @@ export interface HumanHoldChange {
   /** Quale delle due sorgenti ha mosso lo stato. Utile nei log, non nel chip:
    *  per chi guarda la board «domanda» e «permesso» sono lo stesso fatto. */
   source: "ask" | "permission";
+  /**
+   * Which wait, on `held`: the attention store makes ONE epoch per wait, and
+   * the same wait announced again must not make a second one
+   * (`server/attention/wire.ts`). Absent on `released`.
+   */
+  id?: string;
 }
 
 type Listener = (change: HumanHoldChange) => void;

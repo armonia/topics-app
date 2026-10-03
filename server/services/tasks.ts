@@ -63,6 +63,7 @@ import { budgetShare } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
 import { markTargetSeenAndAnnounce } from "../notification-registry";
+import { withCardAttention } from "../attention/card-sync";
 
 export type Actor = "human" | "agent";
 
@@ -3589,7 +3590,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return rowToTask(getTaskRow(taskId));
   }
 
-  return {
+  const service: TaskService = {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
       if (!text) throw new TaskServiceError("invalid_input", "task text is required");
@@ -6709,4 +6710,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
   };
+  // Every method that can move a card writes its state to the attention store
+  // (`server/attention/card-sync.ts`): the store announces review and park.
+  return withCardAttention(db, service, commentAsksHuman);
 }

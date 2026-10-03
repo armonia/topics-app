@@ -17,6 +17,8 @@ import { staleStreamVerdict } from "./stale-stream-verdict";
 import type { TurnEndCause } from "../../shared/types";
 import { pendingAskVerdict } from "./ask-user-bridge";
 import { announceTurnEnded } from "./turn-ended";
+import { turnEnded } from "../attention/store";
+import { topicSubject } from "../../shared/attention";
 
 /** Il minimo di `ActiveStream` che questo giro legge. */
 export interface SweepableStream {
@@ -438,6 +440,9 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     // dispatcher) deve leggere "fermato dal watchdog", non la fine di default.
     deps.recordTurnEnd(sessionKey);
     deps.broadcast({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout", stopReason: "cancelled", stopCause: "watchdog" });
+    // The turn is closed for the attention state too, with nothing to announce:
+    // the sweep leaves no notice, so there is no fact for the person (T12).
+    if (topicId) turnEnded(topicSubject(topicId), {});
     // Sveglia il client HTTP. Il broadcast sopra parla ai soli spettatori WS:
     // chi ha MANDATO il messaggio sta leggendo la risposta SSE, e quel canale
     // scarta per contratto gli eventi WS della propria sessione. Senza questo

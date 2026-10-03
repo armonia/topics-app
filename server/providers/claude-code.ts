@@ -61,7 +61,7 @@ import {
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
-import { backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
@@ -1415,6 +1415,19 @@ export class ClaudeCodeProvider implements AIProvider {
     ClaudeCodeProvider.onBackgroundClosed = fn;
   }
   private static onBackgroundClosed: BackgroundClosedObserver | null = null;
+
+  /**
+   * Who hears that a session's CLI is gone, and why: the attention store ends
+   * the work it was waiting on (notifications-redesign, ATTN-15). `byPerson`:
+   * the person asked for it (a stop, `/clear`).
+   */
+  static observeProcessEnded(fn: (sessionKey: string, cause: "reaper" | "lifetime-cap" | "cli-exit", byPerson: boolean) => void): void {
+    ClaudeCodeProvider.onProcessEnded = fn;
+  }
+  private static onProcessEnded: ((sessionKey: string, cause: "reaper" | "lifetime-cap" | "cli-exit", byPerson: boolean) => void) | null = null;
+  private sayProcessEnded(sessionKey: string, cause: "reaper" | "lifetime-cap" | "cli-exit", byPerson: boolean): void {
+    try { ClaudeCodeProvider.onProcessEnded?.(sessionKey, cause, byPerson); } catch (err) { console.warn(`[claude-code] process-ended observer failed for ${sessionKey}:`, err); }
+  }
 
   /** Who tells the chats that a session's named background work changed: the status poll is 15 s apart. */
   static observeBackgroundChanged(fn: (sessionKey: string) => void): void { ClaudeCodeProvider.onBackgroundChanged = fn; }
@@ -3006,6 +3019,17 @@ export class ClaudeCodeProvider implements AIProvider {
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
   }
 
+  /**
+   * What the chat waits on, for the attention state (`attentionBackgroundOf`):
+   * the live tasks, the wake on its way, the session crons with a recurring
+   * one marked. A child gone or told to stop waits on nothing.
+   */
+  attentionBackground(sessionKey: string): AttentionBackground {
+    const pp = this.processes.get(sessionKey);
+    if (!pp?.alive || pp.stoppedExit) return { tasks: {}, count: 0, kinds: [] };
+    return attentionBackgroundOf(pp.background, Date.now());
+  }
+
   /** What the chat names while `backgroundState` is not `none`: the live tasks (none once only the wake is left) and the last news. */
   backgroundWorkDetail(sessionKey: string): BackgroundWorkDetail | null {
     return this.backgroundState(sessionKey) === "none" ? null : describeBackgroundWork(this.processes.get(sessionKey)?.background, Date.now());
@@ -3590,6 +3614,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // Child exited (direct: proc 'close'; broker: daemon `exit` frame). Rejects a
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
+    if (pp.alive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
     pp.alive = false;
     this.noteCliTurn(pp, false);
     if (pp.background?.tasks.size) this.sayBackgroundChanged(pp.sessionKey);
@@ -4630,6 +4655,10 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private killProcess(pp: PersistentProcess, cause: KillCause): void {
     if (cause === "idle" || cause === "lifetime" || cause === "config") this.sayBackgroundClosed(pp, "silent", KILL_CAUSE_TEXT[cause]);
+    // The work in flight dies with the child: the attention store says so once
+    // (T16), or nothing when nothing was in flight. A server shutdown is the
+    // next boot's business (`processEnded` with `restart`).
+    if (cause !== "shutdown" && pp.alive) this.sayProcessEnded(pp.sessionKey, cause === "idle" ? "reaper" : cause === "lifetime" ? "lifetime-cap" : "cli-exit", cause === "clear" || cause === "stopped-child");
     if (cause === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", KILL_CAUSE_TEXT[cause]);
     const wasAlive = pp.alive;
     pp.alive = false;

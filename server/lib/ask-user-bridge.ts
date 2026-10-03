@@ -181,7 +181,7 @@ export function beginAsk(sessionKey: string, now = Date.now()): void {
   // From here the turn is parked on a person. Whoever watches the BOARD cannot
   // tell by itself: the task would stay `working` under an open panel. See
   // human-hold-events.ts.
-  emitHumanHoldChange({ sessionKey, phase: "held", source: "ask" });
+  emitHumanHoldChange({ sessionKey, phase: "held", source: "ask", id: `ask:${now}` });
 }
 
 /** Close an ask: answered or cancelled. Idempotent. */

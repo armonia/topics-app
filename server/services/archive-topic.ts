@@ -35,6 +35,8 @@
  */
 import type { Topic, UnreadData } from "../../shared/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { setClosed } from "../attention/store";
+import { topicSubject } from "../../shared/attention";
 
 export interface ArchiveTopicDeps {
   getTopicById: (id: string) => Topic | null;
@@ -147,6 +149,12 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
   if (topic.sessionKey) {
     deps.cancelPendingAsk?.(topic.sessionKey, "il topic e' stato archiviato"); // allow-italian: user-facing reason shown in the chat
   }
+
+  // 5b. The attention state (notifications-redesign, T13): the subject goes
+  // idle and its epoch, its last turn and its history rows are seen in the
+  // same step, so a closed chat never keeps the bell or the Dock at +1. Run on
+  // an already archived topic too: re-archiving repairs.
+  setClosed(topicSubject(topicId), { archived: true });
 
   // 6. Il fatto. Ultimo perche' e' l'unico passo che non ha conseguenze: e' la
   // riga su cui il riconcilio al boot decidera' che questo topic era chiuso

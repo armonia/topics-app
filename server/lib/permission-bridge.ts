@@ -144,7 +144,7 @@ export function beginPermission(
     activeRequests.set(key, { sessionKey, toolUseId, startedAt: now });
     // Il primo permesso aperto e' quello che ferma il turno agli occhi di chi
     // guarda la board; i successivi non cambiano il fatto.
-    if (!wasHeld) emitHumanHoldChange({ sessionKey, phase: 'held', source: 'permission' });
+    if (!wasHeld) emitHumanHoldChange({ sessionKey, phase: 'held', source: 'permission', id: `permission:${toolUseId}` });
     return true;
   }
   return now - open.startedAt < ttlMs;

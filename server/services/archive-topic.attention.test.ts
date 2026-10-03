@@ -20,6 +20,9 @@ import { archiveTopicFully } from "./archive-topic";
 import { configureAttentionStore, getAttention, resetAttentionStore, turnEnded, turnStarted } from "../attention/store";
 import type { Topic, UnreadData } from "../../shared/types";
 
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
+
 let tmpRoot: string;
 beforeAll(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "archive-attn-"));
@@ -36,6 +39,8 @@ const pushes: unknown[] = [];
 beforeEach(() => {
   resetAttentionStore();
   getDatabase().run("DELETE FROM notification_log");
+  // The store's table outlives a test like it outlives a restart: each case starts empty.
+  getDatabase().run("DELETE FROM subject_attention");
   pushes.length = 0;
   configureAttentionStore({ sendPush: (p) => { pushes.push(p); } });
 });

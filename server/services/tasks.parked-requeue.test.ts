@@ -23,6 +23,9 @@ import { freshDb } from "./tasks-test-db";
 import { configureAttentionStore, getAttention, resetAttentionStore } from "../attention/store";
 import { taskSubject } from "../../shared/attention";
 
+// The store is a process singleton: leave it as the next file expects it.
+afterAll(() => resetAttentionStore());
+
 let tmpRoot: string;
 beforeAll(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "parked-requeue-attn-"));
@@ -38,6 +41,8 @@ afterAll(() => { __resetNotificationRegistry(); try { closeDatabase(); } catch {
 beforeEach(() => {
   resetAttentionStore();
   getDatabase().run("DELETE FROM notification_log");
+  // The store's table outlives a test like it outlives a restart: each case starts empty.
+  getDatabase().run("DELETE FROM subject_attention");
   configureAttentionStore({ sendPush: () => {} });
 });
 
@@ -91,12 +96,13 @@ describe("a parked card", () => {
     expect(unseenRows(t.id)).toBe(0);
   });
 
-  test("a card that enters review lights once; a new comment on it does not make a second epoch", () => {
+  test("a card that enters review lights once; another write to it does not make a second epoch", () => {
     const s = svc();
     const t = s.create({ projectId: PID, text: "in review" });
     mv(s, t.id, "review");
     expect(getAttention(taskSubject(t.id))).toMatchObject({ state: "needs-you", reason: "review", epoch: 1 });
-    s.update({ taskId: t.id, actor: "human", by: "user", patch: { priority: "high" as never } });
+    // Another write to the card in review (its priority) is the same fact.
+    s.update({ taskId: t.id, actor: "human", by: "user", patch: { priority: 1 as never } });
     expect(getAttention(taskSubject(t.id)).epoch).toBe(1);
     mv(s, t.id, "done");
     expect(getAttention(taskSubject(t.id)).lit).toBe(false);

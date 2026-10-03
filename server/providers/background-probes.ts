@@ -8,9 +8,11 @@
 import type { AbortReason } from "./types";
 import { registeredProviders } from "./index";
 import type { BackgroundTaskSummary, BackgroundWorkDetail } from "../../shared/background-work";
+import type { AttentionTaskMap } from "../../shared/attention";
 
 /** The background probes a provider may answer. */
 type BackgroundProbe = {
+  attentionBackground?: (sk: string) => { tasks: AttentionTaskMap; count: number; kinds: string[] };
   hasBackgroundWork?: (sk: string) => boolean;
   hasTaskWork?: (sk: string) => boolean;
   backgroundState?: (sk: string) => string;
@@ -200,4 +202,23 @@ export function withBackgroundWork(
   });
   rows.push(...backgroundStatusRows(turns, topicOf, commands));
   return rows;
+}
+
+/**
+ * What a chat waits on, for the attention state: the first provider that can
+ * tell (`attentionBackground`, claude-code today). `null` when none can, and
+ * the caller then leaves the subject's tasks as they were rather than
+ * claiming there are none.
+ */
+export function sessionAttentionBackground(sessionKey: string): { tasks: AttentionTaskMap; count: number; kinds: string[] } | null {
+  let answer: { tasks: AttentionTaskMap; count: number; kinds: string[] } | null = null;
+  for (const p of probes()) {
+    try {
+      const b = p.attentionBackground?.(sessionKey);
+      if (!b) continue;
+      if (b.count > 0 || Object.keys(b.tasks).length > 0) return b;
+      answer ??= b;
+    } catch { /* a failing probe claims nothing */ }
+  }
+  return answer;
 }

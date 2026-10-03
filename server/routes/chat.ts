@@ -112,6 +112,11 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
+import { turnEnded, turnStarted } from "../attention/store";
+import { planApprovalOpened } from "../attention/wire";
+import { classifyTurnEnd } from "../push-triggers";
+import { sessionAttentionBackground } from "../providers/background-probes";
+import { topicSubject, type AttentionTaskMap } from "../../shared/attention";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
@@ -323,9 +328,58 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // funnels through here so the activity bump and the unread bump stay in
   // lockstep — a new terminal path can't silently forget to refresh the
   // sidebar's lastActivity and leave the row looking frozen mid-turn.
-  const finalizeTurnActivity = (topic: Topic): void => {
+  //
+  // The unread goes up only for a turn that left a VISIBLE message
+  // (notifications-redesign, T17, defect D7): an empty woken turn is thrown
+  // away, and a badge with nothing behind it is a lie.
+  const finalizeTurnActivity = (topic: Topic, opts: { visible?: boolean } = {}): void => {
     bumpTopicActivity(topic);
-    updateUnreadCount(topic.id);
+    if (opts.visible !== false) updateUnreadCount(topic.id);
+  };
+
+  /**
+   * THE TURN, FOR THE ATTENTION STATE (notifications-redesign, design section
+   * 4.2). Every `stream:start` and `stream:end` this route broadcasts is also
+   * told to the attention store, the one place that decides whether the end
+   * lights the chat, announces, pushes and writes a history row. The end is
+   * classified by `classifyTurnEnd`, the gates the reply push used to apply on
+   * the frame.
+   */
+  const startTurnAttention = (topic: Topic | null | undefined, dispatched: boolean): void => {
+    if (!topic) return;
+    try { turnStarted(topicSubject(topic.id), { dispatched }); } catch (err) { console.warn("[attention] turn start failed:", err); }
+  };
+  const endTurnAttention = (
+    topic: Topic | null | undefined,
+    frame: { messageId?: string; completed?: boolean; reason?: string; error?: string; stopCause?: string; stopReason?: string; dispatched?: boolean; discardedMessageId?: string },
+    extra: { background?: AttentionTaskMap; preview?: string } = {},
+  ): void => {
+    if (!topic) return;
+    try {
+      const verdict = classifyTurnEnd({ completed: frame.completed, reason: frame.reason, error: frame.error, stopCause: frame.stopCause, stopReason: frame.stopReason, dispatched: frame.dispatched, discarded: !!frame.discardedMessageId });
+      turnEnded(topicSubject(topic.id), {
+        turnId: frame.messageId ?? null,
+        outcome: verdict.outcome,
+        detail: verdict.detail ?? (extra.preview ? extra.preview.trim().split("\n").find((l) => l.trim())?.slice(0, 140) ?? null : null),
+        resumes: verdict.resumes,
+        ...(extra.background ? { background: extra.background } : {}),
+      });
+    } catch (err) { console.warn("[attention] turn end failed:", err); }
+  };
+  /**
+   * What the chat waits on as its turn ends (`attentionBackground`, design
+   * section 5.2): the live tasks, the wake on its way, the non-recurring crons,
+   * and the Topics commands still running. Null when no provider can tell.
+   */
+  const backgroundForAttention = (provider: unknown, sessionKey: string, ownWake?: string): { tasks: AttentionTaskMap; count: number; kinds: string[] } | null => {
+    const own = (provider as { attentionBackground?: (sk: string) => { tasks: AttentionTaskMap; count: number; kinds: string[] } }).attentionBackground;
+    let b: { tasks: AttentionTaskMap; count: number; kinds: string[] } | null = null;
+    try { b = own ? own.call(provider, sessionKey) : sessionAttentionBackground(sessionKey); } catch { b = null; }
+    const command = commandWakeState(sessionKey, ownWake);
+    if (command === "none") return b;
+    const tasks: AttentionTaskMap = { ...(b?.tasks ?? {}), command: { kind: "command", label: "run_command", startedAt: new Date().toISOString() } };
+    const counting = Object.values(tasks).filter((t) => !t.recurring);
+    return { tasks, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
   };
 
   // Deps for the SDK-passthrough control tools (open/create-project, switch/new-
@@ -1182,6 +1236,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         if (matchedTopic) {
           broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: wire });
           broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: rowId });
+          endTurnAttention(matchedTopic, { messageId: rowId, reason: "error", error: wire });
           finalizeTurnActivity(matchedTopic);
         }
         return wire;
@@ -1520,6 +1575,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // delta, o il replay si somma a quello che c'è già e il testo esce
           // doppio. È l'azzeramento che prima si faceva cancellando la riga in
           // DB: la vista si può rifare, il record no.
+          startTurnAttention(matchedTopic, dispatched);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
             ...(reusedRow ? { reattached: true as const } : {}),
@@ -1764,6 +1820,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `reason: "error"` + the notice: this end bypasses finalizeStream,
               // so the failure push (push-triggers) must be told here.
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog", reason: "error", error: timeoutMsg, ...(dispatched ? { dispatched: true } : {}) });
+              endTurnAttention(matchedTopic, { messageId: partialMsg.id, stopCause: "watchdog", reason: "error", error: timeoutMsg });
               finalizeTurnActivity(matchedTopic);
             }
             // No separate "grace expired" log line — the soft-timeout entry
@@ -1814,6 +1871,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
               // Same as the grace path: told here because finalizeStream never runs.
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog", reason: "error", error: msg, ...(dispatched ? { dispatched: true } : {}) });
+              endTurnAttention(matchedTopic, { messageId: partialMsg.id, stopCause: "watchdog", reason: "error", error: msg });
               finalizeTurnActivity(matchedTopic);
             }
             logStreamHardTimeout({
@@ -2156,6 +2214,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 toolCallId: pendingPlan.toolCallId,
                 schema,
               });
+              // A plan to approve is a wait on the person, `needs-you(plan)`,
+              // never "Claude ha finito di rispondere" (defect D8).
+              planApprovalOpened(sessionKey, pendingPlan.toolCallId, pendingPlan.text);
             }
 
             // Finalize any tool calls that the provider started but never
@@ -2493,8 +2554,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (!discardedMessageId && finalizedMsg) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
               }
-              broadcastToAll({
-                type: "stream:end",
+              // What the chat waits on as this turn ends, read BEFORE the frame
+              // (design section 5.2): a turn that leaves work running is not a
+              // finished turn, and the frame says so.
+              const attentionWork = backgroundForAttention(topicProvider, sessionKey, body.processExit?.processId);
+              const endFrame = {
+                type: "stream:end" as const,
                 sessionKey,
                 topicId: matchedTopic?.id,
                 messageId: partialMsg.id,
@@ -2525,10 +2590,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // `dispatched` esclude i turni d'agente guidati dalla board.
                 completed: endInfo.end === "end_turn" && !discardedMessageId,
                 ...(dispatched ? { dispatched: true } : {}),
-                // The death and its notice, for the failure push. See `turnError`.
+                // The death and its notice. See `turnError`.
                 ...(turnError ? { reason: "error", error: turnError } : {}),
-              });
-              finalizeTurnActivity(matchedTopic);
+                // The work the turn left running, counted as the attention state
+                // counts it (`attentionBackground`, not the goal loop's reading).
+                ...(attentionWork ? { background: { count: attentionWork.count, kinds: attentionWork.kinds } } : {}),
+              };
+              broadcastToAll(endFrame);
+              endTurnAttention(matchedTopic, endFrame, { ...(attentionWork ? { background: attentionWork.tasks } : {}), preview: fullContent });
+              finalizeTurnActivity(matchedTopic, { visible: !discardedMessageId && !!finalizedMsg });
 
               // THE TURN IS OVER, THE OBJECTIVE MAY NOT BE.
               //
@@ -3885,6 +3955,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 const crashText = notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}`;
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: crashText });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: crashedPartialId, reason: "error", error: crashText, ...(dispatched ? { dispatched: true } : {}) });
+                endTurnAttention(matchedTopic, { messageId: crashedPartialId, reason: "error", error: crashText });
               }
             }
           } catch (cleanupErr) {
@@ -3932,6 +4003,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id, reason: "error", error: errorMsg, ...(dispatched ? { dispatched: true } : {}) });
+              startTurnAttention(matchedTopic, dispatched);
+              endTurnAttention(matchedTopic, { messageId: errorPartial.id, reason: "error", error: errorMsg });
               finalizeTurnActivity(matchedTopic);
             }
             return new Response(
@@ -3963,6 +4036,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const storedJsonAssistant = content ? appendLocalMessage(sessionKey, "assistant", content) : null;
             if (matchedTopic && storedJsonAssistant) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant.id, content, preview: content.slice(0, 100) });
+              startTurnAttention(matchedTopic, dispatched);
+              endTurnAttention(matchedTopic, { messageId: storedJsonAssistant.id, completed: true }, { preview: content });
               finalizeTurnActivity(matchedTopic);
             }
             if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => autoBindProject(matchedTopic!), 100);
@@ -3975,6 +4050,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
+          startTurnAttention(matchedTopic, dispatched);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
             ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
@@ -4052,13 +4128,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // The shared module already broadcast stream:end; re-broadcast
                 // with the chat-specific completed/dispatched fields.
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id, completed: true, ...(dispatched ? { dispatched: true } : {}) });
+                endTurnAttention(matchedTopic, { messageId: partialMsg.id, completed: true }, { preview: contentRef.value });
                 finalizeTurnActivity(matchedTopic);
               }
             },
             onStreamEnd: () => {
               // chat.ts-specific: unregister handler + finalize activity (abrupt end).
               topicProvider.unregisterStreamHandler?.(sessionKey);
-              if (matchedTopic) finalizeTurnActivity(matchedTopic);
+              if (matchedTopic) {
+                endTurnAttention(matchedTopic, { messageId: partialMsg.id });
+                finalizeTurnActivity(matchedTopic);
+              }
             },
             logTag: "[Stream]",
             abortController,
