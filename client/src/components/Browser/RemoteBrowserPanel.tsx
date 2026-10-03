@@ -327,7 +327,7 @@ function useNativeBrowserFinder(
   browser: { findInPage: (t: string, o?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }) => Promise<void>; stopFind: () => Promise<void>; countMatches?: (t: string, o?: { matchCase?: boolean }) => Promise<number> },
 ): void {
   const browserRef = useRef(browser);
-  browserRef.current = browser;
+  useEffect(() => { browserRef.current = browser; });
   useEffect(() => {
     let query = '';
     let matchCase = false;
@@ -720,7 +720,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
  */
 function useSharedBrowserFinder(paneId: string, renderMode: 'dom' | 'video'): (read: (() => Document | null) | null) => void {
   const modeRef = useRef(renderMode);
-  modeRef.current = renderMode;
+  useEffect(() => { modeRef.current = renderMode; });
   const readDocRef = useRef<(() => Document | null) | null>(null);
   useEffect(() => {
     const dom = createDomFinder({

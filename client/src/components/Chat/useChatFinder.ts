@@ -42,9 +42,11 @@ export function useChatFinder(args: {
 }): void {
   const { paneId, topicId, sessionKey, paneRootRef } = args;
   const messagesRef = useRef(args.messages);
-  messagesRef.current = args.messages;
   const streamingRef = useRef(args.streaming);
-  streamingRef.current = args.streaming;
+  useEffect(() => {
+    messagesRef.current = args.messages;
+    streamingRef.current = args.streaming;
+  });
 
   // Shared between the finder (registered once per pane) and the effects that
   // follow the stream: what the last search answered.

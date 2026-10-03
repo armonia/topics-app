@@ -303,7 +303,7 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
   // The find bar of the pane drives this editor's search (FILE-FIND-01):
   // Replace only while the document is editable.
   const readOnlyRef = useRef(readOnly);
-  readOnlyRef.current = readOnly;
+  useEffect(() => { readOnlyRef.current = readOnly; });
   useEffect(() => {
     if (!findPaneId) return;
     return registerFinder(findPaneId, createCodeMirrorFinder({
