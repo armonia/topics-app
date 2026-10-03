@@ -2,11 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.433 — 2026-10-03
+
+### Sotto il cofano
+- Dai a «Cerca» sul telefono il box e l'incasso dei comandi della riga
+- Alza le soglie del bundle alla misura della tornata 3b
+
 ## 2.2.432 — 2026-10-03
 
 ### Sotto il cofano
 - Fai vincere la chiusura arrivata mentre browser_open era in volo
 - Ricontrolla il registro delle viste nel momento in cui la pane la adotta
+- Scrivi sulla riga di una corsa che e' viva a ogni giro, anche quando non stampa
+- Prova che chiudere una tab terminale manda la DELETE della sua sessione
+- Manda la DELETE di un terminale chiuso col conto alla rovescia anche quando la pagina esce con un solo evento
+- Fai giudicare a chip, fascia e server lo stesso bersaglio per una chat in Automatico con un modello fissato
+- Abbona la card allo snapshot dei provider per «· via Topics»
+- Togli la route di SUBSTRIP-01i aspettando gli handler in volo
+- Togli le bolle di un invio rifiutato per id e riconosci la propria eco solo dalla chiave
+- Ferma a fine file il ciclo di rilevazione che processes.stop-fresh-tree avvia
+- Togli da questa PR l'eco riconosciuta per chiave (annulla 1c0deb26a e 819a02585)
 
 ## 2.2.431 — 2026-10-03
 
@@ -32,16 +47,72 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Allinea ai nomi nuovi il tooltip della lingua della board, il provider mancante e il commento di SETHOME-01k
 - Fai girare solo su macOS i casi del Portachiavi del rinnovo non salvato, come gli altri test del Portachiavi
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-03 [skip ci]
+- Registra il si' alla change find-in-page
+- Registra il si' alla change model-selector
+- Manda i turni del motore all'indirizzo di Claude Code, letto da ANTHROPIC_BASE_URL e da settings.json
 - Togli da PanelGrid il trascinamento fuori finestra rimasto senza chi lo accende
 - Nel foglio dal basso i livelli del menu si aprono solo con un clic, mai al passaggio
 - Rendi il finto CLI delle e2e installabile anche su Windows
 - /usage e /cost aprono i provider, e un pannello aperto da un comando scritto rende il fuoco al campo
 - Apri le impostazioni della chat dalla voce col nome che ha su main nella spec del colore
+- Leggi «Esegui in Topics» da una funzione sola: acceso per le chat mai toccate, diretto e dichiarato dove il motore non arriva
+- Cerca dentro una conversazione sul server, uscite degli strumenti comprese
+- Fai di ⌘F la ricerca nella pane a fuoco, con una barra sola
+- Cerca nella chat intera e apri la sezione dove sta il risultato
+- Registra un cercatore nel browser, nel terminale, nei file e nella board
+- Prova la ricerca nella pane da tastiera e aggiorna i contratti di ⌘F
+- Prova la ricerca nel browser condiviso e scrivi gli scostamenti dal design
+- Porta nello snapshot finestre e metadati dei modelli dal catalogo del provider, e l'azienda dal prefisso dell'id
+- Sostituisci i selettori del modello con uno solo: tutte le aziende in una vista, ricerca, fascia «Esegui in Topics»
+- Prova che ogni lettore della preferenza dia la stessa strada, e chiudi l'elenco dei file che la leggono
+- Prova il selettore unico end-to-end e porta le spec dei picker sul pannello a una vista
+- Scrivi in inglese i commenti e i nomi nuovi della ricerca nella pane
+- Aggiorna i riflessi dei ref in un effetto, non durante il render
+- Allinea commenti, nomi e titoli dei test ai cancelli statici, e registra la crescita del dizionario inglese
+- Mostra sul grilletto l'etichetta del catalogo, carica il corpo del selettore con import relativi, e traccia il percorso della tastiera nella prova
+- Non far riprendere il fuoco alla ricerca dopo che si è entrati nella lista
+- Rendi il fuoco al grilletto dopo una scelta nel selettore
+- Togli il fuoco invece di cliccare sotto la barra della pane negli e2e della ricerca
+- Fotografa il foglio del telefono prima di scorrerlo
+- Tieni fuori dall'entry il catalogo del selettore: il completamento di /model sta in un modulo piccolo
+- Porta a 44 px sul tocco i grilletti del selettore nelle impostazioni
+- Dai al progetto di prova della ricerca una cartella sua a ogni giro
+- Tieni sotto i tetti di dimensione i file toccati dalla ricerca nella pane
+- Aggiungi le schermate e il video del selettore unico, e aggiorna lo stato dei task
+- Porta «Cerca» sul telefono e ⌘F sulla pane dell'ultimo clic
+- Alza il tetto del bundle iniziale per la ricerca nella pane, col perché scritto
+- Metti il cursore nella barra nello stesso giro che la mostra
+- Fai arrivare alla pane la riga scritta accanto al proprio turno
+- Chiedi conferma anche per i comandi lanciati da find -exec, su -c e watch
+- Fai mordere i test sul punto di chiusura del terminale e sugli errori del pannello condivisione
+- Fai arrivare al PC tutti i lotti della sincronizzazione di topwin, non solo il primo
+- Chiudi un comando muto perso col server all'ultima ora in cui era vivo, non alla sua partenza
+- Chiudi i turni lasciati aperti da chat.killed-turn prima di chiuderne il database
+- Ridipingi il risultato corrente della chat nello stesso giro del contatore
+- Aggiungi le schermate e i video della ricerca nella pane
+- Col motore nativo assente la card parte diretta anche nel test del catalogo in scoperta
+- Conta i cataloghi della ricerca nella pane fra le traduzioni e riscrivi in inglese i due commenti sul pulsante del telefono
 - Sposta a tab il browser della topic senza ricaricarlo
+- Esc nel selettore dentro le impostazioni della chat chiude solo il selettore e rende il fuoco al suo grilletto
+- Disattiva anche il «via», i motori e «Apri impostazioni» quando il selettore è disattivato (MP-TASK-07)
+- Aggiorna il commento di openPopoverCount: ora lo legge anche il dialogo modale
+- Alza la baseline gz dell'entry al valore misurato dopo il merge con main, e correggi il progetto della barra e2e nei task
+- Prova i quattro difetti della ricerca nella pane trovati in revisione
+- Ripara i quattro difetti della ricerca nella pane
+- Dipingi i risultati uno per uno, bottoni da dito nella barra e ⇧⌘F nel suggerimento
 - Fai dello spostamento a tab un passaggio di mano e non adottare mai una vista già chiusa
+- Allinea il disegno: Ctrl+F sul Mac resta a chi ha il cursore, e il ⌘F dalla pagina nativa usa la tab a fuoco
+- Calcola i testi piegati dentro la riga del turno e dai un suffisso alle varianti dei test di ricerca
 - Scrivi in inglese il commento del test sulla chiusura che passa da nativeBrowserViews
+- Leggi le opzioni di watch e su come getopt_long, e chiedi il tipo del comando che eseguono
+- Scarta solo l'eco del messaggio mandato da questa finestra, non ogni riga utente del suo stream
+- Non svegliare mai il padre con uno stop chiesto da lui, qualunque esito riporti il figlio
+- Non cancellare dal PC i file che il repo ora ignora quando topwin ricava la lista dalla storia
+- Copri entrambi i modi di fallire per entrambe le rimozioni del pannello condivisione
 - Nascondi la vista nativa mentre aspetta di essere adottata da uno spostamento
 - Fai vedere al cancello anche la browser_close con argomento di tipo
+- Aspetta i roster ritardati prima del ricarico in SUBSTRIP-01i
+- Chiudi a fine test i turni che chat.killed-turn lascia aperti
 
 ## 2.2.430 — 2026-10-03
 
@@ -91,6 +162,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-02 [skip ci]
+- Proponi find-in-page: ⌘F cerca dentro la pane a fuoco, con una barra sola in chat, browser, terminale e file
+- Correggi la proposta find-in-page sui fatti verificati
 - Chiedi conferma anche per i comandi distruttivi dentro ssh, sh -c, eval, timeout e caffeinate
 - Non far cadere la chat su un tipo di blocco che il bundle non conosce
 - Tieni la coda di un'ultima riga oltre 256 KB e chiudi gli unknown all'ultima ora nota
@@ -119,8 +192,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Sposta in lib/command-runs il passo di scrittura dell'ultima uscita e registra processes.ts a 2213 righe
 - Chiedi conferma anche dopo un'assegnazione con valore tra virgolette e spazi
 - Chiudi al boot un comando morto col server all'ora in cui e' finito, non all'avvio
+- Proponi model-selector: un selettore solo, tutte le aziende in una vista, Esegui in Topics acceso dove si può
 - Dichiara nello snapshot dei provider il piano Claude, solo come due etichette
+- Correggi la proposta model-selector: prezzo vero di Esegui in Topics, card fuori dal default, riuso con lo 0 scritto, cancello di dispatch
 - Insegna ai menu a ospitare un modulo
+- Consiglia le colonne per azienda su desktop nel selettore, e stringi le cinque scelte a una riga
 - Porta i cinque moduli nel menu utente e togli il pannello Impostazioni
 - Leggi il comando come lo legge la shell prima di decidere se chiedere conferma
 - Porta gli E2E dal pannello Impostazioni ai livelli del menu utente
