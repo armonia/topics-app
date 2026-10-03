@@ -1900,24 +1900,10 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if (shellMeta) void sweepOrphanedShellTree(shellMeta);
       }
       else runningScripts.delete(sp.processId);
-      if (dpid && isPidAlive(dpid)) {
-        getDescendantPids(dpid).then(async tree => {
-          const pids = [...tree];
-          // Capture each pid's identity BEFORE signalling: the delayed SIGKILL
-          // must only fire on the same incarnation (see getPidStartTimes).
-          const identity = await getPidStartTimes(pids);
-          for (const p of pids) { try { process.kill(p, "SIGTERM"); } catch {} }
-          setTimeout(async () => {
-            const still = await getPidStartTimes(pids);
-            for (const p of pids) {
-              const then = identity.get(p);
-              if (then && still.get(p) === then) {
-                try { process.kill(p, "SIGKILL"); } catch {}
-              }
-            }
-          }, 5000);
-        }).catch(() => { try { process.kill(dpid, "SIGTERM"); } catch {} });
-      }
+      // `killProcessTree` reads a FRESH process table: the cached one is up to
+      // 2 s old and misses a worker forked inside that window, which then
+      // survives the Stop with its port. Not a group kill (see above).
+      if (dpid && isPidAlive(dpid)) void killProcessTree(dpid, 5000);
       broadcastScriptsUpdate(ctx);
       return true;
     }

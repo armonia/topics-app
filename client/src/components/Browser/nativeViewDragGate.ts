@@ -24,6 +24,13 @@
  * `dragend` the count is wrong by an unknown amount, and the only number that
  * is certainly right once the pointer is up is zero.
  *
+ * A REFLOW is not a gesture and the belt does not touch it. `notifyPaneReflow`
+ * (after a split, entering or leaving zoom) sends the same start/end pair with
+ * `detail.reflow`, and no button is held while it runs: counted with the
+ * gestures, the first `pointermove` after the click released the view inside
+ * the transition, over the new tab strip. Reflows have their own counter, ended
+ * only by their own end (which `notifyPaneReflow` always sends, on a timer).
+ *
  * Every seam is injectable so this is testable without a DOM: this project has
  * no jsdom/happy-dom dependency (a declared choice, see `Board/ThreadRuns.test.tsx`).
  */
@@ -57,22 +64,35 @@ const END_EVENTS = ['dragend', 'drop', 'topics:pane-resize-end'] as const;
  */
 export function installNativeViewDragGate(opts: NativeViewDragGateOptions): () => void {
   const target = opts.target ?? (window as unknown as DragGateTarget);
+  /** Pointer gestures: ended by their end events or by the belt. */
   let count = 0;
+  /** Pane reflows: ended only by their own end event. */
+  let reflows = 0;
+  const total = (): number => count + reflows;
 
-  const onStart = (): void => {
-    count += 1;
-    if (count === 1) opts.onOcclude();
+  const isReflow = (e: Event | undefined): boolean =>
+    (e as CustomEvent<{ reflow?: boolean } | null> | undefined)?.detail?.reflow === true;
+
+  const onStart = (e?: Event): void => {
+    if (isReflow(e)) reflows += 1;
+    else count += 1;
+    if (total() === 1) opts.onOcclude();
   };
-  const onEnd = (): void => {
-    if (count === 0) return;
-    count -= 1;
-    if (count === 0) opts.onRelease();
+  const onEnd = (e?: Event): void => {
+    if (isReflow(e)) {
+      if (reflows === 0) return;
+      reflows -= 1;
+    } else {
+      if (count === 0) return;
+      count -= 1;
+    }
+    if (total() === 0) opts.onRelease();
   };
-  /** The belt: the gesture is over, whatever the counter believes. */
+  /** The belt: the GESTURE is over, whatever the counter believes. */
   const forceEnd = (): void => {
     if (count === 0) return;
     count = 0;
-    opts.onRelease();
+    if (reflows === 0) opts.onRelease();
   };
   const onPointerMove = (e: Event): void => {
     // A pointer moving with no primary button held cannot be a drag. During a

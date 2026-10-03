@@ -167,6 +167,41 @@ describe("SidechainTracker", () => {
     expect(lastSummaries.some((s) => s?.includes("f249.ts"))).toBe(true);
   });
 
+  test("cap — a new tool call past 200 terminal actions is shown and keeps its own result", () => {
+    // At the cap with nothing running (text chunks count as actions), the new
+    // call was mapped onto the LAST row: it never appeared, and its result
+    // rewrote the status and summary of the row before it.
+    const t = new SidechainTracker();
+    t.registerParent("p1", {});
+    for (let i = 0; i < 200; i++) t.recordChildText("p1", `chunk ${i}`);
+    t.recordChildToolUse("p1", "c-new", "Bash", { command: "ls" });
+    let s = t.snapshot("p1")!;
+    expect(s.actions.length).toBe(200);
+    expect(s.actions.at(-1)).toMatchObject({ toolName: "Bash", status: "running" });
+    expect(s.actions.at(-2)).toMatchObject({ toolName: "text", summary: "chunk 199" });
+    t.recordChildToolResult("c-new", "3 files", false);
+    s = t.snapshot("p1")!;
+    expect(s.actions.at(-1)).toMatchObject({ toolName: "Bash", status: "success" });
+    expect(s.actions.at(-2)).toMatchObject({ toolName: "text", summary: "chunk 199" });
+    expect(s.actions.at(-2)!.status).toBeUndefined();
+    // Indices stay the positions they name.
+    s.actions.forEach((a, i) => expect(a.index).toBe(i));
+  });
+
+  test("cap — dropping an old row keeps every running call pointing at its own row", () => {
+    const t = new SidechainTracker();
+    t.registerParent("p1", {});
+    t.recordChildText("p1", "first");
+    t.recordChildToolUse("p1", "c-old", "Read", { file_path: "old.ts" });
+    for (let i = 0; i < 198; i++) t.recordChildText("p1", `chunk ${i}`);
+    t.recordChildToolUse("p1", "c-new", "Read", { file_path: "new.ts" });
+    t.recordChildToolResult("c-old", "ok", false);
+    const s = t.snapshot("p1")!;
+    expect(s.actions.find((a) => a.summary?.includes("old.ts"))!.status).toBe("success");
+    expect(s.actions.find((a) => a.summary?.includes("new.ts"))!.status).toBe("running");
+    s.actions.forEach((a, i) => expect(a.index).toBe(i));
+  });
+
   test("summary truncation — caps at 160 chars with ellipsis", () => {
     const t = new SidechainTracker();
     t.registerParent("p1", {});

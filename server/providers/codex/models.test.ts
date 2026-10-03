@@ -40,3 +40,18 @@ test('the configured model is read from the top level of config.toml only', () =
     expect(readCodexConfiguredModel(join(dir, 'absent'))).toBeNull();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('a TOML literal string (single quotes) is read too', () => {
+  // Valid TOML written by hand: missed, the out-of-catalog guard was skipped
+  // and the turn died on the 400 "model is not supported".
+  const dir = mkdtempSync(join(tmpdir(), 'codex-config-test-'));
+  try {
+    const path = join(dir, 'config.toml');
+    writeFileSync(path, "model = 'gpt-6-sol'\n");
+    expect(readCodexConfiguredModel(path)).toBe('gpt-6-sol');
+    writeFileSync(path, "  model='gpt-6-sol' # hand-edited\n");
+    expect(readCodexConfiguredModel(path)).toBe('gpt-6-sol');
+    writeFileSync(path, "model_provider = 'x'\n");
+    expect(readCodexConfiguredModel(path)).toBeNull();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

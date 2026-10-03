@@ -134,3 +134,57 @@ describe('installNativeViewDragGate', () => {
     }
   });
 });
+
+/**
+ * A REFLOW IS NOT A GESTURE. `notifyPaneReflow` (after a split, entering or
+ * leaving zoom) hides the views for a fixed 400 ms with no button held: the
+ * first `pointermove` after the click or the drop hit the belt, which released
+ * the view INSIDE the transition, on top of the new tab strip the reflow
+ * exists to keep clear. Only its own end may release it.
+ */
+describe('a pane reflow under the gate', () => {
+  it('a pointer moving with no button does not end a reflow; its own end does', async () => {
+    const realWindow = (globalThis as { window?: unknown }).window;
+    const win = new EventTarget();
+    (globalThis as { window?: unknown }).window = win;
+    const log: string[] = [];
+    const dispose = installNativeViewDragGate({
+      target: win as unknown as DragGateTarget,
+      onOcclude: () => log.push('occlude'),
+      onRelease: () => log.push('release'),
+    });
+    try {
+      const { notifyPaneReflow } = await import('../Layout/paneReflow');
+      notifyPaneReflow();
+      expect(log).toEqual(['occlude']);
+      win.dispatchEvent(Object.assign(new Event('pointermove'), { buttons: 0 }));
+      win.dispatchEvent(new Event('pointerup'));
+      expect(log).toEqual(['occlude']);
+      await new Promise((r) => setTimeout(r, 450));
+      expect(log).toEqual(['occlude', 'release']);
+    } finally {
+      dispose();
+      (globalThis as { window?: unknown }).window = realWindow;
+    }
+  });
+
+  it('a gesture inside a reflow: the belt ends the gesture, the view waits for the reflow', () => {
+    const g = armed();
+    g.fire('topics:pane-resize-start', { detail: { reflow: true } } as never);
+    g.fire('dragstart');
+    g.fire('pointerup');
+    expect(g.log).toEqual(['occlude']);
+    g.fire('topics:pane-resize-end', { detail: { reflow: true } } as never);
+    expect(g.log).toEqual(['occlude', 'release']);
+  });
+
+  it('a reflow inside a gesture: the reflow ending does not release a gesture still held', () => {
+    const g = armed();
+    g.fire('topics:pane-resize-start');
+    g.fire('topics:pane-resize-start', { detail: { reflow: true } } as never);
+    g.fire('topics:pane-resize-end', { detail: { reflow: true } } as never);
+    expect(g.log).toEqual(['occlude']);
+    g.fire('topics:pane-resize-end');
+    expect(g.log).toEqual(['occlude', 'release']);
+  });
+});

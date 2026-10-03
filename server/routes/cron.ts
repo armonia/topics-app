@@ -26,10 +26,12 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/cron/jobs") {
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }) });
-        if (!resp.ok) { const errText = await resp.text(); return json({ jobs: [], warning: `Gateway error: ${resp.status} - ${errText}` }); }
+        // 502, not 200 with an empty list: the panel reads `res.ok`, and a
+        // gateway that is down must not look like every job was deleted.
+        if (!resp.ok) { const errText = await resp.text(); return json({ jobs: [], warning: `Gateway error: ${resp.status} - ${errText}` }, 502); }
         const data = await resp.json() as any;
         return json({ jobs: extractJobs(data) });
-      } catch (err: any) { return json({ jobs: [], warning: `Gateway unavailable: ${err.message}` }); }
+      } catch (err: any) { return json({ jobs: [], warning: `Gateway unavailable: ${err.message}` }, 502); }
     }
 
     const cronJobMatch = matchRoute(pathname, "/api/cron/jobs/:jobId");

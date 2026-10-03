@@ -10,6 +10,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { applyPromptCache } from "./prompt-cache";
 import { normalizeAlternating } from "./normalize-history";
+import { thinkingGenerationOf } from "../lib/thinking-generation";
 import type {
   AIProvider,
   ChatMessage,
@@ -23,11 +24,6 @@ import type {
 
 // Model families that support extended thinking. Claude 3.7 + all Claude 4.x.
 const THINKING_MODELS = /^claude-(3-7|sonnet-4|opus-4|haiku-4)/;
-
-// Models that REQUIRE adaptive thinking (Opus 4.7+ removed budget_tokens entirely).
-// budget_tokens returns 400 on Opus 4.7. On 4.6 it's deprecated but still works.
-// We use adaptive on every 4.6+ alias to match Anthropic's recommended path.
-const ADAPTIVE_THINKING_MODELS = /^claude-(opus-4-(?:6|7)|sonnet-4-6|haiku-4-5)/;
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 // Output ceiling. Must always exceed any thinking budget we send (legacy
@@ -456,15 +452,15 @@ export class ClaudeProvider implements AIProvider {
   /**
    * Apply the right thinking config for the requested model.
    *
-   * - Opus 4.7 / Opus 4.6 / Sonnet 4.6 / Haiku 4.5: adaptive thinking. The
-   *   model decides when and how much to think. `budget_tokens` is removed on
-   *   4.7 and deprecated on 4.6, so adaptive is the only safe default.
-   * - Older Claude 4 / Sonnet 3.7: legacy `enabled` thinking with a fixed
-   *   budget that is always strictly less than `max_tokens` (else 400).
+   * - Every model that is not explicitly legacy (4.6+, the 5 family, any
+   *   future id): adaptive thinking. `budget_tokens` is a 400 on 4.7+ and
+   *   deprecated on 4.6. See `thinkingGenerationOf`.
+   * - Legacy Claude 4.0-4.5 (Haiku 4.5 included) / Sonnet 3.7: `enabled`
+   *   thinking with a fixed budget always strictly less than `max_tokens`.
    * - Anything else: no thinking config (Haiku 3.x etc).
    */
   private applyThinking(params: Anthropic.MessageCreateParams, model: string, maxTokens: number): void {
-    if (ADAPTIVE_THINKING_MODELS.test(model)) {
+    if (thinkingGenerationOf(model) !== "legacy") {
       params.thinking = { type: "adaptive" } as any;
       return;
     }

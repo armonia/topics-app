@@ -19,6 +19,7 @@ import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { skillDirs } from "./slash-command-source";
+import { thinkingGenerationOf } from "./thinking-generation";
 
 /** Past this, a rules file is an attachment, not an instruction. */
 const MAX_RULES_BYTES = 64 * 1024;
@@ -152,7 +153,7 @@ export function skillsBlock(home = homedir()): string {
  *     less, which is what the CLI does too.
  *   - Opus 4.6 / Sonnet 4.6: adaptive must be EXPLICIT (default is off) and
  *     `xhigh` did not exist yet, so it clamps to `high`.
- *   - Older (Haiku 4.5, Sonnet 4.5, Opus 4.5 and unknowns): the legacy
+ *   - Older (Haiku 4.5, Sonnet 4.5, Opus 4.5 and non-Claude ids): the legacy
  *     `{type: "enabled", budget_tokens}` from the table below, and no
  *     `output_config`. There `low` is still no thinking: under 1024 tokens the
  *     API refuses, and a symbolic budget would buy latency for reasoning that
@@ -184,34 +185,9 @@ export interface ThinkingConfig {
   minMaxTokens: number;
 }
 
-/**
- * Which generation a bare model id belongs to, for the gate above. `[1m]` is
- * a convention of ours and never reaches the API: strip it before asking.
- */
-function generationOf(model: string): "adaptive" | "adaptive-4-6" | "legacy" {
-  const bare = model.replace(/\[1m\]$/, "");
-  const m = /^claude-(opus|sonnet|haiku|fable|mythos)-(\d{1,2})(?:-(\d{1,2}))?/.exec(bare);
-  if (!m) return "legacy";
-  const family = m[1]!;
-  const major = Number(m[2]);
-  const minor = m[3] === undefined ? 0 : Number(m[3]);
-  if (family === "fable" || family === "mythos") return "adaptive";
-  if (family === "opus") {
-    if (major >= 5 || (major === 4 && minor >= 7)) return "adaptive";
-    if (major === 4 && minor === 6) return "adaptive-4-6";
-    return "legacy";
-  }
-  if (family === "sonnet") {
-    if (major >= 5) return "adaptive";
-    if (major === 4 && minor === 6) return "adaptive-4-6";
-    return "legacy";
-  }
-  return "legacy";
-}
-
 export function thinkingConfigFor(model: string, effort: string | null | undefined): ThinkingConfig {
   const tier = (effort ?? "").trim().toLowerCase();
-  const gen = generationOf(model);
+  const gen = thinkingGenerationOf(model);
   if (gen === "legacy") {
     const budget = thinkingBudgetFor(tier);
     return budget > 0

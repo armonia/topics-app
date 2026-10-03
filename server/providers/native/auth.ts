@@ -491,6 +491,84 @@ export async function refreshCredentials(current: OAuthCredentials): Promise<OAu
   };
 }
 
+/**
+ * A RENEWED PAIR THE DISK REFUSED.
+ *
+ * The refresh token rotates: the moment the token endpoint answers, the one
+ * still on disk is dead. If the write then fails (Keychain locked, read-only
+ * file, full disk), the only live refresh token on this machine is the one in
+ * memory. Returning it and forgetting it, as before, meant the next renewal
+ * re-read the dead one from disk and failed: a /login, and the CLI logged out.
+ *
+ * So the pair is kept here, preferred over the disk, and every read retries
+ * the write until it lands. It is dropped only when the write succeeds or when
+ * the source it belongs to now holds a different chain (a new /login there).
+ * `replacedRefresh` is what that source held when the write failed: anything
+ * else there means somebody wrote after us.
+ */
+let _unsaved: {
+  creds: OAuthCredentials;
+  sourcePath: string;
+  replacedRefresh: string | null;
+  error: string;
+} | null = null;
+
+/** Why the last renewal is still only in memory, or `null` if it is saved. */
+export function unsavedCredentialsError(): string | null {
+  return _unsaved ? _unsaved.error : null;
+}
+
+/** The credentials stored at ONE source, whatever the other sources hold. */
+function readSource(sourcePath: string): OAuthCredentials | null {
+  if (sourcePath === KEYCHAIN_SOURCE) return readKeychainCredentials();
+  try { return parseAnyFormat(JSON.parse(readFileSync(sourcePath, "utf-8"))); }
+  catch { return null; }
+}
+
+function describeWriteError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function rememberUnsaved(sourcePath: string, next: OAuthCredentials, err: unknown): void {
+  const replacedRefresh = _unsaved?.sourcePath === sourcePath
+    ? _unsaved.replacedRefresh
+    : readSource(sourcePath)?.refreshToken ?? null;
+  const error = `OAUTH_CREDENTIALS_NOT_SAVED: rinnovo riuscito ma non salvato in ${sourcePath}: ${describeWriteError(err)}`;
+  _unsaved = { creds: next, sourcePath, replacedRefresh, error };
+  // Never the token itself: the path and the reason are enough to act on.
+  console.error(`[auth] ${error}. Tengo le credenziali in memoria e riprovo a ogni richiesta.`);
+}
+
+/**
+ * The credentials to use: the unsaved pair if there is one (after one more
+ * attempt at saving it), else whatever `readCredentials` picks.
+ */
+function currentCredentials(): (OAuthCredentials & { sourcePath?: string }) | null {
+  const pending = _unsaved;
+  if (pending) {
+    const onSource = readSource(pending.sourcePath);
+    const changedElsewhere = onSource
+      && onSource.refreshToken !== pending.replacedRefresh
+      && onSource.refreshToken !== pending.creds.refreshToken;
+    if (changedElsewhere) {
+      // A new chain was written there by somebody else: ours is moot.
+      _unsaved = null;
+    } else if (onSource && onSource.refreshToken === pending.creds.refreshToken) {
+      _unsaved = null;
+    } else {
+      try {
+        writeCredentials(pending.sourcePath, pending.creds);
+        _unsaved = null;
+        console.warn(`[auth] credenziali rinnovate salvate in ${pending.sourcePath} al nuovo tentativo.`);
+      } catch (err) {
+        pending.error = `OAUTH_CREDENTIALS_NOT_SAVED: rinnovo riuscito ma non salvato in ${pending.sourcePath}: ${describeWriteError(err)}`;
+      }
+      return { ...pending.creds, sourcePath: pending.sourcePath };
+    }
+  }
+  return readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+}
+
 /** Un rinnovo alla volta DENTRO il processo: dieci sessioni che partono insieme non ne fanno dieci. */
 let _inFlight: Promise<OAuthCredentials> | null = null;
 
@@ -510,7 +588,7 @@ let _inFlight: Promise<OAuthCredentials> | null = null;
  * senza fare una seconda richiesta (double-check).
  */
 export async function getAccessToken(): Promise<string | null> {
-  const creds = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+  const creds = currentCredentials();
   if (!creds) return null;
   if (creds.sourcePath) _sourcePath = creds.sourcePath;
 
@@ -552,7 +630,7 @@ function renewSerialized(
     try {
       // DOUBLE-CHECK: re-read the file after taking the lock. If another
       // process already renewed, what is on disk is already good.
-      const reread = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+      const reread = currentCredentials();
       if (reread && !stillStale(reread)) {
         return reread;
       }
@@ -566,10 +644,13 @@ function renewSerialized(
 
       const next = await refreshCredentials(reread ?? creds);
       // Written WHERE it was read: see the header. A renewal that is not saved
-      // logs the user's CLI out.
-      try { writeCredentials(sourcePath, next); }
-      catch (err) {
-        console.warn(`[auth] rinnovo riuscito ma non salvato in ${sourcePath}: ${String(err)}`);
+      // logs the user's CLI out, so a failed write keeps the pair in memory
+      // and retries (see `_unsaved`).
+      try {
+        writeCredentials(sourcePath, next);
+        _unsaved = null;
+      } catch (err) {
+        rememberUnsaved(sourcePath, next, err);
       }
       return next;
     } finally {
@@ -598,7 +679,7 @@ function renewSerialized(
  * fixes it. The caller says so in the chat instead of retrying forever.
  */
 export async function recoverAfter401(staleToken: string): Promise<string | null> {
-  const onDisk = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+  const onDisk = currentCredentials();
   if (!onDisk) return null;
   if (onDisk.sourcePath) _sourcePath = onDisk.sourcePath;
   if (onDisk.accessToken !== staleToken) return onDisk.accessToken;

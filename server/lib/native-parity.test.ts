@@ -133,6 +133,12 @@ describe("thinkingConfigFor", () => {
     }
   });
 
+  it("an id nobody has listed yet is adaptive unless it is explicitly legacy", () => {
+    for (const model of ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-4-7", "claude-haiku-5"]) {
+      expect(thinkingConfigFor(model, "high").thinking, model).toEqual({ type: "adaptive" });
+    }
+  });
+
   it("i modelli vecchi restano a budget_tokens, senza output_config, e low li lascia senza pensiero", () => {
     for (const model of ["claude-haiku-4-5-20251001", "claude-sonnet-4-5", "claude-opus-4-1", "modello-mai-visto"]) {
       const high = thinkingConfigFor(model, "high");
