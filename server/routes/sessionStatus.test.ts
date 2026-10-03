@@ -27,7 +27,7 @@ import { describe, expect, test } from "bun:test";
 import { sessionStatus, type TopicForStatus } from "./sessionStatus";
 
 const base = (t: Partial<TopicForStatus> = {}) =>
-  sessionStatus({ sessionKey: "topic:abc", messaggi: 7, topic: { name: "Rifattorizzare il dispatcher", ...t } });
+  sessionStatus({ sessionKey: "topic:abc", topic: { ...t } });
 
 describe("le domande a cui deve rispondere", () => {
   test("«perche' non ha toccato i file?» — l'autonomia dice il livello E cosa comporta", () => {
@@ -66,7 +66,6 @@ describe("il modello dice DA DOVE viene", () => {
   test("non fissato: si nomina il ripiego e si dice che e' un default", () => {
     const out = sessionStatus({
       sessionKey: "topic:abc",
-      messaggi: 0,
       topic: {},
       modelloDiRipiego: "claude-sonnet-5",
     });
@@ -77,7 +76,6 @@ describe("il modello dice DA DOVE viene", () => {
   test("il topic vince sul ripiego, e il ripiego non compare due volte", () => {
     const out = sessionStatus({
       sessionKey: "topic:abc",
-      messaggi: 0,
       topic: { model: "claude-opus-5" },
       modelloDiRipiego: "claude-sonnet-5",
     });
@@ -112,14 +110,36 @@ describe("l'ordine, e il caso senza topic", () => {
     // It is copied into a bug report; it is not what anyone came to read.
     const rows = base({ model: "claude-opus-5" }).split("\n");
     expect(rows.at(-1)).toContain("topic:abc");
-    expect(rows[0], "quello che si legge per primo e' il nome della chat").toContain("Rifattorizzare");
+    expect(rows[0], "the first line is one that decides the next turn").toContain("Modello");
   });
 
   test("senza topic risponde lo stesso, invece di rompersi", () => {
     // A session the registry does not know (adopted, or just created) must not
-    // fail the command: the two facts we do have are enough.
-    const out = sessionStatus({ sessionKey: "topic:orfano", messaggi: 3, topic: null });
+    // fail the command: the fact we do have is enough.
+    const out = sessionStatus({ sessionKey: "topic:orfano", topic: null });
     expect(out).toContain("topic:orfano");
-    expect(out).toContain("3");
+  });
+});
+
+describe("what is already on screen is not repeated (CMD-07)", () => {
+  // The topic name is in the tab, the project in the sidebar, and the message
+  // count answers nothing. All three were back in the report on 2026-10-03.
+  test("no topic, project or message-count rows", () => {
+    const out = sessionStatus({
+      sessionKey: "topic:abc",
+      topic: { name: "Rifattorizzare il dispatcher", projectPath: "/w/progetto", model: "claude-opus-5" } as TopicForStatus,
+    });
+    expect(out).not.toContain("Rifattorizzare");
+    expect(out).not.toContain("/w/progetto");
+    expect(out).not.toMatch(/Messaggi|Topic:|Progetto:/);
+  });
+
+  test("no emoji glyph opens a row: the app draws icons, never emoji", () => {
+    const out = base({
+      model: "claude-opus-5", effort: "high", fastMode: true, autonomyLevel: "ask",
+      mcpPolicy: "bridge-only", contextFiles: ["a"], worktreeId: "wt-1", provider: "claude-code",
+    });
+    expect(out.split("\n").length).toBeGreaterThan(8);
+    expect(out).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

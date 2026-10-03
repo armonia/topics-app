@@ -1383,7 +1383,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     <ContextMenuPortal open x={contextMenuPos.x} y={contextMenuPos.y} onClose={closeContextMenu} minWidth={200}>
       {/* Header */}
       <div className="px-3 py-1.5 text-mini text-app-text-tertiary font-medium truncate border-b border-app-border mb-1">
-        {isMultiSelect ? `${multiSelectCount} items selected` : contextMenuNode.name}
+        {isMultiSelect ? tr('files.menu.selected', { count: multiSelectCount }) : contextMenuNode.name}
       </div>
 
       {/* Open */}
@@ -1393,7 +1393,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           onClick={handleOpenFile}
           className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
         >
-          <FileText size={14} className="text-app-text-tertiary" /> Open
+          <FileText size={14} className="text-app-text-tertiary" /> {tr('files.menu.open')}
         </button>
       )}
 
@@ -1405,21 +1405,29 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             onClick={handleCopyPath}
             className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
-            <Copy size={14} className="text-app-text-tertiary" /> Copy Path
+            <Copy size={14} className="text-app-text-tertiary" /> {tr('files.menu.copyPath')}
           </button>
           <button
             role="menuitem"
             onClick={handleCopyRelativePath}
             className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
-            <Copy size={14} className="text-app-text-tertiary" /> Copy Relative Path
+            <Copy size={14} className="text-app-text-tertiary" /> {tr('files.menu.copyRelativePath')}
           </button>
           <button
             role="menuitem"
-            onClick={() => { filesApi.reveal(contextMenuNode.path); setContextMenuPos(null); }}
+            // The reveal happens on the SERVER's machine (`open -R`), and it can
+            // fail there: it used to be fired and forgotten, so a refusal and
+            // a success looked the same.
+            onClick={() => {
+              setContextMenuPos(null);
+              filesApi.reveal(contextMenuNode.path).catch((e: unknown) => {
+                toast.error(tr('files.menu.revealFailed', { reason: e instanceof Error ? e.message : String(e) }));
+              });
+            }}
             className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
-            <ExternalLink size={14} className="text-app-text-tertiary" /> Show in Finder
+            <ExternalLink size={14} className="text-app-text-tertiary" /> {tr('files.menu.revealInFinder')}
           </button>
           <div className="border-t border-app-border my-1" />
         </>
@@ -1431,14 +1439,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         onClick={() => handleNewItem('file')}
         className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
-        <FilePlus size={14} className="text-app-text-tertiary" /> New File
+        <FilePlus size={14} className="text-app-text-tertiary" /> {tr('files.menu.newFile')}
       </button>
       <button
         role="menuitem"
         onClick={() => handleNewItem('dir')}
         className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
-        <FolderPlus size={14} className="text-app-text-tertiary" /> New Folder
+        <FolderPlus size={14} className="text-app-text-tertiary" /> {tr('files.menu.newFolder')}
       </button>
 
       <div className="border-t border-app-border my-1" />
@@ -1449,7 +1457,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         onClick={handleDuplicate}
         className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
-        <Copy size={14} className="text-app-text-tertiary" /> Duplicate{isMultiSelect ? ` (${multiSelectCount})` : ''}
+        <Copy size={14} className="text-app-text-tertiary" /> {tr('files.menu.duplicate')}{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
 
       {/* Rename — single only */}
@@ -1459,7 +1467,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           onClick={handleRename}
           className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
         >
-          <Pencil size={14} className="text-app-text-tertiary" /> Rename
+          <Pencil size={14} className="text-app-text-tertiary" /> {tr('files.menu.rename')}
         </button>
       )}
 

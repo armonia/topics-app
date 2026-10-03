@@ -52,3 +52,41 @@ export function routesThroughGateway(
 ): boolean {
   return declaredProviderName(topicProvider, defaultProviderName) === "openclaw";
 }
+
+/**
+ * What `/reasoning` sends to the OpenClaw gateway. The level the person typed
+ * (`/reasoning off`, openclaw's own syntax), or the bare command, which the
+ * gateway toggles. There used to be a default of "on", so a «toggle» could
+ * only ever switch reasoning on.
+ */
+export function reasoningCommandText(level: string | null | undefined): string {
+  const l = level?.trim();
+  return l ? `/reasoning ${l}` : "/reasoning";
+}
+
+/**
+ * The answer to `/reasoning` on a provider without an on/off switch. It names
+ * the provider the topic DECLARES: the old sentence said «claude-code» on
+ * every runtime, codex and the ACP agents included.
+ * allow-italian: the sentence is shown to the user
+ */
+export function reasoningElsewhereMessage(declared: string | null | undefined): string {
+  const who = declared?.trim() || "questo provider";
+  return `Su ${who} il ragionamento non si accende e non si spegne: se il provider ha livelli di sforzo, si regolano con /effort <low|medium|high|xhigh|max>.`;
+}
+
+/**
+ * The model the next turn of a topic that pins none would get (CMD-07 «the
+ * model is pinned, or it is not»): the default of the provider the topic
+ * DECLARES. `lookup` answers undefined for a provider not registered here, and
+ * then there is no model rather than another provider's.
+ */
+export function fallbackModelFor(
+  topicProvider: string | null | undefined,
+  defaultProviderName: string | null | undefined,
+  lookup: (name: string) => { defaultModel?(): string | null } | undefined,
+): string | null {
+  const declared = declaredProviderName(topicProvider, defaultProviderName);
+  if (!declared) return null;
+  return lookup(declared)?.defaultModel?.() ?? null;
+}

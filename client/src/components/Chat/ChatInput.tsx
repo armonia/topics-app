@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download, RotateCw } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { COMPOSER_CARD, COMPOSER_TEXTAREA } from './composerStyles';
-import { SLASH_COMMANDS } from './slashCommands';
+import { offeredSlashCommands, type SlashCommandEntry } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useServerTurnAsked, useSessionBackgroundWork, useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
@@ -66,9 +66,10 @@ const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m
 
 function AddMenu({
   isCallActive, isListening, isSpeaking, autoTTS,
-  voiceCallSupported, sttSupported, currentStreaming, uploading,
+  voiceCallSupported, sttSupported, uploading,
   dictationBusy, dictationModel,
   toggleCall, toggleListening, stopSpeaking, setAutoTTS,
+  slashCommands,
   onSlashCommand,
   onAttach,
   onExport,
@@ -76,13 +77,15 @@ function AddMenu({
   allowSlashCommands,
 }: {
   isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
-  voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
+  voiceCallSupported: boolean; sttSupported: boolean; uploading: boolean;
   /** Trascrizione in volo: la dettatura non si riapre finché non è rientrata. */
   dictationBusy: boolean;
   /** «elevenlabs scribe_v2» — chi sta ascoltando, nel tooltip. */
   dictationModel: string | null;
   toggleCall: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
+  /** The commands this topic's provider is offered (`offeredSlashCommands`). */
+  slashCommands: readonly SlashCommandEntry[];
   onSlashCommand: (cmd: string) => void;
   /** Apre il selettore di file (la vecchia graffetta). */
   onAttach: () => void;
@@ -135,7 +138,9 @@ function AddMenu({
           type="button"
           onClick={() => { onAttach(); setOpen(false); }}
           className={`${rowClass} text-app-text`}
-          disabled={currentStreaming}
+          // NOT disabled during a turn: ⌘U does the same thing then, and a
+          // message written while the agent answers is queued WITH its
+          // attachments (`ChatPane` composes before `sendMessage` decides).
           data-testid="composer-attach-file"
         >
           <Paperclip size={14} />
@@ -214,7 +219,7 @@ function AddMenu({
         <div className="h-px bg-app-border my-1" />
 
         {/* Slash commands */}
-        {SLASH_COMMANDS.map((cmd) => {
+        {slashCommands.map((cmd) => {
           const Icon = cmd.icon;
           return (
             <button
@@ -317,6 +322,19 @@ interface ChatInputProps {
    */
   onUpdateTopic?: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /**
+   * Filled by the composer with the doors to its own controls, for the typed
+   * commands that ask for them: `/model` opens the model picker, `/effort` the
+   * effort panel, `/context` the context inspector.
+   */
+  controlsRef?: React.RefObject<ComposerControls | null>;
+}
+
+/** See `ChatInputProps.controlsRef`. */
+export interface ComposerControls {
+  openModel: () => void;
+  openEffort: () => void;
+  openContext: () => void;
 }
 
 export function ChatInput({
@@ -371,6 +389,7 @@ export function ChatInput({
   onOpenSettings,
   onUpdateTopic,
   onMessage,
+  controlsRef,
 }: ChatInputProps) {
   const tr = useT();
   const toast = useToast();
@@ -414,6 +433,10 @@ export function ChatInput({
   // Lo snapshot dei provider è già in memoria (store condiviso), quindi qui non
   // parte nessuna richiesta in più.
   const { snapshot: providersSnapshot } = useProvidersSnapshot();
+  // The provider the topic DECLARES (CMD-08), or the server's default when it
+  // names none: it decides which commands the two menus offer.
+  const declaredProvider = topic.provider || providersSnapshot?.providers.find((p) => p.isDefault)?.name || null;
+  const offeredCommands = useMemo(() => offeredSlashCommands(declaredProvider), [declaredProvider]);
   const fastUi = useMemo(
     () => fastModeUi({
       snapshot: providersSnapshot,
@@ -529,6 +552,23 @@ export function ChatInput({
     setShowContextPopover(v => !v);
   }, [isDraftTopic, isGlobalOrchestrator]);
 
+  // A typed `/model`, `/effort` or `/context` opens the control that already
+  // answers it, instead of a second answer in a banner (the CLI's English
+  // `/model` text, a red «Uso: /effort», an envelope estimate that disagreed
+  // with the ring). The picker and the popover own their open state, so they
+  // hand their door up; the inspector's state lives here.
+  const openModelRef = useRef<(() => void) | null>(null);
+  const openEffortRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!controlsRef) return;
+    controlsRef.current = {
+      openModel: () => openModelRef.current?.(),
+      openEffort: () => openEffortRef.current?.(),
+      openContext: () => { if (!isDraftTopic && !isGlobalOrchestrator) setShowContextPopover(true); },
+    };
+    return () => { controlsRef.current = null; };
+  }, [controlsRef, isDraftTopic, isGlobalOrchestrator]);
+
   // External triggers (the per-pane header "Context Inspector" button in the
   // various layouts) still reach the inspector through this window event — they
   // just toggle THIS composer's popover now instead of a docked side panel.
@@ -610,14 +650,16 @@ export function ChatInput({
   const [slashFilter, setSlashFilter] = useState('');
   const slashMenuRef = useRef<HTMLDivElement>(null);
   // The user's custom commands/skills (/vai, /commit, /recap, …) for
-  // autocomplete. Fetched once; the headless CLI expands them on send.
+  // autocomplete. Fetched once per topic: the project's commands are those of
+  // THIS topic's project (SKILL-01); the headless CLI expands them on send.
   const [customCmds, setCustomCmds] = useState<CustomSlashCommand[]>([]);
+  const slashListTopicId = isDraftTopic ? undefined : topic.id;
   useEffect(() => {
     if (isGlobalOrchestrator) return;
     let alive = true;
-    slashCommandsApi.list().then((c) => { if (alive) setCustomCmds(c); }).catch(() => { /* best-effort */ });
+    slashCommandsApi.list(slashListTopicId).then((c) => { if (alive) setCustomCmds(c); }).catch(() => { /* best-effort */ });
     return () => { alive = false; };
-  }, [isGlobalOrchestrator]);
+  }, [isGlobalOrchestrator, slashListTopicId]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
@@ -828,7 +870,7 @@ export function ChatInput({
   // Built-in wins on a name clash. The menu render only reads {cmd, description}.
   const allSlashCommands = useMemo(() => {
     if (isGlobalOrchestrator) return [];
-    const builtin = SLASH_COMMANDS.map((c) => ({ cmd: c.cmd, description: tr(c.descriptionKey) }));
+    const builtin = offeredCommands.map((c) => ({ cmd: c.cmd, description: tr(c.descriptionKey) }));
     const builtinNames = new Set(builtin.map((c) => c.cmd));
     const custom = customCmds
       .map((c) => ({ cmd: '/' + c.name, description: c.description || (c.kind === 'skill' ? 'Skill' : 'Comando') }))
@@ -837,7 +879,7 @@ export function ChatInput({
     // `tr` changes identity when the catalogue of the chosen language lands:
     // without it here the menu would keep the fallback language until something
     // else redrew it.
-  }, [customCmds, tr, isGlobalOrchestrator]);
+  }, [customCmds, tr, isGlobalOrchestrator, offeredCommands]);
 
   const filteredSlashCommands = allSlashCommands.filter(c =>
     c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
@@ -1421,7 +1463,6 @@ export function ChatInput({
                 autoTTS={autoTTS}
                 voiceCallSupported={!isGlobalOrchestrator && voiceCallSupported}
                 sttSupported={!isGlobalOrchestrator && sttSupported}
-                currentStreaming={currentStreaming}
                 uploading={uploading}
                 dictationBusy={isDictationTranscribing}
                 dictationModel={dictationModel}
@@ -1429,6 +1470,7 @@ export function ChatInput({
                 toggleListening={toggleListening}
                 stopSpeaking={stopSpeaking}
                 setAutoTTS={setAutoTTS}
+                slashCommands={offeredCommands}
                 onSlashCommand={(cmd) => {
                   setMessage(cmd + ' ');
                   textareaRef.current?.focus();
@@ -1702,6 +1744,7 @@ export function ChatInput({
                   onOpenSettings={onOpenSettings}
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}
+                  openRef={openModelRef}
                 />
               )}
               {/* The knobs you change MID conversation, in their own surface:
@@ -1714,6 +1757,7 @@ export function ChatInput({
                 effortSupported={!!onEffortChange}
                 providerOverride={providerOverride ?? null}
                 defaultProviderLabel={defaultProviderLabel}
+                openRef={openEffortRef}
               />
               </div>
             )}

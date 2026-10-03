@@ -363,7 +363,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           {/* Color */}
           <div>
             <label className="block text-prose font-medium text-app-text mb-2">
-              Color
+              {tr('topic.settings.color')}
             </label>
             <div className="flex items-center gap-2">
               <input

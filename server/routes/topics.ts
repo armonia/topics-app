@@ -11,7 +11,7 @@ import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvide
 import { withBackgroundWork, stopBackgroundOnly, type TurnStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
-import { routesThroughGateway } from "./commandRouting";
+import { declaredProviderName, fallbackModelFor, reasoningCommandText, reasoningElsewhereMessage, routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
@@ -583,6 +583,20 @@ export function createTopicsRouter(
   function commandRoutesThroughGateway(sessionKey: string): boolean {
     const topic = getTopicBySessionKey(sessionKey);
     return routesThroughGateway(topic?.provider, getDefaultProviderName());
+  }
+
+  /** The folder a chat's slash menu reads: its topic's project (`?topicId=`), else the server's. */
+  function slashCommandProjectRoot(url: URL): string {
+    const topicId = url.searchParams.get("topicId");
+    const projectPath = topicId ? getTopicById(topicId)?.projectPath : null;
+    return projectPath || process.cwd();
+  }
+
+  /** `/status` model of an unpinned topic (`fallbackModelFor`); `getProvider` throws for «not here». */
+  function defaultModelOfDeclaredProvider(topicProvider: string | null | undefined): string | null {
+    return fallbackModelFor(topicProvider, getDefaultProviderName(), (name) => {
+      try { return getProvider(name); } catch { return undefined; }
+    });
   }
 
   // ── Recapito dei risultati dei sub-agent ────────────────────────────────
@@ -1285,7 +1299,7 @@ export function createTopicsRouter(
     if (method === "GET" && pathname.startsWith("/api/slash-commands/")) {
       const name = decodeURIComponent(pathname.slice("/api/slash-commands/".length));
       if (!isValidSlashCommandName(name)) return errorResponse(400, "nome non valido");
-      const src = readSlashCommandSource(name);
+      const src = readSlashCommandSource(name, { cwd: slashCommandProjectRoot(url) });
       if (!src) return errorResponse(404, "comando non trovato");
       return json(src);
     }
@@ -1309,9 +1323,13 @@ export function createTopicsRouter(
       // precedence `readSlashCommandSource` opens. This route used to walk the
       // folders itself with `isDirectory()`, which is false for a link to a
       // folder, so every symlinked skill vanished from the / menu while its
-      // body still opened. Known and left as is: the project's commands come
-      // from `process.cwd()`, the server's folder, not the topic's project.
-      const out = listSlashCommandFiles().map(({ name, file, kind }) => ({ name, description: descOf(file), kind }));
+      // body still opened.
+      //
+      // The project's commands come from the TOPIC's project (`?topicId=`),
+      // the folder its CLI runs in (SKILL-01 «then the project's»). They used
+      // to come from `process.cwd()`, the server's own checkout: a chat in
+      // project X was offered this repo's commands and not X's.
+      const out = listSlashCommandFiles({ cwd: slashCommandProjectRoot(url) }).map(({ name, file, kind }) => ({ name, description: descOf(file), kind }));
       out.sort((a, b) => a.name.localeCompare(b.name));
       return json(out);
     }
@@ -3018,12 +3036,12 @@ export function createTopicsRouter(
           case "status": {
             // The report itself lives in `sessionStatus.ts`, where a test can
             // reach it; this branch only gathers what it reads.
-            const messages = loadLocalMessages(sessionKey);
             const topic = getTopicBySessionKey(sessionKey);
             const output = sessionStatus({
               sessionKey,
-              messaggi: messages.length,
               topic: topic as never,
+              // CMD-07: unpinned, name the model the next turn would get.
+              modelloDiRipiego: topic?.model ? null : defaultModelOfDeclaredProvider(topic?.provider),
             });
             return json({ ok: true, command: "status", output });
           }
@@ -3096,16 +3114,19 @@ export function createTopicsRouter(
             return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }
           case "reasoning": {
-            const level = args?.level || "on";
+            // The level the person TYPED, or none. It used to default to "on",
+            // so a «toggle» could only ever switch reasoning on. Bare, the
+            // command goes to the gateway bare, which toggles it itself.
+            const level = typeof args?.level === "string" && args.level.trim() ? args.level.trim().toLowerCase() : null;
             if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
-              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
+              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: reasoningCommandText(level) }] }) });
               if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
               const text = await resp.text();
-              return json({ ok: true, command: "reasoning", level, message: `Reasoning set to: ${level}`, output: text });
+              return json({ ok: true, command: "reasoning", level, message: level ? `Ragionamento: ${level}` : "Ragionamento commutato", output: text });
             }
-            // claude-code has no on/off reasoning toggle — it has an effort tier.
-            // Point the user at /effort instead of the old hard 400.
-            return json({ ok: true, command: "reasoning", message: "Su claude-code il ragionamento si regola con l'effort: usa /effort <low|medium|high|xhigh|max>." });
+            // No on/off switch elsewhere: name the DECLARED provider (CMD-08), not «claude-code» everywhere.
+            const declared = declaredProviderName(getTopicBySessionKey(sessionKey)?.provider, getDefaultProviderName());
+            return json({ ok: true, command: "reasoning", message: reasoningElsewhereMessage(declared) });
           }
           case "project": {
             const sub = args?.sub || "info"; // create | open | info
@@ -3119,12 +3140,16 @@ export function createTopicsRouter(
               }, 403);
             }
 
+            // THE ANSWER IS DATA, the sentence is the client's. It used to be
+            // English with emoji («📍 No project bound to this topic.») in an
+            // Italian app; now each outcome carries a `code`, and the composer
+            // writes it in the reader's language (`chat.project.*`).
             if (sub === "create") {
-              if (!value) return json({ error: "/project create <name> requires a project name" }, 400);
+              if (!value) return json({ error: "/project create <name> requires a project name", code: "project_name_required" }, 400);
               const safeName = value.replace(/[^a-zA-Z0-9_-]/g, "");
-              if (!safeName) return json({ error: "Invalid project name (only letters, digits, _ and - allowed)" }, 400);
+              if (!safeName) return json({ error: "Invalid project name (only letters, digits, _ and - allowed)", code: "project_name_invalid" }, 400);
               const targetDir = join(WORKSPACE_DIR, safeName);
-              if (existsSync(targetDir)) return json({ error: `Project "${safeName}" already exists at ${targetDir}` }, 409);
+              if (existsSync(targetDir)) return json({ error: `Project "${safeName}" already exists at ${targetDir}`, code: "project_exists" }, 409);
               try {
                 mkdirSync(targetDir, { recursive: true });
                 writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
@@ -3132,36 +3157,22 @@ export function createTopicsRouter(
                 return json({ error: `Failed to create project: ${err.message}` }, 500);
               }
               bindTopicToProject(topic.id, targetDir, { focus: true });
-              return json({ ok: true, command: "project", sub: "create", path: targetDir, output: `📁 Created project "${safeName}" at ${targetDir} and bound it to this topic.` });
+              return json({ ok: true, command: "project", sub: "create", code: "project_created", name: safeName, path: targetDir });
             }
 
             if (sub === "open") {
-              if (!value) return json({ error: "/project open <name-or-path> requires a target" }, 400);
+              if (!value) return json({ error: "/project open <name-or-path> requires a target", code: "project_target_required" }, 400);
               const targetDir = resolveProjectRef(value, { trustRawPaths: true });
               if (!targetDir) {
-                return json({ error: `Project not found: ${value}` }, 404);
+                return json({ error: `Project not found: ${value}`, code: "project_not_found" }, 404);
               }
               bindTopicToProject(topic.id, targetDir, { focus: true });
-              return json({ ok: true, command: "project", sub: "open", path: targetDir, output: `📁 Opened project at ${targetDir} and bound it to this topic.` });
+              return json({ ok: true, command: "project", sub: "open", code: "project_opened", path: targetDir });
             }
 
-            // info (no args): show current binding + list workspace projects
-            const lines: string[] = [];
-            if (topic.projectPath) {
-              lines.push(`📍 Current project: ${topic.projectPath}`);
-            } else {
-              lines.push("📍 No project bound to this topic.");
-            }
+            // info (no args): the current binding and the workspace projects.
             const wsProjects = getWorkspaceProjects();
-            if (wsProjects.length > 0) {
-              lines.push("", "🗂 Workspace projects:");
-              for (const p of wsProjects.slice(0, 20)) {
-                const name = p.split("/").pop() || p;
-                lines.push(`  • ${name}  ·  ${p}`);
-              }
-              if (wsProjects.length > 20) lines.push(`  …and ${wsProjects.length - 20} more`);
-            }
-            return json({ ok: true, command: "project", sub: "info", output: lines.join("\n") });
+            return json({ ok: true, command: "project", sub: "info", code: "project_info", path: topic.projectPath ?? null, projects: wsProjects.slice(0, 20), moreProjects: Math.max(0, wsProjects.length - 20) });
           }
           default: return json({ error: `Unknown command: ${command}` }, 400);
         }

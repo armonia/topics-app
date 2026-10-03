@@ -69,8 +69,10 @@ test.describe("Chat slash commands (claude-code)", () => {
     // il banner "Effort impostato" appena mostrato, ed e' proprio la ragione per
     // cui serviva la pausa. L'asserzione specifica non ha quel problema.
     await runCmd(chatPage, page, "/reasoning");
+    // The answer names the provider the topic DECLARES (CMD-08) and points at
+    // /effort.
     await expect(page.locator("body")).toContainText(
-      /il ragionamento si regola con l'effort/i,
+      /Su claude-code il ragionamento non si accende/i,
       { timeout: 10_000 },
     );
     await expect(page.locator("body")).not.toContainText(/not supported by this provider/i);

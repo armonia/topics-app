@@ -280,6 +280,28 @@ describe("comandi built-in della CLI", () => {
     const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "/inventato-di-sana-pianta"), { alreadySent: new Map() });
     expect(p.userContent).toContain("<context>");
   });
+
+  it("names Claude Code no longer has travel with their context", () => {
+    // Measured on 2.1.288: each of these, sent naked, became a paid model turn
+    // with no context at all ($0.058 to $0.140). `compress` is Gemini's name.
+    for (const name of ["todos", "todo", "install", "migrate-installer", "pr-comments", "compress"]) {
+      const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], `/${name}`), { alreadySent: new Map() });
+      expect(p.userContent, `/${name}`).toContain("<context>");
+    }
+  });
+
+  it("the native engine has no slash parser: a built-in name is not sent naked there", () => {
+    // `/compact` on `topics` reached the model bare, a paid turn that did not
+    // even know which project it was in.
+    const native = { ...inlineEnvelope([PROMPT, AWARE], "/compact"), providerName: "topics" };
+    const p = adaptEnvelope(native, { alreadySent: new Map() });
+    expect(p.userContent).toContain("<context>");
+    // Claude Code and the ACP agents still get it naked.
+    for (const providerName of ["claude-code", "gemini", "jcode"]) {
+      const cli = { ...inlineEnvelope([PROMPT, AWARE], "/compact"), providerName };
+      expect(adaptEnvelope(cli, { alreadySent: new Map() }).userContent, providerName).toBe("/compact");
+    }
+  });
 });
 
 describe("le altre strategie non deduplicano", () => {

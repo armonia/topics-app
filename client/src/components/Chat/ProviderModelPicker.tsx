@@ -1,4 +1,4 @@
-import { Suspense, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, Loader2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
@@ -23,10 +23,12 @@ interface Props {
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   onTopicsRoutingChange?: (next: boolean) => void;
+  /** Filled with this menu's door, for a typed `/model`. */
+  openRef?: React.RefObject<(() => void) | null>;
 }
 
 /** Chat adapter for the execution-first menu shared with coding tasks. */
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange, openRef }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   // Where the menu chunk stands, as far as this chip knows: a click that waits
@@ -86,6 +88,19 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
       onLoadError,
     );
   };
+  // A typed `/model` opens the menu the chip opens, through the same chunk load.
+  useEffect(() => {
+    if (!openRef) return;
+    openRef.current = () => {
+      if (aiExecutionMenuReady()) { setOpen(true); return; }
+      setLoadState('loading');
+      loadAiExecutionMenu().then(
+        () => { setLoadState('idle'); setOpen(true); },
+        (error: unknown) => setLoadState(isChunkLoadError(error) ? 'failed' : 'broken'),
+      );
+    };
+    return () => { openRef.current = null; };
+  }, [openRef]);
   const failed = loadState === 'failed' || loadState === 'broken';
   const chipTitle = loadState === 'failed'
     ? tr('chat.picker.menuFailed')

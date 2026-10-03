@@ -99,7 +99,7 @@ test.describe("Project archive", () => {
       .filter({ hasText: /e2e-project-archive/ })
       .first();
     await row.click({ button: "right" });
-    await page.getByRole("button", { name: "Archive Project" }).click();
+    await page.getByRole("button", { name: "Archivia il progetto" }).click();
     expect((await archived).ok()).toBe(true);
     await expect(page.locator('[data-testid="project-window"]')).toHaveCount(0, { timeout: 10000 });
 

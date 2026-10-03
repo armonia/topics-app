@@ -458,4 +458,34 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // brake into whatever runs next in the same file.
     await writeFloor(page, "3");
   });
+
+  test("DROP-08: with the worktree off, why fan-out and auto-merge are greyed out is a visible line, not a hover title", async ({ page }) => {
+    // A finger never sees a `title`: on a phone the two controls were simply
+    // dead. The reason is written under the worktree switch now.
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    await expect(panel(page)).toBeVisible();
+    const worktree = panel(page).getByRole("checkbox", { name: /Isola ogni agent in un git worktree/ });
+    const line = panel(page).getByTestId("board-settings-needs-worktree");
+    // The box is controlled: it flips when the PATCH answers, so it is
+    // clicked and then waited on, not `check()`ed (which wants it at once).
+    const flip = async (on: boolean) => {
+      if ((await worktree.isChecked()) === on) return;
+      await worktree.click();
+      await expect(worktree).toBeChecked({ checked: on, timeout: 10_000 });
+    };
+    const wasOn = await worktree.isChecked();
+    try {
+      await flip(true);
+      await expect(line).toHaveCount(0);
+      await flip(false);
+      await expect(line).toBeVisible();
+      await expect(line).toContainText("richiedono il worktree");
+      await flip(true);
+      await expect(line).toHaveCount(0);
+    } finally {
+      await flip(wasOn);
+    }
+  });
 });

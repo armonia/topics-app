@@ -1033,7 +1033,8 @@ export interface CustomSlashCommand { name: string; description: string; kind: '
  * ricrea il modulo e con esso la cache. Se un giorno servisse invalidarla a
  * caldo, basta azzerare `slashCommandsCache`.
  */
-let slashCommandsCache: Promise<CustomSlashCommand[]> | null = null;
+/** One list per project folder: the menu reads the topic's project (`?topicId=`). */
+const slashCommandsCache = new Map<string, Promise<CustomSlashCommand[]>>();
 
 /** The user's custom slash commands + skills (for composer autocomplete). The
  *  headless CLI expands them; the composer only surfaces them. Best-effort. */
@@ -1045,20 +1046,23 @@ export const slashCommandsApi = {
    * corpo non passa (la CLI espande lo slash prima del turno), ma il file c'è.
    * Non è in cache: un comando lo si apre di rado, e il file può cambiare.
    */
-  async source(name: string): Promise<{ name: string; kind: 'command' | 'skill'; path: string; body: string }> {
-    return request(`/slash-commands/${encodeURIComponent(name)}`);
+  async source(name: string, topicId?: string): Promise<{ name: string; kind: 'command' | 'skill'; path: string; body: string }> {
+    const q = topicId ? `?topicId=${encodeURIComponent(topicId)}` : '';
+    return request(`/slash-commands/${encodeURIComponent(name)}${q}`);
   },
 
-  async list(): Promise<CustomSlashCommand[]> {
-    if (!slashCommandsCache) {
-      // Una richiesta fallita non deve restare in cache come fallimento
-      // permanente: si scarta la promise così il prossimo chiamante riprova.
-      slashCommandsCache = request<CustomSlashCommand[]>('/slash-commands').catch((e) => {
-        slashCommandsCache = null;
+  async list(topicId?: string): Promise<CustomSlashCommand[]> {
+    const key = topicId ?? '';
+    let cached = slashCommandsCache.get(key);
+    if (!cached) {
+      // A failed request must not stay cached: the next caller retries.
+      cached = request<CustomSlashCommand[]>(`/slash-commands${topicId ? `?topicId=${encodeURIComponent(topicId)}` : ''}`).catch((e) => {
+        slashCommandsCache.delete(key);
         throw e;
       });
+      slashCommandsCache.set(key, cached);
     }
-    return slashCommandsCache;
+    return cached;
   },
 };
 
@@ -1082,8 +1086,9 @@ export const commandApi = {
     return this.execute(sessionKey, 'model', { model });
   },
 
-  async toggleReasoning(sessionKey: string): Promise<CommandResult> {
-    return this.execute(sessionKey, 'reasoning');
+  /** `level` as typed (`/reasoning off`); absent, the gateway toggles. */
+  async toggleReasoning(sessionKey: string, level?: string): Promise<CommandResult> {
+    return this.execute(sessionKey, 'reasoning', level ? { level } : undefined);
   },
 
   async setEffort(sessionKey: string, level: string): Promise<CommandResult> {

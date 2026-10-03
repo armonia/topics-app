@@ -9,9 +9,12 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * `/context` is the CLI-parity command that surfaces the context-window usage
- * (tokens / budget / top sources) in a result banner — proves the command
- * dispatch + `/api/context/analyze` wiring end-to-end.
+ * `/context` opens the context inspector, the same one the ring opens.
+ *
+ * It used to print the envelope's own estimate in a green banner
+ * («Contesto: 872 / 1000k token»), measured live on 2026-10-03, while the ring
+ * one row below read the model's real count when it had one: two answers to
+ * one question, the banner the wrong one. Now there is one answer.
  *
  * @covers CMD-06
  */
@@ -36,7 +39,7 @@ test.describe("Chat /context command", () => {
     await resetPaneStore(request, [topicId]);
   });
 
-  test("shows a token/budget breakdown banner", async ({ page, chatPage }) => {
+  test("opens the inspector the ring opens, with no banner of its own", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-06" });
     const isTopicAnalysis = (raw: string) => {
       const url = new URL(raw);
@@ -55,6 +58,8 @@ test.describe("Chat /context command", () => {
     console.info(JSON.stringify({ probe: "chat-panel-context-analysis", requestsAtOpen: analyses }));
     expect(analyses).toBe(1);
 
+    const ring = page.getByTestId("chat-input-context-ring");
+    await expect(ring).toHaveAttribute("aria-expanded", "false");
     await chatPage.messageInput.click();
     await chatPage.messageInput.fill("/context");
     // Dismiss the slash-suggestion popup so Enter submits the command rather
@@ -62,11 +67,11 @@ test.describe("Chat /context command", () => {
     await page.keyboard.press("Escape");
     await chatPage.messageInput.press("Enter");
 
-    // The command-result banner shows "Contesto: <used> / <budget> token (<n>%)".
-    await expect(page.locator("body")).toContainText(/Contesto:\s*[\d.]+k?\s*\/\s*[\d.]+k?\s*token/i, {
-      timeout: 10_000,
-    });
-    await expect(page.locator("body")).toContainText(/%/, { timeout: 2_000 });
-    expect(analyses).toBe(2); // the explicit command still asks for a fresh breakdown
+    await expect(ring).toHaveAttribute("aria-expanded", "true", { timeout: 10_000 });
+    const viaCommand = page.locator('[data-popover="context-inspector"]').getByTestId("context-inspector");
+    await expect(viaCommand).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("chat-command-result")).toHaveCount(0);
+    await expect(page.locator("body")).not.toContainText(/Contesto:\s*[\d.]+k?\s*\/\s*[\d.]+k?\s*token/i);
+    await expect(chatPage.messageInput).toHaveValue("");
   });
 });

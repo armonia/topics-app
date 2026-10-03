@@ -31,8 +31,6 @@ const DESCRIPTIONS: string[] = [
   'chat.slash.model.description',
   'chat.slash.effort.description',
   'chat.slash.reasoning.description',
-  'chat.slash.agents.description',
-  'chat.slash.resume.description',
   'chat.slash.project.description',
   'chat.slash.browser.description',
   'chat.slash.goal.description',
@@ -74,5 +72,24 @@ describe('le descrizioni dei comandi slash', () => {
     for (const c of SLASH_COMMANDS) {
       expect(c.cmd).toMatch(/^\/[a-z-]+$/);
     }
+  });
+});
+
+describe('the answers to commands the CLI refuses in Topics', () => {
+  // `cliRefused.ts` carries keys too. A missing one would print
+  // `chat.cliRefused.x` where the person was told what to use instead.
+  it('exist in both languages, and name the command they answer when it varies', async () => {
+    const { CLI_REFUSED } = await import('./cliRefused');
+    const keys = new Set(Object.values(CLI_REFUSED).map((a) => a.key));
+    expect(keys.size).toBeGreaterThan(3);
+    for (const key of keys) {
+      for (const lingua of ['it', 'en'] as const) {
+        const rendered = t(key, lingua, { name: 'vim' });
+        expect(rendered, `${key} (${lingua})`).not.toBe(key);
+        if (key === 'chat.cliRefused.terminalOnly') expect(rendered).toContain('/vim');
+      }
+    }
+    const missing = await missingKeys('en');
+    expect(missing.filter((k) => k.startsWith('chat.cliRefused.') || k.startsWith('chat.project.') || k.startsWith('chat.compact.'))).toEqual([]);
   });
 });
