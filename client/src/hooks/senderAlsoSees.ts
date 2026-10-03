@@ -71,10 +71,9 @@ export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): bo
   return frame.late === true || senderAlsoSees(frame.type);
 }
 
-/** What this window sent on the own stream it still holds: the keys and the text of each message. */
+/** What this window sent on the own stream it still holds: the key of each message. */
 export interface OwnSends {
   clientIds: ReadonlySet<string>;
-  contents: ReadonlySet<string>;
 }
 
 /**
@@ -92,22 +91,27 @@ export interface OwnSends {
  *
  * The turn's echo is two rows, and only those two:
  *  · the person's row of the message THIS window sent: the server announces it
- *    with the `clientMessageId` the send carried (`server/routes/chat.ts`), or,
- *    from a server that does not, with the very text that was sent. Any other
- *    `user` row is written by the machine beside the turn: the wake's
- *    sub-agent result, the goal's continuation, the board's envelope, an owed
- *    answer the send carried in front of itself.
+ *    with the `clientMessageId` the send carried (`server/routes/chat.ts`), and
+ *    every send of a window carries one (`useChat` `performSend`, the only
+ *    door to `POST /api/chat`). Any other `user` row was written by somebody
+ *    else: the machine beside the turn (the wake's sub-agent result, the
+ *    goal's continuation, the board's envelope, an owed answer the send
+ *    carried in front of itself), another device, another agent's
+ *    `send_chat_message`. A row WITHOUT a key is never the echo, even with
+ *    the very words this window sent: taking it for one by its text dropped
+ *    another agent's message until the next history load (verifier, 03/10).
+ *    A server too old to send the key costs a doubled bubble until the
+ *    end-of-turn reload, which is the smaller loss.
  *  · the reply, which the server announces WITHOUT blocks (every branch that
  *    closes a turn) and which the SSE already drew under a local id.
  * Everything else passes, deduplicated by id against what the pane already
  * holds.
  */
 export function ownTurnEcho(
-  frame: { role?: string; blocks?: readonly unknown[] | null; content?: string; preview?: string; clientMessageId?: string },
+  frame: { role?: string; blocks?: readonly unknown[] | null; clientMessageId?: string },
   sent: OwnSends,
 ): boolean {
   if (frame.role === 'assistant') return !frame.blocks || frame.blocks.length === 0;
   if (frame.role !== 'user') return false;
-  if (frame.clientMessageId) return sent.clientIds.has(frame.clientMessageId);
-  return sent.contents.has(frame.content ?? frame.preview ?? '');
+  return !!frame.clientMessageId && sent.clientIds.has(frame.clientMessageId);
 }
