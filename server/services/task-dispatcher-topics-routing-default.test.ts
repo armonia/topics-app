@@ -164,14 +164,14 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
 });
 
 /**
- * MSEL-06, the reused session (the scenario «sessione riusata»). A dependent
+ * MSEL-06, the reused session (its scenario in the spec). A dependent
  * card continues its blocker's topic, which keeps its own switch. A card whose
  * preference was never written (task and board both null) adopts the
  * session's route instead of parking; a written one that differs still parks;
  * and a session from before the column existed (null) gets the card's
  * effective value written before the turn.
  */
-describe("MSEL-06: a card reusing a session", () => {
+describe("a card reusing a session", () => {
   type Routing = boolean | null;
   async function reuse(card: Routing, session: Routing, board: Routing = null) {
     const events: string[] = [];

@@ -288,7 +288,7 @@ async function streamOnce(
   applyPromptCache(body as never);
 
   let res: Response;
-  // MSEL-11: lo stesso indirizzo che userebbe Claude Code (base-url.ts).
+  // MSEL-11: the address Claude Code would use (base-url.ts).
   const apiUrl = anthropicMessagesUrl();
   try {
     res = await fetch(apiUrl, {

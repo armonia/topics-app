@@ -79,7 +79,7 @@ export function readCodexConfiguredModel(configPath = join(process.env.CODEX_HOM
 
 /** `gpt-6.1-sol` → 6. The generation a GPT slug belongs to; null for a slug
  *  that does not carry one (an account-specific codename). */
-function gptMajor(slug: string): number | null {
+function majorVersion(slug: string): number | null {
   const m = /^gpt-(\d+)/.exec(slug);
   return m ? Number(m[1]) : null;
 }
@@ -93,9 +93,9 @@ function gptMajor(slug: string): number | null {
  */
 export function codexModelInfo(models: readonly CodexModel[]): Record<string, ModelInfo> {
   const ranked = [...models].sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER));
-  const lead = ranked.map((model) => gptMajor(model.slug)).find((major) => major !== null) ?? null;
+  const lead = ranked.map((model) => majorVersion(model.slug)).find((major) => major !== null) ?? null;
   return Object.fromEntries(models.map((model) => {
-    const major = gptMajor(model.slug);
+    const major = majorVersion(model.slug);
     const info: ModelInfo = {
       ...(model.label ? { label: model.label } : {}),
       ...(model.description ? { description: model.description } : {}),

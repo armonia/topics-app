@@ -25,9 +25,9 @@ export interface DispatchTopicIdentity {
 }
 
 /** MSEL-06: the switch is written as the card's effective value (scope
- *  `task`), and the route comes from `topicsRoute`. A target the engine
- *  cannot reach (Codex, a model it does not serve) is no longer a hard gate:
- *  the topic is born and runs direct, with the switch still written. */
+ *  `task`), and the route comes from `topicsRoute`. When the engine cannot
+ *  reach the target (Codex, or a model the engine does not run), the topic
+ *  is still created and runs direct, with the switch still written. */
 export function resolveDispatchTopicIdentity(
   o: { provider?: string; model?: string | null; topicsRouting?: boolean | null },
   snapshot: ProvidersSnapshot | null,

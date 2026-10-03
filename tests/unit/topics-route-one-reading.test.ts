@@ -1,5 +1,5 @@
 /**
- * MSEL-06, scenario «una lettura sola» (tasks 1.2).
+ * MSEL-06, the one-reading scenario (tasks 1.2).
  *
  * The same `null` preference and the same target must give the same route in
  * every reader: the menu, the send gate, the chat resolver, the identity of a
@@ -45,7 +45,7 @@ const registry = {
 };
 type Via = "topics" | "direct" | "pending";
 
-describe("MSEL-06: one reading, the same route in every reader", () => {
+describe("one reading, the same route in every reader", () => {
   test("chat scope: a null preference reads ON, and every chat reader sends Opus through the engine", () => {
     const expected = topicsRoute(null, target, SNAPSHOT, "chat").via;
     expect(expected).toBe("topics");
@@ -115,21 +115,21 @@ const ALLOWED_COERCIONS = [
   "server/services/task-auto-model.ts:const viaEngine = !!deps.topicsRouting && restrictedProvider !== 'topics';",
 ];
 
-describe("MSEL-06: the closed list of design §2.1", () => {
+describe("the closed list of design §2.1", () => {
   const root = join(import.meta.dir, "../..");
-  const grep = (args: string[]) => {
+  const search = (args: string[]) => {
     try { return execFileSync("git", ["grep", ...args, "--", "server", "shared", "client/src", "server.ts", ":!*.test.*", ":!**/fixtures.ts"], { cwd: root, encoding: "utf8" }); }
     catch (error) { return (error as { stdout?: string }).stdout ?? ""; }
   };
 
   test("every file that mentions the preference is a reader or a passage", () => {
-    const files = grep(["-lE", "topicsRouting|TopicsRouting"]).split("\n").filter(Boolean);
+    const files = search(["-lE", "topicsRouting|TopicsRouting"]).split("\n").filter(Boolean);
     expect(files.length).toBeGreaterThan(20);
     expect(files.filter((file) => !READERS.has(file) && !PASSAGES.has(file))).toEqual([]);
   });
 
   test("no reader keeps its own !!, ?? false or if on the stored value", () => {
-    const hits = grep(["-nE", "!!\\s*[A-Za-z_.?]*topicsRouting|topicsRouting\\s*\\?\\?\\s*(false|true)|if\\s*\\(\\s*[A-Za-z_.?]*\\.topicsRouting\\s*\\)"])
+    const hits = search(["-nE", "!!\\s*[A-Za-z_.?]*topicsRouting|topicsRouting\\s*\\?\\?\\s*(false|true)|if\\s*\\(\\s*[A-Za-z_.?]*\\.topicsRouting\\s*\\)"])
       .split("\n").filter(Boolean)
       .map((line) => { const [file, , ...rest] = line.split(":"); return `${file}:${rest.join(":").trim()}`; });
     expect(hits.filter((hit) => !ALLOWED_COERCIONS.includes(hit))).toEqual([]);

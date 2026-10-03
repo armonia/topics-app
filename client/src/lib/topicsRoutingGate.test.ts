@@ -27,13 +27,13 @@ describe("topicsRoutingBlocked", () => {
     expect(topicsRoutingBlocked(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsReady]))).toBe(false);
   });
 
-  it("MSEL-06: switch ON col motore sparito dopo un refresh: non bloccato, il turno va diretto", () => {
+  it("switch ON col motore sparito dopo un refresh: non bloccato, il turno va diretto", () => {
     expect(topicsRoutingBlocked(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsDown]))).toBe(false);
     expect(chatTopicsRoute(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsDown])))
       .toEqual({ via: "direct", reason: "engine-down" });
   });
 
-  it("MSEL-06: switch ON su Codex: non bloccato, diretto per famiglia", () => {
+  it("switch ON su Codex: non bloccato, diretto per famiglia", () => {
     expect(topicsRoutingBlocked(true, { provider: "codex", model: "gpt-5" }, undefined, snapshot([codexReady, topicsReady]))).toBe(false);
     expect(chatTopicsRoute(true, { provider: "codex", model: "gpt-5" }, undefined, snapshot([codexReady, topicsReady])))
       .toEqual({ via: "direct", reason: "family" });

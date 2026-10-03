@@ -141,7 +141,7 @@ async function dispatchAutomaticWithRoutingOn(fanOut?: number, fleet = FLEET, vo
   return h;
 }
 
-describe("MSEL-06: Automatic with Topics routing ON keeps GPT on the ballot", () => {
+describe("Automatic with Topics routing ON keeps GPT on the ballot", () => {
   for (const [label, fanOut] of [["single launch", undefined], ["fan-out", 2]] as const) {
     it(`${label}: a Codex pick starts direct on Codex instead of parking`, async () => {
       const h = await dispatchAutomaticWithRoutingOn(fanOut);
@@ -216,7 +216,7 @@ describe("Automatic with Topics routing ON and the engine up without a Claude Co
   });
 });
 
-describe("MSEL-06: Automatic with Topics routing ON and the engine not usable", () => {
+describe("Automatic with Topics routing ON and the engine not usable", () => {
   it("the Topics engine down: nothing parks, a Claude Code pick runs direct on Claude Code", async () => {
     const engineDown = { ...FLEET, providers: [entry("topics", [], "error"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;
     const h = await dispatchAutomaticWithRoutingOn(undefined, engineDown, CLAUDE_CODE_VOTE);

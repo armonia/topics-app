@@ -106,7 +106,7 @@ async function runFanOut(createTopic: DispatcherDeps["createTopic"], model?: str
 }
 
 describe("fan-out: il cancello di instradamento non si perde in un tentativo fallito", () => {
-  it("MSEL-06: una card codex con lo switch acceso non si parcheggia: il fan-out nasce e gira diretto su Codex", async () => {
+  it("una card codex con lo switch acceso non si parcheggia: il fan-out nasce e gira diretto su Codex", async () => {
     const fleet = { defaultProvider: "codex", providers: [
       { name: "topics", label: "Topics", status: "ready", models: ["claude-opus-5"], requirements: [] },
       { name: "codex", label: "Codex", status: "ready", models: ["gpt-6.1-sol"], requirements: [] },

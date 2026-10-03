@@ -2,7 +2,7 @@
  * MSEL-02 / design §3.1: the company that makes a model, read from its id.
  *
  * A table of PREFIXES, not a catalog of models: a new model of the same
- * company needs no change here. Anything else belongs to «Altri» and is named
+ * company needs no change here. Anything else belongs to the Others section, named
  * by the provider that offers it (OpenClaw, an endpoint).
  */
 export type ModelMaker = 'anthropic' | 'openai' | 'google' | 'other';

@@ -537,3 +537,57 @@ modelInfo?: Record<string, {
   poi questa.
 - **Test che fissano il vecchio comportamento.** Sono 14 file (tasks 1.6).
   Vanno riscritti sul nuovo contratto, non cancellati.
+
+## 9. Implementazione (03/10): dove il codice si scosta da quanto scritto sopra
+
+Main si era mosso dopo la proposta: il piede «Provider e chiavi» in ogni
+selettore (apre il pannello dei provider), la riga del piano Claude, le case
+delle impostazioni (Strumenti dal «+», il calendario dalla sua tessera). Restano
+tutti: la fascia «Esegui in Topics» sta in cima, il piede resta l'ultima riga,
+la riga del piano sta sotto l'intestazione Anthropic.
+
+Scarti, uno per riga, col motivo:
+
+- **Il trigger resta al chiamante.** `ModelSelector` possiede il `Menu`
+  (larghezza, altezza, posizione, foglio da telefono) e il corpo; il bottone che
+  lo apre resta della superficie, perché aspetto e `data-testid` sono contratti
+  di quella superficie (16 spec li usano). La variante `chip` è quindi il testo
+  «· via Topics» sulla card (`cardRunsThroughTopics`), e il clic sulla card apre
+  il cassetto, il cui chip apre la `compact`.
+- **La card legge solo la propria preferenza** (più il prefisso legacy) per il
+  «· via Topics»: la card non ha in mano il default della board. Una card mai
+  toccata su una board accesa non lo mostra; il cassetto e il dispatcher sì.
+- **Il pannello è `role="dialog"`** con dentro il `listbox`: contiene un campo
+  di ricerca, e un `listbox` dentro un `listbox` non è ARIA valida.
+- **`←` `→` sulle colonne.** Su una riga con più motori aprono e chiudono il
+  segmento del motore (MSEL-08); altrimenti, a colonne, passano alla colonna
+  accanto. ↓ ↑ attraversano comunque tutte le sezioni in ordine.
+- **Un modello Claude senza runtime pinnato punta al motore** quando la
+  preferenza è accesa (`resolveTopicProvider`, `dispatchTopicBinding`): è il
+  caso di `/model claude-…` in una chat in Automatico e della card che il
+  classificatore ha messo sul motore. Risolto «come a interruttore spento»
+  andava sul default, che può essere Codex, con un modello Claude.
+- **In chat il motore in scoperta vale «diretto»**, non `pending`: aspetta solo
+  una card. `topicsRoute` restituisce `pending` solo con lo scope `task`.
+- **Un catalogo del motore vuoto vale «non verificabile»** anche lato card,
+  come già lato chat (`topicsNativeModels`): permissivo, mai più severo per un
+  dato che manca.
+- **La chat legacy legata al motore (`provider: "topics"`) col motore giù**
+  resta l'unico invio rifiutato. `chat.topicsRouting.blocked` è uscita, e quel
+  caso ha una chiave sua, `chat.topicsEngine.down`, col 409 di prima.
+- **Il turno non porta «via X».** Il messaggio salva il modello ma non il
+  provider che l'ha eseguito; scriverlo chiede una colonna nuova, cioè una
+  migration, che questa change esclude. La strada si dichiara prima dell'invio:
+  riga, fascia e segno sul chip.
+- **Hold di Claude e Automatico.** `taskPlanWait` non tratta più l'interruttore
+  acceso come «ogni candidato gira su Claude»: con i GPT di nuovo nella scheda,
+  una card in Automatico durante un hold di Claude parte su Codex se Codex è
+  libero.
+- **⌘⇧M** è nel catalogo delle scorciatoie (gruppo Chat) senza inoltro nativo:
+  lo gestisce `ChatInput` come le scorciatoie della voce, quindi con il fuoco su
+  un pannello browser nativo di Tauri non arriva.
+- **Le impostazioni della chat** salvano provider, modello e «Esegui in Topics»
+  col bottone Salva della finestra, come gli altri campi, e mandano modello e
+  interruttore solo se sono cambiati (niente respawn per un valore uguale).
+- **La misura di §2.5** è stata fatta senza chiamare un modello (vedi l'esito
+  sopra): il 200 attraverso il proxy vero non è verificato.

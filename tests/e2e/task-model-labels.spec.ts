@@ -218,11 +218,11 @@ for (const device of [
         await expect(chatPicker).toBeVisible();
         await chatPicker.click();
         const chatPopover = page.getByTestId('provider-model-popover');
-        const gpt = chatPopover.locator('[data-testid="model-row"][data-model="gpt-5.5"]');
-        await gpt.click();
+        const codexRow = chatPopover.locator('[data-testid="model-row"][data-model="gpt-5.5"]');
+        await codexRow.click();
         await expect(chatPicker).toHaveAttribute('data-model', 'gpt-5.5');
         await chatPicker.click();
-        await expect(gpt).toHaveAttribute('aria-selected', 'true');
+        await expect(codexRow).toHaveAttribute('aria-selected', 'true');
         await page.keyboard.press('Escape');
       } finally {
         if (longTaskId) await deleteTask(request, projectId, longTaskId);

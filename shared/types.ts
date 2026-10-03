@@ -563,7 +563,7 @@ export interface ModelInfo {
   retiresAt?: string;
   /** The model the provider names as its replacement. */
   replacement?: string;
-  /** `older` models sit under «Altri modelli» in the selector. */
+  /** `older` models are folded under the selector's list of other models. */
   generation?: 'current' | 'older';
 }
 

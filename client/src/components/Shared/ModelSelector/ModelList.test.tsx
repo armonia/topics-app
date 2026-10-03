@@ -4,7 +4,7 @@
  * THE BODY OF THE ONE SELECTOR, ON THE CATALOG MEASURED ON 2026-10-02.
  *
  * Moved from `AiExecutionMenuOptions.test.tsx` (tasks 1.6): the routing switch
- * became the «Esegui in Topics» band, and the two levels (engine, then model)
+ * became the Run-in-Topics band, and the two levels (engine, then model)
  * became one panel with a section per company. What is checked here is what
  * the compiler cannot hold: the band never blocks and always says the route,
  * Opus and GPT are in the same panel without a click, the older generations

@@ -75,20 +75,20 @@ async function send(router: ReturnType<typeof createChatRouter>, body: Record<st
   return router(new Request(url, { method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "test" }], ...body }) }), url, url.pathname, "POST");
 }
 
-test("MSEL-06: ON + a pinned Codex never blocks the send: the turn goes direct to Codex, provider/model untouched", async () => {
+test("ON + a pinned Codex never blocks the send: the turn goes direct to Codex, provider/model untouched", async () => {
   const counter = { appended: 0 };
   const codex = { name: "codex", connected: true };
   const native = { name: "topics", connected: true };
   for (const topicsRouting of [true, null]) {
     const topic = { id: "t1", provider: "codex", model: "gpt-5-codex", topicsRouting };
-    const rec = recordingResolver((t) => routingResolver({ codex, topics: native }, ["claude-opus-5"])(t));
+    const recorder = recordingResolver((t) => routingResolver({ codex, topics: native }, ["claude-opus-5"])(t));
     const router = createChatRouter(routeCtx(topic, counter), {
-      resolveProvider: rec.resolve as never,
+      resolveProvider: recorder.resolve as never,
       browserNavigatedTopics: new Set(), WORKSPACE_DIR: "/tmp",
     } as unknown as Parameters<typeof createChatRouter>[1]);
     const response = await send(router, { sessionKey: "topic:t1" });
     expect(response?.status).not.toBe(409);
-    expect(rec.resolvedTo).toEqual(["codex"]);
+    expect(recorder.resolvedTo).toEqual(["codex"]);
     expect(topic.provider).toBe("codex");
     expect(topic.model).toBe("gpt-5-codex");
     expect(topic.topicsRouting).toBe(topicsRouting);
@@ -106,16 +106,16 @@ test("AICTRL-01b: l'override provider per messaggio passa dal resolver con lo sw
   const claudeCode = { name: "claude-code", connected: true };
   const native = { name: "topics", connected: true };
   const topic = { id: "t1", provider: "claude-code", model: "claude-opus-5", topicsRouting: true };
-  const rec = recordingResolver((t) => routingResolver({ codex, "claude-code": claudeCode, topics: native }, ["claude-opus-5"])(t));
+  const recorder = recordingResolver((t) => routingResolver({ codex, "claude-code": claudeCode, topics: native }, ["claude-opus-5"])(t));
   const router = createChatRouter(routeCtx(topic, counter), {
-    resolveProvider: rec.resolve as never,
+    resolveProvider: recorder.resolve as never,
     // Se l'handler usa ancora questa scorciatoia il test fallisce qui: nessuna porta scavalca il resolver. allow-italian: dice perche' il finto esplode invece di rispondere
     resolveProviderByName: (name: string) => { throw new Error(`bypass del resolver per "${name}"`); },
     browserNavigatedTopics: new Set(), WORKSPACE_DIR: "/tmp",
   } as unknown as Parameters<typeof createChatRouter>[1]);
   const response = await send(router, { sessionKey: "topic:t1", provider: "codex" });
   expect(response?.status).not.toBe(409);
-  expect(rec.resolvedTo).toEqual(["codex"]);
+  expect(recorder.resolvedTo).toEqual(["codex"]);
   // La scelta pinnata resta quella: l'override non riscrive il topic. allow-italian: l'invariante
   expect(topic.provider).toBe("claude-code");
   expect(topic.topicsRouting).toBe(true);
@@ -127,15 +127,15 @@ test("AICTRL-01c: anche il MODELLO per messaggio passa dal resolver: servito dal
   const native = { name: "topics", connected: true };
   const topic = { id: "t2", provider: "claude-code", model: "claude-opus-5", topicsRouting: true };
   for (const [model, expected] of [["claude-sonnet-5", "claude-code"], ["claude-opus-5", "topics"]] as const) {
-    const rec = recordingResolver((t) => routingResolver({ "claude-code": claudeCode, topics: native }, ["claude-opus-5"])(t));
+    const recorder = recordingResolver((t) => routingResolver({ "claude-code": claudeCode, topics: native }, ["claude-opus-5"])(t));
     const router = createChatRouter(routeCtx(topic, counter), {
-      resolveProvider: rec.resolve as never,
+      resolveProvider: recorder.resolve as never,
       resolveProviderByName: (name: string) => { throw new Error(`bypass del resolver per "${name}"`); },
       browserNavigatedTopics: new Set(), WORKSPACE_DIR: "/tmp",
     } as unknown as Parameters<typeof createChatRouter>[1]);
     const response = await send(router, { sessionKey: "topic:t2", provider: "claude-code", model });
     expect(response?.status).not.toBe(409);
-    expect(rec.resolvedTo).toEqual([expected]);
+    expect(recorder.resolvedTo).toEqual([expected]);
   }
   expect(topic.model).toBe("claude-opus-5");
 });

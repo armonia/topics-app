@@ -355,8 +355,8 @@ export function defaultChatModel(): string {
 /**
  * MSEL-09: which Claude models are the current generation of their family.
  * Current = the newest version of each family (`newestOfFamily`), its `[1m]`
- * twin included; every older version is `older` and folds under «Altri
- * modelli» in the selector. An id this parser does not read stays current:
+ * twin included; every older version is `older` and folds under the selector's
+ * fold of other models. An id this parser does not read stays current:
  * nothing is folded on a guess. Only `generation`: no descriptions written by
  * hand (the hand-written catalog of CommandMenu was removed on purpose).
  */

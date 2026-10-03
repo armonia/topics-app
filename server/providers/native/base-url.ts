@@ -1,18 +1,18 @@
 /**
  * WHERE THE ENGINE SENDS ITS REQUESTS (MSEL-11).
  *
- * Una sessione Claude Code lanciata da Topics legge l'`env` di
+ * A Claude Code session launched by Topics reads the `env` of
  * `~/.claude/settings.json` (`--setting-sources user,project,local`,
- * `claude/args.ts`): se li' c'e' `ANTHROPIC_BASE_URL`, passa da quell'indirizzo
- * (su questa macchina il cambia-account, che ruota gli account su 429/401).
- * Il motore prima andava sempre diretto su api.anthropic.com con un account
- * solo. Qui legge lo stesso indirizzo, nello stesso ordine della CLI:
- *   1. la variabile di processo `ANTHROPIC_BASE_URL`;
- *   2. `env.ANTHROPIC_BASE_URL` di `$HOME/.claude/settings.json`;
+ * `claude/args.ts`): when `ANTHROPIC_BASE_URL` is there, it goes through that
+ * address (on this machine the account switcher, which rotates accounts on a
+ * 429 or a 401). The engine used to go straight to api.anthropic.com on one
+ * account. It now reads the same address, in the CLI's own order:
+ *   1. the process variable `ANTHROPIC_BASE_URL`;
+ *   2. `env.ANTHROPIC_BASE_URL` of `$HOME/.claude/settings.json`;
  *   3. https://api.anthropic.com.
  *
- * Nessun ripiego silenzioso: se l'indirizzo non risponde, l'errore lo nomina
- * (`agent-loop.ts`), non si riprova in diretta.
+ * No silent fallback: when the address does not answer, the error names it
+ * (`agent-loop.ts`) and nothing retries against the API directly.
  */
 import { readFileSync } from "fs";
 import { homedir } from "os";
@@ -21,7 +21,7 @@ import { join } from "path";
 export const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 
 function fromSettings(): string | undefined {
-  // `HOME` prima di `homedir()`: su macOS il secondo ignora `HOME` (auth.ts).
+  // `HOME` before `homedir()`: on macOS the latter ignores `HOME` (auth.ts).
   const home = process.env.HOME || homedir();
   try {
     const parsed = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8")) as {
@@ -30,7 +30,7 @@ function fromSettings(): string | undefined {
     const value = parsed?.env?.ANTHROPIC_BASE_URL;
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
   } catch {
-    // File assente o illeggibile: la CLI fa lo stesso, passa al default.
+    // Missing or unreadable file: the CLI does the same, it moves on to the default.
     return undefined;
   }
 }

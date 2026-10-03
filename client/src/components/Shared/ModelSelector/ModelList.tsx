@@ -40,7 +40,7 @@ export interface ModelListProps {
   routingTarget?: AiExecutionSelection;
   onSelect: (selection: AiExecutionSelection) => void;
   automatic: { label: string; hint: string };
-  /** «Esegui in Topics». Absent = no band (the default model of one provider). */
+  /** The Run-in-Topics band. Absent = no band (the default model of one provider). */
   topicsRouting?: { enabled: boolean; onToggle: (next: boolean) => void };
   /** Only this provider's models (the default model of one provider). */
   onlyProvider?: string;
@@ -63,7 +63,7 @@ function routeOf(enabled: boolean, selection: AiExecutionSelection, snapshot: Pr
   return topicsRoute(enabled, { provider: selection.provider ?? snapshot?.defaultProvider ?? null, model: selection.model }, snapshot, scope);
 }
 
-/** «Esegui in Topics»: a real switch, the whole band clicks, never disabled
+/** The Run-in-Topics band: a real switch, the whole band clicks, never disabled
  *  (neither position blocks anything), and the line under the title says what
  *  happens to the CURRENT choice, readable without hovering (MSEL-07). */
 function RoutingBand({ enabled, route, engineLabel, onToggle }: {

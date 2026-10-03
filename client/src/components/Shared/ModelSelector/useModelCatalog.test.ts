@@ -35,8 +35,8 @@ describe('useModelCatalog: one row per model, divided by company', () => {
   });
 
   test('gpt-5.5 carries its retirement, and the GPT windows are the declared 272000', () => {
-    const gpt55 = section(sections, 'openai').older.find((r) => r.model === 'gpt-5.5')!;
-    expect(gpt55.retiresAt).toBe('2026-10-14T19:00:00Z');
+    const retiring = section(sections, 'openai').older.find((r) => r.model === 'gpt-5.5')!;
+    expect(retiring.retiresAt).toBe('2026-10-14T19:00:00Z');
     for (const row of [...section(sections, 'openai').rows, ...section(sections, 'openai').older]) {
       expect(contextWindowFor(row.model, row.windows[row.model]).tokens).toBe(272000);
     }
@@ -88,7 +88,7 @@ describe('useModelCatalog: one row per model, divided by company', () => {
   });
 });
 
-describe('MSEL-03: the search', () => {
+describe('the search', () => {
   const sections = buildModelCatalog(MEASURED, 'chat', AUTO);
   test('«openai» leaves only OpenAI, folded rows included', () => {
     const found = filterModelCatalog(sections, 'openai', label);
@@ -112,7 +112,7 @@ describe('the stored task value, as the selector reads it', () => {
   });
 });
 
-describe('MSEL-10: /model completes with the current engine only', () => {
+describe('/model completes with the current engine only', () => {
   test('«op» on Claude Code proposes the Opus models of Claude Code and nothing of Codex', () => {
     const found = modelCommandSuggestions(MEASURED, 'claude-code', 'op');
     expect(found.map((m) => m.label)).toEqual(['Opus 5.5', 'Opus 5.5 · 1M', 'Opus 4.8', 'Opus 4.8 · 1M']);

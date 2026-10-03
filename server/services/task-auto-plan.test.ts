@@ -211,7 +211,7 @@ describe('general automatic catalog and constraints', () => {
   // a candidate, a Claude pick goes through the engine, and the classifier is a
   // model the engine serves, never the cheap GPT (`gpt-6-luna`, «Fast and
   // affordable»), which would be a `codex exec` per card.
-  test('MSEL-06: Automatic with the Topics switch ON keeps Codex on the ballot and judges on the engine', async () => {
+  test('Automatic with the Topics switch ON keeps Codex on the ballot and judges on the engine', async () => {
     const fleet = { defaultProvider: 'codex', providers: [
       { name: 'topics', status: 'ready', models: ['claude-sonnet-5', 'claude-opus-5'] },
       { name: 'claude-code', status: 'ready', models: ['claude-sonnet-5', 'claude-opus-5'] },
@@ -295,7 +295,7 @@ describe('general automatic catalog and constraints', () => {
     expect(resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: true }, fleet).executor).toBe('topics');
   });
 
-  test('MSEL-06: an explicit Codex runtime with the Topics switch ON is planned on Codex, not refused', async () => {
+  test('an explicit Codex runtime with the Topics switch ON is planned on Codex, not refused', async () => {
     const accessed: string[] = [];
     const plan = await pickAutomaticTaskModel({ text: 'Task' }, 'codex:auto', {
       snapshot, topicsRouting: true, codexModels: () => models,

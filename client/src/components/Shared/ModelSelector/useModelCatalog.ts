@@ -20,8 +20,6 @@ import { MODEL_MAKER_ORDER, modelMaker, type ModelMaker } from '../../../../../s
 import {
   taskExecutionOptions,
   taskModelSelection,
-  topicsRoute,
-  type TopicsRoute,
   type TopicsRouteScope,
 } from '../../../../../shared/task-coding-models';
 import { friendlyModelLabel } from '../../../lib/modelLabel';
@@ -220,7 +218,7 @@ export function rowSelected(row: CatalogRow, value: AiExecutionSelection): boole
   return row.stale || !value.provider || row.engines.some((engine) => engine.name === value.provider);
 }
 
-/** Lowercase, accents gone: «Modèle» finds «modele» and the other way round. */
+/** Lowercase, accents gone: an accented letter matches its plain twin. */
 function fold(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
@@ -251,16 +249,6 @@ export function filterModelCatalog(
     notReady: [],
     automatic: section.automatic.filter((engine) => words.every((word) => fold(`${engine.label} ${makerLabel(section.maker)}`).includes(word))),
   })).filter((section) => section.rows.length || section.automatic.length);
-}
-
-/** The route of one choice, as the row, the band and the chip say it. */
-export function selectionRoute(
-  stored: boolean | null | undefined,
-  selection: AiExecutionSelection,
-  snapshot: ProvidersSnapshot | null,
-  scope: TopicsRouteScope,
-): TopicsRoute {
-  return topicsRoute(stored, { provider: selection.provider ?? snapshot?.defaultProvider ?? null, model: selection.model }, snapshot, scope);
 }
 
 /**

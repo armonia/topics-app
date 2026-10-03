@@ -96,7 +96,7 @@ describe('identità del topic dispacciato', () => {
     expect(resolveTopicProvider({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: false }, registry)).toBe(claudeCode);
   });
 
-  it('MSEL-06: una card codex:gpt-6.1-sol con la preferenza accesa crea il suo topic, eseguito da Codex diretto', () => {
+  it('una card codex:gpt-6.1-sol con la preferenza accesa crea il suo topic, eseguito da Codex diretto', () => {
     for (const o of [
       { provider: 'codex', model: 'gpt-6.1-sol', topicsRouting: true },
       { model: 'codex:gpt-6.1-sol', topicsRouting: true },
@@ -109,13 +109,13 @@ describe('identità del topic dispacciato', () => {
     }
   });
 
-  it('MSEL-06: una card mai toccata (null) su claude-code gira diretta, e il topic porta lo 0 effettivo', () => {
+  it('una card mai toccata (null) su claude-code gira diretta, e il topic porta lo 0 effettivo', () => {
     const id = resolveDispatchTopicIdentity({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null }, FLEET);
     expect(id.topicsRouting).toBe(false);
     expect(id.executor).toBe('claude-code');
   });
 
-  it('MSEL-06: il motore in scoperta fa aspettare la card, non la parcheggia', () => {
+  it('il motore in scoperta fa aspettare la card, non la parcheggia', () => {
     const loading = snapshot([
       { ...entry('topics', []), status: 'loading' } as unknown as ReturnType<typeof entry>,
       entry('claude-code', ['claude-opus-5']),

@@ -232,7 +232,7 @@ describe('task coding models', () => {
     expect(taskModelSelection('claude-code:claude-opus-5')).toEqual({ provider: 'claude-code', model: 'claude-opus-5' });
   });
 
-  test('MSEL-06: ON with a non-routable explicit provider (Codex) runs it direct, never a block', () => {
+  test('ON with a non-routable explicit provider (Codex) runs it direct, never a block', () => {
     // Codex is categorically outside the native engine's reach. The switch no
     // longer refuses it: the route is declared ("via Codex"), the turn runs.
     const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
@@ -241,7 +241,7 @@ describe('task coding models', () => {
     expect(taskProviderForModel('gpt-5.4', current, true)).toBe('codex');
   });
 
-  test('MSEL-06: Automatico + ON follows the Codex default first, then decides the route', () => {
+  test('Automatico + ON follows the Codex default first, then decides the route', () => {
     const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
     expect(taskProviderForModel(undefined, current, true)).toBe('codex');
     // With a Claude default the same Automatic goes through the engine.
@@ -249,7 +249,7 @@ describe('task coding models', () => {
     expect(taskProviderForModel(undefined, claude, true)).toBe('topics');
   });
 
-  test('MSEL-06: Automatico + ON with no native engine runs the default direct', () => {
+  test('Automatico + ON with no native engine runs the default direct', () => {
     const current = snapshot([entry('codex', ['gpt-5.4'])], 'codex');
     expect(taskProviderForModel(undefined, current, true)).toBe('codex');
   });
@@ -276,7 +276,7 @@ const ENGINE_IDS = [
 ];
 const CODEX_IDS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'];
 
-describe('MSEL-06: topicsRoute, the one reading of the preference', () => {
+describe('topicsRoute, the one reading of the preference', () => {
   const fleet = (engine: ProviderSnapshotEntry['status'] = 'ready', defaultProvider = 'claude-code') => snapshot([
     entry('topics', engine === 'ready' ? ENGINE_IDS : [], engine),
     entry('claude-code', CLAUDE_CODE_IDS),

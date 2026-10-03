@@ -186,7 +186,8 @@ export function effectiveTopicsRouting(
  *
  * The order: the preference; a provider outside the Claude family goes direct;
  * the engine missing or down goes direct (a card waits while it is still being
- * discovered); a model the engine does not serve goes direct; else Topics.
+ * discovered); a model the engine does not run goes direct; otherwise the
+ * engine runs it.
  * The legacy `provider: 'topics'` is the engine itself, never "direct".
  */
 export function topicsRoute(

@@ -39,7 +39,7 @@ function resolverOver(nativeModels: string[] | null) {
 }
 
 describe('il registry produttivo porta i modelli del motore nativo', () => {
-  it('MSEL-06: quando il motore nativo NON serve il modello pinnato, il turno va diretto sul provider pinnato', () => {
+  it('quando il motore nativo NON serve il modello pinnato, il turno va diretto sul provider pinnato', () => {
     const resolve = resolverOver(['claude-opus-5']);
     expect(resolve({ provider: 'claude-code', model: 'claude-sonnet-5', topicsRouting: true })).toBe(claudeCode);
     expect(resolve({ provider: 'claude-code', model: 'claude-sonnet-5', topicsRouting: null })).toBe(claudeCode);
@@ -61,7 +61,7 @@ describe('il registry produttivo porta i modelli del motore nativo', () => {
     expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: false })).toBe(claudeCode);
   });
 
-  it('MSEL-06: una chat mai toccata (null) col modello servito passa dal motore', () => {
+  it('una chat mai toccata (null) col modello servito passa dal motore', () => {
     expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null })).toBe(native);
     expect(resolverOver(['claude-opus-5'])({ provider: 'claude-code', model: 'claude-opus-5' })).toBe(native);
   });

@@ -46,7 +46,7 @@ describe('explicit topic provider resolution', () => {
       expect(resolved.name).toBe('topics');
       expect(topic.provider).toBe('claude-code'); // the switch never touches it
     });
-    test('MSEL-06: ON + a non-routable provider (Codex) runs direct on it, never a block', () => {
+    test('ON + a non-routable provider (Codex) runs direct on it, never a block', () => {
       const codex = { name: 'codex', connected: true } as AIProvider;
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
       for (const topicsRouting of [true, null]) {
@@ -55,14 +55,14 @@ describe('explicit topic provider resolution', () => {
         })).toBe(codex);
       }
     });
-    test('MSEL-06: ON but the native engine is unavailable runs the explicit provider direct', () => {
+    test('ON but the native engine is unavailable runs the explicit provider direct', () => {
       const claudeCode = { name: 'claude-code', connected: true } as AIProvider;
       expect(resolveTopicProvider({ provider: 'claude-code', topicsRouting: true }, {
         getProvider: (name) => { if (name === 'topics') throw new Error('not registered'); return claudeCode; },
         getDefaultProvider: () => fallback,
       })).toBe(claudeCode);
     });
-    test('MSEL-06: ON but the native engine is registered yet disconnected: direct too', () => {
+    test('ON but the native engine is registered yet disconnected: direct too', () => {
       const claudeCode = { name: 'claude-code', connected: true } as AIProvider;
       const topicsNative = { name: 'topics', connected: false } as AIProvider;
       expect(resolveTopicProvider({ provider: 'claude-code', topicsRouting: true }, {
@@ -70,7 +70,7 @@ describe('explicit topic provider resolution', () => {
         getDefaultProvider: () => fallback,
       })).toBe(claudeCode);
     });
-    test('MSEL-06: Automatico + ON resolves the registry default FIRST: a Codex default stays on Codex', () => {
+    test('Automatico + ON resolves the registry default FIRST: a Codex default stays on Codex', () => {
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
       const codexDefault = { name: 'codex' } as AIProvider;
       const resolved = resolveTopicProvider({ provider: null, topicsRouting: true }, {
@@ -79,7 +79,7 @@ describe('explicit topic provider resolution', () => {
       });
       expect(resolved).toBe(codexDefault);
     });
-    test('MSEL-06: Automatico + ON with a Claude Code default goes through the engine', () => {
+    test('Automatico + ON with a Claude Code default goes through the engine', () => {
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
       const claudeDefault = { name: 'claude-code' } as AIProvider;
       expect(resolveTopicProvider({ provider: null, topicsRouting: null, model: 'claude-opus-5' }, {
@@ -88,7 +88,7 @@ describe('explicit topic provider resolution', () => {
         getTopicsModels: () => ['claude-opus-5'],
       })).toBe(topicsNative);
     });
-    test('MSEL-06: a chat on Claude Code never touched (null) runs on the engine from its next turn', () => {
+    test('a chat on Claude Code never touched (null) runs on the engine from its next turn', () => {
       const claudeCode = { name: 'claude-code', connected: true } as AIProvider;
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
       const topic = { provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null };
@@ -114,7 +114,7 @@ describe('explicit topic provider resolution', () => {
       });
       expect(resolved).toBe(topicsNative);
     });
-    test('MSEL-06: ON + un modello che il motore non serve va diretto sul default, senza bloccare', () => {
+    test('ON + un modello che il motore non serve va diretto sul default, senza bloccare', () => {
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
       const claudeDefault = { name: 'claude-code' } as AIProvider;
       expect(resolveTopicProvider({ provider: null, model: 'claude-sonnet-5', topicsRouting: true }, {

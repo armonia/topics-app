@@ -70,7 +70,7 @@ const MEASURED_CACHE = { models: [
   { slug: 'gpt-5.5', display_name: 'GPT-5.5', priority: 13, visibility: 'list', context_window: 272000, max_context_window: 272000, description: 'Legacy coding model.', upgrade: { model: 'gpt-6.1-sol', retirement_at: '2026-10-14T19:00:00Z' } },
 ] };
 
-test('MSEL-09: the snapshot carries description, retirement, label and generation from the Codex cache', () => {
+test('the snapshot carries description, retirement, label and generation from the Codex cache', () => {
   const dir = mkdtempSync(join(tmpdir(), 'codex-catalog-info-'));
   try {
     const path = join(dir, 'models_cache.json');
@@ -85,7 +85,7 @@ test('MSEL-09: the snapshot carries description, retirement, label and generatio
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('MSEL-04: Codex declares context_window (272000), never max_context_window (872000)', () => {
+test('Codex declares context_window (272000), never max_context_window (872000)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'codex-catalog-window-'));
   try {
     const path = join(dir, 'models_cache.json');

@@ -223,7 +223,7 @@ describe("longVariantOf", () => {
   });
 });
 
-describe('MSEL-09: claudeModelGenerations', () => {
+describe('claudeModelGenerations', () => {
   test('the newest of each family is current with its [1m] twin, the rest older (catalog measured on 2026-10-02)', () => {
     const ids = [
       'claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5', 'claude-sonnet-5-5[1m]', 'claude-haiku-4-5',
