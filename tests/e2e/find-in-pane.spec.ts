@@ -427,6 +427,8 @@ test.describe("Cerca nella pane: il telefono", () => {
     await resetPaneStore(request, [topicId]);
     await goToApp(page);
     await page.keyboard.press("Escape");
+    // From the list, as on a phone: the drawer steps aside for the chat.
+    await openTopic(page, new RegExp(topicName));
     // No tab strip on a phone: «Cerca» sits at the end of the pane's title row.
     const find = page.getByTestId("mobile-pane-find").filter({ visible: true }).first();
     await expect(find).toBeVisible({ timeout: 15_000 });
@@ -471,6 +473,7 @@ test.describe("Cerca nella pane: le schermate", () => {
         await goToApp(page);
         await page.keyboard.press("Escape");
         if (vp.name === "phone") {
+          await openTopic(page, new RegExp(topicName));
           await page.getByTestId("mobile-pane-find").filter({ visible: true }).first().click({ timeout: 15_000 });
         } else {
           await expect(page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });

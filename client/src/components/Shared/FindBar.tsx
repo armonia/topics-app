@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { CaseSensitive, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
@@ -39,15 +39,14 @@ export function FindBar({ paneId, floating = false }: {
   // Every ⌘F: the keyboard comes to this field and the word is selected. The
   // system keyboard first (a native browser pane keeps it otherwise, and the
   // letters would go to the page: `useBrowserChromeBridge.ts`), then the DOM
-  // focus.
-  useEffect(() => {
+  // focus, in the layout phase of the render that showed the bar: a frame
+  // later, the letters typed right after ⌘F went to the field behind it
+  // (measured on Windows: «deploy» arrived as «loy»).
+  useLayoutEffect(() => {
     if (!st.open || st.focusTick === 0) return;
     releaseNativeFocus();
-    const frame = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-    return () => cancelAnimationFrame(frame);
+    inputRef.current?.focus();
+    inputRef.current?.select();
   }, [st.open, st.focusTick]);
 
   if (!paneId || !st.open) return null;
