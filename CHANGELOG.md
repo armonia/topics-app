@@ -2,17 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.434 — 2026-10-03
+
+### Sotto il cofano
+- Aspettati il gruppo del menu «/» nell'elenco delle skill
+
 ## 2.2.433 — 2026-10-03
 
 ### Sotto il cofano
 - Dai a «Cerca» sul telefono il box e l'incasso dei comandi della riga
+- Conta gli appuntati dal topic, non dalle righe caricate, e carica quelli più vecchi quando si apre la lista
+- Porta il fuoco dentro il cursore di /effort e l'ispettore di /context
+- Offri /fork solo dove il server sa biforcare la chat
+- Non chiedere due volte la stessa pagina di /resume su un doppio clic
 - Alza le soglie del bundle alla misura della tornata 3b
+- Guarda l'entrata del menu «/» sul suo pannello, non sulla lista che contiene
 
 ## 2.2.432 — 2026-10-03
 
 ### Sotto il cofano
+- Nomina il motore che non compatta anche quando non è collegato qui
 - Fai vincere la chiusura arrivata mentre browser_open era in volo
 - Ricontrolla il registro delle viste nel momento in cui la pane la adotta
+- Scrivi in inglese il commento della tabella delle etichette dei provider
 - Scrivi sulla riga di una corsa che e' viva a ogni giro, anche quando non stampa
 - Prova che chiudere una tab terminale manda la DELETE della sua sessione
 - Manda la DELETE di un terminale chiuso col conto alla rovescia anche quando la pagina esce con un solo evento
@@ -49,6 +61,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-03 [skip ci]
 - Registra il si' alla change find-in-page
 - Registra il si' alla change model-selector
+- Registra il si' alla change commands-ui
 - Manda i turni del motore all'indirizzo di Claude Code, letto da ANTHROPIC_BASE_URL e da settings.json
 - Togli da PanelGrid il trascinamento fuori finestra rimasto senza chi lo accende
 - Nel foglio dal basso i livelli del menu si aprono solo con un clic, mai al passaggio
@@ -90,13 +103,30 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Chiudi i turni lasciati aperti da chat.killed-turn prima di chiuderne il database
 - Ridipingi il risultato corrente della chat nello stesso giro del contatore
 - Aggiungi le schermate e i video della ricerca nella pane
+- Installa il CLI finto di cinque spec col helper portabile invece di command -v bun
+- Togli il trascinamento fra finestre rimasto senza mittente e correggi i commenti che lo davano vivo
+- Costruisci i comandi per la chat aperta: menu «/» in tre gruppi, /resume, scheda della risposta, settimana del piano, appunti visibili
 - Col motore nativo assente la card parte diretta anche nel test del catalogo in scoperta
+- Prova la risposta di un comando col CLI finto e porta i cancelli statici a verde
 - Conta i cataloghi della ricerca nella pane fra le traduzioni e riscrivi in inglese i due commenti sul pulsante del telefono
+- Fai rispondere al CLI finto con l'ultima riga del messaggio e filtra il menu con un prefisso che nessuna skill ha
+- Rileggi l'elenco dei comandi all'apertura del menu: il gruppo del motore arriva col primo turno
+- Dai al segno dei comandi noti la lettura per il rendering statico
+- Dichiara le righe di /resume una volta sola in shared e conta il nuovo frame della risposta di comando
+- Appunta il messaggio giusto e riporta il cursore in fondo prima di filtrare /resume
 - Sposta a tab il browser della topic senza ricaricarlo
+- Filtra /resume con una parola che sta solo in un titolo
+- Apri la chat di /resume nella finestra del suo progetto, seminata come la lascia la UI
+- Lascia aperta la lista di /resume mentre chiede conferma per una sessione ancora attiva
+- Tieni aperto il menu dei suggerimenti mentre un suo dialogo chiede, senza mangiarne il clic
+- Scrivi l'esito del 1.12, le deviazioni dell'implementazione e spunta i compiti fatti
+- Segna i nomi delle skill nel commento della spec del menu
 - Esc nel selettore dentro le impostazioni della chat chiude solo il selettore e rende il fuoco al suo grilletto
 - Disattiva anche il «via», i motori e «Apri impostazioni» quando il selettore è disattivato (MP-TASK-07)
 - Aggiorna il commento di openPopoverCount: ora lo legge anche il dialogo modale
+- Aggiungi gli screenshot dell'implementazione e il video di /resume che adotta una sessione
 - Alza la baseline gz dell'entry al valore misurato dopo il merge con main, e correggi il progetto della barra e2e nei task
+- Registra la crescita dell'entry comprata dai comandi della chat
 - Prova i quattro difetti della ricerca nella pane trovati in revisione
 - Ripara i quattro difetti della ricerca nella pane
 - Dipingi i risultati uno per uno, bottoni da dito nella barra e ⇧⌘F nel suggerimento
@@ -109,6 +139,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Non svegliare mai il padre con uno stop chiesto da lui, qualunque esito riporti il figlio
 - Non cancellare dal PC i file che il repo ora ignora quando topwin ricava la lista dalla storia
 - Copri entrambi i modi di fallire per entrambe le rimozioni del pannello condivisione
+- Prendi le skill del menu solo dalla chat o dal suo progetto, mai da un altro
+- Fai di /new e /reset un /clear su ogni motore con una sessione, OpenClaw a parte
+- Registra i comandi di un agente ACP anche senza un turno in volo, e nomina il motore che non compatta
 - Nascondi la vista nativa mentre aspetta di essere adottata da uno spostamento
 - Fai vedere al cancello anche la browser_close con argomento di tipo
 - Aspetta i roster ritardati prima del ricarico in SUBSTRIP-01i
@@ -118,6 +151,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno
+- Proponi commands-ui: /resume elenca le sessioni Claude del progetto, il menu «/» legge i comandi dal motore
 - Manda su https l'host scritto senza schema con la porta 443 o 8443
 - Mostra l'errore anche quando revocare un link o togliere un accesso fallisce
 - Lega il turno vocale alla chiamata che l'ha registrato, non a una chiamata qualsiasi
@@ -151,6 +185,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Rispondi ai comandi rifiutati da Claude Code solo sui topic Claude Code
 - Tieni il fuoco nei pannelli, appendili all'ancora giusta e mostra il piano Claude appena si apre il selettore
 - Togli dai testi i rimandi a Impostazioni che non esistono più
+- Correggi commands-ui: provider dal selettore, skill anche sul motore di Topics, /resume a pagine
 - Apri da /mcp il pannello Strumenti del «+» e da /config e /settings il menu utente
 - Prendi il lock anche senza hard link, perdi con LiveLockError e togli solo il lock giudicato stantio
 - Non riscrivere le credenziali dopo un logout mentre una coppia rinnovata aspetta in memoria
