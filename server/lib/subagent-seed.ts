@@ -46,3 +46,33 @@ export function composerHoldsPrompt(screen: string, prompt: string): boolean {
   if (probe && seen.includes(probe)) return true;
   return seen.includes(PASTE_PLACEHOLDER);
 }
+
+/**
+ * IL DIALOGO DI FIDUCIA DELLA CARTELLA. Una CLI che parte in una cartella mai
+ * aperta prima chiede «ti fidi di questa cartella?» con il cursore su «No,
+ * exit». Il seed non lo riconosceva: il riquadro del dialogo ha i bordi `╭─`,
+ * che il seed prendeva per il composer pronto, quindi scriveva il prompt e
+ * premeva Invio sul «No». La CLI usciva con codice 1 senza transcript: il
+ * 03/10 tre sottoagenti di topic:d740f8ae in pop-demo, `reason="no-transcript"`
+ * e nessuna riga di log.
+ *
+ * Il buffer è tutta la scrollback, quindi il dialogo «c'è» solo se dopo la
+ * sua ultima domanda non compare ancora il composer.
+ */
+const TRUST_QUESTION = "itrustthisfolder";
+const COMPOSER_AFTER_TRUST = ["forshortcuts", "bypassing"];
+
+export function trustDialogShowing(screen: string): boolean {
+  const seen = stripForEcho(screen);
+  const at = seen.lastIndexOf(TRUST_QUESTION);
+  if (at < 0) return false;
+  const after = seen.slice(at);
+  return !COMPOSER_AFTER_TRUST.some((h) => after.includes(h));
+}
+
+/** Il cursore `❯` del dialogo sta sulla scelta «Yes»: solo allora Invio accetta. */
+export function trustCursorOnYes(screen: string): boolean {
+  const seen = stripForEcho(screen);
+  const cursor = seen.lastIndexOf("❯");
+  return cursor >= 0 && /^(\d\.)?yes/.test(seen.slice(cursor + 1));
+}
