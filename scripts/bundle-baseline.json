@@ -734,7 +734,14 @@
     "commands by name, the composer's tools row and the calendar tile's menu row",
     "(SETHOME-01). The rest, +3.385 raw / +1.159 gz, is in the entry (the one",
     "listener, `HomePanelHost`, and the footer glue), and critical_path stays inside",
-    "its tolerance (664.284 <= 664.403 gz), so neither of those two numbers is raised."
+    "its tolerance (664.284 <= 664.403 gz), so neither of those two numbers is raised.",
+    "",
+    "2026-10-03, integra/tornata2z-1003 (the server lane, the commands lane and the",
+    "settings lane on main 0865156b0): the two notes above describe raises made on",
+    "their own branches; the merge kept the numbers already written here, because",
+    "the three together measure inside 2% of them with build:client on this Mac:",
+    "entry 1.593.672 / 505.499, critical path 2.211.374 / 665.133 (ceiling 677.271,",
+    "12 KB of room against CI's ~0,9 KB more), total assets 8.569.090. Nothing raised."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,
