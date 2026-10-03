@@ -33,6 +33,14 @@ import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { onBeforeBundleReload } from '../lib/devBundleReload';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
+import {
+  closeNativeView as closeRecordedNativeView,
+  deferCloseToMove,
+  isNativeViewOpened,
+  movingNativeViews,
+  noteNativeViewOpened,
+  takeNativeViewMove,
+} from '../lib/shell/nativeBrowserViews';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { browserClientId } from '../lib/browserClientId';
@@ -137,7 +145,7 @@ const INSTALL_FOCUS_HOOK =
  *  React owner, so no later `browser_close` targets it — it stays painted after the
  *  user closes the tab ("the browser won't close", project-only). Fix: defer the
  *  native close by a short grace; a remount for the same contextId cancels it and
- *  REUSES the still-alive view (adopted, see `openedNativeViews`). A real close (no
+ *  REUSES the still-alive view (adopted, see `nativeBrowserViews`). A real close (no
  *  remount) tears down after the grace. Same reap-grace idiom the terminal/browser
  *  self-heal paths already use. */
 const pendingBrowserCloses = new Map<string, ReturnType<typeof setTimeout>>();
@@ -170,37 +178,10 @@ function releaseBrowserView(id: string): number {
   return Math.max(0, next);
 }
 
-/**
- * A PANE THAT CHANGES SURFACE IS A MOVE, NOT AN OPEN.
- *
- * The views this document has seen OPEN (`browser_open` answered) and has not
- * closed since. With the refcount and the close grace above it answers one
- * question at mount time: is there already a live page under this id that
- * another surface of this same document was showing a moment ago? That is
- * what «open as tab» on a topic's browser window does (the sheet unmounts, the
- * layout pane mounts, same contextId), and so does the way back, a group
- * change, an auto-split re-key.
- *
- * Such a mount used to call `browser_open` again, and the shell's reuse branch
- * (`browser_open_inner` in lib.rs) NAVIGATES when the url it gets differs from
- * the last url the client asked for. The new pane mounts with its persisted
- * url, which is the LIVE one (`onUrlChange`); after any click, redirect or
- * pushState inside the page the two differ, so the move reloaded the page:
- * same view and same cookies, but history, scroll, forms and in-flight loads
- * gone (reported 03/10 on a topic's minimized browser moved into a tab).
- * A live view is now ADOPTED: no `browser_open`,
- * the new slot re-anchors it through `setBounds` like any reflow.
- *
- * Only this document's own record counts. A view that survived a ⌘R, or that
- * belongs to another window's document, is not in here and still goes
- * through `browser_open`, whose reuse branch is the only one that knows it.
- */
-const openedNativeViews = new Set<string>();
-
-/** Close a native view and forget it was open, so the next mount OPENS. */
+/** Close a native view and forget it was open, so the next mount OPENS. The
+ *  record of open views and of moves in flight lives in `nativeBrowserViews`. */
 function closeNativeView(id: string): Promise<unknown> {
-  openedNativeViews.delete(id);
-  return tauriInvoke('browser_close', { id });
+  return closeRecordedNativeView(id, tauriInvoke);
 }
 
 /**
@@ -219,7 +200,9 @@ function closeNativeView(id: string): Promise<unknown> {
  * the reload recreates them exactly as a remount would.
  */
 onBeforeBundleReload(() => {
-  for (const id of browserViewRefs.keys()) {
+  // A view parked by a move in flight is held by no pane, and nobody would
+  // close it after the reload.
+  for (const id of new Set([...browserViewRefs.keys(), ...movingNativeViews()])) {
     markBrowserViewDead(id);
     void closeNativeView(id).catch(() => {});
   }
@@ -858,8 +841,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (queuedClose) { clearTimeout(queuedClose); pendingBrowserCloses.delete(id); }
     // Read BEFORE retaining: the page is live under this id if its last pane let
     // go inside the grace (the close just cancelled) or another pane still holds
-    // it. Either way this mount is a MOVE (see `openedNativeViews`).
-    const liveView = openedNativeViews.has(id) && (!!queuedClose || (browserViewRefs.get(id) ?? 0) > 0);
+    // it. Either way this mount is a MOVE (see `nativeBrowserViews`).
+    // A move handed over by the surface that let go of it (`beginNativeViewMove`)
+    // counts however late this mount comes: that surface parked its close.
+    const handedOver = takeNativeViewMove(id);
+    const liveView = isNativeViewOpened(id) && (handedOver || !!queuedClose || (browserViewRefs.get(id) ?? 0) > 0);
     retainBrowserView(id);
     const wantedUrl = normalizeUrl(initialUrlRef.current ?? 'about:blank');
     // Una scheda verso una porta LOCALE non parte alla cieca: si chiede prima al
@@ -886,7 +872,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // without `browser_open`: its reuse branch in lib.rs would navigate it.
     markBrowserViewLive(id);
     const applyOpened = () => {
-        openedNativeViews.add(id);
+        noteNativeViewOpened(id);
         openedRef.current = true;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
         // `browser_open` ha appena restituito può essere una view RIUSATA, e
@@ -1035,11 +1021,17 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // alone — closing here would blank the sibling.
       if (releaseBrowserView(id) > 0) return;
       markBrowserViewDead(id);
-      pendingBrowserCloses.set(id, setTimeout(() => {
-        pendingBrowserCloses.delete(id);
-        // Re-check under the grace: a remount may have re-retained the id.
+      // Re-checked when it runs: a remount may have re-retained the id.
+      const closeUnheld = (): void => {
         if ((browserViewRefs.get(id) ?? 0) > 0) return;
         void closeNativeView(id).catch(() => {});
+      };
+      // A move in flight: the arriving pane adopts the view whenever it mounts,
+      // so nothing is queued here. The close runs only if the move expires.
+      if (deferCloseToMove(id, closeUnheld)) return;
+      pendingBrowserCloses.set(id, setTimeout(() => {
+        pendingBrowserCloses.delete(id);
+        closeUnheld();
       }, BROWSER_CLOSE_GRACE_MS));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once per contextId; initialUrl is captured via ref so a persisted-url change never re-creates the view
@@ -1945,10 +1937,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     setLoading(true);
     await recreatePane({
       // Forgotten first: a view being rebuilt is not one a remount may adopt.
-      close: () => {
-        openedNativeViews.delete(id);
-        return tauriInvoke('browser_close', { id }).then(() => true, () => false);
-      },
+      close: () => closeNativeView(id).then(() => true, () => false),
       open: () => requestOpenView(urlRef.current || initialUrlRef.current || 'about:blank'),
       // La stretta di mano è un `browser_set_bounds` sulla vista appena nata: se
       // risponde, il guasto cade da sé (`recordPaneOk` dentro `paneInvoke`); se

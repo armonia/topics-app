@@ -17,9 +17,16 @@
  * no close, no navigation, and the view re-anchored to the new slot under the
  * same id. On origin/main the second mount sends `browser_open`.
  *
+ * Two ways that adoption went wrong, pinned below. A REAL close sent straight
+ * from a close funnel (not the hook's deferred one) left the id recorded, and a
+ * reopen inside the grace adopted a destroyed view: an empty pane. And a pane
+ * that mounted after the grace (a project creates it after a microtask, an
+ * await and a Suspense) lost the race to the deferred close: the move became
+ * close + open again, unless the move is a handoff (`beginNativeViewMove`).
+ *
  * @covers TOPIC-BROWSER-01
  */
-import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, mock, jest } from 'bun:test';
 import { createElement } from 'react';
 import { mount } from '../test/reactHarness';
 import * as tauriShell from '../lib/shell/tauri';
@@ -29,6 +36,8 @@ import * as devTypes from '../components/Browser/browserDevTypes';
 import * as paneContextModel from '../components/Browser/paneContextModel';
 import * as browserNavUrl from '../lib/browserNavUrl';
 import type { NativeBrowserHandle } from '../components/Browser/browserDevTypes';
+import { beginNativeViewMove, closeNativeView, NATIVE_VIEW_MOVE_TIMEOUT_MS } from '../lib/shell/nativeBrowserViews';
+import { teardownNativeBrowserPane } from '../lib/nativeBrowserTeardown';
 
 // Same alias registration as the other benches of this hook: `bun test` does not
 // resolve `@/`, and the REAL hook is what has to be driven here.
@@ -230,5 +239,87 @@ describe('useTauriBrowser: moving a live page to another surface keeps it', () =
     await settle();
     expect(destructive(ctx)).toEqual(['browser_open']);
     again.unmount();
+  });
+  /** The shell closed this view: the next pane under the id must CREATE one. */
+  async function reopenAfterDirectClose(ctx: string, directClose: (id: string) => void): Promise<string[]> {
+    const sheet = await openInWindow(ctx);
+    directClose(ctx);
+    sheet.unmount();
+    await new Promise((r) => setTimeout(r, 100));
+    invocations = [];
+    const seen: NativeBrowserHandle[] = [];
+    const again = surface(ctx, 'https://example.com/start', seen);
+    await settle();
+    const sent = destructive(ctx);
+    again.unmount();
+    return sent;
+  }
+
+  const invoke = (cmd: string, args?: Record<string, unknown>) => tauriShell.tauriInvoke(cmd, args);
+
+  test('a tab closed for real and reopened inside the grace opens a new view (close funnels)', async () => {
+    // usePanelLifecycle and useProjectLayout close through `closeNativeView`.
+    const sent = await reopenAfterDirectClose('ctx-direct-close', (id) => { void closeNativeView(id, invoke); });
+    expect(sent, 'adopted a view the shell had already closed').toContain('browser_open');
+  });
+
+  test('a tab closed for real through the pane teardown is not adopted either', async () => {
+    // usePaneLifecycle closes through `teardownNativeBrowserPane`.
+    const sent = await reopenAfterDirectClose('ctx-teardown-close', (id) => teardownNativeBrowserPane(id, invoke));
+    expect(sent, 'adopted a view the shell had already closed').toContain('browser_open');
+  });
+
+  test('a close while a sibling still holds the id: the next pane opens, not adopts', async () => {
+    const ctx = 'ctx-direct-close-sibling';
+    const sheet = await openInWindow(ctx);
+    const sibling = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    void closeNativeView(ctx, invoke);
+    sheet.unmount();
+    invocations = [];
+    const again = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    expect(destructive(ctx)).toContain('browser_open');
+    again.unmount();
+    sibling.unmount();
+  });
+
+  test('a handed-over move survives a pane that mounts two seconds late', async () => {
+    const ctx = 'ctx-move-late';
+    const sheet = await openInWindow(ctx);
+
+    // What «open as tab» does before the layout's pane exists.
+    beginNativeViewMove(ctx);
+    sheet.unmount();
+    await new Promise((r) => setTimeout(r, 2000));
+    const seen: NativeBrowserHandle[] = [];
+    const tab = surface(ctx, 'https://example.com/inbox?after=login', seen);
+    await settle();
+    seen[seen.length - 1]!.setBounds(IN_TAB);
+    await settle();
+    await new Promise((r) => setTimeout(r, PAST_GRACE_MS));
+    await settle();
+
+    expect(destructive(ctx), 'the late move recreated, closed or reloaded the page').toEqual([]);
+    expect(seen[seen.length - 1]!.ready).toBe(true);
+    tab.unmount();
+  }, 10_000);
+
+  test('a move nobody lands still closes the view, after the safety timeout', async () => {
+    const ctx = 'ctx-move-lost';
+    const sheet = await openInWindow(ctx);
+    jest.useFakeTimers();
+    try {
+      beginNativeViewMove(ctx);
+      sheet.unmount();
+      jest.advanceTimersByTime(NATIVE_VIEW_MOVE_TIMEOUT_MS - 1);
+      await settle();
+      expect(destructive(ctx), 'closed before the move had time to land').toEqual([]);
+      jest.advanceTimersByTime(1);
+      await settle();
+      expect(destructive(ctx), 'a lost move leaked its webview').toEqual(['browser_close']);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
