@@ -14,7 +14,7 @@
  *    model, but the route had already marked its inline context as sent: the
  *    next message left out blocks the session never received.
  */
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll, afterEach } from "bun:test";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
 import type { AIProvider, StreamHandler } from "../providers/types";
@@ -27,6 +27,22 @@ beforeAll(() => setupTestDataDir(`${ROOT}/data`));
 afterAll(() => cleanupTestDataDir(ROOT));
 
 const WS = testTmpDir("chat-killed-turn-ws");
+
+/**
+ * Every turn a test opened, and the context it runs on. The provider here
+ * never answers, so a turn the test does not end itself stays in flight with
+ * its watchdog armed (soft timeout, then grace), and the grace expiry writes
+ * the row a minute or two later: by then this file has closed its database and
+ * the write lands in whatever file runs next, as `SQLiteError: out of memory`.
+ * Each one is ended after its test, and none may be left in flight.
+ */
+const opened: Array<{ ctx: AppContext; handler: StreamHandler }> = [];
+afterEach(async () => {
+  const turns = opened.splice(0);
+  for (const { handler } of turns) handler.onAborted?.({ turnEnd: cancelled("user") });
+  await settle();
+  expect(turns.flatMap(({ ctx }) => [...ctx.activeStreams.keys()])).toEqual([]);
+});
 
 async function harness(sendResult: () => Promise<{ runId?: string; notSent?: boolean }>) {
   const ctx = await createTestAppContext();
@@ -86,6 +102,7 @@ async function harness(sendResult: () => Promise<{ runId?: string; notSent?: boo
     expect(resp?.status).toBe(200);
     resp?.body?.cancel().catch(() => {});
     if (!captured) throw new Error("the route registered no StreamHandler");
+    opened.push({ ctx: ctx as AppContext, handler: captured });
     return captured;
   };
 
