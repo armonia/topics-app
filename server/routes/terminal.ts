@@ -50,7 +50,7 @@ import {
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
-import { composerHoldsPrompt } from "../lib/subagent-seed";
+import { composerHoldsPrompt, trustCursorOnYes, trustDialogShowing } from "../lib/subagent-seed";
 import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
@@ -2402,8 +2402,14 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
   let lastLen = -1, stableCount = 0;
   for (let i = 0; i < 40; i++) {
     await sleep(200);
-    if (!sessions.has(childId)) return; // child died before we could seed
+    if (!sessions.has(childId)) { console.warn(`[Terminal] seedAgentPrompt: ${childId} exited before its composer appeared`); return; }
     const buf = await getTerminalBuffer(childId);
+    // Prima dei READY_HINTS: i bordi `╭─` del dialogo li soddisfano (lib/subagent-seed.ts).
+    if (buf && trustDialogShowing(buf)) {
+      if (!(await acceptTrustDialog(childId))) return;
+      lastLen = -1; stableCount = 0;
+      continue;
+    }
     if (buf && READY_HINTS.some(h => buf.includes(h))) break;
     if (buf.length > 0 && buf.length === lastLen) { if (++stableCount >= 2) break; }
     else stableCount = 0;
@@ -2454,11 +2460,34 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     for (let i = 0; i < 12; i++) { // ~6s
       await sleep(500);
       const child = sessions.get(childId);
-      if (!child) return;
+      if (!child) { console.warn(`[Terminal] seedAgentPrompt: ${childId} exited before accepting its prompt`); return; }
       if (childPromptAccepted(child, acceptSnippet)) return; // ✅ landed
     }
   }
   console.warn(`[Terminal] seedAgentPrompt: ${childId} never acknowledged its prompt (echoed=${echoed})`);
+}
+
+/** Accept the CLI's folder-trust dialog for a sub-agent: move `❯` onto «Yes» and
+ *  only then press Enter (Enter on the default «No, exit» kills the child). The
+ *  cwd was chosen by the parent agent, which already runs with full shell access
+ *  there, so trusting it gives the child nothing the parent lacks. */
+async function acceptTrustDialog(childId: string): Promise<boolean> {
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  for (let step = 0; step < 3; step++) {
+    if (!sessions.has(childId)) return false;
+    if (trustCursorOnYes(await getTerminalBuffer(childId))) {
+      console.warn(`[Terminal] seedAgentPrompt: ${childId} hit the folder-trust dialog in its cwd, accepting it`);
+      noteTerminalInput(childId);
+      sendToBridge({ type: "write", id: childId, data: "\r" });
+      await sleep(500);
+      return true;
+    }
+    noteTerminalInput(childId);
+    sendToBridge({ type: "write", id: childId, data: "\x1b[B" }); // freccia giù
+    await sleep(300);
+  }
+  console.warn(`[Terminal] seedAgentPrompt: ${childId} is stuck on the folder-trust dialog, cursor never reached «Yes»; not pressing Enter`);
+  return false;
 }
 
 /** True once a sub-agent has actually accepted its prompt: its transcript holds
