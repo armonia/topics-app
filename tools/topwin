@@ -67,10 +67,13 @@ case "${1:-help}" in
       # No list yet (a copy synced before it existed): the best guess at what
       # was shipped is every file on the PC that some commit of this history
       # deleted. A file git has never tracked is not in it, whatever its name.
+      # --no-renames: with rename detection a path renamed away is an R, not a
+      # D, and stayed on the PC. A directory is skipped: the history has a
+      # deleted `node_modules` symlink, and `if exist` is true for the real one.
       echo "> no list of shipped files on the PC yet: deriving it from the history..."
-      git -C "$REPO_MAC" -c core.quotePath=false log --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u \
+      git -C "$REPO_MAC" -c core.quotePath=false log --no-renames --format= --name-only --diff-filter=D HEAD | sed '/^$/d' | sort -u \
         | win_batches | while IFS= read -r batch; do
-          win "(for %f in ($batch) do @if exist %f echo %~f) & exit 0"
+          win "(for %f in ($batch) do @if exist %f if not exist \"%~f\\*\" echo %~f) & exit 0"
         done | tr -d '\r' | tr '\\' '/' | sort > "$tmp/old"
     fi
     comm -23 "$tmp/old" "$tmp/$MANIFEST" > "$tmp/stale"
