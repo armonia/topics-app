@@ -80,6 +80,8 @@ const states = new Map<string, FindState>();
 const listeners = new Map<string, Set<() => void>>();
 const searchSeq = new Map<string, number>();
 const debounce = new Map<string, ReturnType<typeof setTimeout>>();
+/** The async search still on its way, per pane: a step waits for it. */
+const inflight = new Map<string, Promise<void>>();
 /** Where the keyboard was before ⌘F, to give it back on Esc (FIND-03). */
 const focusBefore = new Map<string, { focus(): void; isConnected?: boolean } | null>();
 let nextToken = 1;
@@ -232,7 +234,12 @@ function runSearch(paneId: string, delayMs: number): void {
     try {
       const r = entry.finder.search(st.query, { matchCase: st.matchCase });
       if (typeof r === 'number') apply(r);
-      else void r.then(apply, () => apply(0));
+      else {
+        const p: Promise<void> = r.then(apply, () => apply(0)).finally(() => {
+          if (inflight.get(paneId) === p) inflight.delete(paneId);
+        });
+        inflight.set(paneId, p);
+      }
     } catch {
       apply(0);
     }
@@ -260,12 +267,16 @@ export async function stepFind(paneId: string, forward: boolean): Promise<void> 
   const entry = finders.get(paneId);
   const st = getFindState(paneId);
   if (!entry || !st.open || !st.query) return;
-  // A search still waiting for its debounce runs first: Enter right after the
-  // last letter must step through the results of THAT word.
+  // A search still waiting for its debounce runs first, and an async one
+  // (the chat's route, the native browser's IPC) is awaited: Enter right after
+  // the last letter must step through the results of THAT word, not the
+  // previous one's, and not be reset to 0 when the search lands.
   if (debounce.has(paneId)) {
     clearTimeout(debounce.get(paneId)!);
     runSearch(paneId, 0);
   }
+  for (let p = inflight.get(paneId); p; p = inflight.get(paneId)) await p;
+  if (!getFindState(paneId).open) return;
   const seq = searchSeq.get(paneId);
   const r = await entry.finder.step(forward);
   if (searchSeq.get(paneId) !== seq) return;
@@ -341,7 +352,7 @@ export function resolveFindPane(
 /** Test hook. */
 export function _resetFindRegistry(): void {
   for (const t of debounce.values()) clearTimeout(t);
-  finders.clear(); fallbacks.clear(); states.clear(); listeners.clear(); searchSeq.clear(); debounce.clear(); focusBefore.clear();
+  finders.clear(); fallbacks.clear(); states.clear(); listeners.clear(); searchSeq.clear(); debounce.clear(); focusBefore.clear(); inflight.clear();
 }
 
 /**

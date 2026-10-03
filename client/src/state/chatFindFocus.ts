@@ -76,6 +76,35 @@ export function useFindFocusThinking(messageId: string | undefined, text: string
     && includesQuery(text, f));
 }
 
+/** What a closed fold holds, for {@link useFindFocusInFold}. */
+export interface FindFoldScope {
+  messageId?: string;
+  /** The tool calls inside the fold. */
+  toolCallIds: readonly string[];
+  /** The text and reasoning inside the fold; absent = the whole message folds. */
+  texts?: readonly string[];
+}
+
+/**
+ * A fold (a finished turn's work, `turnFold.ts`; a board task's message):
+ * non-zero while the current result is inside it. The fold mounts its rows
+ * only when open (`DisclosureBody`), so the rows' own subscriptions above
+ * cannot open anything until the fold has.
+ */
+export function useFindFocusInFold(scope: FindFoldScope): number {
+  const topicId = useChatTopicId();
+  return useFocusSeq((f) => {
+    if (f.part === 'tool') {
+      return (!!f.toolCallId && scope.toolCallIds.includes(f.toolCallId))
+        || (!scope.texts && f.messageId === scope.messageId);
+    }
+    // Reasoning matched on the chat too, as `useFindFocusThinking` does.
+    const mine = f.messageId === scope.messageId || (f.part === 'thinking' && !!topicId && f.topicId === topicId);
+    if (!mine) return false;
+    return !scope.texts || scope.texts.some((t) => includesQuery(t, f));
+  });
+}
+
 function includesQuery(text: string, f: ChatFindFocus): boolean {
   if (!f.query) return false;
   return f.matchCase ? text.includes(f.query) : text.toLowerCase().includes(f.query.toLowerCase());

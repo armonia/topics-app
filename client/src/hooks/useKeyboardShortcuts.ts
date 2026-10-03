@@ -237,9 +237,12 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
           : null;
       // The keyboard on nothing after a click on text (a Markdown preview, a
       // transcript): the pane clicked last is the one in front of the person,
-      // as long as it is still on screen.
-      const clicked = lastPointerPane;
-      if (!el && clicked && document.querySelector<HTMLElement>(`[data-find-pane="${CSS.escape(clicked)}"]`)?.offsetParent) {
+      // as long as it is still on screen. Not for the shell's synthetic keydown
+      // (target `window`): a click into a native page fires no DOM pointerdown,
+      // so the pane clicked last in the DOM is stale there, and the focused tab
+      // below is the pane the page belongs to.
+      const clicked = e.target === window ? null : lastPointerPane;
+      if (!el && clicked &&document.querySelector<HTMLElement>(`[data-find-pane="${CSS.escape(clicked)}"]`)?.offsetParent) {
         el = { closest: () => ({ getAttribute: () => clicked }) };
       }
       const tabs = Array.from(document.querySelectorAll('[role="tab"][data-focused="true"][data-pane-id]'))
@@ -361,24 +364,31 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // preventDefault is exactly what keeps WebView2's find bar closed. The
       // one exception is the Mac's REAL Ctrl: there Ctrl+F is a key (forward
       // one character in a field, in readline, `^F` in less and vim) and stays
-      // with the focused surface. Where `usesCtrl` is true Ctrl+F is the only
-      // way in, and it works everywhere, terminal included.
+      // with the focused surface, in a field or not, as for ⌘G. Where
+      // `usesCtrl` is true Ctrl+F is the only way in, and it works everywhere,
+      // terminal included.
+      //
+      // Consumed = stopPropagation as well as preventDefault: this listener
+      // runs in the capture phase on `window`, and xterm's textarea never reads
+      // `defaultPrevented`, so without the stop Ctrl+F also reached the running
+      // program as ^F (0x06).
       //
       // A pane with no finder falls back: the board puts the cursor in its
       // filter, any other opens the project search as before.
       if (isMod && !e.shiftKey && !e.altKey && (e.key === 'f' || e.key === 'F')) {
-        if (!e.metaKey && !usesCtrl && isTextInputFocused(e.target)) return;
+        if (!e.metaKey && !usesCtrl) return;
+        e.preventDefault();
+        e.stopPropagation();
         // The project search, already open, keeps its ⌘F (switches mode):
         // the cursor is in ITS field, and a bar opened behind it would be a
         // bar nobody sees.
         if (modalsRef.current.showFileSearch) {
-          e.preventDefault();
           toggleFileSearch('content');
           return;
         }
-        // A modal open (settings, palette): no bar behind it.
+        // A modal open (settings, palette): no bar behind it, and (the
+        // preventDefault above) no WebView2 find bar over it either.
         if (hasOpenModalSurface()) return;
-        e.preventDefault();
         const paneId = findPaneOf(e);
         // `window` as the target = the synthetic keydown the shell forwards
         // from a native page: Esc will have to give it the keyboard back
@@ -395,6 +405,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         const paneId = findPaneOf(e);
         if (paneId && isFindOpen(paneId)) {
           e.preventDefault();
+          e.stopPropagation();
           void stepFind(paneId, !e.shiftKey);
           return;
         }

@@ -9,9 +9,15 @@ import type { ReactNode } from 'react';
 import type { ToolCall } from '../../types';
 import { TaskWorkAccordion } from './TaskWorkAccordion';
 
-export function TurnWorkRow({ tools, children }: { tools: ToolCall[]; children: ReactNode }) {
+export function TurnWorkRow({ tools, children, messageId, foldedTexts }: {
+  tools: ToolCall[];
+  children: ReactNode;
+  /** For the chat find bar: the message, and the text and reasoning folded. */
+  messageId?: string;
+  foldedTexts?: readonly string[];
+}) {
   return (
-    <TaskWorkAccordion tools={tools} testId="turn-work-fold">
+    <TaskWorkAccordion tools={tools} testId="turn-work-fold" messageId={messageId} foldedTexts={foldedTexts}>
       {children}
     </TaskWorkAccordion>
   );

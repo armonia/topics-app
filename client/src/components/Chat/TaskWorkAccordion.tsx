@@ -23,11 +23,12 @@ import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { baseName, summarizeTools, summarizeWork } from './taskWorkFold';
 import { BrowserMarkerChip } from './BrowserOpenMarker';
+import { useFindFocusInFold } from '../../state/chatFindFocus';
 
 /** Up to this many file names spell themselves out; past it, a count. */
 const FILES_SPELLED = 2;
 
-export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-work-accordion' }: {
+export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-work-accordion', messageId, foldedTexts }: {
   /** The message whose work folds (the board task's per-message fold)... */
   msg?: ChatMessage;
   /** ...or the calls themselves (a finished turn's work, `turnFold.ts`). */
@@ -35,9 +36,25 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
   children: ReactNode;
   label?: string;
   testId?: string;
+  /** With `tools`: the message the turn belongs to, for the chat find bar. */
+  messageId?: string;
+  /** With `tools`: the text and reasoning folded with them. */
+  foldedTexts?: readonly string[];
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  // The chat find bar landed on a result inside the fold (CHAT-FIND-02): it
+  // opens on that edge, as the rows inside do, and stays open.
+  const findSeq = useFindFocusInFold({
+    messageId: msg?.id ?? messageId,
+    toolCallIds: (tools ?? msg?.toolCalls ?? []).map((t) => t.id),
+    texts: msg ? undefined : (foldedTexts ?? []),
+  });
+  const [seenFindSeq, setSeenFindSeq] = useState(0);
+  if (findSeq !== 0 && findSeq !== seenFindSeq) {
+    setSeenFindSeq(findSeq);
+    setOpen(true);
+  }
   const disclose = useDisclosureToggle();
   const bodyId = useId();
   const summary = useMemo(() => (tools ? summarizeTools(tools) : summarizeWork(msg ? [msg] : [])), [msg, tools]);
