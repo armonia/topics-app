@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronsDown, History, SquareTerminal } from 'lucide-react';
 import { SuggestionMenu } from '../Shared/SuggestionMenu';
 import { Spinner } from '../Shared/Spinner';
@@ -44,10 +44,9 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
   const [failed, setFailed] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [adopting, setAdopting] = useState<string | null>(null);
-  // While the dialog asks, a click on it is not a click outside the list:
-  // «Annulla» leaves the list where it was.
-  const confirmingRef = useRef(false);
-  const closeUnlessAsking = useCallback(() => { if (!confirmingRef.current) onClose(); }, [onClose]);
+  // While the dialog asks, a press on it is not a press outside the list:
+  // cancelling leaves the list where it was.
+  const [asking, setAsking] = useState(false);
 
   const loadPage = useCallback(async (before: string | null) => {
     setLoading(true);
@@ -86,7 +85,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
     // Two processes writing one session fork it: a session still running in a
     // terminal is continued here only if the person says so.
     if (s.active) {
-      confirmingRef.current = true;
+      setAsking(true);
       let go = false;
       try {
         go = await confirm({
@@ -95,7 +94,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
           confirmLabel: tr('chat.resume.activeConfirm'),
         });
       } finally {
-        confirmingRef.current = false;
+        setAsking(false);
       }
       if (!go) { inputRef.current?.focus(); return; }
     }
@@ -150,7 +149,8 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
       items={rows}
       getKey={(r) => (r.kind === 'more' ? '__more' : r.session.sessionId)}
       selectedIndex={selected}
-      onClose={closeUnlessAsking}
+      onClose={onClose}
+      holdOpen={asking}
       inputRef={inputRef}
       headerIcon={<History size={12} className="text-app-text-secondary" />}
       headerLabel={tr('chat.resume.header')}

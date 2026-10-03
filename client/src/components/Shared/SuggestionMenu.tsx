@@ -88,6 +88,9 @@ export interface SuggestionMenuProps<T> {
   footer?: React.ReactNode;
   /** Test hook on the root. */
   testId?: string;
+  /** While true, a press outside and Escape do not close it: a dialog it
+   *  opened is being answered, and that press belongs to the dialog. */
+  holdOpen?: boolean;
 }
 
 export function SuggestionMenu<T>({
@@ -95,14 +98,14 @@ export function SuggestionMenu<T>({
   headerIcon, headerLabel, filterBadge, hint, loading, loadingLabel, emptyLabel,
   position = 'above', className, rootAttrs,
   anchorRef, listboxId, listboxLabel, multiSelectable, maxHeightClass,
-  groupOf, groupLabel, footer, testId,
+  groupOf, groupLabel, footer, testId, holdOpen = false,
 }: SuggestionMenuProps<T>) {
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useDismissable({
-    open: visible,
+    open: visible && !holdOpen,
     onClose: onClose ?? (() => {}),
     refs: inputRef ? [inputRef, menuRef] : [menuRef],
     restoreFocus: false,
