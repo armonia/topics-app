@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // `inbox` is what the design names the «To look at» panel (notifications-
+  // redesign, design section 9): one list of the subjects that want a look,
+  // with the dictionary meaning of the word. `lucide` is the icon library the
+  // UI draws every glyph with; its type `LucideIcon` has no other name
+  // (2026-10-04, `components/Sidebar/Inbox.tsx`).
+  "inbox", "lucide",
   // `tailwind` is the name of the framework this client's classes come from,
   // and the constant that lists ITS font-size steps (the ones the type scale
   // switches off) has to name it to be understood. `scanned` is a regular past
