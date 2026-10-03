@@ -4351,6 +4351,63 @@ static NEW_TAB_REQUESTS: std::sync::Mutex<Vec<NewTabMsg>> = std::sync::Mutex::ne
 /// in a `window.open` loop cannot use it as unbounded memory.
 const NEW_TAB_QUEUE_MAX: usize = 64;
 
+/// Dove va un popup quando la sua pagina chiama `window.close()`.
+///
+/// wry non implementa `webViewDidClose`: senza questa deviazione il popup di un
+/// login (Google GIS, OAuth) consegnava la credenziale alla pagina madre e poi
+/// restava aperto, vuoto, per sempre. Lo script d'avvio del popup ridirige
+/// `close()` qui, e `on_navigation` chiude la finestra.
+const POPUP_CLOSE_URL: &str = "about:blank#topics-popup-close";
+
+const POPUP_CLOSE_JS: &str =
+    "try{window.close=function(){location.replace('about:blank#topics-popup-close');};}catch(e){}";
+
+static POPUP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Un `window.open` CON dimensioni e' un popup, non una scheda: si apre come
+/// finestra vera, con la configurazione WebKit di chi l'ha chiesto, cosi'
+/// `window.open()` non torna `null` e `opener.postMessage` arriva.
+///
+/// Prima diventava una scheda come un `target=_blank`: il login Google di un
+/// sito nella pane (03/10, jevweb) si completava nella scheda, la pagina madre
+/// non riceveva niente, e GIS riprovava aprendo altre schede (7 in 35 s).
+/// I `_blank` senza dimensioni restano schede: e' quello che fa Chrome.
+fn open_page_popup(
+    app: &tauri::AppHandle,
+    url: tauri::Url,
+    features: tauri::webview::NewWindowFeatures,
+) -> Option<tauri::WebviewWindow> {
+    let label = format!(
+        "page-popup-{}",
+        POPUP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let title = url.host_str().unwrap_or("Topics").to_string();
+    let closer = app.clone();
+    let closing = label.clone();
+    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url))
+        .title(title)
+        .window_features(features)
+        .initialization_script(POPUP_CLOSE_JS)
+        .on_navigation(move |u| {
+            if u.as_str() != POPUP_CLOSE_URL {
+                return true;
+            }
+            // Mai chiudere dentro il delegate di navigazione: si rientrerebbe
+            // in WebKit a meta' chiamata. Si accoda al giro successivo.
+            let app = closer.clone();
+            let label = closing.clone();
+            let _ = closer.run_on_main_thread(move || {
+                if let Some(w) = tauri::Manager::get_webview_window(&app, &label) {
+                    let _ = w.close();
+                }
+            });
+            false
+        })
+        .build()
+        .map_err(|e| eprintln!("[browser_open] popup {label}: {e}"))
+        .ok()
+}
+
 /// Drain the tabs `id`'s page asked to open. Empty is the normal answer.
 // ENGINES: wkwebview, webview2, webkitgtk - a plain mutex drain, and the queue behind it is filled by the builder's `on_new_window`, which wry implements on all three engines (WryWebViewUIDelegate, NewWindowRequested, the webkitgtk create signal).
 #[tauri::command]
@@ -5273,10 +5330,10 @@ fn browser_open_inner(
     //
     // Queueing rather than emitting: the handler runs inside the UI delegate on
     // the main thread, and a Mutex push is the cheapest thing that cannot
-    // re-enter WebKit mid-delegate. NOTE: the popup sees a nil return
-    // (window.open() -> null), so opener/postMessage popup flows still won't
-    // link up: accepted, and out of scope of this change.
+    // re-enter WebKit mid-delegate. A window.open WITH a size is a popup, not
+    // a tab, and gets a real window that keeps its opener: `open_page_popup`.
     let nw_label = label.clone();
+    let nw_app = app.clone();
     // Nasce già con la sua URL: annotarla qui evita che il primo remount della
     // pane la creda «sconosciuta» e ri-navighi su una pagina che sta già
     // caricando.
@@ -5321,8 +5378,14 @@ fn browser_open_inner(
                 });
             }
         })
-        .on_new_window(move |url, _features| {
+        .on_new_window(move |url, features| {
             let scheme = url.scheme();
+            if (scheme == "http" || scheme == "https") && features.size().is_some() {
+                if let Some(window) = open_page_popup(&nw_app, url, features) {
+                    return tauri::webview::NewWindowResponse::Create { window };
+                }
+                return tauri::webview::NewWindowResponse::Deny;
+            }
             if scheme == "http" || scheme == "https" {
                 if let Some(pane) = pane_id_from_label(&nw_label) {
                     if let Ok(mut v) = NEW_TAB_REQUESTS.lock() {
