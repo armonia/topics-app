@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.437",
+    "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Non adottare alla cieca una vista lasciata durante un pop-out",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non chiedere l'indirizzo a WebKitGTK quando una vista viva viene ripresa",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.436",
     "date": "2026-10-03",
     "sections": {
@@ -34,6 +55,11 @@
         },
         {
           "it": "Rendi costante la lista dei gestori nel test della chiave d'invio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non ricaricare una vista browser viva quando qualcuno la riapre",
           "en": "",
           "scope": null
         },
