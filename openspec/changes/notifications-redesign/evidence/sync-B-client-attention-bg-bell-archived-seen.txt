@@ -1,0 +1,294 @@
+# worktree: <worktree> @ f93eeb187 (origin/main, detached)
+# command: cd <worktree>/client && TOPICS_GATE_HELD=targeted bun test src/state/notifRepro.test.ts
+# exit code: 1
+
+## test source (src/state/notifRepro.test.ts)
+/**
+ * REPRO (evidence, not a fix) for the notification sync audit of 2026-10-03.
+ *
+ * Every test composes the REAL pure functions the way the app composes them:
+ *   - useSignalsSync.ts:56-91   -> claudeAttentionTopics / awaitingFeedbackTopics
+ *   - useSignalsSync.ts:171-178 -> chatFinishedEdge on stream:start/end
+ *   - useSignalsSync.ts:223-229 -> what a `notification:seen` frame clears
+ *   - useTabNotifications.tsx:185-202 -> chromeAttentionSubjects / trayChatItems
+ *     (the bell number IS this, NotificationHistoryButton.tsx:63)
+ *   - PaneTabBar.tsx:1090-1091 -> attentionFillFor(rawTier, seenSubjects.has(id))
+ * The two effect bodies that live inside React hooks (seen frame, attention
+ * derivation) are replicated line for line and cited; nothing else is invented.
+ */
+import { beforeEach, describe, expect, test } from 'bun:test';
+import type { ClaudeSessionState, Topic } from '../types';
+import {
+  NOTABLE_CLAUDE_PHASES,
+  attentionFillFor,
+  deriveAwaitingFeedbackTopics,
+  signalsActions,
+  topicAttentionCount,
+  useSignalsStore,
+} from './signals';
+import { chromeAttentionSubjects, trayChatItems, waitingSubjects, type ChromeAttentionInput } from './attentionTotal';
+import { chatFinishedEdge, decideChatFinishedBanner } from '../lib/notify/chatFinished';
+import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
+
+const T = 't1';
+const SK = 'topic:t1';
+
+function topic(over: Partial<Topic> = {}): Topic {
+  return { id: T, name: 'Build release', sessionKey: SK, archived: false, projectPath: '/p', ...over } as unknown as Topic;
+}
+
+function sessions(phase: ClaudeSessionState['phase']): Map<string, ClaudeSessionState> {
+  return new Map([[SK, { sessionKey: SK, claudeSessionId: 'c1', phase } as unknown as ClaudeSessionState]]);
+}
+
+/** useSignalsSync.ts:56-63 */
+function claudeAttentionOf(topics: Record<string, Topic>, cs: Map<string, ClaudeSessionState>): Set<string> {
+  const ids = new Set<string>();
+  for (const t of Object.values(topics)) {
+    const st = t.sessionKey ? cs.get(t.sessionKey) : undefined;
+    if (st && NOTABLE_CLAUDE_PHASES.has(st.phase)) ids.add(t.id);
+  }
+  return ids;
+}
+
+/** useSignalsSync.ts:70-77: the phase set plus the in-memory 'done' marks. */
+function awaitingOf(topics: Record<string, Topic>, cs: Map<string, ClaudeSessionState>): Set<string> {
+  const awaiting = deriveAwaitingFeedbackTopics(topics, cs);
+  for (const id of useSignalsStore.getState().chatFinishedTopics) awaiting.add(id);
+  return awaiting;
+}
+
+/** useTabNotifications.tsx:185-194, fed from the store like the provider is. */
+function chromeInput(topics: Record<string, Topic>, cs: Map<string, ClaudeSessionState>, over: Partial<ChromeAttentionInput> = {}): ChromeAttentionInput {
+  const st = useSignalsStore.getState();
+  return {
+    topics,
+    unread: { [T]: { unreadCount: 0 } },
+    claudeAttentionTopics: claudeAttentionOf(topics, cs),
+    terminalFinishedIds: st.terminalFinishedIds,
+    chatFinishedTopics: st.chatFinishedTopics,
+    boardGroups: [],
+    paneCounts: new Map(),
+    unseenNotificationKeys: new Set(),
+    ...over,
+  };
+}
+
+/** useSignalsSync.ts:223-229, the `notification:seen` handler body. */
+function applySeenFrame(frame: { subjects?: string[] }): void {
+  const st = useSignalsStore.getState();
+  for (const id of marksClearedBy(frame, terminalSubject, st.terminalFinishedIds)) st.clearTerminalFinished(id);
+  for (const id of marksClearedBy(frame, topicSubject, st.chatFinishedTopics)) st.clearChatFinished(id);
+}
+
+beforeEach(() => {
+  useSignalsStore.setState(useSignalsStore.getInitialState(), true);
+});
+
+describe('D1 - a chat waiting on BACKGROUND work is announced as "your turn"', () => {
+  // The 15 s poll of /api/topics/streaming says: t1 has no turn open, its last
+  // turn left a `bun test` running (state "background", BGVIS-01).
+  const withBackgroundWork = () =>
+    signalsActions.setBackgroundWork(
+      new Set([SK]),
+      new Map([[T, { sessionKey: SK, tasks: [{ type: 'local_bash', description: 'bun test' }], lastSignalAt: Date.now() }]]),
+    );
+
+  test('the clean stream:end of that turn SHALL NOT raise the "done" mark', () => {
+    withBackgroundWork();
+    expect(useSignalsStore.getState().backgroundWorkTopics.has(T)).toBe(true);
+    const edge = chatFinishedEdge({ type: 'stream:end', topicId: T, completed: true });
+    expect(edge).toBeNull();
+  });
+
+  test('nor a banner', () => {
+    withBackgroundWork();
+    const decision = decideChatFinishedBanner({
+      topicId: T, notificationsEnabled: true, topicName: 'Build release', archived: false, muted: false,
+      agentWorking: false, isFocusedAndVisible: false, notifyEvenWhenFocused: false, lastFiredAt: undefined, now: Date.now(),
+    });
+    expect(decision).toBeNull();
+  });
+
+  test('nor the blue fill, the tab/row badge and +1 on the bell and the Dock', () => {
+    withBackgroundWork();
+    // The hook Stop parked the session at awaiting-user (see the server repro).
+    const topics = { [T]: topic() };
+    const cs = sessions('awaiting-user');
+    expect(awaitingOf(topics, cs).has(T)).toBe(false);
+    expect(topicAttentionCount(T, { [T]: { unreadCount: 0 } }, claudeAttentionOf(topics, cs))).toBe(0);
+    expect(chromeAttentionSubjects(chromeInput(topics, cs)).map((s) => s.key)).not.toContain(`topic:${T}`);
+  });
+});
+
+describe('D2 - the bell lists a chat it can never switch off', () => {
+  test('opening the panel ("mark all") SHALL clear the chats it listed under "Aspettano te" (NOTIF-ONE-01)', () => {
+    // A hook chat whose turn ended an hour ago: read, unread 0, no rows. Its
+    // session stays at awaiting-user until the next turn.
+    const topics = { [T]: topic() };
+    const cs = sessions('awaiting-user');
+    const before = chromeAttentionSubjects(chromeInput(topics, cs));
+    const listed = waitingSubjects(before, new Set());
+    expect(listed.map((s) => s.key)).toEqual([`topic:${T}`]); // the panel shows it
+
+    // NotificationHistoryButton.tsx:120 sends it; subject-seen.ts:156 answers
+    // `notification:seen {subjects:['topic:t1']}` (plus unread:updated only if
+    // unread > 0). This window applies the frame:
+    applySeenFrame({ subjects: listed.map((s) => s.key) });
+
+    const after = chromeAttentionSubjects(chromeInput(topics, cs));
+    expect(after.length).toBe(0);
+  });
+});
+
+describe('D3 - an archived chat with an unseen notification still counts', () => {
+  test('the bell/Dock number SHALL be 0 and match the tray menu (CHROME-COUNT-01)', () => {
+    const topics = { [T]: topic({ archived: true }) };
+    const subjects = chromeAttentionSubjects(chromeInput(topics, sessions('dormant'), {
+      unseenNotificationKeys: new Set([`topic:${T}`]),
+    }));
+    const trayRows = trayChatItems(subjects, topics, {});
+    expect(trayRows.length).toBe(0);
+    // The number painted next to that empty menu:
+    expect(subjects.length).toBe(trayRows.length);
+  });
+});
+
+describe('D4 - "seen" is per window and in memory: other windows and reloads relight', () => {
+  test('a chat read in window A SHALL lose its blue fill in window B too (NOTIF-ONE-01, SEEN-ANY-FOCUS-01)', () => {
+    // Window B: hook chat t1 finished (phase awaiting-user + 'done' mark from stream:end).
+    const topics = { [T]: topic() };
+    const cs = sessions('awaiting-user');
+    signalsActions.markChatFinished(T);
+    signalsActions.applyNewAttention(awaitingOf(topics, cs));
+    // Window A opened it: POST /read -> markTopicSeen -> notification:seen {subjects:['topic:t1']}.
+    applySeenFrame({ subjects: [`topic:${T}`] });
+    const rawTier = awaitingOf(topics, cs).has(T) ? 'done' : null;
+    expect(attentionFillFor(rawTier, useSignalsStore.getState().seenSubjects.has(T))).toBeNull();
+  });
+
+  test('a chat already read SHALL not relight after a reload', () => {
+    const topics = { [T]: topic() };
+    const cs = sessions('awaiting-user');
+    signalsActions.applyNewAttention(awaitingOf(topics, cs));
+    signalsActions.markSubjectSeen(T); // looked at for SEEN_DWELL_MS
+    expect(attentionFillFor('done', useSignalsStore.getState().seenSubjects.has(T))).toBeNull();
+    // Reload: the store starts from its initial state, /api/claude-sessions
+    // replays awaiting-user, nothing else remembers the look.
+    useSignalsStore.setState(useSignalsStore.getInitialState(), true);
+    signalsActions.applyNewAttention(awaitingOf(topics, cs));
+    const rawTier = awaitingOf(topics, cs).has(T) ? 'done' : null;
+    expect(attentionFillFor(rawTier, useSignalsStore.getState().seenSubjects.has(T))).toBeNull();
+  });
+});
+
+## output
+bun test v1.3.8 (b64edcb4)
+
+src/state/notifRepro.test.ts:
+91 | 
+92 |   test('the clean stream:end of that turn SHALL NOT raise the "done" mark', () => {
+93 |     withBackgroundWork();
+94 |     expect(useSignalsStore.getState().backgroundWorkTopics.has(T)).toBe(true);
+95 |     const edge = chatFinishedEdge({ type: 'stream:end', topicId: T, completed: true });
+96 |     expect(edge).toBeNull();
+                      ^
+error: expect(received).toBeNull()
+
+Received: {
+  op: "mark",
+  topicId: "t1",
+}
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:96:18)
+(fail) D1 - a chat waiting on BACKGROUND work is announced as "your turn" > the clean stream:end of that turn SHALL NOT raise the "done" mark [1.35ms]
+100 |     withBackgroundWork();
+101 |     const decision = decideChatFinishedBanner({
+102 |       topicId: T, notificationsEnabled: true, topicName: 'Build release', archived: false, muted: false,
+103 |       agentWorking: false, isFocusedAndVisible: false, notifyEvenWhenFocused: false, lastFiredAt: undefined, now: Date.now(),
+104 |     });
+105 |     expect(decision).toBeNull();
+                           ^
+error: expect(received).toBeNull()
+
+Received: {
+  title: "Build release",
+  body: "In attesa di te",
+  cooldownKey: "t1",
+}
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:105:22)
+(fail) D1 - a chat waiting on BACKGROUND work is announced as "your turn" > nor a banner [0.39ms]
+108 |   test('nor the blue fill, the tab/row badge and +1 on the bell and the Dock', () => {
+109 |     withBackgroundWork();
+110 |     // The hook Stop parked the session at awaiting-user (see the server repro).
+111 |     const topics = { [T]: topic() };
+112 |     const cs = sessions('awaiting-user');
+113 |     expect(awaitingOf(topics, cs).has(T)).toBe(false);
+                                                ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:113:43)
+(fail) D1 - a chat waiting on BACKGROUND work is announced as "your turn" > nor the blue fill, the tab/row badge and +1 on the bell and the Dock [1.15ms]
+130 |     // `notification:seen {subjects:['topic:t1']}` (plus unread:updated only if
+131 |     // unread > 0). This window applies the frame:
+132 |     applySeenFrame({ subjects: listed.map((s) => s.key) });
+133 | 
+134 |     const after = chromeAttentionSubjects(chromeInput(topics, cs));
+135 |     expect(after.length).toBe(0);
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:135:26)
+(fail) D2 - the bell lists a chat it can never switch off > opening the panel ("mark all") SHALL clear the chats it listed under "Aspettano te" (NOTIF-ONE-01) [2.75ms]
+143 |       unseenNotificationKeys: new Set([`topic:${T}`]),
+144 |     }));
+145 |     const trayRows = trayChatItems(subjects, topics, {});
+146 |     expect(trayRows.length).toBe(0);
+147 |     // The number painted next to that empty menu:
+148 |     expect(subjects.length).toBe(trayRows.length);
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:148:29)
+(fail) D3 - an archived chat with an unseen notification still counts > the bell/Dock number SHALL be 0 and match the tray menu (CHROME-COUNT-01) [0.44ms]
+157 |     signalsActions.markChatFinished(T);
+158 |     signalsActions.applyNewAttention(awaitingOf(topics, cs));
+159 |     // Window A opened it: POST /read -> markTopicSeen -> notification:seen {subjects:['topic:t1']}.
+160 |     applySeenFrame({ subjects: [`topic:${T}`] });
+161 |     const rawTier = awaitingOf(topics, cs).has(T) ? 'done' : null;
+162 |     expect(attentionFillFor(rawTier, useSignalsStore.getState().seenSubjects.has(T))).toBeNull();
+                                                                                            ^
+error: expect(received).toBeNull()
+
+Received: "done"
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:162:87)
+(fail) D4 - "seen" is per window and in memory: other windows and reloads relight > a chat read in window A SHALL lose its blue fill in window B too (NOTIF-ONE-01, SEEN-ANY-FOCUS-01) [1.13ms]
+171 |     // Reload: the store starts from its initial state, /api/claude-sessions
+172 |     // replays awaiting-user, nothing else remembers the look.
+173 |     useSignalsStore.setState(useSignalsStore.getInitialState(), true);
+174 |     signalsActions.applyNewAttention(awaitingOf(topics, cs));
+175 |     const rawTier = awaitingOf(topics, cs).has(T) ? 'done' : null;
+176 |     expect(attentionFillFor(rawTier, useSignalsStore.getState().seenSubjects.has(T))).toBeNull();
+                                                                                            ^
+error: expect(received).toBeNull()
+
+Received: "done"
+
+      at <anonymous> (<worktree>/client/src/state/notifRepro.test.ts:176:87)
+(fail) D4 - "seen" is per window and in memory: other windows and reloads relight > a chat already read SHALL not relight after a reload [0.13ms]
+
+ 0 pass
+ 7 fail
+ 11 expect() calls
+Ran 7 tests across 1 file. [66.00ms]

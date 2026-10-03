@@ -1,0 +1,60 @@
+CLIENT ATTENTION SURFACES — topics-app origin/main f93eeb187 (2026-10-03)
+Paths relative to the repo. "store" = useSignalsStore (client/src/state/signals.ts) unless named.
+
+RAW INPUTS (who writes the store)
+  claudeSessions (useClaudeSessionState: GET /api/claude-sessions + WS session:state, keyed by sessionKey)
+    -> useSignalsSync.ts:56-63   claudeAttentionTopics = topics whose phase in NOTABLE {awaiting-approval, awaiting-user, paused, error}
+    -> useSignalsSync.ts:70-91   awaitingFeedbackTopics = phase in {awaiting-user, awaiting-approval, paused} UNION chatFinishedTopics
+                                 awaitingInputTopics   = phase awaiting-approval UNION askWaitingTopics (open ask_user_question)
+                                 applyNewAttention(union) resets seenSubjects on the rising edge
+    -> useSignalsSync.ts:266-271 claudePhase{Active,Resting,Awaiting,AwaitingInput}TermIds (terminals, via derivePhaseTerminals)
+  WS stream:end {completed:true} / stream:start
+    -> useSignalsSync.ts:176-178 chatFinishedEdge -> markChatFinished / clearChatFinished (in memory, per window)
+  WS terminal:activity {finished:true} on a terminal with NO known phase
+    -> useSignalsSync.ts:251-253 markTerminalFinished (in memory, per window)
+  GET /api/topics/streaming every 15 s + 400 ms after stream:start/end/background:changed
+    -> useSignalsSync.ts:144-149 hydratedStreamTopics, backgroundWorkSessions/backgroundWorkTopics, askWaitingTopics
+  WS notification:seen {subjects}
+    -> useSignalsSync.ts:223-230 clears terminalFinishedIds / chatFinishedTopics named by the frame
+  WS unread:updated -> unreadData (useWebSocket) ; GET /api/notifications + notification:new/seen -> notificationUnseen store keys
+  The seen event: paneSeen.ts:104-112 seeSubject(id) after SEEN_DWELL_MS on the window's focused pane
+    = markSubjectSeen + clearTerminalFinished (+POST) + seeChatFinished ; unread has its own door useWebSocket.ts:511-537
+
+NOTHING in the attention derivation reads backgroundWorkTopics. Only glyphs read it
+(TopicItem.tsx:137, TabSlot.tsx:93-103 ChatSlot, StreamingIndicator.tsx:217, BackgroundWorkLine, activeAgentRowsFrom.background).
+
+SURFACES
+ 1 Pane tab (PaneTabBar.tsx + TabSlot.tsx)
+   fill   : rawTier PaneTabBar.tsx:1063-1069 (chat: awaitingInput/awaitingFeedbackTopics; claude-code terminal: phase term sets only;
+            project: projectAttentionTier) -> attentionFillFor(rawTier, seenSubjects.has) :1091 ; amber never clears by look.
+   number : StandaloneChatGroup.tsx:414-430 / GroupLayout.tsx:1290,1654 getBadgeCount (useTabNotifications.tsx:132-149)
+            chat = max(unread, claudeAttention?1:0) ; terminal = terminalFinishedIds ; project = rollupProjectAttention ;
+            hidden on the fully active non-project tab (PaneTabBar.tsx:1187-1188).
+   glyph  : TabSlot ChatSlot working = loading || backgroundWork -> "ring around the number" when both (TabSlot.tsx:184-205).
+   clears : fill on seen (dwell); number when unread=0 AND phase leaves NOTABLE (next turn) — NOT on seen.
+ 2 Sidebar chat row (TopicItem.tsx)
+   fill useTopicAttentionFill :148 ; data-attention raw tier :152,292 ; number item.notificationCount (buildSidebarItems
+   chatRowAttentionCount = topicAttentionCount) hidden while focused :495 ; bg glyph :137,521-541.
+ 3 Sidebar terminal row (TopicTree.tsx:2391 TerminalSidebarItem) fill useTerminalAttentionFill (phase only) ; number terminalAttentionCount.
+ 4 Sidebar project row / project tab: projectAttentionTier (signals.ts:1041, seen-gated, ignores terminalFinishedIds and backgroundWork)
+   + rollupProjectAttention (signals.ts:1505, NOT seen-gated, ignores chatFinishedTopics).
+ 5 Group (Spazio) card: spaceAttentionTier useSpaceCards.ts:58-100 — counts terminalFinishedIds as 'done' (:83), the tab/row/project do not.
+ 6 Sidebar state view «Attende te»: sidebarStateSignals/sidebarItemState buildSidebarItems.ts:889-929 — awaiting sets, no seen, no background.
+ 7 Bell (NotificationHistoryButton.tsx): number = attentionTotal = chromeAttentionSubjects (:67) ; list "Aspettano te" = waitingSubjects ;
+   history rows from useNotificationHistory. Open = openAndMarkSeen(rows up to newest + chat/terminal subjects listed) (:112,
+   useNotificationHistory.ts:181-224) -> server clears unread + rows; it cannot touch the session phase.
+ 8 Dock badge + menu-bar tray + PWA setAppBadge: same chromeAttentionSubjects (useTabNotifications.tsx:185-239). EVERY window
+   (main, ?space=, ?topics=) runs TabNotificationProvider and calls set_app_status with ITS OWN count; Rust (lib.rs:3005-3022)
+   writes the dock from whoever called last. Window-local inputs: chatFinishedTopics, terminalFinishedIds, seenSubjects, extraCounts.
+ 9 Agents menu / status counts (IdentityBlock, useAgentActivityCounts): activeAgentRowsFrom signals.ts:1334-1376 —
+   a chat with background work AND awaitingFeedback is in BOTH `background` and `finished`.
+10 Mobile waiting door (MobileChromeBar.tsx:335): useWaitingQueueStore = amber targets only (lib/waitingQueue.ts targetOf).
+11 OS banner (useCompletionNotifier.tsx): message:new :495 (hidden window), stream:end :553 (decideChatFinishedBanner, no bg input),
+   session:state :623 (chat: awaiting-user/approval/completed/error; terminal: decideTerminalBanner), terminal:activity :865.
+   Banners are registered in the notification log -> they feed the bell/dock through unseen keys.
+12 Push (server push-triggers.ts:413 isCleanChatTurnEnd) -> phone push / in-app banner (lib/push/swBridge.ts). No bg gate either.
+13 Board tab (TabSlot BoardSlot, useBoardTabCounts) and bell cards (trayBoardGroups review) read the same boardTasksStore;
+   the board tab shows a localStorage-cached count until loaded, the bell shows 0 cards until loaded.
+
+REPRODUCED DISAGREEMENTS: client-surfaces-disagree.run.txt (8 fail = 8 disagreements, 1 green control), test source in
+client-surfaces-disagree.test.ts.txt. Baseline of the existing attention tests on the same tree: client-baseline-green.run.txt (67/67).

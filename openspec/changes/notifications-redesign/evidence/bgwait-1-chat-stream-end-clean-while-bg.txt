@@ -1,0 +1,158 @@
+# worktree: <worktree> (detached at f93eeb187, origin/main)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test server/routes/chat.background-turn-end-notify.test.ts
+# ---- test source ----
+/**
+ * REPRO: a turn that ends WAITING on its own background work is announced as
+ * "finished, your turn".
+ *
+ * Driven on the real chat route and the real registered ClaudeCodeProvider,
+ * fed the CLI session recorded on 25/09 (`background-work.fixture.ts`): one
+ * turn launches a background Agent, a background Bash and a Monitor, answers
+ * "Launched." and ends. The CLI prints its `background_tasks_changed`
+ * snapshot BEFORE the `result`, so when the route broadcasts `stream:end` the
+ * server already knows the chat is waiting (`sessionHasBackgroundWork`).
+ *
+ * The frame is nevertheless `completed: true` and passes `isCleanChatTurnEnd`,
+ * the ONE predicate behind the reply push (`server/push-triggers.ts`), the
+ * client's "done" mark and the in-page banner (`client/src/lib/notify/chatFinished.ts`).
+ * Expected: a turn that leaves background work is not "your turn"; the alert
+ * belongs to the turn that ends with nothing left running.
+ */
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+import { createChatRouter } from "./chat";
+import { registerProvider, removeProvider } from "../providers";
+import { ClaudeCodeProvider } from "../providers/claude-code";
+import { SidechainTracker } from "../providers/claude/sidechain-tracker";
+import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
+import { sessionHasBackgroundWork } from "../providers/background-probes";
+import { isCleanChatTurnEnd } from "../../shared/chat-turn-end";
+import type { StreamHandler } from "../providers/types";
+import type { Topic } from "../types";
+
+const ROOT = testTmpDir("chat-bg-turn-end-notify");
+beforeAll(() => setupTestDataDir(`${ROOT}/data`));
+afterAll(() => { removeProvider("claude-code"); cleanupTestDataDir(ROOT); });
+
+const events = recordedBackgroundSession();
+const firstResult = events.findIndex((e) => e.type === "result");
+
+describe("a turn that ends waiting on background work", () => {
+  test("is NOT broadcast as a clean 'your turn' end while the server knows the work runs", async () => {
+    const ctx = await createTestAppContext();
+    const frames: Array<Record<string, unknown>> = [];
+    (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { frames.push(m as Record<string, unknown>); };
+    (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void })
+      .broadcastToTopicSubscribers = (_id, m) => { frames.push(m as Record<string, unknown>); };
+
+    const sessionKey = "topic:bg-wait-notify";
+    const topic = {
+      id: "t-bg-wait-notify", name: "bg wait", slug: "bg-wait", parentId: null, links: [], sessionKey,
+      color: "#5865f2", icon: "MessageSquare", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      archived: false, provider: "claude-code",
+    } as Topic;
+    ctx.saveSingleTopic(topic);
+
+    // The real provider, registered (the probes ask the registry), with a live
+    // child and no turn open, as a pooled chat between two messages.
+    const provider = registerProvider({ type: "claude-code" } as never) as ClaudeCodeProvider;
+    const pp: any = {
+      sessionKey, alive: true, streamHandler: null, pendingResolve: null, pendingReject: null,
+      fullText: "", activeToolCalls: new Set(), subAgentEmit: new Map(), sidechain: new SidechainTracker(),
+      pendingInputs: new Map(), lastEventAt: Date.now(), inactivityTimer: null, lifetimeTimer: null, heartbeatInterval: null,
+      readline: { close() {} },
+      io: { writeStdin: () => {}, signal: () => {}, kill: () => {} },
+      spawnedWith: { autonomy: null, model: null, effort: null },
+    };
+    (provider as any).processes.set(sessionKey, pp);
+    // The send writes nothing: it installs the route's handler the way
+    // `sendChatInternal` does, and the recorded stdout drives the turn.
+    let installed: StreamHandler | null = null;
+    (provider as any).sendChat = (_sk: string, _msg: string, handler: StreamHandler) => new Promise((resolve, reject) => {
+      pp.streamHandler = handler; pp.preRegistered = null; pp.pendingResolve = resolve; pp.pendingReject = reject;
+      installed = handler;
+    });
+
+    const router = createChatRouter(ctx, {
+      resolveProvider: () => provider,
+      detectLocalhostAutoNav: () => {},
+      bindTopicToProject: () => {},
+      resolveProjectRef: () => null,
+      getProjectIdForTopic: () => null,
+      getWorkspaceProjects: () => [],
+      autoBindProject: () => {},
+      watchSessionForSubagents: () => {},
+      updateUnreadCount: () => {},
+      browserNavigatedTopics: new Set<string>(),
+      WORKSPACE_DIR: `${ROOT}/ws`,
+    } as never);
+    const url = new URL("http://topics.test/api/chat");
+    const resp = await router(new Request(url.toString(), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "launch the three background jobs" }] }),
+    }), url, "/api/chat", "POST");
+    expect(resp?.status).toBe(200);
+    resp?.body?.cancel().catch(() => {});
+    for (let i = 0; i < 50 && !installed; i++) await Bun.sleep(10);
+    expect(installed).not.toBeNull();
+
+    // The recorded turn, up to and including its `result` ("Launched.").
+    for (const e of events.slice(0, firstResult + 1)) (provider as any).handleStreamEvent(pp, e);
+    await Bun.sleep(120);
+
+    const end = frames.find((f) => f.type === "stream:end" && f.sessionKey === sessionKey);
+    expect(end).toBeDefined();
+    // What the server knew when it broadcast that frame.
+    expect(provider.backgroundState(sessionKey)).toBe("running");
+    expect(sessionHasBackgroundWork(sessionKey)).toBe(true);
+
+    // Evidence of the bug, written as the expectation: the chat is waiting for
+    // its Agent, Bash and Monitor, so this end must not read as "Claude finished,
+    // your turn" to the push, the 'done' mark and the banner.
+    console.log("[repro] stream:end frame =", JSON.stringify({ completed: end!.completed, topicId: end!.topicId, keys: Object.keys(end!) }));
+    expect(isCleanChatTurnEnd(end!)).toBe(false);
+  });
+});
+
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/routes/chat.background-turn-end-notify.test.ts:
+[DB] Applied 175 migration(s)
+[DB] Created new database at /tmp/topics-test/chat-bg-turn-end-notify-oOzOdk/data/topics.db
+[claude-code] Provider started
+[HTTP] POST /api/chat received
+[Chat] useWS=true, sessionKey=topic:bg-wait-notify
+[StreamWS] Tool start: ToolSearch (toolu_01) for topic:bg-wait-notify
+[StreamWS] Tool result: toolu_01 success for topic:bg-wait-notify
+[StreamWS] Tool start: Agent (toolu_01) for topic:bg-wait-notify
+[StreamWS] Tool start: Bash (toolu_01) for topic:bg-wait-notify
+[StreamWS] Tool result: toolu_01 success for topic:bg-wait-notify
+[StreamWS] Tool start: Monitor (toolu_01) for topic:bg-wait-notify
+[StreamWS] Tool result: toolu_01 success for topic:bg-wait-notify
+[StreamWS] Tool result: toolu_01 success for topic:bg-wait-notify
+[StreamWS] chat.send OK for topic:bg-wait-notify, runId: 
+[repro] stream:end frame = {"completed":true,"topicId":"t-bg-wait-notify","keys":["type","sessionKey","topicId","messageId","latencyMs","usagePromptTokens","usageCompletionTokens","costCents","model","cacheReadTokens","cacheCreationTokens","cacheCreation1hTokens","stopReason","completed"]}
+105 | 
+106 |     // Evidence of the bug, written as the expectation: the chat is waiting for
+107 |     // its Agent, Bash and Monitor, so this end must not read as "Claude finished,
+108 |     // your turn" to the push, the 'done' mark and the banner.
+109 |     console.log("[repro] stream:end frame =", JSON.stringify({ completed: end!.completed, topicId: end!.topicId, keys: Object.keys(end!) }));
+110 |     expect(isCleanChatTurnEnd(end!)).toBe(false);
+                                           ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (<worktree>/server/routes/chat.background-turn-end-notify.test.ts:110:38)
+(fail) a turn that ends waiting on background work > is NOT broadcast as a clean 'your turn' end while the server knows the work runs [333.72ms]
+[claude-code] Shutdown: detaching broker session for topic:bg-wait-notify (child stays alive)
+[claude-code] Provider stopped
+[DB] Database closed
+
+ 0 pass
+ 1 fail
+ 6 expect() calls
+Ran 1 test across 1 file. [681.00ms]
+# exit code: 1

@@ -1,0 +1,94 @@
+# worktree @ f93eeb187 (origin/main)
+# command: cd <wt> && TOPICS_GATE_HELD=targeted bun test server/services/tasks.parked-row-requeue.notif.test.ts
+# clearing call sites (only two): server/services/tasks.ts:4203 (update: current==='review' && leaving it) and :4567 (review decision). Client never posts targetKind 'task' (only terminal: client/src/state/paneSeen.ts:109, signals.ts:704).
+# ---- test source ----
+/**
+ * EVIDENCE (not a fix): NOTIF-SEEN-01 says a parked-task notification is seen
+ * once the task no longer waits. Requeueing a parked card (the push button
+ * "Rimetti in coda" = PATCH status todo, shared/notify-actions.ts) leaves the
+ * bell row unseen: only an exit from `review` clears `task:<id>` rows.
+ */
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { initDatabase, closeDatabase } from "../db";
+import { unseenSnapshot } from "../db/notification-log";
+import { configureNotificationRegistry, recordAndAnnounce } from "../notification-registry";
+import { createTaskService } from "./tasks";
+import { freshDb } from "./tasks-test-db";
+import { taskParkedNotificationKey, taskReviewNotificationKey } from "../../shared/notification-log";
+
+let tmpRoot: string;
+beforeAll(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "parked-row-requeue-"));
+  const migDir = join(tmpRoot, "server", "db", "migrations");
+  mkdirSync(migDir, { recursive: true });
+  const real = join(import.meta.dir, "..", "db", "migrations");
+  for (const f of readdirSync(real)) if (f.endsWith(".sql")) writeFileSync(join(migDir, f), readFileSync(join(real, f), "utf-8"));
+  initDatabase(tmpRoot);
+  configureNotificationRegistry({ announce: () => {}, announceSeen: () => {}, isTopicArchived: () => false });
+});
+afterAll(() => { try { closeDatabase(); } catch {} try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {} });
+
+const PID = "proj-notif";
+function svc() {
+  let n = 0; let clock = 0;
+  return createTaskService(freshDb(), { now: () => new Date(Date.UTC(2026, 9, 3, 9, clock++)).toISOString(), uuid: () => `task-${Date.now()}-${++n}` });
+}
+const mv = (s: ReturnType<typeof svc>, taskId: string, status: string) =>
+  s.update({ taskId, actor: "human", by: "user", patch: { status: status as never } });
+
+describe("a parked card that is put back in the queue", () => {
+  test("control: a card leaving review clears its bell row", () => {
+    const s = svc();
+    const t = s.create({ projectId: PID, text: "in review" });
+    mv(s, t.id, "review");
+    recordAndAnnounce({ kind: "task-review", title: "pronto", targetKind: "task", targetId: t.id, dedupeKey: taskReviewNotificationKey(t.id), source: "push" });
+    expect(unseenSnapshot().unseenKeys).toContain(`task:${t.id}`);
+    mv(s, t.id, "done");
+    expect(unseenSnapshot().unseenKeys).not.toContain(`task:${t.id}`);
+  });
+
+  test("parked -> requeued: the task no longer waits, the row should be seen", () => {
+    const s = svc();
+    const t = s.create({ projectId: PID, text: "parcheggiata" });
+    mv(s, t.id, "todo");
+    // releaseAndEmit({requeue:false, parkState:'failed'}) -> backlog + task:parked -> push-trigger row
+    s.release({ taskId: t.id, requeue: false, parkState: "failed", reason: "nessuna consegna" });
+    recordAndAnnounce({ kind: "task-parked", title: "Task non consegnato", targetKind: "task", targetId: t.id, dedupeKey: taskParkedNotificationKey(t.id), source: "push" });
+    console.log("after park:", s.get(t.id)!.task.status, s.get(t.id)!.task.dispatchState, JSON.stringify(unseenSnapshot()));
+    // The person presses "Rimetti in coda" (PATCH status: todo).
+    mv(s, t.id, "todo");
+    console.log("after requeue:", s.get(t.id)!.task.status, JSON.stringify(unseenSnapshot()));
+    expect(unseenSnapshot().unseenKeys).not.toContain(`task:${t.id}`);
+  });
+});
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/services/tasks.parked-row-requeue.notif.test.ts:
+[DB] Applied 175 migration(s)
+[DB] Created new database at /var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/parked-row-requeue-35VgyY/data/topics.db
+after park: backlog failed {"unseen":1,"unseenKeys":["task:task-1791059447675-1"]}
+after requeue: todo {"unseen":1,"unseenKeys":["task:task-1791059447675-1"]}
+55 |     recordAndAnnounce({ kind: "task-parked", title: "Task non consegnato", targetKind: "task", targetId: t.id, dedupeKey: taskParkedNotificationKey(t.id), source: "push" });
+56 |     console.log("after park:", s.get(t.id)!.task.status, s.get(t.id)!.task.dispatchState, JSON.stringify(unseenSnapshot()));
+57 |     // The person presses "Rimetti in coda" (PATCH status: todo).
+58 |     mv(s, t.id, "todo");
+59 |     console.log("after requeue:", s.get(t.id)!.task.status, JSON.stringify(unseenSnapshot()));
+60 |     expect(unseenSnapshot().unseenKeys).not.toContain(`task:${t.id}`);
+                                                 ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "task:task-1791059447675-1"
+Received: [ "task:task-1791059447675-1" ]
+
+      at <anonymous> (<worktree>/server/services/tasks.parked-row-requeue.notif.test.ts:60:45)
+(fail) a parked card that is put back in the queue > parked -> requeued: the task no longer waits, the row should be seen [17.68ms]
+[DB] Database closed
+
+ 1 pass
+ 1 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [938.00ms]

@@ -1,0 +1,98 @@
+SERVER-SIDE MAP: chat/topic states and which ones notify
+Repo /Users/zorahrel/Projects/topics-app @ d4e2feb80 (local main); tests ran on origin/main f93eeb187 (no drift in these files except unrelated chat.ts project-scaffold lines).
+
+=====================================================================
+A. STATE AXES THE SERVER HOLDS FOR ONE CHAT (they are independent; nothing composes them)
+=====================================================================
+1. TURN (activeStreams Map + turnLedger, in memory)
+   idle | streaming | waiting (turn open but blocked on a person)
+   - "waiting" is derived only inside GET /api/topics/streaming (routes/topics.ts:1230-1285) from
+     provider.pendingInputSince -> humanHoldAgeMs (ask/permission bridges) -> last row tool_calls waiting_for_input.
+   - frames: stream:start, stream:end (many end kinds, see C), turn:snapshot on WS open (server.ts:4227).
+   - NO frame says "waiting" vs "streaming"; clients learn it by polling /api/topics/streaming (15 s).
+2. BACKGROUND WORK (provider in-memory BackgroundWork per CLI child + run_command registry)
+   none | running | wake-queued   (providers/claude/background-work.ts, providers/background-probes.ts:37)
+   - Read by: stall judge, idle reaper, lifetime cap, goal loop (goal-continuation.ts:591,647), Stop route, config-change deferral.
+   - Exposed ONLY via GET /api/topics/streaming (state "background" row, or `background` on a turn row). No WS frame.
+   - NOT read by: stream:end, push-triggers, phase machine, unread, notification_log.
+3. CLAUDE PHASE (claude_code_sessions table for topic sessions; in-memory map for terminal sessions)
+   starting | running | tool-running | awaiting-approval | awaiting-user | watching | paused | completed | error | dormant
+   - writers: hooks POST /api/claude-hooks/<Event> (routes/claude-hooks.ts:151 -> tracker.ingestHook), JSONL tail, reaper,
+     PTY crash/exit, boot reconciles (server.ts:5429, 5519), archive parking (lib/session-parking.ts).
+   - Stop -> awaiting-user unless monitorArmed (only Monitor arms it: claude-session-state.ts:171, 337-349).
+   - human-input tools known: AskUserQuestion, ExitPlanMode only (claude-session-state.ts:151). Headless chats disallow
+     AskUserQuestion (providers/claude/args.ts:273) and ask through mcp__topics__ask_user_question -> tool-running.
+   - frame: session:state (coalesced 50 ms, tracker.ts:353-372), snapshot GET /api/claude-sessions (claude-hooks.ts:179).
+     The WS open burst does NOT replay session:state (server.ts:4123-4228); the "bootstrap snapshot" is the HTTP fetch.
+4. HUMAN HOLD (ask-user-bridge / permission-bridge Maps, in memory; row waiting_for_input persisted)
+   held | released -> only listener: task-dispatcher.ts:2045 (board chip). Not the tracker, not push-triggers.
+5. UNREAD (table `unread`, PK topic_id only: global per installation)
+   +1 on every finalizeTurnActivity (chat.ts:328-331: success, error, timeout, woken turn), system-message, edit,
+   turn-end hook refusal. 0 only via markTopicSeen / notification seen doors (subject-seen.ts).
+   frames: unread:init (WS open), unread:updated.
+6. NOTIFICATION ROWS (table notification_log, one seen_at column: global per installation, not per device/person)
+   frames: notification:new {row, unseen, unseenKeys}, notification:seen {unseen, unseenKeys, subjects}; GET /api/notifications.
+   dedupe: same dedupe_key within 10 s (NOTIFICATION_DEDUPE_MS); group_key default = targetKind:targetId.
+7. GATES: topics.archived, topics.muted, ui_state settings mutedProjects (push-triggers.isTopicSilenced; registry archived gate).
+8. BOARD CARD (tasks.status / dispatch_state): review (+question / needs_input), parked = backlog + failed|blocked|waited_out.
+9. TERMINAL PTY ACTIVITY (terminal.ts in memory): terminal:activity busy | finished (1.5 s quiet).
+10. SWAP FREEZE of a chat's background command tree (services/swap-freeze.ts, roots of kind claude-background).
+
+=====================================================================
+B. WHO WRITES A BELL ROW / PUSH (server side)
+=====================================================================
+Every server row goes through recordAndAnnounce (notification-registry.ts:65) -> INSERT + notification:new.
+push-triggers.maybeSendPush runs synchronously inside broadcastToAll (utils.ts:993) for EVERY broadcast frame.
+
+| event (frame)                         | push (tag)         | row kind     | group          | gate                                   |
+|---------------------------------------|--------------------|--------------|----------------|----------------------------------------|
+| approval:created                      | approval-<id>      | approval     | none           | DEAD: no emitter in server/ (grep)     |
+| task:review-ready                     | task-review-<id>   | task-review  | task:<id>      | none                                   |
+| task:parked                           | task-park-<id>     | task-parked  | task:<id>      | requeue edges never emit               |
+| session:state phase=awaiting-approval | chat-wait-<topic>  | session      | topic:<id>     | sessionKey->topic, silenced; once per requestedAt (in-memory map) |
+| stream:end reason=error + error text  | chat-error-<topic> | chat-error   | topic:<id>     | !dispatched, !resumesUnasked, silenced |
+| stream:end clean (isCleanChatTurnEnd) | chat-end-<topic>   | chat-message | topic:<id>     | completed, !dispatched, !abort, silenced |
+| swap-freeze frozen / thawed           | (none, source=push)| session      | topic:<id>|none| none (2 rows per freeze cycle)          |
+| quiescence reload held                | (none, source=push)| session      | topic:<id>|none| once per wait                           |
+| worktree GC folder not removable      | (none)             | other        | none           | 10 s dedupe only                       |
+| client banner POST /api/notifications | (client)           | any          | given/target   | archived topic only                    |
+
+logSent() is called unconditionally after firePush(): the row exists even with zero subscribed devices.
+Prod log (read-only, ~/.claude/jarvis/logs/topics-server.log): 382 "[Push] not sent tag=chat-end-...: no subscribed device",
+0 deliveries ever logged -> 382 bell rows written by a push that was never sent. 30 "[freeze] froze" lines in
+topics-server-error.log -> up to 60 "Congelato/Scongelato" rows filed on the frozen command's chat.
+
+=====================================================================
+C. STATE -> NOTIFICATION (server's own decision)
+=====================================================================
+| server state of the chat                                   | push+row | unread +1 | phase seen by client   | correct? |
+|------------------------------------------------------------|----------|-----------|------------------------|----------|
+| turn streaming                                             | no       | no        | running/tool-running   | yes      |
+| turn waiting on a Topics MCP question (every chat question)| NO       | no        | tool-running (working) | NO (D6)  |
+| turn waiting on a permission (permission bridge)           | NO       | no        | tool-running           | suspected same as D6 |
+| plan mode, turn ends with plan approval panel              | chat-end "Claude ha finito" | yes | awaiting-user | suspected wrong family |
+| turn ended clean, nothing left running                     | chat-end | yes       | awaiting-user (blue)   | yes      |
+| turn ended clean, background Agent/Bash/cron still running | chat-end | yes       | awaiting-user (blue)   | NO (D1,D2) |
+| woken turn ("1 of 3 reported, waiting for the others")     | chat-end | yes       | awaiting-user          | NO (D1)  |
+| woken turn that says nothing (discarded)                   | no       | yes (finalizeTurnActivity still runs) | awaiting-user | NO (D7) |
+| turn ended with Monitor armed                              | chat-end | yes       | watching               | push/unread wrong, phase right |
+| turn error with notice                                     | chat-error | yes     | error/awaiting-user    | yes      |
+| user stop / watchdog / restart reconcile                   | no       | yes/no    | awaiting-user/dormant  | yes      |
+| background command frozen/thawed by swap                   | 2 rows on the chat | no | unchanged          | NO (D5)  |
+| archived / muted / project muted                           | no push; row only if not archived | no if archived | - | yes |
+| dispatched (board agent) turn                              | no (board edges instead) | yes | phases as above | yes |
+| card enters review                                         | task-review | -      | -                      | yes      |
+| card parked                                                | task-parked | -      | -                      | yes, but row survives requeue (D4) |
+
+=====================================================================
+D. SEEN
+=====================================================================
+Doors (subject-seen.ts): POST /api/topics/:id/read -> markTopicSeen (unread=0 + rows topic:<id> + notification:seen when
+something changed or doneMark); POST /api/notifications/seen {ids} | {upTo, subjects} | {targetKind,targetId}.
+Automatic: task leaving review (tasks.ts:4203, 4567) -> markTargetSeenAndAnnounce('task', id). Nothing else is automatic:
+no clearing on requeue of a parked card, no clearing of a chat's rows when its wait is answered elsewhere, no grace
+sweep for transient rows (the 20260829 migration did it once).
+Scope: GLOBAL per installation (unread PK topic_id; notification_log.seen_at single column). Neither per device nor
+per person; guests do not receive notification:* / unread:* frames (grants.ts GUEST_SAFE_FRAMES).
+The client-only marks ("done" chat, "finished" terminal, pane extraCounts) are per window and in memory: the server
+only relays their clearing through notification:seen.subjects.

@@ -1,0 +1,98 @@
+# worktree @ f93eeb187 (origin/main)
+# command: cd <wt> && TOPICS_GATE_HELD=targeted bun test server/lib/claude-session-state.bg-wait.notif.test.ts
+# client reads awaiting-user as attention: client/src/state/signals.ts:43-48 (NOTABLE_CLAUDE_PHASES) and :59-63 (AWAITING_FEEDBACK_PHASES = blue fill)
+# ---- test source ----
+/**
+ * EVIDENCE (not a fix): the hook phase machine parks a session on
+ * `awaiting-user` ("tocca a te", counted as attention + blue fill on the
+ * client) when its turn ends with background work still running, unless that
+ * work is a Monitor. Background Bash / Agent / Workflow / CronCreate never arm
+ * `watching`.
+ */
+import { describe, expect, test } from "bun:test";
+import { applyHook, makeInitialState, type HookPayload } from "./claude-session-state";
+
+function turn(tool: string, input: Record<string, unknown>) {
+  let s = makeInitialState("csid-1", "topic:x", 1000);
+  const hook = (h: Partial<HookPayload>, t: number) => { s = applyHook(s, { session_id: "csid-1", ...h } as HookPayload, t); };
+  hook({ hook_event_name: "UserPromptSubmit" }, 1001);
+  hook({ hook_event_name: "PreToolUse", tool_name: tool, tool_input: input }, 1002);
+  hook({ hook_event_name: "PostToolUse", tool_name: tool, tool_input: input }, 1003);
+  hook({ hook_event_name: "Stop" }, 1004);
+  return s.phase;
+}
+
+describe("the phase after a turn that leaves work running", () => {
+  test("a Monitor keeps it 'watching' (control: the mechanism exists)", () => {
+    expect(turn("Monitor", { command: "tail -f build.log" })).toBe("watching");
+  });
+  test("a background Bash", () => {
+    const p = turn("Bash", { command: "bun test", run_in_background: true });
+    console.log("Bash run_in_background -> phase", p);
+    expect(p).toBe("watching");
+  });
+  test("a background Agent (3 verifiers)", () => {
+    const p = turn("Agent", { description: "verifier", prompt: "...", run_in_background: true });
+    console.log("Agent run_in_background -> phase", p);
+    expect(p).toBe("watching");
+  });
+  test("a session cron", () => {
+    const p = turn("CronCreate", { cron: "*/5 * * * *", prompt: "check CI" });
+    console.log("CronCreate -> phase", p);
+    expect(p).toBe("watching");
+  });
+});
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/lib/claude-session-state.bg-wait.notif.test.ts:
+Bash run_in_background -> phase awaiting-user
+23 |     expect(turn("Monitor", { command: "tail -f build.log" })).toBe("watching");
+24 |   });
+25 |   test("a background Bash", () => {
+26 |     const p = turn("Bash", { command: "bun test", run_in_background: true });
+27 |     console.log("Bash run_in_background -> phase", p);
+28 |     expect(p).toBe("watching");
+                   ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-state.bg-wait.notif.test.ts:28:15)
+(fail) the phase after a turn that leaves work running > a background Bash [0.24ms]
+Agent run_in_background -> phase awaiting-user
+28 |     expect(p).toBe("watching");
+29 |   });
+30 |   test("a background Agent (3 verifiers)", () => {
+31 |     const p = turn("Agent", { description: "verifier", prompt: "...", run_in_background: true });
+32 |     console.log("Agent run_in_background -> phase", p);
+33 |     expect(p).toBe("watching");
+                   ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-state.bg-wait.notif.test.ts:33:15)
+(fail) the phase after a turn that leaves work running > a background Agent (3 verifiers) [0.30ms]
+CronCreate -> phase awaiting-user
+33 |     expect(p).toBe("watching");
+34 |   });
+35 |   test("a session cron", () => {
+36 |     const p = turn("CronCreate", { cron: "*/5 * * * *", prompt: "check CI" });
+37 |     console.log("CronCreate -> phase", p);
+38 |     expect(p).toBe("watching");
+                   ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-state.bg-wait.notif.test.ts:38:15)
+(fail) the phase after a turn that leaves work running > a session cron [0.18ms]
+
+ 1 pass
+ 3 fail
+ 4 expect() calls
+Ran 4 tests across 1 file. [248.00ms]

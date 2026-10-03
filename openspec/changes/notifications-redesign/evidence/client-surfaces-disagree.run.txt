@@ -1,0 +1,208 @@
+# worktree: <worktree> (detached at f93eeb187, origin/main)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test client/src/state/notifSurfacesDisagree.test.ts
+# date: 2026-10-03T20:36:29Z
+
+bun test v1.3.8 (b64edcb4)
+
+client/src/state/notifSurfacesDisagree.test.ts:
+151 |     const unread: Unread = { T: { unreadCount: 1 } };
+152 | 
+153 |     const seen = surfaces(topics, unread, 'T');
+154 |     // BGVIS-01: "la chat è libera e il lavoro gira da sé" — neither "answering" nor "your turn".
+155 |     // CHROME-COUNT-01: "Il lavoro che gira da solo non entra".
+156 |     expect(seen).toEqual({
+                       ^
+error: expect(received).toEqual(expected)
+
+@@ -4,3 +4,5 @@
+    ],
+-   "agentsMenuFinished": [],
++   "agentsMenuFinished": [
++     "T",
++   ],
+    "backgroundGlyph": true,
+@@ -10,5 +12,5 @@
+    ],
+-   "projectFill": null,
++   "projectFill": "done",
+    "projectNumber": 1,
+-   "tabRowFill": null,
++   "tabRowFill": "done",
+    "tabRowNumber": 1,
+
+- Expected  - 3
++ Received  + 5
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:156:18)
+(fail) A. a chat waiting on its own background work is painted "your turn" > A1 hook chat, Stop with a background Bash (no Monitor): glyph says "working in background", every attention surface says "needs you" [0.87ms]
+173 |     // Exactly the inputs useCompletionNotifier.tsx:562-576 passes: there is no background field.
+174 |     const decision = decideChatFinishedBanner({
+175 |       topicId: 'T', notificationsEnabled: true, topicName: 'chat T', archived: false, muted: false,
+176 |       agentWorking: false, isFocusedAndVisible: false, notifyEvenWhenFocused: true, lastFiredAt: undefined, now: 1_000_000,
+177 |     });
+178 |     expect(decision).toBeNull();
+                           ^
+error: expect(received).toBeNull()
+
+Received: {
+  title: "chat T",
+  body: "In attesa di te",
+  cooldownKey: "T",
+}
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:178:22)
+(fail) A. a chat waiting on its own background work is painted "your turn" > A2 the stream:end banner fires "your turn" though the store already knows the chat is waiting on background work [0.97ms]
+186 |     sync(topics, sessions);
+187 |     const snap = readStreamingSnapshot([backgroundRow('T', 'monitor')]);
+188 |     signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+189 |     const seen = surfaces(topics, {}, 'T');
+190 |     expect({ fill: seen.tabRowFill, bell: seen.bellAndDock, finished: seen.agentsMenuFinished, project: seen.projectFill })
+191 |       .toEqual({ fill: null, bell: 0, finished: [], project: null });
+             ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "bell": 0,
+-   "fill": null,
+-   "finished": [],
+-   "project": null,
++   "bell": 1,
++   "fill": "done",
++   "finished": [
++     "T",
++   ],
++   "project": "done",
+  }
+
+- Expected  - 4
++ Received  + 6
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:191:8)
+(fail) A. a chat waiting on its own background work is painted "your turn" > A3 Monitor armed: the server keeps the session `watching` (not idle), the client still paints it "done" from stream:end [2.49ms]
+205 |       awaitingFeedbackTopics: s.awaitingFeedbackTopics, awaitingInputTopics: s.awaitingInputTopics,
+206 |       claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds, claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds,
+207 |       liveStreamTopics: s.liveStreamTopics, hydratedStreamTopics: s.hydratedStreamTopics, claudePhaseActiveTermIds: s.claudePhaseActiveTermIds,
+208 |     });
+209 |     const row = { id: 'T', type: 'chat', name: 'chat T', topic: topics.T } as unknown as SidebarItem;
+210 |     expect({ glyph: s.backgroundWorkTopics.has('T'), bucket: sidebarItemState(row, sig) }).toEqual({ glyph: true, bucket: 'rest' });
+                                                                                                 ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,3 @@
+  {
+-   "bucket": "rest",
++   "bucket": "awaiting",
+    "glyph": true,
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:210:92)
+(fail) A4. the sidebar state view > A4 a chat waiting on its own background Bash is sorted under «Attende te», not with the work [0.61ms]
+234 |     // no longer count it, and leaving the chat neither its row nor its tab SHALL have a badge.
+235 |     // NOTIF-ONE-01: opening the panel SHALL switch off exactly what it listed under "Aspettano te".
+236 |     expect({
+237 |       afterRead: { fill: afterRead.tabRowFill, number: afterRead.tabRowNumber, bell: afterRead.bellAndDock },
+238 |       afterBell: { number: afterBell.tabRowNumber, bell: afterBell.bellAndDock, waiting: afterBell.bellWaitingList },
+239 |     }).toEqual({
+             ^
+error: expect(received).toEqual(expected)
+
+@@ -2,10 +2,12 @@
+    "afterBell": {
+-     "bell": 0,
+-     "number": 0,
+-     "waiting": [],
++     "bell": 1,
++     "number": 1,
++     "waiting": [
++       "T",
++     ],
+    },
+    "afterRead": {
+-     "bell": 0,
++     "bell": 1,
+      "fill": null,
+-     "number": 0,
++     "number": 1,
+    },
+
+- Expected  - 5
++ Received  + 7
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:239:8)
+(fail) B. the bell counts a chat that has been read, and opening the bell does not clear it > B1 hook chat in awaiting-user, read for the dwell, then the bell opened: fill gone, number and bell stay at 1 [1.55ms]
+272 |     expect({
+273 |       chat: { fill: tierOf('T'), number: topicAttentionCount('T', {}, s.claudeAttentionTopics) },
+274 |       terminal: { fill: termTier, number: terminalAttentionCount('S', s.terminalFinishedIds) },
+275 |       agentsMenuFinished: menu.finished.map((r) => r.id).sort(),
+276 |       bell: bell.sort(),
+277 |     }).toEqual({
+             ^
+error: expect(received).toEqual(expected)
+
+@@ -6,3 +6,3 @@
+    "bell": [
+-     "terminal:S",
+      "topic:T",
+@@ -15,3 +15,3 @@
+      "fill": "done",
+-     "number": 1,
++     "number": 0,
+    },
+
+- Expected  - 2
++ Received  + 1
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:277:8)
+(fail) C. the same fact ("turn finished, your turn") counts on the bell for a chat and not for a terminal > C1 chat and claude-code terminal both in awaiting-user: both blue, only the chat is on the bell [1.45ms]
+301 |     const project = projectAttentionTier('/p', topics, roster, s.awaitingFeedbackTopics, s.claudePhaseAwaitingTermIds, s.awaitingInputTopics, s.claudePhaseAwaitingInputTermIds, s.seenSubjects);
+302 |     expect({
+303 |       card, tabRowTier, project,
+304 |       tabRowNumber: terminalAttentionCount('S', s.terminalFinishedIds),
+305 |       projectNumber: rollupProjectAttention('/p', topics, roster, {}, s.claudeAttentionTopics, s.terminalFinishedIds),
+306 |     }).toEqual({ card: 'done', tabRowTier: 'done', project: 'done', tabRowNumber: 1, projectNumber: 1 });
+             ^
+error: expect(received).toEqual(expected)
+
+@@ -2,6 +2,6 @@
+    "card": "done",
+-   "project": "done",
++   "project": null,
+    "projectNumber": 1,
+    "tabRowNumber": 1,
+-   "tabRowTier": "done",
++   "tabRowTier": null,
+  }
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:306:8)
+(fail) D. a hook-less claude-code terminal that finished: the group card is blue, its own tab, row and project are not > D1 terminal:activity{finished} on a phase-less terminal: card "done", tab/row/project fill null, numbers 1 [0.29ms]
+316 |       topics, unread: {}, claudeAttentionTopics: s.claudeAttentionTopics, terminalFinishedIds: s.terminalFinishedIds,
+317 |       chatFinishedTopics: s.chatFinishedTopics, boardGroups: [], paneCounts: new Map(), unseenNotificationKeys: unseenKeys,
+318 |     });
+319 |     // CHROME-COUNT-01 «un topic archiviato con non letti → SHALL contare zero: nessuna superficie lo mostra».
+320 |     expect({ sidebarRow: topicAttentionCount('T', {}, s.claudeAttentionTopics), bellAndDock: subjects.length })
+321 |       .toEqual({ sidebarRow: 0, bellAndDock: 0 });
+             ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,3 @@
+  {
+-   "bellAndDock": 0,
++   "bellAndDock": 1,
+    "sidebarRow": 0,
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (<worktree>/client/src/state/notifSurfacesDisagree.test.ts:321:8)
+(fail) E. an archived chat leaves the sidebar but keeps the bell and the Dock lit through its unseen row > E1 chat archived (tab closed) after its banner, row never seen: sidebar 0, bell/dock/tray 1 [0.10ms]
+
+ 1 pass
+ 8 fail
+ 11 expect() calls
+Ran 9 tests across 1 file. [456.00ms]
+exit=1

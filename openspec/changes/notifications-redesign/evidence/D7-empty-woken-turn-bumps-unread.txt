@@ -1,0 +1,92 @@
+# worktree @ f93eeb187 (origin/main)
+# command: cd <wt> && TOPICS_GATE_HELD=targeted bun test server/routes/chat.empty-wake-unread.notif.test.ts
+# cause: server/routes/chat.ts:2535 finalizeTurnActivity(matchedTopic) runs unconditionally after the discard decided at :2467; finalizeTurnActivity = bumpTopicActivity + updateUnreadCount (chat.ts:328-331)
+# ---- test source ----
+/**
+ * EVIDENCE (not a fix): a woken turn that says nothing (a Monitor tick, a
+ * background report the model answers with silence) is DISCARDED - no row, no
+ * message:new - but finalizeTurnActivity still bumps the unread counter, so the
+ * pane/row badge grows with no message behind it.
+ */
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+import { createChatRouter } from "./chat";
+import type { AIProvider, StreamHandler } from "../providers/types";
+import type { Topic } from "../types";
+
+const ROOT = testTmpDir("chat-empty-wake-unread");
+beforeAll(() => setupTestDataDir(`${ROOT}/data`));
+afterAll(() => cleanupTestDataDir(ROOT));
+const WS = testTmpDir("chat-empty-wake-unread-ws");
+
+describe("an empty woken turn", () => {
+  test("is discarded but still bumps unread", async () => {
+    const ctx = await createTestAppContext();
+    const frames: Array<Record<string, unknown>> = [];
+    (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { frames.push(m as Record<string, unknown>); };
+    (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = (_id, m) => { frames.push(m as Record<string, unknown>); };
+    let captured: StreamHandler | undefined;
+    const provider = {
+      name: "claude-code", capabilities: new Set(["streaming"]), contextStrategy: "history-aware",
+      get connected() { return true; },
+      registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { captured = h; },
+      unregisterStreamHandler: () => {}, sendChat: () => new Promise<{ runId?: string }>(() => {}),
+      defaultModel: () => "fake-model", abort: async () => {}, start: () => {}, stop: () => {}, complete: async () => ({ content: "" }),
+      backgroundState: () => "running", hasBackgroundWork: () => true,
+      // The real provider hands the CLI's self-started turn to the route this way.
+      adoptWokenTurn: (_sk: string, h: StreamHandler) => { captured = h; return true; },
+    } as unknown as AIProvider;
+    let unreadBumps = 0;
+    const chatRouter = createChatRouter(ctx, {
+      resolveProvider: () => provider, detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {}, resolveProjectRef: () => null,
+      getProjectIdForTopic: () => null, getWorkspaceProjects: () => [], autoBindProject: () => {}, watchSessionForSubagents: () => {},
+      updateUnreadCount: () => { unreadBumps++; }, browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: WS,
+    } as never);
+    const sk = "topic:empty-wake";
+    ctx.saveSingleTopic({ id: "t-empty-wake", name: "wake", slug: "wake", parentId: null, links: [], sessionKey: sk, color: "#5865f2",
+      icon: "MessageSquare", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), archived: false, provider: "claude-code" } as Topic);
+    const url = new URL("http://topics.test/api/chat");
+    const resp = await chatRouter(new Request(url.toString(), { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionKey: sk, messages: [], mode: "woken" }) }), url, "/api/chat", "POST");
+    console.log("route status =", resp?.status);
+    resp?.body?.cancel().catch(() => {});
+    captured!.onDone({ result: "", turnEnd: { end: "end_turn" } });
+    await Bun.sleep(80);
+    const end = frames.find((f) => f.type === "stream:end");
+    console.log("stream:end =", JSON.stringify(end), " message:new frames =", frames.filter((f) => f.type === "message:new").length, " unread bumps =", unreadBumps);
+    expect(end?.discardedMessageId).toBeTruthy();
+    expect(unreadBumps).toBe(0);
+  });
+});
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/routes/chat.empty-wake-unread.notif.test.ts:
+[DB] Applied 175 migration(s)
+[DB] Created new database at /tmp/topics-test/chat-empty-wake-unread-LZEYfS/data/topics.db
+[HTTP] POST /api/chat received
+[Chat] useWS=true, sessionKey=topic:empty-wake
+[StreamWS] chat.send OK for topic:empty-wake, runId: woken
+route status = 200
+[StreamWS] topic:empty-wake: turno vuoto scartato (5ab18690-e8b2-4b8a-a0f2-2c37fa615b00)
+stream:end = {"type":"stream:end","sessionKey":"topic:empty-wake","topicId":"t-empty-wake","messageId":"5ab18690-e8b2-4b8a-a0f2-2c37fa615b00","discardedMessageId":"5ab18690-e8b2-4b8a-a0f2-2c37fa615b00","latencyMs":11,"stopReason":"end_turn","completed":false}  message:new frames = 0  unread bumps = 1
+49 |     captured!.onDone({ result: "", turnEnd: { end: "end_turn" } });
+50 |     await Bun.sleep(80);
+51 |     const end = frames.find((f) => f.type === "stream:end");
+52 |     console.log("stream:end =", JSON.stringify(end), " message:new frames =", frames.filter((f) => f.type === "message:new").length, " unread bumps =", unreadBumps);
+53 |     expect(end?.discardedMessageId).toBeTruthy();
+54 |     expect(unreadBumps).toBe(0);
+                             ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (<worktree>/server/routes/chat.empty-wake-unread.notif.test.ts:54:25)
+(fail) an empty woken turn > is discarded but still bumps unread [589.02ms]
+[DB] Database closed
+
+ 0 pass
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [1132.00ms]

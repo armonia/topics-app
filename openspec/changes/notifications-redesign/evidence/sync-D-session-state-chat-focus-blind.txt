@@ -1,0 +1,88 @@
+# worktree: <worktree> @ f93eeb187 (origin/main, detached)
+# command: cd <worktree>/client && TOPICS_GATE_HELD=targeted bun test src/lib/notify/notifReproFocus.test.ts
+# exit code: 1
+
+## test source (src/lib/notify/notifReproFocus.test.ts)
+/**
+ * REPRO (evidence, not a fix): the chat branch of the `session:state` banner
+ * decides "is the person looking at this chat?" with the module-private
+ * `topicIdFromPanel` (useCompletionNotifier.tsx:157), which only understands
+ * `chat:<id>`. The App-level focused pane of a top-level chat is the BARE topic
+ * id (App.tsx:1049 `focusedPanelId === topicId`, App.tsx:1385
+ * `!!topics[focusedPanelId]`, chatFinished.ts:66), and a chat inside a project
+ * leaves it on `project:<path>`. So that branch never sees the focused chat:
+ * with "notify even when focused" OFF, every hook chat turn end in the chat on
+ * screen rings a banner, and its cooldown then mutes the `stream:end` branch,
+ * which did get the focus right (`isChatPaneSelected`).
+ *
+ * The function is not exported: its source is extracted from the file and
+ * evaluated as is.
+ */
+import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { isChatPaneSelected } from './chatFinished';
+
+const src = readFileSync(join(import.meta.dir, '../../hooks/useCompletionNotifier.tsx'), 'utf-8');
+const m = src.match(/function topicIdFromPanel\(panelId: string \| null\): string \| null \{([\s\S]*?)\n\}/);
+if (!m) throw new Error('topicIdFromPanel not found');
+// Strip the two TS annotations so the body runs as plain JS.
+const body = m[1].replace(/\/\/.*$/gm, '');
+const topicIdFromPanel = new Function('panelId', body) as (p: string | null) => string | null;
+
+describe('REPRO: the session:state chat branch does not see the focused chat', () => {
+  const id = '2f6c1a9e-0b1c-4d2e-9f00-123456789abc';
+
+  test('control: the stream:end branch sees a focused top-level chat', () => {
+    expect(isChatPaneSelected(id, id)).toBe(true);
+  });
+
+  test('the session:state branch SHALL resolve the same focused pane to the same chat', () => {
+    expect(topicIdFromPanel(id)).toBe(id);
+  });
+
+  test('and a chat focused inside a project window', () => {
+    const projectPane = `project:${encodeURIComponent('/work/app')}`;
+    expect(isChatPaneSelected(id, projectPane, { '/work/app': `chat:${id}` })).toBe(true);
+    // topicIdFromPanel has no access to activePaneByProject at all.
+    expect(topicIdFromPanel(projectPane)).toBe(id);
+  });
+});
+
+## output
+bun test v1.3.8 (b64edcb4)
+
+src/lib/notify/notifReproFocus.test.ts:
+31 |   test('control: the stream:end branch sees a focused top-level chat', () => {
+32 |     expect(isChatPaneSelected(id, id)).toBe(true);
+33 |   });
+34 | 
+35 |   test('the session:state branch SHALL resolve the same focused pane to the same chat', () => {
+36 |     expect(topicIdFromPanel(id)).toBe(id);
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "2f6c1a9e-0b1c-4d2e-9f00-123456789abc"
+Received: null
+
+      at <anonymous> (<worktree>/client/src/lib/notify/notifReproFocus.test.ts:36:34)
+(fail) REPRO: the session:state chat branch does not see the focused chat > the session:state branch SHALL resolve the same focused pane to the same chat [0.23ms]
+38 | 
+39 |   test('and a chat focused inside a project window', () => {
+40 |     const projectPane = `project:${encodeURIComponent('/work/app')}`;
+41 |     expect(isChatPaneSelected(id, projectPane, { '/work/app': `chat:${id}` })).toBe(true);
+42 |     // topicIdFromPanel has no access to activePaneByProject at all.
+43 |     expect(topicIdFromPanel(projectPane)).toBe(id);
+                                               ^
+error: expect(received).toBe(expected)
+
+Expected: "2f6c1a9e-0b1c-4d2e-9f00-123456789abc"
+Received: null
+
+      at <anonymous> (<worktree>/client/src/lib/notify/notifReproFocus.test.ts:43:43)
+(fail) REPRO: the session:state chat branch does not see the focused chat > and a chat focused inside a project window [0.09ms]
+
+ 1 pass
+ 2 fail
+ 4 expect() calls
+Ran 3 tests across 1 file. [48.00ms]

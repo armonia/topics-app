@@ -1,0 +1,100 @@
+# worktree: <worktree> (detached at f93eeb187, origin/main)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test client/src/state/backgroundWaitAttention.test.ts
+# ---- test source ----
+/**
+ * REPRO (client): a chat the client KNOWS is waiting on background work still
+ * gets the 'done' mark, the banner decision and a unit on the one global number.
+ *
+ * The order is the live one. During the turn the server already names the work
+ * on the turn row of `/api/topics/streaming` (`withBackgroundWork`), refetched
+ * 400 ms after each `background:changed`, so `backgroundWorkTopics` has the chat
+ * before `stream:end` arrives. Then the clean `stream:end` raises the mark
+ * (`chatFinishedEdge`, what `useSignalsSync` runs), and nothing reads the
+ * background map: the row is grey-glyph "in background" AND blue "done" at once,
+ * the bell/dock count +1, and `decideChatFinishedBanner` has no input to stop it.
+ *
+ * `attentionTotal.ts` states the rule this breaks: "Work that runs on its own
+ * asks nothing and does not count."
+ */
+import { describe, expect, it } from 'bun:test';
+import { readStreamingSnapshot } from './backgroundWork';
+import { signalsActions, useSignalsStore } from './signals';
+import { chromeAttentionTotal } from './attentionTotal';
+import { chatFinishedEdge, decideChatFinishedBanner } from '../lib/notify/chatFinished';
+import type { Topic } from '../types';
+
+describe('a chat waiting on its background work', () => {
+  it('is not marked done, not bannered and not counted', () => {
+    const now = Date.now();
+    const topics: Record<string, Topic> = { t1: { id: 't1', name: 'Render', sessionKey: 'topic:t1' } as Topic };
+
+    // The poll during the turn: the turn row names the work its tools launched.
+    const during = readStreamingSnapshot([{
+      topicId: 't1', sessionKey: 'topic:t1', state: 'streaming',
+      background: { tasks: [
+        { type: 'local_agent', description: 'Verify render v131', startedAt: now },
+        { type: 'local_bash', description: 'sleep 600 && make build', startedAt: now },
+      ], lastSignalAt: now },
+    }]);
+    signalsActions.setBackgroundWork(during.backgroundSessions, during.backgroundTopics);
+    expect(useSignalsStore.getState().backgroundWorkTopics.has('t1')).toBe(true);
+
+    // The clean end of the turn that launched it, as the server sends it today.
+    const frame = { type: 'stream:end', topicId: 't1', sessionKey: 'topic:t1', messageId: 'm1', completed: true };
+    const edge = chatFinishedEdge(frame);
+    if (edge?.op === 'mark') signalsActions.markChatFinished(edge.topicId);
+    const banner = decideChatFinishedBanner({
+      topicId: 't1', notificationsEnabled: true, topicName: 'Render', archived: false, muted: false,
+      agentWorking: false, isFocusedAndVisible: false, notifyEvenWhenFocused: true, lastFiredAt: undefined, now,
+    });
+    const st = useSignalsStore.getState();
+    const total = chromeAttentionTotal({
+      topics, unread: {}, claudeAttentionTopics: new Set(), terminalFinishedIds: new Set(),
+      chatFinishedTopics: st.chatFinishedTopics, boardGroups: [], paneCounts: new Map(),
+    });
+    const observed = {
+      waitingOnBackground: st.backgroundWorkTopics.has('t1'),
+      doneMark: st.chatFinishedTopics.has('t1'),
+      bannerBody: banner?.body ?? null,
+      globalCount: total,
+    };
+    console.log('[repro] client state after stream:end =', JSON.stringify(observed));
+    expect(observed).toEqual({ waitingOnBackground: true, doneMark: false, bannerBody: null, globalCount: 0 });
+  });
+});
+
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+client/src/state/backgroundWaitAttention.test.ts:
+[repro] client state after stream:end = {"waitingOnBackground":true,"doneMark":true,"bannerBody":"In attesa di te","globalCount":1}
+54 |       doneMark: st.chatFinishedTopics.has('t1'),
+55 |       bannerBody: banner?.body ?? null,
+56 |       globalCount: total,
+57 |     };
+58 |     console.log('[repro] client state after stream:end =', JSON.stringify(observed));
+59 |     expect(observed).toEqual({ waitingOnBackground: true, doneMark: false, bannerBody: null, globalCount: 0 });
+                          ^
+error: expect(received).toEqual(expected)
+
+@@ -1,5 +1,5 @@
+  {
+-   "bannerBody": null,
+-   "doneMark": false,
+-   "globalCount": 0,
++   "bannerBody": "In attesa di te",
++   "doneMark": true,
++   "globalCount": 1,
+    "waitingOnBackground": true,
+
+- Expected  - 3
++ Received  + 3
+
+      at <anonymous> (<worktree>/client/src/state/backgroundWaitAttention.test.ts:59:22)
+(fail) a chat waiting on its background work > is not marked done, not bannered and not counted [0.87ms]
+
+ 0 pass
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [132.00ms]
+# exit code: 1

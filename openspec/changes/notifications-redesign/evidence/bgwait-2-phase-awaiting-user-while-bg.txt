@@ -1,0 +1,198 @@
+# worktree: <worktree> (detached at f93eeb187, origin/main)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test server/lib/claude-session-tracker.background-wait.test.ts
+# ---- test source ----
+/**
+ * REPRO: the phase machine parks a session at `awaiting-user` ("your turn",
+ * blue fill, badge, banner) when its turn ends WAITING on background work.
+ *
+ * Every Claude Code CLI on this machine posts its hooks here, with `tool_input`
+ * (`routes/claude-hooks.ts`), chats and terminals alike. `Stop` turns into
+ * `watching` only when a `Monitor` armed the session (`armsBackgroundWatch`);
+ * an Agent or a Bash with `run_in_background: true` leaves the same kind of
+ * wait behind and is ignored, so `Stop` answers `awaiting-user`, which the
+ * client reads as NOTABLE: badge, blue 'done' fill, OS banner "tocca a te".
+ *
+ * And the one wait it does know never closes for a terminal: nothing but a
+ * chat's wake adoption (`noteWatchDelivered`) disarms it, so a terminal whose
+ * Monitor has expired keeps answering `watching` at every later Stop.
+ */
+import { describe, expect, it } from 'bun:test';
+import { Database } from 'bun:sqlite';
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
+import { createClaudeSessionTracker } from './claude-session-tracker';
+import { applyHook, applyJsonlEvent, makeInitialState, parseJsonlLine } from './claude-session-state';
+
+const T0 = 1_700_000_000_000;
+
+function freshDb(): Database {
+  const db = new Database(':memory:');
+  db.run(`CREATE TABLE topics (session_key TEXT PRIMARY KEY)`);
+  db.run(`
+    CREATE TABLE claude_code_sessions (
+      session_key TEXT PRIMARY KEY,
+      claude_session_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (session_key) REFERENCES topics(session_key) ON DELETE CASCADE
+    )
+  `);
+  const migDir = join(import.meta.dir, '..', 'db', 'migrations');
+  for (const prefix of ['027-', '096-']) {
+    const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
+    const sql = readFileSync(join(migDir, file), 'utf-8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) db.run(stmt);
+  }
+  return db;
+}
+
+function seed(db: Database, sessionKey: string, csid: string) {
+  db.prepare(`INSERT INTO topics VALUES (?)`).run(sessionKey);
+  db.prepare(`INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, phase, phase_updated_at)
+    VALUES (?, ?, ?, ?, 'starting', ?)`).run(sessionKey, csid, new Date(T0).toISOString(), new Date(T0).toISOString(), new Date(T0).toISOString());
+}
+
+/** The hooks of one turn that launches background work and ends, 200 ms apart (past the dedup window). */
+function launchTurn(tool: { tool_name: string; tool_input: Record<string, unknown> }) {
+  return [
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_use_id: 'toolu_bg', ...tool },
+    { hook_event_name: 'PostToolUse', tool_use_id: 'toolu_bg', ...tool },
+    { hook_event_name: 'Stop' },
+  ] as const;
+}
+
+const BACKGROUND_LAUNCHES = [
+  { label: 'Agent run_in_background', tool: { tool_name: 'Agent', tool_input: { description: 'verify render', prompt: '...', run_in_background: true } } },
+  { label: 'Bash run_in_background', tool: { tool_name: 'Bash', tool_input: { command: 'sleep 600 && make build', run_in_background: true } } },
+];
+
+describe('a turn that ends waiting on background work, as the phase machine reads it', () => {
+  for (const { label, tool } of BACKGROUND_LAUNCHES) {
+    it(`chat session (DB-backed), ${label}: Stop must park it watching, not awaiting-user`, async () => {
+      const db = freshDb();
+      const frames: any[] = [];
+      seed(db, 'topic:bg', 'cli-bg');
+      const tracker = createClaudeSessionTracker({ db, broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50 });
+      launchTurn(tool).forEach((h, i) => tracker.ingestHook({ ...h, session_id: 'cli-bg' } as never, T0 + 200 * (i + 1)));
+      await Bun.sleep(40);
+      const last = frames.filter((f) => f.type === 'session:state').at(-1);
+      console.log(`[repro] chat ${label}: last session:state phase =`, last?.state?.phase);
+      expect(last?.state?.phase).toBe('watching');
+    });
+
+    it(`terminal session (in-memory), ${label}: Stop must park it watching, not awaiting-user`, async () => {
+      const frames: any[] = [];
+      const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50 });
+      tracker.registerTerminalSession('cli-term', { now: T0 });
+      launchTurn(tool).forEach((h, i) => tracker.ingestHook({ ...h, session_id: 'cli-term' } as never, T0 + 200 * (i + 1)));
+      await Bun.sleep(40);
+      console.log(`[repro] terminal ${label}: phase =`, tracker.getSession('cli-term')?.phase);
+      expect(tracker.getSession('cli-term')?.phase).toBe('watching');
+    });
+  }
+
+  it('terminal: once its Monitor has EXPIRED, the next turn end is awaiting-user again (today: watching forever)', () => {
+    // The recorded transcript line the CLI writes when a Monitor ends.
+    const expired = readFileSync(join(import.meta.dir, '..', '..', 'tests', 'fixtures', 'claude-cli-2.1.285-monitor-wakes.transcript.jsonl'), 'utf8').split('\n')[0];
+    let s = makeInitialState('cli-term-m', null, T0);
+    s = applyHook(s, { hook_event_name: 'UserPromptSubmit', session_id: 'cli-term-m' }, T0 + 100);
+    s = applyHook(s, { hook_event_name: 'PreToolUse', session_id: 'cli-term-m', tool_name: 'Monitor', tool_input: { command: 'tail -f log' } }, T0 + 200);
+    s = applyHook(s, { hook_event_name: 'PostToolUse', session_id: 'cli-term-m', tool_name: 'Monitor' }, T0 + 300);
+    s = applyHook(s, { hook_event_name: 'Stop', session_id: 'cli-term-m' }, T0 + 400);
+    expect(s.phase).toBe('watching');
+    // The Monitor's end opens the CLI's own turn (the transcript line), which then stops.
+    // Its timestamp (2026-09-30) is after T0, so the causal gate lets it through.
+    s = applyJsonlEvent(s, parseJsonlLine(expired)!, T0 + 500);
+    expect(s.phase).toBe('running');
+    s = applyHook(s, { hook_event_name: 'Stop', session_id: 'cli-term-m' }, Date.parse('2026-09-30T20:54:00Z'));
+    console.log('[repro] terminal after Monitor expired + Stop: phase =', s.phase, 'monitorArmed =', s.monitorArmed);
+    expect(s.phase).toBe('awaiting-user');
+  });
+});
+
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/lib/claude-session-tracker.background-wait.test.ts:
+[repro] chat Agent run_in_background: last session:state phase = awaiting-user
+73 |       const tracker = createClaudeSessionTracker({ db, broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50 });
+74 |       launchTurn(tool).forEach((h, i) => tracker.ingestHook({ ...h, session_id: 'cli-bg' } as never, T0 + 200 * (i + 1)));
+75 |       await Bun.sleep(40);
+76 |       const last = frames.filter((f) => f.type === 'session:state').at(-1);
+77 |       console.log(`[repro] chat ${label}: last session:state phase =`, last?.state?.phase);
+78 |       expect(last?.state?.phase).toBe('watching');
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-tracker.background-wait.test.ts:78:34)
+(fail) a turn that ends waiting on background work, as the phase machine reads it > chat session (DB-backed), Agent run_in_background: Stop must park it watching, not awaiting-user [45.33ms]
+[repro] terminal Agent run_in_background: phase = awaiting-user
+83 |       const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50 });
+84 |       tracker.registerTerminalSession('cli-term', { now: T0 });
+85 |       launchTurn(tool).forEach((h, i) => tracker.ingestHook({ ...h, session_id: 'cli-term' } as never, T0 + 200 * (i + 1)));
+86 |       await Bun.sleep(40);
+87 |       console.log(`[repro] terminal ${label}: phase =`, tracker.getSession('cli-term')?.phase);
+88 |       expect(tracker.getSession('cli-term')?.phase).toBe('watching');
+                                                         ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-tracker.background-wait.test.ts:88:53)
+(fail) a turn that ends waiting on background work, as the phase machine reads it > terminal session (in-memory), Agent run_in_background: Stop must park it watching, not awaiting-user [43.55ms]
+[repro] chat Bash run_in_background: last session:state phase = awaiting-user
+73 |       const tracker = createClaudeSessionTracker({ db, broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50 });
+74 |       launchTurn(tool).forEach((h, i) => tracker.ingestHook({ ...h, session_id: 'cli-bg' } as never, T0 + 200 * (i + 1)));
+75 |       await Bun.sleep(40);
+76 |       const last = frames.filter((f) => f.type === 'session:state').at(-1);
+77 |       console.log(`[repro] chat ${label}: last session:state phase =`, last?.state?.phase);
+78 |       expect(last?.state?.phase).toBe('watching');
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-tracker.background-wait.test.ts:78:34)
+(fail) a turn that ends waiting on background work, as the phase machine reads it > chat session (DB-backed), Bash run_in_background: Stop must park it watching, not awaiting-user [45.18ms]
+[repro] terminal Bash run_in_background: phase = awaiting-user
+83 |       const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: (m) => frames.push(m), coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50 });
+84 |       tracker.registerTerminalSession('cli-term', { now: T0 });
+85 |       launchTurn(tool).forEach((h, i) => tracker.ingestHook({ ...h, session_id: 'cli-term' } as never, T0 + 200 * (i + 1)));
+86 |       await Bun.sleep(40);
+87 |       console.log(`[repro] terminal ${label}: phase =`, tracker.getSession('cli-term')?.phase);
+88 |       expect(tracker.getSession('cli-term')?.phase).toBe('watching');
+                                                         ^
+error: expect(received).toBe(expected)
+
+Expected: "watching"
+Received: "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-tracker.background-wait.test.ts:88:53)
+(fail) a turn that ends waiting on background work, as the phase machine reads it > terminal session (in-memory), Bash run_in_background: Stop must park it watching, not awaiting-user [43.45ms]
+[repro] terminal after Monitor expired + Stop: phase = watching monitorArmed = true
+102 |     // Its timestamp (2026-09-30) is after T0, so the causal gate lets it through.
+103 |     s = applyJsonlEvent(s, parseJsonlLine(expired)!, T0 + 500);
+104 |     expect(s.phase).toBe('running');
+105 |     s = applyHook(s, { hook_event_name: 'Stop', session_id: 'cli-term-m' }, Date.parse('2026-09-30T20:54:00Z'));
+106 |     console.log('[repro] terminal after Monitor expired + Stop: phase =', s.phase, 'monitorArmed =', s.monitorArmed);
+107 |     expect(s.phase).toBe('awaiting-user');
+                          ^
+error: expect(received).toBe(expected)
+
+Expected: "awaiting-user"
+Received: "watching"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-tracker.background-wait.test.ts:107:21)
+(fail) a turn that ends waiting on background work, as the phase machine reads it > terminal: once its Monitor has EXPIRED, the next turn end is awaiting-user again (today: watching forever) [1.88ms]
+
+ 0 pass
+ 5 fail
+ 7 expect() calls
+Ran 5 tests across 1 file. [332.00ms]
+# exit code: 1
