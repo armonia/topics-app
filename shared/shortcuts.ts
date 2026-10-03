@@ -49,7 +49,7 @@ export interface Shortcut {
    *  monitor). Listed elsewhere it would be a row that cannot work. */
   macOnly?: boolean;
   /** Present ⟺ the native shell must forward this chord past a focused browser
-   *  pane. Absent ⟺ the page keeps the chord (⌘C/⌘V/⌘Z/⌘F/…) or it never
+   *  pane. Absent ⟺ the page keeps the chord (⌘C/⌘V/⌘Z/…) or it never
    *  reaches the native monitor (voice chords handled inside ChatInput). */
   native?: NativeForward;
 }
@@ -92,10 +92,17 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'General',
     shortcuts: [
       { keys: [MOD, 'K'], description: 'Command palette', native: { chars: ['k'] } },
-      // ⌘F resta display-only: una pane browser a fuoco se la tiene per la
-      // find-in-page, e il gestore web esce senza preventDefault quando il
-      // fuoco è in un campo di testo, nel terminale o in un editor.
-      { keys: [MOD, 'F'], description: 'Cerca nei progetti aperti' },
+      // ⌘F cerca DENTRO la pane a fuoco (FIND-02), ovunque sia il cursore,
+      // anche dentro la pagina di una pane browser: per questo è inoltrato
+      // (`native`), e sul Mac la pagina non lo riceve più. ⇧⌘F condivide il
+      // char "f" ed è la stessa ricerca in tutti i progetti aperti; il
+      // renderer li separa sullo shiftKey, come ⌘P/⌘⇧P.
+      { keys: [MOD, 'F'], description: 'Cerca qui', native: { chars: ['f'] } },
+      { keys: [MOD, SHIFT, 'F'], description: 'Cerca nei progetti aperti', native: { chars: ['f'] } },
+      // ⌘G / ⇧⌘G: il risultato dopo e quello prima, con la barra aperta.
+      // Inoltrati per la stessa ragione di ⌘F.
+      { keys: [MOD, 'G'], description: 'Risultato successivo', native: { chars: ['g'] } },
+      { keys: [MOD, SHIFT, 'G'], description: 'Risultato precedente', native: { chars: ['g'] } },
       // ⌘P e ⌘⇧P condividono il char "p": il renderer li separa sullo shiftKey,
       // come già fa per ⌘N/⌘⇧N.
       { keys: [MOD, 'P'], description: 'Apri un file per nome', native: { chars: ['p'] } },
@@ -164,6 +171,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       // ⌘U (attach) is NOT forwarded — only ⌘⇧U is (reopen-tab alias above).
       { keys: [MOD, 'U'], description: 'Attach file' },
       // Bare Escape keys off keyCode 53 — hand-written branch in lib.rs.
+      // In the find bar Esc closes the bar instead (FIND-03).
       { keys: ['Esc'], description: 'Interrupt the running turn' },
       // CHAT-WAIT-03. `native` for the reason ⌘E carries it: without the field
       // 'j' never enters the generated table, and with the focus in a browser

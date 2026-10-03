@@ -41,6 +41,7 @@ import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
+import { FindPaneContext } from '../../state/findRegistry';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { PaneEventLevel, StagedPane } from './PaneStage';
 import type { ZoomScope } from './zoomScope';
@@ -593,6 +594,9 @@ export function StandaloneChatGroup({
           is the pane in front when the board is (focused, or drawn focused with
           no pane focused), and gets the seen dwell from here. */}
       <SubjectInFront subjectId={focused || (!focusedPanelId && hasBox && paneId === activePaneId) ? topic.id : null} />
+      {/* The coordinator is not the board pane for ⌘F: the board's finds go
+          to its filter, the chat's own under the topic's id. */}
+      <FindPaneContext.Provider value={null}>
       <ChatPanel
         /* The LIVE projection when there is one: renaming the coordinator, or
            recolouring it, must reach the drawer without reopening it. */
@@ -616,6 +620,7 @@ export function StandaloneChatGroup({
         onWSMessage={onWSMessage}
         onUpdateTopic={onUpdateTopic}
       />
+      </FindPaneContext.Provider>
     </>
   ), [focusedPanelId, hasBox, activePaneId, topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
 
@@ -1042,6 +1047,7 @@ export function StandaloneChatGroup({
                   <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
                     <PaneKeepAlive
                       paneKey={stableKeyOf(pane)}
+                      findPaneId={pane.id}
                       isVisible={isPaneActive}
                       className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                     >
