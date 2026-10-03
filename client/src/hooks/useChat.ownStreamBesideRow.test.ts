@@ -23,7 +23,7 @@ import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
 import { usePanelLifecycle, type UsePanelLifecycleArgs } from './usePanelLifecycle';
 import { usePaneStore } from '../state/pane/store';
-import { __setQueueStorage } from '../state/chatQueue';
+import { __setQueueStorage, getQueue } from '../state/chatQueue';
 import { __resetServerTurns } from '../state/serverTurn';
 import type { WSMessage } from '../types';
 
@@ -96,6 +96,9 @@ let historyAsked: (() => void) | null;
 let releaseHistory: ((messages: unknown[]) => void) | null;
 /** The key the last send carried, as the server echoes it on the person's row. */
 let sentClientId: string | null;
+/** Set: the next `POST /api/chat` waits for the test to answer it (`answerChat`). */
+let holdChat: boolean;
+let answerChat: ((response: Response) => void) | null;
 
 function installFetch(): void {
   g.fetch = async (input: unknown, init?: { body?: unknown }) => {
@@ -103,6 +106,10 @@ function installFetch(): void {
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
     if (url.endsWith('/api/chat')) {
       sentClientId = (JSON.parse(String(init?.body)) as { clientMessageId?: string }).clientMessageId ?? null;
+      if (holdChat) {
+        holdChat = false;
+        return new Promise<Response>((resolve) => { answerChat = resolve; });
+      }
       return new Response(sse.body, { status: 200 });
     }
     if (url.endsWith('/regenerate')) return new Response(sse.body, { status: 200 });
@@ -188,6 +195,8 @@ beforeEach(() => {
   historyAsked = null;
   releaseHistory = null;
   sentClientId = null;
+  holdChat = false;
+  answerChat = null;
   installFetch();
 });
 
@@ -331,7 +340,10 @@ describe('a user row written beside the own turn', () => {
     app.unmount();
   });
 
-  test('a user row without the key and with the sent text is the echo of an older server: dropped', async () => {
+  // Until 03/10 a keyless row with the sent text was dropped here as the echo
+  // of a server without the key: it was another agent's message
+  // (`a keyless user row with the words I sent`, below).
+  test('a user row with another window\'s key is not mine: it is drawn', async () => {
     const app = mountBoth();
     const asked = new Promise<void>((r) => { historyAsked = r; });
     const sent = app.chat().sendMessage(SK, PROMPT);
@@ -340,7 +352,7 @@ describe('a user row written beside the own turn', () => {
     sse.done();
     await asked;
     await settle();
-    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-user-elsewhere', content: PROMPT });
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-user', content: PROMPT, clientMessageId: sentClientId });
     // Another window's message, with its own key: not ours.
     app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-other', content: 'from the phone', clientMessageId: 'phone-key' });
     await settle();
@@ -387,6 +399,142 @@ describe('a user row written beside the own turn', () => {
     const ids = app.rows().map((r) => r.id);
     expect(ids).toContain(wake.id);
     expect(ids).toContain(STOP_ID);
+    app.unmount();
+  });
+});
+
+/**
+ * A send the server REFUSES while a row written by someone else lands beside it
+ * (verifier, 03/10). From the moment the POST leaves, the window holds the
+ * stream as its own; a row another device or the machine writes in that window
+ * wins the server's gate, reaches this pane (it is not this send's echo), and
+ * the POST then answers 409 `stream_in_flight`. The message goes back to the
+ * queue, and only there: its optimistic bubble and its assistant placeholder
+ * leave the thread by the ids this send gave them, wherever they are, not by
+ * position (the other row is now the last one) nor by text (the other row may
+ * say the same words).
+ */
+const FROM_DESKTOP = 'from desktop';
+const TURN_OPEN = { boot: 'b', asOf: 1, turnId: 1, open: true };
+const inFlight = () => new Response(
+  JSON.stringify({ error: 'a response is already streaming for this session', code: 'stream_in_flight', turn: TURN_OPEN }),
+  { status: 409, headers: { 'content-type': 'application/json' } },
+);
+
+describe('a send refused while a row written beside it lands', () => {
+  async function refusedBeside(app: ReturnType<typeof mountBoth>, content: string, row: Record<string, unknown>): Promise<boolean> {
+    holdChat = true;
+    const sent = app.chat().sendMessage(SK, content);
+    await settle();
+    expect(app.chat().isOwnStream(SK)).toBe(true);
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, ...row });
+    await settle();
+    answerChat!(inFlight());
+    const accepted = await sent;
+    await settle();
+    app.rerender();
+    return accepted;
+  }
+
+  test('a row from the phone: the thread holds the phone\'s row only, my message waits in the queue', async () => {
+    const app = mountBoth();
+    await refusedBeside(app, FROM_DESKTOP, { role: 'user', messageId: 'row-phone', content: 'from the phone', clientMessageId: 'phone-key' });
+    // Before the fix: [from desktop, empty placeholder, row-phone] and the queue held it too.
+    expect(app.rows()).toEqual([{ id: 'row-phone', role: 'user', content: 'from the phone' }]);
+    expect(getQueue(SK).map((q) => q.content)).toEqual([FROM_DESKTOP]);
+    app.unmount();
+  });
+
+  test('once the queue drains, my message is in the thread once, not twice', async () => {
+    const app = mountBoth();
+    await refusedBeside(app, FROM_DESKTOP, { role: 'user', messageId: 'row-phone', content: 'from the phone', clientMessageId: 'phone-key' });
+    // The phone's turn ends: the queue leaves on its close, on a fresh stream.
+    sse = drivenSse();
+    app.ws({ type: 'turn:state', sessionKey: SK, ...TURN_OPEN, asOf: 2, open: false });
+    await settle();
+    expect(getQueue(SK)).toHaveLength(0);
+    expect(app.chat().isOwnStream(SK)).toBe(true);
+    // Before the fix: two «from desktop» bubbles until the end-of-turn reload.
+    expect(app.rows().filter((r) => r.role === 'user').map((r) => r.content)).toEqual(['from the phone', FROM_DESKTOP]);
+    expect(app.rows().filter((r) => r.role === 'assistant')).toHaveLength(1);
+    const asked = new Promise<void>((r) => { historyAsked = r; });
+    sse.content(REPLY);
+    sse.done();
+    await asked;
+    releaseHistory!([]);
+    await settle();
+    app.unmount();
+  });
+
+  test('the sub-agent wake\'s row, the race measured on 30/09: same outcome', async () => {
+    const app = mountBoth();
+    const wake = BESIDE_USER_ROWS()[0]!;
+    await refusedBeside(app, FROM_DESKTOP, { role: 'user', messageId: wake.id, content: wake.content, blocks: wake.blocks });
+    expect(app.rows()).toEqual([{ id: wake.id, role: 'user', content: wake.content }]);
+    expect(app.markedUserRows()).toEqual([wake.id]);
+    expect(getQueue(SK).map((q) => q.content)).toEqual([FROM_DESKTOP]);
+    app.unmount();
+  });
+
+  test('another window\'s row with the same words is not adopted as mine, and survives my refusal', async () => {
+    const app = mountBoth();
+    await refusedBeside(app, 'ok', { role: 'user', messageId: 'row-w2', content: 'ok', clientMessageId: 'w2-key' });
+    // Before the fix: my bubble took row-w2's id, the pane then held «row-w2»
+    // and skipped it, and the 409 removed it by its text: rows [].
+    expect(app.rows()).toEqual([{ id: 'row-w2', role: 'user', content: 'ok' }]);
+    expect(getQueue(SK).map((q) => q.content)).toEqual(['ok']);
+    app.unmount();
+  });
+});
+
+/**
+ * A row WITHOUT the key is never this window's echo: every send of a window
+ * carries one and the server writes it on the person's row. The rows without
+ * one are written by somebody else (`send_chat_message` of another agent, the
+ * answer relay), and they may say the very words this window sent.
+ */
+describe('a keyless user row with the words I sent', () => {
+  test('arrives while the reload after [DONE] is in flight, older snapshot: it stays', async () => {
+    const app = mountBoth();
+    const asked = new Promise<void>((r) => { historyAsked = r; });
+    const sent = app.chat().sendMessage(SK, PROMPT);
+    await settle();
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-user', content: PROMPT, clientMessageId: sentClientId });
+    sse.content(REPLY);
+    sse.done();
+    await asked;
+    await settle();
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-agent', content: PROMPT });
+    await settle();
+    releaseHistory!(SNAPSHOT_BEFORE_ROW);
+    await sent;
+    await settle();
+    app.rerender();
+    // Before the fix: dropped as the echo by its text, gone until the next history load.
+    expect(app.rows().map((r) => r.id)).toEqual(['row-user', 'row-reply', 'row-agent']);
+    app.unmount();
+  });
+
+  test('my own echo never reached this window (a socket that reconnected): my bubble does not take its id', async () => {
+    const app = mountBoth();
+    const asked = new Promise<void>((r) => { historyAsked = r; });
+    const sent = app.chat().sendMessage(SK, PROMPT);
+    await settle();
+    sse.content(REPLY);
+    sse.done();
+    await asked;
+    await settle();
+    app.ws({ type: 'message:new', topicId: TOPIC.id, sessionKey: SK, role: 'user', messageId: 'row-agent', content: PROMPT });
+    await settle();
+    // Before the fix: my bubble was renamed «row-agent» by its words, so the
+    // pane held that id and skipped the row, and the older snapshot lost it.
+    expect(app.rows().filter((r) => r.role === 'user').map((r) => r.id)).toContain('row-agent');
+    expect(app.rows().filter((r) => r.role === 'user')).toHaveLength(2);
+    releaseHistory!(SNAPSHOT_BEFORE_ROW);
+    await sent;
+    await settle();
+    app.rerender();
+    expect(app.rows().map((r) => r.id)).toEqual(['row-user', 'row-reply', 'row-agent']);
     app.unmount();
   });
 });

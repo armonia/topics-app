@@ -1011,7 +1011,6 @@
       "utente"
     ],
     "client/src/hooks/reconcileMessages.ts": [
-      "chiave",
       "chiavi",
       "codaInVolo",
       "disponibili",
@@ -1051,8 +1050,6 @@
       "arr",
       "buf",
       "clearSSEFailsafe",
-      "correnti",
-      "durevole",
       "idemKey",
       "liveDeltaRafRef",
       "passaAncheAlMittente",
