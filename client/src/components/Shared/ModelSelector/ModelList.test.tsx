@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelList, type ModelListProps } from './ModelList';
-import { CLAUDE_CODE, MEASURED, entry, snapshotOf } from './fixtures';
+import { CLAUDE_CODE, CODEX_ENTRY, MEASURED, entry, snapshotOf } from './fixtures';
 import type { ProvidersSnapshot } from '../../../types';
 
 function draw(props: Partial<ModelListProps> = {}, snapshot: ProvidersSnapshot = MEASURED) {
@@ -122,6 +122,21 @@ describe('each row helps to choose (MSEL-04)', () => {
   test('the full variant shows the description, the compact one does not', () => {
     expect(rowOf(draw({ variant: 'full' }), 'gpt-6.1-sol')).toContain('Latest workhorse model for coding and everyday work.');
     expect(rowOf(draw(), 'gpt-6.1-sol')).not.toContain('Latest workhorse model');
+  });
+});
+
+describe('a disabled selector writes nothing and offers nothing (MP-TASK-07)', () => {
+  test('the engine «via» toggle and the recovery action are disabled with the rows', () => {
+    // Opus 5.5 served by two engines (the toggle), and a stored model no
+    // longer in the catalog (the recovery action).
+    const twoEngines = snapshotOf([CLAUDE_CODE, CODEX_ENTRY, entry('anthropic-api', 'Anthropic API', ['claude-opus-5-5'])]);
+    const markup = draw({ disabled: true, value: { provider: 'codex', model: 'gpt-retired-1' } }, twoEngines);
+    const buttons = (testId: string) => [...markup.matchAll(new RegExp(`<button[^>]*data-testid="${testId}"[^>]*>`, 'g'))].map((m) => m[0]);
+    const via = buttons('model-row-via');
+    const recovery = buttons('model-row-settings');
+    expect(via.length).toBeGreaterThan(0);
+    expect(recovery.length).toBe(1);
+    for (const button of [...via, ...recovery]) expect(button).toMatch(/\sdisabled(=""|\s|>)/);
   });
 });
 

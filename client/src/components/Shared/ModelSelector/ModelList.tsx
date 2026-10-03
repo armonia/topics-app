@@ -281,14 +281,14 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
             {windowText}
           </span>
         )}
-        {layout === 'list' && usable && <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} onToggle={() => setSegment((v) => !v)} />}
+        {layout === 'list' && usable && <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} disabled={disabled} onToggle={() => setSegment((v) => !v)} />}
         <span className="flex w-3 shrink-0 justify-center" aria-hidden="true">
           {selected && <Check className={`h-3 w-3 ${usable ? 'text-emerald-400' : 'text-amber-300'}`} />}
         </span>
       </span>
       {layout === 'columns' && usable && (
         <span className="flex w-full min-w-0 items-center gap-1.5 text-micro text-app-text-muted">
-          <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} onToggle={() => setSegment((v) => !v)} />
+          <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} disabled={disabled} onToggle={() => setSegment((v) => !v)} />
         </span>
       )}
       {(row.retiresAt || (variant === 'full' && row.description) || !usable) && (
@@ -301,6 +301,7 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
               <button
                 type="button"
                 data-testid="model-row-settings"
+                disabled={disabled}
                 onClick={(event) => { event.stopPropagation(); const el = anchor?.current ?? null; onClose(); openHome('providers', el); }}
                 className="inline-flex items-center gap-1 rounded px-1 text-primary hover:bg-app-hover"
               >
@@ -319,6 +320,7 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
               role="radio"
               aria-checked={candidate.name === engine?.name}
               data-engine-choice={candidate.name}
+              disabled={disabled}
               data-roving-skip=""
               onClick={(event) => { event.stopPropagation(); setSegment(false); pick(candidate.name); }}
               onKeyDown={(event) => {
@@ -336,7 +338,7 @@ function ModelRow({ row, column, index, value, snapshot, scope, variant, layout,
 }
 
 /** «via Topics» / «via Codex»: a small button when more than one engine runs the model. */
-function ViaLabel({ via, route, multi, open, onToggle }: { via: string; route: TopicsRoute | null; multi: boolean; open: boolean; onToggle: () => void }) {
+function ViaLabel({ via, route, multi, open, disabled, onToggle }: { via: string; route: TopicsRoute | null; multi: boolean; open: boolean; disabled?: boolean; onToggle: () => void }) {
   const tr = useT();
   const tone = route?.via === 'topics' ? 'text-primary' : 'text-app-text-muted';
   if (!multi) return <span data-testid="model-row-via" className={`shrink-0 truncate text-micro ${tone}`}>{via}</span>;
@@ -345,6 +347,7 @@ function ViaLabel({ via, route, multi, open, onToggle }: { via: string; route: T
       type="button"
       data-roving-skip=""
       data-testid="model-row-via"
+      disabled={disabled}
       aria-expanded={open}
       title={tr('ai.selector.engine')}
       onClick={(event) => { event.stopPropagation(); onToggle(); }}
