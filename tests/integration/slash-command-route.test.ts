@@ -165,15 +165,17 @@ describe("the listing sees every skill the resolver can open", () => {
     expect(line, `the child did not answer (exit ${code})\n${err.slice(-2000)}`).toBeTruthy();
     const { status, body } = JSON.parse(line!.slice("RESULT ".length)) as {
       status: number;
-      body: Array<{ name: string; description: string; kind: string }>;
+      body: Array<{ name: string; description: string; kind: string; group: string }>;
     };
     expect(status).toBe(200);
     const byName = new Map(body.map((e) => [e.name, e]));
-    expect(byName.get("real-folder-skill")).toEqual({ name: "real-folder-skill", description: "A skill that is a folder", kind: "skill" });
+    // Every entry also says which group of the «/» menu it lands in (CMDUI-01).
+    expect(byName.get("real-folder-skill")).toEqual({ name: "real-folder-skill", description: "A skill that is a folder", kind: "skill", group: "skills" });
     expect(byName.get("linked-skill"), "a skill that is a link to a folder is missing from the / menu").toEqual({
       name: "linked-skill",
       description: "A skill reached through a link",
       kind: "skill",
+      group: "skills",
     });
   }, 60_000);
 });
