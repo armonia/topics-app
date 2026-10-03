@@ -34,8 +34,10 @@ test.describe("Appunta", () => {
       await expect(page.getByTestId("chat-pinned-line")).toHaveCount(0);
       await expect(page.getByTestId("message-pinned-mark")).toHaveCount(0);
 
-      await page.getByText("secondo messaggio da appuntare").hover();
-      await page.getByRole("button", { name: /Appunta|Pin/ }).first().click();
+      // The second message's own button: every bubble has one in the DOM.
+      const bubble = page.locator(`[data-message-id="${second.id}"]`);
+      await bubble.hover();
+      await bubble.getByRole("button", { name: /Appunta|Pin/ }).first().click();
       const line = page.getByTestId("chat-pinned-line");
       await expect(line).toHaveText("1 appuntato · resta nel contesto dell'agente", { timeout: 10_000 });
       // The mark is there without the pointer over the message.
