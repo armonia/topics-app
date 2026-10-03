@@ -41,6 +41,10 @@ export interface OpenTabDetail {
   projectPath?: string;
   /** Pane the click came from: the new tab lands in ITS strip. */
   nearPaneId?: string;
+  /** The context already shows this page (a sheet a topic's window hands to the
+   *  layout): the new tab HOSTS it and must not load `url` into it, which would
+   *  reload the page the person was using. */
+  live?: boolean;
 }
 
 export interface OpenLinkOptions {
