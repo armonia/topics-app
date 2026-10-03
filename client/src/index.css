@@ -1190,6 +1190,28 @@ html, body {
   border-radius: 8px;
 }
 
+/* ── CERCA NELLA PANE (FIND-01) ─────────────────────────────────────────────
+   I risultati della barra di ricerca, con la CSS Custom Highlight API: nessun
+   <mark> nel DOM, quindi nessuna riga che cambia altezza (CHAT-FIND-02). Il
+   corrente ha un colore suo. `lib/domFind.ts` inietta le stesse due regole nei
+   documenti che non caricano questo file (l'iframe del browser condiviso). */
+::highlight(find-hit) {
+  background-color: rgb(250 204 21 / 0.45);
+  color: inherit;
+}
+::highlight(find-current) {
+  background-color: rgb(249 115 22 / 0.85);
+  color: #000;
+}
+/* Gli stessi due colori nell'editor e nelle differenze (CodeMirror disegna le
+   sue decorazioni, `lib/cmFind.ts`). */
+.cm-find-hit {
+  background-color: rgb(250 204 21 / 0.35);
+}
+.cm-find-current {
+  background-color: rgb(249 115 22 / 0.7);
+}
+
 /* ── IL LAMPO DI UNA CARD ────────────────────────────────────────────────────
    Una card che si muove sulla board lo dice. Spostare un task (trascinandolo,
    approvandolo dal drawer, o lasciandolo muovere a un agente) lo faceva sparire

@@ -239,6 +239,7 @@ function deliverChildResult(clean: SubAgentResult, exitCode: number | null, pare
       // parent nothing but a branch, so the report has to name it.
       branch: clean.branch,
       turn: clean.turn, model: clean.model, agentType: clean.agentType, durationMs: clean.durationMs, cwd: clean.cwd,
+      ...(clean.stoppedByParent ? { stoppedByParent: true as const } : {}),
       settle: () => clearPendingResult(getDatabase(), clean.agentId, clean.turn, clean.status),
     });
   } catch (err) {
@@ -433,7 +434,9 @@ export function reportChildEnd(child: ChildRef, exitCode: number | null, ending:
     const verdict = verdictOf(lines);
     if (!verdict) return;
     const facts = lines ? { model: childModel(lines), durationMs: turnDurationMs(lines, verdict.turn) } : null;
-    emitChildResult(parentSessionKey, resultOf(child, getSubagent(getDatabase(), child.id), verdict.turn, verdict.outcome, facts), exitCode);
+    const result = resultOf(child, getSubagent(getDatabase(), child.id), verdict.turn, verdict.outcome, facts);
+    // Known here and nowhere after: the outcome may name another reason.
+    emitChildResult(parentSessionKey, ending === 'stopped' ? { ...result, stoppedByParent: true } : result, exitCode);
   })().catch((err) => console.warn(`[Terminal] reporting the end of ${child.id} failed:`, err));
 }
 

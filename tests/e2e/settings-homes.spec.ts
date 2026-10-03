@@ -142,13 +142,10 @@ test.describe("ogni modulo vive dove si usa", () => {
       // A FOOTER: the last row of the selector.
       const last = await selector.locator("button").last().getAttribute("data-testid");
       expect(last).toBe("ai-selector-providers");
-      // The Claude plan on the list the selector opens on: a chat with no
-      // override never drills in, and the plan is read without opening more.
-      await expect(selector.getByTestId("ai-selector-runtimes").getByTestId("ai-selector-claude-plan"))
+      // The Claude plan beside the Claude models, under the Anthropic heading
+      // of the one panel (MSEL-02): read without opening anything more.
+      await expect(selector.getByTestId("model-section-anthropic").getByTestId("ai-selector-claude-plan"))
         .toHaveText("Max 20x · 5 h al 42%");
-      // And beside the Claude models.
-      await selector.locator('[data-provider="claude-code"]').click();
-      await expect(selector.getByTestId("ai-selector-claude-plan")).toHaveText("Max 20x · 5 h al 42%");
       await expect(selector.getByTestId("ai-selector-providers")).toBeVisible();
 
       await selector.getByTestId("ai-selector-providers").click();

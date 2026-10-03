@@ -1,5 +1,5 @@
 /**
- * THE EXECUTION MENU OF THE CHAT PICKER, LOADED WHEN SOMEBODY ASKS FOR IT.
+ * THE BODY OF THE MODEL SELECTOR, LOADED WHEN SOMEBODY ASKS FOR IT.
  *
  * It is the content of a popover that opens on a click of the composer's model
  * chip, so nothing of it is on screen at first paint; as a static import of
@@ -10,7 +10,7 @@
  * own lazy chunks, so the split costs the task side nothing.
  *
  * `lazyWarm`, NOT `React.lazy`, and the chip opens only once the chunk is warm
- * (`loadAiExecutionMenu`): the shared `Menu` focuses its panel as soon as it is
+ * (`loadModelList`): the shared `Menu` focuses its panel as soon as it is
  * placed, and a panel that holds a Suspense fallback at that moment has no rows
  * for the arrow keys to reach. `tests/e2e/picker-keyboard-nav.spec.ts` presses
  * ArrowDown right after the panel takes the focus. Warmed on hover and on focus
@@ -20,14 +20,14 @@
  * functions loses fast refresh (`react-refresh/only-export-components`).
  */
 import type { ComponentProps, ComponentType } from 'react';
-import { lazyWarm, warm, warmed } from '@/lib/lazyWarm';
-import { reimportChunk } from '@/lib/chunkReloadGuard';
+import { lazyWarm, warm, warmed } from '../../../lib/lazyWarm';
+import { reimportChunk } from '../../../lib/chunkReloadGuard';
 // Type-only: erased from the output, so the module stays out of this chunk.
-import type { AiExecutionMenuOptions as Body } from './AiExecutionMenuOptions';
+import type { ModelList as Body } from './ModelList';
 
-type MenuModule = typeof import('./AiExecutionMenuOptions');
+type MenuModule = typeof import('./ModelList');
 
-// Destructured on purpose, not `() => import('./AiExecutionMenuOptions')`:
+// Destructured on purpose, not `() => import('./ModelList')`:
 // knip reads a bare `import()` as opaque and every export of the module counts
 // as used, so a dead export there would go blind (`check:deadcode-blindspots`).
 // The second import is what makes "the next click tries again" true on WebKit,
@@ -40,22 +40,22 @@ type MenuModule = typeof import('./AiExecutionMenuOptions');
 // chunk: the reload prompt came back on the very click that then opened the
 // menu, even after it had been dismissed.
 let firstFailure: { error: unknown } | null = null;
-const loadAiExecutionMenuOptions = async () => {
+const importModelList = async () => {
   if (!firstFailure) {
     try {
-      const { AiExecutionMenuOptions: Component } = await import('./AiExecutionMenuOptions');
-      return { AiExecutionMenuOptions: Component };
+      const { ModelList: Component } = await import('./ModelList');
+      return { ModelList: Component };
     } catch (error) {
       firstFailure = { error };
     }
   }
-  const { AiExecutionMenuOptions: Component } = await reimportChunk<MenuModule>('AiExecutionMenuOptions', firstFailure.error);
-  return { AiExecutionMenuOptions: Component };
+  const { ModelList: Component } = await reimportChunk<MenuModule>('ModelList', firstFailure.error);
+  return { ModelList: Component };
 };
 
-export const AiExecutionMenuOptions: ComponentType<ComponentProps<typeof Body>> = lazyWarm(
-  loadAiExecutionMenuOptions,
-  (m) => m.AiExecutionMenuOptions,
+export const ModelList: ComponentType<ComponentProps<typeof Body>> = lazyWarm(
+  importModelList,
+  (m) => m.ModelList,
 );
 
 let pending: Promise<unknown> | null = null;
@@ -63,8 +63,8 @@ let pending: Promise<unknown> | null = null;
 /** Start loading the menu chunk; the same promise for every caller. A failed
  *  load is reported by `warm` (the reload prompt) and forgotten, so the next
  *  hover or click tries again. */
-export function loadAiExecutionMenu(): Promise<unknown> {
-  pending ??= warm(loadAiExecutionMenuOptions).catch((error: unknown) => {
+export function loadModelList(): Promise<unknown> {
+  pending ??= warm(importModelList).catch((error: unknown) => {
     pending = null;
     throw error;
   });
@@ -72,6 +72,6 @@ export function loadAiExecutionMenu(): Promise<unknown> {
 }
 
 /** True once the chunk has settled: the menu can then open in the same pass. */
-export function aiExecutionMenuReady(): boolean {
-  return warmed(loadAiExecutionMenuOptions) !== undefined;
+export function modelListReady(): boolean {
+  return warmed(importModelList) !== undefined;
 }

@@ -1,5 +1,5 @@
 import { contextTokens, costTokens, partsFromTask } from '../../../../shared/token-cost';
-import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -53,6 +53,8 @@ import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
+import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
+import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
 
 // ── Column ────────────────────────────────────────────────────────────────
 export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
@@ -358,6 +360,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
    *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
   archived?: boolean;
 }) {
+  // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
+  // «· via Topics»; the boolean re-renders the card only when it flips.
+  const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
   // the pointer, so dropping "between two cards" reads as such. The ACTIVE
@@ -1680,7 +1685,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               })
               : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
             className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+          >{fmtModel(task.model)}{runsThroughTopics && <span data-testid="card-route"> · {tr('ai.selector.route.topics')}</span>}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when

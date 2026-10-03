@@ -16,6 +16,20 @@ export function formatRunDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
+/**
+ * How long a run lasted (still running: so far, at `now`), or null when
+ * nothing says it. A run lost with the server that left no trace of being
+ * alive after its start closes as `unknown` at its own start: the server had
+ * no later evidence, and «0.0s» would state a duration nobody measured.
+ */
+export function runDurationMs(run: { status: string; startedAt: string; endedAt: string | null }, now: number): number | null {
+  const started = Date.parse(run.startedAt);
+  if (!run.endedAt) return now - started;
+  const ended = Date.parse(run.endedAt);
+  if (run.status === 'unknown' && ended <= started) return null;
+  return ended - started;
+}
+
 /** A folder under a home directory, written from `~`. */
 export function shortenHome(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~');

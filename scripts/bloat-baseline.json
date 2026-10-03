@@ -232,7 +232,10 @@
   "the Claude plan on the providers snapshot). client/src/components/Chat/ChatInput.tsx 1834 on main -> 1908:",
   "+44 the commands lane (the doors /model /effort /context open, the menu filtered by the declared provider,",
   "attach during a turn), +14 the settings lane (the tools row of the «+» and its anchor), +12 the door /mcp",
-  "opens, hung from the same «+». Recorded by hand, these two rows only."
+  "opens, hung from the same «+». Recorded by hand, these two rows only.",
+    "03/10, model-selector: `client/src/lib/i18n-en.ts` recorded 2661 -> 2802. Only +12 are this change (the one",
+    "selector: band line, three direct reasons, search, four company headings, older fold, retirement, chat settings;",
+    "nine keys of the two-level menu left): main was already at 2790 against a ceiling of 2794, unrecorded."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -312,7 +315,7 @@
 
     "client/src/lib/buildSidebarItems.ts": 950,
 
-    "client/src/lib/i18n-en.ts": 2661,
+    "client/src/lib/i18n-en.ts": 2802,
 
     "client/src/lib/i18n-it.ts": 3018,
 

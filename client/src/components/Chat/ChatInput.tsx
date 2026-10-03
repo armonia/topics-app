@@ -24,6 +24,7 @@ import { errMessage } from '../../lib/errMessage';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
+import { modelCommandSuggestions } from '../Shared/ModelSelector/modelCommand';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';
@@ -40,7 +41,6 @@ import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { shortcut } from '../../lib/shortcutLabel';
-import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState } from './promptHistory';
 import { isMachineRow, lastConversationMessage, lastPersonText, messageToSpeak } from './machineRow';
 import { AttachmentStrip } from './AttachmentStrip';
@@ -349,6 +349,8 @@ interface ChatInputProps {
   effort?: string | null;
   onEffortChange?: (effort: string | null) => void;
   defaultProviderLabel?: string;
+  /** The topic's model when no runtime is pinned, for the route the chip shows. */
+  pinnedModel?: string | null;
   /**
    * Context Inspector plumbing. The inspector now renders as a popover anchored
    * to the composer's context ring (was a docked side panel owned by the parent
@@ -424,6 +426,7 @@ export function ChatInput({
   effort,
   onEffortChange,
   defaultProviderLabel,
+  pinnedModel,
   onUpdateTopic,
   onMessage,
   controlsRef,
@@ -482,8 +485,6 @@ export function ChatInput({
     }),
     [providersSnapshot, providerOverride, fastMode],
   );
-  // AICTRL-05: banner LIVE sull'abbonamento gia' pagato per `fastUi`, cosi' la ragione si vede prima di provare a inviare. Il gate VERO, che ferma anche l'Enter, sta in `ChatPane.handleSendMessage`. allow-italian: distingue il banner dal cancello vero
-  const topicsRoutingIsBlocked = topicsRoutingBlocked(topicsRouting, providerOverride ?? null, defaultProviderLabel, providersSnapshot);
   const { budgetPercent, sources: contextSources } = useContextInspector(
     isDraftTopic || isGlobalOrchestrator ? null : topic.id,
   );
@@ -594,7 +595,7 @@ export function ChatInput({
   // `/model` text, a red «Uso: /effort», an envelope estimate that disagreed
   // with the ring). The picker and the popover own their open state, so they
   // hand their door up; the inspector's state lives here.
-  const openModelRef = useRef<(() => void) | null>(null);
+  const openModelRef = useRef<((mode?: 'open' | 'toggle') => void) | null>(null);
   const openEffortRef = useRef<(() => void) | null>(null);
   const openToolsRef = useRef<((returnFocus?: HTMLElement | null) => void) | null>(null);
   const openProvidersRef = useRef<((returnFocus?: HTMLElement | null) => void) | null>(null);
@@ -809,6 +810,13 @@ export function ChatInput({
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
       
+      // ⌘⇧M (MSEL-08): the model selector of the focused composer, and the
+      // same chord closes it. In the shortcuts catalog (shared/shortcuts.ts).
+      if (isMod && e.shiftKey && (e.key === 'M' || e.key === 'm')) {
+        e.preventDefault();
+        openModelRef.current?.('toggle');
+        return;
+      }
       if (isMod && e.shiftKey && e.key === 'R') {
         e.preventDefault();
         if (isRecording) stopRecording(); else startRecording();
@@ -930,9 +938,15 @@ export function ChatInput({
     // else redrew it.
   }, [customCmds, tr, isGlobalOrchestrator, offeredCommands]);
 
-  const filteredSlashCommands = allSlashCommands.filter(c =>
-    c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
-  );
+  // MSEL-10: `/model <text>` completes with the models of the engine this chat
+  // runs on now, with the selector's own labels.
+  const modelQuery = /^\/model (\S*)$/.exec(slashFilter)?.[1];
+  const filteredSlashCommands = modelQuery !== undefined
+    ? modelCommandSuggestions(providersSnapshot, providerOverride?.provider ?? declaredProvider, modelQuery)
+      .map((model) => ({ cmd: `/model ${model.id}`, description: model.label }))
+    : allSlashCommands.filter(c =>
+      c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
+    );
 
   // Unified dismissal for the slash-command menu: capture-phase outside-pointer
   // + Escape close. The textarea stays "inside" (arrow/Enter selection is
@@ -970,7 +984,7 @@ export function ChatInput({
     const cursorPos = e.target.selectionStart || 0;
     setMessage(value);
     
-    if (value.startsWith('/') && !value.includes(' ')) {
+    if (value.startsWith('/') && (!value.includes(' ') || /^\/model \S*$/.test(value))) {
       setShowSlashMenu(true);
       setSlashFilter(value);
       setSlashMenuIndex(0);
@@ -1622,7 +1636,7 @@ export function ChatInput({
                   const isQueue = action.kind === 'queue';
                   // Ambra come la domanda a schermo: stesso colore, stessa cosa.
                   const isAnswer = action.kind === 'answer';
-                  const isDisabled = action.kind === 'disabled' || uploading || topicsRoutingIsBlocked;
+                  const isDisabled = action.kind === 'disabled' || uploading;
 
                   return (
                     <button
@@ -1791,6 +1805,7 @@ export function ChatInput({
                 <ProviderModelPicker
                   override={providerOverride ?? null}
                   defaultProviderLabel={defaultProviderLabel}
+                  pinnedModel={pinnedModel}
                   onChange={onProviderOverrideChange}
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}
@@ -1859,7 +1874,6 @@ export function ChatInput({
           </>
         )}
         {chatError && <div className="text-red-500 text-mini px-3 pb-1.5">{chatError}</div>}
-        {topicsRoutingIsBlocked && <div className="text-red-500 text-mini px-3 pb-1.5">{tr('chat.topicsRouting.blocked')}</div>}
       </form>
 
       {/* Context Inspector popover — anchored to the ring on desktop, a bottom

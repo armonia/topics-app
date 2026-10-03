@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { MergeView } from '@codemirror/merge';
+import { search } from '@codemirror/search';
+import { createCodeMirrorFinder, findMarks } from '../../lib/cmFind';
+import { registerFinder } from '../../state/findRegistry';
 import { EditorView, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
@@ -16,7 +19,12 @@ interface DiffViewerProps {
   modifiedContent: string;
   filename: string;
   darkMode?: boolean;
+  /** Register the two sides as the find engine of pane `findPaneId` (FILE-FIND-02). */
+  findPaneId?: string | null;
 }
+
+/** How the unchanged stretches fold; the finder reopens a fold with the same numbers. */
+const COLLAPSE = { margin: 3, minSize: 4 };
 
 function getLanguageExtension(filename: string) {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -85,7 +93,7 @@ const darkThemeStyles = EditorView.theme({
   },
 });
 
-export function DiffViewer({ originalContent, modifiedContent, filename, darkMode = false }: DiffViewerProps) {
+export function DiffViewer({ originalContent, modifiedContent, filename, darkMode = false, findPaneId }: DiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mergeViewRef = useRef<MergeView | null>(null);
 
@@ -104,6 +112,9 @@ export function DiffViewer({ originalContent, modifiedContent, filename, darkMod
     const commonExtensions = [
       lineNumbers(),
       EditorState.readOnly.of(true),
+      // The search state for the find bar (no panel, no keys) and its marks.
+      search(),
+      findMarks,
       ...(darkMode
         ? [oneDark, darkThemeStyles]
         : [lightTheme, syntaxHighlighting(defaultHighlightStyle)]
@@ -121,7 +132,7 @@ export function DiffViewer({ originalContent, modifiedContent, filename, darkMod
         extensions: [...commonExtensions],
       },
       parent: containerRef.current,
-      collapseUnchanged: { margin: 3, minSize: 4 },
+      collapseUnchanged: COLLAPSE,
     });
 
     mergeViewRef.current = mergeView;
@@ -131,6 +142,16 @@ export function DiffViewer({ originalContent, modifiedContent, filename, darkMod
       mergeViewRef.current = null;
     };
   }, [originalContent, modifiedContent, filename, darkMode]);
+
+  // Find over BOTH sides, left then right, counted on the documents and not
+  // on the DOM (folded and off-screen lines included), FILE-FIND-02.
+  useEffect(() => {
+    if (!findPaneId) return;
+    return registerFinder(findPaneId, createCodeMirrorFinder({
+      views: () => (mergeViewRef.current ? [mergeViewRef.current.a, mergeViewRef.current.b] : []),
+      collapse: COLLAPSE,
+    }));
+  }, [findPaneId]);
 
   return (
     <div

@@ -234,7 +234,8 @@ test.describe("MRA — responsiveness mobile misurata", () => {
 
       // Modo CONTENUTO: e' il caso peggiore dell'intestazione, perche' aggiunge
       // «Aa» e «.*» agli interruttori che c'erano gia'.
-      await page.keyboard.press("Meta+f");
+      // ⇧⌘F: since 2026-10-03 ⌘F finds inside the pane (find-in-pane).
+      await page.keyboard.press("Meta+Shift+f");
       await expect(panel.getByTestId("file-search-mode-content")).toHaveAttribute("aria-pressed", "true");
       await panel.getByTestId("file-search-input").fill("parolachiavecercabile");
       // The RESULT first (the group header carries the name of the file that

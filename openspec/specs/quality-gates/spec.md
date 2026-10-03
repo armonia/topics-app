@@ -777,3 +777,20 @@ rossa. Il cancello NON SHALL cambiare la precedenza: riporta.
 #### Scenario: l'ordine cambiato per sbaglio
 - **GIVEN** due router scambiati di posto nella tabella
 - **THEN** il test della lista d'oro SHALL fallire
+
+### Requirement: GATE-18 — La sincronizzazione col PC Windows toglie solo cio' che ha spedito
+
+`tools/topwin sync` SHALL togliere dalla copia sul PC solo i file che una sync
+precedente ha spedito e che HEAD non ha piu': la lista di cio' che e' stato
+spedito vive sul PC (`.topwin-shipped`). Senza quella lista la stima SHALL
+essere ricavata dalla storia (i percorsi cancellati da un commit, senza
+rinomine e senza cartelle), e SHALL escludere ogni percorso che il repo oggi
+IGNORA: un file tracciato un tempo e ignorato adesso (`docs/DEAD-CODE.md`,
+`videos/INDEX.md`, i risultati dei banchi) sul PC lo generano i giri, non una
+sync. Misurato il 03/10: 515 dei circa 2400 percorsi cancellati erano di
+questo tipo.
+
+#### Scenario: un percorso ignorato nella lista ricavata dalla storia
+- **GIVEN** un PC senza `.topwin-shipped` che ha un file cancellato da un commit e ora ignorato, e uno cancellato e non ignorato
+- **WHEN** si lancia `tools/topwin sync`
+- **THEN** SHALL essere tolto solo il secondo

@@ -71,30 +71,33 @@ export function closeRun(db: Database, id: string, end: {
   return res.changes > 0;
 }
 
-/** How often a run writes the time of its output on its row: the error of its `unknown` end. */
-const OUTPUT_NOTE_MS = 5_000;
-/** When each running run last wrote that time (ms). */
-const outputNotedAt = new Map<string, number>();
+/** How often a running run writes on its row that it is alive: the error of its `unknown` end. */
+const ALIVE_NOTE_MS = 5_000;
+/** When each running run last wrote that time (ms). Its entry goes when the run closes (`closeRegistryRun`). */
+const aliveNotedAt = new Map<string, number>();
 
 /**
- * The run printed at `now`: kept on its row while it is `running`, at most
- * every `OUTPUT_NOTE_MS`. The boot after a restart deletes the log of every
- * process the registry does not know, and with it the log's own time; the row
- * is what says when a run lost with the server was last alive (migration
- * `20261002192446-command-runs-last-output.sql`).
+ * The run was alive at `now`: kept on its row while it is `running`, at most
+ * every `ALIVE_NOTE_MS`, whether it printed or not. The boot after a restart
+ * deletes the log of every process the registry does not know, and with it
+ * the log's own time; the row is what says when a run lost with the server
+ * was last alive (migration `20261002192446-command-runs-last-output.sql`,
+ * whose column is named after its first use). Noted only on output, a run
+ * that never printed (`sleep 600`) had nothing there and closed at its own
+ * start, as lasting 0 s.
  */
-export function noteRunOutput(db: Database, id: string, now = Date.now()): void {
-  const last = outputNotedAt.get(id);
-  if (last !== undefined && now - last < OUTPUT_NOTE_MS) return;
-  outputNotedAt.set(id, now);
+export function noteRunAlive(db: Database, id: string, now = Date.now()): void {
+  const last = aliveNotedAt.get(id);
+  if (last !== undefined && now - last < ALIVE_NOTE_MS) return;
+  aliveNotedAt.set(id, now);
   try {
     db.prepare("UPDATE command_runs SET last_output_at = ? WHERE id = ? AND status = 'running'").run(new Date(now).toISOString(), id);
   } catch (err) {
-    console.warn(`[command-runs] noting the output of ${id} failed:`, err);
+    console.warn(`[command-runs] noting that ${id} is alive failed:`, err);
   }
 }
 
-/** When the run of `id` last printed, as its row says; null when it never did, or is gone. */
+/** When the run of `id` was last known alive, as its row says; null when never noted, or gone. */
 export function runLastOutputAt(db: Database, id: string): string | null {
   const row = db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(id) as { last_output_at: string | null } | null;
   return row?.last_output_at ?? null;
@@ -140,7 +143,7 @@ export function closeRegistryRun(ctx: Pick<AppContext, "db" | "broadcastToAll">,
   const status: Exclude<RunStatus, "running"> = row.stopped ? "stopped"
     : row.exitCode === undefined ? "unknown"
     : row.exitCode === 0 ? "done" : "error";
-  outputNotedAt.delete(row.processId);
+  aliveNotedAt.delete(row.processId);
   const { output, droppedLines } = tailForStorage(row.output, row.droppedLines ?? 0);
   try {
     let endedAt = row.completedAt ?? new Date().toISOString();

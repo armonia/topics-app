@@ -8,10 +8,8 @@ import {
   effectiveTopicsRouting,
   taskModelSelection,
   taskProviderForModel,
-  topicsRoutingAvailable,
-  topicsRoutingWaitsForCatalog,
+  topicsRoute,
   TaskProviderPendingError,
-  TopicsRoutingUnavailableError,
 } from '../../shared/task-coding-models';
 import { automaticTaskProvider } from './task-auto-model';
 
@@ -22,49 +20,55 @@ export interface DispatchTopicIdentity {
   model?: string;
   /** Lo switch, persistito accanto al bersaglio. */
   topicsRouting: boolean;
-  /** Chi esegue davvero il turno: il motore nativo con ON, il bersaglio con OFF. */
+  /** Chi esegue davvero il turno: il motore nativo quando la strada e' `topics`, il bersaglio altrimenti. allow-italian: dice chi esegue */
   executor: string;
 }
 
+/** MSEL-06: the switch is written as the card's effective value (scope
+ *  `task`), and the route comes from `topicsRoute`. When the engine cannot
+ *  reach the target (Codex, or a model the engine does not run), the topic
+ *  is still created and runs direct, with the switch still written. */
 export function resolveDispatchTopicIdentity(
   o: { provider?: string; model?: string | null; topicsRouting?: boolean | null },
   snapshot: ProvidersSnapshot | null,
 ): DispatchTopicIdentity {
   const { model } = taskModelSelection(o.model);
-  const topicsRouting = effectiveTopicsRouting(o.topicsRouting, o.model);
+  const topicsRouting = effectiveTopicsRouting(o.topicsRouting, o.model, 'task');
   const target = o.provider
     ? automaticTaskProvider(o.provider, model, snapshot)
     : taskProviderForModel(o.model, snapshot, topicsRouting);
-  // ON verso un bersaglio che il motore nativo non raggiunge e' un cancello duro, non un dispatch diretto silenzioso: stesso contratto del lato chat. allow-italian: perche' qui si lancia invece di proseguire
-  if (topicsRouting && o.provider && !topicsRoutingAvailable(target, model, snapshot)) {
-    // Scoperta in corso non e' un no: si aspetta, come col warm-up di Codex. allow-italian: nota che prosegue l'intestazione italiana di questo file
-    if (topicsRoutingWaitsForCatalog(target, snapshot)) throw new TaskProviderPendingError('topics');
-    throw new TopicsRoutingUnavailableError(target, model ?? null);
-  }
+  const route = topicsRoute(topicsRouting, { provider: target, model: model ?? null }, snapshot, 'task', o.model);
+  // Scoperta in corso non e' un no: si aspetta, come col warm-up di Codex. allow-italian: perche' qui si aspetta invece di proseguire
+  if (route.via === 'pending') throw new TaskProviderPendingError('topics');
   // Automatico + ON: "topics" e' il MOTORE, non un bersaglio scelto da qualcuno. Scriverlo come provider del topic e' il modo esatto in cui l'instradamento diventava identita'. allow-italian: perche' il pin resta vuoto
   const pinned = topicsRouting && target === 'topics' && !o.provider ? undefined : target;
   return {
     ...(pinned ? { provider: pinned } : {}),
     ...(model ? { model } : {}),
     topicsRouting,
-    // Con ON il bersaglio non parte: va verificata la connessione del motore nativo, non quella di una CLI che nessuno avviera'. allow-italian: dice cosa va verificato a valle
-    executor: topicsRouting ? 'topics' : target,
+    // Con la strada `topics` il bersaglio non parte: va verificata la connessione del motore nativo, non quella di una CLI che nessuno avviera'. allow-italian: dice cosa va verificato a valle
+    executor: route.via === 'topics' ? 'topics' : target,
   };
 }
 
 /** What the dispatcher reads back from a dispatched topic: the binding its
  *  provider hold and its session reuse are judged against. A topic pinned to
- *  no runtime runs where resolveTopicProvider sends it: the native engine with
- *  the switch ON, the registry default only with OFF. Reading the default for
- *  an ON topic let a Codex default take a card the Claude engine was running
- *  out from behind Claude's wall. */
+ *  no runtime runs where its route sends it (MSEL-06, `topicsRoute` with the
+ *  card scope): the engine when the registry default is a target it reaches,
+ *  the default itself otherwise. Reading the switch alone let a Codex default
+ *  look like an engine session. */
 export function dispatchTopicBinding(
   topic: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null },
   defaultProvider: string | null | undefined,
+  snapshot?: ProvidersSnapshot | null,
 ): { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } {
+  // Same reading as the chat resolver: a Claude model with no runtime pinned targets the engine.
+  const on = effectiveTopicsRouting(topic.topicsRouting, null, 'task');
+  const autoTarget = on && topic.model?.startsWith('claude-') ? 'topics' : defaultProvider ?? null;
+  const route = topic.provider || !on ? null : topicsRoute(true, { provider: autoTarget, model: topic.model ?? null }, snapshot ?? null, 'task');
   return {
     model: topic.model,
-    provider: topic.provider ?? (topic.topicsRouting ? 'topics' : defaultProvider),
+    provider: topic.provider ?? (route?.via === 'topics' ? 'topics' : defaultProvider),
     // The reuse gate tells an engine session routed for Claude Code from one the engine runs directly.
     topicsRouting: topic.topicsRouting,
   };

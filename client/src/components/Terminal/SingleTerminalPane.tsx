@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
@@ -13,6 +14,9 @@ import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openTerminalLink } from './wrappedLinkProvider';
 import { createPaneId } from '../../state/pane/adapters';
+import { FindBar } from '../Shared/FindBar';
+import { useFindPaneId } from '../../state/findRegistry';
+import { useTerminalFinder } from './useTerminalFinder';
 import { signalsActions, useTerminalReloading } from '../../state/signals';
 import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
 import { shouldDeclareExpired } from '../../hooks/rosterTrust';
@@ -128,6 +132,9 @@ const WINDOW_RESIZE_SETTLE_MS = 120;
 export function SingleTerminalPane({ sessionId, onStale, isActive = true }: SingleTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
+  const findPaneId = useFindPaneId() ?? createPaneId('terminal', sessionId);
+  useTerminalFinder(findPaneId, termRef, searchRef);
   const [stale, setStale] = useState(false);
   /** Topics is holding a command of this session stopped: the pane gets the ring. */
   const swapFreeze = useSwapFreeze({ terminalId: sessionId });
@@ -461,6 +468,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    // Find in the terminal (TERM-FIND-01): the screen plus the 5000 lines of
+    // scrollback. Decorations need the proposed API, already on above.
+    const termSearch = new SearchAddon();
+    term.loadAddon(termSearch);
+    searchRef.current = termSearch;
     term.open(el);
     // Fit NOW, in the same task as `open`, before the browser paints: xterm
     // opens at its default 80x24 and the first fit used to come 50 ms later, so
@@ -912,6 +924,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       coalescerRef.current = null;
       term.dispose();
       termRef.current = null;
+      searchRef.current = null;
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1237,7 +1250,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       // and makes the TUI redraw. The tab carries the label instead.
       className={`relative flex-1 min-h-0 flex flex-col${swapFreeze ? ' swap-ice-ring' : ''}`}
       data-swap-frozen={swapFreeze ? 'true' : undefined}
+      data-find-pane={findPaneId}
     >
+      {/* The find bar FLOATS over the top of the terminal instead of taking a
+          line in flow, for the reason written just above: a line in flow
+          resizes the xterm grid and the program redraws (TERM-FIND-01). */}
+      <FindBar paneId={findPaneId} floating />
       {/* Virtual key toolbar — touch devices only.
           Fondo bg-[#111] scuro in ENTRAMBI i temi, quindi i `bg-white/N` qui sotto
           sono il rialzo corretto (bianco su nero) — è l'eccezione alla regola in

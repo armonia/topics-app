@@ -27,7 +27,7 @@ import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, endedWhileAway, readExitCode } from "../lib/command-process";
-import { closeLostRun, closeRegistryRun, noteRunOutput } from "../lib/command-runs";
+import { closeLostRun, closeRegistryRun, noteRunAlive } from "../lib/command-runs";
 import { createCommandRunsRoute } from "./command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
@@ -651,9 +651,10 @@ function tickTails(): void {
   for (const sp of runningScripts.values()) {
     if (!sp.tail) continue;
     live++;
+    // Still here, so still running: printing or silent, a person's run says so on its row.
+    if (_broadcastCtx && isPersonRun(sp)) noteRunAlive(_broadcastCtx.db, sp.processId);
     if (!pumpTail(sp) || !_broadcastCtx) continue;
     notifyScriptOutput(_broadcastCtx, sp.processId);
-    if (isPersonRun(sp)) noteRunOutput(_broadcastCtx.db, sp.processId);
   }
   if (!live && tailTimer) { clearInterval(tailTimer); tailTimer = null; }
 }
@@ -1355,6 +1356,8 @@ type DetectionSource = () => DetectionSession[];
 let _detectionSource: DetectionSource | null = null;
 let _detectionTimer: ReturnType<typeof setTimeout> | null = null;
 let _detectionStarted = false;
+/** Which loop is the live one: a cycle in flight when the loop was stopped does not re-arm it. */
+let _detectionLoop = 0;
 
 /**
  * Cadenza della rilevazione, con BACKOFF.
@@ -1395,7 +1398,9 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
   if (_detectionStarted) return;
   _detectionStarted = true;
 
+  const loop = ++_detectionLoop;
   const arm = () => {
+    if (loop !== _detectionLoop) return; // stopped while a cycle was in flight
     _detectionTimer = setTimeout(tick, _detectionDelayMs);
     // Never let this poller keep the process alive on its own — it's the one
     // long-lived timer that was missing from gracefulShutdown()'s teardown list.
@@ -1417,6 +1422,20 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
   // The completed cycle alone arms its successor. Arming here as well creates
   // two permanent timer chains (4s and 8s already pending on an idle startup).
   void tick(); // una passata subito, senza aspettare il primo intervallo
+}
+
+/**
+ * Stop the loop `startProcessDetection` armed, for the test that started it.
+ * The loop is module state and every test file of a run shares the process:
+ * left running, it closed as `killed` the background shells a LATER file
+ * registered without a live CLI, in the middle of that file's assertions.
+ */
+export function stopProcessDetectionForTests(): void {
+  _detectionLoop++;
+  if (_detectionTimer) clearTimeout(_detectionTimer);
+  _detectionTimer = null;
+  _detectionStarted = false;
+  _detectionDelayMs = DETECTION_INTERVAL_MS;
 }
 
 /**

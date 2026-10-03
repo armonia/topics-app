@@ -1,7 +1,7 @@
 /**
  * General Auto, manual overrides and readable resolved task models.
  * Catalogs are fixtures; no login or model invocation is performed.
- * @covers MP-TASK-01 MP-TASK-03 MP-TASK-04 MP-TASK-05 MP-TASK-06 MP-TASK-07
+ * @covers MP-TASK-01 MP-TASK-03 MP-TASK-04 MP-TASK-05 MP-TASK-06 MP-TASK-07 MSEL-01
  */
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -74,6 +74,7 @@ for (const device of [
       const task = await response.json();
       const taskUrl = `/api/boards/${projectId}/tasks/${task.id}`;
       let longTaskId: string | undefined;
+      let routedTaskId: string | undefined;
       try {
         await resetPaneStore(request, []);
         // `projectPath` is module-level, so the desktop run and the phone run
@@ -101,29 +102,25 @@ for (const device of [
         const chip = drawer.getByTestId('task-model-chip');
         await expect(chip).toHaveAttribute('title', /tutti i provider|all providers/);
         await chip.click();
+        // MSEL-01: the drawer opens the one selector, compact, card scope.
+        const panel = page.getByTestId('model-selector-panel');
+        await expect(panel).toHaveAttribute('data-variant', 'compact');
+        await expect(panel).toHaveAttribute('data-scope', 'task');
         await expect(page.getByRole('option', { name: /Auto \((project default|dal progetto)\)/ })).toBeVisible();
-        // AICTRL-01: Topics is the routing switch above the list, never a
-        // provider row. This line used to expect the row and went red on
-        // 22/09 when the row was removed on purpose.
-        await expect(page.getByRole('option', { name: /Topics/ })).toHaveCount(0);
-        await expect(page.getByRole('option', { name: 'GPT-api-only', exact: true })).toHaveCount(0);
-        const codexRuntime = page.locator('button[data-provider="codex"]');
-        await codexRuntime.focus();
-        await codexRuntime.press('Enter');
-        const back = page.getByTestId('ai-selector-back');
-        await expect(back).toBeFocused();
-        await back.press('Enter');
-        await expect(codexRuntime).toBeFocused();
-        await codexRuntime.press('Enter');
-        await page.keyboard.press('ArrowDown');
-        await page.keyboard.press('ArrowDown');
-        const codexModel = page.getByRole('option', { name: 'GPT-5.5', exact: true });
+        // AICTRL-01: Topics is the band above the list, never a row; the API
+        // chat connection is no coding engine.
+        await expect(panel.locator('[data-provider="topics"]')).toHaveCount(0);
+        await expect(panel.locator('[data-model="gpt-api-only"]')).toHaveCount(0);
+        // One panel: the Codex row is there without opening an engine first,
+        // and the keyboard reaches it from the search (MP-TASK-07).
+        const codexModel = panel.locator('[data-testid="model-row"][data-model="gpt-5.5"][data-provider="codex"]');
+        await expect(codexModel).toBeVisible();
+        await codexModel.focus();
         await expect(codexModel).toBeFocused();
         await codexModel.press('Enter');
         await expect(chip).toHaveText(/GPT-5\.5.*Codex/);
         await expect.poll(async () => (await (await request.get(taskUrl)).json()).task.model).toBe('codex:gpt-5.5');
         await chip.click();
-        await page.getByTestId('ai-selector-back').click();
         await page.getByRole('option', { name: /Auto \((project default|dal progetto)\)/ }).click();
         await expect.poll(async () => (await (await request.get(taskUrl)).json()).task.model).toBeNull();
 
@@ -155,9 +152,11 @@ for (const device of [
         await expect(composerModel).toBeVisible();
         await composerModel.scrollIntoViewIfNeeded();
         await composerModel.click();
-        await expect(page.locator('button[data-provider="topics"]')).toHaveCount(0); // AICTRL-01
-        await expect(page.locator('button[data-provider="codex"]')).toBeVisible();
-        await expect(page.locator('button[data-provider="openai"]')).toHaveCount(0);
+        // The card composer: the same panel as the drawer (MSEL-01).
+        await expect(page.getByTestId('model-selector-panel')).toHaveAttribute('data-variant', 'compact');
+        await expect(page.locator('[data-testid="model-selector-panel"] [data-provider="topics"]')).toHaveCount(0); // AICTRL-01
+        await expect(page.locator('[data-testid="model-row"][data-provider="codex"]').first()).toBeVisible();
+        await expect(page.locator('[data-testid="model-selector-panel"] [data-provider="openai"]')).toHaveCount(0);
         await page.keyboard.press('Escape');
 
         await openProjectBoard(page);
@@ -171,9 +170,11 @@ for (const device of [
         await expect(projectModel).toBeVisible();
         await projectModel.scrollIntoViewIfNeeded();
         await projectModel.click();
-        await expect(page.locator('button[data-provider="topics"]')).toHaveCount(0); // AICTRL-01
-        await expect(page.locator('button[data-provider="codex"]')).toBeVisible();
-        await expect(page.locator('button[data-provider="openai"]')).toHaveCount(0);
+        // The board default: the full variant, descriptions included (MSEL-01).
+        await expect(page.getByTestId('model-selector-panel')).toHaveAttribute('data-variant', 'full');
+        await expect(page.locator('[data-testid="model-selector-panel"] [data-provider="topics"]')).toHaveCount(0); // AICTRL-01
+        await expect(page.locator('[data-testid="model-row"][data-provider="codex"]').first()).toBeVisible();
+        await expect(page.locator('[data-testid="model-selector-panel"] [data-provider="openai"]')).toHaveCount(0);
         await page.keyboard.press('Escape');
         await expect(page.getByTestId('board-model-popover')).toBeHidden();
         if (device.hasTouch) {
@@ -201,6 +202,15 @@ for (const device of [
           <= element.parentElement!.getBoundingClientRect().width + 1)).toBe(true);
         await expect(longChip).toHaveAttribute('title', new RegExp(longModel.slice(6)));
         await page.screenshot({ path: testInfo.outputPath('resolved-card-model.png') });
+        // MSEL-01, variant `chip`: a card whose choice runs through Topics says so.
+        const routedResponse = await request.post(`/api/boards/${projectId}/tasks`, {
+          data: { text: `Routed model ${device.name}`, status: 'review', model: 'claude-code:claude-opus-4-8', topicsRouting: true },
+        });
+        expect(routedResponse.ok()).toBe(true);
+        routedTaskId = (await routedResponse.json()).id;
+        const routedCard = projectWindow.locator(`[data-task-card="${routedTaskId}"]`);
+        await expect(routedCard.getByTestId('card-route')).toHaveText(/via Topics/);
+        await expect(card.getByTestId('card-route')).toHaveCount(0);
 
         await page.goto(`/topic/${chatTopic.id}`);
         await expect(page.getByTestId('chat-message-input')).toBeVisible();
@@ -208,14 +218,15 @@ for (const device of [
         await expect(chatPicker).toBeVisible();
         await chatPicker.click();
         const chatPopover = page.getByTestId('provider-model-popover');
-        await chatPopover.locator('button[data-provider="codex"]').click();
-        await chatPopover.locator('button[data-model="gpt-5.5"]').click();
+        const codexRow = chatPopover.locator('[data-testid="model-row"][data-model="gpt-5.5"]');
+        await codexRow.click();
         await expect(chatPicker).toHaveAttribute('data-model', 'gpt-5.5');
         await chatPicker.click();
-        await expect(chatPopover.locator('button[data-model="gpt-5.5"]')).toHaveAttribute('aria-selected', 'true');
+        await expect(codexRow).toHaveAttribute('aria-selected', 'true');
         await page.keyboard.press('Escape');
       } finally {
         if (longTaskId) await deleteTask(request, projectId, longTaskId);
+        if (routedTaskId) await deleteTask(request, projectId, routedTaskId);
         await deleteTask(request, projectId, task.id);
         await deleteTopic(request, chatTopic.id);
         await deleteTopic(request, topic.id);

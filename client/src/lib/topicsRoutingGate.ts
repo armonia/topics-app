@@ -1,14 +1,14 @@
-/** AICTRL-05: il cancello dello switch, logica pura. ON verso un bersaglio non instradabile blocca il send finche' non lo si spegne: provider e modello non cambiano mai da soli. Lo chiamano ChatPane (gate) e ChatInput (banner) con lo stesso esito. allow-italian: contratto dello switch ON, prosa gia' italiana in tutto il modulo */
+/** AICTRL-05 + MSEL-06: lo switch lato client, logica pura. Ogni lettura passa da `topicsRoute` (shared/task-coding-models.ts): un bersaglio che il motore non raggiunge va diretto e la strada si dichiara, l'invio non si blocca piu'. allow-italian: contratto dello switch, prosa gia' italiana in tutto il modulo */
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from "../types";
 import { resolveEffectiveProvider, type ProviderSelection } from "./effortTiers";
-import { effectiveTopicsRouting, topicsRoutingAvailable } from "../../../shared/task-coding-models";
+import { automaticChatTarget, effectiveTopicsRouting, taskModelSelection, topicsRoute, type TopicsRoute } from "../../../shared/task-coding-models";
 
 /** Lo switch del default BOARD: una board mai toccata (null) col dispatchModel legacy `topics:<model>` si legge ON, che un `!!` mostrava spenta. allow-italian: il difetto che questa funzione ripara */
 export function boardTopicsRoutingEnabled(
   dispatchTopicsRouting: boolean | null | undefined,
   dispatchModel: string | null | undefined,
 ): boolean {
-  return effectiveTopicsRouting(dispatchTopicsRouting, dispatchModel);
+  return effectiveTopicsRouting(dispatchTopicsRouting, dispatchModel, 'task');
 }
 
 /** La cascata scelta locale > default board > prefisso legacy, per composer e cassetto: una funzione sola, perche' due copie divergono al primo cambio. `'auto'` non e' un modello e non porta nessun prefisso. allow-italian: ordine di risoluzione e trappola di `auto` */
@@ -19,7 +19,7 @@ export function surfaceTopicsRoutingEnabled(
   boardModel: string | null | undefined,
 ): boolean {
   const boardLegacy = boardModel && boardModel !== 'auto' ? boardModel : undefined;
-  return effectiveTopicsRouting(explicit ?? boardDefault, model ?? boardLegacy);
+  return effectiveTopicsRouting(explicit ?? boardDefault, model ?? boardLegacy, 'task');
 }
 
 /** La riga dello switch come la passa il pannello: stato canonico e un toggle che scrive SOLO il proprio asse, mai `dispatchModel`. allow-italian: la regola «un toggle, un asse» */
@@ -58,13 +58,65 @@ export function resolveTopicsRoutingTarget(
   return resolveEffectiveProvider(entries, override, defaultProviderLabel);
 }
 
+/** MSEL-06: the target a chat turn is judged on, the one the server resolver
+ *  (`resolveTopicProvider`) judges. Automatic is the snapshot's default,
+ *  resolved BEFORE the route. `pinnedModel` is the topic's model when no
+ *  runtime is pinned (what `/model` writes): it goes with the default, or to
+ *  the engine for a card topic the engine picked (`automaticChatTarget`). */
+export function chatRouteTarget(
+  topicsRouting: boolean | null | undefined,
+  override: ProviderSelection | null,
+  defaultProviderLabel: string | undefined,
+  snapshot: ProvidersSnapshot | null,
+  pinnedModel?: string | null,
+): { provider: string | null; model: string | null } {
+  const defaultProvider = snapshot?.defaultProvider ?? null;
+  if (!override && !defaultProviderLabel && pinnedModel) {
+    return { provider: automaticChatTarget(topicsRouting, pinnedModel, defaultProvider), model: pinnedModel };
+  }
+  const target = resolveTopicsRoutingTarget(snapshot?.providers ?? [], override, defaultProviderLabel);
+  return target ? { provider: target.provider ?? null, model: target.model ?? null } : { provider: defaultProvider, model: null };
+}
+
+/** MSEL-06: the route of a chat turn, as the selector band and the chip show it. */
+export function chatTopicsRoute(
+  topicsRouting: boolean | null | undefined,
+  override: ProviderSelection | null,
+  defaultProviderLabel: string | undefined,
+  snapshot: ProvidersSnapshot | null,
+  pinnedModel?: string | null,
+): TopicsRoute {
+  return topicsRoute(
+    topicsRouting,
+    chatRouteTarget(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
+    snapshot,
+    'chat',
+  );
+}
+
+/** The one send the switch still refuses: a legacy chat pinned to the engine
+ *  itself (`provider: "topics"`, AICTRL-04) while the engine is down, where
+ *  no "direct" exists. Every other target runs direct (MSEL-06). */
 export function topicsRoutingBlocked(
   topicsRouting: boolean | null | undefined,
   override: ProviderSelection | null,
   defaultProviderLabel: string | undefined,
   snapshot: ProvidersSnapshot | null,
 ): boolean {
-  if (!topicsRouting) return false;
-  const target = resolveTopicsRoutingTarget(snapshot?.providers ?? [], override, defaultProviderLabel);
-  return !topicsRoutingAvailable(target?.provider ?? null, target?.model ?? null, snapshot);
+  if ((override?.provider ?? defaultProviderLabel) !== 'topics') return false;
+  return topicsRoute(topicsRouting, { provider: 'topics', model: override?.model ?? null }, snapshot, 'chat').via !== 'topics';
+}
+
+/** MSEL-01, variant `chip`: whether a card's stored choice runs through Topics,
+ *  for the «· via Topics» the board card writes after the model. The card's
+ *  own preference (or the legacy prefix), card scope; a bare Claude model is a
+ *  Claude Code target, as the dispatcher reads it. */
+export function cardRunsThroughTopics(
+  task: { model?: string | null; topicsRouting?: boolean | null },
+  snapshot: ProvidersSnapshot | null,
+): boolean {
+  if (!task.model || !effectiveTopicsRouting(task.topicsRouting, task.model, 'task')) return false;
+  const selection = taskModelSelection(task.model);
+  const provider = selection.provider ?? (selection.model?.startsWith('claude-') ? 'claude-code' : null);
+  return topicsRoute(true, { provider, model: selection.model ?? null }, snapshot, 'task').via === 'topics';
 }

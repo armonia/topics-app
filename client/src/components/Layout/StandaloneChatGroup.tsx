@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
+import { Search } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -11,7 +12,7 @@ import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -42,6 +43,7 @@ import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
+import { FindPaneContext, openFind, useHasFinder } from '../../state/findRegistry';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { PaneEventLevel, StagedPane } from './PaneStage';
 import type { ZoomScope } from './zoomScope';
@@ -593,6 +595,9 @@ export function StandaloneChatGroup({
           is the pane in front when the board is (focused, or drawn focused with
           no pane focused), and gets the seen dwell from here. */}
       <SubjectInFront subjectId={focused || (!focusedPanelId && hasBox && paneId === activePaneId) ? topic.id : null} />
+      {/* The coordinator is not the board pane for ⌘F: the board's finds go
+          to its filter, the chat's own under the topic's id. */}
+      <FindPaneContext.Provider value={null}>
       <ChatPanel
         /* The LIVE projection when there is one: renaming the coordinator, or
            recolouring it, must reach the drawer without reopening it. */
@@ -616,6 +621,7 @@ export function StandaloneChatGroup({
         onWSMessage={onWSMessage}
         onUpdateTopic={onUpdateTopic}
       />
+      </FindPaneContext.Provider>
     </>
   ), [focusedPanelId, hasBox, activePaneId, topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
 
@@ -989,6 +995,7 @@ export function StandaloneChatGroup({
                 <TopicColorDot color={topics[surfaceInFront.topicId]?.color} className="mr-2" />
               )}
               <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
+              <MobileFindButton paneId={activePaneId} />
             </div>
           ) : (
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
@@ -1049,6 +1056,7 @@ export function StandaloneChatGroup({
                   <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
                     <PaneKeepAlive
                       paneKey={stableKeyOf(pane)}
+                      findPaneId={pane.id}
                       isVisible={isPaneActive}
                       className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                     >
@@ -1073,5 +1081,35 @@ export function StandaloneChatGroup({
         </Suspense>
       )}
     </>
+  );
+}
+
+/**
+ * The find command on the phone (FIND-04). The phone has no tab strip since the
+ * strip gave way to the surface's title, so the tab menu that carries the find
+ * item on a desktop is not there: the command sits at the end of the title row, and
+ * only for a pane that has a finder.
+ *
+ * It follows the row's grammar (CHROME-03), as the twin of the command that
+ * reopens the column: the shared `ROW_ACTION_BOX` (36 px at phone width, so the
+ * same air above and below as that command), `ROW_INSET` from its edge, and
+ * `tap-expand-y` for the 44 px touch area. A 44 px box here was taller than
+ * the 40 px row itself.
+ */
+function MobileFindButton({ paneId }: { paneId: string | null | undefined }) {
+  const tr = useT();
+  const has = useHasFinder(paneId);
+  if (!paneId || !has) return null;
+  return (
+    <button
+      type="button"
+      data-testid="mobile-pane-find"
+      aria-label={tr('find.label')}
+      title={tr('find.label')}
+      onClick={() => { openFind(paneId); }}
+      className={`ml-auto mr-[6px] ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
+    >
+      <Search size={16} aria-hidden />
+    </button>
   );
 }

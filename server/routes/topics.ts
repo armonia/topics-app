@@ -14,7 +14,7 @@ import { createTopicProviderResolver } from "../providers/topic-provider-resolve
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { declaredProviderName, fallbackModelFor, reasoningCommandText, reasoningElsewhereMessage, routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
-import { createHistoryRouter, createToolDetailRouter } from "./history";
+import { createHistoryRouter, createHistoryFindRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 import { owedChangesOf, refreshAndSay } from "../lib/background-notice";
@@ -83,6 +83,7 @@ import { readSlashCommandSource, isValidSlashCommandName, listSlashCommandFiles 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
 import { decodeCol } from "../../shared/message-blob";
+import { splitStoredToolOutputs } from "../lib/tool-output-store";
 import { subagentProcesses } from "./subagentProcesses";
 import { sessionStatus } from "./sessionStatus";
 
@@ -935,6 +936,7 @@ export function createTopicsRouter(
   // Il rovescio dello sfoltimento di `/api/history`: la riga di tool arriva col
   // testo svuotato e se lo riprende da qui, la prima volta che qualcuno la apre.
   const toolDetailRouter = createToolDetailRouter(ctx);
+  const historyFindRouter = createHistoryFindRouter(ctx);
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   // «Fork into a new chat»: a branch in a chat of its own, next to the in-chat branches of edit.ts.
   const forkRouter = createForkRouter(ctx, { resolveProvider });
@@ -2451,6 +2453,8 @@ export function createTopicsRouter(
           $cache_creation_tokens: typeof body.cacheCreationTokens === "number" ? body.cacheCreationTokens : null,
           $cache_creation_1h_tokens: typeof body.cacheCreation1hTokens === "number" ? body.cacheCreation1hTokens : null,
         });
+        // The row as an old closed row is on disk, outputs moved apart (find-in-pane e2e).
+        if (body.splitToolOutputs === true) splitStoredToolOutputs(db, id);
         return json({ ok: true, id });
       } catch (err: any) {
         return json({ error: "Seed failed: " + err.message }, 500);
@@ -3023,6 +3027,12 @@ export function createTopicsRouter(
     {
       const toolDetailResp = await toolDetailRouter(req, url, pathname, method);
       if (toolDetailResp) return toolDetailResp;
+    }
+
+    // --- Find inside one conversation --- (POST /api/history-find, CHAT-FIND-01)
+    {
+      const findResp = await historyFindRouter(req, url, pathname, method);
+      if (findResp) return findResp;
     }
 
     // --- Media serving ---

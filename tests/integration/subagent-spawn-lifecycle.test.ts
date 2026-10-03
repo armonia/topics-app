@@ -147,6 +147,9 @@ describe("spawn_agent from a chat", () => {
       status: "stopped", partial: true, text: "Sto mappando dove il tool_result finisce",
       reason: { code: "stopped-by-parent" },
     });
+    // Marked as the parent's own stop on the report itself, not only through
+    // the reason: a child without a transcript has another one.
+    expect(report!.stoppedByParent).toBe(true);
     expect(stateOf(agentId)).toBe("stopped");
   }, 30_000);
 
@@ -169,6 +172,8 @@ describe("spawn_agent from a chat", () => {
     expect((await call(`/api/terminal/sessions/${agentId}`, "DELETE")).status).toBe(200);
     await until("the close's report", () => reportsFor(agentId).length > 1, 10_000);
     expect(reportsFor(agentId)[1]).toMatchObject({ turn: 2, outcome: { status: "stopped", partial: true, text: "Leggo SplitPane", reason: { code: "tab-closed" } } });
+    // A person's stop is not the parent's: it wakes the parent.
+    expect(reportsFor(agentId).some((r) => r.stoppedByParent)).toBe(false);
     expect(stateOf(agentId)).toBe("stopped");
     expect(reportsFor(agentId)).toHaveLength(2);
   }, 30_000);
@@ -191,7 +196,7 @@ describe("spawn_agent from a chat", () => {
     expect(stateOf(agentId)).toBe("lost");
   }, 30_000);
 
-  test("a stop from inside the parent's open turn is kept at once, and wakes the parent when that turn ends", async () => {
+  test("a stop from inside the parent's open turn is kept at once, and is written as a row when that turn ends, without waking it", async () => {
     // The real wiring: the topics router registers the watcher that hands the
     // result to the wake, and the wake posts it through the real chat route.
     // The collector goes back in `finally`.
@@ -267,10 +272,15 @@ describe("spawn_agent from a chat", () => {
       expect(rows("user").some((r) => r.content.includes("scout-open-turn"))).toBe(false);
 
       handler.onDone({ content: [{ type: "text", text: text + "Fatto." }] } as never);
-      // The turn's end wakes the parent: one marked user row, carrying the card.
-      const wake = await until("the wake row", () => rows("user").find((r) => r.content.includes('agent="scout-open-turn"')), 15_000);
-      expect(wake.content).toContain("Found 2 call sites");
-      expect(JSON.parse(wake.blocks!)).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId, name: "scout-open-turn", status: "completed" })] }]);
+      // The stop is the parent's own, so its end starts no turn, whatever the
+      // result says (here `completed`: the child had ended its turn): the
+      // card lands as a row once the parent's turn is over (03/10; before, a
+      // `completed` result of a stopped child woke the parent).
+      const card = await until("the result row", () => rows("assistant").find((r) => r.id !== turnRowId && r.content.includes("scout-open-turn")), 15_000);
+      expect(card.content).toContain("Found 2 call sites");
+      expect(JSON.parse(card.blocks!)).toEqual([{ kind: "subagent-result", results: [expect.objectContaining({ agentId, name: "scout-open-turn", status: "completed" })] }]);
+      expect(rows("user").some((r) => r.content.includes('agent="scout-open-turn"'))).toBe(false);
+      expect(turn).toBeUndefined();
       expect(rows("assistant").find((r) => r.id === turnRowId)?.content).toContain("Fermo lo scout 12.");
       await until("the pending copy dropped", () => {
         const r = ctx.db.query("SELECT pending_results FROM subagents WHERE id = ?").get(agentId) as { pending_results: string | null };

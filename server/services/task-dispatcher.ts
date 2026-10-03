@@ -35,7 +35,7 @@ import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISS
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
-import { effectiveTopicsRouting, reusedSessionRouteConflict, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
+import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -405,6 +405,10 @@ export interface DispatcherDeps {
   topicExists?: (topicId: string) => boolean;
   /** The actual binding inherited when a dependent reuses its blocker's session. */
   topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } | null;
+  /** MSEL-06: writes the effective switch on a reused session that never had
+   *  one (a card topic from before the column existed), before its turn, so
+   *  the chat resolver does not read its `null` with the chat scope. */
+  setTopicRouting?: (topicId: string, topicsRouting: boolean) => void;
   /** Same coding-provider resolution as createTopic, including the live default
    *  and the Topics switch (with ON every selection runs on the native engine). */
   resolveTaskProvider?: (model?: string | null, topicsRouting?: boolean) => string;
@@ -1618,12 +1622,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Same switch the launch reads: the task's, then the board's, then the legacy prefix.
       let boardRouting: boolean | null = null;
       try { boardRouting = deps.svc.getBoardSettings(task.projectId).dispatchTopicsRouting; } catch { /* no board row: the task decides */ }
-      const topicsRouting = effectiveTopicsRouting(task.topicsRouting ?? boardRouting, selected);
-      // A free runtime elsewhere is no way out with ON: every Automatic
-      // candidate runs on the Claude engine, so the resolved runtime answers
-      // for all of them. Asking the fleet let Codex vouch for a card that
-      // then had no candidate and parked for good during a Claude hold.
-      if (!topicId && !selection.model && !selection.provider && !topicsRouting && deps.automaticModelAvailable?.()) return null;
+      const topicsRouting = effectiveTopicsRouting(task.topicsRouting ?? boardRouting, selected, "task");
+      // MSEL-06: the switch no longer narrows the Automatic ballot (GPT stays a
+      // candidate with it ON), so a free runtime elsewhere is a way out either way.
+      if (!topicId && !selection.model && !selection.provider && deps.automaticModelAvailable?.()) return null;
       try { provider = deps.resolveTaskProvider?.(selected, topicsRouting) ?? taskModelSelection(selected).provider ?? "topics"; }
       catch { return null; } // Unavailable routing is reported by createTopic, not disguised as quota.
     }
@@ -1723,9 +1725,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   function hardRoutingBlock(error: unknown): string | null {
     if (!(error instanceof Error) || !('code' in error)) return null;
-    return error.code === 'task_model_unavailable' || error.code === 'topics_routing_unavailable'
-      ? error.message
-      : null;
+    // MSEL-06: the switch is no longer a gate, so `task_model_unavailable` is the one permanent code left.
+    return error.code === 'task_model_unavailable' ? error.message : null;
   }
 
   /**
@@ -2880,7 +2881,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string; topicsRouting?: boolean },
+    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string; topicsRouting?: boolean; topicsRoutingStored?: boolean | null },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     const beforeLaunch = deps.svc.get(taskId)?.task;
@@ -2971,11 +2972,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let chosenModel: string | undefined = requested.model;
       let chosenProvider: string | undefined = requested.provider;
       const reusedSession = reuseTopicId ? deps.topicModelSelection?.(reuseTopicId) : null;
+      // MSEL-06: the reuse gate reads the STORED preference (task, then board):
+      // one never written adopts the session's switch instead of being parked.
+      const storedRouting = settings.topicsRoutingStored === undefined ? settings.topicsRouting : settings.topicsRoutingStored;
       if (reuseTopicId && (chosenModel || deps.topicModelSelection)
-        && !taskModelMatchesSession(requestedSelection, reusedSession, settings.topicsRouting)) {
+        && !taskModelMatchesSession(requestedSelection, reusedSession, storedRouting)) {
         // The reused topic keeps its own switch: when the model matches, the
         // switch or the route is what differs, and the reason names it.
-        const route = reusedSessionRouteConflict(requestedSelection, reusedSession, settings.topicsRouting);
+        const route = reusedSessionRouteConflict(requestedSelection, reusedSession, storedRouting);
         releaseAndEmit({
           taskId, requeue: false, parkState: CHIP_BLOCKED,
           reason: route && (!chosenModel || chosenModel === reusedSession?.model)
@@ -2985,6 +2989,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
         });
         return;
+      }
+      if (reuseTopicId && reusedSession) {
+        settings = { ...settings, topicsRouting: reusedSessionRouting(requestedSelection, reusedSession, storedRouting) };
+        // A session from before the column existed holds `null`: write the
+        // value it runs with now, as createTopic does for a new one.
+        if (reusedSession.topicsRouting == null) {
+          try { deps.setTopicRouting?.(reuseTopicId, settings.topicsRouting!); } catch { /* the turn still runs; the next reuse retries */ }
+        }
       }
       // L'effort segue la stessa regola del modello: la board può fissarlo e
       // allora comanda lei; su "auto" lo sceglie il classificatore task per
@@ -3724,7 +3736,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         return;
       }
       if (err instanceof Error && 'code' in err
-        && (err.code === 'task_model_unavailable' || err.code === 'topics_routing_unavailable')) {
+        && err.code === 'task_model_unavailable') {
         releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: err.message });
         return;
       }
@@ -5405,7 +5417,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         topicsRouting: effectiveTopicsRouting(
           t.topicsRouting ?? settings.dispatchTopicsRouting,
           t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined),
+          "task",
         ),
+        // MSEL-06: the stored value travels too, `null` included, until the
+        // reuse gate has read it (a never-written preference adopts the session's).
+        topicsRoutingStored: t.topicsRouting ?? settings.dispatchTopicsRouting ?? null,
       };
       if (delegated) launchSettings = effectiveDelegatedSettings(launchSettings, delegated);
       // Fire the launch; do NOT await (one board can fill multiple slots).

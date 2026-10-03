@@ -680,6 +680,11 @@ export function useChat() {
   // predate the frame: if the turn is still live, the frame is in neither.
   const ownReplyClosedRef = useRef<Set<string>>(new Set());
   const swallowedAfterReplyRef = useRef<Set<string>>(new Set());
+  // Rows a `message:new` added while this window's own SSE held the session,
+  // by id: written beside the turn (a stopped-by-parent card), they can be
+  // younger than the snapshot the end of that SSE reloads, which replaces the
+  // whole thread and would drop them again.
+  const wsRowsDuringOwnSseRef = useRef<Map<string, Set<string>>>(new Map());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -970,7 +975,9 @@ export function useChat() {
       // `shouldAdoptIntoPlaceholder` per la riga di sotto-agente che si mangiava
       // la bolla viva.
       const last = existing[existing.length - 1];
-      if (last && shouldAdoptIntoPlaceholder({
+      // Never into this window's own reply: the SSE fills it, and a row that
+      // reaches it over the socket was written beside the turn.
+      if (last && !localSSESessionsRef.current.has(sessionKey) && shouldAdoptIntoPlaceholder({
         incomingId: message.id,
         incomingRole: newMessage.role,
         last,
@@ -988,6 +995,16 @@ export function useChat() {
 
     return newMessage;
   }, []);
+
+  /** `addMessage` for a row another window or the server announced. */
+  const addMessageFromWS = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
+    if (message.id && localSSESessionsRef.current.has(sessionKey)) {
+      const ids = wsRowsDuringOwnSseRef.current.get(sessionKey) ?? new Set<string>();
+      ids.add(message.id);
+      wsRowsDuringOwnSseRef.current.set(sessionKey, ids);
+    }
+    return addMessage(sessionKey, message);
+  }, [addMessage]);
 
   const updateLastMessage = useCallback((sessionKey: string, updates: Partial<ChatMessage>) => {
     setMessages(prev => {
@@ -2201,7 +2218,12 @@ export function useChat() {
             content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
-        setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
+        setMessages(prev => {
+          const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
+          const fetchedIds = new Set(chatMessages.map((m) => m.id));
+          const younger = arrived ? (prev[sessionKey] ?? []).filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id)) : [];
+          return { ...prev, [sessionKey]: younger.length ? [...chatMessages, ...younger] : chatMessages };
+        });
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
         // No [DONE], and the server still has the turn in flight: what ended is
         // the response (a proxy, an idle timeout), not the turn. It stays lit and
@@ -2357,6 +2379,7 @@ export function useChat() {
       releaseSendLock(sessionKey); // Release send lock
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
+      wsRowsDuringOwnSseRef.current.delete(sessionKey);
       ownReplyClosedRef.current.delete(sessionKey);
       const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -3063,6 +3086,7 @@ export function useChat() {
       releaseSendLock(sessionKey); // Release send lock
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
+      wsRowsDuringOwnSseRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
@@ -3435,7 +3459,7 @@ export function useChat() {
     loadHistory,
     appendMediaToLastAssistant,
     clearSession,
-    addMessageFromWS: addMessage, // For real-time sync across windows
+    addMessageFromWS, // For real-time sync across windows
     onWSMessage,
     registerWSHandler,
     drainQueue,

@@ -37,22 +37,23 @@ export class TaskProviderPendingError extends Error {
   }
 }
 
-/** AICTRL-01: ON with Automatico must genuinely dispatch through the native
- * Topics engine, which then chooses per its own rules — never silently fall
- * back to whatever provider a plain OFF resolution would have picked. When
- * the native engine or the requested model isn't reachable through it, this
- * is a hard gate, not a fallback: the caller surfaces the reason. */
-export class TopicsRoutingUnavailableError extends Error {
-  readonly code = 'topics_routing_unavailable';
-  constructor(readonly provider: string | null, readonly model: string | null) {
-    super(provider
-      ? `Topics routing cannot dispatch to "${provider}"${model ? ` for model "${model}"` : ''}. Turn the switch off or choose a routable provider before starting the task.`
-      : model
-        ? `Topics routing cannot run model "${model}". Turn the switch off or choose a routable model before starting the task.`
-        : 'The Topics routing engine is unavailable. Turn the switch off or reconnect it before starting the task.');
-    this.name = 'TopicsRoutingUnavailableError';
-  }
-}
+/**
+ * MSEL-06: what a "Run in Topics" preference that was NEVER written means, per
+ * scope. Here and only here. A chat reads it ON, a card and the board default
+ * read it OFF: a turn through the engine does not survive a server restart and
+ * cards are the longest turns (proposal, choice 2). No data is rewritten for
+ * this: a `null` column stays `null`, only how it is read changes.
+ */
+export const TOPICS_ROUTING_DEFAULT = { chat: true, task: false } as const;
+
+export type TopicsRouteScope = keyof typeof TOPICS_ROUTING_DEFAULT;
+
+/** Where a turn goes once the preference and the resolved target are known. */
+export type TopicsRoute =
+  | { via: 'topics' }
+  | { via: 'direct'; reason: 'off' | 'family' | 'model' | 'engine-down' }
+  /** The engine catalog is still being discovered: only cards wait for it. */
+  | { via: 'pending' };
 
 /** Task model values also carry the routing hint for non-GPT Codex slugs. */
 export function taskModelSelection(value?: string | null): { model?: string; provider?: string } {
@@ -137,23 +138,6 @@ export function isTopicsModelServed(model: string | null | undefined, nativeMode
   return !model || !nativeModels || nativeModels.includes(nativeModelId(model));
 }
 
-/** A provider is reachable through the Topics native engine only if that
- * engine is itself ready and actually serves the requested model. Codex is
- * never routable: the native engine has no OpenAI-compatible execution path.
- * The engine itself (`topics`: a model only it serves, or the legacy
- * `topics:<model>`) is the router rather than a destination, and the same two
- * conditions decide whether it runs the turn. */
-function isRoutableThroughTopics(
-  provider: string,
-  model: string | undefined,
-  ready: ProvidersSnapshot['providers'],
-): boolean {
-  if (!CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
-  const native = ready.find((entry) => entry.name === 'topics');
-  if (!native) return false;
-  return isTopicsModelServed(model, native.models);
-}
-
 /** Discovery still running is not a verdict. A `topics` catalog in `loading`,
  * or a snapshot that has not been assembled yet, cannot say whether the native
  * engine reaches a target: retrying answers it, so the task path defers and
@@ -164,46 +148,103 @@ export function topicsCatalogPending(snapshot?: ProvidersSnapshot | null): boole
   return snapshot.providers.some((entry) => entry.name === 'topics' && entry.status === 'loading');
 }
 
-/** The routing gate only waits for a target the engine could ever reach:
- * Codex is categorically outside it, so a warm-up never changes that answer. */
-export function topicsRoutingWaitsForCatalog(provider: string | null, snapshot?: ProvidersSnapshot | null): boolean {
-  if (provider !== null && !CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
-  return topicsCatalogPending(snapshot);
+/** MSEL-06: the target of a chat turn with no runtime pinned, for the server
+ *  resolver and the chip/band alike. Automatic is the default provider. The
+ *  one exception is a topic whose switch was WRITTEN on with a Claude model
+ *  and no runtime: a card topic the engine picked (`resolveDispatchTopicIdentity`
+ *  leaves the runtime empty), whose target is the engine itself. A preference
+ *  never written does not take that path, so a `/model` on a chat with an
+ *  API or Codex default stays on that default. */
+export function automaticChatTarget(
+  stored: boolean | null | undefined,
+  model: string | null | undefined,
+  defaultProvider: string | null,
+): string | null {
+  return stored === true && model?.startsWith('claude-') ? 'topics' : defaultProvider;
 }
 
-/** Whether the switch ON can run this runtime and model: one answer for the
- * menu's switch row, the topic gate and the automatic task picker. A null
- * provider means Automatic, routable while the engine is ready (topics picks
- * per its own rules). */
+/** Whether the switch ON runs this runtime and model through the engine: the
+ * same answer as `topicsRoute` with the preference ON. A null provider means
+ * Automatic, routable while the engine is ready. */
 export function topicsRoutingAvailable(
   provider: string | null,
   model: string | null | undefined,
   snapshot?: ProvidersSnapshot | null,
 ): boolean {
-  if (provider === null) return (snapshot?.providers ?? []).some((entry) => entry.name === 'topics' && entry.status === 'ready');
-  const ready = snapshot?.providers.filter((entry) => entry.status === 'ready' && isTaskCodingProvider(entry)) ?? [];
-  return isRoutableThroughTopics(provider, model ?? undefined, ready);
+  return topicsRoute(true, { provider, model }, snapshot, 'chat').via === 'topics';
 }
 
-/** AICTRL-04: a task created before this switch existed stored its "run via
- * Topics" decision by prefixing the model value itself (`topics:<model>`). A
- * routing field that was never set explicitly (`null`/`undefined`) still
- * reads as ON for that legacy encoding; anything set explicitly, true or
- * false, always wins over the old prefix. */
-export function effectiveTopicsRouting(topicsRouting: boolean | null | undefined, modelValue?: string | null): boolean {
+/** AICTRL-04 + MSEL-06: the preference as a boolean. Anything written, true or
+ * false, always wins. A value never written (`null`/`undefined`) reads ON for
+ * the legacy `topics:<model>` encoding (a task saved before the switch existed
+ * stored its "run via Topics" decision in the model value), and otherwise the
+ * default of its scope (`TOPICS_ROUTING_DEFAULT`). */
+export function effectiveTopicsRouting(
+  topicsRouting: boolean | null | undefined,
+  modelValue?: string | null,
+  scope: TopicsRouteScope = 'task',
+): boolean {
   if (topicsRouting != null) return topicsRouting;
-  return taskModelSelection(modelValue).provider === 'topics';
+  if (taskModelSelection(modelValue).provider === 'topics') return true;
+  return TOPICS_ROUTING_DEFAULT[scope];
+}
+
+/**
+ * MSEL-06: THE one reading of the preference. Every reader (menu, send gate,
+ * chat resolver, dispatched topic identity, dispatcher, automatic picker) asks
+ * this instead of keeping its own `!!`, `?? false` or `if`.
+ *
+ * `target` is ALREADY resolved the way the switch OFF would resolve it:
+ * Automatic in a chat is the default provider, on a card the classifier's pick
+ * (or Codex when Codex is the default). A `null` provider here means "nobody
+ * named one": the engine decides, so it routes while the engine is ready.
+ *
+ * The order: the preference; a provider outside the Claude family goes direct;
+ * the engine missing or down goes direct (a card waits while it is still being
+ * discovered); a model the engine does not run goes direct; otherwise the
+ * engine runs it.
+ * The legacy `provider: 'topics'` is the engine itself, never "direct".
+ */
+export function topicsRoute(
+  stored: boolean | null | undefined,
+  target: { provider: string | null; model: string | null | undefined },
+  snapshot: ProvidersSnapshot | null | undefined,
+  scope: TopicsRouteScope,
+  modelValue?: string | null,
+): TopicsRoute {
+  const engineOnly = target.provider === 'topics';
+  if (!engineOnly && !effectiveTopicsRouting(stored, modelValue, scope)) return { via: 'direct', reason: 'off' };
+  if (target.provider !== null && !CLAUDE_CODING_PROVIDERS.includes(target.provider)) return { via: 'direct', reason: 'family' };
+  const engine = snapshot?.providers.find((entry) => entry.name === 'topics');
+  if (!engine || engine.status !== 'ready') {
+    if (scope === 'task' && topicsCatalogPending(snapshot)) return { via: 'pending' };
+    return { via: 'direct', reason: 'engine-down' };
+  }
+  // An empty catalog is a snapshot still warming up, not a refusal (as `isTopicsModelServed` reads `undefined`).
+  if (!isTopicsModelServed(target.model ?? null, engine.models.length ? engine.models : undefined)) return { via: 'direct', reason: 'model' };
+  return { via: 'topics' };
 }
 
 /** Resolve only executable coding runtimes; an API-chat default is never a fallback.
  * `topicsRouting` is the switch from AICTRL-01: it never changes provider or
- * model, only whether the turn is dispatched through the Topics native engine
- * targeting that same selection (ON) or straight to the provider (OFF). */
+ * model. MSEL-06: the target is resolved first exactly as with the switch OFF
+ * (Automatic follows the coding default, Codex included), then `topicsRoute`
+ * decides whether the engine runs it. A target the engine cannot reach runs
+ * direct, never a block: the route is declared, not refused. */
 export function taskProviderForModel(
   value: string | null | undefined,
   snapshot?: ProvidersSnapshot | null,
   topicsRouting?: boolean,
 ): string {
+  const target = directTaskProvider(value, snapshot);
+  if (!topicsRouting) return target;
+  const route = topicsRoute(true, { provider: target, model: taskModelSelection(value).model ?? null }, snapshot, 'task');
+  if (route.via === 'pending') throw new TaskProviderPendingError('topics');
+  return route.via === 'topics' ? 'topics' : target;
+}
+
+/** The runtime a task value names with the switch OFF. */
+function directTaskProvider(value: string | null | undefined, snapshot?: ProvidersSnapshot | null): string {
   const selection = taskModelSelection(value);
   const ready = snapshot?.providers.filter((entry) => entry.status === 'ready' && isTaskCodingProvider(entry)) ?? [];
   // A coding default of Codex is also a provider constraint. Its temporary
@@ -219,23 +260,7 @@ export function taskProviderForModel(
     if (selection.model && !selected.models.includes(selection.model)) {
       throw new Error(`The selected coding runtime ${selected.label ?? selected.name} cannot run model "${selection.model}".`);
     }
-    if (topicsRouting) {
-      // ON never falls through to a direct dispatch as a silent no-op: an
-      // explicit provider Topics can't reach (Codex, categorically) is a
-      // hard gate with a reason, the same contract the chat side enforces.
-      if (isRoutableThroughTopics(explicitlySelectedProvider, selection.model, ready)) return 'topics';
-      if (topicsRoutingWaitsForCatalog(explicitlySelectedProvider, snapshot)) throw new TaskProviderPendingError('topics');
-      throw new TopicsRoutingUnavailableError(explicitlySelectedProvider, selection.model ?? null);
-    }
     return explicitlySelectedProvider;
-  }
-  // Automatico + ON: Topics picks per its own rules, and that beats even a
-  // Codex default — the switch is a routing decision, not a suggestion.
-  if (topicsRouting) {
-    const native = ready.find((entry) => entry.name === 'topics');
-    if (native && isTopicsModelServed(selection.model, native.models)) return 'topics';
-    if (topicsCatalogPending(snapshot)) throw new TaskProviderPendingError('topics');
-    throw new TopicsRoutingUnavailableError(null, selection.model ?? null);
   }
   const wantsCodex = !selection.model && snapshot?.defaultProvider === 'codex';
   if (wantsCodex) {
@@ -246,7 +271,9 @@ export function taskProviderForModel(
     throw new Error('Codex is unavailable. Connect it in Settings before starting the task.');
   }
   const compatible = selection.model
-    ? ready.filter((entry) => CLAUDE_CODING_PROVIDERS.includes(entry.name) && entry.models.includes(selection.model!))
+    // The engine lists some models under another id (an alias, `nativeModelId`).
+    ? ready.filter((entry) => CLAUDE_CODING_PROVIDERS.includes(entry.name)
+      && (entry.models.includes(selection.model!) || (entry.name === 'topics' && entry.models.includes(nativeModelId(selection.model!)))))
     : ready;
   const provider = compatible.find((entry) => entry.name === snapshot?.defaultProvider)?.name ?? compatible[0]?.name;
   if (provider) return provider;
@@ -254,23 +281,41 @@ export function taskProviderForModel(
   throw new Error('No coding agent is available. Connect Topics, Claude Code or Codex in Settings before starting the task.');
 }
 
+/** MSEL-06, a reused session: the switch the dependent runs it with. The
+ * session keeps its own switch (`null` there is a card topic from before the
+ * column existed, read with the card scope). A dependent whose preference was
+ * NEVER written (the card's and the board default's both `null`, no legacy
+ * `topics:` prefix) adopts the session's: it defends no value anybody chose,
+ * and parking it would block every such card on any session dispatched with
+ * the switch OFF. A written preference is the dependent's own and is defended. */
+export function reusedSessionRouting(
+  value: string | null | undefined,
+  session: { topicsRouting?: boolean | null } | null | undefined,
+  stored: boolean | null | undefined,
+): boolean {
+  const sessionRouting = session?.topicsRouting ?? TOPICS_ROUTING_DEFAULT.task;
+  if (stored == null && taskModelSelection(value).provider !== 'topics') return sessionRouting;
+  return effectiveTopicsRouting(stored, value, 'task');
+}
+
 /** How a reused session runs, against how the dependent asks to run (S1, S3).
  * The turn goes on the reused topic, whose own switch decides who executes it
  * (resolveTopicProvider): the engine with it ON, the pinned runtime directly
- * with it OFF. So a dependent whose effective switch differs, whatever it names
+ * with it OFF. So a dependent whose written switch differs, whatever it names
  * (Automatic, a bare model, a provider), would make its switch a silent no-op:
- * returns the session's switch then. With the switch OFF on both sides an
- * explicit provider also names who runs the turn, the engine itself (the
- * legacy `topics:`) or a provider directly: returns where the session runs when
- * it is not that. */
+ * returns the session's switch then. `topicsRouting` is the dependent's STORED
+ * preference, `null` when never written (see reusedSessionRouting). With the
+ * switch OFF on both sides an explicit provider also names who runs the turn,
+ * the engine itself (the legacy `topics:`) or a provider directly: returns
+ * where the session runs when it is not that. */
 export function reusedSessionRouteConflict(
   value: string | null | undefined,
   session: { provider?: string | null; topicsRouting?: boolean | null } | null | undefined,
   topicsRouting: boolean | null | undefined,
 ): 'switch-on' | 'switch-off' | 'engine' | 'direct' | null {
   if (!session) return null;
-  const sessionRouting = !!session.topicsRouting;
-  if (effectiveTopicsRouting(topicsRouting, value) !== sessionRouting) return sessionRouting ? 'switch-on' : 'switch-off';
+  const sessionRouting = session.topicsRouting ?? TOPICS_ROUTING_DEFAULT.task;
+  if (reusedSessionRouting(value, session, topicsRouting) !== sessionRouting) return sessionRouting ? 'switch-on' : 'switch-off';
   const selected = taskModelSelection(value);
   if (sessionRouting || !selected.provider) return null;
   const sessionOnEngine = session.provider === 'topics';
@@ -280,7 +325,7 @@ export function reusedSessionRouteConflict(
 
 /** A reused conversation must be a coding runtime, run with the dependent's
  * switch and on the route an explicit provider asks for (`topicsRouting` is the
- * dependent's effective switch; see reusedSessionRouteConflict), and honor an
+ * dependent's stored preference; see reusedSessionRouteConflict), and honor an
  * explicit model. A session bound to the engine with the switch ON (`provider:
  * 'topics'`, no runtime pinned) is a Claude Code session the engine routes, so
  * an explicit Claude Code target with its model and the switch ON continues it.
