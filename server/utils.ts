@@ -18,7 +18,7 @@ import {
   type Osservatore, type TipoFrameProgetto,
 } from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
-import { appDataRoots, assertNotLiveStateUnderTest, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
+import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { hasMachineMark } from "../shared/prompt-number";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
@@ -171,7 +171,6 @@ export function createAppContext(baseDir: string): AppContext {
   // written — and a write there crashes the server before it can listen, which
   // is what hangs the app forever on "Launching the local engine".
   const STATE_DIR = resolveStateDir(baseDir);
-  assertNotLiveStateUnderTest(STATE_DIR, resolve(import.meta.dir, ".."));
   const TOPICS_FILE = join(STATE_DIR, "topics.json");
   const UNREAD_FILE = join(STATE_DIR, "unread.json");
   // Bundle del client. È un asset READ-ONLY e resta dentro il bundle.

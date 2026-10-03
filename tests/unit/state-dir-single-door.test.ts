@@ -106,9 +106,11 @@ describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stateDir", () =
     rmSync(isolatedDir, { recursive: true, force: true });
   });
 
-  test("senza nulla nell'ambiente il comportamento storico resta identico", () => {
+  test("senza nulla nell'ambiente: fuori dai test il repo, sotto test un rifiuto", () => {
     const empty = {} as NodeJS.ProcessEnv;
-    expect(resolveStateDir(ROOT, empty)).toBe(ROOT);
+    // Il ramo di produzione (fallback = repo) e' coperto da `assertNotLiveStateUnderTest`
+    // con un main non di test; qui siamo sotto `bun test`, e il repo e' lo stato vivo.
+    expect(() => resolveStateDir(ROOT, empty)).toThrow(/live state dir/);
     expect(resolveDataDir(ROOT, empty)).toBe(join(ROOT, "data"));
     expect(envDataDir(empty)).toBeUndefined();
   });

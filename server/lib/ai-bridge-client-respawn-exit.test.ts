@@ -14,8 +14,16 @@
  * the child), so it is dropped. After the ack, exits go through as before.
  * @covers CCLI-04
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { AiBridgeClient } from "./ai-bridge-client";
+
+// Lo stato del modulo si risolve dalla cartella di lavoro: senza DATA_DIR, lanciato
+// dal checkout di produzione, scriveva nello stato vivo. Ora il cancello di
+// `resolveStateDir` lo rifiuta, e qui si isola come ogni altro file.
+const STATE_ROOT = testTmpDir("ai-bridge-respawn");
+beforeAll(() => setupTestDataDir(`${STATE_ROOT}/data`));
+afterAll(() => cleanupTestDataDir(STATE_ROOT));
 
 function clientWithParkedSpawn() {
   const client = new AiBridgeClient();

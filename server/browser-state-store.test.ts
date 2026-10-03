@@ -3,7 +3,8 @@
  * cold read gets back, and the last-URL half of the same store.
  * @covers BROWSER-CHAT-01
  */
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
+import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../tests/integration/helpers";
 import { existsSync, rmSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import {
@@ -16,6 +17,13 @@ import {
   browserStateBaseDir,
   type BrowserStorageState,
 } from "./browser-state-store";
+
+// Lo stato del modulo si risolve dalla cartella di lavoro: senza DATA_DIR, lanciato
+// dal checkout di produzione, scriveva nello stato vivo. Ora il cancello di
+// `resolveStateDir` lo rifiuta, e qui si isola come ogni altro file.
+const STATE_ROOT = testTmpDir("browser-state-store");
+beforeAll(() => setupTestDataDir(`${STATE_ROOT}/data`));
+afterAll(() => cleanupTestDataDir(STATE_ROOT));
 
 const TEST_TOPIC = "test-topic-30-01";
 /* ASK THE MODULE where it writes; do not recompute it here.

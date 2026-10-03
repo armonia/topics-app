@@ -756,7 +756,7 @@ export function createTopicsRouter(
   function knownProjectPaths(): string[] {
     const out: string[] = [];
     try { for (const p of projectStore.list()) out.push(p.path); } catch { /* store best-effort */ }
-    for (const t of Object.values(loadTopics().topics) as any[]) {
+    for (const t of Object.values(loadTopics().topics)) {
       if (typeof t?.projectPath === "string" && t.projectPath) out.push(t.projectPath);
     }
     return out.concat(getWorkspaceProjects());
