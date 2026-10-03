@@ -8,7 +8,7 @@
  * @covers MP-AUTH-01
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as auth from "./auth";
@@ -144,5 +144,94 @@ describe("a renewal that could not be saved", () => {
     expect(await auth.getAccessToken()).toBe("fake-login-access");
     const saved = JSON.parse(readFileSync(credentialsPath, "utf-8"));
     expect(saved.claudeAiOauth.refreshToken).toBe("fake-login-refresh");
+  });
+
+  test("a logout while the pair waits in memory is not undone: the vanished file stays gone", async () => {
+    writeExpired("fake-access-1", "fake-refresh-1");
+    rotatingEndpoint({ "fake-refresh-1": { access: "fake-access-2", refresh: "fake-refresh-2" } });
+    diskRefuses();
+    expect(await auth.getAccessToken()).toBe("fake-access-2");
+
+    // /logout deletes the credentials; the disk accepts writes again.
+    rmSync(credentialsPath);
+    diskAccepts();
+    expect(await auth.getAccessToken()).toBeNull();
+    expect(existsSync(credentialsPath), "the pending pair rewrote a logged-out file").toBe(false);
+    expect(auth.unsavedCredentialsError()).toBeNull();
+  });
+});
+
+describe("a renewal that could not be saved to the Keychain", () => {
+  let item: Record<string, unknown> | null;
+  let locked: boolean;
+  let writes: number;
+  function fakeSecurity(cmd: string, args: string[]): auth.KeychainRunResult {
+    if (cmd !== "security") return { status: 127, stdout: "", stderr: "" };
+    if (locked) return { status: 36, stdout: "", stderr: "User interaction is not allowed." };
+    if (args[0] === "find-generic-password") {
+      if (!item) return { status: 44, stdout: "", stderr: "The specified item could not be found in the keychain." };
+      if (args.includes("-w")) return { status: 0, stdout: JSON.stringify(item) + "\n", stderr: "" };
+      return { status: 0, stdout: '    "acct"<blob>="someone"\n', stderr: "" };
+    }
+    if (args[0] === "add-generic-password") {
+      writes++;
+      item = JSON.parse(args[args.indexOf("-w") + 1]!);
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    return { status: 1, stdout: "", stderr: "" };
+  }
+
+  beforeEach(() => {
+    homeDir = mkdtempSync(join(tmpdir(), "auth-unsaved-kc-"));
+    mkdirSync(join(homeDir, ".claude"), { recursive: true });
+    process.env.HOME = homeDir;
+    process.env.TOPICS_CREDENTIALS_KEYCHAIN = "1";
+    item = { claudeAiOauth: { accessToken: "kc-access-1", refreshToken: "kc-refresh-1", expiresAt: Date.now() - 1000 } };
+    locked = false;
+    writes = 0;
+    auth.setKeychainRunnerForTests(fakeSecurity);
+    console.error = () => {};
+  });
+
+  afterEach(async () => {
+    locked = false;
+    await auth.getAccessToken().catch(() => null);
+    auth.setKeychainRunnerForTests(null);
+    globalThis.fetch = realFetch;
+    console.error = realError;
+    if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
+    if (KEYCHAIN_VERA === undefined) delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+    else process.env.TOPICS_CREDENTIALS_KEYCHAIN = KEYCHAIN_VERA;
+    try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* scratch */ }
+  });
+
+  /** The Keychain locks between the read and the write of the renewal. */
+  function lockOnRenewal() {
+    globalThis.fetch = (async () => {
+      locked = true;
+      return new Response(JSON.stringify({ access_token: "kc-access-2", refresh_token: "kc-refresh-2", expires_in: 28800 }), { status: 200 });
+    }) as unknown as typeof fetch;
+  }
+
+  test("an item deleted by a logout is not written back", async () => {
+    lockOnRenewal();
+    expect(await auth.getAccessToken()).toBe("kc-access-2");
+    expect(auth.unsavedCredentialsError()).toContain("OAUTH_CREDENTIALS_NOT_SAVED");
+    locked = false;
+    item = null;
+    expect(await auth.getAccessToken()).toBeNull();
+    expect(item, "the pending pair recreated a logged-out Keychain item").toBeNull();
+    expect(writes).toBe(0);
+  });
+
+  test("a Keychain that is only locked keeps the pair pending, and saves it once unlocked", async () => {
+    lockOnRenewal();
+    expect(await auth.getAccessToken()).toBe("kc-access-2");
+    // Still locked: unreadable is not gone.
+    expect(await auth.getAccessToken()).toBe("kc-access-2");
+    expect(auth.unsavedCredentialsError()).toContain("OAUTH_CREDENTIALS_NOT_SAVED");
+    locked = false;
+    expect(await auth.getAccessToken()).toBe("kc-access-2");
+    expect((item as { claudeAiOauth: { refreshToken: string } }).claudeAiOauth.refreshToken).toBe("kc-refresh-2");
   });
 });

@@ -30,7 +30,7 @@
  * credenziali morto per otto ore (2026-08-16).
  */
 
-import { readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
 import { claudeCliUserAgent } from "./cli-user-agent";
 import { homedir, tmpdir, userInfo } from "os";
 import { join, dirname } from "path";
@@ -530,14 +530,32 @@ function readSource(sourcePath: string): OAuthCredentials | null {
   catch { return null; }
 }
 
+/**
+ * Is the source GONE (a logout), rather than unreadable for now? A file source
+ * that does not exist, or a Keychain service with no item at all (`security`
+ * answers 44, errSecItemNotFound; a locked Keychain answers otherwise and is
+ * only "unreadable for now").
+ */
+function sourceVanished(sourcePath: string): boolean {
+  if (sourcePath === KEYCHAIN_SOURCE) return findKeychainItem(null, false).status === 44;
+  return !existsSync(sourcePath);
+}
+
 function describeWriteError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function rememberUnsaved(sourcePath: string, next: OAuthCredentials, err: unknown): void {
+/**
+ * `renewedFrom` is the refresh token the renewal spent, i.e. what the source
+ * held when it was read. Re-reading the source here instead gave `null` when
+ * the write failed because the source had just become unreadable (a Keychain
+ * that locked between the read and the write), and a `null` made the very
+ * chain we renewed look like a new /login: the only live pair was dropped.
+ */
+function rememberUnsaved(sourcePath: string, next: OAuthCredentials, err: unknown, renewedFrom: string): void {
   const replacedRefresh = _unsaved?.sourcePath === sourcePath
     ? _unsaved.replacedRefresh
-    : readSource(sourcePath)?.refreshToken ?? null;
+    : renewedFrom;
   const error = `OAUTH_CREDENTIALS_NOT_SAVED: rinnovo riuscito ma non salvato in ${sourcePath}: ${describeWriteError(err)}`;
   _unsaved = { creds: next, sourcePath, replacedRefresh, error };
   // Never the token itself: the path and the reason are enough to act on.
@@ -553,8 +571,10 @@ function currentCredentials(): (OAuthCredentials & { sourcePath?: string }) | nu
   if (pending) {
     const onSource = readSource(pending.sourcePath);
     const changedElsewhere = onSource
-      && onSource.refreshToken !== pending.replacedRefresh
-      && onSource.refreshToken !== pending.creds.refreshToken;
+      ? onSource.refreshToken !== pending.replacedRefresh && onSource.refreshToken !== pending.creds.refreshToken
+      // A source that VANISHED was changed elsewhere too: a logout deleted
+      // it, and writing our pair back would undo the logout.
+      : sourceVanished(pending.sourcePath);
     if (changedElsewhere) {
       // A new chain was written there by somebody else: ours is moot.
       _unsaved = null;
@@ -647,7 +667,8 @@ function renewSerialized(
         throw new Error("OAUTH_REFRESH_LOCK_TIMEOUT: rinnovo delle credenziali già in corso; riprova tra poco.");
       }
 
-      const next = await refreshCredentials(reread ?? creds);
+      const spent = reread ?? creds;
+      const next = await refreshCredentials(spent);
       // Written WHERE it was read: see the header. A renewal that is not saved
       // logs the user's CLI out, so a failed write keeps the pair in memory
       // and retries (see `_unsaved`).
@@ -655,7 +676,7 @@ function renewSerialized(
         writeCredentials(sourcePath, next);
         _unsaved = null;
       } catch (err) {
-        rememberUnsaved(sourcePath, next, err);
+        rememberUnsaved(sourcePath, next, err, spent.refreshToken);
       }
       return next;
     } finally {
