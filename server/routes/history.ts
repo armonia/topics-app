@@ -11,6 +11,7 @@ import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
 import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
 import { decodeCol } from "../../shared/message-blob";
 import { flushTurnBody } from "../lib/turn-body-flush";
+import { appendChatFind, CHAT_FIND_MAX_HITS, type ChatFindResult } from "../../shared/chat-find";
 
 /**
  * Keep the TAIL of `rows` that fits in `budget` serialized bytes, never fewer
@@ -465,5 +466,63 @@ export function createToolDetailRouter(ctx: AppContext): RouteHandler {
     if (!tc) return json({ error: "tool call not found" }, 404);
 
     return json({ detail: tc.detail ?? null, args: tc.args ?? null });
+  };
+}
+
+/** Messages decoded per slice of `POST /api/history-find`; the event loop is
+ *  handed back between two slices. */
+const HISTORY_FIND_BATCH = 16;
+/** A find query longer than this is not a word somebody is looking for. */
+const HISTORY_FIND_MAX_QUERY = 500;
+
+/**
+ * POST /api/history-find — `{ sessionKey, query, matchCase }` →
+ * `{ total, hits: [{ messageId, part, toolCallId?, offset }], truncated }`.
+ * CHAT-FIND-01.
+ *
+ * Find inside ONE conversation, on the server, because that is where the
+ * text is. The history page ships every tool output blank (`withToolOutputs:
+ * false`, `leanMessagesForHistory`), so the client could only search the
+ * prose and the previews; the outputs of closed rows live in
+ * `message_tool_outputs` and come back here through the default full read.
+ * The search itself is `shared/chat-find.ts`, the same function the client
+ * runs on the message still streaming.
+ *
+ * BOUNDED, so a big chat does not freeze the server: the thread is listed
+ * lean (no fat column read), then decoded and searched HISTORY_FIND_BATCH
+ * messages at a time with a yield of the event loop between slices; a client
+ * that went away (a newer keystroke aborts the older request) stops the walk
+ * at the next slice. At most CHAT_FIND_MAX_HITS positions go back; `total`
+ * stays exact.
+ *
+ * Guests never get here: `/api/history-find` is not in `isGuestAllowedPath`
+ * (server/lib/grants.ts), the same closed door as `/api/history/`. A guest's
+ * bar searches the client's own text and reasoning instead.
+ */
+export function createHistoryFindRouter(ctx: AppContext): RouteHandler {
+  const { json, readJSON, loadLocalMessages, hydrateMessageBodies } = ctx;
+  return async function historyFindRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    if (pathname !== "/api/history-find" || method !== "POST") return null;
+    const body = (await readJSON(req)) as { sessionKey?: unknown; query?: unknown; matchCase?: unknown } | null;
+    const sessionKey = typeof body?.sessionKey === "string" ? body.sessionKey : "";
+    const query = typeof body?.query === "string" ? body.query : "";
+    const matchCase = body?.matchCase === true;
+    if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+    if (query.length > HISTORY_FIND_MAX_QUERY) return json({ error: "query too long" }, 400);
+    const result: ChatFindResult = { total: 0, hits: [], truncated: false };
+    if (!query) return json(result);
+    // The live row's timeline is written through a throttle; flush it so the
+    // turn in flight is searched as far as it got (same as the history page).
+    flushTurnBody(sessionKey);
+    const lean = loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false });
+    for (let i = 0; i < lean.length; i += HISTORY_FIND_BATCH) {
+      // Nobody is waiting for this answer any more: stop reading.
+      if (req.signal?.aborted) return json({ error: "aborted" }, 499);
+      // Default read: tool outputs back in place from `message_tool_outputs`.
+      const slice = hydrateMessageBodies(lean.slice(i, i + HISTORY_FIND_BATCH));
+      appendChatFind(result, slice, query, { matchCase, maxHits: CHAT_FIND_MAX_HITS });
+      if (i + HISTORY_FIND_BATCH < lean.length) await new Promise<void>((r) => setTimeout(r, 0));
+    }
+    return json(result);
   };
 }

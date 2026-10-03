@@ -24,7 +24,24 @@ import { cancelled } from "../providers/stop-reason";
 
 const ROOT = testTmpDir("chat-killed-turn");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
-afterAll(() => cleanupTestDataDir(ROOT));
+
+/**
+ * Every turn this file opened, ended before its database goes.
+ *
+ * A turn whose provider never answers (`never`) keeps the route's watchdog
+ * armed: the soft timer at 60 s, then `handleGraceExpiry` 60 s later, which
+ * writes the row. `bun test server` runs every file in ONE process, so that
+ * write landed two minutes on, inside a later file, on the database this file
+ * had already closed: `SQLiteError: out of memory` in `task-diff-range` and
+ * `turn-checkpoints`, red there and green here. The provider's abort is the
+ * route's own way out: `finalizeStream` clears every timer.
+ */
+const openTurns: StreamHandler[] = [];
+afterAll(async () => {
+  for (const handler of openTurns.splice(0)) handler.onAborted?.({ turnEnd: cancelled("user") });
+  await Bun.sleep(80);
+  cleanupTestDataDir(ROOT);
+});
 
 const WS = testTmpDir("chat-killed-turn-ws");
 
@@ -86,6 +103,7 @@ async function harness(sendResult: () => Promise<{ runId?: string; notSent?: boo
     expect(resp?.status).toBe(200);
     resp?.body?.cancel().catch(() => {});
     if (!captured) throw new Error("the route registered no StreamHandler");
+    openTurns.push(captured);
     return captured;
   };
 

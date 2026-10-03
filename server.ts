@@ -1754,9 +1754,16 @@ const taskDispatcher = createTaskDispatcher({
     getProvider: tryGetProvider,
     log: (message) => console.log(`[dispatcher] ${message}`),
   }),
+  setTopicRouting: (id, topicsRouting) => {
+    const topic = ctx.getTopicById(id);
+    if (!topic || topic.topicsRouting != null) return;
+    topic.topicsRouting = topicsRouting;
+    ctx.saveSingleTopic(topic);
+  },
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
-    return topic ? dispatchTopicBinding(topic, getDefaultProviderName()) : null;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy like the `await import` of the same module at boot: static, it would move the snapshot manager (and the provider registry it imports) up the boot's module order
+    return topic ? dispatchTopicBinding(topic, getDefaultProviderName(), (require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager")).getSnapshotManager().getSnapshot()) : null;
   },
   // Il cancello contro il lavoro rifatto: se il commit della consegna è già
   // dentro main, la card si chiude invece di far ripartire un agente sopra

@@ -1,20 +1,21 @@
 /**
- * AICTRL-05: il blocco del send quando un refresh dello snapshot rende lo switch ON incompatibile col provider o col modello attivo. allow-italian: dice quale difetto copre il file
- * Logica pura: il rosso si osserva senza montare ChatPane/ChatInput, che dipendono da store e WS. allow-italian: perche' si prova qui e non sulla superficie
- * @covers AICTRL-05
+ * AICTRL-05 + MSEL-06: lo switch lato client. Dal model-selector un bersaglio che il motore non raggiunge va diretto e la strada si dichiara: l'invio si blocca solo per la chat legacy legata al motore stesso (`provider: "topics"`) col motore giu'. allow-italian: dice quale contratto copre il file
+ * Logica pura: si osserva senza montare ChatPane/ChatInput, che dipendono da store e WS. allow-italian: perche' si prova qui e non sulla superficie
+ * @covers AICTRL-05, MSEL-06
  */
 import { describe, it, expect } from "bun:test";
-import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings } from "./topicsRoutingGate";
+import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, chatTopicsRoute } from "./topicsRoutingGate";
 import type { ProvidersSnapshot } from "../types";
 
-function snapshot(providers: ProvidersSnapshot["providers"]): ProvidersSnapshot {
-  return { providers, defaultProvider: null, generatedAt: new Date().toISOString() };
+function snapshot(providers: ProvidersSnapshot["providers"], defaultProvider: string | null = null): ProvidersSnapshot {
+  return { providers, defaultProvider, generatedAt: new Date().toISOString() };
 }
 
 const base = { isDefault: false, requirements: [] as ProvidersSnapshot["providers"][number]["requirements"], fetchedAt: new Date().toISOString() };
 const claudeReady = { ...base, name: "claude-code", status: "ready" as const, models: ["claude-sonnet-5"], defaultModel: "claude-sonnet-5" };
 const topicsReady = { ...base, name: "topics", status: "ready" as const, models: ["claude-sonnet-5"], defaultModel: "claude-sonnet-5" };
 const topicsDown = { ...base, name: "topics", status: "error" as const, models: [] };
+const codexReady = { ...base, name: "codex", status: "ready" as const, models: ["gpt-5"] };
 
 describe("topicsRoutingBlocked", () => {
   it("switch OFF: mai bloccato, qualunque sia lo snapshot", () => {
@@ -26,19 +27,35 @@ describe("topicsRoutingBlocked", () => {
     expect(topicsRoutingBlocked(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsReady]))).toBe(false);
   });
 
-  it("switch ON ma il motore nativo e' sparito dallo snapshot dopo un refresh: bloccato", () => {
-    expect(topicsRoutingBlocked(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsDown]))).toBe(true);
+  it("switch ON col motore sparito dopo un refresh: non bloccato, il turno va diretto", () => {
+    expect(topicsRoutingBlocked(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsDown]))).toBe(false);
+    expect(chatTopicsRoute(true, { provider: "claude-code", model: "claude-sonnet-5" }, undefined, snapshot([claudeReady, topicsDown])))
+      .toEqual({ via: "direct", reason: "engine-down" });
   });
 
-  it("switch ON, override esplicito su un provider mai instradabile (codex): bloccato", () => {
-    const codexReady = { ...base, name: "codex", status: "ready" as const, models: ["gpt-5"] };
-    expect(topicsRoutingBlocked(true, { provider: "codex", model: "gpt-5" }, undefined, snapshot([codexReady, topicsReady]))).toBe(true);
+  it("switch ON su Codex: non bloccato, diretto per famiglia", () => {
+    expect(topicsRoutingBlocked(true, { provider: "codex", model: "gpt-5" }, undefined, snapshot([codexReady, topicsReady]))).toBe(false);
+    expect(chatTopicsRoute(true, { provider: "codex", model: "gpt-5" }, undefined, snapshot([codexReady, topicsReady])))
+      .toEqual({ via: "direct", reason: "family" });
   });
 
-  it("switch ON, Automatico vero (nessun override, nessun pin): mai bloccato, anche se il default concreto non e' instradabile", () => {
-    // Senza override ne' pin il resolver collassava su un candidato concreto (codex) e bloccava uno stato che il menu mostrava attivo. allow-italian: il caso che il cancello sbagliava
-    const codexDefault = { ...base, name: "codex", status: "ready" as const, models: ["gpt-5"], isDefault: true };
-    expect(topicsRoutingBlocked(true, null, undefined, snapshot([codexDefault, topicsReady]))).toBe(false);
+  it("la chat legacy legata al motore stesso, col motore giu': l'unico invio che si blocca", () => {
+    expect(topicsRoutingBlocked(null, null, "topics", snapshot([claudeReady, topicsDown]))).toBe(true);
+    expect(topicsRoutingBlocked(null, null, "topics", snapshot([claudeReady, topicsReady]))).toBe(false);
+  });
+});
+
+describe("chatTopicsRoute (MSEL-06)", () => {
+  it("chat mai toccata (null) su Claude Code con un modello servito: via Topics", () => {
+    expect(chatTopicsRoute(null, null, "claude-code", snapshot([claudeReady, topicsReady]))).toEqual({ via: "topics" });
+  });
+
+  it("Automatico vero col default su Codex: diretto, il default si risolve prima della strada", () => {
+    expect(chatTopicsRoute(null, null, undefined, snapshot([codexReady, topicsReady], "codex"))).toEqual({ via: "direct", reason: "family" });
+  });
+
+  it("scritto spento: diretto/off", () => {
+    expect(chatTopicsRoute(false, null, "claude-code", snapshot([claudeReady, topicsReady]))).toEqual({ via: "direct", reason: "off" });
   });
 });
 

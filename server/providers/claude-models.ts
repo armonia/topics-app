@@ -351,3 +351,23 @@ export function defaultChatModel(): string {
 // mai chiamato (`claude-models.test.ts` costruisce il suo scenario e legge il
 // risultato). Un seam senza test non è un'interfaccia, è una funzione che
 // azzera una cache di produzione e che nessuno controlla.
+
+/**
+ * MSEL-09: which Claude models are the current generation of their family.
+ * Current = the newest version of each family (`newestOfFamily`), its `[1m]`
+ * twin included; every older version is `older` and folds under the selector's
+ * fold of other models. An id this parser does not read stays current:
+ * nothing is folded on a guess. Only `generation`: no descriptions written by
+ * hand (the hand-written catalog of CommandMenu was removed on purpose).
+ */
+export function claudeModelGenerations(models: readonly string[]): Record<string, { generation: 'current' | 'older' }> {
+  const out: Record<string, { generation: 'current' | 'older' }> = {};
+  for (const id of models) {
+    const p = parseModelId(id.replace(/-\d{8}$/, ''));
+    if (!p) continue;
+    const newest = parseModelId(newestOfFamily(p.family, models.map((m) => m.replace(/-\d{8}$/, ''))) ?? '');
+    const current = !newest || (p.major === newest.major && p.minor === newest.minor);
+    out[id] = { generation: current ? 'current' : 'older' };
+  }
+  return out;
+}

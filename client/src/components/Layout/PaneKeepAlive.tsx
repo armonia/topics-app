@@ -2,6 +2,7 @@ import { useContext, useRef, type ReactNode } from 'react';
 import { PaneKeyContext } from '../../state/pane/residency/holds';
 import { PaneAliveContext } from '../../state/paneLiveness';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
+import { FindPaneContext } from '../../state/findRegistry';
 
 /**
  * Il guscio keep-alive di una pane: visibile con `display:flex`, nascosta con
@@ -46,6 +47,7 @@ export function PaneKeepAlive({
   isVisible,
   className,
   paneKey,
+  findPaneId,
   children,
 }: {
   isVisible: boolean;
@@ -66,6 +68,13 @@ export function PaneKeepAlive({
    * chiave lungo tutta la catena di props.
    */
   paneKey?: string;
+  /**
+   * The pane's id, for ⌘F (FIND-02): published as `data-find-pane`, so the
+   * key handler finds the pane the keyboard is in by walking up from the
+   * target, and as `FindPaneContext`, so the body registers its finder under
+   * the same id the tab strip names it by (`data-pane-id`).
+   */
+  findPaneId?: string;
   children: ReactNode;
 }) {
   // Vitalità del sottoalbero: visibile QUI e visibile in ogni guscio che ci
@@ -109,9 +118,11 @@ export function PaneKeepAlive({
       aria-hidden={!isVisible}
       data-pane-shell={paneKey}
       data-pane-visible={isVisible ? '1' : '0'}
+      data-find-pane={findPaneId}
     >
       <PaneAliveContext.Provider value={alive}>
         <PaneKeyContext.Provider value={paneKey}>
+        <FindPaneContext.Provider value={findPaneId ?? null}>
           {/*
             CONFINE DI GUASTO della pane, sullo stesso bordo del confine di
             layout qui sopra. Prima l'unico ErrorBoundary stava attorno
@@ -132,6 +143,7 @@ export function PaneKeepAlive({
             React scatta identico un livello più giù.
           */}
           <ErrorBoundary fallbackMessageKey="crash.pane">{frozen.current}</ErrorBoundary>
+        </FindPaneContext.Provider>
         </PaneKeyContext.Provider>
       </PaneAliveContext.Provider>
     </div>

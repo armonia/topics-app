@@ -2,14 +2,13 @@
  * AICTRL-01: ON e' instradamento, non identita'. Il dispatcher scriveva `provider = "topics"` e non passava lo switch, cosi' il bersaglio scelto spariva e lo switch non finiva da nessuna parte. allow-italian: il difetto che il file blocca
  * Conseguenza: il giro di ritorno del picker, che rimette il bersaglio vero, contava come cambio di configurazione e faceva ripartire la sessione per niente. allow-italian: la conseguenza che si vedeva in faccia
  *
- * @covers AICTRL-01
+ * @covers AICTRL-01, MSEL-06
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { resolveDispatchTopicIdentity } from './dispatch-topic-identity';
 import { resolveTopicProvider } from '../providers/resolve-topic-provider';
-import { TopicsRoutingUnavailableError } from '../../shared/task-coding-models';
 import type { ProvidersSnapshot } from '../../shared/types';
 
 function entry(name: string, models: string[]) {
@@ -22,7 +21,7 @@ function snapshot(providers: ReturnType<typeof entry>[], defaultProvider = 'clau
 const FLEET = snapshot([
   entry('topics', ['claude-opus-5', 'claude-sonnet-5']),
   entry('claude-code', ['claude-opus-5', 'claude-sonnet-5']),
-  entry('codex', ['gpt-5.4']),
+  entry('codex', ['gpt-5.4', 'gpt-6.1-sol']),
 ]);
 
 const native = { name: 'topics', connected: true } as never;
@@ -97,11 +96,34 @@ describe('identità del topic dispacciato', () => {
     expect(resolveTopicProvider({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: false }, registry)).toBe(claudeCode);
   });
 
-  it('ON verso un bersaglio irraggiungibile resta un cancello duro', () => {
-    expect(() => resolveDispatchTopicIdentity(
-      { provider: 'codex', model: 'gpt-5.4', topicsRouting: true },
-      FLEET,
-    )).toThrow(TopicsRoutingUnavailableError);
+  it('una card codex:gpt-6.1-sol con la preferenza accesa crea il suo topic, eseguito da Codex diretto', () => {
+    for (const o of [
+      { provider: 'codex', model: 'gpt-6.1-sol', topicsRouting: true },
+      { model: 'codex:gpt-6.1-sol', topicsRouting: true },
+    ]) {
+      const id = resolveDispatchTopicIdentity(o, FLEET);
+      expect(id.provider).toBe('codex');
+      expect(id.model).toBe('gpt-6.1-sol');
+      expect(id.topicsRouting).toBe(true);
+      expect(id.executor).toBe('codex');
+    }
+  });
+
+  it('una card mai toccata (null) su claude-code gira diretta, e il topic porta lo 0 effettivo', () => {
+    const id = resolveDispatchTopicIdentity({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null }, FLEET);
+    expect(id.topicsRouting).toBe(false);
+    expect(id.executor).toBe('claude-code');
+  });
+
+  it('il motore in scoperta fa aspettare la card, non la parcheggia', () => {
+    const loading = snapshot([
+      { ...entry('topics', []), status: 'loading' } as unknown as ReturnType<typeof entry>,
+      entry('claude-code', ['claude-opus-5']),
+    ]);
+    let failure: unknown;
+    try { resolveDispatchTopicIdentity({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting: true }, loading); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({ code: 'task_provider_pending', provider: 'topics' });
   });
 
   it('il legacy topics:<model> non si trasforma in un pin: resta Automatico con lo switch acceso', () => {

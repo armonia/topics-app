@@ -214,7 +214,6 @@
       "hhmm"
     ],
     "client/src/components/Browser/RemoteBrowserPanel.tsx": [
-      "cancelled",
       "kbdRef"
     ],
     "client/src/components/Browser/SelectElementOverlay.tsx": [

@@ -124,6 +124,31 @@ describe("subagent wake", () => {
     expect(h.posted).toEqual([]);
   });
 
+  // Verifier, 03/10: a child the parent stopped before its transcript existed
+  // is reported `no-transcript`, and the reason alone let it start a turn.
+  for (const [what, over] of [
+    ["no transcript", { status: "stopped", reason: { code: "no-transcript" } }],
+    ["no prompt", { status: "undelivered", reason: { code: "no-prompt" } }],
+    ["a turn that had completed", { status: "completed" }],
+  ] as Array<[string, Partial<SubAgentResult>]>) {
+    test(`a stop the parent asked for never wakes it, whatever the result says (${what}): the row only`, async () => {
+      const h = harness();
+      h.ask(result({ ...over, partial: false, text: "", stoppedByParent: true }));
+      await h.wake.idle();
+      expect(h.posted).toEqual([]);
+      expect(h.rows).toEqual(["c1"]);
+      expect(h.settled).toEqual(["c1:1"]);
+    });
+  }
+
+  test("a child without a transcript that a person closed still wakes the parent", async () => {
+    const h = harness();
+    h.ask(result({ status: "stopped", partial: false, text: "", reason: { code: "no-transcript" } }));
+    await h.wake.idle();
+    expect(h.posted.map((p) => p.subagentResults.map((r) => r.agentId))).toEqual([["c1"]]);
+    expect(h.rows).toEqual([]);
+  });
+
   test("a route that refuses for good falls back to the row, the result is not lost", async () => {
     const h = harness({ answers: [500] });
     h.ask(result());

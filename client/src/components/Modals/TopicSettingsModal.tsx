@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { ChevronDown, Route } from 'lucide-react';
 
 import { createPortal } from 'react-dom';
 import { X, FolderOpen, GitBranch, BellOff, ShieldCheck } from 'lucide-react';
@@ -12,7 +13,11 @@ const AUTONOMY_CHOICES: { value: AutonomyLevel; label: string; blurb: string }[]
 ];
 import { ShareControl } from '../Share/ShareControl';
 import { buildTabLinkForTarget } from '../../lib/tabLink';
-import { Select } from '../Shared/Select';
+import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { catalogModelLabel } from '../../lib/modelLabel';
+import { chatRouteTarget, chatTopicsRoute } from '../../lib/topicsRoutingGate';
+import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
@@ -21,7 +26,6 @@ import { useToast } from '../Shared/Toast';
 import { useT } from '../../hooks/useT';
 import { SwitchTrack } from '../Shared/Switch';
 import { useConfirm } from '../../hooks/useConfirm';
-import { apiFetch } from '../../lib/shell/net';
 import { storableTopicColor, topicColorInks } from '../../lib/topicColor';
 import { fromHex, toHex } from '../../lib/iconTint';
 
@@ -40,13 +44,6 @@ interface TopicSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-}
-
-interface ProviderInfo {
-  name: string;
-  connected: boolean;
-  capabilities: string[];
-  isDefault: boolean;
 }
 
 /**
@@ -106,6 +103,10 @@ export function buildTopicSettingsUpdate(
     promptLoaded: boolean;
     contextFiles: string[];
     provider: string | null;
+    /** MSEL-10: the model chosen with the provider; sent only when it changed. */
+    model?: string | null;
+    /** «Esegui in Topics» for this chat; sent only when it changed. */
+    topicsRouting?: boolean | null;
     muted: boolean;
     autonomy: AutonomyLevel | null;
   },
@@ -123,6 +124,8 @@ export function buildTopicSettingsUpdate(
     ...(values.promptLoaded ? { systemPrompt: values.systemPrompt } : {}),
     contextFiles: values.contextFiles,
     provider: values.provider,
+    ...(values.model !== undefined && values.model !== (topic.model ?? null) ? { model: values.model } : {}),
+    ...(values.topicsRouting !== undefined && values.topicsRouting !== (topic.topicsRouting ?? null) ? { topicsRouting: values.topicsRouting } : {}),
   };
 }
 
@@ -147,9 +150,13 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [contextFilesList, setContextFilesList] = useState<string[]>(topic.contextFiles || []);
   const [newContextFile, setNewContextFile] = useState('');
   const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
+  const [model, setModel] = useState<string | null>(topic.model ?? null);
+  const [topicsRouting, setTopicsRouting] = useState<boolean | null>(topic.topicsRouting ?? null);
+  const [modelOpen, setModelOpen] = useState(false);
+  const modelButtonRef = useRef<HTMLButtonElement>(null);
+  const { snapshot } = useProvidersSnapshot();
   const [muted, setMuted] = useState(!!topic.muted);
   const [autonomy, setAutonomy] = useState<AutonomyLevel | null>(topic.autonomyLevel ?? null);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const toast = useToast();
   const tr = useT();
@@ -180,6 +187,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setContextFilesList(topic.contextFiles || []);
     setNewContextFile('');
     setProvider(topic.provider ?? null);
+    setModel(topic.model ?? null);
+    setTopicsRouting(topic.topicsRouting ?? null);
     setMuted(!!topic.muted);
     setAutonomy(topic.autonomyLevel ?? null);
     setSaved(false);
@@ -220,17 +229,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on topic.id like the seeding effect above: a WS-minted topic object must not re-fetch and wipe the prompt being edited
   }, [topic.id, isOpen]);
 
-  // Fetch available providers
-  useEffect(() => {
-    if (!isOpen || isGlobalOrchestrator) {
-      setProviders([]);
-      return;
-    }
-    apiFetch('/api/providers')
-      .then(r => r.json())
-      .then(data => setProviders(data.providers || []))
-      .catch(() => setProviders([]));
-  }, [isOpen, isGlobalOrchestrator]);
 
   // Dirty state is pure derived data (current form vs. the topic prop), so we
   // compute it during render instead of mirroring it into state via an effect.
@@ -243,6 +241,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     (promptLoaded && systemPrompt !== loadedPrompt) ||
     JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
     provider !== (topic.provider ?? null) ||
+    model !== (topic.model ?? null) ||
+    topicsRouting !== (topic.topicsRouting ?? null) ||
     autonomy !== (topic.autonomyLevel ?? null)
   ));
 
@@ -264,6 +264,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       promptLoaded,
       contextFiles: contextFilesList,
       provider,
+      model,
+      topicsRouting,
       muted,
       autonomy,
     }));
@@ -687,33 +689,47 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               per riaccenderlo sta in
               openspec/changes/autonomy-level-needs-permission-channel/. */}
 
-          {/* Provider */}
+          {/* Provider e modello (MSEL-01, MSEL-10): lo stesso selettore del
+              composer, nella variante `full`, al posto della tendina col solo
+              provider. */}
           <div>
             <label className="block text-prose font-medium text-app-text mb-2">
-              Provider
+              {tr('topic.settings.model')}
             </label>
             <p className="text-mini text-app-text-muted mb-2">
-              Which AI provider handles conversations in this topic.
+              {tr('topic.settings.modelHint')}
             </p>
-            <Select
-              value={provider || ''}
-              onChange={v => setProvider(v || null)}
-              ariaLabel="Provider"
-              className="w-full"
-              options={[
-                {
-                  value: '',
-                  label: `Default${providers.find(p => p.isDefault) ? ` (${providers.find(p => p.isDefault)!.name})` : ''}`,
-                },
-                ...providers.map(p => ({
-                  value: p.name,
-                  // Il pallino pieno/vuoto diceva \u00ABconnesso\u00BB senza dirlo: ora \u00E8
-                  // una glossa in chiaro, che il menu disegnato pu\u00F2 permettersi
-                  // e una `<option>` nativa no.
-                  label: p.name,
-                  hint: p.connected ? 'Connesso' : 'Non connesso',
-                })),
-              ]}
+            <button
+              ref={modelButtonRef}
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={modelOpen}
+              data-testid="topic-settings-model"
+              onClick={() => setModelOpen((open) => !open)}
+              className="flex w-full items-center gap-2 rounded-lg border border-app-border bg-app-inset px-3 py-2 coarse:min-h-11 text-left text-prose text-app-text hover:bg-app-hover"
+            >
+              {chatTopicsRoute(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot, provider ? null : model).via === 'topics' && (
+                <Route className="h-3.5 w-3.5 shrink-0 text-primary" aria-label={tr('ai.selector.route.topics')} />
+              )}
+              <span className="min-w-0 flex-1 truncate">
+                {model ? catalogModelLabel(snapshot, provider, model) : tr('topic.settings.modelDefault')}
+                {provider && <span className="text-app-text-muted"> · {snapshot?.providers.find((entry) => entry.name === provider)?.label ?? provider}</span>}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+            </button>
+            <ModelSelector
+              open={modelOpen}
+              anchorRef={modelButtonRef}
+              onClose={() => setModelOpen(false)}
+              testId="topic-settings-model-popover"
+              ariaLabel={tr('topic.settings.model')}
+              scope="chat"
+              variant="full"
+              value={{ provider, model }}
+              routingTarget={chatRouteTarget(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot, provider ? null : model)}
+              onSelect={(next) => { setProvider(next.provider); setModel(next.model); }}
+              automatic={{ label: tr('topic.settings.modelDefault'), hint: tr('topic.settings.modelDefaultHint') }}
+              topicsRouting={{ enabled: effectiveTopicsRouting(topicsRouting, null, 'chat'), onToggle: setTopicsRouting }}
             />
           </div>
 

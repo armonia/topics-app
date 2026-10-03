@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Boxes, CaseSensitive } from 'lucide-react';
+import { Loader2, AlertTriangle, RotateCw, Boxes } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -21,7 +21,10 @@ import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
 import { PaneContextMenu } from './PaneContextMenu';
 import { formatSize, formatProgress, downloadPercent } from './downloadsModel';
-import { stepMatchIndex, formatMatchCounter } from './findInPageModel';
+import { FindBar } from '../Shared/FindBar';
+import { getFindState, nextIndex, registerFinder, reportFindResult, useFindPaneId, type PaneFinder } from '../../state/findRegistry';
+import { createDomFinder } from '../../lib/domFind';
+import { focusBrowserPane } from '../../lib/shell/tauri';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
@@ -312,6 +315,46 @@ function useBackToSpawner(
 }
 
 /**
+ * The finder of a native browser pane (BROWSER-FIND-01/02): `window.find` in
+ * the page for the selection, the innerText count for the total, and the
+ * index kept here (`stepMatchIndex`, the same wrap as `window.find`). Esc
+ * gives the keyboard back to the page when the bar was opened from inside it
+ * (FIND-03, `browser_focus_pane`).
+ */
+function useNativeBrowserFinder(
+  paneId: string,
+  contextId: string,
+  browser: { findInPage: (t: string, o?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }) => Promise<void>; stopFind: () => Promise<void>; countMatches?: (t: string, o?: { matchCase?: boolean }) => Promise<number> },
+): void {
+  const browserRef = useRef(browser);
+  useEffect(() => { browserRef.current = browser; });
+  useEffect(() => {
+    let query = '';
+    let matchCase = false;
+    const count = async () => (await browserRef.current.countMatches?.(query, { matchCase })) ?? 0;
+    const finder: PaneFinder = {
+      // The count walks the whole page text through an IPC round trip.
+      debounceMs: 150,
+      async search(q, o) {
+        query = q;
+        matchCase = o.matchCase;
+        return count();
+      },
+      async step(forward) {
+        await browserRef.current.findInPage(query, { forward, findNext: true, matchCase });
+        // The total can still be on its way (debounce): asking here is what
+        // makes «1 of 12» true at the first Enter.
+        const total = getFindState(paneId).total ?? await count();
+        return { index: nextIndex(paneId, total, forward), total };
+      },
+      clear() { void browserRef.current.stopFind(); },
+      restoreFocus({ openedFromPage }) { if (openedFromPage) focusBrowserPane(contextId); },
+    };
+    return registerFinder(paneId, finder);
+  }, [paneId, contextId]);
+}
+
+/**
  * Tauri native browser pane. Mirrors the Electron native path: a real child
  * WKWebView (driven by useTauriBrowser → browser_* Rust commands) composited
  * over the React layout via the shared NativeBrowserPlaceholder.
@@ -367,19 +410,12 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // A page lent by a topic's window knows the way home, and says so here: with
   // the window shrunk to its bar this is the reachable way back.
   const returnToTopicWindow = useReturnToTopicWindow(contextId, { url: browser.url, title: browser.title });
-  const [findOpen, setFindOpen] = useState(false);
-  const [findText, setFindText] = useState('');
-  const [findCount, setFindCount] = useState<number | null>(null);
-  // Su QUALE corrispondenza siamo (1-based, 0 = nessun ⏎ ancora). Non ha una
-  // sorgente nativa: `window.find` sposta la selezione e torna un booleano,
-  // quindi l'indice lo tiene il client e la regola sta in `stepMatchIndex`
-  // (pura, ciclica nei due versi come il wrap di window.find).
-  const [findIndex, setFindIndex] = useState(0);
-  const [findMatchCase, setFindMatchCase] = useState(false);
-  // Il totale letto DENTRO il gestore di ⏎, che non può aspettare il render
-  // successivo per saperlo.
-  const findCountRef = useRef<number | null>(findCount);
-  findCountRef.current = findCount;
+  // Find-in-page (BROWSER-FIND-01/02): the bar is the shared one, the engine
+  // is `window.find` + the innerText count, registered for this pane. ⌘F is
+  // the global handler's, on the FOCUSED pane only: this panel's own key
+  // listener used to open the bar in every browser pane mounted.
+  const findPaneId = useFindPaneId() ?? `browser:${contextId}`;
+  useNativeBrowserFinder(findPaneId, contextId, browser);
   const [forgetOpen, setForgetOpen] = useState(false);
 
   // The tab is the chrome: publish what the tab draws, and decide when the
@@ -544,9 +580,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   }, [isVisible, browser.url, knownPaneUrl, browser.ready, focusUrlBar]);
 
   // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
-  // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·
-  // Cmd+(+/-/0) zoom. Skip when typing in a text field: the sheet's own address
-  // field stops its keys before they get here.
+  // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward ·
+  // Cmd+(+/-/0) zoom. Cmd+F is not here: it opens the find bar of the FOCUSED
+  // pane from the global handler (BROWSER-FIND-02). Skip when typing in a
+  // text field: the sheet's own address field stops its keys before they get
+  // here.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
@@ -561,7 +599,6 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       else if (!e.altKey && !e.shiftKey && k === 'r') { e.preventDefault(); void browser.reload(); }
       else if (!e.altKey && !e.shiftKey && e.key === '[') { e.preventDefault(); void browser.goBack(); }
       else if (!e.altKey && !e.shiftKey && e.key === ']') { e.preventDefault(); void browser.goForward(); }
-      else if (!e.altKey && !e.shiftKey && k === 'f') { e.preventDefault(); setFindOpen(true); }
       else if (!e.shiftKey && (e.key === '+' || e.key === '=')) { e.preventDefault(); void browser.setZoom(0.5); }
       else if (!e.shiftKey && e.key === '-') { e.preventDefault(); void browser.setZoom(-0.5); }
       else if (!e.shiftKey && e.key === '0') { e.preventDefault(); void browser.setZoom('reset'); }
@@ -574,86 +611,9 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     return () => window.removeEventListener('keydown', handler);
   }, [browser, focusUrlBar]);
 
-  const runFind = useCallback(
-    async (forward: boolean) => {
-      if (!findText) return;
-      await browser.findInPage(findText, { forward, findNext: true, matchCase: findMatchCase });
-      // Il totale può non essere ancora arrivato: il conteggio ha 150ms di
-      // debounce e il primo ⏎ arriva prima. Chiederlo qui è ciò che rende «1/12»
-      // vero già al primo invio, invece di uno «0/12» che si corregge dopo.
-      let total = findCountRef.current;
-      if (total === null) {
-        total = (await browser.countMatches?.(findText, { matchCase: findMatchCase })) ?? 0;
-        setFindCount(total);
-      }
-      setFindIndex((i) => stepMatchIndex(i, total ?? 0, forward));
-    },
-    [browser, findText, findMatchCase],
-  );
-  const closeFind = useCallback(() => {
-    setFindOpen(false);
-    setFindText('');
-    setFindCount(null);
-    setFindIndex(0);
-    void browser.stopFind();
-  }, [browser]);
-
-  // Live match count (window.find gives none, so countMatches walks the page text).
-  // Il conteggio passa lo STESSO matchCase della ricerca: due letture della
-  // stessa cosa con due regole diverse fanno ciclare il contatore in anticipo.
-  useEffect(() => {
-    if (!findOpen || !findText) { setFindCount(null); return; }
-    let cancelled = false;
-    const t = setTimeout(() => {
-      void browser.countMatches?.(findText, { matchCase: findMatchCase }).then((n) => { if (!cancelled) setFindCount(n); });
-    }, 150);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [findOpen, findText, findMatchCase, browser]);
-
-  const findBtn = 'w-6 h-6 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0';
-
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="browser-native-panel" data-browser-pane={contextId}>
-      {findOpen && (
-        <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
-          <input
-            autoFocus
-            value={findText}
-            onChange={(e) => {
-              setFindText(e.target.value);
-              // Testo nuovo, ricerca nuova: l'indice riparte da fermo, altrimenti
-              // il primo ⏎ mostrerebbe «4/9» su una ricerca appena cominciata.
-              setFindIndex(0);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); void runFind(!e.shiftKey); }
-              else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
-            }}
-            placeholder={tr('browser.find.placeholder')}
-            data-testid="browser-find-input"
-            className="flex-1 h-6 px-2 text-compact rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
-          />
-          {findCount !== null && (
-            <span className="text-mini text-app-text-muted tabular-nums flex-shrink-0 min-w-[4ch] text-right" data-testid="browser-find-count">
-              {formatMatchCounter(findIndex, findCount)}
-            </span>
-          )}
-          {/* Maiuscole/minuscole. Serviva anche a rendere vero il parametro:
-              `findInPage` dichiarava `matchCase` e nessuno glielo passava. */}
-          <button
-            className={`${findBtn} ${findMatchCase ? 'text-app-text bg-app-hover' : ''}`}
-            title={findMatchCase ? tr('browser.find.caseOn') : tr('browser.find.case')}
-            aria-pressed={findMatchCase}
-            data-testid="browser-find-matchcase"
-            onClick={() => { setFindMatchCase((v) => !v); setFindIndex(0); }}
-          >
-            <CaseSensitive size={14} aria-hidden />
-          </button>
-          <button className={findBtn} title={tr('browser.find.prev')} onClick={() => void runFind(false)}><ChevronUp size={14} aria-hidden /></button>
-          <button className={findBtn} title={tr('browser.find.next')} onClick={() => void runFind(true)}><ChevronDown size={14} aria-hidden /></button>
-          <button className={findBtn} title={tr('browser.find.close')} onClick={closeFind}><X size={14} aria-hidden /></button>
-        </div>
-      )}
+    <div className="flex flex-col h-full min-h-0" data-testid="browser-native-panel" data-browser-pane={contextId} data-find-pane={findPaneId}>
+      <FindBar paneId={findPaneId} />
       {/* La scheda non risponde più. Sta SOPRA l'errore di navigazione perché lo
           scavalca: se la vista nativa non accetta comandi, «Riprova» non può
           riprovare niente. Non si può nemmeno chiudere — un pane morto non
@@ -750,12 +710,46 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   );
 }
 
+/**
+ * The finder of the shared browser (BROWSER-FIND-04). In `dom` mode the page
+ * is an rrweb mirror rebuilt in a same-origin iframe of THIS client, so the
+ * text is already here: `domFind` walks it, highlights in the iframe's own
+ * `CSS.highlights` and recounts on rrweb mutations. In `video` mode the page
+ * is pixels: the bar opens with the field disabled and says so. In neither
+ * mode does ⌘F fall back to the project search.
+ */
+function useSharedBrowserFinder(paneId: string, renderMode: 'dom' | 'video'): (read: (() => Document | null) | null) => void {
+  const modeRef = useRef(renderMode);
+  useEffect(() => { modeRef.current = renderMode; });
+  const readDocRef = useRef<(() => Document | null) | null>(null);
+  useEffect(() => {
+    const dom = createDomFinder({
+      root: () => readDocRef.current?.()?.body ?? null,
+      observeMutations: true,
+      injectStyle: true,
+      onRecount: (r) => reportFindResult(paneId, r),
+    });
+    const finder: PaneFinder = {
+      get unavailableKey() { return modeRef.current === 'video' ? 'find.unavailable.video' : undefined; },
+      debounceMs: dom.debounceMs,
+      search: (q, o) => (modeRef.current === 'video' ? 0 : dom.search(q, o)),
+      step: (f) => (modeRef.current === 'video' ? { index: 0, total: 0 } : dom.step(f)),
+      clear: () => dom.clear(),
+    };
+    const off = registerFinder(paneId, finder);
+    return () => { off(); dom.dispose(); };
+  }, [paneId]);
+  return useCallback((read: (() => Document | null) | null) => { readDocRef.current = read; }, []);
+}
+
 function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const tr = useT();
   const toast = useToast();
   const browser = useRemoteBrowser(contextId, isVisible);
+  const findPaneId = useFindPaneId() ?? `browser:${contextId}`;
+  const exposeMirrorDocument = useSharedBrowserFinder(findPaneId, browser.renderMode);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   // Vedi il gemello nel ramo Tauri: login salvato dall'agente → reiniettato una
   // volta, così la preview di un task protetto si apre già dentro.
@@ -1154,7 +1148,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       // page loaded inside the pane. It stayed hidden because the other browser
       // specs stub `/api/browsers/*`, get no `framable` key back, and so take
       // the streaming path, which had the anchor.
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-pane" data-browser-pane={contextId}>
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-pane" data-browser-pane={contextId} data-find-pane={findPaneId}>
         {/* The box the hosted frame is parked over. Empty on purpose: its only
             job is to be measured. `data-browser-frame-slot` is what a test uses
             to tie a slot to the frame covering it. */}
@@ -1197,6 +1191,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         }
         .animate-ripple { animation: ripple 0.5s ease-out forwards; }
       `}</style>
+      <FindBar paneId={findPaneId} />
 
       {/* Content — screenshot viewer. containerRef wires a debounced
           ResizeObserver → the server viewport tracks this element's real size
@@ -1279,6 +1274,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 registerFocusSink={browser.registerFocusSink}
                 sendInput={browser.sendInput}
                 agentActive={browser.agentActive}
+                exposeMirrorDocument={exposeMirrorDocument}
               />
             </div>
           </Suspense>

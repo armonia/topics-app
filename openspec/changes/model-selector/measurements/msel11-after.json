@@ -1,0 +1,8 @@
+{
+ "settingsBaseUrl": "http://127.0.0.1:49280",
+ "listenerReceived": [
+  "POST /v1/messages auth=Bearer fake-thro"
+ ],
+ "blockedNonLoopback": [],
+ "outcome": "ok"
+}

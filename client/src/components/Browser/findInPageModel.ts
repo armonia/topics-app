@@ -39,12 +39,33 @@ export function stepMatchIndex(current: number, total: number, forward: boolean)
   return at === 1 ? t : at - 1;
 }
 
+/** The counter's two numbers, the index always brought inside the total: the
+ *  bar must not say «14 of 12» even for one frame after the count dropped. */
+export function clampMatchCounter(index: number, total: number): { index: number; total: number } {
+  const t = Number.isFinite(total) && total > 0 ? Math.floor(total) : 0;
+  const raw = Number.isFinite(index) ? Math.floor(index) : 0;
+  const i = t === 0 ? 0 : Math.max(0, Math.min(t, raw));
+  return { index: i, total: t };
+}
+
 /** «3/12», e «0/0» quando non c'è niente da trovare. L'indice viene sempre
  *  riportato dentro il totale: la barra non deve poter dire «14/12» nemmeno per
  *  un giro, se il conteggio è appena scesso. */
 export function formatMatchCounter(index: number, total: number): string {
-  const t = Number.isFinite(total) && total > 0 ? Math.floor(total) : 0;
-  const raw = Number.isFinite(index) ? Math.floor(index) : 0;
-  const i = t === 0 ? 0 : Math.max(0, Math.min(t, raw));
-  return `${i}/${t}`;
+  const c = clampMatchCounter(index, total);
+  return `${c.index}/${c.total}`;
+}
+
+/** What the find bar shows (FIND-01): «3 di 12» / «3 of 12» from the i18n key
+ *  `find.counter`, and «oltre 1000» / «over 1000» (`find.counter.over`) when
+ *  the engine stopped counting positions past its limit. */
+export function formatFindCounter(
+  index: number,
+  total: number,
+  tr: (key: string, vars?: Record<string, string | number>) => string,
+  overLimit: number | null = null,
+): string {
+  if (overLimit !== null && overLimit > 0) return tr('find.counter.over', { n: overLimit });
+  const c = clampMatchCounter(index, total);
+  return tr('find.counter', { i: c.index, t: c.total });
 }

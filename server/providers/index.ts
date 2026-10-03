@@ -55,6 +55,14 @@ const PROVIDER_PREFERENCE_ORDER = [
   "openclaw",
 ];
 
+/** Where a provider stands in that order; anything unlisted ranks after, in
+ *  registration order (a stable sort keeps it). The snapshot lists its rows
+ *  this way (MSEL-05). */
+export function providerPreferenceRank(name: string): number {
+  const i = PROVIDER_PREFERENCE_ORDER.indexOf(name);
+  return i === -1 ? PROVIDER_PREFERENCE_ORDER.length : i;
+}
+
 // ---------------------------------------------------------------------------
 // Factory (single provider)
 // ---------------------------------------------------------------------------

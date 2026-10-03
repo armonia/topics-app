@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8">
+<title>model-selector: mockup</title>
+<!-- Static mockup, today vs proposed, light and dark. Not wired to anything.
+     Tokens copied from client/src/index.css (:root and .dark). Icons are lucide paths inlined.
+     Rows and numbers come from the catalog measured on 2026-10-02: Claude Code CLI (11 ids),
+     ~/.codex/models_cache.json (8 listed). Gemini models are NOT measured: shown as "non pronto". -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.45 -apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+header{padding:20px 28px;background:hsl(220 5.6% 93%);color:hsl(220 3.5% 10.6%);border-bottom:1px solid hsl(220 4.9% 88.5%)}
+header h1{font-size:16px;margin:0 0 4px}
+header p{margin:0 0 4px;color:hsl(220 2.8% 36.4%);max-width:980px}
+
+/* index.css :root */
+.light{--bg:hsl(220 5.6% 96%);--surface:#fff;--elevated:hsl(220 4.9% 98.1%);--hover:hsl(220 4.9% 96.3%);--inset:hsl(220 4.9% 97.4%);
+  --text:hsl(220 3.5% 10.6%);--text2:hsl(220 2.8% 36.4%);--muted:hsl(220 2.8% 42.5%);--faint:hsl(220 2.8% 42.1%);
+  --border:hsl(220 4.9% 91.4%);--border-light:hsl(220 4.9% 88.5%);--subtle:hsl(220 4.9% 94.4%);
+  --primary:#0066ff;--primary-light:rgba(0,102,255,.1);--primary-medium:rgba(0,102,255,.15);
+  --ok:#10b981;--warn:#f59e0b;--warn-ink:#b45309;--kbd:#656a75;--shadow:0 10px 30px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.06)}
+/* index.css .dark */
+.dark{--bg:hsl(222 5.6% 8.5%);--surface:hsl(222 4.9% 11%);--elevated:hsl(220 4.5% 14%);--hover:hsl(220 4.2% 17%);--inset:hsl(222 5.2% 10%);
+  --text:#e6e8ec;--text2:#aab0ba;--muted:#8a9099;--faint:#898b8f;
+  --border:hsl(220 3.8% 18%);--border-light:hsl(220 3.5% 24%);--subtle:hsl(220 4.2% 15%);
+  --primary:#4d94ff;--primary-light:rgba(77,148,255,.12);--primary-medium:rgba(77,148,255,.2);
+  --ok:#34d399;--warn:#fbbf24;--warn-ink:#fbbf24;--kbd:#9ca3af;--shadow:0 10px 30px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.4)}
+
+.theme{padding:22px 28px 34px;background:var(--bg);color:var(--text)}
+.theme>h1{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin:0 0 14px}
+h2{font-size:12px;font-weight:600;margin:0 0 8px;color:var(--text2)}
+.cap{color:var(--muted);font-size:11px;max-width:380px;margin:8px 0 0}
+.grid{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column}
+.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.i.s{width:12px;height:12px}
+
+/* Popover (Menu + POPOVER_ITEM) */
+.pop{width:352px;background:var(--elevated);border:1px solid var(--border);border-radius:.5rem;box-shadow:var(--shadow);overflow:hidden;font-size:12px}
+.scroll{max-height:none}
+.band{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--inset)}
+.band.on{background:var(--primary-light);box-shadow:inset 2px 0 0 var(--primary)}
+.band .ic{color:var(--primary);margin-top:1px}
+.band.off .ic{color:var(--muted)}
+.band .t{font-weight:600;font-size:12px}
+.band .l{font-size:11px;color:var(--text2);margin-top:2px;line-height:1.35}
+.band .l.warn{color:var(--warn-ink)}
+.band .body{flex:1;min-width:0}
+.sw{width:28px;height:16px;border-radius:99px;background:var(--border-light);position:relative;flex:none;margin-top:1px}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.on{background:var(--ok)}.sw.on::after{left:14px}
+.search{display:flex;align-items:center;gap:8px;margin:8px;padding:0 10px;height:32px;border:1px solid var(--border-light);border-radius:6px;background:var(--surface);color:var(--muted)}
+.search.focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-light);color:var(--text)}
+.search .q{flex:1}
+.search .ph{color:var(--muted)}
+kbd{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--border-light);border-radius:4px;padding:0 4px;color:var(--kbd);background:var(--surface)}
+.row{display:flex;align-items:center;gap:8px;padding:0 12px;height:28px;color:var(--text)}
+.row.sel{background:var(--primary-light)}
+.row.hot{background:var(--hover)}
+.row.focus{outline:2px solid var(--primary);outline-offset:-2px;border-radius:4px}
+.row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .sub{display:block;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.auto{height:auto;padding:6px 12px}
+.row.dis{color:var(--muted)}
+.win{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;width:30px;text-align:right}
+.via{font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:3px;min-width:72px;justify-content:flex-end}
+.via.topics{color:var(--primary)}
+.via.btn{border:1px solid var(--border-light);border-radius:4px;padding:0 4px;height:18px}
+.chk{width:12px;display:flex;justify-content:center;color:var(--ok)}
+.tog{font-size:9px;font-weight:600;border:1px solid var(--border-light);border-radius:4px;padding:0 3px;color:var(--muted);line-height:14px}
+.tog.on{background:var(--primary-medium);border-color:transparent;color:var(--primary)}
+.sec{position:sticky;top:0;display:flex;align-items:center;gap:6px;padding:8px 12px 3px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);background:var(--elevated)}
+.sec .eng{margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;display:inline-flex;align-items:center;gap:4px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block}
+.dot.w{background:var(--warn)}
+.more{display:flex;align-items:center;gap:6px;padding:0 12px;height:26px;color:var(--muted);font-size:11px}
+.more .ret{margin-left:auto;color:var(--warn-ink);font-size:10px}
+.ret{color:var(--warn-ink);font-size:10px}
+.na{margin:2px 12px 6px;padding:6px 8px;border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent);border-radius:6px;font-size:11px;color:var(--text2)}
+.na a{color:var(--primary);text-decoration:none;margin-left:4px}
+.foot{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:6px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)}
+.hr{border-top:1px solid var(--subtle);margin:4px 0}
+
+/* composer */
+.composer{width:560px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 10px 8px}
+.composer .txt{color:var(--muted);font-size:13px;height:34px}
+.bar{display:flex;align-items:center;gap:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border-radius:8px;color:var(--muted);font-size:11px;font-weight:500}
+.chip.open{background:var(--hover);color:var(--text)}
+.chip .r{color:var(--primary)}
+.badge{font-size:9px;font-weight:600;border-radius:4px;padding:0 4px;background:var(--primary-medium);color:var(--primary)}
+.send{margin-left:auto;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center}
+.anchor{display:flex;flex-direction:column;gap:6px}
+.anchor .pop{margin-left:90px}
+
+/* today */
+.today{display:flex;gap:8px}
+.lvl{width:220px;background:var(--elevated);border:1px solid var(--border);border-radius:.5rem;box-shadow:var(--shadow);padding:4px 0;font-size:12px}
+.lvl .hd{padding:6px 12px 2px;font-weight:600;font-size:11px}
+.lvl .hn{padding:0 12px 4px;font-size:10px;color:var(--muted)}
+.lvl .row{height:26px}
+.lvl .row .rt{color:var(--muted)}
+.step{font-size:10px;color:var(--warn-ink);font-weight:600}
+
+/* phone */
+.phone{width:390px;height:844px;border-radius:44px;border:10px solid #111;background:var(--bg);position:relative;overflow:hidden;box-shadow:var(--shadow)}
+.phone .chat{padding:58px 16px 0;color:var(--muted);font-size:13px}
+.phone .bubble{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:10px 12px;margin-bottom:10px;color:var(--text)}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:85%;background:var(--elevated);border-radius:16px 16px 0 0;box-shadow:var(--shadow);overflow:hidden;font-size:14px;display:flex;flex-direction:column}
+.handle{width:36px;height:5px;border-radius:3px;background:var(--border-light);margin:8px auto 2px}
+.sheet .band .t{font-size:14px}.sheet .band .l{font-size:12px}
+.sheet .search{height:40px;font-size:14px}
+.sheet .row{height:44px;font-size:14px}
+.sheet .row .sub{font-size:11px}
+.sheet .sec{font-size:11px}
+.sheet .more{height:40px;font-size:13px}
+.sheet .via{font-size:11px}
+.sheet .list{overflow:hidden;flex:1}
+.sheet .fade{height:22px;background:linear-gradient(transparent,var(--elevated));margin-top:-22px;position:relative}
+
+/* variants */
+.field{width:352px;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--border-light);border-radius:6px;background:var(--surface);font-size:12px}
+.field .nm{flex:1}
+.lab{font-size:12px;font-weight:600;margin-bottom:6px}
+.hint{font-size:11px;color:var(--muted);margin:-2px 0 6px}
+.row.tall{height:auto;padding:6px 12px;align-items:flex-start}
+.row.tall .chk,.row.tall .via,.row.tall .win{margin-top:2px}
+.card{width:260px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.card .tt{font-size:12px;font-weight:600;margin-bottom:8px}
+.cchip{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text2);border:1px solid var(--border);border-radius:99px;padding:1px 7px}
+.cchip .r{color:var(--primary)}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+</svg>
+
+<header>
+  <h1>model-selector: il selettore del modello, oggi e proposto</h1>
+  <p>Proposta consigliata delle 5 scelte: «Esegui in Topics» acceso dove si può, in una fascia in cima; una riga per modello divisa per azienda; una lista sola con ricerca e intestazioni ferme; generazioni vecchie in «Altri modelli»; 1M dentro la riga.</p>
+  <p>Righe e numeri dal catalogo misurato il 02/10 (CLI Claude Code: 11 id; cache Codex: 8 visibili, finestra 272k). Gemini è configurato su questo Mac (chiave e <code>gemini</code> nel PATH), ma i suoi modelli non li ho misurati: è disegnato «non pronto» solo per mostrare quello stato. Altezza misurata del pannello: 585 px in chiaro, 532 in scuro, con 2 aziende; ogni azienda in più aggiunge circa 160 px, e oltre lo spazio disponibile scorre solo la lista.</p>
+</header>
+
+<!-- ============================ LIGHT ============================ -->
+<section class="theme light">
+<h1>Chiaro</h1>
+<div class="grid">
+
+  <div class="col">
+    <h2>Oggi: due livelli, prima l'esecuzione e poi il modello</h2>
+    <div class="today">
+      <div class="lvl">
+        <div class="row"><svg class="i" style="color:var(--muted)"><use href="#route"/></svg><span class="nm">Instrada via Topics</span><span class="sw"></span></div>
+        <div class="hd">Prima scegli l'esecuzione</div>
+        <div class="hn">Il modello viene dopo e resta compatibile con il motore scelto.</div>
+        <div class="row"><svg class="i" style="color:var(--muted)"><use href="#sparkles"/></svg><span class="nm">Torna al default</span></div>
+        <div class="row hot"><span class="dot"></span><span class="nm">Claude Code</span><span class="rt" style="font-size:10px">Pronto</span></div>
+        <div class="row"><span class="dot"></span><span class="nm">Codex</span><span class="rt" style="font-size:10px">Pronto</span></div>
+        <div class="row"><span class="dot"></span><span class="nm">jcode</span><span class="rt" style="font-size:10px">Pronto</span></div>
+        <div class="row"><span class="dot w"></span><span class="nm">Gemini</span><span class="rt" style="font-size:10px">Non disponibile</span></div>
+      </div>
+      <div class="lvl">
+        <div class="row"><svg class="i" style="color:var(--muted)"><use href="#route"/></svg><span class="nm">Instrada via Topics</span><span class="sw"></span></div>
+        <div class="row"><svg class="i"><use href="#left"/></svg><span class="nm">Claude Code</span><span class="dot"></span></div>
+        <div class="row sel"><span class="nm">Opus 5.5</span><span class="win">200K</span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+        <div class="row"><span class="nm">Opus 5.5 · 1M</span><span class="win">1M</span><span class="chk"></span></div>
+        <div class="row"><span class="nm">Opus 4.8</span><span class="win">200K</span><span class="chk"></span></div>
+        <div class="row"><span class="nm">Opus 4.8 · 1M</span><span class="win">1M</span><span class="chk"></span></div>
+        <div class="row"><span class="nm">Sonnet 5.5</span><span class="win">200K</span><span class="chk"></span></div>
+        <div class="row" style="color:var(--muted)"><span class="nm">… altri 6</span></div>
+      </div>
+    </div>
+    <p class="cap">Da Opus a GPT: <span class="step">chip → ← Claude Code → Codex → modello</span>, 4 clic, e i due elenchi non si vedono mai insieme. La spiegazione dell'interruttore è solo nel tooltip, che sul telefono non esiste.</p>
+  </div>
+
+  <div class="col anchor">
+    <h2>Proposta, desktop: aperto con Opus 5.5 scelto</h2>
+    <div class="pop">
+      <div class="band on">
+        <svg class="i ic"><use href="#route"/></svg>
+        <div class="body"><div class="t">Esegui in Topics</div>
+          <div class="l">Claude gira dentro Topics col tuo abbonamento, senza aprire un processo Claude Code per chat. GPT e Gemini restano diretti.</div></div>
+        <span class="sw on"></span>
+      </div>
+      <div class="search focus"><svg class="i"><use href="#search"/></svg><span class="q ph">Cerca modello o azienda</span><kbd>⌘⇧M</kbd></div>
+      <div class="row auto"><svg class="i" style="color:var(--muted)"><use href="#sparkles"/></svg><span class="nm">Automatico<span class="sub">Topics sceglie il modello per ogni richiesta tra quelli pronti</span></span><span class="chk"></span></div>
+      <div class="sec">Anthropic<span class="eng"><span class="dot"></span>Claude Code · jcode</span></div>
+      <div class="row sel"><span class="nm">Opus 5.5</span><span class="tog">1M</span><span class="win">200K</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+      <div class="row"><span class="nm">Sonnet 5.5</span><span class="tog">1M</span><span class="win">200K</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">Fable 5.1</span><span class="win">1M</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">Haiku 4.5</span><span class="win">200K</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+      <div class="more"><svg class="i s"><use href="#right"/></svg>Altri modelli (3)</div>
+      <div class="sec">OpenAI<span class="eng"><span class="dot"></span>Codex</span></div>
+      <div class="row"><span class="nm">GPT-6.1-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Astra</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Luna</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="more"><svg class="i s"><use href="#right"/></svg>Altri modelli (4)<span class="ret">1 si ritira il 14/10</span></div>
+      <div class="sec">Google<span class="eng"><span class="dot w"></span>Gemini</span></div>
+      <div class="na">Gemini non è pronto: accedi dal terminale.<a href="#">Apri impostazioni</a></div>
+    </div>
+    <div class="composer">
+      <div class="txt">Scrivi un messaggio…</div>
+      <div class="bar"><span class="chip open"><svg class="i s r"><use href="#route"/></svg>Opus 5.5<span class="badge">200K</span><svg class="i s"><use href="#down"/></svg></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div>
+    </div>
+    <p class="cap">Anthropic e OpenAI insieme, senza livelli. Il segno <svg class="i s" style="color:var(--primary);vertical-align:-2px"><use href="#route"/></svg> sul chip dice che il turno passa da Topics.</p>
+  </div>
+
+  <div class="col">
+    <h2>Desktop: GPT scelto, ricerca «gpt»</h2>
+    <div class="pop">
+      <div class="band">
+        <svg class="i ic"><use href="#route"/></svg>
+        <div class="body"><div class="t">Esegui in Topics</div>
+          <div class="l warn">Questo modello va diretto: Codex non passa da Topics.</div></div>
+        <span class="sw on"></span>
+      </div>
+      <div class="search focus"><svg class="i"><use href="#search"/></svg><span class="q">gpt</span></div>
+      <div class="sec">OpenAI<span class="eng"><span class="dot"></span>Codex</span></div>
+      <div class="row sel focus"><span class="nm">GPT-6.1-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+      <div class="row"><span class="nm">GPT-6-Astra</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Luna</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="hr"></div>
+      <div class="row"><span class="nm" style="color:var(--text2)">GPT-5.6-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm" style="color:var(--text2)">GPT-5.6-Terra</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm" style="color:var(--text2)">GPT-5.6-Luna</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm" style="color:var(--text2)">GPT-5.5 <span class="ret">si ritira il 14/10</span></span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> scorri</span><span><kbd>↵</kbd> scegli</span><span><kbd>esc</kbd> chiudi</span></div>
+    </div>
+    <p class="cap">La ricerca apre anche i modelli piegati. La fascia resta accesa e dice perché questo turno va diretto: nessun blocco, nessun banner rosso.</p>
+  </div>
+
+  <div class="col">
+    <h2>Telefono, 390 px</h2>
+    <div class="phone">
+      <div class="chat"><div class="bubble">Rifai il layout della board in due colonne</div><div class="bubble" style="color:var(--text2)">Ok, parto da BoardView.tsx…</div></div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="handle"></div>
+        <div class="band on">
+          <svg class="i ic"><use href="#route"/></svg>
+          <div class="body"><div class="t">Esegui in Topics</div>
+            <div class="l">Claude gira dentro Topics col tuo abbonamento, senza aprire un processo Claude Code per chat. GPT e Gemini restano diretti.</div></div>
+          <span class="sw on"></span>
+        </div>
+        <div class="search"><svg class="i"><use href="#search"/></svg><span class="q ph">Cerca modello o azienda</span></div>
+        <div class="list">
+          <div class="row auto" style="height:auto"><svg class="i" style="color:var(--muted)"><use href="#sparkles"/></svg><span class="nm">Automatico<span class="sub">Topics sceglie per ogni richiesta</span></span><span class="chk"></span></div>
+          <div class="sec">Anthropic<span class="eng"><span class="dot"></span>Claude Code</span></div>
+          <div class="row sel"><span class="nm">Opus 5.5<span class="sub">200K</span></span><span class="tog">1M</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+          <div class="row"><span class="nm">Sonnet 5.5<span class="sub">200K</span></span><span class="tog">1M</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">Fable 5.1<span class="sub">1M</span></span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">Haiku 4.5<span class="sub">200K</span></span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="more"><svg class="i s"><use href="#right"/></svg>Altri modelli (3)</div>
+          <div class="sec">OpenAI<span class="eng"><span class="dot"></span>Codex</span></div>
+          <div class="row"><span class="nm">GPT-6.1-Sol<span class="sub">272K</span></span><span class="via">via Codex</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">GPT-6-Astra<span class="sub">272K</span></span><span class="via">via Codex</span><span class="chk"></span></div>
+        </div>
+        <div class="fade"></div>
+      </div>
+    </div>
+    <p class="cap">Foglio dal basso con la maniglia, righe da 44 px, finestra sotto il nome. La ricerca non prende il fuoco, così la tastiera non copre la lista. La spiegazione si legge senza tooltip.</p>
+  </div>
+
+  <div class="col">
+    <h2>Variante «full»: default della board</h2>
+    <div class="lab">Modello delle card</div>
+    <div class="hint">Le card in Automatico partono da qui.</div>
+    <div class="field"><svg class="i s" style="color:var(--primary)"><use href="#route"/></svg><span class="nm">Opus 5.5 · via Topics</span><svg class="i s" style="color:var(--muted)"><use href="#down"/></svg></div>
+    <div class="pop" style="margin-top:6px">
+      <div class="band on"><svg class="i ic"><use href="#route"/></svg><div class="body"><div class="t">Esegui in Topics (default della board)</div><div class="l">Vale per le card che non lo cambiano.</div></div><span class="sw on"></span></div>
+      <div class="sec">OpenAI<span class="eng"><span class="dot"></span>Codex</span></div>
+      <div class="row tall"><span class="nm">GPT-6.1-Sol<span class="sub" style="white-space:normal">Latest workhorse model for coding and everyday work.</span></span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row tall"><span class="nm">GPT-6-Astra<span class="sub" style="white-space:normal">Frontier intelligence for the most demanding work.</span></span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row tall"><span class="nm">Automatico in Codex<span class="sub" style="white-space:normal">Topics sceglie tra i modelli Codex.</span></span><span class="via"></span><span class="chk"></span></div>
+    </div>
+    <p class="cap">Stesso pannello, con la descrizione per intero (dalla cache di Codex, così com'è). Sulle card restano solo i motori che sanno scrivere codice, e «Automatico in Codex».</p>
+    <h2 style="margin-top:18px">Variante «chip»: la card</h2>
+    <div class="card"><div class="tt">Due colonne nella board</div><span class="cchip"><svg class="i s r"><use href="#route"/></svg>Opus 5.5 · via Topics</span> <span class="cchip">high</span></div>
+    <p class="cap">Si legge e basta. Il clic apre la compatta, finché la sessione non è assegnata.</p>
+  </div>
+
+</div>
+</section>
+
+<!-- ============================ DARK ============================ -->
+<section class="theme dark">
+<h1>Scuro</h1>
+<div class="grid">
+
+  <div class="col anchor">
+    <h2>Desktop: aperto, interruttore spento</h2>
+    <div class="pop">
+      <div class="band off">
+        <svg class="i ic"><use href="#route"/></svg>
+        <div class="body"><div class="t">Esegui in Topics</div>
+          <div class="l" style="color:var(--muted)">Claude gira dentro Topics col tuo abbonamento, senza aprire un processo Claude Code per chat. GPT e Gemini restano diretti.</div></div>
+        <span class="sw"></span>
+      </div>
+      <div class="search focus"><svg class="i"><use href="#search"/></svg><span class="q ph">Cerca modello o azienda</span><kbd>⌘⇧M</kbd></div>
+      <div class="row auto"><svg class="i" style="color:var(--muted)"><use href="#sparkles"/></svg><span class="nm">Automatico<span class="sub">Topics sceglie il modello per ogni richiesta tra quelli pronti</span></span><span class="chk"></span></div>
+      <div class="sec">Anthropic<span class="eng"><span class="dot"></span>Claude Code · jcode</span></div>
+      <div class="row sel"><span class="nm">Opus 5.5</span><span class="tog on">1M</span><span class="win">1M</span><span class="via btn">Claude Code<svg class="i s"><use href="#down"/></svg></span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+      <div class="row hot"><span class="nm">Sonnet 5.5</span><span class="tog">1M</span><span class="win">200K</span><span class="via btn">Claude Code<svg class="i s"><use href="#down"/></svg></span><span class="chk"></span></div>
+      <div class="row" style="padding-left:24px;gap:4px;height:26px"><span style="font-size:10px;color:var(--muted);margin-right:4px">via</span><span class="tog on" style="font-size:10px;padding:0 6px">Claude Code</span><span class="tog" style="font-size:10px;padding:0 6px">jcode</span></div>
+      <div class="row"><span class="nm">Fable 5.1</span><span class="win">1M</span><span class="via">via Claude Code</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">Haiku 4.5</span><span class="win">200K</span><span class="via">via Claude Code</span><span class="chk"></span></div>
+      <div class="more"><svg class="i s"><use href="#right"/></svg>Altri modelli (3)</div>
+      <div class="sec">OpenAI<span class="eng"><span class="dot"></span>Codex</span></div>
+      <div class="row"><span class="nm">GPT-6.1-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Astra</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Sol</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="row"><span class="nm">GPT-6-Luna</span><span class="win">272K</span><span class="via">via Codex</span><span class="chk"></span></div>
+      <div class="more"><svg class="i s"><use href="#right"/></svg>Altri modelli (4)<span class="ret">1 si ritira il 14/10</span></div>
+    </div>
+    <div class="composer">
+      <div class="txt">Scrivi un messaggio…</div>
+      <div class="bar"><span class="chip open">Opus 5.5<span class="badge">1M</span><svg class="i s"><use href="#down"/></svg></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div>
+    </div>
+    <p class="cap">Da spento: la fascia è neutra, le righe Claude dicono il motore vero e, dove i motori sono due (qui solo per mostrarlo: l'elenco di jcode non è misurato), lo cambiano sul posto con →. Il chip non ha il segno.</p>
+  </div>
+
+  <div class="col">
+    <h2>Telefono, 390 px, GPT scelto</h2>
+    <div class="phone">
+      <div class="chat"><div class="bubble">Rifai il layout della board in due colonne</div></div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="handle"></div>
+        <div class="band">
+          <svg class="i ic"><use href="#route"/></svg>
+          <div class="body"><div class="t">Esegui in Topics</div>
+            <div class="l warn">Questo modello va diretto: Codex non passa da Topics.</div></div>
+          <span class="sw on"></span>
+        </div>
+        <div class="search"><svg class="i"><use href="#search"/></svg><span class="q ph">Cerca modello o azienda</span></div>
+        <div class="list">
+          <div class="sec">Anthropic<span class="eng"><span class="dot"></span>Claude Code</span></div>
+          <div class="row"><span class="nm">Opus 5.5<span class="sub">200K</span></span><span class="tog">1M</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">Sonnet 5.5<span class="sub">200K</span></span><span class="tog">1M</span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">Fable 5.1<span class="sub">1M</span></span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">Haiku 4.5<span class="sub">200K</span></span><span class="via topics"><svg class="i s"><use href="#route"/></svg>via Topics</span><span class="chk"></span></div>
+          <div class="more"><svg class="i s"><use href="#right"/></svg>Altri modelli (3)</div>
+          <div class="sec">OpenAI<span class="eng"><span class="dot"></span>Codex</span></div>
+          <div class="row sel"><span class="nm">GPT-6.1-Sol<span class="sub">272K</span></span><span class="via">via Codex</span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+          <div class="row"><span class="nm">GPT-6-Astra<span class="sub">272K</span></span><span class="via">via Codex</span><span class="chk"></span></div>
+          <div class="row"><span class="nm">GPT-6-Sol<span class="sub">272K</span></span><span class="via">via Codex</span><span class="chk"></span></div>
+        </div>
+        <div class="fade"></div>
+      </div>
+    </div>
+    <p class="cap">Stesso foglio in scuro. Le intestazioni restano ferme in alto mentre la lista scorre.</p>
+  </div>
+
+  <div class="col">
+    <h2>Oggi, scuro: lo stato bloccato</h2>
+    <div class="lvl" style="width:320px">
+      <div class="row"><svg class="i" style="color:var(--muted)"><use href="#route"/></svg><span class="nm">Instrada via Topics</span><span style="font-size:10px;color:#fcd34d">Non disponibile</span><span class="sw on"></span></div>
+      <div class="row"><svg class="i"><use href="#left"/></svg><span class="nm">Codex</span><span class="dot"></span></div>
+      <div class="row sel"><span class="nm">GPT-6.1-sol</span><span class="win">≈1M</span><span class="chk"><svg class="i s"><use href="#check"/></svg></span></div>
+      <div class="row"><span class="nm">GPT-5.6-sol</span><span class="win">400K</span><span class="chk"></span></div>
+    </div>
+    <div class="composer" style="width:320px;margin-top:8px">
+      <div style="color:#ef4444;font-size:11px;padding-bottom:6px">Instradamento leggero acceso ma non disponibile per questo provider o modello. Spegni lo switch per riprendere a scrivere.</div>
+      <div class="bar"><span class="chip">GPT-6.1-sol<span class="badge" style="background:var(--hover);color:var(--muted)">≈1M</span></span><span class="send" style="opacity:.4"><svg class="i"><use href="#up"/></svg></span></div>
+    </div>
+    <p class="cap">Oggi: interruttore acceso più un GPT danno l'invio bloccato e il banner rosso (<code>ChatInput.tsx:1766</code>). In più le finestre dei GPT sono sbagliate: ≈1M e 400K, mentre la cache di Codex dice 272K.</p>
+  </div>
+
+</div>
+</section>
+</body></html>

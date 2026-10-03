@@ -19,8 +19,7 @@ import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
-import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
-import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 import { useComposerBoardSettings } from '../../hooks/useCardBoardSettings';
 import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
@@ -196,7 +195,6 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // The subscription used to be lazy here, opened only when the menu opened.
   // The shared store already collapses every consumer onto a single fetch, so
   // the laziness bought nothing and let this chip lag behind the drawer.
-  const models = useTaskModelCatalog(model);
   // ── Intake: dove va questo testo? ────────────────────────────────────────
   // Il composer chiede alla board se il testo che stai scrivendo somiglia a un
   // lavoro già aperto. Quello che torna è una PROPOSTA e basta: finché non la
@@ -645,21 +643,22 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               title={model ? tr('board.composer.modelNamedTitle', { label: friendlyModelLabel(model) }) : tr('board.composer.modelAutoTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-mini text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : tr('board.composer.modelAutoChip')}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
-            <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.model')}</p>
-              <TaskModelMenuOptions
-                models={models}
-                value={model}
-                boardValue={boardDispatchModel}
-                onSelect={(m) => { setModel(m); setModelOpen(false); }}
-                autoLabel={tr('board.composer.modelAuto')}
-                autoTitle={tr('board.composer.modelAutoOptionTitle')}
-                topicsRouting={{
-                  enabled: surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel),
-                  onToggle: setTopicsRouting,
-                }}
-              />
-            </Menu>
+            <TaskModelSelector
+              open={modelOpen}
+              anchorRef={modelBtnRef}
+              onClose={() => setModelOpen(false)}
+              testId="composer-model-popover"
+              ariaLabel={tr('board.composer.model')}
+              variant="compact"
+              value={model}
+              boardValue={boardDispatchModel}
+              onSelect={(m) => { setModel(m); setModelOpen(false); }}
+              automatic={{ label: tr('board.composer.modelAuto'), hint: tr('board.composer.modelAutoOptionTitle') }}
+              topicsRouting={{
+                enabled: surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel),
+                onToggle: setTopicsRouting,
+              }}
+            />
             <button
               ref={prioBtnRef}
               onClick={() => setPrioOpen(true)}

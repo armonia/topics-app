@@ -22,6 +22,7 @@ import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFe
 import { TranscriptRowResizeContext } from './transcriptRowResize';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
+import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -237,6 +238,17 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // sub-second tool stays readable instead of blinking.
   const [userToggled, setUserToggled] = useState(false);
   const [autoOpen, setAutoOpen] = useState(false);
+  // The chat find bar landed on a result inside this call (CHAT-FIND-02): the
+  // row opens on the edge of that, as for the failure badge above, and stays
+  // as the reader leaves it. Opening fetches the whole output below
+  // (`loadDetail`), which is where the word is.
+  const findSeq = useFindFocusTool(toolCall.id);
+  const [seenFindSeq, setSeenFindSeq] = useState(0);
+  if (findSeq !== 0 && findSeq !== seenFindSeq) {
+    setSeenFindSeq(findSeq);
+    setUserToggled(true);
+    setOpen(true);
+  }
   const autoOpenedAtRef = useRef(0);
   useEffect(() => {
     // The rule itself lives in `toolRowDisclosure.ts`, where a test can reach
@@ -550,6 +562,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {tr('chat.question.answerQueued')}
         </div>
       )}
+      <FindToolIdContext.Provider value={toolCall.id}>
       <DisclosureBody open={effectiveOpen} className="ml-5 pb-1.5" onMotion={onRowResize ?? undefined}>
           {/* Pending input form takes precedence: when the agent is asking
               the user, the regular ToolCardBody (args/result preview) is
@@ -636,6 +649,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </div>
           )}
       </DisclosureBody>
+      </FindToolIdContext.Provider>
     </div>
   );
 });

@@ -66,6 +66,7 @@ import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
 import { apiFetch } from '../../lib/shell/net';
+import { registerFindFallback, useFindPaneId } from '../../state/findRegistry';
 
 /** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
@@ -658,6 +659,17 @@ const KEYBOARD_SENSOR_OPTS = { coordinateGetter: sortableKeyboardCoordinates } a
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, orchestrator, onStartMission }: Props) {
   const tr = useT();
+  // ⌘F on the board puts the cursor in its filter, which is the board's own
+  // search (FIND-02): the board registers no finder, only this.
+  const findPaneId = useFindPaneId();
+  useEffect(() => {
+    if (!findPaneId) return;
+    return registerFindFallback(findPaneId, () => {
+      const input = document.querySelector<HTMLInputElement>(`[data-find-pane="${CSS.escape(findPaneId)}"] [data-testid="filter-token-input"]`);
+      input?.focus();
+      input?.select();
+    });
+  }, [findPaneId]);
   // A dead `/task/<id>` has to SAY SO, with the same words a dead `/tab/…`
   // permalink uses: two roads to one destination cannot answer differently. The
   // API of the provider is stable after mount (Toast.tsx keeps senders in their

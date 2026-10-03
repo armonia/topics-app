@@ -127,9 +127,11 @@ pub fn decide(c: &Chord) -> ChordAction {
         // handler to forward to (the shell reloads all UI windows itself), and
         // Ctrl+Shift+R stays free for "record voice".
         ChordKey::Char('r') if c.ctrl && !c.shift => ChordAction::ReloadApp,
-        // The registry's own list: Ctrl+W/K/B/P/N/T, Ctrl+1-9, Ctrl+/ and the
-        // Shift-only ones. Ctrl+C/V/X/A/Z/F carry no `native` flag there, so a
-        // focused page keeps them.
+        // The registry's own list: Ctrl+W/K/B/P/N/T/F/G, Ctrl+1-9, Ctrl+/ and
+        // the Shift-only ones. Ctrl+C/V/X/A/Z carry no `native` flag there, so a
+        // focused page keeps them. Ctrl+F and Ctrl+G joined the forwarded list
+        // with find-in-pane (BROWSER-FIND-02/03): swallowed, WebView2 does not
+        // open its own find bar; the page still gets the DOM keydown.
         ChordKey::Char(ch) if c.ctrl => {
             let mut buf = [0u8; 4];
             let chars = ch.encode_utf8(&mut buf);
@@ -160,7 +162,7 @@ mod tests {
 
     #[test]
     fn app_chords_from_the_registry_are_forwarded() {
-        for ch in ['w', 'k', 'b', 'p', 'n', 't', 'e', 'j', '1', '9', '/'] {
+        for ch in ['w', 'k', 'b', 'p', 'n', 't', 'e', 'j', 'f', 'g', '1', '9', '/'] {
             let a = decide(&chord(true, false, ChordKey::Char(ch)));
             let (js, swallow) = forwarded_key(&a).unwrap_or_else(|| panic!("Ctrl+{ch} not forwarded"));
             assert!(js.contains(&format!("key:'{ch}'")), "{js}");
@@ -169,9 +171,28 @@ mod tests {
         }
     }
 
+    /// BROWSER-FIND-02/03: Ctrl+F with a page focused opens OUR bar, and the
+    /// engine is asked not to open its own (`swallow`). Ctrl+Shift+F is the
+    /// project search, Ctrl+G / Ctrl+Shift+G step through the results.
+    #[test]
+    fn find_chords_are_forwarded_and_swallowed() {
+        for (ch, shift) in [('f', false), ('f', true), ('g', false), ('g', true)] {
+            let a = decide(&chord(true, shift, ChordKey::Char(ch)));
+            match a {
+                ChordAction::Forward { js, swallow: true } => {
+                    assert!(js.contains(&format!("key:'{ch}'")), "{js}");
+                    assert!(js.contains(&format!("shiftKey:{shift}")), "{js}");
+                }
+                other => panic!("Ctrl+{}{ch} must be forwarded and swallowed, got {other:?}", if shift { "Shift+" } else { "" }),
+            }
+        }
+    }
+
+    /// 'f' left this list with find-in-pane: it is a contract that changed
+    /// (BROWSER-FIND-02), not an assertion made weaker.
     #[test]
     fn page_chords_stay_with_the_page() {
-        for ch in ['c', 'v', 'x', 'a', 'z', 'f', 'l', 'y'] {
+        for ch in ['c', 'v', 'x', 'a', 'z', 'l', 'y'] {
             assert_eq!(
                 decide(&chord(true, false, ChordKey::Char(ch))),
                 ChordAction::PassThrough,

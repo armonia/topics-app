@@ -1468,6 +1468,7 @@ export function GroupLayout({
                   <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
                     <PaneKeepAlive
                       paneKey={stableKeyOf(pane)}
+                      findPaneId={pane.id}
                       isVisible={isPaneActive}
                       // Cell background tier (paneCellBg): `project`/`terminal`
                       // fully transparent (they frost themselves), chat + kanban +
@@ -1705,6 +1706,7 @@ export function GroupLayout({
                 <PaneKeepAlive
                   key={stableKeyOf(pane)}
                   paneKey={stableKeyOf(pane)}
+                  findPaneId={pane.id}
                   isVisible={isPaneActive}
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >

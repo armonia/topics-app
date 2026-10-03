@@ -17,7 +17,7 @@ import { useToast } from '../Shared/Toast';
 import { Spinner } from '../Shared/Spinner';
 import { ansiLines, plainLines, type AnsiSpan } from './ansiSpans';
 import { refreshMessageRuns, subscribeRunOutput } from './commandRunStore';
-import { formatRunDuration, runDraftText, shortenHome } from './commandRunText';
+import { formatRunDuration, runDraftText, runDurationMs, shortenHome } from './commandRunText';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { StableToggleLabel } from './StableToggleLabel';
@@ -115,8 +115,8 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
   };
 
   const startedAt = Date.parse(run.startedAt);
-  const durationMs = (run.endedAt ? Date.parse(run.endedAt) : now) - startedAt;
-  const duration = formatRunDuration(durationMs);
+  const durationMs = runDurationMs(run, now);
+  const duration = durationMs === null ? tr('run.durationUnknown') : formatRunDuration(durationMs);
   const outcome = run.status === 'running' ? tr('run.running')
     : run.status === 'stopped' ? tr('run.stopped')
     : run.status === 'unknown' || run.exitCode === null ? tr('run.unknown')

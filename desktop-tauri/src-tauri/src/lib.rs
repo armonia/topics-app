@@ -7766,6 +7766,54 @@ fn browser_release_focus_inner(app: tauri::AppHandle, window_label: Option<Strin
     Ok(())
 }
 
+/// Give the keyboard BACK to a browser pane's page: the inverse of
+/// `browser_release_focus`, and the release-build twin of the debug-only
+/// `focus_grab_browser`.
+///
+/// Find-in-pane (FIND-03): ⌘F typed inside a page opens the app's find bar,
+/// which takes the system keyboard (`browser_release_focus`) so the letters
+/// land in the bar and not in the page. Esc closes the bar and must put the
+/// keyboard back where it was, inside the page; until this command existed
+/// only a debug build could do that.
+///
+/// macOS: `makeFirstResponder:` on the pane's WKWebView, the body of
+/// `focus_grab_browser_inner`. Elsewhere: `set_focus` on the pane's webview,
+/// which is wry's `MoveFocus(PROGRAMMATIC)` on WebView2 and `grab_focus` on
+/// WebKitGTK. Whether that really hands a child WebView2 the keyboard is NOT
+/// measured from a Mac; the manual pass on the PC is the proof (task 4.3).
+// ENGINES: wkwebview, webview2, webkitgtk - first responder on macOS, wry's set_focus (MoveFocus / grab_focus) elsewhere.
+#[tauri::command]
+fn browser_focus_pane(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_focus_pane", move || browser_focus_pane_inner(app, id))
+}
+
+fn browser_focus_pane_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app
+        .get_webview(&browser_label(&id))
+        .ok_or("no such browser pane")?;
+    #[cfg(target_os = "macos")]
+    {
+        wv.with_webview(move |platform| unsafe {
+            use crate::mac::*;
+            let view = platform.inner() as id;
+            if view == nil {
+                return;
+            }
+            let ns_window: id = msg_send![view, window];
+            if ns_window != nil {
+                let _: () = msg_send![ns_window, makeFirstResponder: view];
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        wv.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Injected probe for the env-gated sidebar FPS self-test: samples rAF frame deltas
 /// while driving 6 real sidebar collapse/expands (via the diagnostic global App.tsx
 /// exposes), then posts a frame-timing summary to `fps_report`. A composited
@@ -8813,8 +8861,11 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
 /// The ⌘-chord allowlist is GENERATED from the shared registry
 /// (`shared/shortcuts.ts` → `shortcuts_generated::is_forwarded_cmd_chord`), so it
 /// can't silently drift from the "Keyboard Shortcuts" window. It deliberately
-/// EXCLUDES page-critical chords (⌘C/⌘V/⌘X/⌘A/⌘Z, ⌘F find-in-page, ⌘R reload) —
-/// those registry rows carry no `native` flag, so a focused web page keeps them.
+/// EXCLUDES page-critical chords (⌘C/⌘V/⌘X/⌘A/⌘Z, ⌘R reload) — those registry
+/// rows carry no `native` flag, so a focused web page keeps them. ⌘F and ⌘G
+/// are NOT among them any more: find-in-pane opens the app's own bar on the
+/// focused pane (BROWSER-FIND-02), so they are forwarded and the page no longer
+/// receives them (a page with its own ⌘F, Google Docs, loses it on the Mac).
 /// The fail-safe default stays "not a chord → pass through". Tab-cycle (keyCode
 /// 48) and bare Escape (keyCode 53) key off `key_code`, not chars, so they stay
 /// hand-written here.
@@ -8845,7 +8896,7 @@ fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, alt: bool, chars: &
         "Tab"
     } else if cmd && !ctrl && shortcuts_generated::is_forwarded_cmd_chord(shift, chars) {
         // Forwarded ⌘-chord (from the registry): re-dispatch it as-is. The set —
-        // ⌘W/K/B/P/N, ⌘1‥9, ⌘⇧T/⌘⇧U, ⌘//⌘? — is generated; ⌘C/V/X/A/Z/F/R and
+        // ⌘W/K/B/P/N/F/G, ⌘1‥9, ⌘⇧T/⌘⇧U, ⌘//⌘? — is generated; ⌘C/V/X/A/Z/R and
         // everything else carry no `native` flag, so the page keeps them.
         chars
     } else {
@@ -8873,7 +8924,7 @@ fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, alt: bool, chars: &
 /// NOT inside the main webview, re-dispatch the chord as a synthetic keydown into
 /// the main webview (so the one renderer handler runs) and swallow the original
 /// (so the page doesn't also act on it). Everything else — all page typing, and
-/// ⌘C/⌘V/⌘Z/⌘F which the page needs — passes through untouched.
+/// ⌘C/⌘V/⌘Z which the page needs — passes through untouched.
 #[cfg(target_os = "macos")]
 fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     use crate::mac::*;
@@ -11697,6 +11748,7 @@ pub fn run() {
             browser_devtools_open,
             browser_try_suspend,
             browser_release_focus,
+            browser_focus_pane,
             browser_nav_entries,
             browser_go_to_index,
             #[cfg(debug_assertions)]
@@ -11996,6 +12048,25 @@ mod mac_chord_dispatch_tests {
     /// codes for the two letters.
     const KEY_W: u16 = 13;
     const KEY_E: u16 = 14;
+    const KEY_F: u16 = 3;
+    const KEY_G: u16 = 5;
+
+    /// BROWSER-FIND-02: ⌘F, ⌘G and ⇧⌘G typed inside a native page reach the
+    /// app's handler (and the monitor swallows the original). Red before the
+    /// registry gained `native` on those rows: the function answered None.
+    #[test]
+    fn find_chords_reach_the_renderer() {
+        let f = app_chord_dispatch_js(true, false, false, false, "f", KEY_F).expect("⌘F must be forwarded");
+        assert!(f.contains("key:'f'") && f.contains("metaKey:true") && f.contains("shiftKey:false"), "{f}");
+        let g = app_chord_dispatch_js(true, false, false, false, "g", KEY_G).expect("⌘G must be forwarded");
+        assert!(g.contains("key:'g'"), "{g}");
+        let sg = app_chord_dispatch_js(true, false, true, false, "g", KEY_G).expect("⇧⌘G must be forwarded");
+        assert!(sg.contains("shiftKey:true"), "{sg}");
+        let sf = app_chord_dispatch_js(true, false, true, false, "f", KEY_F).expect("⇧⌘F must be forwarded");
+        assert!(sf.contains("key:'f'") && sf.contains("shiftKey:true"), "{sf}");
+        // Ctrl proper on a Mac is the page's (forward one char in a field).
+        assert!(app_chord_dispatch_js(false, true, false, false, "f", KEY_F).is_none());
+    }
 
     fn cmd_chord(chars: &str, key_code: u16, alt: bool) -> String {
         app_chord_dispatch_js(true, false, false, alt, chars, key_code)

@@ -33,8 +33,7 @@ import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
 import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
 import { paneIdToContextId } from '../../state/taskBrowserLayout';
-import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
-import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { machineLabel, nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
@@ -1385,7 +1384,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
   // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const models = useTaskModelCatalog(task?.model);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
   // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).
@@ -2298,22 +2296,23 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
             </button>
-            <Menu open={modelMenuOpen && !task.assignedTopicId} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
-              <TaskModelMenuOptions
-                models={models}
-                value={task.model || null}
-                boardValue={boardDispatchModel}
-                onSelect={changeModel}
-                disabled={busy}
-                autoLabel={tr('board.task.modelAutoOption')}
-                autoIcon
-                topicsRouting={{
-                  enabled: surfaceTopicsRoutingEnabled(task.topicsRouting, boardTopicsRoutingDefault, task.model, boardDispatchModel),
-                  onToggle: changeTopicsRouting,
-                }}
-              />
-            </Menu>
+            <TaskModelSelector
+              open={modelMenuOpen && !task.assignedTopicId}
+              anchorRef={modelBtnRef}
+              onClose={() => setModelMenuOpen(false)}
+              testId="task-model-popover"
+              ariaLabel={tr('board.task.agentModel')}
+              variant="compact"
+              value={task.model || null}
+              boardValue={boardDispatchModel}
+              onSelect={changeModel}
+              disabled={busy}
+              automatic={{ label: tr('board.task.modelAutoOption'), hint: tr('board.composer.modelAutoOptionTitle') }}
+              topicsRouting={{
+                enabled: surfaceTopicsRoutingEnabled(task.topicsRouting, boardTopicsRoutingDefault, task.model, boardDispatchModel),
+                onToggle: changeTopicsRouting,
+              }}
+            />
             {/* WHERE it runs, next to WHAT it runs with: same register as the
                 model chip, same `Menu` primitive. A node is not a preference of
                 the agent, it is the machine that executes the turn. */}

@@ -71,23 +71,16 @@ test.describe.serial("Provider/Model picker", () => {
     await pickerBtn.click();
 
     // Pick the first ENABLED model row INSIDE the popover. Rows carry the raw
-    // model id in `data-model` (the label shown is the friendly one, which
-    // varies per provider) — matching on the attribute keeps this selector
-    // independent of how the row is displayed.
-    //
-    // The engine picked here is `claude-code` on purpose, never "the first
-    // button": the isolated test server (scripts/start-test-server.sh) makes
-    // it ready, while the first engine in the list is "Claude (API)", which
-    // is not — clicking it left no enabled model and the test fell back to a
-    // conditional skip (card ac9e80cc). Ready is guaranteed, so the skip is
-    // gone: this is a hard assertion now.
+    // model id in `data-model` and the engine that runs them in
+    // `data-provider` (the label shown is the friendly one). Since the one
+    // selector (MSEL-02) there is no engine level to open first: the
+    // `claude-code` rows are in the panel already. The isolated test server
+    // (scripts/start-test-server.sh) makes that engine ready, so this is a
+    // hard assertion, never a conditional skip (card ac9e80cc).
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
-    const runtime = popover.locator('button[data-provider="claude-code"]');
-    await expect(runtime).toBeVisible({ timeout: 5_000 });
-    await runtime.click();
     const enabledModel = popover
-      .locator("button:not([disabled])[data-model]")
+      .locator('[data-testid="model-row"][data-provider="claude-code"]:not([aria-disabled="true"])')
       .first();
     await expect(enabledModel).toBeVisible({ timeout: 5_000 });
     await enabledModel.click();
