@@ -19,6 +19,7 @@ import { findPendingPlan, planApprovalMessage } from './planDetection';
 import { clearAskDraft, readAskDraft } from './askDraft';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { forkModeFor } from '../../../../shared/chat-fork';
+import { providerLabel } from '../../../../shared/provider-labels';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag } from './chatFileDrop';
 import { dragLeftHost } from '../../lib/dragLeave';
@@ -1141,7 +1142,7 @@ function ChatPaneComponent({
     }
     // An engine that does not compact on request says so, by name (CMDUI-06).
     if (cmd === '/compact' && declared && !topicsEntryFor('compact', declared)) {
-      setCommandResult({ type: 'error', message: tr('chat.compact.unsupported', { engine: getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === declared)?.label ?? declared }) });
+      setCommandResult({ type: 'error', message: tr('chat.compact.unsupported', { engine: getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === declared)?.label ?? providerLabel(declared) }) });
       return true;
     }
     if (cmd === '/compact') {
