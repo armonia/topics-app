@@ -1235,11 +1235,12 @@ describe("assembleTopicContext — la lingua delle risposte", () => {
       { sessionKey: topic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
     );
 
-  it("«auto» non emette NIENTE: un blocco vuoto sembrerebbe rotto", () => {
-    updateAppSettings({ outputLanguage: null });
-    expect(assemble().systemBlocks.map((b) => b.id)).not.toContain("synthetic:output-language");
-    updateAppSettings({ outputLanguage: "auto" });
-    expect(assemble().systemBlocks.map((b) => b.id)).not.toContain("synthetic:output-language");
+  it("«auto» (o nessuna scelta) porta la riga che segue la lingua della persona", () => {
+    for (const outputLanguage of [null, "auto"] as const) {
+      updateAppSettings({ outputLanguage });
+      const block = assemble().systemBlocks.find((b) => b.id === "synthetic:output-language");
+      expect(block?.content).toBe(languageDirective("auto"));
+    }
   });
 
   it("una lingua scelta arriva a un provider SENZA control tool (il punto della modifica)", () => {
