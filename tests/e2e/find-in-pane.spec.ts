@@ -547,6 +547,26 @@ test.describe("Cerca nella pane: il telefono", () => {
     await expect(count(page)).toHaveText("0 di 1", { timeout: 10_000 });
     await page.screenshot({ path: test.info().outputPath("phone-find.png") });
   });
+
+  test.describe("with a finger", () => {
+    test.use({ hasTouch: true, isMobile: true });
+
+    test("FIND-04: the bar's buttons are 44 px tap targets on a touch screen", async ({ page, request }) => {
+      await resetPaneStore(request, [topicId]);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(topicName));
+      const find = page.getByTestId("mobile-pane-find").filter({ visible: true }).first();
+      await expect(find).toBeVisible({ timeout: 15_000 });
+      await find.tap();
+      await expect(bar(page)).toBeVisible();
+      for (const id of ["find-prev", "find-next", "find-close"]) {
+        const box = await bar(page).getByTestId(id).boundingBox();
+        expect(box?.width ?? 0, id).toBeGreaterThanOrEqual(44);
+        expect(box?.height ?? 0, id).toBeGreaterThanOrEqual(44);
+      }
+    });
+  });
 });
 
 /**

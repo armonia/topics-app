@@ -9,7 +9,7 @@
  */
 
 interface HighlightRegistryLike { set(name: string, h: unknown): void; delete(name: string): void }
-type HighlightClass = new (...r: Range[]) => unknown;
+type HighlightClass = new () => { add(r: Range): unknown };
 
 interface Owned { doc: Document; hits: Range[]; current: Range | null }
 
@@ -22,6 +22,14 @@ function api(doc: Document): { registry: HighlightRegistryLike; Highlight: Highl
   return registry && Highlight ? { registry, Highlight } : null;
 }
 
+/** One `add` per range: spread into the constructor, a one-letter query on a
+ *  long page passed the engine's argument limit and threw (V8 near 100k). */
+function build(Highlight: HighlightClass, ranges: readonly Range[]): unknown {
+  const h = new Highlight();
+  for (const r of ranges) h.add(r);
+  return h;
+}
+
 function repaint(doc: Document): void {
   const a = api(doc);
   if (!a) return;
@@ -32,9 +40,9 @@ function repaint(doc: Document): void {
     for (const r of o.hits) if (r !== o.current) hits.push(r);
     if (o.current) current.push(o.current);
   }
-  if (hits.length) a.registry.set('find-hit', new a.Highlight(...hits));
+  if (hits.length) a.registry.set('find-hit', build(a.Highlight, hits));
   else a.registry.delete('find-hit');
-  if (current.length) a.registry.set('find-current', new a.Highlight(...current));
+  if (current.length) a.registry.set('find-current', build(a.Highlight, current));
   else a.registry.delete('find-current');
 }
 

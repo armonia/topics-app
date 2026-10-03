@@ -2055,11 +2055,11 @@ const EN = {
   'shortcuts.close': 'Close the keyboard shortcuts',
   'paneMenu.yolo': 'yolo: skip permission prompts',
   'minimap.position': 'Position in the layout',
-  // ── File search (⌘P / ⌘F).
+  // ── File search (⌘P / ⇧⌘F).
   'fileSearch.modeGroup': 'Search mode',
   'fileSearch.byNameTitle': 'By name (⌘P)',
   'fileSearch.byName': 'name',
-  'fileSearch.inContentTitle': 'In contents (⌘F)',
+  'fileSearch.inContentTitle': 'In contents (⇧⌘F)',
   'fileSearch.inContent': 'contents',
   'fileSearch.dialogOpen': 'Open a file',
   'fileSearch.dialogSearch': 'Search in files',

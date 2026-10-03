@@ -2335,12 +2335,12 @@ const IT: Dict = {
   'shortcuts.close': 'Chiudi le scorciatoie da tastiera',
   'paneMenu.yolo': 'yolo: salta le richieste di permesso',
   'minimap.position': 'Posizione nel layout',
-  // ── Ricerca file (⌘P / ⌘F). Il `placeholder` non è un ancoraggio: lo dice il
+  // ── Ricerca file (⌘P / ⇧⌘F). Il `placeholder` non è un ancoraggio: lo dice il
   //    commento nel componente, e per quello c'è `data-testid`.
   'fileSearch.modeGroup': 'Modo di ricerca',
   'fileSearch.byNameTitle': 'Per nome (⌘P)',
   'fileSearch.byName': 'nome',
-  'fileSearch.inContentTitle': 'Nel contenuto (⌘F)',
+  'fileSearch.inContentTitle': 'Nel contenuto (⇧⌘F)',
   'fileSearch.inContent': 'contenuto',
   'fileSearch.dialogOpen': 'Apri un file',
   'fileSearch.dialogSearch': 'Cerca nei file',

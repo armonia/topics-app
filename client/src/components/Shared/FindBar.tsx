@@ -53,7 +53,7 @@ export function FindBar({ paneId, floating = false }: {
 
   const unavailableKey = finder?.unavailableKey;
   const canReplace = !!finder?.replace && !unavailableKey;
-  const btn = 'w-6 h-6 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0 disabled:opacity-40 disabled:pointer-events-none';
+  const btn = 'w-6 h-6 coarse:w-11 coarse:h-11 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0 disabled:opacity-40 disabled:pointer-events-none';
   const field = 'flex-1 min-w-0 h-6 px-2 text-compact rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary disabled:opacity-60';
   const textBtn = 'h-6 px-2 rounded text-mini text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0 disabled:opacity-40 disabled:pointer-events-none';
 
@@ -67,7 +67,7 @@ export function FindBar({ paneId, floating = false }: {
         ? 'absolute top-1.5 right-2 z-20 w-[min(calc(100%-1rem),26rem)] flex flex-col rounded-md border border-app-border bg-app-bg shadow-lg'
         : 'flex flex-col border-b border-app-border bg-app-bg flex-shrink-0'}
     >
-      <div className="flex items-center gap-1.5 px-3 h-9">
+      <div className="flex items-center gap-1.5 px-3 h-9 coarse:h-12">
         <input
           ref={inputRef}
           value={st.query}
@@ -126,7 +126,7 @@ export function FindBar({ paneId, floating = false }: {
         </button>
       </div>
       {canReplace && (
-        <div className="flex items-center gap-1.5 px-3 h-9 border-t border-app-border" data-testid="find-replace-row">
+        <div className="flex items-center gap-1.5 px-3 h-9 coarse:h-12 border-t border-app-border" data-testid="find-replace-row">
           <input
             value={st.replaceText}
             onChange={(e) => setFindReplaceText(paneId, e.target.value)}
