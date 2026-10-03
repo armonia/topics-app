@@ -4,6 +4,8 @@
  * The list route answers a gateway that is down or failing with a 502 and
  * `{ jobs: [], warning }`. The panel threw `HTTP 502` away and printed «Failed
  * to load»: the reason was on the wire and never reached the screen.
+ *
+ * @covers CRON-01
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

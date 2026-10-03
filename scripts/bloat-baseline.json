@@ -225,7 +225,14 @@
   "deletes the log of every process the registry does not know, so its time now goes on the command_runs row",
   "while the run prints. server/routes/processes.ts 2207 on main -> 2213: +3 the stat of the log as a second",
   "source, +1 the port of a server's page, +2 the call in the once-a-second tail; the throttle and the write",
-  "live in lib/command-runs.ts. Recorded by hand, this row only."
+  "live in lib/command-runs.ts. Recorded by hand, this row only.",
+  "03/10, integra/tornata2z-1003, two lanes on the same two files, each inside the ceiling alone and over it",
+  "together. client/src/lib/api.ts 1990 on main -> 1999: +5 the commands lane (the /project and /reasoning",
+  "answers as codes, the slash menu read for the topic's project), +4 the settings lane (the MCP fleet peek and",
+  "the Claude plan on the providers snapshot). client/src/components/Chat/ChatInput.tsx 1834 on main -> 1908:",
+  "+44 the commands lane (the doors /model /effort /context open, the menu filtered by the declared provider,",
+  "attach during a turn), +14 the settings lane (the tools row of the «+» and its anchor), +12 the door /mcp",
+  "opens, hung from the same «+». Recorded by hand, these two rows only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -253,7 +260,7 @@
 
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 1451,
 
-    "client/src/components/Chat/ChatInput.tsx": 1761,
+    "client/src/components/Chat/ChatInput.tsx": 1908,
 
     "client/src/components/Chat/ChatPane.tsx": 1877,
 
@@ -297,7 +304,7 @@
 
     "client/src/hooks/useTauriBrowser.ts": 1983,
 
-    "client/src/lib/api.ts": 1875,
+    "client/src/lib/api.ts": 1999,
 
     "client/src/lib/board.ts": 1253,
 

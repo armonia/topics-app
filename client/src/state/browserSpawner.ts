@@ -159,14 +159,6 @@ export function useBrowserSpawner(browserContextId: string | null): string | nul
   );
 }
 
-export function useSpawnedBrowser(spawnerTopicId: string | null): string | null {
-  return useSyncExternalStore(
-    subscribeBrowserSpawner,
-    () => (spawnerTopicId ? getSpawnedBrowser(spawnerTopicId) : null),
-    () => null,
-  );
-}
-
 /**
  * The whole spawner→browser map (key: chat topicId or terminal paneId →
  * browser contextId). Lets a tab bar look up "did THIS tab open a browser?" for
