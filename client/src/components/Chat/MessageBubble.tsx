@@ -264,6 +264,7 @@ export const MessageBubble = memo(function MessageBubble({
   const actionsVisibility = showActions ? 'opacity-100' : hoverRevealClass(hasHover);
 
   const actionBtnClass = "w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-primary rounded";
+  const isPinned = (topic.pinnedMessages || []).includes(msg.id);
 
   // THE GOAL LOOP TALKS, IT DOES NOT IMPERSONATE.
   //
@@ -412,6 +413,19 @@ export const MessageBubble = memo(function MessageBubble({
           className={`relative flex flex-col min-w-0`}
           style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : (msg.role === 'user' ? '85%' : '100%') }}
         >
+          {/* A pinned message carries the mark outside the hover too (CMDUI-10):
+              it stays in the agent's context, and that is worth seeing. Out of
+              the flow, so the row does not move when it comes and goes. */}
+          {isPinned && (
+            <span
+              data-testid="message-pinned-mark"
+              role="img"
+              aria-label={tr('chat.message.pinnedMark')}
+              className={`pointer-events-none absolute -top-1.5 ${msg.role === 'user' ? '-left-1.5' : '-right-1.5'} z-[1] text-yellow-500`}
+            >
+              <Pin size={11} className="fill-current" />
+            </span>
+          )}
           {/* Floating action toolbar */}
           {!grouped && (
             <div className={`absolute bottom-full mb-1 ${msg.role === 'user' ? 'right-1' : 'left-1'} flex items-center gap-0.5 z-10 transition-opacity ${actionsVisibility} bg-elevated dark:bg-app-surface rounded-lg shadow-sm border border-app-border-light px-1 py-0.5`}>
@@ -424,7 +438,7 @@ export const MessageBubble = memo(function MessageBubble({
               <button onClick={() => onCopy(msg)} className={actionBtnClass} title={tr('chat.message.copy')} aria-label={tr('chat.message.copyAria')}>
                 {copiedMsgId === msg.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
               </button>
-              <button onClick={() => onTogglePin(msg)} className={`w-7 h-7 flex items-center justify-center rounded ${(topic.pinnedMessages || []).includes(msg.id) ? 'text-yellow-500' : 'text-app-text-muted hover:text-yellow-500'}`} title={tr('chat.message.pin')} aria-label={tr('chat.message.pinAria')}>
+              <button onClick={() => onTogglePin(msg)} aria-pressed={isPinned} className={`w-7 h-7 flex items-center justify-center rounded ${isPinned ? 'text-yellow-500' : 'text-app-text-muted hover:text-yellow-500'}`} title={tr('chat.message.pin')} aria-label={tr('chat.message.pinAria')}>
                 <Pin size={14} />
               </button>
               {msg.role === 'assistant' && onRemember && (

@@ -240,8 +240,6 @@
       "effettivo"
     ],
     "client/src/components/Chat/ChatInput.tsx": [
-      "builtin",
-      "builtinNames",
       "onEsc"
     ],
     "client/src/components/Chat/ChatPane.tsx": [
@@ -4234,14 +4232,12 @@
       "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/topics.ts": [
-      "descOf",
       "detectLocalhostAutoNav",
       "localhostMatch",
       "normalised",
       "rec",
       "stmt",
-      "submittedAt",
-      "txt"
+      "submittedAt"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
       "arr"

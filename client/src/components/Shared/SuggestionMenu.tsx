@@ -76,6 +76,21 @@ export interface SuggestionMenuProps<T> {
   multiSelectable?: boolean;
   /** Panel height cap (default `max-h-64`). */
   maxHeightClass?: string;
+  /**
+   * The group of an item. Consecutive items of one group are drawn under a
+   * header, inside a `role="group"` named by `groupLabel` (the «/» menu,
+   * CMDUI-01). The header is not a row: `selectedIndex` counts items only, so
+   * the arrows cross groups without stopping on a header.
+   */
+  groupOf?: (item: T) => string;
+  groupLabel?: (group: string) => string;
+  /** A line under the list, outside the listbox (what the rows' marks mean). */
+  footer?: React.ReactNode;
+  /** Test hook on the root. */
+  testId?: string;
+  /** While true, a press outside and Escape do not close it: a dialog it
+   *  opened is being answered, and that press belongs to the dialog. */
+  holdOpen?: boolean;
 }
 
 export function SuggestionMenu<T>({
@@ -83,13 +98,14 @@ export function SuggestionMenu<T>({
   headerIcon, headerLabel, filterBadge, hint, loading, loadingLabel, emptyLabel,
   position = 'above', className, rootAttrs,
   anchorRef, listboxId, listboxLabel, multiSelectable, maxHeightClass,
+  groupOf, groupLabel, footer, testId, holdOpen = false,
 }: SuggestionMenuProps<T>) {
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useDismissable({
-    open: visible,
+    open: visible && !holdOpen,
     onClose: onClose ?? (() => {}),
     refs: inputRef ? [inputRef, menuRef] : [menuRef],
     restoreFocus: false,
@@ -135,6 +151,7 @@ export function SuggestionMenu<T>({
   const panel = (
     <div
       ref={menuRef}
+      data-testid={testId}
       {...rootAttrs}
       // Anchored mode is a floating panel on <body>: it carries the same
       // `data-popover` marker `Menu` carries, so whoever asks "is the focus in
@@ -175,6 +192,19 @@ export function SuggestionMenu<T>({
           <div className="px-3 py-4 text-center text-compact text-app-text-muted">
             {emptyLabel ?? 'No matches'}
           </div>
+        ) : groupOf ? (
+          groupSegments(items, groupOf).map((seg) => (
+            <div key={seg.group} role="group" aria-label={groupLabel?.(seg.group) ?? seg.group} data-group={seg.group}>
+              <div aria-hidden="true" className="px-3 pt-2 pb-0.5 text-micro font-medium uppercase tracking-wide text-app-text-tertiary">
+                {groupLabel?.(seg.group) ?? seg.group}
+              </div>
+              {seg.items.map(({ item, idx }) => (
+                <div key={getKey(item)} ref={(el) => { itemRefs.current[idx] = el; }}>
+                  {renderItem(item, idx, { selected: idx === selectedIndex })}
+                </div>
+              ))}
+            </div>
+          ))
         ) : (
           items.map((item, idx) => (
             // A plain block div, not `display:contents`: it is what makes the
@@ -188,8 +218,21 @@ export function SuggestionMenu<T>({
           ))
         )}
       </div>
+      {footer && <div className="px-3 py-1.5 border-t border-app-border text-mini text-app-text-muted">{footer}</div>}
     </div>
   );
 
   return anchorRef ? createPortal(panel, document.body) : panel;
+}
+
+/** Consecutive runs of one group, each item with its index in the flat list. */
+function groupSegments<T>(items: readonly T[], groupOf: (item: T) => string): Array<{ group: string; items: Array<{ item: T; idx: number }> }> {
+  const out: Array<{ group: string; items: Array<{ item: T; idx: number }> }> = [];
+  items.forEach((item, idx) => {
+    const group = groupOf(item);
+    const last = out[out.length - 1];
+    if (last && last.group === group) last.items.push({ item, idx });
+    else out.push({ group, items: [{ item, idx }] });
+  });
+  return out;
 }

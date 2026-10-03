@@ -538,3 +538,40 @@ describe("stripAllImages", () => {
     expect(stripAllImages(h)).toBe(h);
   });
 });
+
+/**
+ * `/compact` on the native engine (CMDUI-06): the same compaction, asked for
+ * now, below the threshold, with no turn and so no `StreamHandler`.
+ *
+ * @covers CMDUI-06
+ */
+describe("compactSessionNow: /compact on the native engine", () => {
+  test("below the threshold it compacts all the same, and returns the tokens before and after", async () => {
+    const { compactSessionNow } = await import("./provider");
+    const history = longHistory(20, 4000);
+    expect(needsCompaction(history, 1_000_000)).toBe(false);
+    const session = { history, calibration: { charsPerToken: 4 } };
+    const r = compactSessionNow(session);
+    expect(r.compacted).toBe(true);
+    if (!r.compacted) return;
+    expect(r.after).toBeLessThan(r.before);
+    // In place: the session's own array is the lighter one, the request stays first.
+    expect(estimateTokens(session.history)).toBeLessThan(r.before);
+    expect(session.history[0]).toEqual({ role: "user", content: "Sistema il bug nel parser." });
+  });
+
+  test("a short conversation has nothing to free, and says so", async () => {
+    const { compactSessionNow } = await import("./provider");
+    const r = compactSessionNow({ history: longHistory(1, 100), calibration: { charsPerToken: 4 } });
+    expect(r).toMatchObject({ compacted: false, reason: "nothing" });
+  });
+
+  test("with a turn in flight it refuses, and the history is untouched", async () => {
+    const { compactSessionNow } = await import("./provider");
+    const history = longHistory(20, 4000);
+    const before = JSON.stringify(history);
+    const r = compactSessionNow({ history, calibration: { charsPerToken: 4 }, abort: new AbortController() });
+    expect(r).toEqual({ compacted: false, reason: "busy" });
+    expect(JSON.stringify(history)).toBe(before);
+  });
+});

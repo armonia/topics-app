@@ -49,6 +49,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
+import { recordEngineCommands } from "../lib/slash-command-source";
 import { classifyTurnError, isAcpStopReason, type TurnEndInfo } from "./stop-reason";
 import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
 import { JsonRpcPeer } from "./acp/jsonrpc";
@@ -569,10 +570,20 @@ export class AcpProvider implements AIProvider {
     const sessionKey = this.bySessionId.get(sessionId);
     if (!sessionKey) return;
     const state = this.sessions.get(sessionKey);
-    const handler = state?.handler;
-    if (!state || !handler) return;
+    if (!state) return;
 
     const update = params.update as AcpSessionUpdate | undefined;
+    // The agent's commands are announced right after `session/new`, before
+    // any turn has a handler: kept for the «/» menu (CMDUI-01), not dropped.
+    // Hence before the handler guard below.
+    if (update?.sessionUpdate === "available_commands_update") {
+      for (const ev of translateSessionUpdate(update, state.translate)) {
+        if (ev.kind === "commands") recordEngineCommands(sessionKey, ev.commands, { provider: this.name, projectPath: state.cwd });
+      }
+      return;
+    }
+    const handler = state.handler;
+    if (!handler) return;
     for (const ev of translateSessionUpdate(update, state.translate)) {
       switch (ev.kind) {
         case "text":
@@ -599,6 +610,8 @@ export class AcpProvider implements AIProvider {
           break;
         case "context":
           handler.onContextSize?.(ev.tokens, this.config.name, ev.windowTokens);
+          break;
+        case "commands":
           break;
       }
     }

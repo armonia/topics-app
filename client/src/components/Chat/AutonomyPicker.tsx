@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShieldCheck, ShieldOff, ClipboardList, Check } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
@@ -58,9 +58,11 @@ const LEVELS: { value: AutonomyLevel; label: string; short: string; desc: string
  *  composer è vicino al bordo destro. */
 const PANEL_W = 268;
 
-export function AutonomyPicker({ value, onChange }: {
+export function AutonomyPicker({ value, onChange, openRef }: {
   value: AutonomyLevel | null | undefined;
   onChange: (level: AutonomyLevel) => void;
+  /** Filled with the door a typed `/permissions` opens (CMDUI-02): the panel, with the focus on the current level. */
+  openRef?: React.RefObject<(() => void) | null>;
 }) {
   const [open, setOpen] = useState(false);
   // Il pannello va in PORTAL sul body, come ogni altro popover di questa
@@ -79,6 +81,26 @@ export function AutonomyPicker({ value, onChange }: {
   const current = LEVELS.find((l) => l.value === value) ?? LEVELS[0];
   const Icon = current.icon;
 
+  const place = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) {
+      setPos({
+        top: Math.max(POPOVER_MARGIN, r.top - 8),
+        left: Math.max(POPOVER_MARGIN, Math.min(r.left, window.innerWidth - PANEL_W - POPOVER_MARGIN)),
+      });
+    }
+  };
+  useEffect(() => {
+    if (!openRef) return;
+    openRef.current = () => { place(); setOpen(true); };
+    return () => { openRef.current = null; };
+  });
+  // Opened by a typed command, the focus goes inside, on the current level.
+  useEffect(() => {
+    if (!open || !pos) return;
+    panelRef.current?.querySelector<HTMLButtonElement>(`[data-testid="composer-autonomy-${current.value}"]`)?.focus();
+  }, [open, pos, current.value]);
+
   return (
     <div className="relative">
       <button
@@ -87,13 +109,7 @@ export function AutonomyPicker({ value, onChange }: {
         data-testid="composer-autonomy"
         data-level={current.value}
         onClick={() => {
-          const r = triggerRef.current?.getBoundingClientRect();
-          if (r) {
-            setPos({
-              top: Math.max(POPOVER_MARGIN, r.top - 8),
-              left: Math.max(POPOVER_MARGIN, Math.min(r.left, window.innerWidth - PANEL_W - POPOVER_MARGIN)),
-            });
-          }
+          place();
           setOpen((o) => !o);
         }}
         title={`Autonomia: ${current.label} · ${current.desc}`}

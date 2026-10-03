@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8">
+<title>commands-ui: mockup</title>
+<!-- Static mockup, today vs proposed, light and dark, desktop and 390 px phone. Not wired to anything.
+     Icons are lucide paths inlined in a sprite. The dark section is a copy of the light one made at load
+     (script at the bottom), so the two cannot drift. Colours are the app's tokens (client/src/index.css). -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,sans-serif}
+header{padding:20px 28px;background:#f4f4f5;color:#27272a;border-bottom:1px solid #e4e4e7}
+header h1{font-size:16px;margin:0 0 4px}
+header p{margin:0 0 4px;color:#52525b;max-width:980px}
+.theme{padding:20px 28px 32px;background:var(--bg);color:var(--text)}
+.light{--bg:hsl(220 5.6% 96%);--surface:#fff;--panel:#ffffffee;--elev:hsl(220 4.9% 98.1%);--text:hsl(220 3.5% 10.6%);--muted:hsl(220 2.8% 42.5%);--dim:hsl(220 2.8% 55%);--border:hsl(220 4.9% 88.5%);--hover:hsl(220 4.9% 94%);--accent:#0066ff;--accentbg:rgba(0,102,255,.10);--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--bubble:hsl(220 4.9% 88.5%);--chrome:hsl(220 5.6% 93%);--track:hsl(220 4.9% 90%)}
+.dark{--bg:hsl(222 5.6% 8.5%);--surface:hsl(222 4.9% 11%);--panel:hsl(220 4.5% 14%);--elev:hsl(220 4.5% 14%);--text:#e6e8ec;--muted:#8a9099;--dim:#6f747c;--border:hsl(220 3.8% 20%);--hover:hsl(220 4.2% 17%);--accent:#4d94ff;--accentbg:rgba(77,148,255,.16);--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--bubble:hsl(220 4.2% 23%);--chrome:hsl(224 26% 4.5%);--track:hsl(220 4% 22%)}
+h1.t{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 14px}
+h2{font-size:12px;font-weight:600;margin:0 0 8px;color:var(--muted)}
+.row2{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:26px;align-items:flex-start}
+.cap{color:var(--muted);font-size:12px;max-width:560px;margin:6px 0 0}
+.cap b{color:var(--text);font-weight:600}
+svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s12{width:12px;height:12px}
+/* pane: a chat column */
+.pane{width:600px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;position:relative}
+.pane.phone{width:390px;border-radius:24px;padding:14px 10px 12px}
+.msg-u{align-self:flex-end;background:var(--bubble);border-radius:16px;padding:6px 12px;max-width:70%}
+.msg-a{max-width:90%}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bubble);border-radius:16px;padding:6px 12px;font:12px ui-monospace,Menlo,monospace;align-self:flex-end}
+.composer{display:flex;align-items:center;gap:8px;border:1.5px solid var(--accent);border-radius:12px;padding:7px 8px;background:var(--surface)}
+.composer .txt{flex:1;font:13px -apple-system,sans-serif}
+.composer .txt.ph{color:var(--dim)}
+.composer .btn{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.composer .send{background:var(--accent);color:#fff}
+.foot{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:12px;padding:0 4px}
+.foot .pill{border:1px solid var(--border);border-radius:6px;padding:0 6px;font-size:11px}
+.foot .sel{color:var(--text)}
+.ring{width:13px;height:13px;border-radius:50%;border:2px solid var(--track);border-top-color:var(--accent)}
+/* popover shell: SuggestionMenu above the composer */
+.pop{background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 28px #0000002a;overflow:hidden}
+.pop .hd{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+.pop .hd b{color:var(--text);font-weight:600}
+.pop .hd .rt{margin-left:auto;display:flex;gap:6px;align-items:center}
+kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted)}
+.grp{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);padding:8px 12px 3px;display:flex;align-items:center;gap:6px}
+.grp .src{letter-spacing:0;text-transform:none;font-size:11px;color:var(--dim)}
+.it{display:grid;grid-template-columns:16px auto 1fr auto;gap:10px;align-items:center;padding:5px 12px;min-height:30px}
+.it .c{font:12.5px ui-monospace,Menlo,monospace;color:var(--accent);white-space:nowrap}
+.it .d{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it.on{background:var(--accentbg)}
+.it .ic{color:var(--muted)}
+.tag{font-size:10.5px;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:0 5px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+.tag.turn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.tag.open{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.pop .ft{border-top:1px solid var(--border);padding:6px 12px;color:var(--dim);font-size:11px;display:flex;gap:10px;align-items:center}
+.scrollhint{height:10px;background:linear-gradient(var(--panel),transparent);margin-top:-10px;position:relative}
+.today .it{grid-template-columns:auto 1fr}
+.today .it .c{font-size:12px}
+/* resume picker rows */
+.rs{display:grid;grid-template-columns:16px 1fr auto;gap:4px 10px;padding:7px 12px;align-items:start}
+.rs .tt{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs .mt{grid-column:2;color:var(--muted);font-size:11.5px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rs .when{color:var(--muted);font-size:11.5px;white-space:nowrap}
+.rs.on{background:var(--accentbg)}
+.br{font:11px ui-monospace,Menlo,monospace;color:var(--muted);display:inline-flex;gap:3px;align-items:center}
+.live{display:inline-flex;align-items:center;gap:4px;color:var(--ok);font-size:11px}
+.live i{width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block}
+.in{color:var(--dim);font-size:11px}
+.more{display:flex;align-items:center;gap:6px;padding:7px 12px;color:var(--accent);font-size:12px;border-top:1px solid var(--border)}
+.phone .more{min-height:44px}
+/* model selector */
+.msel .grp2{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);padding:8px 12px 3px}
+.msel .plan{display:flex;justify-content:space-between;gap:8px;padding:2px 12px 6px;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.msel .plan .w{color:var(--warn)}
+.msel .foot2{border-top:1px solid var(--border);margin-top:4px}
+/* pins */
+.pinrow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:5px 10px}
+.pinrow b{color:var(--text);font-weight:600}
+.pinrow .chev{margin-left:auto;color:var(--dim)}
+.pinned{border-left:2px solid var(--warn);padding-left:10px;position:relative}
+.pinned .pm{position:absolute;right:-4px;top:0;color:var(--warn)}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}
+.search{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border)}
+.search .q{flex:1;color:var(--text)}
+.search .q .car{display:inline-block;width:1px;height:14px;background:var(--accent);vertical-align:-2px;margin-left:1px}
+/* answer card */
+.card{border:1px solid var(--border);background:var(--elev);border-radius:10px;padding:9px 12px 10px;max-width:520px}
+.card .hd2{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px}
+.card .hd2 .x{margin-left:auto;color:var(--dim)}
+.card .hd2 .loc{font-weight:400;color:var(--dim);font-size:11px}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:3px 10px;font-size:12.5px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+.kv dd small{color:var(--muted)}
+.card.err{border-color:color-mix(in srgb,var(--bad) 40%,var(--border))}
+.card.err .hd2{color:var(--bad)}
+.sid{color:var(--dim);font:11px ui-monospace,Menlo,monospace;margin-top:6px}
+/* user menu level */
+.um{display:flex;gap:6px;align-items:flex-end}
+.umc{width:288px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px #0000001f;padding:4px 0}
+.urow{display:flex;align-items:center;gap:10px;padding:6px 12px;min-height:30px}
+.urow .l{flex:1}
+.urow .tl{color:var(--muted);font-size:11px}
+.urow.open{background:var(--accentbg)}
+.hr{border-top:1px solid var(--border);margin:4px 0}
+.lvl{width:400px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px #0000001f;overflow:hidden}
+.lvl .lh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-weight:600}
+.lvl .lh .x{margin-left:auto;color:var(--dim)}
+.meter{padding:10px 12px 8px;border-bottom:1px solid var(--border)}
+.meter .mh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.meter .mh b{font-weight:600}
+.meter .mh span{color:var(--muted);font-size:11.5px}
+.bar{margin-bottom:8px}
+.bar .bl{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+.bar .bl span:last-child{color:var(--muted);font-variant-numeric:tabular-nums}
+.bar .tr{height:6px;border-radius:3px;background:var(--track);overflow:hidden}
+.bar .tr i{display:block;height:6px;border-radius:3px;background:var(--accent)}
+.bar.w .tr i{background:var(--warn)}
+.ghost{padding:8px 12px;color:var(--dim);font-size:12px}
+.ghost .gl{height:9px;border-radius:4px;background:var(--hover);margin:7px 0}
+.av{width:24px;height:24px;border-radius:50%;background:var(--accentbg);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px}
+/* board drawer */
+.drawer{width:420px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
+.drawer .tt2{font-weight:600;margin-bottom:6px}
+.drawer .note{color:var(--muted);font-size:12px;margin-bottom:10px}
+.hint{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);background:var(--hover);border-radius:8px;padding:6px 10px;margin-bottom:6px}
+.hint a{color:var(--accent);text-decoration:none;margin-left:auto;display:inline-flex;gap:3px;align-items:center;white-space:nowrap}
+/* phone */
+.phone .it{min-height:44px;grid-template-columns:16px auto 1fr}
+.phone .it .tag{display:none}
+.phone .rs{padding:9px 12px;min-height:44px}
+.phone .pop .ft{display:none}
+.phone .foot{gap:10px}
+.phone .card{max-width:100%}
+.sb{height:22px;display:flex;justify-content:space-between;font-size:12px;font-weight:600;padding:0 14px;color:var(--text)}
+.ph-title{text-align:center;font-weight:600;padding:2px 0 6px;border-bottom:1px solid var(--border);margin:0 -10px}
+.spacer{flex:1}
+.strike{text-decoration:line-through;text-decoration-color:var(--bad)}
+.bad{color:var(--bad)}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+ <defs>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="compact" viewBox="0 0 24 24"><path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></symbol>
+  <symbol id="brain" viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/></symbol>
+  <symbol id="history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></symbol>
+  <symbol id="target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+  <symbol id="spark" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
+  <symbol id="term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8M10 9H8"/></symbol>
+  <symbol id="chart" viewBox="0 0 24 24"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></symbol>
+  <symbol id="send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+  <symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="out" viewBox="0 0 24 24"><path d="M7 7h10v10M7 17 17 7"/></symbol>
+  <symbol id="pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="bot" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></symbol>
+ </defs>
+</svg>
+
+<header>
+ <h1>commands-ui: ogni comando ha un senso in Topics</h1>
+ <p>Mockup statico. Sezione «Chiaro» e la sua copia «Scuro»; in ognuna desktop e telefono da 390 px. Le cifre dentro (sessioni, percentuali, nomi di rami) sono esempi; le forme e le etichette sono quelle proposte.</p>
+ <p>Gli screenshot di oggi, presi sul server di test isolato (Chromium sul PC Windows, 02/10), stanno in <code>screenshots/today-*.png</code>.</p>
+</header>
+
+<section class="theme light" id="light">
+ <h1 class="t">Chiaro</h1>
+
+ <h2>Oggi: il menu «/» offre /resume, e /resume risponde in inglese che non c'è</h2>
+ <div class="row2">
+  <div>
+   <div class="pane today">
+    <div class="pop">
+     <div class="it on"><span class="c">/resume</span><span class="d">Riprendi l'agente (@nome)</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/res</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+    <div class="foot"><span><svg class="i s12"><use href="#shield"/></svg> Agisce</span><svg class="i s12"><use href="#zap"/></svg><span class="ring"></span><span class="sel">Opus 5 <span class="pill">1M</span></span><span class="pill">HIGH</span></div>
+   </div>
+   <p class="cap">Quattordici voci in una lista sola, uguale su ogni motore. Quattro non fanno niente di utile su Claude Code (/resume, /agents, /browser senza indirizzo, /reasoning) e due scrivono testo dove c'è già un controllo (/model e /effort senza argomento).</p>
+  </div>
+  <div>
+   <div class="pane today">
+    <div class="chip"><svg class="i s12"><use href="#term"/></svg>/resume</div>
+    <div class="msg-a">/resume isn't available in this environment.</div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt ph">Messaggio…</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">La CLI rifiuta /resume quando gira come la fa girare Topics (misurato, 2.1.288), e la chat mostra il rifiuto come se fosse la risposta dell'agente.</p>
+  </div>
+ </div>
+
+ <h2>Proposta: il menu «/» dice cosa funziona in questa chat, in tre gruppi</h2>
+ <div class="row2">
+  <div>
+   <div class="pane">
+    <div class="pop" role="listbox">
+     <div class="hd"><span>Comandi in questa chat</span><b>Claude Code</b><span class="rt"><kbd>↑↓</kbd><kbd>↵</kbd><kbd>esc</kbd></span></div>
+     <div class="grp">Topics</div>
+     <div class="it on"><svg class="i ic"><use href="#history"/></svg><span class="c">/resume</span><span class="d">Riprendi una sessione Claude di questo progetto</span><span class="tag open">elenco</span></div>
+     <div class="it"><svg class="i ic"><use href="#cpu"/></svg><span class="c">/model</span><span class="d">Cambia modello</span><span class="tag open">apre il selettore</span></div>
+     <div class="it"><svg class="i ic"><use href="#brain"/></svg><span class="c">/effort</span><span class="d">Sforzo di ragionamento</span><span class="tag open">apre il controllo</span></div>
+     <div class="it"><svg class="i ic"><use href="#gauge"/></svg><span class="c">/context</span><span class="d">Quanto contesto resta</span><span class="tag open">apre l'ispettore</span></div>
+     <div class="it"><svg class="i ic"><use href="#compact"/></svg><span class="c">/compact</span><span class="d">Compatta il contesto adesso</span><span></span></div>
+     <div class="it"><svg class="i ic"><use href="#chart"/></svg><span class="c">/usage</span><span class="d">Quanto resta del piano Claude</span><span class="tag open">apre i provider</span></div>
+     <div class="it"><svg class="i ic"><use href="#info"/></svg><span class="c">/status</span><span class="d">Cosa decide il prossimo turno</span><span></span></div>
+     <div class="it"><svg class="i ic"><use href="#trash"/></svg><span class="c">/clear</span><span class="d">Svuota la conversazione</span><span></span></div>
+     <div class="it"><svg class="i ic"><use href="#target"/></svg><span class="c">/goal</span><span class="d">Obiettivo della chat</span><span></span></div>
+     <div class="it"><svg class="i ic"><use href="#branch"/></svg><span class="c">/fork</span><span class="d">Dirama in una chat nuova</span><span></span></div>
+     <div class="grp">Claude Code <span class="src">· dall'elenco della CLI</span></div>
+     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/init</span><span class="d">Scrive il CLAUDE.md del progetto</span><span class="tag turn">turno</span></div>
+     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/code-review</span><span class="d">Rivede le modifiche del ramo (anche /review)</span><span class="tag turn">turno</span></div>
+     <div class="it"><svg class="i ic"><use href="#plug"/></svg><span class="c">/mcp</span><span class="d">Server MCP</span><span class="tag open">apre Strumenti</span></div>
+     <div class="grp">Le tue skill</div>
+     <div class="it"><svg class="i ic"><use href="#spark"/></svg><span class="c">/vai</span><span class="d">Esegui il piano approvato</span><span class="tag turn">turno</span></div>
+     <div class="it"><svg class="i ic"><use href="#spark"/></svg><span class="c">/recap</span><span class="d">Riassunto della sessione</span><span class="tag turn">turno</span></div>
+     <div class="ft"><span>I comandi di Topics non costano; quelli con <span class="tag turn">turno</span> fanno lavorare il modello.</span><span style="margin-left:auto">/help li mostra tutti</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+    <div class="foot"><span><svg class="i s12"><use href="#shield"/></svg> Agisce</span><svg class="i s12"><use href="#zap"/></svg><span class="ring"></span><span class="sel">Opus 5 <span class="pill">1M</span></span><span class="pill">HIGH</span></div>
+   </div>
+   <p class="cap"><b>Scelta 2.</b> Il gruppo del motore viene dall'elenco che la CLI dà all'avvio (119 nomi su questo Mac, 77 oggi fuori dal menu, misurato), filtrato da una mappa di Topics: un nome che Topics ha già come controllo apre il controllo, un nome solo da terminale non compare, un alias (/review, /cost) è il suo comando e non una riga in più. Su Codex e sulle API c'è solo il gruppo Topics; sul motore di Topics anche le tue skill, che carica col suo tool <code>skill</code>; su jcode e Gemini i comandi che annunciano. Il menu resta attaccato al composer anche sul telefono, perché lo guida quello che scrivi.</p>
+  </div>
+  <div>
+   <div class="pane">
+    <div class="pop" role="listbox">
+     <div class="hd"><span>Comandi</span><b>«/re»</b><span class="rt"><kbd>↵</kbd></span></div>
+     <div class="grp">Topics</div>
+     <div class="it on"><svg class="i ic"><use href="#history"/></svg><span class="c">/resume</span><span class="d">Riprendi una sessione Claude di questo progetto</span><span class="tag open">elenco</span></div>
+     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/rename</span><span class="d">Rinomina la chat</span><span></span></div>
+     <div class="grp">Claude Code</div>
+     <div class="it"><svg class="i ic"><use href="#file"/></svg><span class="c">/reload-skills</span><span class="d">Rilegge le skill dal disco</span><span></span></div>
+     <div class="grp">Le tue skill</div>
+     <div class="it"><svg class="i ic"><use href="#spark"/></svg><span class="c">/recap</span><span class="d">Riassunto della sessione</span><span class="tag turn">turno</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/re</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">Filtrato mentre scrivi, i gruppi restano. Un gruppo senza righe sparisce. Le skill spente in <code>skillOverrides</code> non ci sono.</p>
+
+   <div style="height:18px"></div>
+   <div class="pane">
+    <div class="pop" role="listbox">
+     <div class="hd"><span>Comandi in questa chat</span><b>Codex</b></div>
+     <div class="grp">Topics</div>
+     <div class="it on"><svg class="i ic"><use href="#history"/></svg><span class="c">/resume</span><span class="d">Riprendi una sessione Claude di questo progetto</span><span class="tag open">elenco</span></div>
+     <div class="it"><svg class="i ic"><use href="#cpu"/></svg><span class="c">/model</span><span class="d">Cambia modello</span><span class="tag open">apre il selettore</span></div>
+     <div class="it"><svg class="i ic"><use href="#info"/></svg><span class="c">/status</span><span class="d">Cosa decide il prossimo turno</span><span></span></div>
+     <div class="it"><svg class="i ic"><use href="#trash"/></svg><span class="c">/clear</span><span class="d">Svuota la conversazione</span><span></span></div>
+     <div class="ft"><span>Codex non ha comandi propri quando lo pilota Topics; /compact qui non c'è.</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">Lo stesso menu su una chat Codex: niente gruppo del motore e niente skill, che lì sarebbero prosa.</p>
+  </div>
+ </div>
+
+ <h2>Proposta: /resume apre l'elenco delle sessioni Claude del progetto nate fuori da Topics</h2>
+ <div class="row2">
+  <div>
+   <div class="pane">
+    <div class="pop" role="listbox">
+     <div class="hd"><svg class="i"><use href="#history"/></svg><span>Riprendi una sessione</span><b>topics-app</b><span class="rt"><kbd>↵</kbd> apri</span></div>
+     <div class="search"><svg class="i" style="color:var(--dim)"><use href="#search"/></svg><span class="q">menu<span class="car"></span></span><span class="in">3 di 14</span></div>
+     <div class="rs on"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Smista le impostazioni dove si usano</span><span class="when">2 h fa</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>feat/impostazioni-dove-si-usano-1003</span><span class="live"><i></i>attiva adesso</span></span></div>
+     <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Il menu del titolo sul telefono copre la lista</span><span class="when">ieri</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>fix/mobile-list-under-chrome-1001</span></span></div>
+     <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">perché il menu delle skill mostra quelle spente?</span><span class="when">3 g fa</span><span class="mt"><span class="br"><svg class="i s12"><use href="#branch"/></svg>main</span><span class="in">titolo dall'ultima domanda</span></span></div>
+     <div class="more"><svg class="i s12"><use href="#down"/></svg>Carica più vecchie</div>
+     <div class="ft"><span>Si apre come chat nuova con la sua storia e continua la stessa sessione; una sessione attiva adesso chiede conferma. Le chat di Topics non sono qui: stanno nella colonna e in ⌘K.</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/resume menu</span><span class="btn"><svg class="i"><use href="#mic"/></svg></span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap"><b>Scelta 1.</b> Fonte: i transcript in <code>~/.claude/projects/&lt;progetto&gt;/</code> che nessuna chat di Topics possiede, letti solo nelle cartelle del progetto e 20 alla volta (su topics-app 27 in 30 giorni contro 2.423 di tutto l'archivio), con una cache sua che non svuota quella del censimento delle sessioni esterne. Titolo: quello dato con /rename, poi quello generato, poi l'ultima domanda, tutti negli ultimi 64 KB del file (su questo Mac 11, 3 e 24 file su 24). Invio chiama l'adozione che esiste già (<code>POST /api/topics/adopt-claude</code>); una sessione già adottata non è nell'elenco, perché è una chat nella colonna.</p>
+  </div>
+  <div>
+   <div class="pane">
+    <div class="pop">
+     <div class="hd"><svg class="i"><use href="#history"/></svg><span>Riprendi una sessione</span><b>dancerooms</b></div>
+     <div class="rs" style="display:block;color:var(--muted);padding:12px">Nessuna sessione di Claude Code nata fuori da Topics in questo progetto. Le chat di Topics riprendono da sole; una tab chiusa torna con <kbd>⇧⌘T</kbd>.</div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/resume</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">Elenco vuoto: dice perché e dove guardare. In una chat senza progetto il comando risponde con la stessa frase, senza elenco.</p>
+  </div>
+ </div>
+
+ <h2>Proposta: la risposta di un comando è una scheda nella conversazione, non una fascia che sparisce</h2>
+ <div class="row2">
+  <div>
+   <div class="pane">
+    <div class="chip"><svg class="i s12"><use href="#term"/></svg>/status</div>
+    <div class="card">
+     <div class="hd2"><svg class="i" style="color:var(--muted)"><use href="#info"/></svg>Stato della sessione <span class="loc">· solo qui, non va al modello</span><span class="x"><svg class="i"><use href="#x"/></svg></span></div>
+     <dl class="kv">
+      <dt>Modello</dt><dd>Opus 5 1M <small>(default, non fissato qui)</small></dd>
+      <dt>Effort</dt><dd>high</dd>
+      <dt>Autonomia</dt><dd>auto-apply <small>· scrive sui file da sé, il resto lo propone</small></dd>
+      <dt>MCP</dt><dd>solo il ponte <code>topics</code> <small>(profilo di dispatch)</small></dd>
+     </dl>
+     <div class="sid">sessione topic:8f56a1c2</div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt ph">Messaggio…</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap"><b>Scelta 3.</b> Righe in chiaro, niente emoji, niente nome della chat né del progetto che sono già sullo schermo (CMD-07). Resta finché la chiudi o scrivi il messaggio dopo; al ricarico non c'è, perché lo stato di adesso è un'altra risposta.</p>
+  </div>
+  <div>
+   <div class="pane">
+    <div class="chip"><svg class="i s12"><use href="#term"/></svg>/compact</div>
+    <div class="card err">
+     <div class="hd2"><svg class="i"><use href="#compact"/></svg>Compattazione non fatta<span class="x"><svg class="i"><use href="#x"/></svg></span></div>
+     <div style="font-size:12.5px">Claude Code: «Not enough messages to compact.» Il contesto è al 4%: non c'è ancora niente da riassumere.</div>
+    </div>
+    <div class="chip"><svg class="i s12"><use href="#term"/></svg>/vim</div>
+    <div class="card">
+     <div class="hd2"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg>/vim c'è solo nel terminale<span class="x"><svg class="i"><use href="#x"/></svg></span></div>
+     <div style="font-size:12.5px">È una schermata di Claude Code nel terminale. Aprilo in una tab Terminale di questo progetto: <span style="color:var(--accent)">Apri un terminale</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt ph">Messaggio…</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">La stessa scheda per l'esito di /compact (anche quando fallisce, oggi non detto) e per i comandi che la CLI rifiuta: niente turno, niente rifiuto in inglese.</p>
+  </div>
+ </div>
+
+ <h2>Proposta: /usage e /cost aprono Provider e chiavi dal selettore del modello; la scelta 4 aggiunge la settimana</h2>
+ <div class="row2">
+  <div class="um">
+   <div class="umc msel">
+    <div class="grp2">Claude Code</div>
+    <div class="plan"><span>Max 20x</span><span>5 h al 38% · <span class="w">sett. 78%</span></span></div>
+    <div class="urow open"><svg class="i s12" style="color:var(--accent)"><use href="#check"/></svg><span class="l">Opus 5</span><span class="tl">1M</span></div>
+    <div class="urow"><span style="width:12px"></span><span class="l">Sonnet 5.5</span><span class="tl"></span></div>
+    <div class="grp2">Codex</div>
+    <div class="urow"><span style="width:12px"></span><span class="l">GPT-5.5</span><span class="tl"></span></div>
+    <div class="foot2"><div class="urow"><svg class="i"><use href="#key"/></svg><span class="l">Provider e chiavi</span><span class="tl">3 pronti</span><svg class="i s12" style="color:var(--dim)"><use href="#right"/></svg></div></div>
+   </div>
+   <div class="lvl">
+    <div class="lh"><svg class="i"><use href="#key"/></svg>Provider e chiavi<span class="x"><svg class="i"><use href="#x"/></svg></span></div>
+    <div class="meter">
+     <div class="mh"><b>Abbonamento Claude Max 20x</b><span>letto all'ultimo turno, 01:02</span></div>
+     <div class="bar"><div class="bl"><span>Finestra di 5 ore</span><span>38% · si azzera alle 01:29</span></div><div class="tr"><i style="width:38%"></i></div></div>
+     <div class="bar w"><div class="bl"><span>Settimana <span class="tag open">scelta 4</span></span><span>78% · si azzera sab 09:59</span></div><div class="tr"><i style="width:78%"></i></div></div>
+    </div>
+    <div class="ghost">Il resto del pannello, com'è in <code>sidebar-menu-settings</code> (chiavi, endpoint, CLI, runtime, predefiniti, checkpoint)<div class="gl" style="width:80%"></div><div class="gl" style="width:60%"></div><div class="gl" style="width:70%"></div></div>
+   </div>
+  </div>
+  <p class="cap" style="max-width:420px">Il pannello è quello che si apre dall'ultima riga del selettore del modello (SETHOME-01): /usage e /cost lo aprono accanto al selettore di questo composer. Abbonamento, finestra di 5 ore e «Max 20x · 5 h al 38%» sono già decisi lì. <b>Scelta 4.</b> Aggiunge solo la settimana: la seconda barra, con giorno e ora dell'azzeramento, e «sett. 78%» in coda alla riga del piano nel selettore. Le cifre arrivano già a ogni turno (<code>rate_limit_event</code>, <code>state/planUsage.ts</code> tiene <code>sevenDay</code>). Senza una lettura: «nessuna lettura ancora: arriva col primo turno».</p>
+ </div>
+
+ <h2>Proposta (scelta 5): un messaggio appuntato si vede, e si vede che resta nel contesto</h2>
+ <div class="row2">
+  <div>
+   <div class="pane">
+    <div class="pinrow"><svg class="i s12" style="color:var(--warn)"><use href="#pin"/></svg><b>1 appuntato</b><span>· resta nel contesto dell'agente</span><svg class="i s12 chev"><use href="#down"/></svg></div>
+    <div class="msg-u">Il deploy va fatto solo da main, mai da un ramo.</div>
+    <div class="msg-a pinned">Chiaro: da qui in avanti il deploy parte solo da <code>main</code>. Lo tengo come regola per questa chat.<svg class="i s12 pm"><use href="#pin"/></svg></div>
+    <div class="msg-u">Ok, ora sistemiamo il test rosso.</div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt ph">Messaggio…</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap" style="max-width:600px">Oggi «Appunta» salva l'appunto e lo mette nel contesto di ogni turno (<code>server/context/assemble.ts:843-845</code>), ma l'elenco non si apre da nessuna parte e si vede solo l'icona diventare gialla. Con la scelta consigliata il messaggio porta il segno e la riga in cima apre l'elenco già scritto (<code>PinnedMessages</code>), da cui si stacca. L'alternativa toglie il gesto e gli appunti escono dal contesto.</p>
+  </div>
+  <div>
+   <div class="umc" style="width:300px">
+    <div class="urow"><span class="dot" style="background:#059669"></span><span class="l">Deploy della landing</span><span class="tl">2 min</span></div>
+    <div class="urow open"><span style="width:6px"></span><span class="l">audit dei comandi</span><span class="tl">ora</span></div>
+    <div class="urow"><span class="dot" style="background:#be185d"></span><span class="l">Fattura di settembre</span><span class="tl">ieri</span></div>
+   </div>
+   <p class="cap" style="max-width:300px">Compreso: il colore scelto con «Cambia colore» si vede come un pallino sulla riga e sulla tab; una chat senza colore scelto resta com'è.</p>
+  </div>
+ </div>
+
+ <h2>Compreso: nel cassetto della card uno «/» non diventa prosa in silenzio</h2>
+ <div class="row2">
+  <div class="drawer">
+   <div class="tt2">Rifai la scheda del provider</div>
+   <div class="note">In lavorazione · claude-code · worktree card-18bd</div>
+   <div class="hint"><svg class="i"><use href="#bot"/></svg><span>I comandi vanno dati nella chat dell'agente.</span><a>Apri la sessione <svg class="i s12"><use href="#out"/></svg></a></div>
+   <div class="composer"><span class="txt">/compact</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+  </div>
+  <p class="cap" style="max-width:420px">Oggi «/compact» scritto qui arriva all'agente come «Human update on task…» e lui non compatta (letto nel codice). La riga compare appena il testo inizia con un nome di comando noto, e Invio manda comunque il testo, come oggi. Un menu «/» nel cassetto si decide nella change <code>conversazione-unica-della-card</code>, che rifà il cassetto.</p>
+ </div>
+
+ <h2>Telefono, 390 px</h2>
+ <div class="row2">
+  <div>
+   <div class="pane phone">
+    <div class="sb"><span>9:41</span><span>•••</span></div>
+    <div class="ph-title">audit dei comandi</div>
+    <div class="spacer" style="height:90px"></div>
+    <div class="pop" role="listbox">
+     <div class="hd"><span>Comandi</span><b>Claude Code</b></div>
+     <div class="grp">Topics</div>
+     <div class="it on"><svg class="i ic"><use href="#history"/></svg><span class="c">/resume</span><span class="d">Riprendi una sessione Claude</span></div>
+     <div class="it"><svg class="i ic"><use href="#cpu"/></svg><span class="c">/model</span><span class="d">Cambia modello</span></div>
+     <div class="it"><svg class="i ic"><use href="#gauge"/></svg><span class="c">/context</span><span class="d">Quanto contesto resta</span></div>
+     <div class="it"><svg class="i ic"><use href="#compact"/></svg><span class="c">/compact</span><span class="d">Compatta adesso</span></div>
+     <div class="grp">Le tue skill</div>
+     <div class="it"><svg class="i ic"><use href="#spark"/></svg><span class="c">/vai</span><span class="d">Esegui il piano approvato</span></div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+    <div class="foot"><span><svg class="i s12"><use href="#shield"/></svg> Agisce</span><span class="ring"></span><span class="sel">Opus 5</span><span class="pill">HIGH</span></div>
+   </div>
+   <p class="cap">Righe da 44 px, attaccate al composer e non in un foglio: chi filtra sta scrivendo nel campo, e un foglio con lo sfondo scuro lo coprirebbe (la regola di <code>SuggestionMenu</code>). Le etichette di destra spariscono; resta il colore del nome.</p>
+  </div>
+  <div>
+   <div class="pane phone">
+    <div class="sb"><span>9:41</span><span>•••</span></div>
+    <div class="ph-title">audit dei comandi</div>
+    <div class="spacer" style="height:70px"></div>
+    <div class="pop" role="listbox">
+     <div class="hd"><svg class="i"><use href="#history"/></svg><span>Riprendi</span><b>topics-app</b></div>
+     <div class="rs on"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Smista le impostazioni dove si usano</span><span class="when">2 h</span><span class="mt"><span class="br">feat/impostazioni-dove-si-usano-1003</span><span class="live"><i></i>attiva</span></span></div>
+     <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">Il menu del titolo copre la lista</span><span class="when">ieri</span><span class="mt"><span class="br">fix/mobile-list-under-chrome-1001</span></span></div>
+     <div class="rs"><svg class="i" style="color:var(--muted)"><use href="#term"/></svg><span class="tt">perché il menu delle skill mostra…</span><span class="when">3 g</span><span class="mt"><span class="br">main</span></span></div>
+     <div class="more"><svg class="i s12"><use href="#down"/></svg>Carica più vecchie</div>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt">/resume</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">L'elenco di /resume al posto del menu, stesso guscio; la parola dopo /resume filtra.</p>
+  </div>
+  <div>
+   <div class="pane phone">
+    <div class="sb"><span>9:41</span><span>•••</span></div>
+    <div class="ph-title">audit dei comandi</div>
+    <div class="spacer" style="height:150px"></div>
+    <div class="chip"><svg class="i s12"><use href="#term"/></svg>/status</div>
+    <div class="card">
+     <div class="hd2"><svg class="i" style="color:var(--muted)"><use href="#info"/></svg>Stato della sessione<span class="x"><svg class="i"><use href="#x"/></svg></span></div>
+     <dl class="kv">
+      <dt>Modello</dt><dd>Opus 5 1M <small>(default)</small></dd>
+      <dt>Effort</dt><dd>high</dd>
+      <dt>Autonomia</dt><dd>auto-apply</dd>
+     </dl>
+    </div>
+    <div class="composer"><span class="btn"><svg class="i"><use href="#plus"/></svg></span><span class="txt ph">Messaggio…</span><span class="btn send"><svg class="i"><use href="#send"/></svg></span></div>
+   </div>
+   <p class="cap">La scheda della risposta è larga quanto la colonna; la X è un bersaglio da 44 px.</p>
+  </div>
+ </div>
+</section>
+
+<section class="theme dark" id="dark"></section>
+
+<script>
+// The dark section is the light one, copied: one source, two themes.
+const light = document.getElementById('light');
+const dark = document.getElementById('dark');
+dark.innerHTML = light.innerHTML;
+dark.querySelector('h1.t').textContent = 'Scuro';
+</script>
+</body></html>

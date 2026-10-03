@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.433",
+    "date": "2026-10-03",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Dai a «Cerca» sul telefono il box e l'incasso dei comandi della riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza le soglie del bundle alla misura della tornata 3b",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.432",
     "date": "2026-10-03",
     "sections": {
@@ -14,6 +35,51 @@
         },
         {
           "it": "Ricontrolla il registro delle viste nel momento in cui la pane la adotta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi sulla riga di una corsa che e' viva a ogni giro, anche quando non stampa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova che chiudere una tab terminale manda la DELETE della sua sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manda la DELETE di un terminale chiuso col conto alla rovescia anche quando la pagina esce con un solo evento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai giudicare a chip, fascia e server lo stesso bersaglio per una chat in Automatico con un modello fissato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Abbona la card allo snapshot dei provider per «· via Topics»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli la route di SUBSTRIP-01i aspettando gli handler in volo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli le bolle di un invio rifiutato per id e riconosci la propria eco solo dalla chiave",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ferma a fine file il ciclo di rilevazione che processes.stop-fresh-tree avvia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli da questa PR l'eco riconosciuta per chiave (annulla 1c0deb26a e 819a02585)",
           "en": "",
           "scope": null
         }
@@ -135,6 +201,21 @@
           "breaking": false
         },
         {
+          "it": "Registra il si' alla change find-in-page",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra il si' alla change model-selector",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manda i turni del motore all'indirizzo di Claude Code, letto da ANTHROPIC_BASE_URL e da settings.json",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Togli da PanelGrid il trascinamento fuori finestra rimasto senza chi lo accende",
           "en": "",
           "scope": null
@@ -160,7 +241,227 @@
           "scope": null
         },
         {
+          "it": "Leggi «Esegui in Topics» da una funzione sola: acceso per le chat mai toccate, diretto e dichiarato dove il motore non arriva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cerca dentro una conversazione sul server, uscite degli strumenti comprese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai di ⌘F la ricerca nella pane a fuoco, con una barra sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cerca nella chat intera e apri la sezione dove sta il risultato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra un cercatore nel browser, nel terminale, nei file e nella board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova la ricerca nella pane da tastiera e aggiorna i contratti di ⌘F",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova la ricerca nel browser condiviso e scrivi gli scostamenti dal design",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta nello snapshot finestre e metadati dei modelli dal catalogo del provider, e l'azienda dal prefisso dell'id",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sostituisci i selettori del modello con uno solo: tutte le aziende in una vista, ricerca, fascia «Esegui in Topics»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova che ogni lettore della preferenza dia la stessa strada, e chiudi l'elenco dei file che la leggono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova il selettore unico end-to-end e porta le spec dei picker sul pannello a una vista",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi in inglese i commenti e i nomi nuovi della ricerca nella pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiorna i riflessi dei ref in un effetto, non durante il render",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea commenti, nomi e titoli dei test ai cancelli statici, e registra la crescita del dizionario inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra sul grilletto l'etichetta del catalogo, carica il corpo del selettore con import relativi, e traccia il percorso della tastiera nella prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non far riprendere il fuoco alla ricerca dopo che si è entrati nella lista",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi il fuoco al grilletto dopo una scelta nel selettore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli il fuoco invece di cliccare sotto la barra della pane negli e2e della ricerca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fotografa il foglio del telefono prima di scorrerlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni fuori dall'entry il catalogo del selettore: il completamento di /model sta in un modulo piccolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta a 44 px sul tocco i grilletti del selettore nelle impostazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai al progetto di prova della ricerca una cartella sua a ogni giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni sotto i tetti di dimensione i file toccati dalla ricerca nella pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi le schermate e il video del selettore unico, e aggiorna lo stato dei task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta «Cerca» sul telefono e ⌘F sulla pane dell'ultimo clic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza il tetto del bundle iniziale per la ricerca nella pane, col perché scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Metti il cursore nella barra nello stesso giro che la mostra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai arrivare alla pane la riga scritta accanto al proprio turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiedi conferma anche per i comandi lanciati da find -exec, su -c e watch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai mordere i test sul punto di chiusura del terminale e sugli errori del pannello condivisione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai arrivare al PC tutti i lotti della sincronizzazione di topwin, non solo il primo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi un comando muto perso col server all'ultima ora in cui era vivo, non alla sua partenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi i turni lasciati aperti da chat.killed-turn prima di chiuderne il database",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ridipingi il risultato corrente della chat nello stesso giro del contatore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi le schermate e i video della ricerca nella pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Col motore nativo assente la card parte diretta anche nel test del catalogo in scoperta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Conta i cataloghi della ricerca nella pane fra le traduzioni e riscrivi in inglese i due commenti sul pulsante del telefono",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Sposta a tab il browser della topic senza ricaricarlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Esc nel selettore dentro le impostazioni della chat chiude solo il selettore e rende il fuoco al suo grilletto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Disattiva anche il «via», i motori e «Apri impostazioni» quando il selettore è disattivato (MP-TASK-07)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiorna il commento di openPopoverCount: ora lo legge anche il dialogo modale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza la baseline gz dell'entry al valore misurato dopo il merge con main, e correggi il progetto della barra e2e nei task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova i quattro difetti della ricerca nella pane trovati in revisione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ripara i quattro difetti della ricerca nella pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dipingi i risultati uno per uno, bottoni da dito nella barra e ⇧⌘F nel suggerimento",
           "en": "",
           "scope": null
         },
@@ -170,7 +471,42 @@
           "scope": null
         },
         {
+          "it": "Allinea il disegno: Ctrl+F sul Mac resta a chi ha il cursore, e il ⌘F dalla pagina nativa usa la tab a fuoco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Calcola i testi piegati dentro la riga del turno e dai un suffisso alle varianti dei test di ricerca",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Scrivi in inglese il commento del test sulla chiusura che passa da nativeBrowserViews",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leggi le opzioni di watch e su come getopt_long, e chiedi il tipo del comando che eseguono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scarta solo l'eco del messaggio mandato da questa finestra, non ogni riga utente del suo stream",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non svegliare mai il padre con uno stop chiesto da lui, qualunque esito riporti il figlio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non cancellare dal PC i file che il repo ora ignora quando topwin ricava la lista dalla storia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Copri entrambi i modi di fallire per entrambe le rimozioni del pannello condivisione",
           "en": "",
           "scope": null
         },
@@ -181,6 +517,16 @@
         },
         {
           "it": "Fai vedere al cancello anche la browser_close con argomento di tipo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aspetta i roster ritardati prima del ricarico in SUBSTRIP-01i",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi a fine test i turni che chat.killed-turn lascia aperti",
           "en": "",
           "scope": null
         }
@@ -413,6 +759,16 @@
           "breaking": false
         },
         {
+          "it": "Proponi find-in-page: ⌘F cerca dentro la pane a fuoco, con una barra sola in chat, browser, terminale e file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Correggi la proposta find-in-page sui fatti verificati",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Chiedi conferma anche per i comandi distruttivi dentro ssh, sh -c, eval, timeout e caffeinate",
           "en": "",
           "scope": null
@@ -553,12 +909,27 @@
           "scope": null
         },
         {
+          "it": "Proponi model-selector: un selettore solo, tutte le aziende in una vista, Esegui in Topics acceso dove si può",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Dichiara nello snapshot dei provider il piano Claude, solo come due etichette",
           "en": "",
           "scope": null
         },
         {
+          "it": "Correggi la proposta model-selector: prezzo vero di Esegui in Topics, card fuori dal default, riuso con lo 0 scritto, cancello di dispatch",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Insegna ai menu a ospitare un modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Consiglia le colonne per azienda su desktop nel selettore, e stringi le cinque scelte a una riga",
           "en": "",
           "scope": null
         },

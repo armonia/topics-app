@@ -78,23 +78,18 @@ test.describe("ConfirmDialog non blocca il thread", () => {
     };
     await expect(timer).toContainText(/s/, { timeout: 3_000 });
 
-    // Si arriva a `/clear` dal menu «Strumenti e comandi»: la voce riempie il
-    // composer con «/clear » e mette a fuoco la textarea (NON invia, e non apre
-    // il menu slash inline). Poi Enter invia. Scritto a mano nel composer,
-    // `fill("/clear")` lascerebbe il menu slash chiuso e un Escape per chiuderlo
-    // cadrebbe sul gestore globale che INTERROMPE il turno — svuotando la lista.
+    // Si arriva a `/clear` dal «+»: la sua riga «Comandi /» apre il menu «/»
+    // (CMDUI-07), e una scelta senza argomenti PARTE da sola. Scritto a mano,
+    // `fill("/clear")` lascerebbe il menu aperto, e un Escape per chiuderlo
+    // cadrebbe sul gestore globale che INTERROMPE il turno.
     await page.getByRole("button", { name: "Strumenti e comandi" }).click();
-    // Match the COMMAND `/clear`, not its description. The composer's slash
-    // entries render through `tr(cmd.descriptionKey)` since they were
-    // translated, and Italian is the base catalogue, so that row now reads
-    // «Svuota la conversazione» and a /Clear conversation/ locator finds
-    // nothing. The command is an identifier, not UI copy: it does not get
-    // translated, so it stays a stable hook.
-    await page.getByRole("button", { name: /\/clear/ }).click();
+    await page.getByTestId("composer-open-commands").click();
+    // The command is an identifier, not UI copy: it does not get translated,
+    // so it stays a stable hook.
+    await page.getByTestId("slash-menu").locator('[data-cmd="/clear"]').click();
 
-    // `/clear` è intercettato PRIMA dell'accodamento (ChatPane.tsx:825): apre il
-    // dialog anche mentre il turno «ciao» è ancora in streaming.
-    await chatPage.messageInput.press("Enter");
+    // `/clear` è intercettato PRIMA dell'accodamento: apre il dialog anche
+    // mentre il turno «ciao» è ancora in streaming.
 
     // Il ConfirmDialog React (role="dialog", non un modale nativo).
     // Its accessible name is `aria-label={title}`, and the title is

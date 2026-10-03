@@ -23,29 +23,24 @@
  *
  * @covers CHAT-REL-05
  */
-import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { expect, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
+import { installFakeCli } from "./helpers/fake-claude-cli";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 
-const VERSIONS_DIR = join(E2E_HOME, ".local", "share", "claude", "versions");
-/** Sorted above any real version: the server resolves the CLI at every spawn and takes the highest. */
-const CLI_ENTRY = join(VERSIONS_DIR, "999.0.1-e2e-silent-tool");
+/** The removal of the fake CLI the running test installed. */
+let removeCli: (() => void) | null = null;
 // allow-italian: the exact aria-label shipped in i18n-chat-it.ts.
 const STOP = 'button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]';
 
 /** Puts the fake CLI in front of the test server's, from the next spawn on. */
 function installSilentToolCli(): void {
-  // The server spawns the CLI with a trimmed environment: bun by absolute path.
-  const bun = execSync("command -v bun").toString().trim();
-  mkdirSync(VERSIONS_DIR, { recursive: true });
-  writeFileSync(CLI_ENTRY, `#!/usr/bin/env bash\nexec "${bun}" "${resolve(__dirname, "helpers/fake-claude-silent-tool.ts")}" "$@"\n`);
-  chmodSync(CLI_ENTRY, 0o755);
+  removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-silent-tool.ts"));
 }
 
 async function serverStreaming(request: APIRequestContext, sessionKey: string): Promise<boolean> {
@@ -165,7 +160,8 @@ test.describe("a turn silent in a tool for longer than the stale threshold", () 
   // cleanup must not leave the next ones on 1 s.
   test.afterEach(async ({ request }) => {
     await request.post(`${E2E_BASE}/api/test/stale-stream-clock`, { data: {} }).catch(() => {});
-    rmSync(CLI_ENTRY, { force: true });
+    removeCli?.();
+    removeCli = null;
   });
 
   test("the viewer keeps the Stop through the silence, and loses it only when the turn ends", async ({ page, request, chatPage }) => {

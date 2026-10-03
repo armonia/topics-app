@@ -29,10 +29,10 @@ test.describe.configure({ timeout: 120_000 });
  * every message the CLI is handed, so «nothing reached the CLI» is a fact read
  * from its log, and the last test proves the log is written at all. It cannot
  * show the real CLI's refusal text or what the model answers: those were
- * measured on the real CLI (see `claudeCliCommands.fixture.json`), and
+ * measured on the real CLI (see `shared/claude-cli-commands.json`), and
  * `slashCommandRouting.test.ts` holds the lists to them.
  *
- * @covers CMD-06, CMD-07, CMD-08, CMD-09
+ * @covers CMD-06, CMD-07, CMD-08, CMD-09, CMDUI-03, CMDUI-07
  */
 
 const LOG = join(E2E_HOME, "fake-cli-slash-local.jsonl");
@@ -78,23 +78,24 @@ test.describe("slash commands answered in the composer", () => {
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
   });
 
-  test("/resume is answered here, names what to use instead, and reaches nobody", async ({ page, chatPage }) => {
-    test.info().annotations.push({ type: "spec", description: "CMD-06" });
+  test("/resume on a chat with no project says why in a card, is offered in the menu, and reaches nobody", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CMDUI-03" });
     await type(chatPage, page, "/resume");
-    await expect(result(page)).toContainText(/riprendono da sole/i, { timeout: 10_000 });
-    await expect(result(page)).toContainText(/Riprova/);
-    // Not in the menu any more: typing `/res` offers nothing named resume.
+    await expect(result(page)).toContainText("/resume elenca le sessioni Claude Code di un progetto", { timeout: 10_000 });
+    // It is in the menu now, as the list of this project's sessions (CMDUI-03).
     await chatPage.messageInput.fill("/res");
-    await expect(page.getByRole("option", { name: /\/resume/ })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: /\/resume/ })).toHaveCount(1);
     await page.keyboard.press("Escape");
     expect(received(), "the CLI was handed a command it can only refuse").toEqual([]);
   });
 
-  test("/permissions and /vim name where to go in Topics; nothing reaches the CLI", async ({ page, chatPage }) => {
+  test("/permissions opens the autonomy selector, /vim says it is the terminal's and offers one; nothing reaches the CLI", async ({ page, chatPage }) => {
     await type(chatPage, page, "/permissions");
-    await expect(result(page)).toContainText(/autonomia/i, { timeout: 10_000 });
+    await expect(page.getByTestId("composer-autonomy-panel")).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
     await type(chatPage, page, "/vim");
     await expect(result(page)).toContainText(/\/vim è un comando del terminale/i, { timeout: 10_000 });
+    await expect(result(page).getByTestId("chat-command-action")).toHaveText("Apri un terminale");
     expect(received()).toEqual([]);
   });
 
@@ -188,17 +189,16 @@ test.describe("slash commands answered in the composer", () => {
     expect(received()).toEqual([]);
   });
 
-  test("/help stays until it is closed, instead of vanishing after five seconds", async ({ page, chatPage }) => {
+  test("/help opens the «/» menu, whole, and stays until it is closed", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CMDUI-07" });
     await type(chatPage, page, "/help");
-    await expect(result(page)).toContainText("/compact", { timeout: 10_000 });
-    const shownAt = Date.now();
-    // The defect IS a clock: one five-second timer closed every result. The
-    // wait is the condition under test, so it is a poll on elapsed time and
-    // not a fixed sleep.
-    await expect.poll(() => Date.now() - shownAt, { timeout: 10_000, intervals: [500] }).toBeGreaterThan(6_000);
-    await expect(result(page)).toBeVisible();
-    await result(page).getByRole("button", { name: "Chiudi il messaggio del comando" }).click();
+    const menu = page.getByTestId("slash-menu");
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    await expect(menu.locator('[data-cmd="/compact"]')).toHaveCount(1);
+    await expect(menu.locator('[role="group"][aria-label="Topics"]')).toHaveCount(1);
     await expect(result(page)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
   });
 
   test("/project answers in Italian, without emoji", async ({ page, chatPage }) => {

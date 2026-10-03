@@ -130,7 +130,8 @@ test.describe("Floating surfaces enter and leave", () => {
     const composer = page.locator(`[data-pane-shell="${topic!.id}"] [data-testid="composer-card"] textarea`).first();
     await expect(composer).toBeVisible({ timeout: 10_000 });
     await composer.click();
-    const slashMenu = `[data-pane-shell="${topic!.id}"] form [role="listbox"]`;
+    // The surface is the menu's panel; its listbox is a child that does not move.
+    const slashMenu = `[data-pane-shell="${topic!.id}"] form [data-testid="slash-menu"]`;
     await watch(page, slashMenu);
     await page.keyboard.type("/");
     await expect(page.locator(slashMenu)).toBeVisible();

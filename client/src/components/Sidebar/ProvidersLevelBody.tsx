@@ -10,7 +10,7 @@
  * from the same reading the plan-limit notice in the column uses.
  */
 import { AIProvidersSection } from '../Settings/AIProvidersSection';
-import { claudeSubscription, subscriptionLabel, usageLine } from './formLevelTails';
+import { claudeSubscription, subscriptionLabel, usageLine, weekUsageLine } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
@@ -34,40 +34,59 @@ function ClaudePlanLine() {
   const subscription = claudeSubscription(snapshot);
   const plan = subscriptionLabel(subscription);
   const fiveHour = usage?.fiveHour ?? null;
+  const sevenDay = usage?.sevenDay ?? null;
   // Only where there is a subscription to speak of: an API key or no login,
-  // with no five-hour reading, has nothing to say here.
-  if (!subscription && !fiveHour) return null;
+  // with no reading, has nothing to say here.
+  if (!subscription && !fiveHour && !sevenDay) return null;
   const line = usageLine(
     fiveHour,
     (ms) => new Date(ms).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false }),
     tr,
   );
-  const pct = fiveHour ? Math.max(0, Math.min(100, Math.round(fiveHour.utilization))) : 0;
-  const high = !!fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT;
+  const weekLine = weekUsageLine(
+    sevenDay,
+    (ms) => new Date(ms).toLocaleString(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }),
+    tr,
+  );
   return (
     <div data-testid="providers-claude-plan" className="space-y-1.5 rounded-lg border border-app-border px-3 py-2.5">
       <div className="text-compact font-medium text-app-text">
         {plan ? tr('userMenu.subscription', { plan }) : tr('userMenu.subscriptionUnknown')}
       </div>
-      {fiveHour ? (
+      {fiveHour || sevenDay ? (
         <>
-          <div
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={pct}
-            aria-label={line ?? undefined}
-            className="h-1 overflow-hidden rounded-full bg-app-border"
-          >
-            <div className={`h-full rounded-full ${high ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
-          </div>
-          <div data-testid="providers-claude-usage" className={`text-mini tabular-nums ${high ? SEGNALE_ATTESA : 'text-app-text-secondary'}`}>
-            {line}
-          </div>
+          {fiveHour && <UsageBar window={fiveHour} line={line} testId="providers-claude-usage" />}
+          {/* The week under the five hours (CMDUI-05): same bar, same colours. */}
+          {sevenDay && <UsageBar window={sevenDay} line={weekLine} testId="providers-claude-week" />}
         </>
       ) : (
-        <div className="text-mini text-app-text-tertiary">{tr('userMenu.usage.none')}</div>
+        <div data-testid="providers-claude-usage-none" className="text-mini text-app-text-tertiary">{tr('userMenu.usage.none')}</div>
       )}
     </div>
+  );
+}
+
+/** One window of the plan: a bar and its sentence, amber past the warning threshold. */
+function UsageBar({ window, line, testId }: { window: { utilization: number }; line: string | null; testId: string }) {
+  const pct = Math.max(0, Math.min(100, Math.round(window.utilization)));
+  const high = window.utilization >= PLAN_USAGE_WARN_AT;
+  return (
+    <>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-label={line ?? undefined}
+        data-testid={`${testId}-bar`}
+        data-warn={high ? 'true' : undefined}
+        className="h-1 overflow-hidden rounded-full bg-app-border"
+      >
+        <div className={`h-full rounded-full ${high ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div data-testid={testId} data-warn={high ? 'true' : undefined} className={`text-mini tabular-nums ${high ? SEGNALE_ATTESA : 'text-app-text-secondary'}`}>
+        {line}
+      </div>
+    </>
   );
 }

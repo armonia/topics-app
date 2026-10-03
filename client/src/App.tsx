@@ -751,7 +751,7 @@ function App() {
     focusedPanelId, previewPanelId, nextPanelMode, draftMeta,
     pendingProjectFocus, projectActiveTopics, projectOpenPanes,
     pendingProjectPane, panelInitialTab, contextMenu, expandedProjects,
-    externalDragTopicId, pendingBrowserPane, pendingSoloPanelId,
+    pendingBrowserPane, pendingSoloPanelId,
   } = panelLifecycle.state;
   const { focusedProjectPath } = panelLifecycle.derived;
   // ONE seen event per pane: the window's focused pane, whatever input put it
@@ -765,7 +765,7 @@ function App() {
     handleArchiveProject, handleTopicContextMenu,
     handleQuickCreateTopic, handleCreateTopic, promoteDraft,
     handleQuickCreateTerminal, handleCloseTerminal, handleTerminalClick,
-    handleOpenAsPage, handleExternalDrop, handleReopenClosedTab,
+    handleOpenAsPage, handleReopenClosedTab,
     handleProjectActiveTopicChange, handleProjectOpenPanesChange,
     handlePendingBrowserPaneConsumed, handlePendingSoloConsumed,
     openBrowserPane,
@@ -2229,8 +2229,6 @@ function App() {
           sendWS={sendWS}
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}
-          externalDragTopicId={externalDragTopicId}
-          onExternalDrop={handleExternalDrop}
           onToggleSidebar={toggleSidebar}
           panelInitialTab={panelInitialTab}
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}

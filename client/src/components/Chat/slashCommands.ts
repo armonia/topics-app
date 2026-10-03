@@ -1,101 +1,93 @@
 import type { ComponentType } from 'react';
-import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, Info, Target, Trash2 } from 'lucide-react';
+import {
+  Brain, ChevronsDownUp, Cpu, Download, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, History, Info, PenLine,
+  Plug, RotateCcw, Settings2, ShieldCheck, Target, Trash2, Wallet, Zap,
+} from 'lucide-react';
+import { forkModeFor } from '../../../../shared/chat-fork';
 
 /**
- * The slash commands the composer offers.
+ * THE «TOPICS» GROUP OF THE «/» MENU: the commands Topics runs itself or the
+ * controls it opens (CMDUI-01). The engine's own commands and the person's
+ * skills come from the engine (`GET /api/slash-commands`), and every name of
+ * the three groups passes through `commandMap.ts`.
  *
  * ITS OWN MODULE, and not by taste. It lived in `ChatInput.tsx`, exported from
  * a file that also exports a component: React Fast Refresh cannot tell a
  * constant from a component across a reload, so it gives up on the whole file
- * and does a full page reload on every edit to the composer — and
- * `react-refresh/only-export-components` said so as a lint error. A data list
- * two components read is not part of either one.
+ * and does a full page reload on every edit to the composer. A data list two
+ * components read is not part of either one.
  *
- * `/help` is BUILT FROM THIS LIST. It used to be a second hand-written array in
- * `ChatPane`, and the two drifted exactly the way two hand-kept lists always
- * do: `/help` named ten commands while the menu offered more, so the one place
- * a user goes to ask "what can I type here" gave the shorter, older answer.
- * Derived, they cannot disagree.
+ * `/help` IS THE MENU (CMDUI-07): it opens it, instead of printing a second
+ * list that drifts from this one.
  *
  * `slashCommandRouting.test.ts` guards the other half: every entry here must
  * have somewhere to go.
  *
- * THE ENTRIES CARRY A KEY, NOT A SENTENCE. The descriptions used to be English
- * literals in an app whose default language is Italian, and they were read on
- * two surfaces at once: the `/` completion menu and what `/help` prints. This
- * is a module and not a component, so `tr()` cannot be called here; whoever
- * draws resolves the key, and there are only two such places. The `cmd` itself
- * is NOT translated: it is what one types.
- *
- * `slashCommands.i18n.test.ts` checks the keys exist in both languages, so a
- * new command with a key nobody wrote cannot print `chat.slash.x.description`
- * to a person.
+ * THE ENTRIES CARRY A KEY, NOT A SENTENCE. This is a module and not a
+ * component, so `tr()` cannot be called here; whoever draws resolves the key.
+ * The `cmd` itself is NOT translated: it is what one types.
  */
 export interface SlashCommandEntry {
   readonly cmd: string;
   readonly descriptionKey: string;
   readonly icon: ComponentType<{ size?: number; className?: string }>;
+  /** `control` opens a control of Topics (or sets it with an argument); `topics` is run by Topics. */
+  readonly kind: 'topics' | 'control';
+  /** For a control: what it opens, said on its row ("opens the picker"). */
+  readonly opensKey?: string;
+  /** It wants an argument: picking it inserts `/x ` and waits instead of running. */
+  readonly takesArgs?: boolean;
   /**
    * The providers a topic must DECLARE (CMD-08) for the entry to be offered.
-   * Absent = every provider. `/reasoning` only does something on openclaw,
-   * whose gateway switches reasoning on and off; elsewhere the answer is
-   * «use /effort», which is not worth a row of the menu.
+   * Absent = every provider.
    */
   readonly onlyOn?: readonly string[];
+  /** The providers that have their own command under this name: there it travels as typed. */
+  readonly notOn?: readonly string[];
+  /** Offered only where this holds for the declared provider (unknown provider = offered). */
+  readonly onlyIf?: (provider: string) => boolean;
 }
 
+/** Engines with a compaction to ask for (CMDUI-06): the CLI, the gateway, the native engine. */
+const COMPACTS = ['claude-code', 'claude-code-team', 'openclaw', 'topics'];
+/** OpenClaw's gateway runs its own `/mcp`, `/config`, `/export` and `/usage`. */
+const OPENCLAW = ['openclaw'];
+
 export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
-  // `Info` and not a bolt: nothing is being sped up here, a state is being
-  // read. In this app the bolt means ONE thing only — speed — and it belongs to
-  // Fast Mode.
-  { cmd: '/status', descriptionKey: 'chat.slash.status.description', icon: Info },
-  { cmd: '/context', descriptionKey: 'chat.slash.context.description', icon: Gauge },
-  // Compaction already existed, and the app even draws its outcome (the
-  // "context compacted" dividers, partitionMarkers.ts), but the ONLY way to
-  // start it was the "Compact now" button inside the context warning — which
-  // only appears above the threshold and disappears the moment it is dismissed.
-  // There was no permanent way to ask for it, and `/help` did not even name it.
-  //
-  // No client-side handler is needed: `handleSlashCommand` does not intercept
-  // it, so the message travels straight to the CLI, which knows `/compact` by
-  // itself. That is exactly what the button does
-  // (`sendMessageDirect('/compact')`). Listed here it becomes a first-class
-  // entry on both surfaces this array feeds: the `/` autocomplete and the
-  // overflow menu, which is always reachable.
-  { cmd: '/compact', descriptionKey: 'chat.slash.compact.description', icon: ChevronsDownUp },
-  { cmd: '/clear', descriptionKey: 'chat.slash.clear.description', icon: Trash2 },
-  { cmd: '/model', descriptionKey: 'chat.slash.model.description', icon: Cpu },
-  { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain },
-  { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain, onlyOn: ['openclaw'] },
-  // `/agents` used to sit here, offered as a list of agent profiles: the
-  // roster was removed (AGENT-01), and the CLI now answers that its wizard is
-  // gone.
-  // Typed by hand it still reaches the CLI, whose answer is true and free.
-  // `/pause` and `/assign` used to sit around this one, offering "Pause agent
-  // (@name)" and "Assign task (@name task)". Neither had a destination: no
-  // handler in `ChatPane`, and not in the server's `CLI_BUILTINS` allowlist
-  // either, so choosing one from the menu sent the literal text to the model as
-  // prose — with the whole context preamble in front of it. A menu entry that
-  // does nothing is worse than no entry, because it also spends the user's
-  // trust in the menu. `slashCommandRouting.test.ts` now makes the class
-  // impossible: every entry here must be handled or allowlisted.
-  //
-  // Half of `/pause` does exist, and this is where whoever builds it should
-  // start: `pauseSession` / `resumeSession` are declared on the provider
-  // interface (`server/providers/types.ts:590`) and implemented for openclaw
-  // (`providers/openclaw.ts:189`). Nothing calls either. The capability and
-  // the menu entry were built from opposite ends and never met.
-  //
-  // `/resume` stood here, offered as resuming an agent by «@name». The CLI
-  // refuses it in `--print` and no such name exists anywhere; typed, it is now
-  // answered by `cliRefused.ts` with what Topics offers instead.
-  { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen },
-  { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe },
-  { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target },
+  // `Info` and not a bolt: a state is being read. In this app the bolt means
+  // ONE thing only — speed — and it belongs to Fast Mode.
+  { cmd: '/status', descriptionKey: 'chat.slash.status.description', icon: Info, kind: 'topics' },
+  // The sessions of this project born outside Topics, adopted as a chat (CMDUI-03).
+  { cmd: '/resume', descriptionKey: 'chat.slash.resume.description', icon: History, kind: 'topics', takesArgs: true },
+  { cmd: '/model', descriptionKey: 'chat.slash.model.description', icon: Cpu, kind: 'control', opensKey: 'chat.slash.opens.model' },
+  { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain, kind: 'control', opensKey: 'chat.slash.opens.effort', notOn: OPENCLAW },
+  { cmd: '/context', descriptionKey: 'chat.slash.context.description', icon: Gauge, kind: 'control', opensKey: 'chat.slash.opens.context' },
+  { cmd: '/permissions', descriptionKey: 'chat.slash.permissions.description', icon: ShieldCheck, kind: 'control', opensKey: 'chat.slash.opens.autonomy' },
+  { cmd: '/fast', descriptionKey: 'chat.slash.fast.description', icon: Zap, kind: 'control', opensKey: 'chat.slash.opens.fast', onlyOn: ['claude-code', 'claude-code-team'] },
+  { cmd: '/usage', descriptionKey: 'chat.slash.usage.description', icon: Wallet, kind: 'control', opensKey: 'chat.slash.opens.providers', notOn: OPENCLAW },
+  { cmd: '/mcp', descriptionKey: 'chat.slash.mcp.description', icon: Plug, kind: 'control', opensKey: 'chat.slash.opens.tools', notOn: OPENCLAW },
+  { cmd: '/config', descriptionKey: 'chat.slash.config.description', icon: Settings2, kind: 'control', opensKey: 'chat.slash.opens.userMenu', notOn: OPENCLAW },
+  // Compaction already existed and the app draws its outcome (the «context
+  // compacted» dividers), but the only way to start it was a button that
+  // appears above the threshold. Here it is permanent, on the engines that
+  // compact on request: the CLI and the gateway run it, the native engine
+  // compacts now (`/api/command` `compact`).
+  { cmd: '/compact', descriptionKey: 'chat.slash.compact.description', icon: ChevronsDownUp, kind: 'topics', onlyOn: COMPACTS },
+  { cmd: '/clear', descriptionKey: 'chat.slash.clear.description', icon: Trash2, kind: 'topics' },
+  { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target, kind: 'topics', takesArgs: true },
   // Handled in `ChatPane` (the same call as the message's «Fork into a new
   // chat»), and NOT in the server's `CLI_BUILTINS`: the CLI never receives it.
-  { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch },
-  { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle },
+  // Not where the runtime keeps the conversation outside Topics (openclaw, the
+  // ACP agents): the server refuses the fork there (`shared/chat-fork.ts`).
+  { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch, kind: 'topics', takesArgs: true, onlyIf: (p) => forkModeFor(p) !== null },
+  { cmd: '/rewind', descriptionKey: 'chat.slash.rewind.description', icon: RotateCcw, kind: 'topics' },
+  { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen, kind: 'topics' },
+  { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe, kind: 'topics', takesArgs: true },
+  // The chat of Topics, not the CLI's session (which the CLI's own /rename names).
+  { cmd: '/rename', descriptionKey: 'chat.slash.rename.description', icon: PenLine, kind: 'topics', takesArgs: true },
+  { cmd: '/export', descriptionKey: 'chat.slash.export.description', icon: Download, kind: 'topics', notOn: OPENCLAW },
+  { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain, kind: 'topics', onlyOn: OPENCLAW },
+  { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle, kind: 'topics' },
 ];
 
 /**
@@ -104,5 +96,8 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
  * Unknown provider = everything without a restriction.
  */
 export function offeredSlashCommands(provider: string | null | undefined): readonly SlashCommandEntry[] {
-  return SLASH_COMMANDS.filter((c) => !c.onlyOn || (!!provider && c.onlyOn.includes(provider)));
+  return SLASH_COMMANDS.filter((c) =>
+    (!c.onlyOn || (!!provider && c.onlyOn.includes(provider)))
+    && (!c.notOn || !provider || !c.notOn.includes(provider))
+    && (!c.onlyIf || !provider || c.onlyIf(provider)));
 }

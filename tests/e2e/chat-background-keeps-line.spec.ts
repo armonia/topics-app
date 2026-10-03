@@ -12,32 +12,26 @@
  * turn and past a poll of the status route answered while the turn is open;
  * the turn ends and the line is still there; the job ends and the line goes.
  */
-import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, type Page, type Response } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
+import { installFakeCli } from "./helpers/fake-claude-cli";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 
-const VERSIONS_DIR = join(E2E_HOME, ".local", "share", "claude", "versions");
-/** Sorted above any real version: the server resolves the CLI at every spawn and takes the highest. */
-const CLI_ENTRY = join(VERSIONS_DIR, "999.0.2-e2e-background-job");
+/** The removal of the fake CLI the running test installed. */
+let removeCli: (() => void) | null = null;
 // allow-italian: the exact aria-label shipped in i18n-chat-it.ts.
 const STOP = 'button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]';
 const LINE = '[data-testid="background-work-line"]';
 
 /** Puts the fake CLI in front of the test server's, its switches in `dir`. */
 function installBackgroundJobCli(dir: string): void {
-  // The server spawns the CLI with a trimmed environment: bun by absolute path.
-  const bun = execSync("command -v bun").toString().trim();
-  mkdirSync(VERSIONS_DIR, { recursive: true });
-  const script = resolve(__dirname, "helpers/fake-claude-background-job.ts");
-  writeFileSync(CLI_ENTRY, `#!/usr/bin/env bash\nexport BGKEEP_DIR="${dir}"\nexec "${bun}" "${script}" "$@"\n`);
-  chmodSync(CLI_ENTRY, 0o755);
+  removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-background-job.ts"), { BGKEEP_DIR: dir });
 }
 
 /** A poll of the status route that answers this session's turn as open. */
@@ -56,7 +50,8 @@ test.describe("background work across a new turn", () => {
 
   let dir = "";
   test.afterEach(() => {
-    rmSync(CLI_ENTRY, { force: true });
+    removeCli?.();
+    removeCli = null;
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 

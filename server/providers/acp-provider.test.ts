@@ -15,6 +15,8 @@ import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { AcpProvider, type AcpProviderConfig } from "./acp";
 import { readProviderSession, writeProviderSession } from "./acp/session-store";
+import { newTranslateState } from "./acp/translate";
+import { engineCommandsFor, resetCliSlashCommands } from "../lib/slash-command-source";
 // `sessionHasPendingSend` is new: through the namespace, so the file still loads
 // on the code before it and only its own test fails.
 import * as registry from "./index";
@@ -703,5 +705,24 @@ describe("a prompt in flight is a pending send", () => {
     } finally {
       registry.removeProvider("finto-registry");
     }
+  });
+});
+
+/** @covers CMDUI-01 */
+describe("the agent's commands are kept before any turn has a handler", () => {
+  test("an announcement with no turn in flight still reaches the menu's list", () => {
+    resetCliSlashCommands();
+    // Not started: the session is planted as `session/new` leaves it, no handler yet.
+    const p = new AcpProvider({ type: "acp", name: "finto-cmds", command: process.execPath, args: [FAKE_AGENT], defaultWorkspace: tmpRoot });
+    const inner = p as unknown as {
+      sessions: Map<string, unknown>;
+      bySessionId: Map<string, string>;
+      onSessionUpdate(params: Record<string, unknown>): void;
+    };
+    inner.sessions.set("topic:cmds", { acpSessionId: "s-cmds", cwd: "/p/acp", translate: newTranslateState(), fullText: "", promptInFlight: false, model: null, effort: null });
+    inner.bySessionId.set("s-cmds", "topic:cmds");
+    inner.onSessionUpdate({ sessionId: "s-cmds", update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "models", description: "List models" }] } });
+    expect(engineCommandsFor({ sessionKey: "topic:cmds", provider: "finto-cmds" })?.commands.map((c) => c.name)).toEqual(["models"]);
+    resetCliSlashCommands();
   });
 });

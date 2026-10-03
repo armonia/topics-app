@@ -44,76 +44,36 @@ test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
     removeTmpDir(tmpDir);
   });
 
-  test("FILE-03-01: context menu shows Show in Finder for file", async ({ fileExplorerPage, page }) => {
+  // FILE-03 (commands-ui): the reveal runs `open -R` on the SERVER, so a web
+  // client (this browser, a phone, another computer) would open Finder on the
+  // Mac that runs Topics, in front of nobody. The row is offered only in the
+  // desktop shell on a loopback server (`lib/revealInFinder.ts`, unit-tested
+  // there): it cannot be faked here, because a page posing as the shell talks
+  // to the real shell's port. What this client must show is its absence.
+  test("FILE-03-01: a web client is not offered Show in Finder, on a file or a folder", async ({ fileExplorerPage, page }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-03" });
-
     let revealCalled = false;
-    let revealPath = "";
-
-    // Mock the reveal endpoint
     await page.route("**/api/files/reveal", async (route) => {
-      const body = JSON.parse(route.request().postData() || "{}");
       revealCalled = true;
-      revealPath = body.path || "";
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true }),
-      });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
     });
 
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
-    // Right-click on README.md in the file tree
     const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", { name: /README\.md/ });
     await expect(readmeItem).toBeVisible({ timeout: 10_000 });
     await readmeItem.click({ button: "right" });
+    // The menu is open (its copy row is there), and the reveal row is not.
+    await expect(page.locator('button[role="menuitem"]', { hasText: /Copia il percorso|Copy path/ }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("files-menu-reveal")).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
-    // Verify context menu has "Show in Finder"
-    const showInFinder = page.locator('button[role="menuitem"]', { hasText: "Mostra nel Finder" });
-    await expect(showInFinder).toBeVisible({ timeout: 5_000 });
-
-    // Click "Show in Finder"
-    await showInFinder.click();
-
-    // Verify API call was made with the file path
-    expect(revealCalled).toBe(true);
-    expect(revealPath).toContain("README.md");
-  });
-
-  test("FILE-03b-02: context menu shows Show in Finder for folder", async ({ fileExplorerPage, page }) => {
-    test.info().annotations.push({ type: "spec", description: "FILE-03" });
-
-    let revealCalled = false;
-    let revealPath = "";
-
-    await page.route("**/api/files/reveal", async (route) => {
-      const body = JSON.parse(route.request().postData() || "{}");
-      revealCalled = true;
-      revealPath = body.path || "";
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true }),
-      });
-    });
-
-    await fileExplorerPage.gotoProject(tmpDir, topicName);
-
-    // Right-click on the "src" directory
     const srcDir = fileExplorerPage.getDirNode(/^src$/);
     await expect(srcDir.first()).toBeVisible({ timeout: 10_000 });
     await srcDir.first().click({ button: "right" });
-
-    // Verify context menu has "Show in Finder"
-    const showInFinder = page.locator('button[role="menuitem"]', { hasText: "Mostra nel Finder" });
-    await expect(showInFinder).toBeVisible({ timeout: 5_000 });
-
-    // Click it
-    await showInFinder.click();
-
-    expect(revealCalled).toBe(true);
-    expect(revealPath).toContain("src");
+    await expect(page.locator('button[role="menuitem"]', { hasText: /Copia il percorso|Copy path/ }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("files-menu-reveal")).toHaveCount(0);
+    expect(revealCalled).toBe(false);
   });
 
   test("FILE-04-01: script runner lists scripts from package.json", async ({ fileExplorerPage, page }) => {

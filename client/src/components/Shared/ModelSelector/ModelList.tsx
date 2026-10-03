@@ -148,7 +148,7 @@ function ProvidersFooterRow({ snapshot, chosen, disabled, onClose }: {
 function ClaudePlanCompactLine({ snapshot }: { snapshot: ProvidersSnapshot | null }) {
   const tr = useT();
   const usage = usePlanUsage();
-  const line = claudePlanCompact(claudeSubscription(snapshot), usage?.fiveHour ?? null, tr);
+  const line = claudePlanCompact(claudeSubscription(snapshot), usage?.fiveHour ?? null, tr, usage?.sevenDay ?? null);
   if (!line) return null;
   return (
     <p

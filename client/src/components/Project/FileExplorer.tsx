@@ -23,6 +23,12 @@ import { SkeletonRows } from '../Shared/Skeleton';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadEditorTabs } from '../../state/pane/panePreload';
 import { fileTreeClaimsDrag } from './fileTreeDrag';
+import { revealOffered } from '../../lib/revealInFinder';
+import { shellKind } from '../../lib/shell';
+import { serverHttpBase } from '../../lib/shell/net';
+
+/** «Mostra nel Finder» is offered here only on the server's own machine (FILE-03). */
+const REVEAL_OFFERED = revealOffered(shellKind, serverHttpBase());
 
 // `lazyWarm`: the tree mounts these tabs unconditionally, so with a bare
 // `lazy()` every project window that opens on its file tree drew the spinner
@@ -1414,8 +1420,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           >
             <Copy size={14} className="text-app-text-tertiary" /> {tr('files.menu.copyRelativePath')}
           </button>
-          <button
+          {/* Only where the Finder that opens is in front of whoever clicked
+              (FILE-03, `lib/revealInFinder.ts`). */}
+          {REVEAL_OFFERED && <button
             role="menuitem"
+            data-testid="files-menu-reveal"
             // The reveal happens on the SERVER's machine (`open -R`), and it can
             // fail there: it used to be fired and forgotten, so a refusal and
             // a success looked the same.
@@ -1428,7 +1437,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
             <ExternalLink size={14} className="text-app-text-tertiary" /> {tr('files.menu.revealInFinder')}
-          </button>
+          </button>}
           <div className="border-t border-app-border my-1" />
         </>
       )}

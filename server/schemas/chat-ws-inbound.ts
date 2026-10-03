@@ -14,8 +14,12 @@
  *   - `client/src/lib/focusMessaging.ts` → focus
  *   - `client/src/components/Chat/ChatPane.tsx` → typing
  *   - `client/src/hooks/useWebSocket.ts` → ping (heartbeat keepalive)
- *   - `client/src/components/Layout/PanelGrid.tsx` → drag:start, drag:end
- *   - `client/src/hooks/usePanelLifecycle.ts` → drag:drop
+ *
+ * `drag:start`, `drag:end` and `drag:drop` have NO sender in this client: the
+ * cross-window drag they carried lost its only trigger with ChatPanel's header
+ * and was removed (2026-10-03). They stay accepted here, and relayed by
+ * `server.ts`, for a desktop shell still running an older embedded client;
+ * whoever removes them removes the relay and its contract tests with them.
  */
 import { z } from 'zod';
 

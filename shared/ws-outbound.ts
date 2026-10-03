@@ -576,6 +576,20 @@ const streamCompactionSchema = z.looseObject({
   createdAt: z.string(),
 });
 
+/**
+ * The answer of a command, for the chat's command card (CMDUI-04): the CLI's
+ * own words for a local command, and `/compact`'s outcome. Never saved: it is
+ * a state of the screen, gone on reload.
+ */
+const streamCommandAnswerSchema = z.looseObject({
+  type: z.literal('stream:command-answer'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  command: z.string(),
+  text: z.string(),
+  outcome: z.optional(z.looseObject({ ok: z.boolean(), error: z.optional(z.string()) })),
+});
+
 const streamToolCallSchema = z.looseObject({
   type: z.literal('stream:tool_call'),
   sessionKey: z.string(),
@@ -1453,6 +1467,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:alive': streamAliveSchema,
   'stream:retry': streamRetrySchema,
   'stream:compaction': streamCompactionSchema,
+  'stream:command-answer': streamCommandAnswerSchema,
   'stream:tool_call': streamToolCallSchema,
   'stream:tool_detail': streamToolDetailSchema,
   'stream:tool_result': streamToolResultSchema,

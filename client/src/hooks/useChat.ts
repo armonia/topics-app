@@ -90,6 +90,7 @@ import {
 } from './outboundQueue';
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import { apiFetch } from '../lib/shell/net';
+import { COMMAND_ANSWER_EVENT } from '../lib/commandAnswer';
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -1502,6 +1503,14 @@ export function useChat() {
           ...(typeof event.postTokens === 'number' ? { postTokens: event.postTokens } : {}),
           createdAt: event.createdAt,
         });
+        break;
+
+      case 'stream:command-answer':
+        // The answer of a command (CMDUI-04) is the pane's card, not a
+        // message: handed to the chat that shows this session, never stored.
+        window.dispatchEvent(new CustomEvent(COMMAND_ANSWER_EVENT, {
+          detail: { sessionKey, command: event.command, text: event.text, ...(event.outcome ? { outcome: event.outcome } : {}) },
+        }));
         break;
 
       case 'stream:tool_call':

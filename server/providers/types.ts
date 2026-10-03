@@ -179,6 +179,16 @@ export interface ProviderDiagnostic {
 // ============ Stream Handler (callback-style) ============
 
 /** Callback-style handler — maps to the existing ChatStreamHandler pattern */
+/** What a command answered (see `StreamHandler.onCommandAnswer`). */
+export interface CommandAnswerPayload {
+  /** The command the turn invoked, lower-cased, without the slash. */
+  command: string;
+  /** The CLI's own words, in its language. */
+  text: string;
+  /** `/compact`'s reported outcome, when it reported one. */
+  outcome?: { ok: boolean; error?: string };
+}
+
 export interface StreamHandler {
   /**
    * Nuovo testo dal modello: `(delta, cumulato)`.
@@ -330,6 +340,14 @@ export interface StreamHandler {
    * never resumes a turn. See CHAT-COMPACT-01.
    */
   onCompaction?: (marker: CompactionMarker) => void;
+  /**
+   * The ANSWER OF A COMMAND, not a message of the chat (CMDUI-04): the text the
+   * CLI wrote itself (`<synthetic>`) in a turn started by a command that ended
+   * without a model turn and at no cost, and the outcome it reported for
+   * `/compact`. The route shows it in the chat's command card and saves
+   * nothing. A handler without it gets the text as the turn's reply, as before.
+   */
+  onCommandAnswer?: (answer: CommandAnswerPayload) => void;
   /**
    * Context size (tokens) of ONE model call, as reported per assistant message:
    * `input + cache_read + cache_creation`. This is the live size of the prompt

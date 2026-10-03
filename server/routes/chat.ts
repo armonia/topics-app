@@ -1401,6 +1401,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
           let compactedThisTurn = false;
+          // The turn answered a command (CMDUI-04): its text went to the
+          // command card, and the row it leaves is empty on purpose.
+          let answeredAsCommand = false;
           // A MANUAL /compact ENDS AT THE BOUNDARY: the turn that made it has no
           // model call after it, so nothing ever measured the compacted context
           // and the divider kept «~445k token before» for good (10 manual
@@ -2274,7 +2277,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // cioè scambieremmo un successo per un guasto, che è esattamente il
             // modo in cui il vecchio bug si sarebbe ripresentato con un'altra
             // faccia.
-            const soloCompattazione = compactedThisTurn;
+            const soloCompattazione = compactedThisTurn || answeredAsCommand;
             // A TURN CUT BY THE OUTPUT CAP ENDS ON THE `done` LEG.
             //
             // The native loop exits a `max_tokens` round through `onDone`, not
@@ -2460,7 +2463,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // finisce vuoto è un guasto, e il suo ⚠️ resta. The same for a
             // reattach that opened its own row: nobody asked it, and the «no
             // answer» with Retry went under a reply already there (a57e6d4d).
-            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken || (isReattach && !reusedRow))))
+            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || answeredAsCommand || isWoken || (isReattach && !reusedRow))))
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
@@ -3197,6 +3200,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               } catch (err) {
                 console.error("[compaction] persist/broadcast failed:", err);
               }
+            },
+
+            onCommandAnswer: (answer) => {
+              // CMDUI-04: the answer of a command is the pane's card, never a
+              // message. Not saved, not in the history sent to the engine.
+              resetStreamTimer();
+              answeredAsCommand = true;
+              const evt = {
+                type: "stream:command-answer" as const,
+                sessionKey,
+                topicId: matchedTopic?.id,
+                command: answer.command,
+                text: answer.text,
+                ...(answer.outcome ? { outcome: answer.outcome } : {}),
+              };
+              if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, evt);
+              else broadcastToAll(evt);
             },
 
             onPlan: (steps) => {
