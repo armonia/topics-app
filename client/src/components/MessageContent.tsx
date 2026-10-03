@@ -1358,6 +1358,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             return (
               <ReasoningRow
                 key={`g-th-${g.idx}`}
+                messageId={messageId}
                 content={g.text}
                 partial={partial && g.idx === blocks.length - 1}
               />
@@ -1481,7 +1482,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               // è la forma di gran lunga più comune — quei 6px sono vuoto
               // aggiunto sotto ogni riga di azione, e basta.
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
-                {thinking && <ReasoningRow content={thinking} partial={partial} />}
+                {thinking && <ReasoningRow content={thinking} partial={partial} messageId={messageId} />}
                 <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             )}

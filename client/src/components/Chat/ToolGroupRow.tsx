@@ -9,6 +9,7 @@ import { useSettledMetricClass } from './settledMetrics';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { TranscriptRowResizeContext } from './transcriptRowResize';
+import { useFindFocusToolIn } from '../../state/chatFindFocus';
 import {
   GROUP_MIN,
   firstFailedTool,
@@ -47,6 +48,16 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
     const t = setTimeout(() => setFocusId(null), 2400);
     return () => clearTimeout(t);
   }, [focusId]);
+  // The chat find bar landed inside one of these calls (CHAT-FIND-02): the
+  // group opens on that edge and stays open; the call itself opens through
+  // its own subscription.
+  const toolIds = useMemo(() => tools.map((t) => t.id), [tools]);
+  const findFocus = useFindFocusToolIn(toolIds);
+  const [seenFindSeq, setSeenFindSeq] = useState(0);
+  if (findFocus.seq !== 0 && findFocus.seq !== seenFindSeq) {
+    setSeenFindSeq(findFocus.seq);
+    setOpen(true);
+  }
   const live = summary.running > 0;
   const whollyFailed = isWhollyFailed(summary);
   const settledCount = summary.total - summary.running;

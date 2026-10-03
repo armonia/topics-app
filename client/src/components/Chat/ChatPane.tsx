@@ -76,6 +76,9 @@ import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAtt
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
 import { apiFetch } from '../../lib/shell/net';
+import { FindBar } from '../Shared/FindBar';
+import { FindPaneContext, useFindPaneId } from '../../state/findRegistry';
+import { useChatFinder } from './useChatFinder';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -522,6 +525,10 @@ function ChatPaneComponent({
   const currentLoading = useSessionFlagValue(topic.sessionKey, isSessionLoading);
   const currentStreaming = useSessionFlagValue(topic.sessionKey, isSessionStreaming);
   const currentStoppedByUser = useSessionFlagValue(topic.sessionKey, wasSessionStopped);
+  // ⌘F inside this chat (CHAT-FIND-01): the pane's id from its host, or the
+  // topic's when it is drawn somewhere that is not a pane (the board drawer).
+  const findPaneId = useFindPaneId() ?? topic.id;
+  useChatFinder({ paneId: findPaneId, topicId: topic.id, sessionKey: topic.sessionKey, messages: currentMessages, streaming: currentStreaming, paneRootRef });
 
   // Chiude il banner della compattazione con l'esito VERO, quando il marcatore
   // arriva. `stream:compaction` porta i token prima/dopo, quindi si puo' dire
@@ -1748,6 +1755,7 @@ function ChatPaneComponent({
       // Whose conversation this subtree is: `openLink` walks up from the clicked
       // anchor to find out which topic's window may claim the link.
       data-chat-topic-id={topic.id}
+      data-find-pane={findPaneId}
       // `chrome-passthrough-y` and not `overflow-hidden`: the transcript inside
       // rises by the height of the chrome bar and has to be PAINTED up there,
       // not just laid out there. The horizontal containment is unchanged. See
@@ -1766,12 +1774,18 @@ function ChatPaneComponent({
     >
       {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && (
         <Suspense fallback={null}>
-          <TopicBrowserWindow topicId={topic.id} areaRef={paneRootRef} projectPath={topic.projectPath ?? undefined} />
+          {/* The browser in this chat's window is a pane of its own for
+              find: it must not register under this chat's id. */}
+          <FindPaneContext.Provider value={null}>
+            <TopicBrowserWindow topicId={topic.id} areaRef={paneRootRef} projectPath={topic.projectPath ?? undefined} />
+          </FindPaneContext.Provider>
         </Suspense>
       )}
       {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && browserWindow.mode === 'hidden' && (
         <TopicBrowserReopen topicId={topic.id} />
       )}
+      {/* The find bar sits in the column's flow, above the transcript. */}
+      <FindBar paneId={findPaneId} />
       {commandResult && (
         <div data-testid="chat-command-result" data-result-type={commandResult.type} className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
