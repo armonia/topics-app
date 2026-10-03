@@ -122,10 +122,10 @@ test.describe("/resume", () => {
     await expect(picker(page).getByTestId("resume-load-more")).toHaveCount(0);
 
     // The word after `/resume ` filters on title and branch.
-    // The caret goes back to the end of «/resume » before typing.
+    // Every fixture's branch is `feat/menu`, so the word is one of a title only.
     await chatPage.messageInput.click();
     await chatPage.messageInput.press("End");
-    await chatPage.messageInput.pressSequentially("Menu");
+    await chatPage.messageInput.pressSequentially("utente");
     await expect(rows(page)).toHaveCount(1);
     await expect(rows(page).first().getByTestId("resume-row-title")).toHaveText("Menu utente");
 
