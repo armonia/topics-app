@@ -3,6 +3,9 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { stepMatchIndex, formatMatchCounter, formatFindCounter } from './findInPageModel';
+import IT_DICT from '../../lib/i18n-it';
+import EN_DICT from '../../lib/i18n-en';
+import { interpolate, t } from '../../lib/i18n';
 
 describe('stepMatchIndex', () => {
   test('da fermo il primo passo avanti è la PRIMA corrispondenza', () => {
@@ -81,27 +84,23 @@ describe('formatMatchCounter', () => {
 describe('formatFindCounter (the shared find bar)', () => {
   // The real catalogues and the real interpolation: a key missing from one of
   // the two is a red here, not an English word in the Italian bar.
-  test('«3 di 12» in Italian and «3 of 12» in English', async () => {
-    const { t } = await import('../../lib/i18n');
-    const IT = (await import('../../lib/i18n-it')).default as Record<string, string>;
-    const EN = (await import('../../lib/i18n-en')).default as Record<string, string>;
-    const { interpolate } = await import('../../lib/i18n');
+  test('«3 di 12» in Italian and «3 of 12» in English', () => {
+    const IT = IT_DICT as Record<string, string>;
+    const EN = EN_DICT as Record<string, string>;
     expect(formatFindCounter(3, 12, (k, v) => interpolate(IT[k]!, v))).toBe('3 di 12');
     expect(formatFindCounter(3, 12, (k, v) => interpolate(EN[k]!, v))).toBe('3 of 12');
     expect(formatFindCounter(0, 7, (k, v) => t(k, 'it', v))).toBe('0 di 7');
   });
 
-  test('the clamp of BROWSER-FIND-01 holds in the translated form too', async () => {
-    const { interpolate } = await import('../../lib/i18n');
-    const IT = (await import('../../lib/i18n-it')).default as Record<string, string>;
+  test('the clamp of BROWSER-FIND-01 holds in the translated form too', () => {
+    const IT = IT_DICT as Record<string, string>;
     expect(formatFindCounter(14, 12, (k, v) => interpolate(IT[k]!, v))).toBe('12 di 12');
     expect(formatFindCounter(5, 0, (k, v) => interpolate(IT[k]!, v))).toBe('0 di 0');
   });
 
-  test('past the engine limit: «oltre 1000» without a position', async () => {
-    const { interpolate } = await import('../../lib/i18n');
-    const IT = (await import('../../lib/i18n-it')).default as Record<string, string>;
-    const EN = (await import('../../lib/i18n-en')).default as Record<string, string>;
+  test('past the engine limit: «oltre 1000» without a position', () => {
+    const IT = IT_DICT as Record<string, string>;
+    const EN = EN_DICT as Record<string, string>;
     expect(formatFindCounter(0, 1500, (k, v) => interpolate(IT[k]!, v), 1000)).toBe('oltre 1000');
     expect(formatFindCounter(0, 1500, (k, v) => interpolate(EN[k]!, v), 1000)).toBe('over 1000');
   });

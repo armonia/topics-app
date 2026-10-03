@@ -494,8 +494,7 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
   // senza riscrivere il DB per un difetto di sola resa.
   const text = useMemo(() => unwrapStoredToolResult(raw), [raw]);
   const { shown, oversized, length } = clampBody(text);
-  // The chat find bar landed on a word past the cut of this body: it expands,
-  // and stays expanded (CHAT-FIND-02).
+  // Find landed past the cut: expand, and stay so (CHAT-FIND-02).
   const findExpands = useFindExpandsClamp(text, shown);
   if (findExpands && oversized && !expanded) setExpanded(true);
   return (

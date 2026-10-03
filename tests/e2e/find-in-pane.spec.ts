@@ -144,7 +144,7 @@ test.describe("Cerca nella pane: la chat", () => {
     await page.screenshot({ path: test.info().outputPath("chat-find-first-message.png") });
   });
 
-  test("CHAT-FIND-01/02: a word only in a closed tool output is counted, and the row opens on arrival", async ({ page, chatPage }) => {
+  test("CHAT-FIND-01b: a word only in a closed tool output is counted, and the row opens on arrival", async ({ page, chatPage }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -170,7 +170,7 @@ test.describe("Cerca nella pane: la chat", () => {
     expect(await page.evaluate(() => (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.has("find-current") ?? false)).toBe(false);
   });
 
-  test("FIND-02: Ctrl+F in the composer: the field's own key on a Mac, the bar elsewhere", async ({ page, chatPage }) => {
+  test("FIND-02b: Ctrl+F in the composer: the field's own key on a Mac, the bar elsewhere", async ({ page, chatPage }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -221,13 +221,13 @@ test.describe("Cerca nella pane: la chat", () => {
     await expect(chatPage.streamingIndicator).toBeVisible();
     // Counter-proof: with the cursor out of the bar, Esc stops the turn as before.
     await blurAll(page);
-    const secondEscAt = Date.now();
+    const secondEscapeAt = Date.now();
     await page.keyboard.press("Escape");
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await expect.poll(() => aborts.length).toBe(1);
     // ...and that one stop came from the second Esc, not from the first.
-    expect(aborts[0]!).toBeGreaterThanOrEqual(secondEscAt);
-    expect(secondEscAt).toBeGreaterThanOrEqual(barClosedAt);
+    expect(aborts[0]!).toBeGreaterThanOrEqual(secondEscapeAt);
+    expect(secondEscapeAt).toBeGreaterThanOrEqual(barClosedAt);
     await unmockChatStream(page);
   });
 });
@@ -358,7 +358,7 @@ test.describe("Cerca nella pane: file, board, dashboard", () => {
     await expect(pane.locator(".prose h1")).toBeInViewport();
   });
 
-  test("FILE-FIND-02: the diff counts both sides and opens the folded part", async ({ page, request }) => {
+  test("FILE-FIND-02b: the diff counts both sides and opens the folded part", async ({ page, request }) => {
     await openProject(page, request);
     const git = page.locator('[data-testid="git-changes"]').first();
     await expect(git).toBeVisible({ timeout: 15_000 });

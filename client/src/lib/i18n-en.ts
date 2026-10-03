@@ -17,10 +17,12 @@
 import type { Dict } from './i18n-types';
 import SPEND_EN from './i18n-spend-en';
 import CHAT_EN from './i18n-chat-en';
+import FIND_EN from './i18n-find-en';
 
 const EN = {
   ...SPEND_EN,
   ...CHAT_EN,
+  ...FIND_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.execution': 'Choose execution first',
   'ai.selector.executionHint': 'Models come next and stay compatible with the selected engine.',
@@ -517,18 +519,6 @@ const EN = {
   'browser.find.prev': 'Previous (⇧⏎)',
   'browser.find.next': 'Next (⏎)',
   'browser.find.close': 'Close (Esc)',
-  'find.label': 'Find',
-  'find.bar': 'Find in this pane',
-  'find.placeholder': 'Find here',
-  'find.chat.placeholder': 'Find in chat',
-  'find.terminal.placeholder': 'Find in terminal',
-  'find.file.placeholder': 'Find in file',
-  'find.counter': '{i} of {t}',
-  'find.counter.over': 'over {n}',
-  'find.replace.placeholder': 'Replace with',
-  'find.replace.one': 'Replace',
-  'find.replace.all': 'Replace all',
-  'find.unavailable.video': "This page is an image here: find isn't available",
   'browser.engine.real': "Real Chromium · {n} extensions · click to go back to the server's Playwright engine",
   'browser.engine.native': "The server's Playwright engine · click to use your real Chromium (with its extensions)",
   'browser.mode.dom': 'DOM mode: the real browser rebuilt natively (cross-device). Click to go back to video.',

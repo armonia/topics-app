@@ -398,6 +398,20 @@ export function backfillToolOutputsTick(db: Database, opts: { maxRows: number; m
   return tick;
 }
 
+/**
+ * Split ONE stored closed row now, the way the backfill would: its big tool
+ * outputs go to `message_tool_outputs`. For the e2e seed route only, so a
+ * test can prove a reader fetches the output from the side table.
+ */
+export function splitStoredToolOutputs(db: Database, messageId: string): void {
+  const stored = decodeCol((db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks: unknown } | null)?.blocks);
+  const parsed = stored ? (JSON.parse(stored) as ContentBlock[]) : null;
+  const split = Array.isArray(parsed) ? splitToolOutputs(parsed) : null;
+  if (!split || !parsed) return;
+  db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(split.blocks)) ?? null, messageId]);
+  putToolOutputs(db, messageId, split.moved, split.blocks, parsed);
+}
+
 /** The pace of the backfill, measured on a copy of the live DB (see the commit). */
 export const BACKFILL_EVERY_MS = 2_000;
 export const BACKFILL_MAX_ROWS = 20;

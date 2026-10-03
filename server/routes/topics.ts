@@ -81,8 +81,8 @@ import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
 import { readSlashCommandSource, isValidSlashCommandName, listSlashCommandFiles } from "../lib/slash-command-source";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
-import { decodeCol, encodeCol } from "../../shared/message-blob";
-import { putToolOutputs, splitToolOutputs } from "../lib/tool-output-store";
+import { decodeCol } from "../../shared/message-blob";
+import { splitStoredToolOutputs } from "../lib/tool-output-store";
 import { subagentProcesses } from "./subagentProcesses";
 import { sessionStatus } from "./sessionStatus";
 
@@ -2437,20 +2437,8 @@ export function createTopicsRouter(
           $cache_creation_tokens: typeof body.cacheCreationTokens === "number" ? body.cacheCreationTokens : null,
           $cache_creation_1h_tokens: typeof body.cacheCreation1hTokens === "number" ? body.cacheCreation1hTokens : null,
         });
-        // `splitToolOutputs: true`: the row as an OLD closed row is on disk
-        // today, its big tool outputs moved to `message_tool_outputs` (the
-        // same split the background backfill does). Without it a seeded
-        // output stays in the row and a test cannot prove a reader goes and
-        // fetches it from the side table (find-in-pane, CHAT-FIND-01).
-        if (body.splitToolOutputs === true) {
-          const stored = decodeCol((db.prepare(`SELECT blocks FROM messages WHERE id = ?`).get(id) as { blocks: unknown } | null)?.blocks);
-          const parsed = stored ? JSON.parse(stored) as Parameters<typeof splitToolOutputs>[0] : null;
-          const split = Array.isArray(parsed) ? splitToolOutputs(parsed) : null;
-          if (split && parsed) {
-            db.prepare(`UPDATE messages SET blocks = ? WHERE id = ?`).run(encodeCol(JSON.stringify(split.blocks)) ?? null, id);
-            putToolOutputs(db, id, split.moved, split.blocks, parsed);
-          }
-        }
+        // The row as an old closed row is on disk, outputs moved apart (find-in-pane e2e).
+        if (body.splitToolOutputs === true) splitStoredToolOutputs(db, id);
         return json({ ok: true, id });
       } catch (err: any) {
         return json({ error: "Seed failed: " + err.message }, 500);

@@ -17,10 +17,12 @@
 import type { Dict } from './i18n-types';
 import SPEND_IT from './i18n-spend-it';
 import CHAT_IT from './i18n-chat-it';
+import FIND_IT from './i18n-find-it';
 
 const IT: Dict = {
   ...SPEND_IT,
   ...CHAT_IT,
+  ...FIND_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.execution': 'Prima scegli l’esecuzione',
   'ai.selector.executionHint': 'Il modello viene dopo e resta compatibile con il motore scelto.',
@@ -521,18 +523,6 @@ const IT: Dict = {
   'browser.find.prev': 'Precedente (⇧⏎)',
   'browser.find.next': 'Successivo (⏎)',
   'browser.find.close': 'Chiudi (Esc)',
-  'find.label': 'Cerca',
-  'find.bar': 'Cerca in questa pane',
-  'find.placeholder': 'Cerca qui',
-  'find.chat.placeholder': 'Cerca nella chat',
-  'find.terminal.placeholder': 'Cerca nel terminale',
-  'find.file.placeholder': 'Cerca nel file',
-  'find.counter': '{i} di {t}',
-  'find.counter.over': 'oltre {n}',
-  'find.replace.placeholder': 'Sostituisci con',
-  'find.replace.one': 'Sostituisci',
-  'find.replace.all': 'Sostituisci tutti',
-  'find.unavailable.video': "Qui la pagina è un'immagine: la ricerca non c'è",
   'browser.engine.real': 'Chromium reale · {n} estensioni · clicca per tornare al motore Playwright del server',
   'browser.engine.native': 'Motore Playwright del server · clicca per usare il tuo Chromium reale (con le estensioni)',
   'browser.mode.dom': 'Modalità DOM: browser vero ricostruito nativamente (cross-device). Clicca per tornare al video.',

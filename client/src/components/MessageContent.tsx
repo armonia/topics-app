@@ -1357,8 +1357,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           if (g.kind === 'thinking') {
             return (
               <ReasoningRow
-                key={`g-th-${g.idx}`}
-                messageId={messageId}
+                key={`g-th-${g.idx}`} messageId={messageId}
                 content={g.text}
                 partial={partial && g.idx === blocks.length - 1}
               />
