@@ -4,3 +4,8 @@ creato: 2026-10-02
 richiesta: "poi instrada topics dovrebbe essere di default attivo e instrada forse non si capisce, potremmo spiegarlo meglio e farlo anche graficamente rilevante. inoltre potremmo fare ricerca bene per far meglio il selettore, uniformarlo ovunque sia refactorando e differenziando l'utile, asicurandoti che sia bne impaginato e che si possano vedere contemporaneamente i modelli di aziende diverse e non navigare tutto il dropdown nel sottomenu"
 approvato: 2026-10-03 13:31
 risposta: "vai tutto ?"
+modifiche:
+  - data: "2026-10-03"
+    scelte: [1]
+    cambia: "MSEL-06 / AICTRL-01: la strada si dichiara su chip e fascia, non sul turno"
+    risposta: "vai, aggiornami quando è tutto su main. inoltre ti segnalo che mi da portando le notifiche sulle pane, anche se in realtà è in attesa di lavori in bg, dovremmmo volutare al meglio tutto il sistema di notifiche e rifarlo al meglio perchè al momento non sono sincronizzare e reali neanche le notifiche dal tasto sidebar"
