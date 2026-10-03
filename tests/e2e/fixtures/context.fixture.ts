@@ -28,13 +28,15 @@ export const MOCK_CONTEXT_ANALYSIS = {
       countInBudget: true,
     },
     {
-      id: "memory:global",
-      label: "Global Memory",
-      category: "memory",
+      // Le regole globali vengono dall'hub, in sola lettura (change contesto-dall-hub):
+      // la «Global Memory» modificabile non esiste piu'.
+      id: "user:CLAUDE.md",
+      label: "~/.agents/AGENTS.md",
+      category: "template",
       tokens: 850,
       enabled: true,
-      editable: true,
-      preview: "User prefers TypeScript and functional patterns...",
+      editable: false,
+      preview: "## Identity\n- Nome: Jarvis...",
       countInBudget: true,
     },
     {
@@ -77,13 +79,13 @@ export const MOCK_HIGH_BUDGET_ANALYSIS = {
       countInBudget: true,
     },
     {
-      id: "memory:global",
-      label: "Global Memory",
-      category: "memory",
+      id: "user:CLAUDE.md",
+      label: "~/.agents/AGENTS.md",
+      category: "template",
       tokens: 55000,
       enabled: true,
-      editable: true,
-      preview: "Large global memory...",
+      editable: false,
+      preview: "Large hub rules...",
       countInBudget: true,
     },
     {
@@ -243,7 +245,8 @@ export class ContextPage {
   }
 
   /**
-   * Mock all memory endpoints: GET/PUT/DELETE /api/memory routes.
+   * Mock the topic memory endpoints: GET/PUT/DELETE /api/memory/:topicId.
+   * The global `/api/memory` answers 410 since contesto-dall-hub: not mocked.
    * Must be called BEFORE page.goto().
    */
   async mockMemoryEndpoints() {
@@ -264,20 +267,6 @@ export class ContextPage {
           body: JSON.stringify({ ok: true }),
         });
       } else if (method === "DELETE") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-
-    // PUT /api/memory (global - no trailing path segment)
-    await this.page.route(/\/api\/memory$/, async (route) => {
-      const method = route.request().method();
-      if (method === "PUT") {
         await route.fulfill({
           status: 200,
           contentType: "application/json",

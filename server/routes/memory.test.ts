@@ -1,6 +1,6 @@
 /**
  * Memory routes require a real Topic, refuse the coordinator, and stay inside the memory dir.
- * @covers GLOBAL-ORCHESTRATOR-ISOLATION-01
+ * @covers GLOBAL-ORCHESTRATOR-ISOLATION-01, CTX-HUB-02
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";

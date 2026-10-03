@@ -48,6 +48,10 @@ import { topicsHome } from "../services/daemon-state";
  */
 export function resolveStateDir(fallback: string, env: NodeJS.ProcessEnv = process.env): string {
   const target = stateDirTarget(fallback, env);
+  // Il cancello sta qui e non nei chiamanti: ogni modulo che scrive stato
+  // (browser-state, push, ai-bridge, backup dei file, processi…) passa da
+  // questa porta, quindi nessuno puo' dimenticarselo.
+  assertNotLiveStateUnderTest(target, LIVE_REPO_ROOT, env);
   try {
     mkdirSync(target, { recursive: true });
     accessSync(target, constants.W_OK);
@@ -159,15 +163,33 @@ export function appDataRoots(inputs: AppDataDirInputs = {}): string[] {
   return [...new Set(roots)];
 }
 
+/** The repo this server runs from: in dev and under the prod LaunchAgent, the live state root. */
+export const LIVE_REPO_ROOT = resolve(import.meta.dir, "..", "..");
+
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+
+/**
+ * Is this process `bun test`? NODE_ENV alone is not enough: bun sets it to
+ * "test" only when it is unset, so a shell with NODE_ENV=development ran the
+ * whole suite unguarded. Under `bun test` the entry point (`Bun.main`) is the
+ * test file itself, and that holds whatever the environment says.
+ */
+export function isTestProcess(
+  env: NodeJS.ProcessEnv = process.env,
+  main: string = typeof Bun !== "undefined" ? Bun.main : "",
+): boolean {
+  return env.NODE_ENV === "test" || TEST_FILE.test(main);
+}
+
 /**
  * A test process never opens the live state.
  *
- * `bun test` sets NODE_ENV=test. Under it, a state dir equal to the repo the
- * server runs from is the LIVE layout (dev and the prod LaunchAgent write
- * there): DB, topics.json, memory/. The DB already had its own gate in the test
- * helper, the rest did not, and twice something got through: three «bench
- * progetto» topics on 16/08 and a global memory holding a test string from
- * 25/08 to 02/10. This is the gate at the one door every context goes through,
+ * Under test, a state dir equal to the repo the server runs from, or inside it,
+ * is the LIVE layout (dev and the prod LaunchAgent write there): DB,
+ * topics.json, memory/, browser-state, vapid keys. Twice something got through
+ * before this gate existed: three «bench progetto» topics on 16/08 and a global
+ * memory holding a test string from 25/08 to 02/10. It runs inside
+ * `resolveStateDir`, the one door every subsystem resolves its state through,
  * so a test that forgets to isolate fails loudly instead of passing by writing
  * to the user's data.
  */
@@ -175,9 +197,12 @@ export function assertNotLiveStateUnderTest(
   stateDir: string,
   repoRoot: string,
   env: NodeJS.ProcessEnv = process.env,
+  main?: string,
 ): void {
-  if (env.NODE_ENV !== "test") return;
-  if (resolve(stateDir) !== resolve(repoRoot)) return;
+  if (!isTestProcess(env, main)) return;
+  const dir = resolve(stateDir);
+  const repo = resolve(repoRoot);
+  if (dir !== repo && !dir.startsWith(repo + "/")) return;
   throw new Error(
     `test process opened the live state dir (${stateDir}): set DATA_DIR to a ` +
       `testTmpDir() before creating the context`,

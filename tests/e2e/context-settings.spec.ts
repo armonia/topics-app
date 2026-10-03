@@ -81,7 +81,7 @@ test.describe("Context, Memory & Settings", () => {
       contextPage.sourceRows.filter({ hasText: "Topic Memory" }),
     ).toBeVisible();
     await expect(
-      contextPage.sourceRows.filter({ hasText: "Global Memory" }),
+      contextPage.sourceRows.filter({ hasText: "~/.agents/AGENTS.md" }),
     ).toBeVisible();
     await expect(
       contextPage.sourceRows.filter({ hasText: "System Prompt" }),
@@ -218,46 +218,27 @@ test.describe("Context, Memory & Settings", () => {
     expect(putBody.content).toBe("Updated topic memory content");
   });
 
-  test("CTX-06: global memory CRUD via inline edit", async ({
+  test("CTX-06: the global rules come from the hub, read-only, and nothing writes a global memory", async ({
     contextPage,
     page,
   }) => {
+    // contesto-dall-hub: la «Global Memory» di Topics e' ritirata; le regole
+    // globali sono ~/.agents/AGENTS.md, mostrate come fonte e non modificabili.
+    const globalWrites: string[] = [];
+    page.on("request", (req) => {
+      if (/\/api\/memory$/.test(req.url()) && req.method() !== "GET") globalWrites.push(req.method());
+    });
+
     await contextPage.openContextInspector();
-
-    // Find Global Memory source row within the inspector
     const inspector = contextPage.inspector.first();
-    const globalMemoryRow = inspector
-      .locator("div.border-b")
-      .filter({ hasText: "Global Memory" });
-    await expect(globalMemoryRow.first()).toBeVisible();
 
-    // Click the Edit button directly (also expands row)
-    const editBtn = globalMemoryRow.locator('button[title="Edit"]');
-    await expect(editBtn).toBeVisible();
-    await editBtn.click();
+    await expect(inspector.locator("div.border-b").filter({ hasText: "Global Memory" })).toHaveCount(0);
 
-    // Verify textarea appears
-    const textarea = inspector.locator("textarea");
-    await expect(textarea).toBeVisible();
+    const hubRow = inspector.locator("div.border-b").filter({ hasText: "~/.agents/AGENTS.md" });
+    await expect(hubRow.first()).toBeVisible();
+    await expect(hubRow.locator('button[title="Edit"]')).toHaveCount(0);
 
-    // Clear and type new content
-    await textarea.fill("Updated global memory content");
-
-    // Set up request capture for PUT /api/memory (global endpoint - no trailing path)
-    const putPromise = page.waitForRequest(
-      (req) =>
-        /\/api\/memory$/.test(req.url()) && req.method() === "PUT",
-    );
-
-    // Click Save button
-    const saveBtn = inspector.locator("button", { hasText: "Save" });
-    await expect(saveBtn).toBeVisible();
-    await saveBtn.click();
-
-    // Verify the PUT request was sent
-    const putReq = await putPromise;
-    const putBody = JSON.parse(putReq.postData() || "{}");
-    expect(putBody.content).toBe("Updated global memory content");
+    expect(globalWrites).toEqual([]);
   });
 
   test("SET-01: the providers open as a panel of their own, and the look is a level of the user menu", async ({

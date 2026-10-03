@@ -6,7 +6,7 @@
  *
  * The tests pin the contract that `adaptEnvelope`'s output is byte-for-byte
  * identical to the legacy inline path in `streamEditResponse`.
-  * @covers CTX-ADAPT-01
+  * @covers CTX-ADAPT-01, CTX-HUB-01
  */
 
 import { describe, expect, it } from "bun:test";
@@ -150,6 +150,15 @@ describe("composeSystemMessages", () => {
     expect(out[0].content).toBe(
       "\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Topic Memory\ntopic notes",
     );
+  });
+
+  it("user rules: the model is told the real source, the hub, not a fixed CLAUDE.md", () => {
+    const out = composeSystemMessages([
+      block({ id: "user:CLAUDE.md", label: "~/.agents/AGENTS.md", category: "template", content: "usa trash" }),
+    ]);
+    expect(out.length).toBe(1);
+    expect(out[0].content).toContain("from ~/.agents/AGENTS.md.");
+    expect(out[0].content).not.toContain("~/.claude/CLAUDE.md");
   });
 
   it("memory aggregate: a stale memory:global block (retired) is never emitted", () => {
