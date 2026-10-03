@@ -502,3 +502,43 @@ describe('useTauriBrowser: a close that overtakes browser_open wins', () => {
     expect(isNativeViewOpened(ctx)).toBe(false);
   });
 });
+
+describe('useTauriBrowser: adoption is decided again when it happens', () => {
+  const invoke = (cmd: string, args?: Record<string, unknown>) => tauriShell.tauriInvoke(cmd, args);
+
+  test('a view closed during the loopback probe is not adopted: the pane opens a new one', async () => {
+    const ctx = 'ctx-adopt-probe';
+    // The probe of a local port, held until the test answers it.
+    let answerProbe: (listening: boolean) => void = () => {};
+    const realFetch = g.fetch;
+    g.fetch = ((u: string) => {
+      if (!String(u).includes('/api/browsers/port-listening')) return Promise.resolve({ ok: false, json: async () => ({}) });
+      return new Promise((resolve) => {
+        answerProbe = (listening) => resolve({ ok: true, json: async () => ({ listening }) });
+      });
+    }) as unknown;
+    try {
+      const sheet = await openInWindow(ctx);
+      beginNativeViewMove(ctx);
+      sheet.unmount();
+      await settle();
+      // The tab takes the move at mount, on a local url: it waits for the probe.
+      const seen: NativeBrowserHandle[] = [];
+      const tab = surface(ctx, 'http://localhost:5173/app', seen);
+      await settle();
+      expect(destructive(ctx)).toEqual([]);
+
+      // Meanwhile another pane closes the page (a close funnel, the countdown).
+      void closeNativeView(ctx, invoke);
+      await settle();
+      answerProbe(true);
+      await settle();
+
+      expect(destructive(ctx), 'adopted a view another pane had closed').toEqual(['browser_close', 'browser_open']);
+      expect(seen[seen.length - 1]!.ready).toBe(true);
+      tab.unmount();
+    } finally {
+      g.fetch = realFetch;
+    }
+  });
+});

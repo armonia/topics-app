@@ -997,9 +997,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // navigate it whenever the persisted url is not the one we last asked for.
     // Adopted on a microtask, where the open would have answered, so the effects
     // that follow see the same order of events in both cases.
+    //
+    // `liveView` was decided at mount, and a loopback probe can stand between
+    // the two for up to 1.5 s: another pane may have closed the view by now.
+    // So the record is read again right before the view is placed, and a view
+    // that is gone is opened instead of adopted, which would leave the pane
+    // empty until «ricrea».
     const openOrAdopt = (u: string): void => {
       if (!liveView) { void attemptOpen(u); return; }
-      void Promise.resolve().then(() => { if (!cancelled) applyOpened(true); });
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        if (!isNativeViewOpened(id)) { void attemptOpen(u); return; }
+        applyOpened(true);
+      });
     };
     if (!gateLoopback) {
       openOrAdopt(wantedUrl);
