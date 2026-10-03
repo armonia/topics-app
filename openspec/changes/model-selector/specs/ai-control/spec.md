@@ -20,8 +20,9 @@ default della board** (MSEL-06). Nessun dato viene riscritto per questo.
   Automatico diventa il default. Poi il turno passa dal motore di Topics
   **quando quel bersaglio è instradabile**, cioè un provider della famiglia
   Claude con un modello che il motore serve. Altrimenti il turno va **diretto**
-  sul bersaglio, e la strada è dichiarata sulla riga del modello, nella fascia e
-  sul turno.
+  sul bersaglio, e la strada è dichiarata sulla riga del modello e nella fascia.
+  Non sul singolo turno: la strada è della chat, e conservarla per turno
+  vorrebbe una migrazione che questa change esclude (emendamento del 03/10).
 - **Spento.** Esecuzione **diretta** sul provider e sul modello selezionati.
 
 **L'interruttore non è mai un no-op silenzioso.** Se è acceso e il turno va
@@ -57,7 +58,7 @@ instradabile.
 - **GIVEN** Codex, o un'API, o Gemini
 - **WHEN** l'interruttore è acceso
 - **THEN** il turno va diretto su quel provider
-- **AND** fascia, riga e turno dicono «diretto» con il motivo
+- **AND** fascia e riga dicono «diretto» con il motivo
 - **AND** l'invio non è bloccato
 
 #### Scenario: spento
