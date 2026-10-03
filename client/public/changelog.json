@@ -8,7 +8,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Tieni un messaggio forse già salvato sotto la sua chiave, da solo, e chiudi lo Stop per id",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Aspettati il gruppo del menu «/» nell'elenco delle skill",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Metti prima della propria bolla la riga scritta prima della propria, e dai un nome alla risposta di modifica e rigenera",
           "en": "",
           "scope": null
         }
@@ -23,6 +33,21 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Fai arrivare alla pane la riga scritta accanto al proprio turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scarta solo l'eco del messaggio mandato da questa finestra, non ogni riga utente del suo stream",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli le bolle di un invio rifiutato per id e riconosci la propria eco solo dalla chiave",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Dai a «Cerca» sul telefono il box e l'incasso dei comandi della riga",
           "en": "",
@@ -45,6 +70,11 @@
         },
         {
           "it": "Non chiedere due volte la stessa pagina di /resume su un doppio clic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riconosci la bolla del proprio messaggio dalla chiave, su ogni uscita dell'invio",
           "en": "",
           "scope": null
         },

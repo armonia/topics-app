@@ -5,16 +5,22 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.434 — 2026-10-03
 
 ### Sotto il cofano
+- Tieni un messaggio forse già salvato sotto la sua chiave, da solo, e chiudi lo Stop per id
 - Aspettati il gruppo del menu «/» nell'elenco delle skill
+- Metti prima della propria bolla la riga scritta prima della propria, e dai un nome alla risposta di modifica e rigenera
 
 ## 2.2.433 — 2026-10-03
 
 ### Sotto il cofano
+- Fai arrivare alla pane la riga scritta accanto al proprio turno
+- Scarta solo l'eco del messaggio mandato da questa finestra, non ogni riga utente del suo stream
+- Togli le bolle di un invio rifiutato per id e riconosci la propria eco solo dalla chiave
 - Dai a «Cerca» sul telefono il box e l'incasso dei comandi della riga
 - Conta gli appuntati dal topic, non dalle righe caricate, e carica quelli più vecchi quando si apre la lista
 - Porta il fuoco dentro il cursore di /effort e l'ispettore di /context
 - Offri /fork solo dove il server sa biforcare la chat
 - Non chiedere due volte la stessa pagina di /resume su un doppio clic
+- Riconosci la bolla del proprio messaggio dalla chiave, su ogni uscita dell'invio
 - Alza le soglie del bundle alla misura della tornata 3b
 - Guarda l'entrata del menu «/» sul suo pannello, non sulla lista che contiene
 
