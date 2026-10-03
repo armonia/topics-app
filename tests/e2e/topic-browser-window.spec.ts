@@ -916,6 +916,74 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     }
   });
 
+  test("TOPIC-BROWSER-01u: in un progetto, «apri come tab» sposta la pagina e non la ricarica", async ({ page, request }) => {
+    // Reported 03/10: moving a topic's minimized browser into a tab reloaded
+    // everything, as if the session had not moved with it.
+    //
+    // The same contextId reaching the project layout is not enough: the
+    // project's open-tab door then PUSHED the url into the new pane
+    // (`onBrowserNavigateUrl`), and a navigate is a reload of the page the
+    // window was showing, on the server session and on the native view alike.
+    // What is watched is the wire, where that order leaves its trace whatever
+    // the DOM looks like: a `nav` request on the pane's socket, or the REST
+    // navigate the hook falls back to while the socket is still connecting.
+    //
+    // A host with no dot on purpose: `useSeedPaneUrl` never seeds one, so the
+    // only thing that can ask this page to load after the click is the move.
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-move-"));
+    const topic = await createTopic(request, `E2E-TBW-Move-${Date.now()}`, { projectPath });
+    const ctx = `tbw-move-${Date.now()}`;
+    const pageUrl = "http://topics-e2e-intranet/inbox?after=login";
+    const loads: string[] = [];
+    let armed = false;
+    // Frames sent by a socket of this page opened AFTER the click: the new
+    // pane's own. Its first frame comes after its mount effects have run,
+    // which is where the order this test is about would have left from.
+    let newPaneFrames = 0;
+    page.on("websocket", (ws) => {
+      if (!ws.url().includes(`/ws/browser/${ctx}`)) return;
+      const opensAfterClick = armed;
+      ws.on("framesent", (frame) => {
+        if (opensAfterClick) newPaneFrames += 1;
+        const text = typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8");
+        if (armed && /"type"\s*:\s*"nav"/.test(text) && /"phase"\s*:\s*"request"/.test(text)) loads.push(`ws ${text}`);
+      });
+    });
+    page.on("request", (req) => {
+      if (!armed || req.method() !== "POST" || !req.url().includes(`/api/browsers/${ctx}/interact`)) return;
+      if (/"action"\s*:\s*"navigate"/.test(req.postData() ?? "")) loads.push(`rest ${req.postData()}`);
+    });
+    try {
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      await seedProjectLayout(request, projectPath, topic.id, null);
+      await seedWindow(request, topic.id, {
+        mode: "min", minPos: { right: 24, bottom: 24 }, expandedWidth: null,
+        tabs: [sheet(ctx, pageUrl)], activeContextId: ctx, promoted: [],
+      });
+
+      await goToApp(page);
+      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
+      await expect(chatTab).toBeVisible({ timeout: 20000 });
+      await chatTab.click();
+      await expect(page.locator(`[data-testid="topic-browser-sheet"][data-context-id="${ctx}"]`)).toHaveCount(1, { timeout: 15000 });
+
+      armed = true;
+      await page.locator('[data-testid="topic-browser-open-as-tab"]').click();
+      await expect(page.locator(`[data-testid="project-window"] [data-pane-id="browser:${ctx}"]`).first()).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveAttribute("data-mode", "loaned", { timeout: 10000 });
+      // The REST fallback is issued before the socket even opens, so a frame
+      // on the new socket means both doors have had their chance.
+      await expect.poll(() => newPaneFrames, { timeout: 15000 }).toBeGreaterThan(0);
+      expect(loads, "la pagina spostata a tab e' stata ricaricata").toEqual([]);
+    } finally {
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
   test("TOPIC-BROWSER-01p: in un'area troppo stretta la finestra non si aggancia, e la sua barra resta raggiungibile", async ({ page, request }) => {
     // AN AREA TOO NARROW TO DOCK IN.
     //

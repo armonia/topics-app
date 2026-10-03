@@ -102,6 +102,7 @@ import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
 import { clearBrowserSpawner } from '../state/browserSpawner';
 import { addBrowserTombstone } from '../state/pane/adapters/closedTabRecord';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
+import { closeNativeView } from '../lib/shell/nativeBrowserViews';
 import { spaceWindowId } from '../lib/windowRole';
 import { markTabPermanent, markTabRestored, restoreSlot, insertAtRestoreSlot } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
@@ -1712,7 +1713,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         apiFetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
         clearBrowserSpawner(bctx);
         addBrowserTombstone(bctx);
-        if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
+        if (isTauri) void closeNativeView(bctx, tauriInvoke).catch(() => {});
       }
     }
     // A terminal tab closed here (the X, the shortcut, the context menu) is

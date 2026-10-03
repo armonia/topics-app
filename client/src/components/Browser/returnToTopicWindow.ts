@@ -23,6 +23,7 @@ import {
   findTopicOwningPromoted,
   subscribeTopicWindows,
 } from '../../state/topicBrowserWindow';
+import { beginNativeViewMove } from '../../lib/shell/nativeBrowserViews';
 
 export interface ReturningSheet {
   contextId: string;
@@ -52,6 +53,9 @@ export function reclaimPaneFromLayout(contextId: string): void {
 export function returnSheetToWindow(sheet: ReturningSheet, topicId?: string): string | null {
   const owner = topicId ?? findTopicOwningPromoted(sheet.contextId);
   if (!owner) return null;
+  // The same handoff as the way out: the tab that leaves parks its close until
+  // the window's sheet adopts the view.
+  beginNativeViewMove(sheet.contextId);
   reclaimPaneFromLayout(sheet.contextId);
   if (getTopicWindow(owner).promoted.includes(sheet.contextId)) {
     topicBrowserWindow.returnFromTab(owner, sheet);
