@@ -259,7 +259,7 @@ test.describe("Command Palette", () => {
       commandPalettePage.overlay.getByText("Topic", { exact: true })
     ).toBeVisible();
 
-    // The bottom bar keeps the theme pill and no «Impostazioni» pill any more:
+    // The bottom bar keeps the theme pill and no settings pill any more:
     // each form opens by its own name, where it is used (SETHOME-01).
     await expect(
       commandPalettePage.overlay.getByRole("button", { name: /^Tema/ })
