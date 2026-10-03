@@ -34,7 +34,7 @@ import { shortcut } from '../../lib/shortcutLabel';
 import { openUserMenu } from '../../lib/openUserMenu';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { restoreLastTurnCheckpoint, RestoreRefusedError } from '../../hooks/useCheckpoints';
-import { BLOCKER_KEY } from './checkpointPlan';
+import { rewindFailureText } from './checkpointPlan';
 import { TodoStrip } from './TodoStrip';
 import { GoalBar } from './GoalBar';
 import { PlanApprovalBar } from './PlanApprovalBar';
@@ -1032,22 +1032,16 @@ function ChatPaneComponent({
           ].join('\n'),
         });
       } catch (e) {
-        // A refusal carries a blocker code; the sentence is ours, in the
-        // user's language. The generic hint below is for everything else.
-        // A refusal carries a blocker code (the real «no checkpoint» case is
-        // one of them, already worded). A chat with no project folder gets
-        // its own sentence: /rewind puts back the PROJECT's files. Anything
-        // else is said as it is, without the old appended line about
-        // checkpoints being off «in Impostazioni», which was tacked onto
-        // every error, a 500 included, and named a panel that is going away.
-        const refused = e instanceof RestoreRefusedError && e.blockedBy ? tr(BLOCKER_KEY[e.blockedBy]) : null;
+        // A refusal names its blocker in the user's language; the route's own
+        // «no project folder» answer says that; anything else (a 500, the
+        // network) is said as it is (`rewindFailureText`).
         setCommandResult({
           type: 'error',
-          message: refused
-            ? tr('checkpoint.rollback.refused', { reason: refused })
-            : !topic.projectPath
-              ? tr('chat.rewind.noProject')
-              : errMessage(e),
+          message: rewindFailureText({
+            blockedBy: e instanceof RestoreRefusedError ? e.blockedBy : undefined,
+            code: apiErrorCode(e),
+            message: errMessage(e),
+          }, tr),
         });
       } finally {
         setCommandLoading(false);
@@ -1209,7 +1203,7 @@ function ChatPaneComponent({
     }
 
     return false;
-  }, [topic.sessionKey, topic.id, topic.projectPath, topic.provider, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation]);
+  }, [topic.sessionKey, topic.id, topic.provider, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other

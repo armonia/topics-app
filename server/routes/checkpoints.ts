@@ -335,7 +335,9 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "Topic not found" }, 404);
         if (!topic.projectPath || !existsSync(topic.projectPath)) {
-          return json({ error: "This chat is not bound to a project folder" }, 400);
+          // `code`: the client says «no project folder» on THIS answer only,
+          // not on every failure of a chat that happens to have no project.
+          return json({ error: "This chat is not bound to a project folder", code: "no_project" }, 400);
         }
         const { checkpoint, plan } = await targetTurnPoint(topic, req);
         const verdict = verdictFor(plan, "turn");
