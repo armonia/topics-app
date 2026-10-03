@@ -50,6 +50,7 @@ Quello che è verde resta verde. Le suite intere le fa la CI.
   - `shared/task-coding-models.test.ts`
   - `tests/integration/process-run-command.test.ts`
   - `tests/integration/question-answer-order.test.ts`
+  - `server/services/task-dispatcher-topics-catalog-pending.test.ts` (fuori dal `git grep`: fissava il parcheggio col motore assente; ora la card parte diretta)
 - [x] 1.7 `server/services/task-auto-plan.test.ts`: con la preferenza `true` e il motore `ready`, la scheda contiene ancora i modelli Codex, un modello Claude scelto passa da `topics`, e il giudice è un modello servito dal motore, mai `gpt-6-luna` (MSEL-06).
 - [x] 1.8 `client/src/components/Shared/ModelSelector/useModelCatalog.test.ts`, su uno snapshot finto con Claude Code (gli 11 id misurati) e Codex (gli 8 della cache, con `modelContextWindows`) (MSEL-02, MSEL-04, MSEL-05):
   - sezioni Anthropic e OpenAI con 4 righe correnti ciascuna;
