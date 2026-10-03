@@ -1078,9 +1078,9 @@ export function StandaloneChatGroup({
 }
 
 /**
- * «Cerca» on the phone (FIND-04). The phone has no tab strip since the strip
- * gave way to the surface's title, so the tab menu that carries «Cerca» on a
- * desktop is not there: the command sits at the end of the title row, and
+ * The find command on the phone (FIND-04). The phone has no tab strip since the
+ * strip gave way to the surface's title, so the tab menu that carries the find
+ * item on a desktop is not there: the command sits at the end of the title row, and
  * only for a pane that has a finder.
  */
 function MobileFindButton({ paneId }: { paneId: string | null | undefined }) {
