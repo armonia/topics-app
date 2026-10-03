@@ -21,9 +21,40 @@
  *
  * Parla `--input-format stream-json` su stdin e `--output-format stream-json`
  * su stdout: è tutto ciò che il provider si aspetta.
+ *
+ * ON AN EMPTY SESSION IT FAILS, like the real one. Claude Code 2.1.288 answers
+ * `/compact` with no conversation behind it with this sequence, recorded on
+ * 2026-10-03:
+ *
+ *   {"type":"system","subtype":"status","status":"compacting"}
+ *   {"type":"system","subtype":"status","status":null,"compact_result":"failed","compact_error":"Not enough messages to compact."}
+ *   {"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not enough messages to compact."}]}}
+ *   {"type":"result","subtype":"success","result":"Not enough messages to compact.","num_turns":0,"total_cost_usd":0}
+ *
+ * No `compact_boundary`: the only outcome is the end of the turn.
  */
 
-const SESSION_ID = "00000000-0000-4000-8000-000000000000";
+const ARGV = process.argv.slice(2);
+const flagOf = (name: string): string | undefined => {
+  const at = ARGV.indexOf(name);
+  return at >= 0 ? ARGV[at + 1] : undefined;
+};
+
+// The server also runs the CLI for its version and for one-shot titles; those
+// are answered and closed here, the same way the other fakes do.
+if (ARGV.includes("--version") || ARGV.includes("-v")) {
+  process.stdout.write("claude 2.1.288-e2e-compact\n");
+  process.exit(0);
+}
+if (flagOf("--output-format") === "json") {
+  process.stdin.on("data", () => {});
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "Titolo" }) + "\n");
+    process.exit(0);
+  }, 50);
+}
+
+const SESSION_ID = flagOf("--session-id") ?? flagOf("--resume") ?? "00000000-0000-4000-8000-000000000000";
 
 function out(o: unknown): void {
   process.stdout.write(JSON.stringify(o) + "\n");
@@ -58,6 +89,29 @@ function compact(): void {
     session_id: SESSION_ID,
     result: "",
     duration_ms: 120,
+    total_cost_usd: 0,
+  });
+}
+
+/** The recorded failure of `/compact` on a session with nothing to compact. */
+function compactFails(): void {
+  init();
+  out({ type: "system", subtype: "status", status: "compacting", session_id: SESSION_ID });
+  out({ type: "system", subtype: "status", status: null, compact_result: "failed", compact_error: "Not enough messages to compact.", session_id: SESSION_ID });
+  out({
+    type: "assistant",
+    session_id: SESSION_ID,
+    message: { role: "assistant", model: "<synthetic>", content: [{ type: "text", text: "Not enough messages to compact." }] },
+  });
+  out({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    num_turns: 0,
+    stop_reason: null,
+    session_id: SESSION_ID,
+    result: "Not enough messages to compact.",
+    duration_ms: 40,
     total_cost_usd: 0,
   });
 }
@@ -103,6 +157,8 @@ function testoDi(riga: string): string | null {
   return null;
 }
 
+/** Ordinary turns answered so far: with none, there is nothing to compact. */
+let turns = 0;
 let buf = "";
 process.stdin.on("data", (chunk: Buffer) => {
   buf += chunk.toString();
@@ -113,8 +169,13 @@ process.stdin.on("data", (chunk: Buffer) => {
     if (!riga) continue;
     const testo = testoDi(riga);
     if (testo === null) continue;
-    if (testo.trim() === "/compact") compact();
-    else rispondi(`ricevuto: ${testo.slice(0, 200)}`);
+    if (testo.trim() === "/compact") {
+      if (turns === 0) compactFails();
+      else compact();
+    } else {
+      turns++;
+      rispondi(`ricevuto: ${testo.slice(0, 200)}`);
+    }
   }
 });
 

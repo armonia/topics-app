@@ -203,6 +203,14 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           ))}
         </div>
       </label>
+      {/* Fan-out here and auto-merge in «Consegna» are greyed out without the
+          worktree. The reason used to live only in their hover `title`, which
+          a finger never sees: it is a visible line now. */}
+      {!s.dispatchUseWorktree && (
+        <p className="text-mini leading-snug text-app-text-muted" data-testid="board-settings-needs-worktree">
+          {tr('board.settings.needsWorktree')}
+        </p>
+      )}
       {s.dispatchUseWorktree && (s.dispatchFanOut || 1) > 1 && (
         <p className="text-mini text-amber-300/80">
           {tr('board.settings.fanoutWarn', { n: s.dispatchFanOut ?? 1 })}

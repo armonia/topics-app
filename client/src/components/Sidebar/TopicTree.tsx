@@ -2291,7 +2291,7 @@ export function TopicTree({
               className={POPOVER_ITEM}
             >
               {projectContextMenu.allArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-              <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>
+              <span>{projectContextMenu.allArchived ? tr('sidebar.restoreProject') : tr('sidebar.archiveProject')}</span>
             </button>
           )}
         </ContextMenuPortal>
@@ -2592,7 +2592,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
                 className={POPOVER_ITEM}
               >
                 <FolderOpen size={14} className="text-app-text-tertiary" />
-                Open as project
+                {tr('sidebar.terminal.openAsProject')}
               </button>
             )}
             {onCloseTerminal && (
@@ -2602,7 +2602,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
                 className={POPOVER_ITEM}
               >
                 <X size={14} className="text-app-text-tertiary" />
-                Close
+                {tr('common.close')}
               </button>
             )}
           </ContextMenuPortal>
@@ -2694,7 +2694,7 @@ function TouchProjectAddMenu({ pp, allArchived, onNewTopicInProject, onAddProjec
         {onArchiveProject && (
           <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); close(); }} className={POPOVER_ITEM}>
             {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
-            <span className="flex-1 text-left">{allArchived ? 'Restore Project' : 'Archive Project'}</span>
+            <span className="flex-1 text-left">{allArchived ? tr('sidebar.restoreProject') : tr('sidebar.archiveProject')}</span>
           </button>
         )}
       </DropdownPortal>

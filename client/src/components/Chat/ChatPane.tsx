@@ -9,7 +9,7 @@ import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, update
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi, apiErrorCode } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, chatApi, apiErrorCode, type CommandResult } from '../../lib/api';
 import { useComposerDock } from './useComposerDock';
 import { composerMayTakeFocus } from './composerFocus';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
@@ -28,7 +28,9 @@ import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
 import { SLASH_COMMANDS } from './slashCommands';
-import { ChatInput } from './ChatInput';
+import { ChatInput, type ComposerControls } from './ChatInput';
+import { cliRefusedCommand } from './cliRefused';
+import { shortcut } from '../../lib/shortcutLabel';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { restoreLastTurnCheckpoint, RestoreRefusedError } from '../../hooks/useCheckpoints';
 import { BLOCKER_KEY } from './checkpointPlan';
@@ -89,6 +91,31 @@ import { apiFetch } from '../../lib/shell/net';
  */
 const slashCommandsHelp = (tr: (key: string) => string) =>
   SLASH_COMMANDS.map((c) => `${c.cmd}: ${tr(c.descriptionKey)}`);
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+/** The sentence of each `/project` refusal, by the code the route answers with. */
+const PROJECT_ERROR_KEY: Record<string, string> = {
+  project_name_required: 'chat.project.usageCreate',
+  project_name_invalid: 'chat.project.nameInvalid',
+  project_exists: 'chat.project.exists',
+  project_target_required: 'chat.project.usageOpen',
+  project_not_found: 'chat.project.notFound',
+};
+
+/** What `/project` answered, as lines in the reader's language. */
+function projectInfoLines(r: CommandResult & { code?: string; name?: string; path?: string | null; projects?: string[]; moreProjects?: number }, tr: Translate): string[] {
+  if (r.code === 'project_created') return [tr('chat.project.created', { name: r.name ?? '', path: r.path ?? '' })];
+  if (r.code === 'project_opened') return [tr('chat.project.opened', { path: r.path ?? '' })];
+  const lines = [r.path ? tr('chat.project.current', { path: r.path }) : tr('chat.project.none')];
+  const projects = r.projects ?? [];
+  if (projects.length > 0) {
+    lines.push('', tr('chat.project.workspace'));
+    for (const p of projects) lines.push(`  ${p.split('/').pop() || p} · ${p}`);
+    if (r.moreProjects) lines.push(tr('chat.project.more', { count: r.moreProjects }));
+  }
+  return lines;
+}
 
 export interface ChatPaneProps {
   topic: Topic;
@@ -291,9 +318,21 @@ function ChatPaneComponent({
   const [showPinned] = useState(false);
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
   const [, setCommandLoading] = useState(false);
-  const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  /** Compattazione in attesa del suo marcatore: {conteggio prima, scadenza}. */
-  const compactWatchRef = useRef<{ before: number; until: number } | null>(null);
+  /**
+   * The answer of a typed command. `stays`: it does not close by itself. Only a
+   * one-line confirmation (model, effort, browser opening) closes after five
+   * seconds; a timer used to close every result, so a fifteen-line `/help`, a
+   * four-line `/rewind` report and the «compacting» notice of an operation
+   * that takes minutes were all gone before anyone had read them.
+   */
+  const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string; stays?: boolean } | null>(null);
+  /**
+   * A compaction waiting for its outcome: the marker count before it, how many
+   * messages the chat had, whether its turn has been seen running.
+   */
+  const compactWatchRef = useRef<{ before: number; messagesBefore: number; sawIdle: boolean; sawTurn: boolean } | null>(null);
+  /** The composer's doors to its own controls, for a typed `/model`, `/effort` or `/context`. */
+  const composerControlsRef = useRef<ComposerControls | null>(null);
   const confirm = useConfirm();
   /**
    * La coda del turno NON vive più qui.
@@ -477,11 +516,22 @@ function ChatPaneComponent({
   } = useGoal(isGlobalOrchestrator ? null : topic.id, onWSMessage);
   const currentMarkers = getCompactionMarkers?.(topic.sessionKey);
 
+  // Subscribed to THIS session's flags: a turn starting or ending in another
+  // chat no longer reaches this pane, nor `App` above it (`sessionFlags.ts`).
+  const currentLoading = useSessionFlagValue(topic.sessionKey, isSessionLoading);
+  const currentStreaming = useSessionFlagValue(topic.sessionKey, isSessionStreaming);
+  const currentStoppedByUser = useSessionFlagValue(topic.sessionKey, wasSessionStopped);
+
   // Chiude il banner della compattazione con l'esito VERO, quando il marcatore
   // arriva. `stream:compaction` porta i token prima/dopo, quindi si puo' dire
-  // quanto e' stato liberato invece di un generico «fatto». Se non arriva entro
-  // il tetto (3 min) il banner si spegne senza dichiarare un successo che non
-  // c'e' stato: meglio silenzio che una bugia.
+  // quanto e' stato liberato invece di un generico «fatto».
+  //
+  // THE TURN ENDING WITHOUT A MARKER IS AN OUTCOME TOO. The CLI answers a
+  // compaction it cannot do («Not enough messages to compact.») with a
+  // message and the end of the turn, and no marker. The watch used to wait
+  // for a marker only, with a cap checked only when markers changed: the
+  // «compacting» notice never turned into the failure, and the watch never
+  // closed.
   useEffect(() => {
     const w = compactWatchRef.current;
     if (!w) return;
@@ -495,21 +545,24 @@ function ChatPaneComponent({
         type: 'success',
         message:
           typeof pre === 'number' && typeof post === 'number'
-            ? `Contesto compattato: ${pre.toLocaleString('it-IT')} → ${post.toLocaleString('it-IT')} token.`
-            : 'Contesto compattato.',
+            ? tr('chat.compact.done', { before: pre.toLocaleString(), after: post.toLocaleString() })
+            : tr('chat.compact.doneNoCount'),
       });
       return;
     }
-    if (Date.now() > w.until) {
-      compactWatchRef.current = null;
-      setCommandResult(null);
-    }
-  }, [currentMarkers]);
-  // Subscribed to THIS session's flags: a turn starting or ending in another
-  // chat no longer reaches this pane, nor `App` above it (`sessionFlags.ts`).
-  const currentLoading = useSessionFlagValue(topic.sessionKey, isSessionLoading);
-  const currentStreaming = useSessionFlagValue(topic.sessionKey, isSessionStreaming);
-  const currentStoppedByUser = useSessionFlagValue(topic.sessionKey, wasSessionStopped);
+    // A turn already running when `/compact` was sent is not the compaction's:
+    // the outcome is the end of a turn that STARTED after an idle moment.
+    if (currentStreaming) { if (w.sawIdle) w.sawTurn = true; return; }
+    if (!w.sawTurn) { w.sawIdle = true; return; }
+    compactWatchRef.current = null;
+    // The reason is what the CLI said in that turn, when it said something.
+    const said = currentMessages.slice(w.messagesBefore).filter((m) => m.role === 'assistant' && m.content?.trim()).at(-1)?.content.trim();
+    setCommandResult({
+      type: 'error',
+      stays: true,
+      message: said ? tr('chat.compact.notDone', { reason: said }) : tr('chat.compact.notDoneNoReason'),
+    });
+  }, [currentMarkers, currentStreaming, currentMessages, tr]);
 
   // Picker keeps a simple local override per pane. On first paint we seed it
   // from the topic's persisted `provider`/`model` (set previously via PATCH);
@@ -894,6 +947,27 @@ function ChatPaneComponent({
   // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
   const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);
 
+  // Export the ACTIVE thread as a Markdown download. Client-side on purpose:
+  // currentMessages already IS the active branch view the user is looking at.
+  const handleExportConversation = useCallback(() => {
+    const lines: string[] = [`# ${topic.name}`, ''];
+    for (const m of currentMessages) {
+      const who = m.role === 'user' ? 'You' : 'Assistant';
+      const when = m.timestamp ? ` · ${new Date(m.timestamp).toLocaleString()}` : '';
+      lines.push(`### ${who}${when}`, '', m.content || '', '');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (topic.name || 'conversation').replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'conversation';
+    a.href = url;
+    a.download = `${safeName} ${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [currentMessages, topic.name]);
+
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
     if (isGlobalOrchestrator && cmd.startsWith('/')) {
@@ -901,23 +975,18 @@ function ChatPaneComponent({
       return true;
     }
     if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/context') {
-      setCommandLoading(true);
-      try {
-        const a = await contextAnalysisApi.analyze(topic.id);
-        const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k` : `${n}`);
-        const lines = [`Contesto: ${k(a.totalTokens)} / ${k(a.budgetLimit)} token (${Math.round(a.budgetPercent)}%)`];
-        const top = [...a.sources].filter((s) => s.enabled && s.tokens > 0).sort((x, y) => y.tokens - x.tokens).slice(0, 6);
-        for (const s of top) lines.push(`  • ${s.category} · ${s.label}: ${k(s.tokens)}`);
-        if (a.warnings && a.warnings.length > 0) lines.push(`${a.warnings.length} avviso${a.warnings.length === 1 ? '' : 'i'}`);
-        setCommandResult({ type: 'success', message: lines.join('\n') });
-      } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); }
-      finally { setCommandLoading(false); }
-      return true;
-    }
-    if (cmd === '/clear') { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/help') { setCommandResult({ type: 'success', message: slashCommandsHelp(tr).join('\n') }); return true; }
+    // `/context` opens the inspector the ring opens. It used to print the
+    // envelope's own estimate in a banner while the ring, one row below, read
+    // the model's real count: two answers to one question, the banner the
+    // wrong one.
+    if (cmd === '/context') { setCommandResult(null); composerControlsRef.current?.openContext(); return true; }
+    // `/new` and `/reset` are Claude Code's own aliases of `/clear`: forwarded,
+    // the live process forgot while the screen kept the history and Topics
+    // kept the old session id for the next `--resume`.
+    if (cmd === '/clear' || cmd === '/new' || cmd === '/reset') { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    // The typed level travels (`/reasoning off`); bare, the gateway toggles.
+    if (cmd === '/reasoning' || cmd.startsWith('/reasoning ')) { const level = text.trim().slice('/reasoning'.length).trim() || undefined; setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey, level); setCommandResult({ type: 'success', message: r.message || tr('chat.command.reasoningToggled') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/help') { setCommandResult({ type: 'success', message: slashCommandsHelp(tr).join('\n'), stays: true }); return true; }
     if (cmd === '/fork' || cmd.startsWith('/fork ')) { await forkHere(text.trim().slice('/fork'.length)); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it
@@ -947,6 +1016,7 @@ function ChatPaneComponent({
         const when = r.checkpoint.createdAt ? new Date(r.checkpoint.createdAt).toLocaleTimeString() : '';
         setCommandResult({
           type: 'success',
+          stays: true,
           message: [
             `Albero ripristinato al checkpoint «${r.checkpoint.label}»${when ? ` (${when})` : ''}.`,
             `${r.restored} file rimessi a posto, ${r.removed} creati dal turno rimossi.`,
@@ -957,13 +1027,20 @@ function ChatPaneComponent({
       } catch (e) {
         // A refusal carries a blocker code; the sentence is ours, in the
         // user's language. The generic hint below is for everything else.
+        // A refusal carries a blocker code (the real «no checkpoint» case is
+        // one of them, already worded). A chat with no project folder gets
+        // its own sentence: /rewind puts back the PROJECT's files. Anything
+        // else is said as it is, without the old appended line about
+        // checkpoints being off «in Impostazioni», which was tacked onto
+        // every error, a 500 included, and named a panel that is going away.
         const refused = e instanceof RestoreRefusedError && e.blockedBy ? tr(BLOCKER_KEY[e.blockedBy]) : null;
         setCommandResult({
           type: 'error',
           message: refused
             ? tr('checkpoint.rollback.refused', { reason: refused })
-            : errMessage(e) +
-              '\nI checkpoint automatici per turno sono spenti finché non li accendi in Impostazioni.',
+            : !topic.projectPath
+              ? tr('chat.rewind.noProject')
+              : errMessage(e),
         });
       } finally {
         setCommandLoading(false);
@@ -990,6 +1067,7 @@ function ChatPaneComponent({
       const markersBefore = getCompactionMarkers?.(topic.sessionKey)?.length ?? 0;
       setCommandResult({
         type: 'success',
+        stays: true,
         message: tr('chat.compact.running'),
       });
       void sendMessage(topic.sessionKey, '/compact').catch(() => {
@@ -997,8 +1075,8 @@ function ChatPaneComponent({
       });
       // Il marcatore arriva in modo asincrono (stream:compaction). Si aspetta il
       // suo incremento invece di dire «fatto» a caso: cosi' il banner riporta
-      // l'esito VERO, e se non arriva entro il tetto non si mente.
-      compactWatchRef.current = { before: markersBefore, until: Date.now() + 180_000 };
+      // l'esito VERO: il marcatore, oppure la fine del turno senza marcatore.
+      compactWatchRef.current = { before: markersBefore, messagesBefore: currentMessages.length, sawIdle: !currentStreaming, sawTurn: false };
       return true;
     }
 
@@ -1043,37 +1121,44 @@ function ChatPaneComponent({
       }
       return true;
     }
+    // Bare `/model` and `/effort` open the controls that already do this,
+    // one row below the field. Forwarded, `/model` printed the CLI's English
+    // usage with its own aliases, and `/effort` a red «Uso: /effort <…>».
+    if (cmd === '/model') { setCommandResult(null); composerControlsRef.current?.openModel(); return true; }
     if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.modelSet', { model: m }) : r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/effort') { setCommandResult({ type: 'error', message: 'Uso: /effort <low|medium|high|xhigh|max>' }); return true; }
+    if (cmd === '/effort') { setCommandResult(null); composerControlsRef.current?.openEffort(); return true; }
     if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.effortSet', { level: tier }) : r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 
-    // /project — info / create <name> / open <path-or-name>
+    // /project — info / create <name> / open <path-or-name>. The route answers
+    // with a code and data, the sentence is written here in the reader's
+    // language (it used to be the server's English, with emoji).
     if (cmd === '/project' || cmd.startsWith('/project ')) {
-      const rest = text.slice('/project'.length).trim();
+      const rest = text.trim().slice('/project'.length).trim();
       let sub: 'create' | 'open' | 'info' = 'info';
       let value = '';
       if (rest.startsWith('create ')) { sub = 'create'; value = rest.slice(7).trim(); }
-      else if (rest === 'create') { setCommandResult({ type: 'error', message: 'Usage: /project create <name>' }); return true; }
+      else if (rest === 'create') { setCommandResult({ type: 'error', message: tr('chat.project.usageCreate') }); return true; }
       else if (rest.startsWith('open ')) { sub = 'open'; value = rest.slice(5).trim(); }
-      else if (rest === 'open') { setCommandResult({ type: 'error', message: 'Usage: /project open <name-or-path>' }); return true; }
+      else if (rest === 'open') { setCommandResult({ type: 'error', message: tr('chat.project.usageOpen') }); return true; }
       setCommandLoading(true);
       try {
         const r = await commandApi.project(topic.sessionKey, sub, value || undefined);
-        setCommandResult({ type: 'success', message: r.output || 'Done' });
+        const info = projectInfoLines(r, tr);
+        setCommandResult({ type: 'success', message: info.join('\n'), stays: info.length > 1 });
       } catch (e) {
-        setCommandResult({ type: 'error', message: errMessage(e) });
+        const key = PROJECT_ERROR_KEY[apiErrorCode(e) ?? ''];
+        setCommandResult({ type: 'error', message: key ? tr(key, { value }) : errMessage(e) });
       } finally { setCommandLoading(false); }
       return true;
     }
 
     // Phase 30 BROWSER-CHAT-04 — /browser <url> opens or focuses the topic's
     // browser pane and navigates. Intercepted BEFORE LLM dispatch.
+    // Bare, it is what picking the menu row sends (`/browser ` trimmed): it
+    // used to miss this branch and reach the model with the context preamble.
+    if (cmd === '/browser') { setCommandResult({ type: 'error', message: tr('chat.browser.usage') }); return true; }
     if (cmd.startsWith('/browser ')) {
-      const url = text.slice('/browser '.length).trim();
-      if (!url) {
-        setCommandResult({ type: 'error', message: 'Usage: /browser <url>' });
-        return true;
-      }
+      const url = text.trim().slice('/browser '.length).trim();
       // Normalize: prepend https:// when no protocol given.
       const normalized = /^https?:\/\//.test(url) ? url : `https://${url}`;
       // Loosely-coupled signal: layout layer listens for browser:open-and-navigate
@@ -1096,8 +1181,19 @@ function ChatPaneComponent({
     // sees them and decides when to call. Returning false lets sendMessage
     // dispatch the original text to the chat pipeline.
 
+    // The Claude Code commands that cannot run where Topics runs the CLI
+    // (CMD-06): answered here, saying what to use in Topics instead
+    // (`cliRefused.ts`). They used to reach the CLI, which can only answer
+    // «/X isn't available in this environment.», in English, as the agent.
+    const refusedCli = cliRefusedCommand(text);
+    if (refusedCli) {
+      if (refusedCli.answer.action === 'export' && currentMessages.length > 0) handleExportConversation();
+      setCommandResult({ type: 'success', stays: true, message: tr(refusedCli.answer.key, { name: refusedCli.name, reopen: shortcut('T', { shift: true }), palette: shortcut('K'), close: shortcut('W') }) });
+      return true;
+    }
+
     return false;
-  }, [topic.sessionKey, topic.id, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere]);
+  }, [topic.sessionKey, topic.id, topic.projectPath, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere, currentMessages, currentStreaming, handleExportConversation]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -1317,26 +1413,6 @@ function ChatPaneComponent({
     void deleteMessage(topic.sessionKey, msg.id);
   }, [deleteMessage, topic.sessionKey]);
 
-  // Export the ACTIVE thread as a Markdown download. Client-side on purpose:
-  // currentMessages already IS the active branch view the user is looking at.
-  const handleExportConversation = useCallback(() => {
-    const lines: string[] = [`# ${topic.name}`, ''];
-    for (const m of currentMessages) {
-      const who = m.role === 'user' ? 'You' : 'Assistant';
-      const when = m.timestamp ? ` · ${new Date(m.timestamp).toLocaleString()}` : '';
-      lines.push(`### ${who}${when}`, '', m.content || '', '');
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const safeName = (topic.name || 'conversation').replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'conversation';
-    a.href = url;
-    a.download = `${safeName} ${new Date().toISOString().slice(0, 10)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, [currentMessages, topic.name]);
 
   const handleEditMessage = useCallback((msg: ChatMessage) => {
     setEditingMessage(msg);
@@ -1362,7 +1438,12 @@ function ChatPaneComponent({
     await switchBranch(topic.sessionKey, messageId, branchIndex);
   }, [switchBranch, topic.sessionKey]);
 
-  useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
+  // Only a one-line confirmation closes by itself (see `commandResult`).
+  useEffect(() => {
+    if (!commandResult || commandResult.stays || commandResult.type !== 'success' || commandResult.message.includes('\n')) return;
+    const t = setTimeout(() => setCommandResult(null), 5000);
+    return () => clearTimeout(t);
+  }, [commandResult]);
   useEffect(() => {
     if (!isFocused || isGlobalOrchestrator) return;
     const h = (e: KeyboardEvent) => {
@@ -1442,6 +1523,10 @@ function ChatPaneComponent({
     // mentre l'agente rispondeva finiva in coda e poi partiva come testo — il
     // modello si vedeva arrivare «/model opus» come domanda.
     if (finalMessage.startsWith('/')) { if (await handleSlashCommand(finalMessage)) { setMessage(''); return; } }
+    // A result that stays until it is closed also goes when the next message
+    // is written: it answered the previous command, not this one. A running
+    // compaction keeps its notice.
+    if (!compactWatchRef.current) setCommandResult(null);
     // Da qui in giù si COMPONE, sempre: allegati, immagini, file citati con @ e
     // la citazione della risposta. Prima questa parte stava dopo il `return`
     // dell'accodamento, quindi un messaggio scritto mentre l'agente rispondeva
@@ -1678,7 +1763,7 @@ function ChatPaneComponent({
         <TopicBrowserReopen topicId={topic.id} />
       )}
       {commandResult && (
-        <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+        <div data-testid="chat-command-result" data-result-type={commandResult.type} className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
           <button aria-label={tr('chat.command.dismiss')} onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
             <X size={12} />
@@ -1806,7 +1891,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
         {/* The phone's button row, when this chat owns its band (`bandOwned` in
             App): a box at the foot of the block and not a padding, because the
             block's height is read from `contentRect`, which leaves padding out.

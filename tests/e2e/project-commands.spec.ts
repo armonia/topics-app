@@ -221,7 +221,7 @@ test.describe.serial("Project Commands", () => {
     // A failed slash command renders in the command-result banner (ChatPane —
     // red `font-mono` row), NOT as a `.message-content` chat message. Target the
     // error text wherever it lands (it auto-dismisses after 5s, so poll fast).
-    const errorMsg = page.getByText(/Project not found/i).first();
+    const errorMsg = page.getByText(/Progetto non trovato|Project not found/i).first();
     await expect(errorMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -234,7 +234,7 @@ test.describe.serial("Project Commands", () => {
 
     // Result renders in the command-result banner (regex = substring match over
     // the whitespace-pre-wrapped banner text), not a `.message-content` message.
-    const infoMsg = page.getByText(/No project bound/i).first();
+    const infoMsg = page.getByText(/Nessun progetto collegato|No project bound/i).first();
     await expect(infoMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -276,7 +276,7 @@ test.describe.serial("Project Commands", () => {
     await sendCommand(page, `/project create ${testProjectName}`);
 
     // 409 → error banner via errMessage(e) = server's `error` string.
-    const errorMsg = page.getByText(/already exists/i).first();
+    const errorMsg = page.getByText(/Esiste già un progetto|already exists/i).first();
     await expect(errorMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -287,7 +287,7 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, "/project");
 
-    const currentMsg = page.getByText(/Current project/i).first();
+    const currentMsg = page.getByText(/Progetto di questa chat|This chat's project/i).first();
     await expect(currentMsg).toBeVisible({ timeout: 10_000 });
   });
 

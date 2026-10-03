@@ -103,6 +103,31 @@ export function readSlashCommandSource(
   return null;
 }
 
+/**
+ * The skills Claude Code has switched OFF (`skillOverrides: { name: "off" }`),
+ * read from the same settings the CLI reads: the user's, the project's and the
+ * project's local ones (`--setting-sources user,project,local`,
+ * `server/providers/claude/args.ts`), later ones winning.
+ *
+ * The menu used to offer them anyway: ten on the Mac where this was measured,
+ * and typing one was a paid turn in which the model said it could not run it.
+ */
+export function disabledSkillNames(home = homedir(), cwd = process.cwd()): Set<string> {
+  const merged: Record<string, unknown> = {};
+  const files = [
+    join(home, ".claude", "settings.json"),
+    join(cwd, ".claude", "settings.json"),
+    join(cwd, ".claude", "settings.local.json"),
+  ];
+  for (const file of files) {
+    try {
+      const overrides = (JSON.parse(readFileSync(file, "utf-8")) as { skillOverrides?: unknown }).skillOverrides;
+      if (overrides && typeof overrides === "object") Object.assign(merged, overrides);
+    } catch { /* absent or unreadable: nothing switched off there */ }
+  }
+  return new Set(Object.entries(merged).filter(([, v]) => v === "off").map(([k]) => k));
+}
+
 /** I nomi disponibili, per l'elenco. Estratto qui perché usa le stesse radici. */
 export function listSlashCommandFiles(
   opts: { home?: string; cwd?: string } = {},
@@ -123,6 +148,7 @@ export function listSlashCommandFiles(
       }
     } catch { /* cartella assente */ }
   }
+  const off = disabledSkillNames(home, cwd);
   for (const dir of skillDirs(home)) {
     try {
       // NIENTE `isDirectory()`: una skill puo' essere un LINK a una cartella, e
@@ -132,7 +158,7 @@ export function listSlashCommandFiles(
       // La domanda vera e' una sola: dentro c'e' un SKILL.md?
       for (const d of readdirSync(dir)) {
         const md = join(dir, d, "SKILL.md");
-        if (existsSync(md)) add(d, md, "skill");
+        if (existsSync(md) && !off.has(d)) add(d, md, "skill");
       }
     } catch { /* cartella assente */ }
   }

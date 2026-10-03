@@ -203,9 +203,10 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         // chiudere: chiudere e riaprire per passare da nome a contenuto è
         // esattamente l'attrito che questa superficie unica toglie.
         if (prev) return prev.mode === mode ? false : { ...prev, mode };
-        const projectPaths = searchProjectPaths();
-        if (projectPaths.length === 0) return false;
-        return { projectPaths, mode };
+        // With no project anywhere the surface still opens and SAYS so
+        // (`FileSearch`): returning false here made ⌘P and ⌘F do nothing and
+        // say nothing: looking broken, which the fallback above exists to avoid.
+        return { projectPaths: searchProjectPaths(), mode };
       });
     };
 

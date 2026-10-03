@@ -156,6 +156,24 @@ describe("sessione", () => {
     expect(idB).toBe(idA!);
   });
 
+  test("/clear forgets the agent session: the next prompt opens a NEW one (CMD-09)", async () => {
+    const provider = makeProvider();
+    const a = recorder();
+    await provider.sendChat("topic:clear", "primo", a.handler);
+    const before = a.full.match(/\[(sess-\d+)\//)?.[1];
+    expect(before).toBeTruthy();
+
+    await provider.resetSession("topic:clear");
+    expect(readProviderSession(getDatabase(), "finto", "topic:clear"), "the id on disk would bring it back with session/load").toBeNull();
+
+    const b = recorder();
+    await provider.sendChat("topic:clear", "dopo il clear", b.handler);
+    const after = b.full.match(/\[(sess-\d+)\//)?.[1];
+    expect(after).toBeTruthy();
+    expect(after).not.toBe(before);
+    expect(b.full).toContain("/new]");
+  });
+
   test("chat diverse → sessioni diverse", async () => {
     const provider = makeProvider();
     const a = recorder();

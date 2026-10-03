@@ -70,7 +70,7 @@ test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
     await readmeItem.click({ button: "right" });
 
     // Verify context menu has "Show in Finder"
-    const showInFinder = page.locator('button[role="menuitem"]', { hasText: "Show in Finder" });
+    const showInFinder = page.locator('button[role="menuitem"]', { hasText: "Mostra nel Finder" });
     await expect(showInFinder).toBeVisible({ timeout: 5_000 });
 
     // Click "Show in Finder"
@@ -106,7 +106,7 @@ test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
     await srcDir.first().click({ button: "right" });
 
     // Verify context menu has "Show in Finder"
-    const showInFinder = page.locator('button[role="menuitem"]', { hasText: "Show in Finder" });
+    const showInFinder = page.locator('button[role="menuitem"]', { hasText: "Mostra nel Finder" });
     await expect(showInFinder).toBeVisible({ timeout: 5_000 });
 
     // Click it

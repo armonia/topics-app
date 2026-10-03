@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { declaredProviderName, routesThroughGateway } from "./commandRouting";
+import { declaredProviderName, fallbackModelFor, reasoningCommandText, reasoningElsewhereMessage, routesThroughGateway } from "./commandRouting";
+import { sessionStatus } from "./sessionStatus";
 
 /**
  * Il difetto che questi test bloccano: `/model` si biforcava su
@@ -49,5 +50,47 @@ describe("declaredProviderName", () => {
 
   test("senza dichiarazione né default resta undefined, non una stringa vuota", () => {
     expect(declaredProviderName(null, "")).toBeUndefined();
+  });
+});
+
+describe("/reasoning carries what was typed (CMD-08)", () => {
+  // The client never sent a level and the route defaulted to "on": on openclaw
+  // a «toggle» could only switch reasoning on.
+  test("the typed level is passed through", () => {
+    expect(reasoningCommandText("off")).toBe("/reasoning off");
+    expect(reasoningCommandText(" stream ")).toBe("/reasoning stream");
+  });
+
+  test("bare is forwarded bare: the gateway toggles it", () => {
+    expect(reasoningCommandText(undefined)).toBe("/reasoning");
+    expect(reasoningCommandText("  ")).toBe("/reasoning");
+  });
+
+  test("elsewhere the answer names the DECLARED provider, not claude-code everywhere", () => {
+    expect(reasoningElsewhereMessage("codex")).toContain("Su codex");
+    expect(reasoningElsewhereMessage("codex")).not.toContain("claude-code");
+    expect(reasoningElsewhereMessage("gemini")).toContain("/effort");
+  });
+});
+
+describe("/status names the model of an unpinned topic (CMD-07)", () => {
+  const registry: Record<string, { defaultModel?(): string | null }> = {
+    "claude-code": { defaultModel: () => "claude-sonnet-5" },
+    codex: { defaultModel: () => "gpt-5.5" },
+  };
+  const lookup = (name: string) => registry[name];
+
+  test("an unpinned topic gets the default of the provider it declares", () => {
+    expect(fallbackModelFor("codex", "claude-code", lookup)).toBe("gpt-5.5");
+    expect(fallbackModelFor(null, "claude-code", lookup)).toBe("claude-sonnet-5");
+  });
+
+  test("a provider not registered here gives no model, never the default's", () => {
+    expect(fallbackModelFor("gemini", "claude-code", lookup)).toBeNull();
+  });
+
+  test("and the report says it is a default", () => {
+    const out = sessionStatus({ sessionKey: "topic:x", topic: {}, modelloDiRipiego: fallbackModelFor(null, "claude-code", lookup) });
+    expect(out).toContain("Modello: claude-sonnet-5 (default, non fissato qui)");
   });
 });

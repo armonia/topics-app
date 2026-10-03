@@ -45,3 +45,18 @@ export function installQueueTurnsCli(logPath: string): () => void {
   chmodSync(ENTRY, 0o755);
   return () => rmSync(ENTRY, { force: true });
 }
+
+const COMPACT_SCRIPT = resolve(__dirname, "fake-claude-compact.ts");
+
+/**
+ * Installs `fake-claude-compact.ts`: `/compact` fails on an empty session with
+ * the CLI's recorded failure, and compacts once a turn has run. Returns its
+ * removal.
+ */
+export function installCompactCli(): () => void {
+  const bun = execSync("command -v bun").toString().trim();
+  mkdirSync(VERSIONS_DIR, { recursive: true });
+  writeFileSync(ENTRY, `#!/usr/bin/env bash\nexec "${bun}" "${COMPACT_SCRIPT}" "$@"\n`);
+  chmodSync(ENTRY, 0o755);
+  return () => rmSync(ENTRY, { force: true });
+}

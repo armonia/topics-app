@@ -721,6 +721,26 @@ export class AcpProvider implements AIProvider {
   }
 
   /**
+   * `/clear` (CMD-09): forget this chat's agent session, so the next prompt
+   * opens a fresh one with `session/new`.
+   *
+   * Without it `/clear` on gemini and jcode emptied the screen and said
+   * «Conversazione svuotata» while the agent kept its whole session: ACP has
+   * no clear in the protocol, `clearActionFor` found neither gesture, and the
+   * only trace was a `console.warn`. Dropping the live state is not enough on
+   * its own: the id remembered on disk would bring it back with
+   * `session/load` on the next prompt.
+   */
+  async resetSession(sessionKey: string): Promise<void> {
+    const state = this.sessions.get(sessionKey);
+    if (state) {
+      this.sessions.delete(sessionKey);
+      this.bySessionId.delete(state.acpSessionId);
+    }
+    this.forgetRemembered(sessionKey);
+  }
+
+  /**
    * Questa sessione è nostra?
    *
    * Serve a `resolveTurnAlive`: la domanda «il turno è vivo?» va fatta al

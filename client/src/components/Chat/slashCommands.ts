@@ -1,4 +1,5 @@
-import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, Info, Play, Target, Trash2, Users } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, Info, Target, Trash2 } from 'lucide-react';
 
 /**
  * The slash commands the composer offers.
@@ -30,7 +31,20 @@ import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, GitBranch, Globe, HelpCi
  * new command with a key nobody wrote cannot print `chat.slash.x.description`
  * to a person.
  */
-export const SLASH_COMMANDS = [
+export interface SlashCommandEntry {
+  readonly cmd: string;
+  readonly descriptionKey: string;
+  readonly icon: ComponentType<{ size?: number; className?: string }>;
+  /**
+   * The providers a topic must DECLARE (CMD-08) for the entry to be offered.
+   * Absent = every provider. `/reasoning` only does something on openclaw,
+   * whose gateway switches reasoning on and off; elsewhere the answer is
+   * «use /effort», which is not worth a row of the menu.
+   */
+  readonly onlyOn?: readonly string[];
+}
+
+export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   // `Info` and not a bolt: nothing is being sped up here, a state is being
   // read. In this app the bolt means ONE thing only — speed — and it belongs to
   // Fast Mode.
@@ -52,8 +66,11 @@ export const SLASH_COMMANDS = [
   { cmd: '/clear', descriptionKey: 'chat.slash.clear.description', icon: Trash2 },
   { cmd: '/model', descriptionKey: 'chat.slash.model.description', icon: Cpu },
   { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain },
-  { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain },
-  { cmd: '/agents', descriptionKey: 'chat.slash.agents.description', icon: Users },
+  { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain, onlyOn: ['openclaw'] },
+  // `/agents` used to sit here, offered as a list of agent profiles: the
+  // roster was removed (AGENT-01), and the CLI now answers that its wizard is
+  // gone.
+  // Typed by hand it still reaches the CLI, whose answer is true and free.
   // `/pause` and `/assign` used to sit around this one, offering "Pause agent
   // (@name)" and "Assign task (@name task)". Neither had a destination: no
   // handler in `ChatPane`, and not in the server's `CLI_BUILTINS` allowlist
@@ -68,7 +85,10 @@ export const SLASH_COMMANDS = [
   // interface (`server/providers/types.ts:590`) and implemented for openclaw
   // (`providers/openclaw.ts:189`). Nothing calls either. The capability and
   // the menu entry were built from opposite ends and never met.
-  { cmd: '/resume', descriptionKey: 'chat.slash.resume.description', icon: Play },
+  //
+  // `/resume` stood here, offered as resuming an agent by «@name». The CLI
+  // refuses it in `--print` and no such name exists anywhere; typed, it is now
+  // answered by `cliRefused.ts` with what Topics offers instead.
   { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen },
   { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe },
   { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target },
@@ -77,3 +97,12 @@ export const SLASH_COMMANDS = [
   { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch },
   { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle },
 ];
+
+/**
+ * The entries offered to a topic whose DECLARED provider is `provider`
+ * (`topic.provider`, or the server's default when the topic names none).
+ * Unknown provider = everything without a restriction.
+ */
+export function offeredSlashCommands(provider: string | null | undefined): readonly SlashCommandEntry[] {
+  return SLASH_COMMANDS.filter((c) => !c.onlyOn || (!!provider && c.onlyOn.includes(provider)));
+}

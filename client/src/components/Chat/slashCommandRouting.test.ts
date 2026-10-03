@@ -31,11 +31,12 @@
  * alias those files use. The fact under test is not behavioural anyway; it is
  * "these two lists agree", and the lists are literals.
  *
- * @covers CMD-06, CHAT-FORK-04
+ * @covers CMD-06, CMD-09, CHAT-FORK-04
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CLI_REFUSED } from "./cliRefused";
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -57,6 +58,30 @@ const naked: Set<string> = (() => {
 
 /** Does `ChatPane` name this command anywhere it could act on it? */
 const handled = (c: string) => new RegExp(`['"\`]/${c}['"\` ]`).test(CHAT_PANE);
+
+/**
+ * Does `ChatPane` act on the command typed BARE, with nothing after it?
+ *
+ * Both menus insert `cmd + ' '` and the send trims it, so a bare `/x` is what a
+ * person who picks an entry actually sends. `handled` above also matches
+ * `'/browser '` (the form with an argument) and a name in backticks inside a
+ * comment, so `/browser` and `/model` read as covered while their bare form
+ * went to the model as prose. Only a comparison of the whole command counts.
+ */
+const bareIn = (src: string, c: string) => new RegExp(`cmd === '/${c}'`).test(src);
+const handledBare = (c: string) => bareIn(CHAT_PANE, c);
+
+/**
+ * What the installed Claude Code does in `--print`, measured on 2.1.288 (see
+ * `_source` in the fixture): the names it runs, its aliases, and the names it
+ * refuses in this mode. Data, not code: when the CLI changes, the fixture is
+ * re-measured and this file says which lists fell behind.
+ */
+const CLI: { headless: string[]; aliases: Record<string, string>; refused: string[] } = JSON.parse(
+  read("client/src/components/Chat/claudeCliCommands.fixture.json"),
+);
+const cliRuns = new Set([...CLI.headless, ...Object.keys(CLI.aliases)]);
+const cliRefuses = new Set(CLI.refused);
 
 describe("the two lists are non-empty, or this file proves nothing", () => {
   // Both are read out of source with a regex. A rename that breaks either
@@ -154,5 +179,86 @@ describe("the allowlist can be matched at all", () => {
     for (const c of ["compact", "clear", "model", "status", "context", "help"]) {
       expect(naked.has(c), `/${c} has no local handler: without the allowlist it is prose`).toBe(true);
     }
+  });
+});
+
+describe("the allowlist only holds commands the installed CLI has", () => {
+  test("the fixture is plausible, or the checks below prove nothing", () => {
+    expect(CLI.headless.length).toBeGreaterThan(30);
+    expect(CLI.refused.length).toBeGreaterThan(15);
+    // The aliases are what made the first version of this check wrong: `cost`
+    // and `review` are not in `init.slash_commands`, and both work.
+    expect(CLI.aliases.cost).toBe("usage");
+    expect(CLI.aliases.review).toBe("code-review");
+  });
+
+  test("every `CLI_BUILTINS` name is run or refused by the CLI, never unknown to it", () => {
+    // An unknown name sent naked is the worst of both: no context in front of
+    // it, and the CLI hands it to the model as a paid turn. Measured on
+    // todos, todo, install, migrate-installer, pr-comments and compress.
+    const unknown = [...naked].filter((n) => !cliRuns.has(n) && !cliRefuses.has(n));
+    expect(unknown, "not commands of the installed CLI: they reach the model naked, as prose").toEqual([]);
+  });
+});
+
+describe("a name the CLI refuses headless is answered in the composer", () => {
+  // CMD-06: «answered locally, saying so and naming what to use instead».
+  test("every refused name has a branch in `ChatPane` or an entry in `CLI_REFUSED`", () => {
+    const forwarded = CLI.refused.filter((n) => !handledBare(n) && !(n in CLI_REFUSED));
+    expect(forwarded, "these reach a CLI that can only refuse them, in English, as the agent's reply").toEqual([]);
+  });
+
+  test("`CLI_REFUSED` only holds names the CLI refuses", () => {
+    // A name the CLI can run must not be shadowed by a sentence saying it cannot.
+    const runnable = Object.keys(CLI_REFUSED).filter((n) => !cliRefuses.has(n));
+    expect(runnable).toEqual([]);
+  });
+
+  test("and `ChatPane` consults it", () => {
+    expect(CHAT_PANE).toContain("cliRefusedCommand(");
+  });
+
+  test("the check can fail", () => {
+    expect(handledBare("questo-comando-non-esiste")).toBe(false);
+    expect("questo-comando-non-esiste" in CLI_REFUSED).toBe(false);
+  });
+});
+
+describe("every menu entry does something when picked", () => {
+  // The rows insert `cmd + ' '`; the send trims it. So what a pick sends is the
+  // BARE command, and that is the form that needs a destination: a local
+  // branch, or a CLI that runs it.
+  test("each offered command works in its bare form", () => {
+    const dead = offered.filter((c) => !handledBare(c) && !(naked.has(c) && cliRuns.has(c)));
+    expect(dead, "picked from the menu, these reach the model as prose or a CLI refusal").toEqual([]);
+  });
+
+  test("the menu offers nothing the CLI refuses or has retired", () => {
+    // `/resume` was offered as resuming an agent «@name» and the CLI refuses
+    // it; `/agents` as listing agent profiles, and the CLI answers that the
+    // wizard has been removed (AGENT-01: no roster exists).
+    const pointless = offered.filter((c) => (cliRefuses.has(c) && !handledBare(c)) || c === "agents");
+    expect(pointless).toEqual([]);
+  });
+
+  test("the bare check is stricter than the old one", () => {
+    // The form with an argument, and a name quoted in a comment, used to count
+    // as handling the bare command.
+    const sample = "if (cmd.startsWith('/browser ')) {} // the menu's `/model` row";
+    expect(handled("browser") || /['"`]\/browser['"` ]/.test(sample)).toBe(true);
+    expect(bareIn(sample, "browser")).toBe(false);
+    expect(bareIn(sample, "model")).toBe(false);
+    expect(bareIn("if (cmd === '/browser') {}", "browser")).toBe(true);
+  });
+});
+
+describe("`/new` and `/reset` are `/clear`", () => {
+  // Claude Code's aliases of /clear (measured: each emits conversation_reset
+  // and changes the session id). Forwarded, the live process forgot while the
+  // screen kept the history and Topics kept the old session id.
+  test("both reach the clear branch, behind the same confirmation", () => {
+    for (const c of ["new", "reset"]) expect(handledBare(c), `/${c}`).toBe(true);
+    expect(CLI.aliases.new).toBe("clear");
+    expect(CLI.aliases.reset).toBe("clear");
   });
 });

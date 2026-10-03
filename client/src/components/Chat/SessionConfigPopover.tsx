@@ -15,7 +15,7 @@
 // azione" selezionato su ogni topic mentre lo spawn usa `bypassPermissions`.
 // Non è collegabile finché il server non gestisce il canale di permesso della
 // CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
@@ -46,6 +46,8 @@ interface SessionConfigPopoverProps {
    *  override, e "default" resterebbe una parola senza posizione. */
   providerOverride?: ProviderSelection | null;
   defaultProviderLabel?: string;
+  /** Filled with this panel's door, for a typed `/effort`. */
+  openRef?: React.RefObject<(() => void) | null>;
 }
 
 export function SessionConfigPopover({
@@ -54,6 +56,7 @@ export function SessionConfigPopover({
   effortSupported,
   providerOverride,
   defaultProviderLabel,
+  openRef,
 }: SessionConfigPopoverProps) {
   const tr = useT();
   const [open, setOpen] = useState(false);
@@ -91,6 +94,26 @@ export function SessionConfigPopover({
   // inventato.
   const shownTier = effort ?? defaultTier ?? null;
 
+  // Opens ABOVE the composer (it sits at the bottom of the pane), so the
+  // anchor is the button's top edge. Clamped on both axes.
+  const placePanel = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setPos({
+      top: Math.max(POPOVER_MARGIN, r.top - 8),
+      left: Math.max(
+        POPOVER_MARGIN,
+        Math.min(r.left, window.innerWidth - PANEL_W - POPOVER_MARGIN),
+      ),
+    });
+  };
+  // A typed `/effort` opens this panel, the one place the effort is set.
+  useEffect(() => {
+    if (!openRef) return;
+    openRef.current = () => { placePanel(); setOpen(true); };
+    return () => { openRef.current = null; };
+  });
+
   // With neither knob available there is nothing to show — stay invisible
   // rather than offer an empty panel.
   // Rimasto solo l'effort (piu' l'etichetta del provider, informativa): senza
@@ -104,18 +127,7 @@ export function SessionConfigPopover({
         ref={btnRef}
         type="button"
         onClick={() => {
-          const r = btnRef.current?.getBoundingClientRect();
-          if (r) {
-            // Opens ABOVE the composer (it sits at the bottom of the pane), so
-            // the anchor is the button's top edge. Clamped on both axes.
-            setPos({
-              top: Math.max(POPOVER_MARGIN, r.top - 8),
-              left: Math.max(
-                POPOVER_MARGIN,
-                Math.min(r.left, window.innerWidth - PANEL_W - POPOVER_MARGIN),
-              ),
-            });
-          }
+          placePanel();
           setOpen((v) => !v);
         }}
         className={`flex-shrink-0 flex items-center justify-center h-8 px-1.5 rounded-lg transition-colors ${
