@@ -258,6 +258,28 @@ Prima del codice, una misura (tasks 1.5): una richiesta del motore attraverso
 il proxy risponde 200. Se non risponde, questa sezione si ferma, e la scelta 2
 aggiunge il prezzo «un account solo invece della rotazione».
 
+**Esito della misura (03/10, implementazione).** La misura è stata fatta senza
+nessuna chiamata a un modello vero, per regola di questa tornata: HOME usa e
+getta, `settings.json` finto con `env.ANTHROPIC_BASE_URL` su un ascoltatore
+locale finto, credenziale finta, Portachiavi spento
+(`TOPICS_CREDENTIALS_KEYCHAIN=0`) e un `fetch` che rifiuta ogni host che non sia
+loopback (`measurements/msel11-measure.ts`).
+- Prima del codice: l'ascoltatore riceve 0 richieste, il motore prova
+  `https://api.anthropic.com/v1/messages` (`measurements/msel11-before.json`).
+- Dopo `base-url.ts`: l'ascoltatore riceve `POST /v1/messages`, il turno chiude
+  con 200 (`measurements/msel11-after.json`).
+- Il proxy vero su :3336 non è stato chiamato. Che accetti la richiesta del
+  motore si legge nel suo codice (`~/.claude/account-switcher/dashboard.mjs`,
+  `handleProxyRequest`): prende ogni `POST /v1/messages`, rimette l'identità di
+  Claude Code (`ensureClaudeCodeIdentity`) e sostituisce il token del chiamante
+  con quello dell'account attivo, quindi la forma che manda il motore (bearer
+  OAuth, `anthropic-beta` OAuth, blocco d'identità) è la stessa delle sessioni
+  Claude Code. Il 200 attraverso il proxy vero resta **non verificato**: costa
+  una richiesta d'uso, che qui era vietata.
+
+Quindi il motore si può instradare sullo stesso indirizzo, e la scelta 2 resta
+quella approvata.
+
 ## 3. Una riga per modello, divisa per azienda (scelta 3)
 
 ### 3.1 L'azienda

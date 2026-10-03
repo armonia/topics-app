@@ -1,0 +1,8 @@
+{
+ "settingsBaseUrl": "http://127.0.0.1:49170",
+ "listenerReceived": [],
+ "blockedNonLoopback": [
+  "https://api.anthropic.com/v1/messages"
+ ],
+ "outcome": "error: aborted while waiting to retry"
+}
