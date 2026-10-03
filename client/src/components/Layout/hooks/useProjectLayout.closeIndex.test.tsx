@@ -54,6 +54,8 @@ afterAll(() => {
 const { useProjectLayout } = await import('./useProjectLayout');
 const { undo, redo } = await import('../../../contexts/UndoContext');
 const { flushTerminalCleanups, cancelTerminalCleanup } = await import('../../../state/pane/adapters');
+const { PendingActionProvider } = await import('../../../contexts/PendingActionContext');
+const { flushAtPageExit } = await import('../../../lib/pageExitFlush');
 type Layout = ReturnType<typeof useProjectLayout>;
 
 const view = (id: string): Pane => ({ id, type: 'file', title: id, preview: false, filePath: `/p/${id}` } as Pane);
@@ -156,16 +158,19 @@ describe('closing a terminal tab', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => { globalThis.fetch = realFetch; });
 
-  test('deletes its server session: one keepalive DELETE when the page goes away inside the grace window', async () => {
+  function recordFetch() {
     const calls: { url: string; method?: string; keepalive?: boolean }[] = [];
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), method: init?.method, keepalive: init?.keepalive });
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
-    const term = { id: 'terminal:sess-closed-tab', type: 'terminal', title: 'Terminal', preview: false, terminalType: 'shell' } as Pane;
+    return calls;
+  }
+
+  function terminalProbe(sessionId: string) {
+    const term = { id: `terminal:${sessionId}`, type: 'terminal', title: 'Terminal', preview: false, terminalType: 'shell' } as Pane;
     const group: PaneGroup = { id: 'g1', type: 'utility', paneIds: [term.id], activePaneId: term.id } as PaneGroup;
     const box: { layout: Layout | null } = { layout: null };
-
     function Probe() {
       const layout = useProjectLayout({
         projectPath: '/p',
@@ -185,7 +190,12 @@ describe('closing a terminal tab', () => {
       useEffect(() => { box.layout = layout; });
       return null;
     }
+    return { term, box, Probe };
+  }
 
+  test('deletes its server session: one keepalive DELETE when the page goes away inside the grace window', async () => {
+    const calls = recordFetch();
+    const { term, box, Probe } = terminalProbe('sess-closed-tab');
     const h = mount(createElement(Probe));
     try {
       box.layout!.handlers.closeNow('g1', term.id);
@@ -196,6 +206,30 @@ describe('closing a terminal tab', () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       expect(calls.filter(c => c.method === 'DELETE')).toEqual([
         { url: '/api/terminal/sessions/sess-closed-tab', method: 'DELETE', keepalive: true },
+      ]);
+    } finally {
+      cancelTerminalCleanup(term.id);
+      h.unmount();
+    }
+  });
+
+  // The close a person sees: a 3 s countdown. The page going away inside it
+  // commits the close from the app's exit handler, AFTER the cleanup module's
+  // own `pagehide` listener already ran for that same event and found nothing.
+  // iOS fires only `pagehide`: one event, and the DELETE has to leave on it.
+  test('a countdown close the page goes away inside sends its DELETE on that one exit event', async () => {
+    const calls = recordFetch();
+    const { term, box, Probe } = terminalProbe('sess-countdown-exit');
+    const h = mount(createElement(PendingActionProvider, null, createElement(Probe)));
+    try {
+      box.layout!.handlers.close('g1', term.id);
+      h.rerender();
+      flushTerminalCleanups(); // the cleanup module's own listener: first, and still empty
+      flushAtPageExit(); // the app's exit handler: commits the close
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(box.layout!.state.panes.some(p => p.id === term.id)).toBe(false);
+      expect(calls.filter(c => c.method === 'DELETE')).toEqual([
+        { url: '/api/terminal/sessions/sess-countdown-exit', method: 'DELETE', keepalive: true },
       ]);
     } finally {
       cancelTerminalCleanup(term.id);

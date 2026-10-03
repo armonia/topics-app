@@ -226,13 +226,18 @@ export function flushTerminalCleanups(): void {
 }
 
 /**
- * Wire the flush to beforeunload and pagehide. On a normal unload both fire,
- * beforeunload first: its flush empties the map, so the pagehide that follows
- * has nothing left and each pending cleanup runs ONCE. Either can also fire
- * alone: iOS Safari fires only pagehide, and pagehide also fires when the page
- * enters the back/forward cache, in which case the DELETE leaves early for a
- * page that may come back (the tab is closed anyway; only the undo window is
- * cut short). Exported so a test can drive it with its own event target.
+ * Wire the flush to beforeunload and pagehide. Each flush runs and removes
+ * what is pending at that moment, so a cleanup runs ONCE however many of the
+ * two fire. That is not "the second one finds the map empty": these listeners
+ * register as the module loads, before the app mounts its exit handler, so on
+ * each event they run FIRST, and a close still counting down is committed
+ * after them, by that handler, scheduling its cleanup then. The handler
+ * flushes again after its commit (`lib/pageExitFlush`); without that, iOS,
+ * which fires only pagehide, never sent the DELETE of such a close. pagehide
+ * also fires when the page enters the back/forward cache, in which case the
+ * DELETE leaves early for a page that may come back (the tab is closed
+ * anyway; only the undo window is cut short). Exported so a test can drive it
+ * with its own event target.
  */
 export function wireTerminalCleanupFlush(target: Pick<EventTarget, 'addEventListener'>): void {
   target.addEventListener('beforeunload', flushTerminalCleanups);
