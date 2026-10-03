@@ -476,6 +476,12 @@ export class NativeProvider implements AIProvider {
        * from the rows leaves all of them out, or the model reads them twice.
        */
       messageRows?: number;
+      /**
+       * The context of a bare skill invocation (`/recap …`), delivered as a
+       * text block of its own BEFORE the message block, so the user's text
+       * still starts with the command (see `ProviderPayload.slashContext`).
+       */
+      slashContext?: string;
     },
   ): Promise<{ runId?: string }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
@@ -505,8 +511,21 @@ export class NativeProvider implements AIProvider {
     // calls (the turn died before the model wrote its closing sentence): the
     // new message joins them as a text block, after the results, which is the
     // order the API wants inside a user message.
+    //
+    // A skill invocation with context arrives as TWO blocks, the context
+    // first: the message block stays exactly what the person typed.
     const tail = session.history[session.history.length - 1];
-    if (tail && tail.role === "user" && typeof tail.content === "string") {
+    const slashContext = options?.slashContext;
+    if (slashContext) {
+      const blocks = [{ type: "text" as const, text: slashContext }, { type: "text" as const, text: message }];
+      if (tail && tail.role === "user" && typeof tail.content === "string") {
+        tail.content = [{ type: "text", text: tail.content }, ...blocks];
+      } else if (tail && tail.role === "user" && Array.isArray(tail.content)) {
+        tail.content = [...tail.content, ...blocks];
+      } else {
+        session.history.push({ role: "user", content: blocks });
+      }
+    } else if (tail && tail.role === "user" && typeof tail.content === "string") {
       tail.content = `${tail.content}\n\n${message}`;
     } else if (tail && tail.role === "user" && Array.isArray(tail.content)) {
       tail.content = [...tail.content, { type: "text", text: message }];

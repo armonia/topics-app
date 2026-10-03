@@ -12,7 +12,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles } from "./slash-command-source";
+import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles, isKnownSlashCommand } from "./slash-command-source";
 
 let home: string;
 let cwd: string;
@@ -102,5 +102,36 @@ describe("listSlashCommandFiles", () => {
     expect(names).toContain("locale");
     expect(new Set(names).size).toBe(names.length);
     expect(list.find((x) => x.name === "vai")?.kind).toBe("skill");
+  });
+});
+
+describe("isKnownSlashCommand", () => {
+  test("user commands, user skills, project commands and project skills are known", () => {
+    mkdirSync(join(cwd, ".claude", "skills", "del-progetto"), { recursive: true });
+    writeFileSync(join(cwd, ".claude", "skills", "del-progetto", "SKILL.md"), "corpo");
+    for (const n of ["recap", "vai", "locale", "del-progetto"]) {
+      expect(isKnownSlashCommand(n, { home, cwd }), n).toBe(true);
+    }
+  });
+
+  test("project folders count only when there is a project", () => {
+    expect(isKnownSlashCommand("locale", { home, cwd: null })).toBe(false);
+    expect(isKnownSlashCommand("vai", { home, cwd: null })).toBe(true);
+  });
+
+  test("a namespaced name is a command by its shape", () => {
+    expect(isKnownSlashCommand("opsx:propose", { home, cwd })).toBe(true);
+  });
+
+  test("a well-formed name that does not exist, like the first segment of /tmp, is not", () => {
+    for (const n of ["tmp", "Users", "etc", "inventato"]) {
+      expect(isKnownSlashCommand(n, { home, cwd }), n).toBe(false);
+    }
+  });
+
+  test("an inadmissible name is refused before touching the disk", () => {
+    for (const n of ["../commands/recap", "a/b", ""]) {
+      expect(isKnownSlashCommand(n, { home, cwd }), n).toBe(false);
+    }
   });
 });

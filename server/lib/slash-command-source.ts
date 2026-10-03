@@ -103,6 +103,37 @@ export function readSlashCommandSource(
   return null;
 }
 
+/**
+ * Whether `/name` is a command or skill the Claude CLI will expand, judged on
+ * disk: the same folders as `readSlashCommandSource`, plus the project's own
+ * `.claude/skills` under `cwd` (the CLI loads those too). A namespaced name
+ * (`opsx:propose`, `plugin:skill`) counts as a command by its shape: a pasted
+ * path never has a colon in its first segment, and the plugin folders are the
+ * CLI's business, not ours.
+ *
+ * It answers one question for the context adapter: does this message have to
+ * reach the CLI bare? A wrong «no» keeps today's behaviour (context in front),
+ * a wrong «yes» would send a pasted path like `/tmp to check` bare, so only
+ * names that exist say yes.
+ */
+export function isKnownSlashCommand(
+  name: string,
+  opts: { home?: string; cwd?: string | null } = {},
+): boolean {
+  if (!isValidSlashCommandName(name)) return false;
+  if (name.includes(":")) return true;
+  const home = opts.home ?? homedir();
+  const cwd = opts.cwd ?? null;
+  const files = [
+    join(home, ".claude", "commands", `${name}.md`),
+    ...skillDirs(home).map((dir) => join(dir, name, "SKILL.md")),
+    ...(cwd
+      ? [join(cwd, ".claude", "commands", `${name}.md`), join(cwd, ".claude", "skills", name, "SKILL.md")]
+      : []),
+  ];
+  return files.some((f) => existsSync(f));
+}
+
 /** I nomi disponibili, per l'elenco. Estratto qui perché usa le stesse radici. */
 export function listSlashCommandFiles(
   opts: { home?: string; cwd?: string } = {},

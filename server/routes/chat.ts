@@ -90,6 +90,7 @@ import {
   rekeyInlineSent,
   type ContextEnvelope,
 } from "../context";
+import { isKnownSlashCommand } from "../lib/slash-command-source";
 import {
   logStreamSoftTimeout,
   logStreamHardTimeout,
@@ -3643,9 +3644,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               readClaudeSessionId(ctx, sessionKey),
               countCompactions(ctx, sessionKey),
             );
+            // A skill invocation (`/recap`) reaches the CLI bare, its context comes back apart
+            // (`payload.slashContext`). Skills are looked up where the CLI looks: the topic's cwd.
+            const slashCwd = matchedTopic ? ctx.resolveTopicCwd(matchedTopic) : null;
+            const isSlashCommand = (name: string) => isKnownSlashCommand(name, { cwd: slashCwd });
             const payload = adaptEnvelope(
               envForProvider,
-              sentScope ? { alreadySent: getInlineSentState(sessionKey, sentScope) } : undefined,
+              sentScope ? { alreadySent: getInlineSentState(sessionKey, sentScope), isSlashCommand } : { isSlashCommand },
             );
             // Marcatura OTTIMISTICA: `sendChat` risolve a turno avviato, e un
             // secondo messaggio accodato prima di allora si comporrebbe con la
@@ -3662,7 +3667,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string; messageRows?: number } = { rowId: partialMsg.id };
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number } = { rowId: partialMsg.id };
+            if (payload.slashContext !== undefined) sendOptions.slashContext = payload.slashContext;
             if (overrideModel) sendOptions.model = overrideModel;
             // The answers carried in front of the person's words are rows of
             // their own, and part of THIS message: a provider that rebuilds its
@@ -3677,8 +3683,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // coniata, che il preambolo non l'ha mai visto. `adaptEnvelope` è pura,
             // quindi ricomporlo senza `alreadySent` costa quanto una join di stringhe.
             if (sentScope && payload.inlineSlots) {
-              const full = adaptEnvelope(envForProvider).userContent;
-              if (full !== userContent) sendOptions.resetFallbackContent = full;
+              const full = adaptEnvelope(envForProvider, { isSlashCommand });
+              if (full.userContent !== userContent) sendOptions.resetFallbackContent = full.userContent;
+              if (full.slashContext !== payload.slashContext) sendOptions.resetFallbackSlashContext = full.slashContext;
             }
             if (historyForProvider) sendOptions.history = historyForProvider;
             // Phase 30 BROWSER-CHAT-04 — register browserTools for SDK-driven providers.

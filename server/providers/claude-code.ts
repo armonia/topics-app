@@ -64,6 +64,7 @@ import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type F
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
+import { buildUserTurnContent } from "./claude/user-turn";
 import { toolResultText } from "../../shared/tool-result-text";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
@@ -1695,7 +1696,7 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean; rowId?: string },
+    options?: { model?: string; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string },
   ): Promise<{ runId?: string; notSent?: boolean }> {
     if (isRawGlobalCoordinator(sessionKey)) {
       // Do not enqueue or re-use a generic persistent process.  The only
@@ -1731,7 +1732,10 @@ export class ClaudeCodeProvider implements AIProvider {
       // torna null e non si manda niente — un `/fast on` rifiutato tornerebbe
       // come un messaggio dell'assistente dentro la chat.
       await this.applyFastMode(sessionKey, options?.fastMode === true);
-      return await this.sendChatInternal(sessionKey, message, handler, false, options?.resetFallbackContent, options?.rowId);
+      return await this.sendChatInternal(
+        sessionKey, message, handler, false, options?.resetFallbackContent, options?.rowId,
+        options?.slashContext, options?.resetFallbackSlashContext,
+      );
     } finally {
       resolveQueue();
     }
@@ -1769,6 +1773,8 @@ export class ClaudeCodeProvider implements AIProvider {
     retriedReset = false,
     resetFallbackContent?: string,
     rowId?: string,
+    slashContext?: string,
+    resetFallbackSlashContext?: string,
   ): Promise<{ runId?: string; notSent?: boolean }> {
     const child = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
     // Stopped before it had a child (see `waitingSends`): `abort()` already
@@ -1809,13 +1815,13 @@ export class ClaudeCodeProvider implements AIProvider {
     // `--resume`) and the DB carries prior turns, prepend a markdown recap
     // so the model picks up the conversation thread on its very first stdin
     // write. One-shot — clear the flag so subsequent turns flow normally.
-    let outboundMessage = message;
+    let prologue: string | undefined;
     if (pp.needsHistoryReplay) {
       pp.needsHistoryReplay = false;
       try {
         const replayTurns = loadActiveBranchForReplay(sessionKey);
         if (replayTurns.length > 0) {
-          outboundMessage = renderReplayPrologue(replayTurns) + "\n" + message;
+          prologue = renderReplayPrologue(replayTurns);
           console.log(
             `[claude-code] Injected recap prologue (${replayTurns.length} prior turns) for ${sessionKey}`,
           );
@@ -1830,9 +1836,11 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     // Build NDJSON message
+    // A skill invocation keeps its text bare: anything Topics adds goes in a
+    // block of its own before it (`claude/user-turn.ts`).
     const input = JSON.stringify({
       type: "user",
-      message: { role: "user", content: outboundMessage },
+      message: { role: "user", content: buildUserTurnContent(message, { prologue, slashContext }) },
     }) + "\n";
 
     // Turn watchdog — an INACTIVITY backstop, NOT a wall-clock cap. It rejects
@@ -1999,7 +2007,11 @@ export class ClaudeCodeProvider implements AIProvider {
           // progetto, memoria e pinned. Il recap prologue ricostruisce i turni,
           // non i blocchi di sistema. Qui si rimanda la versione integra.
           const forFreshSession = resetFallbackContent ?? message;
-          return this.sendChatInternal(sessionKey, forFreshSession, handler, true, resetFallbackContent, rowId);
+          const slashForFreshSession = resetFallbackSlashContext ?? slashContext;
+          return this.sendChatInternal(
+            sessionKey, forFreshSession, handler, true, resetFallbackContent, rowId,
+            slashForFreshSession, resetFallbackSlashContext,
+          );
         }
         handler.onError("La sessione era scaduta ed è stata ripristinata. Riprova.");
         return { runId };
