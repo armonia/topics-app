@@ -43,6 +43,8 @@ export function useKnownSlashName(name: string | null | undefined): boolean {
   useSyncExternalStore(
     (cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; },
     () => version,
+    // Static rendering (renderToString in the tests) reads the same version.
+    () => version,
   );
   return !!name && isKnownSlashName(name);
 }
