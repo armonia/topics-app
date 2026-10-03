@@ -330,3 +330,28 @@ describe("the refusals are Claude Code's, so only a Claude Code topic gets them 
     expect(cliRefusedCommand("/resume", undefined)).toBeNull();
   });
 });
+
+describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)", () => {
+  // There is no settings section any more: the MCP tools are the «Strumenti»
+  // panel of the composer's «+», the rest is the user menu. Forwarded, both
+  // reached the CLI, which printed its own list in English.
+  const src = withoutComments(CHAT_PANE);
+  test("`/mcp`, bare or with an argument, opens the composer's tools panel", () => {
+    expect(src).toMatch(/cmd === '\/mcp' \|\| cmd\.startsWith\('\/mcp '\)\) \{[^}]*composerControlsRef\.current\?\.openTools\(\)/);
+  });
+
+  test("`/config` and its alias `/settings` open the user menu", () => {
+    expect(CLI.aliases.settings).toBe("config");
+    for (const c of ["config", "settings"]) {
+      expect(bareIn(CHAT_PANE, c), `/${c}`).toBe(true);
+      expect(handledWithArg(c), `/${c} with an argument`).toBe(true);
+    }
+    expect(src).toMatch(/cmd === '\/settings'[^}]*\{[^}]*openUserMenu\(\)/);
+  });
+
+  test("the composer hands up the door to its tools panel, hung from the «+»", () => {
+    const input = read("client/src/components/Chat/ChatInput.tsx");
+    expect(input).toContain("openTools: () => openToolsRef.current?.()");
+    expect(input).toContain("openHome('tools', triggerRef.current)");
+  });
+});

@@ -51,7 +51,7 @@ const ComposerToolsRow = lazy(async () => {
   const { ComposerToolsRow: Row } = await import('./ComposerToolsRow');
   return { default: Row };
 });
-import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
+import { HOME_ANCHOR_ATTR, openHome } from '../../lib/openHome';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -82,6 +82,7 @@ function AddMenu({
   onExport,
   allowAttachments,
   allowSlashCommands,
+  openToolsRef,
 }: {
   isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; uploading: boolean;
@@ -102,6 +103,8 @@ function AddMenu({
   allowAttachments: boolean;
   /** Its tool profile is server-owned, so generic slash shortcuts stay hidden. */
   allowSlashCommands: boolean;
+  /** Filled with the door a typed `/mcp` uses: the tools panel, hung from this «+». */
+  openToolsRef?: React.MutableRefObject<(() => void) | null>;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -109,6 +112,14 @@ function AddMenu({
   // two places that DRAW that resolve them. This is one, the `/` menu below is
   // the other.
   const tr = useT();
+
+  // `/mcp` typed in the composer opens the same panel the «Strumenti» row
+  // opens, hung from the same «+» (only where that row exists).
+  useEffect(() => {
+    if (!openToolsRef) return;
+    openToolsRef.current = allowSlashCommands ? () => openHome('tools', triggerRef.current) : null;
+    return () => { openToolsRef.current = null; };
+  }, [openToolsRef, allowSlashCommands]);
 
   const anyActive = isCallActive || isListening || isSpeaking || autoTTS;
   const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
@@ -351,6 +362,8 @@ export interface ComposerControls {
   openModel: () => void;
   openEffort: () => void;
   openContext: () => void;
+  /** The MCP tools panel of the «+» (`/mcp`). */
+  openTools: () => void;
 }
 
 export function ChatInput({
@@ -574,12 +587,14 @@ export function ChatInput({
   // hand their door up; the inspector's state lives here.
   const openModelRef = useRef<(() => void) | null>(null);
   const openEffortRef = useRef<(() => void) | null>(null);
+  const openToolsRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!controlsRef) return;
     controlsRef.current = {
       openModel: () => openModelRef.current?.(),
       openEffort: () => openEffortRef.current?.(),
       openContext: () => { if (!isDraftTopic && !isGlobalOrchestrator) setShowContextPopover(true); },
+      openTools: () => openToolsRef.current?.(),
     };
     return () => { controlsRef.current = null; };
   }, [controlsRef, isDraftTopic, isGlobalOrchestrator]);
@@ -1492,6 +1507,7 @@ export function ChatInput({
                 }}
                 allowAttachments={!isGlobalOrchestrator}
                 allowSlashCommands={!isGlobalOrchestrator}
+                openToolsRef={openToolsRef}
               />
 
               {/* `min-w-[4rem]` è il pavimento del campo: con `flex-1` la base è

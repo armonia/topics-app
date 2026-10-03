@@ -126,6 +126,31 @@ test.describe("slash commands answered in the composer", () => {
     expect(received()).toEqual([]);
   });
 
+  test("/mcp opens the composer's Strumenti panel, /config and /settings the user menu", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    // The fleet answered without mounting anything: what is under test is the door.
+    await page.route("**/api/mcp/fleet**", async (route) => {
+      if (route.request().method() !== "GET") { await route.fallback(); return; }
+      await route.fulfill({ json: { enabled: true, mounted: true, mounting: false, servers: [] } });
+    });
+    await type(chatPage, page, "/mcp");
+    const tools = page.getByTestId("home-panel-tools");
+    await expect(tools).toBeVisible({ timeout: 10_000 });
+    await expect(tools.getByTestId("mcp-fleet-panel")).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press("Escape");
+    await expect(tools).toHaveCount(0);
+
+    for (const typed of ["/config", "/settings"]) {
+      await type(chatPage, page, typed);
+      const menu = page.getByTestId("profile-menu");
+      await expect(menu, typed).toBeVisible({ timeout: 10_000 });
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    }
+    await expect(result(page)).toHaveCount(0);
+    expect(received(), "the CLI printed its own lists about a configuration Topics does not read").toEqual([]);
+  });
+
   test("/new asks the /clear confirmation and sends nothing to the CLI", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-09" });
     await type(chatPage, page, "/new");
