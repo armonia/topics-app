@@ -1272,7 +1272,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // An own stream drops only the turn's echo, never a row written beside
         // it: that one is deduplicated by id below (`ownTurnEcho`).
         const own = chatHandlersRef.current.isOwnStream(msg.sessionKey);
-        if (own && (ownTurnEcho(msg) || !msg.messageId)) return;
+        if (own && (ownTurnEcho(msg, chatHandlersRef.current.ownSends(msg.sessionKey)) || !msg.messageId)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
         if (!fullContent) return;
         const id = msg.messageId;

@@ -66,7 +66,8 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
-import { senderAlsoSeesFrame } from './senderAlsoSees';
+import { senderAlsoSeesFrame, type OwnSends } from './senderAlsoSees';
+
 import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
@@ -90,6 +91,9 @@ import {
 } from './outboundQueue';
 import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
 import { apiFetch } from '../lib/shell/net';
+
+/** A session this window streams nothing into: no echo to tell apart. */
+const NO_OWN_SENDS: OwnSends = { clientIds: new Set(), contents: new Set() };
 
 // The turn flags' setters, readers and live refs: module constants, so every
 // callback that uses them stays stable (see `state/sessionFlags.ts`).
@@ -685,6 +689,10 @@ export function useChat() {
   // younger than the snapshot the end of that SSE reloads, which replaces the
   // whole thread and would drop them again.
   const wsRowsDuringOwnSseRef = useRef<Map<string, Set<string>>>(new Map());
+  // What this window sent while its own SSE holds the session: the key and the
+  // text of each message, so the pane drops only that row's echo and lets the
+  // rows the machine writes beside the turn through (`ownTurnEcho`).
+  const ownSendsRef = useRef<Map<string, { clientIds: Set<string>; contents: Set<string> }>>(new Map());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -994,6 +1002,19 @@ export function useChat() {
     });
 
     return newMessage;
+  }, []);
+
+  /**
+   * A reload's snapshot, plus the rows a `message:new` added while this
+   * window's own SSE held the session and the snapshot does not hold yet: it
+   * replaces the whole thread, and was taken before they were written.
+   */
+  const withRowsArrivedDuringOwnSse = useCallback((sessionKey: string, held: ChatMessage[] | undefined, fetched: ChatMessage[]): ChatMessage[] => {
+    const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
+    if (!arrived || !held) return fetched;
+    const fetchedIds = new Set(fetched.map((m) => m.id));
+    const younger = held.filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id));
+    return younger.length ? [...fetched, ...younger] : fetched;
   }, []);
 
   /** `addMessage` for a row another window or the server announced. */
@@ -1953,6 +1974,7 @@ export function useChat() {
     // ...or the reload's snapshot says so, but the turn ended or was stopped while it was in flight.
     let staleSnapshot = false;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
+    ownSendsRef.current.set(sessionKey, { clientIds: new Set([idemKey]), contents: new Set([content]) });
     endedDuringOwnSseRef.current.delete(sessionKey);
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
@@ -2218,12 +2240,7 @@ export function useChat() {
             content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
-        setMessages(prev => {
-          const arrived = wsRowsDuringOwnSseRef.current.get(sessionKey);
-          const fetchedIds = new Set(chatMessages.map((m) => m.id));
-          const younger = arrived ? (prev[sessionKey] ?? []).filter((m) => arrived.has(m.id) && !fetchedIds.has(m.id)) : [];
-          return { ...prev, [sessionKey]: younger.length ? [...chatMessages, ...younger] : chatMessages };
-        });
+        setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
         // No [DONE], and the server still has the turn in flight: what ended is
         // the response (a proxy, an idle timeout), not the turn. It stays lit and
@@ -2380,6 +2397,7 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
+      ownSendsRef.current.delete(sessionKey);
       ownReplyClosedRef.current.delete(sessionKey);
       const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -2403,7 +2421,7 @@ export function useChat() {
         void loadHistoryRef.current?.(sessionKey, { fresh: true, keepLit: true });
       }
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout, withRowsArrivedDuringOwnSse]);
 
   /**
    * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
@@ -2994,10 +3012,10 @@ export function useChat() {
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
-      setMessages(prev => ({
-        ...prev,
-        [sessionKey]: chatMessages,
-      }));
+      // Like the reload at the end of a send: a row written beside the turn
+      // that reached this window over the socket while the snapshot was in
+      // flight stays.
+      setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
       const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
       finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
       hydratedSessionsRef.current.add(sessionKey);
@@ -3087,12 +3105,13 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
+      ownSendsRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
+  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
@@ -3472,5 +3491,6 @@ export function useChat() {
     gatewayConnected,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
     isOwnStream: (sessionKey: string) => localSSESessionsRef.current.has(sessionKey),
+    ownSends: (sessionKey: string): OwnSends => ownSendsRef.current.get(sessionKey) ?? NO_OWN_SENDS,
   };
 }

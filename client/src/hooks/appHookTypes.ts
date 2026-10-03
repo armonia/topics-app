@@ -14,6 +14,7 @@
 
 import type { ChatMessage, TerminalSessionInfo } from '../types';
 import type { SendMessageOptions } from '@/hooks/useChat';
+import type { OwnSends } from './senderAlsoSees';
 
 /**
  * Stream / WS callbacks the panel hook needs from useChat.
@@ -27,6 +28,8 @@ import type { SendMessageOptions } from '@/hooks/useChat';
  */
 export interface ChatStreamHandlers {
   isOwnStream: (sessionKey: string) => boolean;
+  /** What this window sent on its own stream of the session, to tell the turn's echo from a row beside it. */
+  ownSends: (sessionKey: string) => OwnSends;
   /** A turn of this session is streaming into this window right now. */
   isSessionStreaming: (sessionKey: string) => boolean;
   getSessionMessages: (sessionKey: string) => ChatMessage[];

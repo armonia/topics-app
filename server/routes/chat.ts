@@ -703,14 +703,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // sweep back to its count, written in the same tick as the row.
         if (resumeAttempt > 0 && typeof body.resendOf === "string") noteResendCopy(ctx.db, sessionKey, body.resendOf, storedUserMsg.id);
         if (matchedTopic) {
-          // The marks travel WITH the frame. Without them every other window
-          // drew the goal continuation as the person saying «Objective still
-          // open: ...» in a bubble, until a reload read the row back with its
-          // block (23/09).
+          // The marks travel WITH the frame (without them every other window
+          // drew the goal continuation as the person's own bubble until a
+          // reload, 23/09), and so does the send's key: the window that sent
+          // it drops only this row as its echo (`ownTurnEcho`, client).
           broadcastToAll({
             type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
             messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100),
             ...(storedUserMsg.blocks?.length ? { blocks: storedUserMsg.blocks } : {}),
+            ...(idempotencyKey ? { clientMessageId: idempotencyKey } : {}),
           });
           // Bump the topic's own timestamp on every real message, not just
           // metadata edits (rename/archive/autoname/…). Without this the
