@@ -743,8 +743,18 @@ export class AcpProvider implements AIProvider {
    * `session/load` on the next prompt.
    */
   async resetSession(sessionKey: string): Promise<void> {
+    // A send queued behind the running prompt belonged to the conversation
+    // being cleared: it is dropped, never sent into the fresh session.
+    const waiting = this.waitingSends.get(sessionKey);
+    if (waiting) { waiting.cancelled = true; waiting.wake?.(); }
     const state = this.sessions.get(sessionKey);
     if (state) {
+      // And the prompt still running is cancelled, as claude-code kills its
+      // process: forgetting the state alone left the agent working on it.
+      if (state.prompt) {
+        if (!state.aborting) state.aborting = "user";
+        this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
+      }
       this.sessions.delete(sessionKey);
       this.bySessionId.delete(state.acpSessionId);
     }
@@ -826,6 +836,11 @@ export class AcpProvider implements AIProvider {
         PROMPT_TIMEOUT_MS,
         "ACP_PROMPT_TIMEOUT",
       );
+    } catch (err) {
+      // The cap gives up on the answer, not the agent's work: cancel it, as
+      // `sendChat` does, or the throwaway session keeps running tools.
+      if (errText(err) === "ACP_PROMPT_TIMEOUT") peer.notify("session/cancel", { sessionId });
+      throw err;
     } finally {
       this.sessions.delete(key);
       this.bySessionId.delete(sessionId);

@@ -368,6 +368,47 @@ describe("stop e morte", () => {
   });
 });
 
+/** Every notification the provider sends to the agent, from now on. */
+function notifications(provider: AcpProvider): Array<{ method: string; params: Record<string, unknown> }> {
+  const peer = (provider as unknown as { peer: { notify: (m: string, p: Record<string, unknown>) => void } }).peer;
+  const seen: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const real = peer.notify.bind(peer);
+  peer.notify = (method, params) => { seen.push({ method, params }); real(method, params); };
+  return seen;
+}
+
+describe("/clear during a running prompt (CMD-09)", () => {
+  test("cancels the prompt still running in the agent", async () => {
+    const provider = makeProvider();
+    const first = recorder();
+    const turn = provider.sendChat("topic:clearbusy", "SLOW", first.handler);
+    await untilSlowStarted(first);
+    const sent = notifications(provider);
+
+    await provider.resetSession("topic:clearbusy");
+    expect(sent.map((n) => n.method), "the agent kept working on a cleared conversation").toContain("session/cancel");
+    const outcome = await Promise.race([turn.then(() => "settled"), Bun.sleep(2_000).then(() => "still running")]);
+    expect(outcome).toBe("settled");
+    expect(first.aborted[0]?.turnEnd).toEqual({ end: "cancelled", cause: "user" });
+  });
+
+  test("drops the send queued behind it: it never reaches the fresh session", async () => {
+    const provider = makeProvider();
+    const first = recorder();
+    const turn = provider.sendChat("topic:clearqueue", "SLOW LINGER", first.handler);
+    await untilSlowStarted(first);
+    const second = recorder();
+    const waiting = provider.sendChat("topic:clearqueue", "queued", second.handler);
+
+    await provider.resetSession("topic:clearqueue");
+    const outcome = await Promise.race([waiting, Bun.sleep(2_000).then(() => "still waiting")]);
+    expect(outcome).toEqual({ notSent: true });
+    await turn;
+    expect(second.full).toBe("");
+    expect(second.done).toEqual([]);
+  });
+});
+
 describe("complete (fuori dalla chat)", () => {
   test("gira su una sessione usa-e-getta: non sporca il contesto del turno vero", async () => {
     const provider = makeProvider();
@@ -380,6 +421,24 @@ describe("complete (fuori dalla chat)", () => {
     expect(out.content).toContain("dammi un titolo");
     expect(usedSession).toBeTruthy();
     expect(usedSession).not.toBe(chatSession);
+  });
+
+  test("at its 30-minute cap it cancels the prompt in the agent, as a chat turn does", async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const PROMPT_CAP_MS = 30 * 60 * 1000;
+    const provider = makeProvider();
+    await provider.sendChat("topic:warm", "ciao", recorder().handler);
+    const sent = notifications(provider);
+    globalThis.setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) =>
+      realSetTimeout(fn, ms === PROMPT_CAP_MS ? 300 : ms, ...rest)) as typeof setTimeout;
+    try {
+      await expect(provider.complete([{ role: "user", content: "SLOW" }])).rejects.toThrow("ACP_PROMPT_TIMEOUT");
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    const cancel = sent.find((n) => n.method === "session/cancel");
+    expect(cancel, "the throwaway session kept running in the agent").toBeTruthy();
+    expect(typeof cancel!.params.sessionId).toBe("string");
   });
 });
 
