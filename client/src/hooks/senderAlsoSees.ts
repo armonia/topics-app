@@ -74,3 +74,28 @@ export function senderAlsoSees(eventType: string): boolean {
 export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): boolean {
   return frame.late === true || senderAlsoSees(frame.type);
 }
+
+/**
+ * A `message:new` for a session whose turn THIS window streams over its own SSE:
+ * is it that turn coming back, or a row written beside it?
+ *
+ * The pane handler used to drop EVERY `message:new` of an own stream, to avoid
+ * doubling the bubbles the SSE already draws. But the server also writes rows
+ * that have nothing to do with the turn, and the race that shows it is the
+ * stopped-by-parent card (`server/services/subagent-wake.ts`): the wake writes
+ * it at the first poll after `activeStreams` empties, `endStream` empties it
+ * BEFORE `[DONE]`, and this window keeps the stream as its own until the
+ * `finally` after the history reload. A row written in that window never
+ * reached the pane until the next reload.
+ *
+ * The turn's echo: the person's row (its durable name is adopted by `useChat`
+ * from the optimistic copy, `adoptDurableMessageId`) and the reply, which the
+ * server announces WITHOUT blocks (`server/routes/chat.ts`, every branch that
+ * closes a turn) and which the SSE already drew under a local id. A row with
+ * blocks is written by the machine beside the turn: it passes, deduplicated by
+ * id against what the pane already holds.
+ */
+export function ownTurnEcho(frame: { role?: string; blocks?: readonly unknown[] | null }): boolean {
+  if (frame.role !== 'assistant') return true;
+  return !frame.blocks || frame.blocks.length === 0;
+}

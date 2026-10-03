@@ -66,3 +66,19 @@ export function friendlyModelLabel(modelId: string): string {
   const base = version ? `${name} ${version}` : name;
   return long ? `${base} · 1M` : base;
 }
+
+/**
+ * The label a trigger shows for a choice: the provider's own catalog name when
+ * the snapshot carries one (MSEL-09, «GPT-6.1-Sol»), else the friendly label.
+ * The rows of the selector and the trigger that opened it then say the same.
+ */
+export function catalogModelLabel(
+  snapshot: { providers: Array<{ name: string; modelInfo?: Record<string, { label?: string }> }> } | null | undefined,
+  provider: string | null | undefined,
+  modelId: string,
+): string {
+  const entries = snapshot?.providers ?? [];
+  const own = entries.find((entry) => entry.name === provider)?.modelInfo?.[modelId]?.label;
+  const any = own ?? entries.map((entry) => entry.modelInfo?.[modelId]?.label).find(Boolean);
+  return any ?? friendlyModelLabel(modelId);
+}

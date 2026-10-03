@@ -27,6 +27,7 @@ import type {
 import { serverHttpBase, apiFetch } from './shell/net';
 import type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
 import { HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
+import type { ChatFindResult } from '../../../shared/chat-find';
 import { adoptWarmRead, warmRead } from './warmReads';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
@@ -464,6 +465,14 @@ export const searchApi = {
     return request<{ results: SearchResult[] }>('/search', {
       method: 'POST',
       body: JSON.stringify({ query, limit }),
+    });
+  },
+  /** Find inside ONE conversation, tool outputs included (CHAT-FIND-01). */
+  async historyFind(sessionKey: string, query: string, matchCase: boolean, signal?: AbortSignal): Promise<ChatFindResult> {
+    return request<ChatFindResult>('/history-find', {
+      method: 'POST',
+      body: JSON.stringify({ sessionKey, query, matchCase }),
+      signal,
     });
   },
 };

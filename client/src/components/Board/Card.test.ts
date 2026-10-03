@@ -186,3 +186,14 @@ describe('il chip del triage', () => {
     expect(chip.slice(0, 400)).toContain("tr('board.card.triageTitle')");
   });
 });
+
+/** MSEL-01: «· via Topics» reads the providers snapshot. Read with
+ *  `getProvidersSnapshotState()` inside the memo'd card, a cold load into the
+ *  board judged a snapshot still null and the label stayed missing until the
+ *  card happened to re-render. The card subscribes to the boolean it draws. */
+describe('the card route label', () => {
+  test('subscribes to the snapshot instead of reading it once during render', () => {
+    expect(src).toContain('useSyncExternalStore(subscribeProvidersSnapshot,');
+    expect(src.includes('cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot) &&')).toBe(false);
+  });
+});

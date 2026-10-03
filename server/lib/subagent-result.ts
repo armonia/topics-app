@@ -107,6 +107,12 @@ export interface SubAgentResult extends SubAgentOutcome {
   durationMs: number | null;
   cwd: string;
   branch: string | null;
+  /**
+   * The parent's own `stop_agent` ended this child, whatever the transcript
+   * says of the turn (`no-transcript`, `no-prompt`, even `completed`): the
+   * report never wakes the parent (`resultWakesParent`).
+   */
+  stoppedByParent?: true;
 }
 
 /** How long a seeded prompt may take to appear in the transcript before the turn is `undelivered`. */

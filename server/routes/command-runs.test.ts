@@ -26,7 +26,7 @@ process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
 const { commandWakeState, createProcessesRouter, logPathOf, sessionsAwaitingCommandWake } = await import("./processes");
 const { isGuestAllowedPath, isGuestSafeFrameType } = await import("../lib/grants");
-const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunOutput } = await import("../lib/command-runs");
+const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunAlive } = await import("../lib/command-runs");
 
 let ctx: AppContext;
 let processes: ReturnType<typeof createProcessesRouter>;
@@ -352,7 +352,7 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     const id = `gone-row-${seq}`;
     insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "sleep 600", cwd: PROJECT, startedAt, authorDeviceId: null });
     // What the registry wrote while the run printed, before the server went down and the boot swept its log.
-    noteRunOutput(ctx.db, id, Date.parse(lastOutput));
+    noteRunAlive(ctx.db, id, Date.parse(lastOutput));
     const [run] = await runs(topic, messageId);
     expect(run).toMatchObject({ status: "unknown", exitCode: null, endedAt: lastOutput });
     expect(Date.parse(run!.endedAt!) - Date.parse(run!.startedAt)).toBe(450_000);
@@ -371,6 +371,29 @@ describe("the outcome stays with the block (CMDRUN-06)", () => {
     expect((await call("POST", `/api/scripts/${run.processId}/stop`)).status).toBe(200);
     await ended(topic, messageId, run.runId);
   }, 30_000);
+
+  test("a run that never prints keeps on its row when it was last known alive: lost with the server, it does not close at its start", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const run = await start(topic, messageId, "sleep 30");
+    const aliveAt = () => (ctx.db.query("SELECT last_output_at FROM command_runs WHERE id = ?").get(run.runId) as { last_output_at: string | null }).last_output_at;
+    // Before the fix: noted only on output, so NULL for as long as `sleep` ran.
+    await until(() => aliveAt() !== null && Date.parse(aliveAt()!) > Date.parse(run.startedAt), 8_000);
+    expect(aliveAt()).not.toBeNull();
+    expect(Date.parse(aliveAt()!)).toBeGreaterThan(Date.parse(run.startedAt));
+    expect((await call("POST", `/api/scripts/${run.processId}/stop`)).status).toBe(200);
+    await ended(topic, messageId, run.runId);
+  }, 30_000);
+
+  test("a run the registry no longer knows, closed by a GET, goes out as command-run:updated like every other close", async () => {
+    const topic = newTopic();
+    const messageId = reply(topic);
+    const id = `gone-frame-${seq}`;
+    insertRun(ctx.db, { id, sessionKey: topic.sessionKey, messageId, blockKey: 0, command: "sleep 600", cwd: PROJECT, startedAt: "2026-09-01T10:00:00.000Z", authorDeviceId: null });
+    const before = frames.length;
+    expect((await runs(topic, messageId))[0]).toMatchObject({ runId: id, status: "unknown" });
+    expect(frames.slice(before)).toContainEqual({ type: "command-run:updated", sessionKey: topic.sessionKey, messageId, runId: id, status: "unknown" });
+  });
 
   test("deleting the reply takes its runs with it", async () => {
     const topic = newTopic();

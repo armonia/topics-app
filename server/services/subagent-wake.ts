@@ -91,9 +91,14 @@ export function subagentWakeText(results: readonly SubAgentResult[]): string {
  * parent what it just did is all the wake would buy. The row still lands,
  * once the parent's turn is over, like a wake. A stop by a person (a closed
  * tab, a reload, the sweep) still wakes it.
+ *
+ * Read from `stoppedByParent`, not only from the reason: a child stopped
+ * before its transcript existed is reported `no-transcript` (or `no-prompt`),
+ * and that stop is the parent's all the same. The reason stays for results
+ * written on a child's row before the mark existed.
  */
-export function resultWakesParent(r: Pick<SubAgentResult, "reason">): boolean {
-  return r.reason?.code !== "stopped-by-parent";
+export function resultWakesParent(r: Pick<SubAgentResult, "reason" | "stoppedByParent">): boolean {
+  return r.stoppedByParent !== true && r.reason?.code !== "stopped-by-parent";
 }
 
 /** What the row's `subagent-result` block carries of each result: the card's data. */

@@ -17,13 +17,16 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-stop-fresh-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, getScriptsSnapshot, listBackgroundShells, registerBackgroundShell, startProcessDetection } = await import("./processes");
+const { createProcessesRouter, getScriptsSnapshot, listBackgroundShells, registerBackgroundShell, startProcessDetection, stopProcessDetectionForTests } = await import("./processes");
 const { setSessionCliPid } = await import("../providers/session-pids");
 const { getDescendantPids } = await import("../lib/process-tree");
 
 const DIR = realpathSync(mkdtempSync(join(tmpdir(), "topics-stop-fresh-")));
 const spawned: number[] = [];
 afterAll(() => {
+  // The loop this file started is module state: left running, it closed the
+  // ownerless background shells of the files after it (processes.shell-file).
+  stopProcessDetectionForTests();
   for (const pid of spawned) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = previousDataDir;

@@ -65,8 +65,8 @@ describe("il filo fra il pannello e il menu", () => {
   // Secondario: prova solo che lo switch sta sulla STESSA istanza del menu, non che qualcuno ne abbia cablato un secondo a mano. allow-italian: dice il confine di questa prova
   const src = readFileSync(join(import.meta.dir, "BoardSettingsPanel.tsx"), "utf8");
 
-  test("un solo switch, e sta su TaskModelMenuOptions", () => {
-    const menuStart = src.indexOf("<TaskModelMenuOptions");
+  test("un solo switch, e sta sul selettore unico (TaskModelSelector, MSEL-01)", () => {
+    const menuStart = src.indexOf("<TaskModelSelector");
     expect(menuStart).toBeGreaterThan(0);
     expect(src.slice(menuStart, src.indexOf("/>", menuStart))).toContain("topicsRouting={topicsRoutingSwitch}");
     expect((src.match(/topicsRouting=/g) ?? []).length).toBe(1);

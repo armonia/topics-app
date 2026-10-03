@@ -28,6 +28,8 @@ export interface SubAgentExitInfo {
   agentType?: string | null;
   durationMs?: number | null;
   cwd?: string;
+  /** The parent's own `stop_agent` ended the child (`SubAgentResult.stoppedByParent`). */
+  stoppedByParent?: true;
   /**
    * Called once the result reached the parent chat, as a wake or as a row: the
    * copy kept on the child's `subagents` row until then can go.
@@ -47,6 +49,7 @@ export function subAgentResultOf(info: SubAgentExitInfo): SubAgentResult {
     durationMs: info.durationMs ?? null,
     cwd: info.cwd ?? '',
     branch: info.branch ?? null,
+    ...(info.stoppedByParent ? { stoppedByParent: true as const } : {}),
   };
 }
 

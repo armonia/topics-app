@@ -223,9 +223,10 @@ describe("an answer stays owed until the turn that carries it has really started
     const warn = console.warn;
     console.warn = (...a: unknown[]) => { warns.push(a.map(String).join(" ")); };
     try {
-      // The routing switch can no longer reach the topic's provider: the
-      // route refuses at provider resolution, after it took the answer.
-      setProviderRefusal(new TopicsRoutingIncompatibleError("fake-model", "fake-model is not reachable through the routing"));
+      // The chat is bound to the Topics engine and the engine went down (the
+      // one refusal left, MSEL-06): the route refuses at provider resolution,
+      // after it took the answer.
+      setProviderRefusal(new TopicsRoutingIncompatibleError("topics", "the Topics engine is not connected"));
       expect((await server.answer(sk, "toolu_takenref_A", "next")).body.deliveredAs).toBe("message");
       await until(() => server.lateMessages.length > 0);
       await server.relay().idle();

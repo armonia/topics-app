@@ -205,8 +205,9 @@ afterEach(async () => {
 });
 /**
  * With `refused`, each goes on through the real chat route, which writes its
- * copy of the message and then refuses the turn: a topic with no provider
- * pinned whose routing cannot reach it (AICTRL-01, the 409 after the message).
+ * copy of the message and then refuses the turn: a chat bound to the Topics
+ * engine while the engine is down (the one refusal left after MSEL-06, the 409
+ * after the message).
  */
 async function resumeSweep(sk: string, opts: { through?: boolean; refused?: boolean } = {}): Promise<unknown[]> {
   // The hold only: the store also keeps when the API last answered, which a
@@ -227,7 +228,7 @@ async function resumeSweep(sk: string, opts: { through?: boolean; refused?: bool
   });
   return resent;
 }
-const refuseTurn = () => { throw new TopicsRoutingIncompatibleError("claude-code", "routing on, provider not reachable through it"); };
+const refuseTurn = () => { throw new TopicsRoutingIncompatibleError("topics", "the Topics engine is not connected"); };
 
 /** The resent turn meets the API (its first words lift the outage), then works on. */
 const resentTurn = (extra: (h: StreamHandler) => void = () => {}) => (h: StreamHandler) => {
@@ -1060,7 +1061,7 @@ describe("a service row under the chain's last copy does not answer it", () => {
     const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
     outageEnd("broker-died")(first.route);
     await drain(first.resp);
-    // The person puts the chat back on the machine's default, which routing cannot reach.
+    // The person's chat is bound to the engine, and the engine is down.
     topic("copy-refused", false);
     const resends: unknown[] = [];
     for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 3; link++) {

@@ -1,19 +1,11 @@
 import type { AIProvider } from './types';
-import { CLAUDE_CODING_PROVIDERS, isTopicsModelServed } from '../../shared/task-coding-models';
+import type { ProvidersSnapshot } from '../../shared/types';
+import { automaticChatTarget, effectiveTopicsRouting, topicsRoute } from '../../shared/task-coding-models';
 
-/** Same family the task side checks (shared/task-coding-models.ts, review
- * bug #4: the two sides used to keep independently-maintained copies of this
- * list and could drift). `topics` itself is excluded: a legacy topic pinned
- * directly to `provider: "topics"` is a stale persisted value, not a routing
- * target — MP-TASK-01/AICTRL-04 handle reading it, not this gate. */
-function isTopicsRoutableFamily(provider: string): boolean {
-  return provider !== 'topics' && CLAUDE_CODING_PROVIDERS.includes(provider);
-}
-
-/** AICTRL-01 canonical rule: an explicit provider never turns ON into a
- * silent no-op. When the pinned provider cannot be reached through the
- * native engine (unroutable model family, or the engine itself down), the
- * turn must be blocked with a reason, never dispatched directly as if OFF. */
+/** The one case the switch can still refuse: a legacy topic pinned to
+ * `provider: "topics"` (AICTRL-04) names the engine itself, so with the engine
+ * down there is no "direct" to fall back to. Every other target the engine
+ * cannot reach runs direct (MSEL-06), declared, never blocked. */
 export class TopicsRoutingIncompatibleError extends Error {
   readonly code = 'topics_routing_incompatible';
   constructor(readonly provider: string, reason: string) {
@@ -23,9 +15,10 @@ export class TopicsRoutingIncompatibleError extends Error {
 }
 
 /** A pinned runtime must never become a different provider after a restart.
- * AICTRL-01: `topicsRouting` never changes `topic.provider`; ON only redirects
- * EXECUTION to the topics native engine when that provider is reachable
- * through it, keeping the pinned choice visible and unchanged. */
+ * AICTRL-01: `topicsRouting` never changes `topic.provider`. MSEL-06: the
+ * target is resolved first as with the switch OFF (Automatic = the registry
+ * default), then `topicsRoute`, scope `chat`, decides whether the engine runs
+ * it. A preference never written (`null`) reads ON in a chat. */
 export function resolveTopicProvider(
   topic: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null } | null | undefined,
   registry: {
@@ -36,25 +29,35 @@ export function resolveTopicProvider(
   },
 ): AIProvider {
   const name = topic?.provider === 'claude-code-team' ? 'claude-code' : topic?.provider || null;
-  // ON si controlla PRIMA del ramo "nessun provider pinnato": Automatico+ON passa lo stesso dal motore nativo, non dal default del registry. allow-italian: perche' l'ordine dei rami conta
-  if (topic?.topicsRouting) {
-    // Legacy AICTRL-04 stale value: `provider: "topics"` was never a pin to
-    // a target, it already meant "run native" — isTopicsRoutableFamily
-    // rightly excludes 'topics' from the target family, so that exclusion
-    // must not also become a block here.
-    if (name && name !== 'topics' && !isTopicsRoutableFamily(name)) {
-      throw new TopicsRoutingIncompatibleError(name, `Il routing leggero non instrada verso "${name}". Spegni lo switch o scegli un provider Claude prima di riprendere questa conversazione.`);
-    }
-    // Il modello si controlla anche con Automatico (`name` nullo): con un `name &&` davanti, una chat in Automatico passava senza controllo, cioe' il no-op silenzioso che ON deve rendere impossibile. allow-italian: nomina il buco chiuso qui
-    if (topic?.model && !isTopicsModelServed(topic.model, registry.getTopicsModels?.())) {
-      throw new TopicsRoutingIncompatibleError(name ?? 'auto', `Il routing leggero non serve il modello "${topic.model}". Spegni lo switch o scegli un modello instradabile prima di riprendere questa conversazione.`);
-    }
-    let native: AIProvider;
-    try { native = registry.getProvider('topics'); }
-    catch { throw new TopicsRoutingIncompatibleError(name ?? 'auto', 'Il motore nativo di Topics non è disponibile. Spegni lo switch o riprova più tardi.'); }
-    if (!native.connected) throw new TopicsRoutingIncompatibleError(name ?? 'auto', 'Il motore nativo di Topics non è connesso. Spegni lo switch o riprova più tardi.');
+  // Spento: diretto, senza nemmeno chiedere del motore. allow-italian: la scorciatoia del ramo spento
+  if (name !== 'topics' && !effectiveTopicsRouting(topic?.topicsRouting, null, 'chat')) return direct(name, registry);
+  let native: AIProvider | null = null;
+  try { native = registry.getProvider('topics'); } catch { native = null; }
+  if (name === 'topics') {
+    if (!native?.connected) throw new TopicsRoutingIncompatibleError('topics', 'Questa chat è legata al motore di Topics, che non è connesso. Riprova più tardi o scegli un altro modello dal selettore.');
     return native;
   }
+  const fallback = name ? null : registry.getDefaultProvider();
+  // The engine as the snapshot would describe it, from the registry this
+  // resolver already reads: the same rule as the task side, one function.
+  const engine: ProvidersSnapshot = {
+    providers: native ? [{
+      name: 'topics', status: native.connected ? 'ready' : 'unavailable', isDefault: false,
+      requirements: [], fetchedAt: '', models: registry.getTopicsModels?.() ?? [],
+    }] : [],
+    defaultProvider: null,
+    generatedAt: '',
+  };
+  // Automatic resolves to the default first, with the pinned model; only a
+  // card topic the engine picked (switch written ON) targets the engine.
+  // The chip and the band read the same function (`chatRouteTarget`).
+  const target = name ?? automaticChatTarget(topic?.topicsRouting, topic?.model, fallback!.name);
+  const route = topicsRoute(topic?.topicsRouting, { provider: target, model: topic?.model ?? null }, engine, 'chat');
+  if (route.via === 'topics' && native) return native;
+  return fallback ?? direct(name, registry);
+}
+
+function direct(name: string | null, registry: { getProvider(name: string): AIProvider; getDefaultProvider(): AIProvider }): AIProvider {
   if (!name) return registry.getDefaultProvider();
   try { return registry.getProvider(name); }
   catch {

@@ -30,6 +30,8 @@ import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 import type { ZoomScope } from '../components/Layout/zoomScope';
 import { paneZoomActions } from '../state/paneZoom';
 import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
+import { closeFind, isFindOpen, openFind, resolveFindPane, runFindFallback, stepFind } from '../state/findRegistry';
+import { usesCtrl } from '../lib/shortcutLabel';
 
 /**
  * "Zoom the conversation that has the focus" — asked from the keyboard.
@@ -176,7 +178,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
 
   useEffect(() => {
     /**
-     * Il perimetro di ⌘P e ⌘F: il progetto a FUOCO per primo, poi gli altri
+     * Il perimetro di ⌘P e ⇧⌘F: il progetto a FUOCO per primo, poi gli altri
      * APERTI come tab. È così che si lavora qui — un progetto per tab — e
      * cercare in uno solo quando ne hai tre aperti risponde «non c'è» di una
      * cosa che c'è nella tab accanto.
@@ -195,7 +197,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       return [...new Set(Object.values(topicsRef.current).map(t => t.projectPath).filter(Boolean))] as string[];
     };
 
-    /** ⌘P = per nome, ⌘F = nel contenuto. Stessa superficie, due modi. */
+    /** ⌘P = per nome, ⇧⌘F = nel contenuto. Stessa superficie, due modi. */
     const toggleFileSearch = (mode: 'name' | 'content') => {
       setShowFileSearch(prev => {
         // Premere l'altro tasto mentre è già aperta CAMBIA modo invece di
@@ -215,6 +217,39 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     // so right-⌘ held as a modifier (⌘C, ⌘click, ⌘tab) never triggers it.
     let rightCmdTapAt = 0;
     const disarmRightCmdTap = () => { rightCmdTapAt = 0; };
+
+    // The pane of the last pointer press, for ⌘F with the keyboard on nothing.
+    let lastPointerPane: string | null = null;
+    const notePointerPane = (e: Event) => {
+      const t = e.target instanceof Element ? e.target : null;
+      lastPointerPane = t?.closest('[data-find-pane]')?.getAttribute('data-find-pane') ?? null;
+    };
+
+    /**
+     * The pane a find chord is about: the one the keyboard is in, else the
+     * focused tab (`data-focused`, the active pane of the focused group of the
+     * focused surface), else the app-level panel. See `resolveFindPane`.
+     */
+    const findPaneOf = (e: KeyboardEvent): string | null => {
+      let el: { closest(s: string): { getAttribute(n: string): string | null } | null } | null =
+        e.target instanceof Element && e.target !== document.body && e.target !== document.documentElement
+          ? e.target
+          : null;
+      // The keyboard on nothing after a click on text (a Markdown preview, a
+      // transcript): the pane clicked last is the one in front of the person,
+      // as long as it is still on screen. Not for the shell's synthetic keydown
+      // (target `window`): a click into a native page fires no DOM pointerdown,
+      // so the pane clicked last in the DOM is stale there, and the focused tab
+      // below is the pane the page belongs to.
+      const clicked = e.target === window ? null : lastPointerPane;
+      if (!el && clicked &&document.querySelector<HTMLElement>(`[data-find-pane="${CSS.escape(clicked)}"]`)?.offsetParent) {
+        el = { closest: () => ({ getAttribute: () => clicked }) };
+      }
+      const tabs = Array.from(document.querySelectorAll('[role="tab"][data-focused="true"][data-pane-id]'))
+        .map((t) => t.getAttribute('data-pane-id'))
+        .filter((id): id is string => !!id);
+      return resolveFindPane(el, tabs, focusedPanelIdRef.current);
+    };
 
     const handler = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
@@ -310,22 +345,70 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // ⌘F — CERCA DENTRO: progetto a fuoco più quelli aperti.
+      // ⇧⌘F — FIND IN THE OPEN PROJECTS (file contents), FIND-02.
       //
-      // CRITICO: mai rubare la find a un campo di testo, al terminale (la
-      // textarea di xterm) o a un editor — si esce SENZA preventDefault, così
-      // la superficie a fuoco tiene la sua ⌘F. È l'unico ramo con questa
-      // uscita, ed è la ragione per cui ⌘F qui non è mai stata invadente.
-      //
-      // L'ECCEZIONE è la ricerca stessa: quando è già aperta il fuoco sta nel
-      // SUO campo, quindi la guardia scattava e ⌘F non commutava più il modo —
-      // il tasto sembrava morto proprio nella superficie che comanda. Un campo
-      // che appartiene alla ricerca non è un campo da cui difenderla.
-      if (isMod && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
-        if (!modalsRef.current.showFileSearch && isTextInputFocused(e.target)) return;
+      // Withdrawn on 2026-08-06 as a duplicate of ⌘P on ⌘F's letter; it comes
+      // back with another meaning: ⌘F and ⇧⌘F are the SAME search at two
+      // widths, in here and across the projects, as in VS Code. With the
+      // by-name search open it switches to contents without closing (SRC-02).
+      if (isMod && e.shiftKey && !e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         toggleFileSearch('content');
         return;
+      }
+
+      // ⌘F — FIND HERE: the bar of the focused pane (FIND-02).
+      //
+      // WHEREVER THE CURSOR IS, the chat composer included: the app's webview
+      // has no find of its own to protect on a Mac, and on Windows our
+      // preventDefault is exactly what keeps WebView2's find bar closed. The
+      // one exception is the Mac's REAL Ctrl: there Ctrl+F is a key (forward
+      // one character in a field, in readline, `^F` in less and vim) and stays
+      // with the focused surface, in a field or not, as for ⌘G. Where
+      // `usesCtrl` is true Ctrl+F is the only way in, and it works everywhere,
+      // terminal included.
+      //
+      // Consumed = stopPropagation as well as preventDefault: this listener
+      // runs in the capture phase on `window`, and xterm's textarea never reads
+      // `defaultPrevented`, so without the stop Ctrl+F also reached the running
+      // program as ^F (0x06).
+      //
+      // A pane with no finder falls back: the board puts the cursor in its
+      // filter, any other opens the project search as before.
+      if (isMod && !e.shiftKey && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+        if (!e.metaKey && !usesCtrl) return;
+        e.preventDefault();
+        e.stopPropagation();
+        // The project search, already open, keeps its ⌘F (switches mode):
+        // the cursor is in ITS field, and a bar opened behind it would be a
+        // bar nobody sees.
+        if (modalsRef.current.showFileSearch) {
+          toggleFileSearch('content');
+          return;
+        }
+        // A modal open (settings, palette): no bar behind it, and (the
+        // preventDefault above) no WebView2 find bar over it either.
+        if (hasOpenModalSurface()) return;
+        const paneId = findPaneOf(e);
+        // `window` as the target = the synthetic keydown the shell forwards
+        // from a native page: Esc will have to give it the keyboard back
+        // (FIND-03).
+        if (openFind(paneId, { fromPage: e.target === window })) return;
+        if (runFindFallback(paneId)) return;
+        toggleFileSearch('content');
+        return;
+      }
+
+      // ⌘G / ⇧⌘G — next / previous result with the pane's bar open
+      // (FIND-01). The Mac's Ctrl does not count, as for ⌘F.
+      if (isMod && !e.altKey && (e.key === 'g' || e.key === 'G') && (e.metaKey || usesCtrl)) {
+        const paneId = findPaneOf(e);
+        if (paneId && isFindOpen(paneId)) {
+          e.preventDefault();
+          e.stopPropagation();
+          void stepFind(paneId, !e.shiftKey);
+          return;
+        }
       }
 
       if (isMod && e.key === 'b') {
@@ -530,6 +613,20 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       }
 
       if (e.key === 'Escape') {
+        // Esc WITH THE CURSOR IN A FIND BAR closes the bar and nothing else
+        // (FIND-03). Before everything else, and above all before the branch
+        // that interrupts the turn: this handler is in capture on window, so
+        // it runs before any `onKeyDown` of the bar, and without this branch
+        // an Esc meant to close the search stopped the agent.
+        // `stopPropagation` keeps the other Esc listeners further down out.
+        const bar = e.target instanceof Element ? e.target.closest('[data-find-bar]') : null;
+        const barPane = bar?.getAttribute('data-find-bar');
+        if (barPane) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeFind(barPane, { restoreFocus: true });
+          return;
+        }
         const m = modalsRef.current;
         if (m.showFileSearch !== false) { setShowFileSearch(false); e.preventDefault(); return; }
         if (m.showShortcuts) { setShowShortcuts(false); e.preventDefault(); return; }
@@ -596,12 +693,14 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     window.addEventListener('keydown', handler, true);
     window.addEventListener('keyup', onKeyUp, true);
     window.addEventListener('mousedown', disarmRightCmdTap, true);
+    window.addEventListener('pointerdown', notePointerPane, true);
     window.addEventListener('wheel', disarmRightCmdTap, true);
     window.addEventListener('blur', disarmRightCmdTap);
     return () => {
       window.removeEventListener('keydown', handler, true);
       window.removeEventListener('keyup', onKeyUp, true);
       window.removeEventListener('mousedown', disarmRightCmdTap, true);
+      window.removeEventListener('pointerdown', notePointerPane, true);
       window.removeEventListener('wheel', disarmRightCmdTap, true);
       window.removeEventListener('blur', disarmRightCmdTap);
     };

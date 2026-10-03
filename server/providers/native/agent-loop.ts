@@ -49,8 +49,8 @@ import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
+import { anthropicMessagesUrl } from "./base-url";
 
-const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
 
 /**
@@ -288,8 +288,10 @@ async function streamOnce(
   applyPromptCache(body as never);
 
   let res: Response;
+  // MSEL-11: the address Claude Code would use (base-url.ts).
+  const apiUrl = anthropicMessagesUrl();
   try {
-    res = await fetch(API_URL, {
+    res = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -306,7 +308,7 @@ async function streamOnce(
     // emitted yet, so `streamWithRetry` may simply try again (unless the
     // failure is our own abort, which it checks first).
     throw new ApiTransportError(
-      `API unreachable: ${err instanceof Error ? err.message : String(err)}`, false, err,
+      `API unreachable at ${apiUrl}: ${err instanceof Error ? err.message : String(err)}`, false, err,
     );
   }
 

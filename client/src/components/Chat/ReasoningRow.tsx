@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useFindFocusThinking } from '../../state/chatFindFocus';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
@@ -10,6 +11,8 @@ interface Props {
   partial?: boolean;
   /** Default to collapsed; the row mirrors the tool-call row visually. */
   defaultCollapsed?: boolean;
+  /** The message the reasoning belongs to, for the chat find bar. */
+  messageId?: string;
 }
 
 /**
@@ -17,8 +20,16 @@ interface Props {
  * tool/reasoning entries reads as a single coherent list. Click to expand
  * the thinking text underneath.
  */
-export function ReasoningRow({ content, partial, defaultCollapsed = true }: Props) {
+export function ReasoningRow({ content, partial, defaultCollapsed = true, messageId }: Props) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // The chat find bar landed on a word of this reasoning (CHAT-FIND-02): it
+  // opens on that edge and stays open.
+  const findSeq = useFindFocusThinking(messageId, content);
+  const [seenFindSeq, setSeenFindSeq] = useState(0);
+  if (findSeq !== 0 && findSeq !== seenFindSeq) {
+    setSeenFindSeq(findSeq);
+    setCollapsed(false);
+  }
   const disclose = useDisclosureToggle();
   if (!content) return null;
   const length = content.length;

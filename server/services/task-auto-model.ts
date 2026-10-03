@@ -2,10 +2,8 @@ import {
   nativeModelId,
   taskModelSelection,
   taskProviderForModel,
-  topicsCatalogPending,
-  topicsRoutingAvailable,
+  topicsRoute,
   TaskProviderPendingError,
-  TopicsRoutingUnavailableError,
 } from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from '../../shared/provider-hold';
@@ -60,15 +58,17 @@ export function automaticTaskProvider(provider: string, model: string | undefine
 }
 
 /** General Auto compares eligible runtimes; a legacy provider alias still restricts its catalog.
- *  With the Topics switch ON (AICTRL-01) Topics picks by its own rules, so the
- *  catalog holds only what the topic gate lets through: picking Codex there
- *  parked the card with "Topics routing cannot dispatch". The engine itself is
- *  the router, not a target: pinned on it, the card was stored as the legacy
- *  `topics:<model>` value and kept running native after the switch went OFF.
- *  So a model a Claude Code target reaches is offered on that target, and the
- *  engine's own entries join, with no pin, for the models no target covers.
- *  Only a legacy `topics:` selection, which already meant "run native", keeps
- *  the pin. */
+ *  MSEL-06: the switch no longer filters the ballot. The GPT models stay
+ *  candidates with the switch ON, and the route of the model that wins is
+ *  decided after the pick (`topicsRoute`, by the topic identity): a Claude
+ *  model the engine serves runs there, anything else runs direct. The engine
+ *  itself is the router, not a target: a model a Claude Code target reaches is
+ *  offered on that target, and the engine's own entries join, with no pin, for
+ *  the models no target covers. Only a legacy `topics:` selection, which
+ *  already meant "run native", keeps the pin.
+ *  The classifier itself, with the switch ON and the engine ready, is chosen
+ *  among the models the engine serves and runs there: with the GPT models back
+ *  on the ballot the cheapest one would otherwise be a `codex exec` per card. */
 export async function pickAutomaticTaskModel(
   task: { text: string; description?: string | null },
   selection: string | null | undefined,
@@ -87,12 +87,14 @@ export async function pickAutomaticTaskModel(
   const isHeld = deps.isHeld ?? (() => false);
   const eligible = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
     .filter(model => !restrictedProvider || model.provider === restrictedProvider);
-  const routable = eligible.filter(model => !deps.topicsRouting || topicsRoutingAvailable(model.provider, model.slug, deps.snapshot));
   const viaEngine = !!deps.topicsRouting && restrictedProvider !== 'topics';
-  const targets = routable.filter(model => model.provider !== 'topics');
-  // The engine is up but no target is ready yet: a target still in discovery
-  // is worth the wait, since picking it keeps the card's pin meaningful OFF.
-  if (viaEngine && !targets.length && routable.length) {
+  const routesThroughEngine = (model: CodingModel) => viaEngine
+    && topicsRoute(true, { provider: model.provider, model: model.slug }, deps.snapshot, 'task').via === 'topics';
+  const targets = eligible.filter(model => model.provider !== 'topics');
+  // The engine is up but no Claude target is ready yet: a target still in
+  // discovery is worth the wait, since picking it keeps the card's pin
+  // meaningful OFF.
+  if (viaEngine && !targets.some(model => model.provider !== 'codex') && eligible.some(model => model.provider === 'topics')) {
     const discovering = deps.snapshot?.providers.find(p => p.status === 'loading' && p.name !== 'topics'
       && CLAUDE_TASK_RUNTIMES.has(p.name) && !isHeld(p.name));
     if (discovering) throw new TaskProviderPendingError(discovering.name);
@@ -102,27 +104,21 @@ export async function pickAutomaticTaskModel(
   // alias too (the CLI lists Haiku as `claude-haiku-4-5`, the engine by its
   // dated id), or the same model would sit on the ballot twice.
   const models = viaEngine
-    ? [...targets, ...routable.filter(model => model.provider === 'topics' && !targets.some(target => nativeModelId(target.slug) === model.slug))]
-    : routable;
-  // The switch emptied a catalog that had runtimes, so the engine is not
-  // ready: the reason is the switch, not the effort. Without this the card
-  // parked with "choose a compatible effort", which no effort fixes.
-  if (!models.length && eligible.length) {
-    if (topicsCatalogPending(deps.snapshot)) throw new TaskProviderPendingError('topics');
-    throw new TopicsRoutingUnavailableError(null, null);
-  }
+    ? [...targets, ...eligible.filter(model => model.provider === 'topics' && !targets.some(target => nativeModelId(target.slug) === model.slug))]
+    : eligible;
   if (!models.length && deps.snapshot?.providers.some(p => p.status === 'loading'
-    && (restrictedProvider ? p.name === restrictedProvider : !isHeld(p.name) && (p.name === 'codex' || CLAUDE_TASK_RUNTIMES.has(p.name))))) {
+    && (restrictedProvider ? p.name === restrictedProvider : !isHeld(p.name) && (p.name === 'codex' || p.name === 'topics' || CLAUDE_TASK_RUNTIMES.has(p.name))))) {
     throw Object.assign(new Error('Waiting for coding provider discovery.'), { code: 'task_provider_pending' });
   }
+  const engineServed = models.filter(model => model.provider === 'topics' || routesThroughEngine(model));
   const plan = await pickCodingTaskPlan(task, {
     models, requiredEffort: deps.requiredEffort,
+    judges: engineServed.length ? engineServed : undefined,
     complete: async (prompt, options, providerName) => {
-      // With the switch ON the engine runs every Claude Code target, the
-      // classifier too: judged on the target, each Automatic dispatch spawned a
-      // `claude -p`. Every classifier model here passed the routing switch, so
-      // the engine serves it (an alias under its catalog id).
-      const runtime = viaEngine && providerName === 'claude-code' ? 'topics' : providerName;
+      // The classifier runs where its model is routed: the engine for a Claude
+      // Code target it serves (an alias under its catalog id), else its runtime.
+      const judged = models.find(model => model.provider === providerName && model.slug === options.model);
+      const runtime = judged && routesThroughEngine(judged) ? 'topics' : providerName;
       const provider = deps.getProvider(runtime);
       if (!provider?.connected) throw new Error(`${runtime} is disconnected`);
       return (await provider.complete([{ role: 'user', content: prompt }], options)).content ?? '';
@@ -169,7 +165,7 @@ export function automaticDispatchHooks(env: {
         // keeps one extra reason: the approaching-limit window has no Codex
         // equivalent (Codex has no usage endpoint).
         isHeld: provider => isProviderHeld(provider) || (providerHoldKey(provider) === 'claude' && claudeApproachingLimit),
-        // AICTRL-01: with the switch ON only what Topics routes is a candidate.
+        // MSEL-06: the switch decides the route of the pick and of the classifier, not the ballot.
         topicsRouting: options?.topicsRouting,
         requiredEffort: options?.effort && options.effort !== 'auto' ? options.effort : undefined,
         codexModels,

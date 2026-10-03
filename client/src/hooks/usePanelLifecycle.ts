@@ -79,6 +79,7 @@ import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
 import { isMachineRow } from '../components/Chat/machineRow';
+import { ownTurnEcho } from './senderAlsoSees';
 import { resolveTerminalBrowserContext } from '../state/browserSpawner';
 import {
   buildTerminalSessionBody,
@@ -102,6 +103,7 @@ import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
 import { clearBrowserSpawner } from '../state/browserSpawner';
 import { addBrowserTombstone } from '../state/pane/adapters/closedTabRecord';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
+import { closeNativeView } from '../lib/shell/nativeBrowserViews';
 import { spaceWindowId } from '../lib/windowRole';
 import { markTabPermanent, markTabRestored, restoreSlot, insertAtRestoreSlot } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
@@ -1261,7 +1263,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (!isMachineRow(msg.blocks)) {
           applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
         }
-        if (chatHandlersRef.current.isOwnStream(msg.sessionKey)) return;
+        // An own stream drops only the turn's echo, never a row written beside
+        // it: that one is deduplicated by id below (`ownTurnEcho`).
+        const own = chatHandlersRef.current.isOwnStream(msg.sessionKey);
+        if (own && (ownTurnEcho(msg) || !msg.messageId)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
         if (!fullContent) return;
         const id = msg.messageId;
@@ -1272,7 +1277,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // contenuto che le arriverà (le delta le vengono filtrate). Si esce solo
         // se non c'è niente da riempire. Vedi `hooks/liveTurn.ts`.
         const held = id ? existingMessages.find(m => m.id === id) : undefined;
-        if (held && !shouldFillFromBroadcast(held, fullContent)) return;
+        if (held && (own || !shouldFillFromBroadcast(held, fullContent))) return;
         if (!id) {
           // Legacy fallback: dedupe by last-of-role content match.
           const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);
@@ -1682,7 +1687,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         apiFetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
         clearBrowserSpawner(bctx);
         addBrowserTombstone(bctx);
-        if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
+        if (isTauri) void closeNativeView(bctx, tauriInvoke).catch(() => {});
       }
     }
     // A terminal tab closed here (the X, the shortcut, the context menu) is

@@ -3,7 +3,9 @@ import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLi
 import { EditorState, Compartment, StateField, StateEffect, type Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
-import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { search, highlightSelectionMatches } from '@codemirror/search';
+import { createCodeMirrorFinder, findMarks, searchKeysWithoutPanel } from '../../lib/cmFind';
+import { registerFinder } from '../../state/findRegistry';
 import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { javascript } from '@codemirror/lang-javascript';
 import { html } from '@codemirror/lang-html';
@@ -30,6 +32,8 @@ interface CodeEditorProps {
   gitChanges?: LineChange[];
   wordWrap?: boolean;
   onCursorChange?: (line: number, col: number) => void;
+  /** Register this editor as the find engine of pane `findPaneId` (FILE-FIND-01). */
+  findPaneId?: string | null;
 }
 
 // Git gutter decorations
@@ -186,7 +190,7 @@ const darkThemeOverrides = EditorView.theme({
   },
 });
 
-export function CodeEditor({ content, filename, readOnly = true, onSave, onChange, darkMode = false, initialLine, gitChanges, wordWrap = false, onCursorChange }: CodeEditorProps) {
+export function CodeEditor({ content, filename, readOnly = true, onSave, onChange, darkMode = false, initialLine, gitChanges, wordWrap = false, onCursorChange, findPaneId }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
@@ -232,6 +236,7 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
       indentOnInput(),
       history(),
       search(),
+      findMarks,
       highlightSelectionMatches(),
       autocompletion(),
       drawSelection(),
@@ -246,7 +251,9 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
         ...closeBracketsKeymap,
         ...defaultKeymap,
         ...historyKeymap,
-        ...searchKeymap,
+        // Without ⌘F / ⌘G: the app's find bar drives this editor, and
+        // CodeMirror's own panel never opens (FILE-FIND-01).
+        ...searchKeysWithoutPanel,
         indentWithTab,
         {
           key: 'Mod-s',
@@ -292,6 +299,19 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
     // viva. Solo un file diverso giustifica una view nuova.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filename]); // Only recreate on filename change
+
+  // The find bar of the pane drives this editor's search (FILE-FIND-01):
+  // Replace only while the document is editable.
+  const readOnlyRef = useRef(readOnly);
+  useEffect(() => { readOnlyRef.current = readOnly; });
+  useEffect(() => {
+    if (!findPaneId) return;
+    return registerFinder(findPaneId, createCodeMirrorFinder({
+      views: () => (viewRef.current ? [viewRef.current] : []),
+      canReplace: () => !readOnlyRef.current,
+      restoreFocus: () => viewRef.current?.focus(),
+    }));
+  }, [findPaneId, filename]);
 
   // Update content when it changes externally
   useEffect(() => {

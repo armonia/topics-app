@@ -102,10 +102,11 @@ import { PairingApproval } from './components/Auth/PairingApproval';
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { useVoiceLoop } from './hooks/useVoiceLoop';
-import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
+import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction } from './contexts/PendingActionContext';
+import { flushAtPageExit } from './lib/pageExitFlush';
 import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
 import { WindowControls } from './components/Shared/WindowControls';
-import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
+import { flushPaneStoreNow } from './state/pane/middleware';
 import { usePaneStore } from './state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
 import { resolvePaneSpace, isLiveSpaceId } from './state/pane/reducers/spaces';
@@ -326,22 +327,12 @@ function App() {
     return () => window.clearTimeout(t);
   }, []);
 
-  // Unload-time flush: a reload / navigation while a close is still counting
-  // down must COMMIT the pending close, not drop it — otherwise the just-closed
-  // browser / terminal / utility tab resurrects on the next boot (the pending
-  // CLOSE_PANE that records the tombstone + removes the pane from the persisted
-  // snapshot never ran). Order matters and is why this lives in ONE handler
-  // instead of two independent `pagehide` listeners: flush the pending commits
-  // FIRST (each dispatches CLOSE_PANE into the store), THEN write the store
-  // snapshot to localStorage. The persistLocal middleware also has a `pagehide`
-  // flush, but it registers at bootstrap — before this component mounts — so it
-  // would run first and persist the stale pre-close snapshot. Calling the local
-  // flush explicitly here guarantees the post-commit state is the one written.
+  // Unload-time flush: commit the closes still counting down, THEN flush what
+  // they produced. Order matters and is why this lives in ONE handler instead
+  // of independent `pagehide` listeners, which register at bootstrap, before
+  // this component mounts, and so run before the commit (`lib/pageExitFlush`).
   useEffect(() => {
-    const onUnload = () => {
-      flushPendingActions();
-      flushLocalPaneStoreNow();
-    };
+    const onUnload = flushAtPageExit;
     window.addEventListener('pagehide', onUnload);
     window.addEventListener('beforeunload', onUnload);
     return () => {

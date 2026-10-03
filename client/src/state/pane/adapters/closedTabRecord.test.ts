@@ -332,4 +332,31 @@ describe("unload wiring of a closed terminal's cleanup", () => {
     await wait(0);
     expect(calls.filter((c) => c.method === "DELETE" && c.keepalive === true)).toHaveLength(1);
   });
+
+  // The two above drive the hook-up function on a target of their own. What
+  // reaches a real page is the module hooking ITSELF to `window` as it loads:
+  // dropping that line left them green. A fresh instance of the module, loaded
+  // with a `window` in place, is that load.
+  test("the module hooks the page's own window as it loads", async () => {
+    const calls = recordFetch();
+    const g = globalThis as Record<string, unknown>;
+    const savedWindow = g.window;
+    const page = new EventTarget();
+    g.window = page;
+    const freshSpecifier = "./closedTabRecord.ts?hooked-on-load";
+    let fresh: typeof import("./closedTabRecord") | null = null;
+    try {
+      fresh = (await import(freshSpecifier)) as typeof import("./closedTabRecord");
+      fresh.scheduleTerminalCleanup("rec-unload-3", 60_000, fresh.closedTerminalCleanup("sess-unload-3"));
+      page.dispatchEvent(new Event("pagehide"));
+      await wait(0);
+      expect(calls.filter((c) => c.method === "DELETE")).toEqual([
+        { url: "/api/terminal/sessions/sess-unload-3", method: "DELETE", keepalive: true },
+      ]);
+    } finally {
+      fresh?.cancelTerminalCleanup("rec-unload-3");
+      if (savedWindow === undefined) delete g.window;
+      else g.window = savedWindow;
+    }
+  });
 });

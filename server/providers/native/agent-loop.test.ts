@@ -20,9 +20,12 @@
  *
  * @covers RT-11
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { deflateSync, crc32 } from "node:zlib";
-import { toolResultContent } from "./agent-loop";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { runAgentTurn, toolResultContent } from "./agent-loop";
 import type { ToolResult } from "./tools";
 
 function chunk(type: string, data: Buffer): Buffer {
@@ -121,5 +124,103 @@ describe("toolResultContent", () => {
     const blocks = await toolResultContent(out) as any[];
     expect(blocks[0].text.length).toBeLessThan(50_000);
     expect(blocks[1].type).toBe("image");
+  });
+});
+
+/**
+ * MSEL-11: the engine sends its turns where a Claude Code session launched by
+ * Topics would, process env first, then `env` of `~/.claude/settings.json`,
+ * then api.anthropic.com. A temporary HOME with a fake settings file and a
+ * fake `fetch` that only records the URL: nothing leaves the machine.
+ *
+ * @covers MSEL-11
+ */
+describe("MSEL-11: the engine follows ANTHROPIC_BASE_URL like the CLI", () => {
+  const realFetch = globalThis.fetch;
+  const realHome = process.env.HOME;
+  const realBase = process.env.ANTHROPIC_BASE_URL;
+  const okStream = [
+    { type: "message_start", message: { usage: { input_tokens: 1 } } },
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+  ].map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+
+  async function urlOfOneTurn(settings: unknown | null, envBase?: string): Promise<string[]> {
+    const home = mkdtempSync(join(tmpdir(), "msel11-home-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", ".credentials.json"), JSON.stringify({
+      claudeAiOauth: { accessToken: "fake", refreshToken: "r", expiresAt: Date.now() + 3_600_000 },
+    }));
+    if (settings !== null) writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(settings));
+    process.env.HOME = home;
+    if (envBase === undefined) delete process.env.ANTHROPIC_BASE_URL; else process.env.ANTHROPIC_BASE_URL = envBase;
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: unknown) => {
+      urls.push(String(url));
+      return new Response(okStream, { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      await runAgentTurn(
+        { model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "ping" }], tools: () => [], toolContext: { workspace: home } },
+        { onTextDelta() {}, onToolStart() {}, onToolResult() {}, onDone() {}, onError() {} },
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+      rmSync(home, { recursive: true, force: true });
+    }
+    return urls;
+  }
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    if (realHome === undefined) delete process.env.HOME; else process.env.HOME = realHome;
+    if (realBase === undefined) delete process.env.ANTHROPIC_BASE_URL; else process.env.ANTHROPIC_BASE_URL = realBase;
+  });
+
+  test("the address in settings.json env is where the turn goes", async () => {
+    const urls = await urlOfOneTurn({ env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:3336" } });
+    expect(urls).toEqual(["http://127.0.0.1:3336/v1/messages"]);
+  });
+
+  test("the process variable beats settings.json, as for the CLI", async () => {
+    const urls = await urlOfOneTurn({ env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:3336" } }, "http://127.0.0.1:4444/");
+    expect(urls).toEqual(["http://127.0.0.1:4444/v1/messages"]);
+  });
+
+  test("without either, the engine stays on api.anthropic.com", async () => {
+    expect(await urlOfOneTurn(null)).toEqual(["https://api.anthropic.com/v1/messages"]);
+    expect(await urlOfOneTurn({ env: {} })).toEqual(["https://api.anthropic.com/v1/messages"]);
+  });
+
+  test("an unreachable address is named in the error, never retried direct", async () => {
+    const home = mkdtempSync(join(tmpdir(), "msel11-down-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", ".credentials.json"), JSON.stringify({
+      claudeAiOauth: { accessToken: "fake", refreshToken: "r", expiresAt: Date.now() + 3_600_000 },
+    }));
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:3336" } }));
+    process.env.HOME = home;
+    delete process.env.ANTHROPIC_BASE_URL;
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: unknown) => {
+      urls.push(String(url));
+      throw new Error("connect ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    let message = "";
+    try {
+      await runAgentTurn(
+        {
+          model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "ping" }], tools: () => [],
+          toolContext: { workspace: home }, retryPolicy: { maxAttempts: 2, baseMs: 1, capMs: 1, jitter: () => 1 },
+        },
+        { onTextDelta() {}, onToolStart() {}, onToolResult() {}, onDone() {}, onError(e: unknown) { message ||= String((e as Error)?.message ?? e); } },
+      );
+    } catch (e) {
+      message ||= (e as Error).message;
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+    expect(urls.length).toBeGreaterThan(0);
+    expect(new Set(urls)).toEqual(new Set(["http://127.0.0.1:3336/v1/messages"]));
+    expect(message).toContain("http://127.0.0.1:3336/v1/messages");
   });
 });

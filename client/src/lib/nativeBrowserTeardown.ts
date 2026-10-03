@@ -20,6 +20,8 @@
  * prima che la vista sparisca.
  */
 
+import { forgetNativeView } from './shell/nativeBrowserViews';
+
 /** La forma di `tauriInvoke` che serve qui: comando, argomenti, promessa. */
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -39,6 +41,9 @@ export const NATIVE_BROWSER_TEARDOWN_COMMANDS = ['browser_purge_cache', 'browser
  * scadenza, vedi `browserDataStoreReaper`.
  */
 export function teardownNativeBrowserPane(contextId: string, invoke: Invoke): void {
+  // Forgotten before the close leaves: a pane reopened under this id inside the
+  // hook's close grace must OPEN, not adopt a view that is being destroyed.
+  forgetNativeView(contextId);
   for (const cmd of NATIVE_BROWSER_TEARDOWN_COMMANDS) {
     void invoke(cmd, { id: contextId }).catch(() => {});
   }

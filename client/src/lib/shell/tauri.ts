@@ -54,3 +54,12 @@ export function releaseNativeFocus(): void {
   // in lib.rs). Bundle vecchi ignoravano l'arg → main, comportamento invariato.
   void tauriInvoke('browser_release_focus', { windowLabel: currentWindowLabel() ?? 'main' }).catch(() => {});
 }
+
+/** Tauri only — the inverse of {@link releaseNativeFocus}: give the keyboard
+ *  back to the page of browser pane `id` (the id the `browser_*` commands
+ *  take). Esc in a find bar opened from inside a page uses it (FIND-03).
+ *  Fire-and-forget; no-op off Tauri, and on a shell older than the command. */
+export function focusBrowserPane(id: string): void {
+  if (!internals()) return;
+  void tauriInvoke('browser_focus_pane', { id }).catch(() => {});
+}

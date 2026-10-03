@@ -26,6 +26,7 @@ import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
+import { useFindExpandsClamp } from '../../state/chatFindFocus';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 import { skillInstructions } from './toolCardBody';
@@ -493,6 +494,9 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
   // senza riscrivere il DB per un difetto di sola resa.
   const text = useMemo(() => unwrapStoredToolResult(raw), [raw]);
   const { shown, oversized, length } = clampBody(text);
+  // Find landed past the cut: expand, and stay so (CHAT-FIND-02).
+  const findExpands = useFindExpandsClamp(text, shown);
+  if (findExpands && oversized && !expanded) setExpanded(true);
   return (
     <div className="space-y-1">
       <pre data-testid={testId} className={`tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>

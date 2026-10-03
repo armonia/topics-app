@@ -13,8 +13,11 @@
  * The commands are (assignment prefixes in every quoting style, `=` and
  * `+=`, with the shell's separators inside their values) x (wrappers, one or
  * two deep: options, `--`, heredocs, here-strings, pipes into a shell, zsh's
- * precommand modifiers) x (destructive forms), drawn with a fixed seed, plus
- * the forms the reviews found by hand.
+ * precommand modifiers, procps' watch and util-linux's su) x (destructive
+ * forms), drawn with a fixed seed, plus the forms the reviews found by hand.
+ * Neither watch nor util-linux's su is on macOS: two stand-ins read their
+ * options with Python's GNU getopt (long-name prefixes, permutation for su,
+ * none for watch) and run what the real ones run, once.
  * @covers CHAT-RUN-02
  */
 import { afterAll, describe, expect, test } from 'bun:test';
@@ -25,6 +28,53 @@ import { commandRisk, type RiskKind } from './commandRisk';
 
 const SHELLS = ['/bin/bash', '/bin/sh', '/bin/zsh'].filter((shell) => existsSync(shell));
 const HAS_BASH = SHELLS.includes('/bin/bash');
+const PYTHON = Bun.which('python3');
+
+const root = HAS_BASH ? mkdtempSync(join(tmpdir(), 'command-risk-')) : '';
+afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
+
+/**
+ * procps-ng's watch (`+bcCd::eghq:n:prs:tvwx`) and util-linux's su
+ * (`c:fg:G:lmpPs:hVw:`), by absolute path so `env -i` cannot fall back on the
+ * system's su. watch joins its operands for `sh -c`, or runs them with `-x`;
+ * su hands the shell `-c` and its command, then the words after the user.
+ */
+const FAKE_WATCH = root && PYTHON ? join(root, 'watch') : '';
+const FAKE_SU = root && PYTHON ? join(root, 'su') : '';
+if (FAKE_WATCH && FAKE_SU) {
+  writeFileSync(FAKE_WATCH, `#!${PYTHON}
+import getopt, os, sys
+opts, args = getopt.gnu_getopt(sys.argv[1:], '+bcCdeghq:n:prs:tvwx', ['beep', 'color', 'no-color', 'differences', 'errexit',
+  'chgexit', 'equexit=', 'interval=', 'precise', 'no-rerun', 'shotsdir=', 'no-title', 'no-wrap', 'exec', 'help', 'version'])
+if not args: sys.exit(1)
+if any(o in ('-x', '--exec') for o, _ in opts): os.execv(args[0], args)
+os.execv('/bin/sh', ['sh', '-c', ' '.join(args)])
+`, { mode: 0o755 });
+  writeFileSync(FAKE_SU, `#!${PYTHON}
+import getopt, os, sys
+opts, args = getopt.gnu_getopt(sys.argv[1:], 'c:fg:G:lmpPs:hVw:', ['command=', 'session-command=', 'fast', 'group=',
+  'supp-group=', 'login', 'preserve-environment', 'pty', 'shell=', 'help', 'version', 'whitelist-environment='])
+command = None
+for o, v in opts:
+  if o in ('-c', '--command', '--session-command'): command = v
+if args and args[0] == '-': args = args[1:]
+args = args[1:]
+os.execv('/bin/sh', ['sh'] + (['-c', command] if command is not None else []) + args)
+`, { mode: 0o755 });
+}
+/** The watch and su wrappers, each handing a quoted command on, when the stand-ins exist. */
+const LONG_OPTION_WRAPPERS: Array<(c: string) => string> = FAKE_WATCH ? [
+  (c) => `${FAKE_WATCH} -q 3 ${sq(c)}`,
+  (c) => `${FAKE_WATCH} --equexit 3 ${sq(c)}`,
+  (c) => `${FAKE_WATCH} --int 1 ${sq(c)}`,
+  (c) => `${FAKE_WATCH} -s shots -n 1 ${sq(c)}`,
+  (c) => `${FAKE_WATCH} -x -q 3 sh -c ${sq(c)}`,
+  (c) => `${FAKE_SU} root -c ${sq(c)}`,
+  (c) => `${FAKE_SU} root -- -c ${sq(c)}`,
+  (c) => `${FAKE_SU} root extra -c ${sq(c)}`,
+  (c) => `${FAKE_SU} --session-command=${sq(c)}`,
+  (c) => `${FAKE_SU} --comm ${sq(c)} root`,
+] : [];
 
 /** A command written with `verb` where the destructive program goes. */
 type Template = (verb: string) => string;
@@ -111,6 +161,11 @@ const WRAPPERS: Array<(c: string) => string> = [
   (c) => `repeat 1 ${c}`,
   (c) => `coproc ${c}; wait`,
   (c) => `(- ${c})`,
+  (c) => `find . -maxdepth 0 -exec sh -c ${sq(c)} \\;`,
+  (c) => `find . -maxdepth 0 -execdir bash -c ${sq(c)} \\;`,
+  (c) => `find . -maxdepth 0 -exec ${c} \\;`,
+  (c) => `echo a | xargs -I{} sh -c ${sq(c)}`,
+  ...LONG_OPTION_WRAPPERS,
 ];
 
 /** mulberry32: the same draws on every run. */
@@ -183,6 +238,13 @@ const FOUND: Case[] = [
   { template: (v) => `coproc ${v} -rf x; wait`, kind: 'rm' },
   { template: (v) => `(- ${v} -9 2147483646)`, kind: 'kill' },
   { template: (v) => `{${v},-rf,x}`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec sh -c '${v} -rf {}' \\;`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -execdir bash -c '${v} -rf "$1"' _ {} \\;`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec ${v} -rf {} +`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec true \\; -exec ${v} -rf {} \\;`, kind: 'rm' },
+  { template: (v) => `echo a | xargs -I{} sh -c '${v} -rf {}'`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec sh -c 'echo ${v} -rf {}' \\;`, kind: null },
+  { template: (v) => `find . -maxdepth 0 -exec echo ${v} -rf {} \\;`, kind: null },
   { template: () => 'FOO="a b" ls', kind: null },
   { template: (v) => `git commit -m "$(cat <<'EOF'\nDon't call ${v} -rf here\nEOF\n)"`, kind: null },
   { template: (v) => `cat > clean.sh <<'EOF'\n${v} -rf dist\nEOF`, kind: null },
@@ -191,15 +253,26 @@ const FOUND: Case[] = [
   { template: (v) => `env A="${v} -rf /" true`, kind: null },
   { template: (v) => `grep -e "${v} -rf" /dev/null`, kind: null },
   { template: (v) => `printf '%s' "a; ${v} -rf x"`, kind: null },
+  ...(FAKE_WATCH ? [
+    { template: (v: string) => `${FAKE_WATCH} -q 3 ${v} -rf x`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_WATCH} --equexit 3 ${v} -rf x`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_WATCH} --int 1 ${v} -rf x`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_WATCH} -n1 -q 3 -x ${v} -rf x`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_WATCH} --ex ${v} push --force`, kind: 'git-push-force' as const },
+    { template: (v: string) => `${FAKE_SU} root -- -c '${v} -rf x'`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_SU} root extra -c '${v} -rf x'`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_SU} --session-command='${v} -rf x'`, kind: 'rm' as const },
+    { template: (v: string) => `${FAKE_SU} --comm='${v} reset --hard'`, kind: 'git-reset-hard' as const },
+    { template: (v: string) => `${FAKE_SU} -s /bin/sh root -- -lc '${v} -9 2147483646'`, kind: 'kill' as const },
+    { template: (v: string) => `${FAKE_WATCH} -q 3 echo ${v} -rf x`, kind: null },
+    { template: (v: string) => `${FAKE_SU} root -- -c 'echo ${v} -rf x'`, kind: null },
+  ] : []),
 ];
 
 /** The verb each destructive kind is written with in the original. */
 const VERB: Record<string, string> = {
   rm: 'rm', 'git-push-force': 'git', 'git-reset-hard': 'git', kill: 'kill', 'chmod-recursive': 'chmod', 'find-delete': 'find',
 };
-
-const root = HAS_BASH ? mkdtempSync(join(tmpdir(), 'command-risk-')) : '';
-afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 
 /** Runs the twin of `c` through every shell; true for each shell that ran the probe. */
 async function runTwin(c: Case, n: number): Promise<boolean[]> {
@@ -230,7 +303,8 @@ describe.skipIf(!HAS_BASH)('commandRisk against what bash and sh really run', ()
     let benign = 0;
     cases.forEach((c, n) => {
       const command = c.template(c.kind ? VERB[c.kind]! : 'rm');
-      const asked: RiskKind[] = commandRisk(command).confirm.map((r) => r.kind).filter((k) => k !== 'placeholder');
+      // su asks `sudo` whatever its shell runs: the probe tells only about the verb.
+      const asked: RiskKind[] = commandRisk(command).confirm.map((r) => r.kind).filter((k) => k !== 'placeholder' && k !== 'sudo');
       const ranIn = SHELLS.filter((_, s) => ran[n]![s]);
       if (ranIn.length) {
         executed++;
