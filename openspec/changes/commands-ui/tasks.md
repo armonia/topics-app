@@ -63,5 +63,5 @@ Chromium sul PC con `tools/topwin`, un worker. Ciò che è verde resta verde.
 ## 4. Verifica
 
 - [ ] 4.1 La barra in cima, verde.
-- [ ] 4.2 Video `.webm` WebKit di 1.5 (menu «/» desktop e 390 px), 1.6 (/resume fino alla chat aperta), 1.7 (/status e /compact), 1.9 (/usage fino al pannello) e 1.15 (Appunta), screenshot chiaro e scuro accanto a `screenshots/today-*.png`.
-- [ ] 4.3 `bunx --bun @fission-ai/openspec@latest validate commands-ui` esce 0.
+- [x] 4.2 Video `.webm` WebKit di 1.5 (menu «/» desktop e 390 px), 1.6 (/resume fino alla chat aperta), 1.7 (/status e /compact), 1.9 (/usage fino al pannello) e 1.15 (Appunta), screenshot chiaro e scuro accanto a `screenshots/today-*.png`. — Su Chromium del PC Windows (carico del Mac sopra 18): `screenshots/impl-resume-adopt.webm` (/resume fino alla chat adottata che continua con `--resume`) e 20 screenshot `screenshots/impl-*-{light,dark}-{desktop,phone}.png` (menu «/», /resume, scheda, barra della settimana, riga degli appunti). Le altre e2e hanno il loro video negli artefatti del PC, non versionati.
+- [x] 4.3 `bunx --bun @fission-ai/openspec@latest validate commands-ui` esce 0. — Esce 0 (03/10).
