@@ -31,10 +31,10 @@ function dbWithHistory(): Database {
     timestamp TEXT,
     sort_order INTEGER
   )`);
-  const ins = db.prepare("INSERT INTO messages (id, session_key, role, content, timestamp, sort_order) VALUES (?, 's1', ?, ?, '2026-10-01', ?)");
-  ins.run("old-1", "user", "deploy it", 0);
-  ins.run("old-2", "assistant", "Deployed.", 1);
-  ins.run("old-3", "user", "deploy it", 2);
+  const insert = db.prepare("INSERT INTO messages (id, session_key, role, content, timestamp, sort_order) VALUES (?, 's1', ?, ?, '2026-10-01', ?)");
+  insert.run("old-1", "user", "deploy it", 0);
+  insert.run("old-2", "assistant", "Deployed.", 1);
+  insert.run("old-3", "user", "deploy it", 2);
   return db;
 }
 
