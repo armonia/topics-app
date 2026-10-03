@@ -5206,12 +5206,15 @@ fn browser_open_inner(
         // to `wry::url_from_webview`, which `unwrap()`s a URL that is `nil` for
         // a freshly mounted pane and PANICS on the main thread with a wry lock
         // held (crash of 5 August, 522,313 panics cascading from one). On macOS
-        // the answer is the map the KVO observer keeps current. The other two
-        // engines answer `url()` without that trap (WebView2 reads `Source`,
-        // WebKitGTK `uri`), and they have no observer feeding the map.
-        #[cfg(target_os = "macos")]
+        // the answer is the map the KVO observer keeps current.
+        // Only WebView2 is asked: it reads `Source`, which is always a URL.
+        // WebKitGTK answers "" when the page has no `uri` yet (a first load
+        // cancelled or turned into a download), and tauri-runtime-wry then
+        // `expect`s a parse of it with the dispatcher lock held: a panic that
+        // poisons the pane. Linux falls back to the map, or to the URL asked.
+        #[cfg(not(target_os = "windows"))]
         let known = last_pane_url(&label);
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         let known = wv.url().ok().map(|u| u.to_string()).or_else(|| last_pane_url(&label));
         let current = reused_view_url(known, &url);
         browser_set_bounds(app, id, x, y, width, height, None)?;
