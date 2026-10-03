@@ -108,19 +108,19 @@ test.describe("the «/» menu of a chat", () => {
     await expect.poll(() => received().at(-1) ?? "", { timeout: 30_000 }).toBe("/review");
   });
 
-  test("«/re» filters by name, each in its group, and a group with no rows is gone", async ({ page, request, chatPage }) => {
+  test("«/con» filters by name, each in its group, and a group with no rows is gone", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMDUI-01" });
     const name = `slash-menu-filter-${Date.now()}`;
     const topic = await createTopic(request, name, { provider: "claude-code" });
     made.push(topic.id);
     await openChat(page, chatPage, request, topic.id, name);
     await chatPage.messageInput.click();
-    await chatPage.messageInput.fill("/re");
+    await chatPage.messageInput.fill("/con");
     await expect(menu(page)).toBeVisible({ timeout: 10_000 });
     const cmds = await menu(page).locator('[data-testid="slash-menu-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-cmd")));
     expect(cmds.length).toBeGreaterThan(0);
-    for (const c of cmds) expect(c, String(c)).toMatch(/^\/re/);
-    // No skill starts with «re» here: that group is not drawn at all.
+    for (const c of cmds) expect(c, String(c)).toMatch(/^\/con/);
+    // No skill starts with «con» here (`vai`, `spenta`, and `recap` the CLI lists): that group is not drawn at all.
     await expect(groups(page).filter({ has: page.locator('[data-group="skills"]') })).toHaveCount(0);
     await expect(menu(page).locator('[role="group"][aria-label="Le tue skill"]')).toHaveCount(0);
   });

@@ -15,7 +15,7 @@
  *     (`system/status` with `compact_result: "failed"`, the `<synthetic>`
  *     «Not enough messages to compact.», `num_turns: 0`), after a turn a
  *     `compact_boundary` and an empty `result`.
- * Anything else is answered «got: <text>» as a turn of the model.
+ * Anything else is answered «got: <last line>» as a turn of the model.
  *
  * It writes to `FAKE_CLI_LOG`, one JSON line per event: its start arguments
  * (`{"event":"start","argv":[...]}`, so a spec can read `--resume <id>`) and
@@ -96,7 +96,8 @@ if (flag("--output-format") === "json") {
       return;
     }
     turns++;
-    const reply = `got: ${asked.slice(-120)}`;
+    // The message itself is the last line: the context Topics adds rides before it.
+    const reply = `got: ${(lastBlock.trim().split("\n").at(-1) ?? asked).slice(-120)}`;
     text(reply);
     result(reply, 1);
     if (!saidCommands) {
