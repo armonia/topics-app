@@ -2933,6 +2933,7 @@ const IT: Dict = {
   'run.exit': 'exit {code}',
   'run.stopped': 'Fermato',
   'run.unknown': 'Esito sconosciuto',
+  'run.durationUnknown': 'durata sconosciuta',
   'run.ranAt': 'eseguito {when}',
   'run.stop': 'Ferma',
   'run.rerun': 'Riesegui',
