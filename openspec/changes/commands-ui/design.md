@@ -377,8 +377,19 @@ della CLI, il messaggio parte NUDO e il contesto va fuori:
   `--permission-mode plan`). Gli slot non volatili ancora da mandare restano in
   attesa del turno dopo come quelli saltati (`skipped` non li segna come inviati).
 
-Non misurato: che la CLI espanda `/vai x` col blocco nel prompt di sistema e
-`$ARGUMENTS` uguale a `x`. Il compito 1.12 lo misura sulla CLI vera prima del codice.
+**Esito del 1.12 (03/10), verificato col CLI finto.** Prima di questa change main
+ha già risolto il problema in un'altra forma (SKILL-03): un'invocazione di skill
+parte come UN messaggio utente con due blocchi di testo, il `<context>` nel primo
+e il comando NUDO nell'ultimo; la CLI legge il comando dall'ultimo blocco
+(`precedingInputBlocks`, letto nel sorgente di 2.1.288), quindi `$ARGUMENTS` è solo
+ciò che ha scritto la persona e il prompt di sistema non si riscrive. Lo prova
+`server/providers/claude-code-slash-context.integration.test.ts` (broker vero,
+figlio finto che registra argv e stdin: `/vai` nudo nell'ultimo blocco, il
+contesto nel blocco prima, `--append-system-prompt` senza contesto) e
+`server/routes/chat.skill-context.test.ts`: 6 pass sui due file, rilanciati il 03/10. La proposta degli slot nel
+prompt di sistema (2.7, 1.13) non è stata costruita: sostituita da quella forma.
+Non misurato sulla CLI vera con un modello: che il corpo espanso contenga
+`ARGS=[x]`. Il compito vieta di mandare un prompt a un modello vero.
 
 ## 10. Appunta (scelta 5), il colore, il Finder
 
@@ -439,3 +450,44 @@ dice. Sul Mac l'etichetta resta «Mostra nel Finder».
   compattazione vera, un `/clear` vero, un'espansione vera di una skill, la
   sostituzione di `$ARGUMENTS` né cosa risponde il modello: per il §9 c'è la
   misura del compito 1.12 sulla CLI vera.
+
+## 12. Deviazioni dell'implementazione (03/10)
+
+Main si è mosso dopo la proposta; dove c'era già, si è costruito sopra.
+
+- **§9 (CMDUI-09)**: vedi l'esito del 1.12 sopra. Nessun codice nuovo in
+  `context/adapt.ts`.
+- **Colore del topic (TOPIC-COLOR-01)**: già su main (`topic-color-surfaces.spec.ts`,
+  TOPICUI-11). Nessun codice nuovo; 1.16 e 3.11 coperti da quella spec.
+- **/reasoning (2.9)**: il primo token che decide il ramo era già su main.
+- **La fixture dei comandi della CLI** sta in `shared/claude-cli-commands.json`
+  (non in `server/providers/claude/fixtures/slash-commands-2.1.288.json`): la
+  leggono il client (`commandMap.test.ts`, `cliRefused.ts`) e il server. Le righe
+  registrate di `init`, `commands_changed` e dei `<synthetic>` stanno in
+  `server/providers/claude/fixtures/command-lines-2.1.288.json`.
+- **Il titolo di /resume** si legge con `parseTranscriptTitle`, accanto a
+  `parseTranscriptFacts` e non dentro: così `external-claude-sessions.ts` resta
+  intatto, come chiede il §3.
+- **La rotta del menu** (`GET /api/slash-commands`) risponde una lista piatta con
+  `group: 'engine' | 'skills'` per riga, non tre gruppi: il gruppo Topics è del
+  client (`slashCommands.ts`), e il client raggruppa.
+- **I controlli aperti da un comando (3.4)** passano per i ref del composer
+  (`ComposerControls`: `openAutonomy`, `openFast`, `openCommands`, `openResume`,
+  accanto a `openModel` e `openEffort` già su main), non per un evento di finestra
+  `composer:open-control`: i controlli stanno tutti dentro `ChatInput`.
+- **La scheda della risposta** sta sopra il composer che ha scritto il comando,
+  non in fondo alla lista dei messaggi: la lista è virtualizzata e una riga che
+  non è un messaggio ne romperebbe le misure.
+- **Una risposta di comando** (`isCommandAnswer`) vuole `num_turns: 0` E costo 0:
+  `/code-review` chiude anche lui con `num_turns: 0` ma costa (0,091 $ nella
+  registrazione), quindi è un turno del modello e resta un messaggio.
+- **Una riga skill o prompt scelta nel menu** si inserisce nel campo, non parte:
+  prende argomenti. Partono subito solo i comandi di Topics senza argomenti.
+- **Il menu rilegge l'elenco quando si apre** (cache di 30 s saltata): il gruppo
+  del motore arriva col primo turno, dopo che il composer lo aveva già letto.
+- **Le e2e** girano su Chromium sul PC Windows (`tools/topwin`, un worker, una
+  spec alla volta): il carico del Mac stava fra 24 e 106, sopra la soglia di 18
+  per WebKit. Video e screenshot vengono da lì.
+- **In `chat-slash-menu.spec.ts`** il filtro è «/con», non «/re»: `recap`, una
+  skill dell'elenco della CLI registrata, comincia per «re».
+
