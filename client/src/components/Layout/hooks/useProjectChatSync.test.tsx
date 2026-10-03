@@ -13,7 +13,7 @@
  * @covers LAYOUT-01
  */
 import { describe, test, expect } from 'bun:test';
-import { createElement } from 'react';
+import { createElement, useEffect } from 'react';
 import { mount } from '../../../test/reactHarness';
 import { useProjectChatSync } from './useProjectChatSync';
 import type { ChatReconciliation } from './types';
@@ -107,6 +107,51 @@ describe('useProjectChatSync, topics that arrive after the layout', () => {
       topics = { ...topics, C: topic('C', 2) };
       h.rerender();
       expect(applied.flatMap(r => r.add.map(p => p.topicId))).toEqual(['C']);
+    } finally {
+      h.unmount();
+    }
+  });
+
+  test('the chats a server snapshot named before the topics arrived open with them, and only those', () => {
+    // A fresh browser: nothing in localStorage, so `initial` is null and the
+    // layout holds no chat at all. The server snapshot lands first and names
+    // the open chats, but their topics are unknown yet, so it can open none of
+    // them. When the topics arrive, the first sync must restore THOSE chats -
+    // not none (the project window stays empty), and not every topic of the
+    // project (the closed ones included).
+    const applied: ChatReconciliation[] = [];
+    let topics: Record<string, Topic> = {};
+    let topicsPending = true;
+    const gateRefs = { initialChatsSyncedRef: { current: false } };
+    const box: { hydrate: ((fresh: { nonChatPanes: Pane[]; openChatTopicIds?: string[] }) => void) | null } = { hydrate: null };
+
+    function Probe() {
+      const sync = useProjectChatSync({
+        projectPath: PROJECT,
+        topics,
+        topicsPending,
+        initial: null,
+        panes: [],
+        groups: [],
+        focusedGroupId: null,
+        applyChatReconciliation: (r) => { applied.push(r); },
+        reopenChatPane: () => {},
+        gateRefs,
+        markChatSyncDone: () => {},
+      });
+      useEffect(() => { box.hydrate = sync.onServerHydrate; });
+      return null;
+    }
+
+    const h = mount(createElement(Probe));
+    try {
+      if (!box.hydrate) throw new Error('useProjectChatSync did not mount');
+      box.hydrate({ nonChatPanes: [], openChatTopicIds: ['A', 'B'] });
+      expect(applied.flatMap(r => r.add.map(p => p.topicId))).toEqual([]);
+      topics = { A: topic('A', 0), B: topic('B', 1), C: topic('C', 2) };
+      topicsPending = false;
+      h.rerender();
+      expect(applied.flatMap(r => r.add.map(p => p.topicId))).toEqual(['A', 'B']);
     } finally {
       h.unmount();
     }

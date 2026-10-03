@@ -136,6 +136,11 @@ export function useProjectChatSync(
   // project as a tab - the closed ones included - and skip the saved active
   // chat. The shared gate cannot tell: server-hydrate raises it too.
   const firstSyncPathRef = useRef<string | null>(null);
+  // Open chats a server snapshot named while their topics were still unknown
+  // (`onServerHydrate` can open only known ones). On a fresh device `initial`
+  // is null, so this is the ONLY record of what was open: the first sync
+  // restores these alongside `initial.openChatTopicIds` once the topics land.
+  const deferredOpenRef = useRef<Set<string>>(new Set());
 
   // --- topicIds: sorted list of topics belonging to this project ---
   const topicIds = useMemo(
@@ -221,7 +226,8 @@ export function useProjectChatSync(
       markChatSyncDone();
 
       const persisted = initialRef.current;
-      const openSet = new Set(persisted?.openChatTopicIds || []);
+      const openSet = new Set([...(persisted?.openChatTopicIds || []), ...deferredOpenRef.current]);
+      deferredOpenRef.current = new Set();
       // `topicIds` is already filtered by `t.projectPath === projectPath`
       // (see line 112-122), so iterating it is safe — the only way a foreign
       // topic enters the chat-pane set is via the seed loop in
@@ -416,8 +422,11 @@ export function useProjectChatSync(
           // used to strip a lagging topic from the shared set (the chat-sync
           // reconcile removes any chat pane not in `topicIds`, and the ensuing
           // save would PUT the smaller set). When the topic actually loads via
-          // WS, chat-sync's delta-add opens it.
+          // WS, chat-sync opens it: the first sync (`deferredOpenRef`), or the delta-add.
           const ftopic = topics[tid];
+          // Unknown before the first sync: remember it, the first sync opens
+          // it when the topics arrive. After it, the delta branch does.
+          if (!ftopic && firstSyncPathRef.current !== projectPath) deferredOpenRef.current.add(tid);
           if (!ftopic || ftopic.archived || ftopic.projectPath !== projectPath) continue;
           stubs.push({
             id: createPaneId('chat', tid),
