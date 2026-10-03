@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Check, Clock, ChevronRight, Play, Trash2, RefreshCw, Calendar, Power, PowerOff } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { apiFetch } from '../../lib/shell/net';
+import { refusal } from './cronRefusal';
 
 interface CronJob {
   id: string;
@@ -52,20 +53,6 @@ function formatSchedule(schedule: CronJob['schedule']): string {
   return '-';
 }
 
-/**
- * The refusal, in the words the server used.
- *
- * `/api/cron/*` answers a rejection with `{ error }` (see `server/routes/cron.ts`),
- * so there is a sentence to show and the panel does not have to invent one. The
- * status code is the fallback for a body that is not JSON: a number is thin,
- * but it still tells a person the click was refused rather than ignored.
- */
-async function refusal(res: Response, what: string): Promise<string> {
-  const body = await res.json().catch(() => null) as { error?: string } | null;
-  const detail = typeof body?.error === 'string' ? body.error.trim() : '';
-  return detail ? `${what}: ${detail}` : `${what}: HTTP ${res.status}`;
-}
-
 /** How long ago a run happened, in the same shorthand as the next run. */
 function formatRan(ms: number): string {
   const diff = Date.now() - ms;
@@ -103,7 +90,8 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
     setError(null);
     try {
       const res = await apiFetch('/api/cron/jobs');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // The list's 502 says why (gateway down, its own error): shown, not «HTTP 502».
+      if (!res.ok) { setError(await refusal(res, 'Failed to load')); return; }
       const data = await res.json();
       setJobs(data.jobs || []);
     } catch (err) {
