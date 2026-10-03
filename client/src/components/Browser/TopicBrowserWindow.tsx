@@ -429,7 +429,10 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   /** Hand the active sheet to the layout, with the same contextId. */
   const openAsTab = useCallback((contextId: string, url: string) => {
-    const detail: OpenTabDetail = { url: url || 'about:blank', contextId, topicId, projectPath };
+    // `live`: the page is already loaded under this contextId, and the layout
+    // only takes it over. Without it the project's door navigated the new pane
+    // to `url`, a reload of everything the sheet was showing.
+    const detail: OpenTabDetail = { url: url || 'about:blank', contextId, topicId, projectPath, live: true };
     const claimed = !window.dispatchEvent(new CustomEvent<OpenTabDetail>(OPEN_TAB_EVENT, { detail, cancelable: true }));
     // Nobody can host a tab here (a detached window with no grid): the sheet
     // stays where it is rather than vanishing into a layout that refused it.

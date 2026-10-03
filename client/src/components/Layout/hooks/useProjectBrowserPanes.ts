@@ -349,7 +349,10 @@ export function useProjectBrowserPanes({
           // ones are tabs of that strip, like any browser.
           if (target.split) setPendingBrowserSplit({ paneId: newId, sourceGroupId: gid });
         }
-        onBrowserNavigateUrl?.(url, newId);
+        // A page handed over by a topic's window is already loaded under this
+        // contextId: pushing the url would navigate it, i.e. reload it. The
+        // pane's persisted url above is all it needs.
+        if (!d.live) onBrowserNavigateUrl?.(url, newId);
       });
     };
     window.addEventListener(OPEN_TAB_EVENT, openTabHandler);
