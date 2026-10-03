@@ -80,6 +80,9 @@ describe('a row written beside the own turn', () => {
     const asked = new Promise<void>((r) => { net.historyAsked = r; });
     const sent = app.chat().sendMessage(chat.sk, PROMPT);
     await settle();
+    // The person's row is announced before the turn starts streaming: the card
+    // comes after it, and goes after the reply as in the server's order.
+    app.ws({ type: 'message:new', topicId: chat.topic.id, sessionKey: chat.sk, role: 'user', messageId: 'row-user', content: PROMPT, clientMessageId: net.sentClientId });
     net.sse.content(REPLY);
     await settle();
 

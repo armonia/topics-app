@@ -26,6 +26,21 @@ export function waitsForName(row: ChatMessage, key: string): boolean {
   return row.role === 'user' && row.clientMessageId === key && isClientGeneratedMessageId(row.id);
 }
 
+/**
+ * Where a row another writer announces goes while this window's send (`key`)
+ * is in flight. A frame that arrives while the send's bubble still waits for
+ * its name came before the echo of the send's own row, and the server
+ * broadcasts each row as it writes it: that row was written FIRST (an answer
+ * the send carried in front of itself, `takeOwed` in `server/routes/chat.ts`,
+ * or a row written while the POST was on its way). It goes before the bubble,
+ * where the history puts it, instead of after the reply streaming at the tail.
+ * After the echo, rows are written after the send's and go at the end.
+ */
+export function insertBeside(rows: ChatMessage[], row: ChatMessage, key: string | undefined): ChatMessage[] {
+  const at = key ? rows.findIndex((m) => waitsForName(m, key)) : -1;
+  return at < 0 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)];
+}
+
 /** The server announced a row with this key: it holds that message, whatever the POST answered. */
 export function namedByServer(rows: readonly ChatMessage[], key: string): boolean {
   return rows.some((m) => m.role === 'user' && m.clientMessageId === key && !isClientGeneratedMessageId(m.id));
@@ -94,7 +109,7 @@ export function adoptDurableMessageId(rows: ChatMessage[], key: string, durableI
  */
 export function afterUnfinishedSend(
   rows: ChatMessage[],
-  key: string,
+  key: string | undefined,
   placeholderId: string | undefined,
   fate: 'withdraw' | 'queued' | 'keep' | 'stopped',
 ): ChatMessage[] {
@@ -107,7 +122,7 @@ export function afterUnfinishedSend(
       if (!thin) out.push(fate === 'stopped' && m.partial ? { ...m, partial: false } : m);
       continue;
     }
-    if ((fate === 'withdraw' || fate === 'queued') && waitsForName(m, key)) {
+    if ((fate === 'withdraw' || fate === 'queued') && key && waitsForName(m, key)) {
       changed = true;
       if (fate === 'queued') out.push({ ...m, partial: true, queued: true });
       continue;

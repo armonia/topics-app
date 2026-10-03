@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { ChatMessage } from '../types';
-import { adoptDurableMessageId, afterUnfinishedSend, placeOwnBubble } from './ownBubble';
+import { adoptDurableMessageId, afterUnfinishedSend, insertBeside, placeOwnBubble } from './ownBubble';
 
 const bubble = (id: string, key?: string, extra: Partial<ChatMessage> = {}): ChatMessage =>
   ({ id, role: 'user', content: 'ok', timestamp: 't', ...(key ? { clientMessageId: key } : {}), ...extra });
@@ -91,5 +91,18 @@ describe('placeOwnBubble', () => {
   test('the draft\'s first bubble: reused by its id, and it takes the key', () => {
     const placed = placeOwnBubble([bubble('msg_draft')], mine, 'msg_draft');
     expect(placed).toEqual([bubble('msg_draft', 'k1', { partial: false })]);
+  });
+});
+
+describe('insertBeside', () => {
+  const thread = [bubble('row-0'), bubble('msg_1', 'k1'), reply('msg_p')];
+
+  test('announced while my bubble waits: written before my row, it goes before my bubble', () => {
+    expect(insertBeside(thread, bubble('row-carry'), 'k1').map((m) => m.id)).toEqual(['row-0', 'row-carry', 'msg_1', 'msg_p']);
+  });
+
+  test('after my echo, or with no send in flight: at the end', () => {
+    expect(insertBeside([bubble('row-1', 'k1'), reply('msg_p')], bubble('row-x'), 'k1').map((m) => m.id)).toEqual(['row-1', 'msg_p', 'row-x']);
+    expect(insertBeside(thread, bubble('row-x'), undefined).map((m) => m.id)).toEqual(['row-0', 'msg_1', 'msg_p', 'row-x']);
   });
 });

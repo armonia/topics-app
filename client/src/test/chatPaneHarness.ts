@@ -113,7 +113,11 @@ function installFetch(): void {
       init?.signal?.addEventListener('abort', () => body.abort?.());
       return new Response(body.body, { status: 200 });
     }
-    if (url.endsWith('/regenerate')) return new Response(net.sse.body, { status: 200 });
+    if (url.endsWith('/regenerate') || url.endsWith('/edit')) {
+      const body = net.sse;
+      init?.signal?.addEventListener('abort', () => body.abort?.());
+      return new Response(body.body, { status: 200 });
+    }
     if (url.includes('/api/history/')) {
       net.historyReads += 1;
       if (net.historyAnswer) return json({ messages: net.historyAnswer, isStreaming: false });

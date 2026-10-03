@@ -172,8 +172,8 @@ describe('the order the two handlers hear my echo in', () => {
     const { key, sent } = await heldSend(app, MINE);
     app.wsPanesFirst({ type: 'message:new', topicId: chat.topic.id, sessionKey: chat.sk, role: 'user', messageId: ROW.id, content: MINE, clientMessageId: key });
     await settle();
-    // Without the key check in the pane: the row drawn after the reply's
-    // placeholder, and the bubble then dropped as its double.
+    // The pane draws the row first, before the bubble that waits for it
+    // (`insertBeside`); the chat then drops that bubble as its double.
     expect(app.rows().map((r) => [r.id === ROW.id ? ROW.id : r.role, r.content])).toEqual([[ROW.id, MINE], ['assistant', '']]);
     net.answerChat!(new Response('boom', { status: 500 }));
     await sent;
@@ -193,10 +193,11 @@ describe('a network error, and the resend with the same key', () => {
     expect(await sent).toBe(false);
     await settle();
     const rows = app.chat().getSessionMessages(chat.sk).map((m) => ({ role: m.role, content: m.content, queued: !!m.queued }));
-    // Before: the LAST row (the phone's) was marked queued, and the empty placeholder stayed.
+    // Before: the LAST row was marked queued, and the empty placeholder stayed.
+    // The phone's row, announced before any echo of mine, was written first.
     expect(rows).toEqual([
-      { role: 'user', content: MINE, queued: true },
       { role: 'user', content: 'from the phone', queued: false },
+      { role: 'user', content: MINE, queued: true },
     ]);
     app.unmount();
   });
@@ -499,6 +500,20 @@ describe('a queued send the server stored before answering with an error', () =>
 });
 
 describe('Stop, with a row from the phone written beside the turn', () => {
+  test('V4c: Stop before the answer starts, a sub-agent row announced after mine: the empty placeholder goes by its id', async () => {
+    const app = mountBoth();
+    const { key, sent } = await heldSend(app, MINE);
+    echo(app, ROW.id, MINE, key);
+    echo(app, 'row-wake', 'Sub-agent «child» finished.', undefined);
+    await settle();
+    await app.chat().stopSession(chat.sk);
+    await sent;
+    await settle();
+    // Before: the placeholder was not the last row, so it stayed, empty.
+    expect(app.rows().map((r) => r.id)).toEqual([ROW.id, 'row-wake']);
+    app.unmount();
+  });
+
   test('V4a: Stop before the answer starts: the empty placeholder goes by its id, my bubble stays where it was', async () => {
     const app = mountBoth();
     const { key, sent } = await heldSend(app, MINE);
@@ -508,12 +523,13 @@ describe('Stop, with a row from the phone written beside the turn', () => {
     await sent;
     await settle();
     // Before: an empty placeholder, `partial`, that even a fresh read kept.
-    expect(app.rows().map((r) => r.content)).toEqual([MINE, 'from the phone']);
+    // The phone's row came before any echo of mine: it was written first.
+    expect(app.rows().map((r) => r.content)).toEqual(['from the phone', MINE]);
     echo(app, ROW.id, MINE, key);
-    net.historyAnswer = [ROW, { id: 'row-phone', role: 'user', content: 'from the phone' }];
+    net.historyAnswer = [{ id: 'row-phone', role: 'user', content: 'from the phone' }, ROW];
     await app.chat().loadHistory(chat.sk, { fresh: true });
     await settle();
-    expect(app.rows().map((r) => r.id)).toEqual([ROW.id, 'row-phone']);
+    expect(app.rows().map((r) => r.id)).toEqual(['row-phone', ROW.id]);
     app.unmount();
   });
 
@@ -541,6 +557,7 @@ describe('the answer streaming beside rows written by others', () => {
     const app = mountBoth();
     const sent = app.chat().sendMessage(chat.sk, MINE);
     await settle();
+    echo(app, ROW.id, MINE, net.sentClientId!);
     net.sse.content('First part. ');
     await settle();
     echo(app, 'row-phone', 'from the phone', 'phone-key');
@@ -556,6 +573,115 @@ describe('the answer streaming beside rows written by others', () => {
     net.historyAnswer = [];
     net.sse.done();
     await sent;
+    app.unmount();
+  });
+});
+
+/**
+ * Review of de2e1ee4e (03/10). A person's send can carry an answer still owed
+ * to a question whose asker is gone: the server writes it as a `user` row
+ * WITHOUT a key, before the person's row, and announces it first. Drawn at the
+ * end, it sat after the reply streaming at the tail (the pane re-anchored on
+ * it as if the person had sent it) and jumped above at the end-of-turn reload.
+ */
+describe('a row written before mine, announced while my send is in flight', () => {
+  for (const panesFirst of [false, true]) {
+    test(`C1: the carried answer goes before my bubble, the reply stays at the tail${panesFirst ? ' (panes hear it first)' : ''}`, async () => {
+      const app = mountBoth();
+      const sent = app.chat().sendMessage(chat.sk, 'go');
+      await settle();
+      const key = net.sentClientId!;
+      const frame = (id: string, content: string, extra: Record<string, unknown> = {}) => {
+        const f = { type: 'message:new', topicId: chat.topic.id, sessionKey: chat.sk, role: 'user', messageId: id, content, ...extra };
+        if (panesFirst) app.wsPanesFirst(f); else app.ws(f);
+      };
+      frame('row-carry', 'my earlier answer');
+      frame('row-go', 'go', { clientMessageId: key });
+      net.sse.content('Working on it.');
+      await settle();
+      // Before: [go, reply (streaming), row-carry], and at the reload [row-carry, go, reply].
+      expect(app.rows().map((r) => [r.id.startsWith('msg_') ? 'local' : r.id, r.content])).toEqual([
+        ['row-carry', 'my earlier answer'], ['row-go', 'go'], ['local', 'Working on it.'],
+      ]);
+      net.historyAnswer = [
+        { id: 'row-carry', role: 'user', content: 'my earlier answer' }, { id: 'row-go', role: 'user', content: 'go' },
+        { id: 'row-r', role: 'assistant', content: 'Working on it.' },
+      ];
+      net.sse.done();
+      await sent;
+      await settle();
+      expect(app.rows().map((r) => r.id)).toEqual(['row-carry', 'row-go', 'row-r']);
+      app.unmount();
+    });
+  }
+});
+
+/**
+ * Edit and regenerate stream on their own SSE (`runBranchStream`): their
+ * answer had no name for its writers, so a row arriving beside it took "the
+ * last assistant message" away, and the closing history read ran while the
+ * session was still the stream's, so it never ran.
+ */
+describe('edit and regenerate, with a row written beside the new answer', () => {
+  async function loaded(app: App): Promise<void> {
+    net.historyAnswer = [{ id: 'row-q', role: 'user', content: 'q' }, { id: 'row-old', role: 'assistant', content: 'old' }];
+    await app.chat().loadHistory(chat.sk, { fresh: true });
+    await settle();
+    // The branch's own read is held: the test answers it with the fork.
+    net.historyAnswer = null;
+  }
+  const answerOf = (app: App) => app.chat().getSessionMessages(chat.sk).filter((m) => m.role === 'assistant').map((m) => [m.content, !!m.partial]);
+
+  for (const kind of ['regenerate', 'edit'] as const) {
+    test(`E1/E3 ${kind}: the answer gets all its text and closes, and the history is read once the stream lets go`, async () => {
+      const app = mountBoth();
+      await loaded(app);
+      const asked = new Promise<void>((r) => { net.historyAsked = r; });
+      const branch = kind === 'regenerate' ? app.chat().regenerateMessage(chat.sk, 'row-old') : app.chat().editMessage(chat.sk, 'row-q', 'q');
+      await asked;
+      net.releaseHistory!([{ id: 'row-q', role: 'user', content: 'q' }]);
+      await settle();
+      net.sse.content('New ');
+      await settle();
+      const beside = kind === 'regenerate'
+        ? { messageId: 'row-x', content: 'Sub-agent «child» finished.', blocks: [{ kind: 'subagent-result', results: [] }] }
+        : { messageId: 'row-x', content: 'from my phone', clientMessageId: 'phone-key' };
+      app.ws({ type: 'message:new', topicId: chat.topic.id, sessionKey: chat.sk, role: 'user', ...beside });
+      await settle();
+      net.sse.content('answer.');
+      await settle();
+      const reads = net.historyReads;
+      net.historyAnswer = [
+        { id: 'row-q', role: 'user', content: 'q' }, { id: 'row-new', role: 'assistant', content: 'New answer.' },
+        { id: 'row-x', role: 'user', content: beside.content },
+      ];
+      net.sse.done();
+      await branch;
+      await settle();
+      // Before: «answer.» lost behind the row, the bubble `partial` for good, and no read.
+      expect(net.historyReads).toBe(reads + 1);
+      expect(app.rows().map((r) => r.id)).toEqual(['row-q', 'row-new', 'row-x']);
+      app.unmount();
+    });
+  }
+
+  test('E4: Stop mid-regenerate, a row beside: the answer is closed by its id', async () => {
+    const app = mountBoth();
+    await loaded(app);
+    const asked = new Promise<void>((r) => { net.historyAsked = r; });
+    const branch = app.chat().regenerateMessage(chat.sk, 'row-old');
+    await asked;
+    net.releaseHistory!([{ id: 'row-q', role: 'user', content: 'q' }]);
+    await settle();
+    net.sse.content('New answer, half of it');
+    await settle();
+    echo(app, 'row-phone', 'from the phone', 'phone-key');
+    await settle();
+    net.historyAnswer = [{ id: 'row-q', role: 'user', content: 'q' }, { id: 'row-new', role: 'assistant', content: 'New answer, half of it' }, { id: 'row-phone', role: 'user', content: 'from the phone' }];
+    await app.chat().stopSession(chat.sk);
+    await branch;
+    await settle();
+    expect(answerOf(app).filter(([, partial]) => partial)).toEqual([]);
     app.unmount();
   });
 });

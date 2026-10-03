@@ -25,7 +25,7 @@ import {
 } from '../state/historyCompleteness';
 import { useRefMirror } from './useRefMirror';
 import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
-import { adoptDurableMessageId, afterUnfinishedSend, namedByServer, placeOwnBubble } from './ownBubble';
+import { adoptDurableMessageId, afterUnfinishedSend, insertBeside, namedByServer, placeOwnBubble } from './ownBubble';
 import { buildRequestMessages } from './chatRequestPayload';
 import { reconcileOrphanStreams, signalsActions } from '../state/signals';
 import { clearHistoryFromCache, markHistoryFromCache } from '../state/historyFromCache';
@@ -718,6 +718,9 @@ export function useChat() {
   // younger than the snapshot the end of that SSE reloads, which replaces the
   // whole thread and would drop them again.
   const wsRowsDuringOwnSseRef = useRef<Map<string, Set<string>>>(new Map());
+  // The key of the send this window has in flight, while its SSE holds the
+  // session: where a row announced beside it goes (`insertBeside`).
+  const ownSendKeyRef = useRef<Map<string, string>>(new Map());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -969,7 +972,7 @@ export function useChat() {
     for (const sk of orphans) settleTurn(sk);
   }, [clearStreamTimeout, settleTurn]);
 
-  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
+  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }, besideKey?: string) => {
     const newMessage: ChatMessage = {
       ...message,
       id: message.id || generateMessageId(),
@@ -1020,10 +1023,7 @@ export function useChat() {
         updated[existing.length - 1] = { ...last, id: newMessage.id, content: newMessage.content, partial: false };
         return { ...prev, [sessionKey]: updated };
       }
-      return {
-        ...prev,
-        [sessionKey]: [...existing, newMessage],
-      };
+      return { ...prev, [sessionKey]: insertBeside(existing, newMessage, besideKey) };
     });
 
     return newMessage;
@@ -1049,7 +1049,7 @@ export function useChat() {
       ids.add(message.id);
       wsRowsDuringOwnSseRef.current.set(sessionKey, ids);
     }
-    return addMessage(sessionKey, message);
+    return addMessage(sessionKey, message, ownSendKeyRef.current.get(sessionKey));
   }, [addMessage]);
 
   const updateLastMessage = useCallback((sessionKey: string, updates: Partial<ChatMessage>) => {
@@ -1999,6 +1999,7 @@ export function useChat() {
     // The empty reply bubble this send draws, found again by its id (`afterUnfinishedSend`).
     let placeholderId: string | undefined;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
+    ownSendKeyRef.current.set(sessionKey, idemKey);
     endedDuringOwnSseRef.current.delete(sessionKey);
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
@@ -2381,6 +2382,7 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
+      ownSendKeyRef.current.delete(sessionKey);
       ownReplyClosedRef.current.delete(sessionKey);
       const swallowedAfterReply = swallowedAfterReplyRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -2979,6 +2981,10 @@ export function useChat() {
     localSSESessionsRef.current.add(sessionKey);
     const abortController = new AbortController();
     abortControllersRef.current[sessionKey] = abortController;
+    // The new answer's bubble, and whether the branch reached its end (the
+    // thread is read again once the session is released, `finally`).
+    let placeholderId: string | undefined;
+    let streamed = false;
 
     try {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
@@ -3021,13 +3027,16 @@ export function useChat() {
       let buffer = '';
       let isInThinking = false;
 
-      // Add a placeholder partial assistant message
-      addMessage(sessionKey, {
+      // Add a placeholder partial assistant message, named for its writers as
+      // `performSend` names its own: a row arriving beside the branch can be
+      // the last one, and the answer after it went nowhere.
+      placeholderId = addMessage(sessionKey, {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         partial: true,
-      });
+      }).id;
+      streamMessageIdRef.current.begin(sessionKey, placeholderId);
 
       try {
         while (true) {
@@ -3077,14 +3086,19 @@ export function useChat() {
         reader.releaseLock();
       }
 
-      // Reload full history to get accurate sibling counts
-      await loadHistory(sessionKey);
+      // The full history, for accurate sibling counts, is read in `finally`:
+      // here the session is still this stream's and `loadHistory` skipped it.
+      streamed = true;
       // Anche questo è un turno che finisce: se qualcuno ha scritto mentre la
       // risposta si rigenerava, adesso tocca a lui.
       drainTurnQueueRef.current?.(sessionKey);
       return true;
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return true;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // A Stop: the answer closes where it stands, by its id (`stopped`).
+        setMessages(prev => ({ ...prev, [sessionKey]: afterUnfinishedSend(prev[sessionKey] ?? [], undefined, placeholderId, 'stopped') }));
+        return true;
+      }
       console.error(`Failed to ${label}:`, err);
       setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : `Failed to ${label}` }));
       return false;
@@ -3093,12 +3107,14 @@ export function useChat() {
       clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
       wsRowsDuringOwnSseRef.current.delete(sessionKey);
+      if (streamMessageIdRef.current.get(sessionKey) === placeholderId) streamMessageIdRef.current.end(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
+      if (streamed) void loadHistoryRef.current?.(sessionKey, { fresh: true });
     }
-  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
+  }, [addMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, withRowsArrivedDuringOwnSse]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>

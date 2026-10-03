@@ -80,7 +80,6 @@ import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
 import { isMachineRow } from '../components/Chat/machineRow';
 import { ownTurnEcho } from './senderAlsoSees';
-import { waitsForName } from './ownBubble';
 import { resolveTerminalBrowserContext } from '../state/browserSpawner';
 import {
   buildTerminalSessionBody,
@@ -1271,7 +1270,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
         }
         // An own stream drops only the reply's echo (`ownTurnEcho`); every other
-        // row is deduplicated by id below, the person's by its key as well.
+        // row is deduplicated by id below. The person's own row is renamed onto
+        // its bubble by `useChat` (`hooks/ownBubble.ts`), in either order.
         const own = chatHandlersRef.current.isOwnStream(msg.sessionKey);
         if (own && (ownTurnEcho(msg) || !msg.messageId)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
@@ -1285,8 +1285,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // se non c'è niente da riempire. Vedi `hooks/liveTurn.ts`.
         const held = id ? existingMessages.find(m => m.id === id) : undefined;
         if (held && (own || !shouldFillFromBroadcast(held, fullContent))) return;
-        // The row a bubble of this window waits for: `useChat` renames that bubble, in whichever order the two handlers run.
-        if (msg.clientMessageId && existingMessages.some((m) => waitsForName(m, msg.clientMessageId!))) return;
         if (!id) {
           // Legacy fallback: dedupe by last-of-role content match.
           const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);
