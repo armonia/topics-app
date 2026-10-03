@@ -104,12 +104,65 @@ export function readSlashCommandSource(
 }
 
 /**
- * Whether `/name` is a command or skill the Claude CLI will expand, judged on
- * disk: the same folders as `readSlashCommandSource`, plus the project's own
- * `.claude/skills` under `cwd` (the CLI loads those too). A namespaced name
- * (`opsx:propose`, `plugin:skill`) counts as a command by its shape: a pasted
- * path never has a colon in its first segment, and the plugin folders are the
- * CLI's business, not ours.
+ * THE CLI'S OWN LIST, as it says it at the start of every turn.
+ *
+ * Disk discovery sees the folders Topics knows about, and that is not all the
+ * CLI expands: its BUNDLED skills (`/simplify`, `/code-review`, `/loop`,
+ * `/claude-api`...) live inside the binary, and a plugin's skills under the
+ * plugin cache, un-namespaced when the plugin says so. For those the disk says
+ * «no», and the first turn kept the broken shape (context in front, skill never
+ * expanded). The CLI names every command it will expand in the `slash_commands`
+ * field of its `system/init` line, so that list is the first answer and the
+ * disk the fallback.
+ *
+ * Recorded per session (`recordCliSlashCommands`, called by the claude-code
+ * provider on each init, the reattach replay included), in memory: it is
+ * rebuilt by the first turn of any session after a restart. The FIRST turn of
+ * a session is exactly the one with no init of its own yet, so it reads the
+ * list most recently reported by any session: the bundled and the user's
+ * plugin skills are the same binary's for every chat. A project's own
+ * `.claude/skills` from another session can ride along in that borrowed list;
+ * the cost is a bare `/name` that the CLI then reports as unknown, the same
+ * answer it gives in a terminal.
+ */
+const cliCommandsBySession = new Map<string, ReadonlySet<string>>();
+let latestCliCommands: ReadonlySet<string> | null = null;
+
+/** Store the `slash_commands` of a CLI `system/init` line for `sessionKey`.
+ *  Anything that is not such a line, or carries no list, is ignored. */
+export function recordCliSlashCommands(sessionKey: string, initLine: unknown): void {
+  const e = initLine as { type?: unknown; subtype?: unknown; slash_commands?: unknown } | null;
+  if (!e || e.type !== "system" || e.subtype !== "init" || !Array.isArray(e.slash_commands)) return;
+  const names = new Set<string>();
+  for (const raw of e.slash_commands) {
+    if (typeof raw !== "string") continue;
+    const name = raw.startsWith("/") ? raw.slice(1) : raw;
+    if (isValidSlashCommandName(name)) names.add(name);
+  }
+  if (names.size === 0) return;
+  cliCommandsBySession.set(sessionKey, names);
+  latestCliCommands = names;
+}
+
+/** Forget every recorded list. For tests. */
+export function resetCliSlashCommands(): void {
+  cliCommandsBySession.clear();
+  latestCliCommands = null;
+}
+
+/**
+ * Whether `/name` is a command or skill the Claude CLI will expand.
+ *
+ * First the CLI's own word (`recordCliSlashCommands`): the list of the session
+ * `cliSessionKey`, or, before that session has said anything, the latest list
+ * any session reported. Only for a claude-code session: no other provider
+ * expands the CLI's bundled skills, so a caller for another provider passes no
+ * key and only the disk answers.
+ *
+ * Then the disk: the same folders as `readSlashCommandSource`, plus the
+ * project's own `.claude/skills` under `cwd` (the CLI loads those too). A
+ * namespaced name (`opsx:propose`, `plugin:skill`) counts as a command by its
+ * shape: a pasted path never has a colon in its first segment.
  *
  * It answers one question for the context adapter: does this message have to
  * reach the CLI bare? A wrong «no» keeps today's behaviour (context in front),
@@ -118,10 +171,14 @@ export function readSlashCommandSource(
  */
 export function isKnownSlashCommand(
   name: string,
-  opts: { home?: string; cwd?: string | null } = {},
+  opts: { home?: string; cwd?: string | null; cliSessionKey?: string | null } = {},
 ): boolean {
   if (!isValidSlashCommandName(name)) return false;
   if (name.includes(":")) return true;
+  if (opts.cliSessionKey) {
+    const reported = cliCommandsBySession.get(opts.cliSessionKey) ?? latestCliCommands;
+    if (reported?.has(name)) return true;
+  }
   const home = opts.home ?? homedir();
   const cwd = opts.cwd ?? null;
   const files = [

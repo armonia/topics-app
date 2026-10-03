@@ -12,7 +12,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles, isKnownSlashCommand } from "./slash-command-source";
+import { isValidSlashCommandName, readSlashCommandSource, listSlashCommandFiles, isKnownSlashCommand, recordCliSlashCommands, resetCliSlashCommands } from "./slash-command-source";
 
 let home: string;
 let cwd: string;
@@ -133,5 +133,51 @@ describe("isKnownSlashCommand", () => {
     for (const n of ["../commands/recap", "a/b", ""]) {
       expect(isKnownSlashCommand(n, { home, cwd }), n).toBe(false);
     }
+  });
+});
+
+describe("the CLI's own list of slash commands (system/init)", () => {
+  const init = (slash_commands: unknown) => ({ type: "system", subtype: "init", session_id: "s", slash_commands });
+
+  test("a bundled skill the disk does not know is known once the session's init has listed it", () => {
+    resetCliSlashCommands();
+    expect(isKnownSlashCommand("simplify", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
+    recordCliSlashCommands("topic:a", init(["compact", "simplify", "/code-review", "loop", "claude-api", "plugin-skill"]));
+    for (const n of ["simplify", "code-review", "loop", "claude-api", "plugin-skill"]) {
+      expect(isKnownSlashCommand(n, { home, cwd, cliSessionKey: "topic:a" }), n).toBe(true);
+    }
+    // A pasted path is still not a command: the CLI did not list it.
+    expect(isKnownSlashCommand("tmp", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
+  });
+
+  test("a session that has not spoken yet (its first turn) borrows the latest list", () => {
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:a", init(["simplify"]));
+    expect(isKnownSlashCommand("simplify", { home, cwd, cliSessionKey: "topic:new" })).toBe(true);
+  });
+
+  test("a session's own list wins over the latest one, and the disk still answers after it", () => {
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:a", init(["only-in-a"]));
+    recordCliSlashCommands("topic:b", init(["only-in-b"]));
+    expect(isKnownSlashCommand("only-in-a", { home, cwd, cliSessionKey: "topic:a" })).toBe(true);
+    expect(isKnownSlashCommand("only-in-b", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
+    expect(isKnownSlashCommand("recap", { home, cwd, cliSessionKey: "topic:a" })).toBe(true);
+  });
+
+  test("without a claude-code session key only the disk answers", () => {
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:a", init(["simplify"]));
+    expect(isKnownSlashCommand("simplify", { home, cwd })).toBe(false);
+  });
+
+  test("lines that are not an init with a list record nothing", () => {
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:a", { type: "system", subtype: "compact_boundary", slash_commands: ["x1"] });
+    recordCliSlashCommands("topic:a", init("simplify"));
+    recordCliSlashCommands("topic:a", init([42, "../etc", ""]));
+    recordCliSlashCommands("topic:a", null);
+    expect(isKnownSlashCommand("x1", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
+    expect(isKnownSlashCommand("simplify", { home, cwd, cliSessionKey: "topic:a" })).toBe(false);
   });
 });

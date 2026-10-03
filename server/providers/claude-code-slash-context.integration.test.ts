@@ -12,7 +12,9 @@
  *  - an ordinary message: the old shape, one string with the context in front;
  *  - a pasted path `/tmp …`: the old shape too, since `tmp` is no skill;
  *  - argv: the context never travels there (`--append-system-prompt` is
- *    Topics' own fixed prompt, set at spawn).
+ *    Topics' own fixed prompt, set at spawn);
+ *  - a skill only the CLI's own `slash_commands` names (a bundled one): bare
+ *    too, once the child's `system/init` has listed it.
  *
  * @covers SKILL-03
  */
@@ -143,6 +145,53 @@ describe("what the CLI child receives for a skill invocation (real child, broker
     expect(argvLines).toHaveLength(1);
     expect(argvLines[0]!.argv.join(" ")).not.toContain("TOPIC-PROMPT-MARK");
     expect(argvLines[0]!.argv).toContain("--input-format");
+
+    await provider.stop();
+  }, 45_000);
+
+  /**
+   * A skill the disk does not know: the CLI's bundled ones live in the binary.
+   * The fake child's `system/init` lists `tp-bundled-probe` in
+   * `slash_commands`; after one turn the provider has recorded that list for
+   * the session, and the same lookup the route makes (`cliSessionKey`) says
+   * yes, so the invocation goes bare with the context beside it.
+   */
+  test("a skill only the CLI's own list names (bundled, plugin) goes bare once the CLI has said it", async () => {
+    const BUNDLED_SESSION = "topic:slash-context-bundled";
+    const { getDatabase } = await import("../db");
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run("t-slc-b", "slcb", "slcb", BUNDLED_SESSION, now, now);
+
+    const { adaptEnvelope } = await import("../context/adapt");
+    const { isKnownSlashCommand, resetCliSlashCommands } = await import("../lib/slash-command-source");
+    resetCliSlashCommands();
+    const isSlashCommand = (name: string) =>
+      isKnownSlashCommand(name, { home: tempDir, cwd: null, cliSessionKey: BUNDLED_SESSION });
+    // Not on disk, and not said yet: the old shape.
+    expect(isSlashCommand("tp-bundled-probe")).toBe(false);
+
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    const before = userContents().length;
+    const send = async (text: string) => {
+      const payload = adaptEnvelope({ ...envelope(text), sessionKey: BUNDLED_SESSION }, { isSlashCommand });
+      const r = recorder();
+      void provider.sendChat(BUNDLED_SESSION, payload.userContent, r.handler, { slashContext: payload.slashContext });
+      expect(await r.done).toBe("got");
+    };
+    await send("ciao");
+    // The child's init has spoken: the list is recorded for this session.
+    expect(isSlashCommand("tp-bundled-probe")).toBe(true);
+    expect(isSlashCommand("tmp")).toBe(false);
+    await send("/tp-bundled-probe alpha");
+
+    const [, bundled] = userContents().slice(before);
+    expect(bundled).toEqual([
+      { type: "text", text: "<context>\nTOPIC-PROMPT-MARK\n</context>" },
+      { type: "text", text: "/tp-bundled-probe alpha" },
+    ]);
 
     await provider.stop();
   }, 45_000);

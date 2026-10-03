@@ -26,6 +26,8 @@ if (argv.includes("--version") || argv.includes("-v")) {
 }
 
 const LOG = process.env.FAKE_CLI_LOG;
+/** What this fake's `system/init` reports in `slash_commands`. */
+const SLASH_COMMANDS = ["compact", "context", "simplify", "code-review", "loop", "claude-api", "tp-bundled-probe"];
 const note = (o: Record<string, unknown>) => { if (LOG) appendFileSync(LOG, JSON.stringify(o) + "\n"); };
 
 if (flag("--output-format") === "json") {
@@ -54,7 +56,11 @@ if (flag("--output-format") === "json") {
       let type: unknown;
       try { type = (JSON.parse(line) as { type?: unknown }).type; } catch { continue; }
       if (type !== "user") continue;
-      out({ type: "system", subtype: "init", model: "claude-finto", tools: [], fast_mode_state: "off", cwd: process.cwd() });
+      // `slash_commands` as the real CLI lists them: built-ins, BUNDLED skills
+      // that live in the binary (no file on disk), and a probe name of the same
+      // kind that no machine has as a folder, so a test can tell the CLI's
+      // list from disk discovery.
+      out({ type: "system", subtype: "init", model: "claude-finto", tools: [], fast_mode_state: "off", cwd: process.cwd(), slash_commands: SLASH_COMMANDS });
       out({ type: "assistant", message: { id: `msg_${++seq}`, role: "assistant", model: "claude-finto", content: [{ type: "text", text: "got" }], usage: { input_tokens: 10, output_tokens: 1 } } });
       out({ type: "result", subtype: "success", is_error: false, num_turns: 1, stop_reason: "end_turn", result: "got", duration_ms: 5, total_cost_usd: 0 });
     }

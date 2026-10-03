@@ -65,6 +65,7 @@ import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { buildUserTurnContent } from "./claude/user-turn";
+import { recordCliSlashCommands } from "../lib/slash-command-source";
 import { toolResultText } from "../../shared/tool-result-text";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
@@ -3691,6 +3692,12 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.forkConsumed = true;
       try { consumeFork(getDatabase(), pp.sessionKey); } catch { /* no database: the transcript check still holds in the same cwd */ }
     }
+
+    // The commands the CLI says it will expand (`slash_commands` of its init),
+    // in every mode: a replayed init is the same session's word, and after a
+    // restart it is what tells the next skill turn its shape
+    // (`isKnownSlashCommand`).
+    if (line.label === "system/init") recordCliSlashCommands(pp.sessionKey, event);
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).

@@ -11,7 +11,10 @@
  *  - steady state: the preamble was deduplicated, so the message is bare with
  *    no context, and the full context waits in `resetFallbackSlashContext` for
  *    a session reset (the fresh CLI session never saw it);
- *  - a name that is not on disk (`/tmp …`, a pasted path) keeps the old shape.
+ *  - a skill only the CLI's own list names (a bundled one, `slash_commands` of
+ *    its init) goes bare too;
+ *  - a name that is neither on disk nor in that list (`/tmp …`, a pasted
+ *    path) keeps the old shape.
  * Without this wiring the first turn's context is dropped silently and the
  * slots are still marked sent, so no later turn resends it.
  */
@@ -20,6 +23,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
+import { recordCliSlashCommands, resetCliSlashCommands } from "../lib/slash-command-source";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, Topic } from "../types";
 
@@ -100,6 +104,19 @@ describe("what the route hands the provider for a skill invocation", () => {
     expect(steady.options.resetFallbackSlashContext).toContain(PROMPT);
     // The fallback is the same bare command: the context goes beside it, never in front.
     expect(steady.options.resetFallbackContent ?? steady.message).toBe("/rfprobe delta");
+  });
+
+  test("a bundled skill the CLI listed in its init goes bare on the first turn, with its context beside", async () => {
+    // The CLI's own list (`system/init.slash_commands`), recorded by the
+    // provider from another session's turn: this chat's first turn has no init
+    // of its own yet. The name exists in no folder.
+    resetCliSlashCommands();
+    recordCliSlashCommands("topic:some-other-chat", { type: "system", subtype: "init", slash_commands: ["compact", "tp-route-bundled"] });
+    const sk = topic("skill-bundled");
+    const first = await turn(sk, "/tp-route-bundled uno");
+    expect(first.message).toBe("/tp-route-bundled uno");
+    expect(first.options.slashContext).toContain(PROMPT);
+    resetCliSlashCommands();
   });
 
   test("a name that is not a skill on disk keeps the context in front of the text", async () => {
