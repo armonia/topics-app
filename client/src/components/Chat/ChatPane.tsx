@@ -29,7 +29,7 @@ import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
 import { offeredSlashCommands } from './slashCommands';
 import { ChatInput, type ComposerControls } from './ChatInput';
-import { cliRefusedCommand, isClearCommand } from './cliRefused';
+import { cliRefusedCommand, isClearCommand, topicsHomeCommand } from './cliRefused';
 import { shortcut } from '../../lib/shortcutLabel';
 import { openUserMenu } from '../../lib/openUserMenu';
 import { CheckpointTimeline } from './CheckpointTimeline';
@@ -1128,13 +1128,13 @@ function ChatPaneComponent({
     if (cmd === '/model') { setCommandResult(null); composerControlsRef.current?.openModel(); return true; }
     if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.modelSet', { model: m }) : r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/effort') { setCommandResult(null); composerControlsRef.current?.openEffort(); return true; }
-    // `/mcp` and `/config` (with its alias `/settings`) open where Topics keeps
-    // those things now (SETHOME-01): the MCP tools are the «Strumenti» panel of
-    // the composer's «+», the rest of the configuration is the user menu.
-    // Forwarded, the CLI printed its own server list or settings dump, in
-    // English, about a configuration Topics does not read from there.
-    if (cmd === '/mcp' || cmd.startsWith('/mcp ')) { setCommandResult(null); composerControlsRef.current?.openTools(); return true; }
-    if (cmd === '/config' || cmd.startsWith('/config ') || cmd === '/settings' || cmd.startsWith('/settings ')) { setCommandResult(null); openUserMenu(); return true; }
+    // Bare `/mcp` and `/config` (with its alias `/settings`) open where Topics
+    // keeps those things now (SETHOME-01), on Claude Code only: with arguments,
+    // or on a provider with its own commands under these names, they travel
+    // as typed (`topicsHomeCommand`).
+    const home = topicsHomeCommand(cmd, declared);
+    if (home === 'tools') { setCommandResult(null); composerControlsRef.current?.openTools(); return true; }
+    if (home === 'userMenu') { setCommandResult(null); openUserMenu(); return true; }
     if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.effortSet', { level: tier }) : r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 
     // /project — info / create <name> / open <path-or-name>. The route answers

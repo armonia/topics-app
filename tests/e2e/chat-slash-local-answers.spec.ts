@@ -187,6 +187,17 @@ test.describe("slash commands answered in the composer", () => {
     await expect(result(page)).not.toContainText("not bound");
   });
 
+  test("with arguments /mcp and /config travel to the CLI instead of opening a panel and dropping them", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    // Placed after every test that asserts an empty log: this one fills it.
+    for (const typed of ["/config set theme dark", "/mcp enable demo-server"]) {
+      await type(chatPage, page, typed);
+      await expect.poll(() => received().some((t) => t.includes(typed)), { timeout: 30_000, message: typed }).toBe(true);
+    }
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
+    await expect(page.getByTestId("home-panel-tools")).toHaveCount(0);
+  });
+
   test("an ordinary message still reaches the CLI: the log above is not empty by construction", async ({ page, chatPage }) => {
     await type(chatPage, page, "messaggio-normale-di-controllo");
     await expect.poll(() => received().some((t) => t.includes("messaggio-normale-di-controllo")), { timeout: 30_000 }).toBe(true);
@@ -194,15 +205,16 @@ test.describe("slash commands answered in the composer", () => {
 });
 
 test.describe("on a provider that is not Claude Code, the names travel as typed", () => {
-  // CMD-08: the refusals and the /new alias are Claude Code's. openclaw has
-  // its own `/login`, `/export`, `/new` and `/reset`, gemini answers `/memory`
-  // itself. The bench runs no openclaw gateway, so what is asserted is the
+  // CMD-08: the refusals, the /new alias and the /mcp and /config panels are
+  // Claude Code's. openclaw has its own `/login`, `/export`, `/new`, `/reset`,
+  // `/mcp show|set|unset` and `/config show|set|unset`, gemini answers
+  // `/memory` itself. The bench runs no openclaw gateway, so what is asserted is the
   // composer's side only: the message is SENT, nothing answers it here and no
   // /clear confirmation opens. What openclaw does with it is not visible here.
-  for (const text of ["/login", "/new"]) {
+  for (const text of ["/login", "/new", "/mcp show", "/config"]) {
     test(`${text} on an openclaw topic is sent, not answered or confirmed in the composer`, async ({ page, request, chatPage }) => {
       test.info().annotations.push({ type: "spec", description: "CMD-08" });
-      const name = `slash-openclaw-${text.slice(1)}-${Date.now()}`;
+      const name = `slash-openclaw-${text.slice(1).replace(/\s+/g, "-")}-${Date.now()}`;
       const topic = await createTopic(request, name, { provider: "openclaw" });
       try {
         await resetPaneStore(request, [topic.id]);
@@ -210,10 +222,18 @@ test.describe("on a provider that is not Claude Code, the names travel as typed"
         await page.keyboard.press("Escape");
         await openTopic(page, new RegExp(name));
         await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+        const posted = page.waitForRequest(
+          (r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/chat" && (r.postData() ?? "").includes(text),
+          { timeout: 15_000 },
+        );
         await type(chatPage, page, text);
-        await expect(chatPage.messageList).toContainText(text, { timeout: 15_000 });
+        await posted;
+        // The bubble draws the command as a chip, so its arguments follow it without a space.
+        await expect(chatPage.messageList).toContainText(new RegExp(text.replace(/\s+/g, "\\s*")), { timeout: 15_000 });
         await expect(page.getByRole("dialog").filter({ hasText: "Svuoto la conversazione?" })).toHaveCount(0);
         await expect(result(page).filter({ hasText: /Claude Code/ })).toHaveCount(0);
+        await expect(page.getByTestId("home-panel-tools")).toHaveCount(0);
+        await expect(page.getByTestId("profile-menu")).toHaveCount(0);
       } finally {
         await deleteTopic(request, topic.id);
       }

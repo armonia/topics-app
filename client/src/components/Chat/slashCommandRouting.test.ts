@@ -36,7 +36,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CLI_REFUSED, cliRefusedCommand, isClearCommand } from "./cliRefused";
+import { CLI_REFUSED, cliRefusedCommand, isClearCommand, topicsHomeCommand } from "./cliRefused";
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -333,20 +333,44 @@ describe("the refusals are Claude Code's, so only a Claude Code topic gets them 
 
 describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)", () => {
   // There is no settings section any more: the MCP tools are the «Strumenti»
-  // panel of the composer's «+», the rest is the user menu. Forwarded, both
-  // reached the CLI, which printed its own list in English.
-  const src = withoutComments(CHAT_PANE);
-  test("`/mcp`, bare or with an argument, opens the composer's tools panel", () => {
-    expect(src).toMatch(/cmd === '\/mcp' \|\| cmd\.startsWith\('\/mcp '\)\) \{[^}]*composerControlsRef\.current\?\.openTools\(\)/);
+  // panel of the composer's «+», the rest is the user menu. Forwarded bare,
+  // both reached the CLI, which printed its own list in English.
+  test("bare on Claude Code, `/mcp` opens the tools panel, `/config` and `/settings` the user menu", () => {
+    expect(CLI.aliases.settings).toBe("config");
+    for (const provider of ["claude-code", "claude-code-team"]) {
+      expect(topicsHomeCommand("/mcp", provider), provider).toBe("tools");
+      expect(topicsHomeCommand("/config", provider), provider).toBe("userMenu");
+      expect(topicsHomeCommand("/settings", provider), provider).toBe("userMenu");
+    }
   });
 
-  test("`/config` and its alias `/settings` open the user menu", () => {
-    expect(CLI.aliases.settings).toBe("config");
-    for (const c of ["config", "settings"]) {
-      expect(bareIn(CHAT_PANE, c), `/${c}`).toBe(true);
-      expect(handledWithArg(c), `/${c} with an argument`).toBe(true);
+  test("with arguments they travel to the CLI, which runs them: nothing is dropped", () => {
+    // `/config set theme dark` used to open the menu and lose the arguments
+    // without a word. Both names are in the CLI's headless list.
+    expect(CLI.headless).toContain("mcp");
+    expect(CLI.headless).toContain("config");
+    for (const text of ["/mcp enable github", "/config set theme dark", "/settings x"]) {
+      expect(topicsHomeCommand(text, "claude-code"), text).toBeNull();
     }
-    expect(src).toMatch(/cmd === '\/settings'[^}]*\{[^}]*openUserMenu\(\)/);
+  });
+
+  test("on another provider they are that provider's own commands and travel as typed (CMD-08)", () => {
+    // openclaw has its own `/mcp show|set|unset` and `/config show|set|unset`;
+    // gemini and codex have their own `/mcp`.
+    for (const provider of ["openclaw", "gemini", "codex", "topics", null, undefined]) {
+      for (const text of ["/mcp", "/mcp show", "/config", "/config set x 1", "/settings"]) {
+        expect(topicsHomeCommand(text, provider), `${text} on ${provider}`).toBeNull();
+      }
+    }
+  });
+
+  test("`ChatPane` asks it with the declared provider, and acts on both answers", () => {
+    const src = withoutComments(CHAT_PANE);
+    expect(src).toContain("topicsHomeCommand(cmd, declared)");
+    expect(src).toMatch(/=== 'tools'\) \{[^}]*composerControlsRef\.current\?\.openTools\(\)/);
+    expect(src).toMatch(/=== 'userMenu'\) \{[^}]*openUserMenu\(\)/);
+    // No unconditional branch left behind the helper's back.
+    expect(src).not.toMatch(/cmd(?: === |\.startsWith\()'\/(mcp|config|settings)/);
   });
 
   test("the composer hands up the door to its tools panel, hung from the «+»", () => {

@@ -100,3 +100,26 @@ export function isClearCommand(cmd: string, declaredProvider: string | null | un
   if (cmd === '/clear') return true;
   return (cmd === '/new' || cmd === '/reset') && declaresClaudeCode(declaredProvider);
 }
+
+/**
+ * Where Topics keeps what a typed `/mcp` or `/config` (alias `/settings`) asks
+ * for, on a topic whose declared provider is `declaredProvider` (SETHOME-01):
+ * the MCP tools are the «Strumenti» panel of the composer's «+», the rest of
+ * the configuration is the user menu. `cmd` is lower-cased and trimmed.
+ *
+ * Only BARE and only on Claude Code. With arguments (`/mcp enable github`) the
+ * command travels to the CLI, which runs both names in `--print`: opening a
+ * panel instead dropped the arguments without a word. Other providers have
+ * their own commands under these names (openclaw `/mcp show|set|unset` and
+ * `/config show|set|unset`, gemini and codex `/mcp`), so there they travel as
+ * typed (CMD-08).
+ */
+export function topicsHomeCommand(
+  cmd: string,
+  declaredProvider: string | null | undefined,
+): 'tools' | 'userMenu' | null {
+  if (!declaresClaudeCode(declaredProvider)) return null;
+  if (cmd === '/mcp') return 'tools';
+  if (cmd === '/config' || cmd === '/settings') return 'userMenu';
+  return null;
+}
