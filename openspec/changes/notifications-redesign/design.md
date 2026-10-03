@@ -685,8 +685,13 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   `lib/notify/{chatFinished,messageBanner,terminalNotify,dispatchedTopic,muteGate,
   reviewQuestion,pushVoice}.ts` con i loro test. Le loro regole hanno un gemello sul
   server (regola 2 di `compose`, `isTopicSilenced` e `buildAnnouncement` in
-  `push-triggers`) e in `announceBanner.test.ts` per la parte che resta al client.
+  `push-triggers`) e in `useCompletionNotifier.background.test.ts` (che prova `announceBannerOf`) per la parte che resta al client.
 - **Le righe dei terminali nel menu del tray** portano il prefisso `terminal:`, così il
   gestore della navigazione apre il terminale e non cerca una chat con quell'id.
 - **`attention:init`/`attention:updated` escono da `UNCONSUMED`** di
   `ws-outbound-coverage.test.ts`: il client li ascolta.
+- **Il frame `focus` non si ripete a vuoto**: all'apertura del socket parte solo se
+  c'è un topic o un soggetto davanti (un socket nuovo è già «niente davanti» sul
+  server), e un cambio di veglia o di soggetto rimanda il frame solo se cambia ciò che
+  il server legge (`focusKey` in `useWebSocket.ts`). Senza, il risveglio mandava tre
+  `focus` uguali e rompeva il conto delle strette di mano di `useWebSocket.wake.test.ts`.
