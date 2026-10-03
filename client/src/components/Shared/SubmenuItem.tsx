@@ -24,8 +24,8 @@ import { LevelCloseContext } from './levelClose';
  *   - its trigger lives inside the host panel, so the registry knows it as a
  *     CHILD: Escape closes the submenu first, one level per press
  *     (`popoverRegistry.descendantPopoverNodes`);
- *   - the portal, the glass surface, `role="menu"` (which is what lifts it
- *     over a native browser pane), the mobile bottom sheet and the z layer.
+ *   - the portal, the glass surface, `role="menu"` (`dialog` for a form level;
+ *     either lifts it over a native browser pane), the mobile bottom sheet and the z layer.
  *
  * Keyboard: ArrowRight or Enter/Space on the row opens the level and the
  * primitive moves focus into it; ArrowLeft inside the level closes it and the
@@ -140,6 +140,10 @@ export interface SubmenuItemProps {
   /** Open, and pinned, right after mounting: as if it had been clicked. For a
    *  host asked to land on this level (`lib/openUserMenu`). */
   defaultOpen?: boolean;
+  /** The level's role. 'dialog' for a level that holds a FORM: a text field
+   *  inside role=menu is announced as a menu item and has no business there.
+   *  The panel keeps `Menu`'s keyboard and dismissal either way. */
+  levelRole?: 'menu' | 'dialog';
 }
 
 /**
@@ -171,6 +175,7 @@ export function SubmenuItem({
   rowClassName = '',
   onOpenChange,
   defaultOpen = false,
+  levelRole = 'menu',
 }: SubmenuItemProps) {
   const { isMobile } = useMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -300,7 +305,7 @@ export function SubmenuItem({
         ref={triggerRef}
         type="button"
         role="menuitem"
-        aria-haspopup="menu"
+        aria-haspopup={levelRole}
         aria-expanded={open}
         data-testid={testId}
         // OPEN, never toggle: with a mouse the hover has already opened the
@@ -326,6 +331,7 @@ export function SubmenuItem({
           anchorRef={triggerRef}
           onClose={close}
           side="right"
+          role={levelRole}
           exclusive={false}
           minWidth={levelWidth}
           maxWidth={maxWidth}

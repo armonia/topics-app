@@ -137,6 +137,12 @@ const ShareControl = lazy(async () => {
   const { ShareControl: C } = await import('../Share/ShareControl');
   return { default: C };
 });
+// The calendar feed's row exists only in the menu of a pinned calendar tile:
+// it loads with that menu, not with the column.
+const CalendarMenuRow = lazy(async () => {
+  const { CalendarMenuRow: Row } = await import('./CalendarMenuRow');
+  return { default: Row };
+});
 
 const BOARD_ID = utilityPanelId('board');
 /** Nome e glifo NON si riscrivono qui: `PANE_CONFIG` li espone già, ed è la
@@ -476,7 +482,7 @@ export function TopicTree({
   /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
    *  hanno un menu di riga proprio, e senza questo una volta fissati non si
    *  potrebbero più togliere dai Fissati da nessuna parte. */
-  const [pinOnlyMenu, setPinOnlyMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
+  const [pinOnlyMenu, setPinOnlyMenu] = useState<{ x: number; y: number; id: string; name: string; calendarTile?: HTMLElement | null } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch, isMobile } = useMobile();
   // La riga della board: una sola in tutta la sidebar, quindi il gesto può
@@ -1753,7 +1759,11 @@ export function TopicTree({
           // perché una tessera fissata torni una riga come le altre. Senza
           // questo, fissare la board sarebbe a senso unico.
           e.preventDefault();
-          setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: item.id, name: item.name });
+          // A pinned calendar page also carries the calendar feed's form.
+          const calendarTile = item.type === 'browser' && isCalendarPageUrl(item.browser?.url)
+            ? e.currentTarget as HTMLElement
+            : undefined;
+          setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: item.id, name: item.name, calendarTile });
         }
       }}
       // La fascia porta le TAB del progetto — chat, terminali, browser — con lo
@@ -1761,7 +1771,7 @@ export function TopicTree({
       // quindi nessun modo di divergere da come quelle righe si comportano.
       // The small hover/focus preview of a pinned calendar tile (card
       // 25775e23): a screenshot of the browser pane ALREADY open for that
-      // pin, never the ICS feed -- that stays Settings' business. Any other
+      // pin, never the ICS feed -- that is the tile menu's form. Any other
       // pinned page has nothing to preview here.
       renderHoverPreview={item => {
         if (item.type !== 'browser' || !isCalendarPageUrl(item.browser?.url) || !item.browser) return null;
@@ -2198,6 +2208,11 @@ export function TopicTree({
               </button>
             );
           })()}
+          {pinOnlyMenu.calendarTile !== undefined && (
+            <Suspense fallback={null}>
+              <CalendarMenuRow tile={pinOnlyMenu.calendarTile} onPicked={() => setPinOnlyMenu(null)} />
+            </Suspense>
+          )}
         </ContextMenuPortal>
       )}
 

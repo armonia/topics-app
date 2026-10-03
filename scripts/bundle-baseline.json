@@ -691,9 +691,20 @@
     "-2.520 / -253; the two folds made standard +85 / +35. Each lane alone was",
     "inside 2%, together +42.489 / +14.581 over the written entry. Entry raised to",
     "the measured 1.579.035 / 499.151. Critical path 2.197.697 / 658.971 and total",
-    "assets 8.535.422 are inside 2% and stay as written."
+    "assets 8.535.422 are inside 2% and stay as written.",
+    "",
+    "2026-10-03, total_assets.raw 8.377.807 -> 8.563.988 (measured). The merge base of",
+    "feat/impostazioni-dove-si-usano-1003 (a75fcbe33, origin/main merged in) already",
+    "measured 8.554.025, over the 2% ceiling (8.545.363) before this branch touched a",
+    "line: that is main's growth since the last raise, recorded here, not bought here.",
+    "This branch adds +9.963 raw, all in LAZY chunks: the host of the forms that live",
+    "where they are used (Settings/HomePanel), the palette's commands by name, the",
+    "composer's tools row and the calendar tile's menu row (SETHOME-01). The entry",
+    "grows +3.385 raw / +1.159 gz (the one listener, `HomePanelHost`, and the footer",
+    "glue) and critical_path stays inside its tolerance (664.284 <= 664.403 gz), so",
+    "neither of those two numbers is raised."
   ],
-  "updated": "2026-10-02",
+  "updated": "2026-10-03",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 1579035,
@@ -705,6 +716,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 8377807
+    "raw": 8563988
   }
 }

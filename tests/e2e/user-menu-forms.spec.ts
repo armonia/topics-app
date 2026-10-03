@@ -1,19 +1,19 @@
 /**
- * EVERY SETTING IS IN THE USER MENU, THE FORMS TOO (the 02/10/2026 change).
+ * A FORM STAYS A FORM, IN THE USER MENU AND IN ITS OWN PANEL.
  *
- * The maintainer, on 02/10, asked for the providers, the calendar and the
- * rest to be in the user menu itself, and for the Settings button to go. So
- * the Settings window and its row are gone, and AI providers, tools, calendar,
- * plan and nodes are levels of the menu. What a regression would break first:
+ * On 02/10 the Settings window went and its forms became levels of the user
+ * menu; on 03/10 the maintainer had them sorted out of it ("sort everything"):
+ * the plan and the machines stay in the menu because they are the account, AI
+ * providers, tools and calendar live where they are used, drawn by one host
+ * (SETHOME-01). What a regression would break first:
  *
- *  · the rows answer without opening anything: Plan says «Gratuito», AI
- *    providers says the provider and the Claude plan it runs on, with the
- *    default runtime too;
+ *  · the plan row answers without opening anything («Gratuito»), and no row of
+ *    the menu speaks for a form that left it;
  *  · a level opened by HOVER, once used (a press, a key), stays when the
  *    pointer leaves it: for its own confirmation, and with a half-typed key;
- *  · a form inside a menu still behaves like a form: every key typed into a
+ *  · a form in its panel still behaves like a form: every key typed into a
  *    field lands there (letters, space, Home, End, arrows, Enter), Escape in
- *    the field closes only the level, a selector's list and a confirmation
+ *    the field closes only the panel, a selector's list and a confirmation
  *    opened from a level do not take the menu down with them;
  *  · ⌘, opens the menu with its first row focused, and no element of the old
  *    panel exists; the bell's gear still lands on Notifications;
@@ -26,13 +26,13 @@
  *
  * Video on: this is behaviour, and the recording is the proof.
  *
- * @covers USERMENU-06, USERMENU-10
+ * @covers USERMENU-06, USERMENU-10, SETHOME-01
  */
 import { test, expect, type Page, type WebSocketRoute } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { openProfileMenu } from "./helpers/open-perf-panel";
-import { openUserMenuLevel } from "./helpers/user-menu";
+import { openHomePanel, openUserMenuLevel } from "./helpers/user-menu";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -86,7 +86,7 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await request.post("/api/test/plan-usage", { data: { clear: true } });
   });
 
-  test("USERMENU-10: a menu aperto Piano dice «Gratuito» e Provider AI il provider col piano Claude, e del pannello non resta niente", async ({ page }) => {
+  test("USERMENU-10: a menu aperto Piano dice «Gratuito», e del pannello e dei moduli usciti non resta niente", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-10" });
     await claudeMaxMachine(page);
     await goToApp(page);
@@ -95,16 +95,17 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
 
     await expect(menu.getByTestId("topics-menu-plan-tail")).toHaveText("Gratuito", { timeout: 15_000 });
     await expect(menu.getByTestId("topics-menu-plan-tail")).not.toHaveAttribute("data-warn", "true");
-    await expect(menu.getByTestId("topics-menu-providers-tail")).toHaveText("Topics · Max 20x", { timeout: 15_000 });
-    await expect(menu.getByTestId("topics-menu-calendar-tail")).toHaveText(/Collegato|In pausa|Non collegato/, { timeout: 15_000 });
-    await expect(menu.getByTestId("topics-menu-nodes-tail")).toBeVisible({ timeout: 15_000 });
+    // The forms that left for where they are used have no row, and no tail.
+    for (const gone of ["providers", "tools", "calendar", "nodes"]) {
+      await expect(menu.getByTestId(`topics-menu-${gone}`)).toHaveCount(0);
+    }
     // The old door and the old window: gone.
     await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
     await expect(page.getByTestId("settings-panel")).toHaveCount(0);
   });
 
-  test("USERMENU-06a: un modulo dentro il menu si comporta da modulo", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+  test("USERMENU-06a: il modulo dei provider nel suo pannello si comporta da modulo", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     await claudeMaxMachine(page);
     // A five-hour window at 42%, as the CLI would report it: the level puts it
     // next to the plan it belongs to.
@@ -117,8 +118,9 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
       await route.fulfill({ status: 400, json: { error: "Connection rejected. Check the API key.", code: "api_key_rejected" } });
     });
     await goToApp(page);
-    const level = await openUserMenuLevel(page, "providers");
-    const menu = page.getByTestId("profile-menu");
+    // No chat open, so no model selector on screen: the panel is a sheet of
+    // its own in the middle of the window.
+    const level = await openHomePanel(page, "providers");
 
     // The plan and how much of it is spent, read together at the top.
     const plan = level.getByTestId("providers-claude-plan");
@@ -148,10 +150,10 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await page.keyboard.press("Enter");
     await expect(level.getByTestId("api-key-form-openai").getByRole("alert")).toContainText("Chiave API rifiutata", { timeout: 10_000 });
     expect(sent).toEqual(["sk-proj AbC-9 Z"]);
-    await expect(menu).toBeVisible();
+    await expect(level).toBeVisible();
 
-    // A selector's list lives in a portal outside the level: choosing in it
-    // is not a press outside the menu.
+    // A selector's list lives in a portal outside the panel: choosing in it
+    // is not a press outside.
     await level.getByTestId("ai-providers-advanced-toggle").click();
     const runtime = level.getByRole("combobox", { name: "Runtime degli agenti", exact: true });
     await runtime.click();
@@ -160,15 +162,12 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await listbox.locator('[role="option"][aria-selected="true"]').first().click();
     await expect(listbox).toHaveCount(0);
     await expect(level).toBeVisible();
-    await expect(menu).toBeVisible();
 
-    // Escape in a field closes the level and only the level.
+    // Escape with the list closed closes the panel, and only the panel.
     await field.click();
     await page.keyboard.press("Escape");
     await expect(level).toHaveCount(0);
-    await expect(menu).toBeVisible();
-    // The focus comes back into the menu, not onto the page behind it.
-    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-testid="profile-menu"]'))).toBe(true);
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
   });
 
   test("USERMENU-06b: una conferma chiesta da un livello non chiude il menu, e la coda avvisa la scadenza", async ({ page }) => {
@@ -183,7 +182,7 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await goToApp(page);
     await openProfileMenu(page);
     const tail = page.getByTestId("topics-menu-plan-tail");
-    await expect(tail).toHaveText("Team · 5 posti · scade tra 12 g", { timeout: 15_000 });
+    await expect(tail).toHaveText("Scade tra 12 g · Team · 5 posti", { timeout: 15_000 });
     await expect(tail).toHaveAttribute("data-warn", "true");
 
     const level = await openUserMenuLevel(page, "plan");
@@ -195,6 +194,41 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(dialog).toHaveCount(0);
     await expect(level).toBeVisible();
     await expect(page.getByTestId("profile-menu")).toBeVisible();
+  });
+
+  test("USERMENU-06f: in un menu da 288 px l'avviso di scadenza della coda del Piano si vede intero", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    // Enough seats to overflow the tail: what the ellipsis cuts must not be the
+    // warning. Measured on the glyphs, not read off textContent, which holds
+    // the whole string whether it is visible or not.
+    const expiresAt = Date.now() + 12 * 86_400_000 + 3_600_000;
+    await page.route("**/api/license", async (route) => {
+      if (route.request().method() !== "GET") { await route.fallback(); return; }
+      await route.fulfill({ json: { plan: "team", seats: 12500, remoteAccess: true, expiresAt, reason: "valid", installationId: "inst-e2e" } });
+    });
+    await goToApp(page);
+    await openProfileMenu(page);
+    const menu = page.getByTestId("profile-menu");
+    const tail = menu.getByTestId("topics-menu-plan-tail");
+    await expect(tail).toHaveAttribute("data-warn", "true", { timeout: 15_000 });
+    expect(Math.round((await menu.boundingBox())!.width)).toBe(288);
+    const m = await tail.evaluate((el) => {
+      const node = el.firstChild as Text;
+      const warning = "Scade tra 12 g";
+      const at = node.data.indexOf(warning);
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + warning.length);
+      const glyphs = range.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      return { at, glyphsRight: glyphs.right, boxRight: box.right, truncated: el.scrollWidth > el.clientWidth };
+    });
+    // The case is real only if the tail does overflow.
+    expect(m.truncated).toBe(true);
+    expect(m.at).toBeGreaterThanOrEqual(0);
+    // The ellipsis takes a few pixels at the right end of the box: the warning
+    // must end before it.
+    expect(m.glyphsRight).toBeLessThanOrEqual(m.boxRight - 8);
   });
 
   test("USERMENU-06c: ⌘, apre il menu utente con il fuoco sulla prima riga, e l'ingranaggio del campanello porta a Notifiche", async ({ page }) => {
@@ -214,6 +248,72 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(page.getByTestId("notification-history-panel")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("notification-settings-button").click();
     await expect(page.getByTestId("topics-menu-notifications-menu")).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe("un modulo nel menu resta un modulo", () => {
+  /** The licence token field of the Plan level, opened with a click. */
+  async function openKeyField(page: Page) {
+    const level = await openUserMenuLevel(page, "plan");
+    const field = level.getByRole("textbox", { name: "Gettone di licenza" });
+    await expect(field).toBeVisible({ timeout: 15_000 });
+    await field.click();
+    return { level, field };
+  }
+
+  test("USERMENU-06g: ⌘, con il menu già aperto non lo rimonta: il gettone a metà resta e il fuoco va sulla prima riga", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    await goToApp(page);
+    const { level, field } = await openKeyField(page);
+    await page.keyboard.type("sk-typed-half");
+    await expect(field).toHaveValue("sk-typed-half");
+    await page.keyboard.press("Meta+Comma");
+    await expect(page.getByTestId("account-identity")).toBeFocused();
+    await expect(level).toBeVisible();
+    await expect(field).toHaveValue("sk-typed-half");
+  });
+
+  test("USERMENU-06h: il corpo di un livello con un modulo è un dialogo col nome del livello, non un menu", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    await goToApp(page);
+    const { level, field } = await openKeyField(page);
+    // A field inside role=menu is a field a screen reader announces as a menu
+    // item; a dialog admits it.
+    await expect(page.getByRole("dialog", { name: "Piano" })).toBeVisible();
+    await expect(field.locator('xpath=ancestor::*[@role="menu"]')).toHaveCount(0);
+    await expect(page.getByTestId("topics-menu-plan")).toHaveAttribute("aria-haspopup", "dialog");
+    // Keyboard unchanged: Tab stays inside the level, Escape closes only it.
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("Tab");
+      expect(await level.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    }
+    await page.keyboard.press("Escape");
+    await expect(level).toHaveCount(0);
+    await expect(page.getByTestId("profile-menu")).toBeVisible();
+  });
+
+  test("USERMENU-06i: dopo ⌘, il fuoco dato alla prima riga non viene ripreso da un cambio del menu", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
+    await goToApp(page);
+    const menu = page.getByTestId("profile-menu");
+    await expect(async () => {
+      await page.keyboard.press("Meta+Comma");
+      await expect(menu).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+    const first = page.getByTestId("account-identity");
+    await expect(first).toBeFocused();
+    // A live change of the menu (a row that appears above, as a tail or a
+    // banner would): the focus is where the person left it.
+    await menu.evaluate((el) => {
+      const row = document.createElement("button");
+      row.dataset.testid = "late-row";
+      row.textContent = "late";
+      el.prepend(row);
+    });
+    await expect(page.getByTestId("late-row")).toHaveCount(1);
+    // Two frames for the observer to have run.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await expect(first).toBeFocused();
   });
 });
 
@@ -265,15 +365,13 @@ test.describe("un livello aperto col passaggio del mouse, una volta usato, resta
     await expect(level).toBeVisible();
   });
 
-  test("USERMENU-06e: una chiave scritta in un livello aperto al passaggio resta quando il mouse se ne va", async ({ page }) => {
+  test("USERMENU-06e: un gettone scritto in un livello aperto al passaggio resta quando il mouse se ne va", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
     await page.clock.install();
     await goToApp(page);
-    const level = await hoverOpen(page, "providers");
-    const setup = level.getByTestId("api-provider-setup-openai");
-    await expect(setup).toBeVisible({ timeout: 15_000 });
-    await pressAt(page, setup.getByRole("button").first());
-    const field = level.getByTestId("api-key-form-openai").locator("input");
+    const level = await hoverOpen(page, "plan");
+    const field = level.getByRole("textbox", { name: "Gettone di licenza" });
+    await expect(field).toBeVisible({ timeout: 15_000 });
     await pressAt(page, field);
     await page.keyboard.type("sk-typed-half");
     await expect(field).toHaveValue("sk-typed-half");

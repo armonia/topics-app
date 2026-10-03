@@ -69,7 +69,8 @@ async function openProjectBoard(page: Page, projectName: RegExp): Promise<void> 
 }
 
 /**
- * The requests from other computers, in the user menu's Nodes level.
+ * The requests from other computers, in the Machines section of the user
+ * menu's Devices level.
  *
  * The level is asked for on the event the Devices level and the bell use
  * (`requestUserMenuLevel`), retried until the app can hear it: `App` mounts

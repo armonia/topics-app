@@ -28,7 +28,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { hermetic } from "./fixtures/hermetic";
-import { openUserMenuLevel } from "./helpers/user-menu";
+import { openHomePanel } from "./helpers/user-menu";
 import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
@@ -86,11 +86,11 @@ test.afterAll(async () => {
 });
 
 /**
- * The Calendar form is a level of the user menu since the 02/10/2026 change
- * (`openUserMenuLevel` waits for the app, the row and the level).
+ * The Calendar form is a panel of its own since the 03/10/2026 change, opened
+ * beside the calendar tile or, with none pinned, as a sheet (`openHomePanel`).
  */
 async function openCalendarSettings(page: Page) {
-  const panel = await openUserMenuLevel(page, "calendar");
+  const panel = await openHomePanel(page, "calendar");
   await expect(panel.getByTestId("calendar-feed-url")).toBeVisible({ timeout: 15_000 });
   return panel;
 }
@@ -138,11 +138,9 @@ test("CALUI-01: si prova l'indirizzo, poi si salva, e dimenticarlo lo toglie dal
   await expect(field).toHaveValue("");
   await expect.poll(() => storedFeedUrl(page), { timeout: 5_000 }).toBe(`${origin}/basic.ics`);
 
-  // The row says it without opening anything: closing the level reads the
-  //    state again and the tail follows (USERMENU-10).
+  // Escape closes only the panel, and it opens again on the stored state.
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
-  await expect(page.getByTestId("topics-menu-calendar-tail")).toHaveText("Collegato", { timeout: 10_000 });
   await openCalendarSettings(page);
 
   // 4. Forgetting is the way out, and it reaches the server: the address is

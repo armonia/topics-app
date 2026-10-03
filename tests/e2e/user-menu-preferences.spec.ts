@@ -284,7 +284,7 @@ test.describe("il menu utente: i dispositivi si gestiscono dove si vedono", () =
     await expect(revoked.getByTestId("device-revoked-when")).toHaveText("revocato 2 g fa");
   });
 
-  test("USERMENU-06: ⌘, apre il menu utente, i cinque moduli sono suoi livelli, e Nodi ha l'aggiunta di un nodo ma non l'elenco dei dispositivi", async ({ page }) => {
+  test("USERMENU-06: ⌘, apre il menu utente, il Piano e le Macchine sono suoi livelli, e Macchine ha l'aggiunta di un nodo ma non l'elenco dei dispositivi", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-06" });
     await goToApp(page);
     const menu = page.getByTestId("profile-menu");
@@ -295,9 +295,14 @@ test.describe("il menu utente: i dispositivi si gestiscono dove si vedono", () =
     // No Settings window and no row that opens one: one home per setting.
     await expect(page.getByTestId("settings-panel")).toHaveCount(0);
     await expect(menu.getByTestId("topics-menu-settings")).toHaveCount(0);
-    for (const row of ["plan", "nodes", "providers", "tools", "calendar"]) {
-      await expect(menu.getByTestId(`topics-menu-${row}`)).toBeVisible();
+    // The plan under the account; the machines inside Devices; the forms that
+    // are not the account live where they are used (SETHOME-01).
+    await expect(menu.getByTestId("topics-menu-plan")).toBeVisible();
+    for (const row of ["nodes", "providers", "tools", "calendar"]) {
+      await expect(menu.getByTestId(`topics-menu-${row}`)).toHaveCount(0);
     }
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
     const nodes = await openUserMenuLevel(page, "nodes");
     await expect(nodes.getByTestId("settings-node-pair")).toBeVisible({ timeout: 15_000 });
     await expect(nodes.getByTestId("device-row")).toHaveCount(0);

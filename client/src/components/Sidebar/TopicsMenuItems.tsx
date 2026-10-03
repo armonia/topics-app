@@ -25,9 +25,10 @@
  * History stays a row of its own: it is not a setting of anything, it is a
  * place you go.
  *
- * AND THE FORMS ARE HERE TOO. AI providers, tools and calendar open as levels
- * above the preferences (`FormLevels`): the Settings window and its row are
- * gone, every setting has one home and it is this menu (USERMENU-06).
+ * THE FORMS ARE NOT HERE. AI providers, tools and calendar live where they are
+ * used (the model selector, the composer's «+», the calendar tile) and the
+ * palette opens each by its name (SETHOME-01): this menu keeps who you are and
+ * how the app looks.
  *
  * WHAT IS NOT HERE: performance, version and restart. They are `SidebarSystemMenu`,
  * which was already one component for both screens, and they sit BELOW these
@@ -40,7 +41,6 @@ import type { SidebarViewMode } from '@/hooks/useSidebarState';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AppearanceLevel, type MenuPreferences } from './AppearanceLevel';
 import { NotificationsLevel } from './NotificationsLevel';
-import { EngineLevels } from './FormLevels';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
 import { menuRowClass } from './menuRow';
 import { useT } from '@/hooks/useT';
@@ -132,12 +132,6 @@ export function TopicsMenuItems({
   );
   return (
     <>
-      {/* WHAT THE APP RUNS ON AND WHAT IT REACHES: the AI providers, the tools,
-          the calendar. Forms, in levels of their own (USERMENU-06): there is no
-          Settings window any more, the menu is the one home of every setting. */}
-      <EngineLevels openLevel={openLevel} />
-
-      <div className="border-t border-app-border" />
       {/* HOW THE APP LOOKS AND HOW IT WARNS YOU: direct controls, applied on
           change, where the Settings panel used to hold them (USERMENU-01,
           USERMENU-03). */}

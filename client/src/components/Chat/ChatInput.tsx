@@ -45,6 +45,13 @@ import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState 
 import { isMachineRow, lastConversationMessage, lastPersonText, messageToSpeak } from './machineRow';
 import { AttachmentStrip } from './AttachmentStrip';
 import { attachmentKey } from './attachmentKey';
+// The tools row is drawn only while the «+» is open: its words and its read
+// load then, not with the composer.
+const ComposerToolsRow = lazy(async () => {
+  const { ComposerToolsRow: Row } = await import('./ComposerToolsRow');
+  return { default: Row };
+});
+import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -110,6 +117,7 @@ function AddMenu({
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="composer-add-menu"
+        {...{ [HOME_ANCHOR_ATTR]: allowSlashCommands ? 'tools' : undefined }}
         className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
           open || anyActive
             ? 'text-primary bg-primary/10'
@@ -207,6 +215,15 @@ function AddMenu({
             {tr('chat.composer.export')}
             <span className="ml-auto text-mini text-app-text-muted">.md</span>
           </button>
+        )}
+
+        {/* The MCP tools the agent works with live here, beside what is added to
+            the turn (SETHOME-01). Not on the board's coordinator: its tool
+            profile is the server's. */}
+        {allowSlashCommands && (
+          <Suspense fallback={null}>
+            <ComposerToolsRow triggerRef={triggerRef} rowClass={rowClass} onPicked={() => setOpen(false)} />
+          </Suspense>
         )}
 
         {allowSlashCommands && <>
@@ -309,7 +326,6 @@ interface ChatInputProps {
   effort?: string | null;
   onEffortChange?: (effort: string | null) => void;
   defaultProviderLabel?: string;
-  onOpenSettings?: () => void;
   /**
    * Context Inspector plumbing. The inspector now renders as a popover anchored
    * to the composer's context ring (was a docked side panel owned by the parent
@@ -368,7 +384,6 @@ export function ChatInput({
   effort,
   onEffortChange,
   defaultProviderLabel,
-  onOpenSettings,
   onUpdateTopic,
   onMessage,
 }: ChatInputProps) {
@@ -1699,7 +1714,6 @@ export function ChatInput({
                   override={providerOverride ?? null}
                   defaultProviderLabel={defaultProviderLabel}
                   onChange={onProviderOverrideChange}
-                  onOpenSettings={onOpenSettings}
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}
                 />

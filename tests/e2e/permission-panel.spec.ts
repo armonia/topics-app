@@ -5,7 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { openUserMenuLevel } from "./helpers/user-menu";
+import { openHomePanel } from "./helpers/user-menu";
 import { PERMISSION_LABEL_KEY } from "../../shared/permission-decision";
 import IT from "../../client/src/lib/i18n-it";
 
@@ -389,11 +389,11 @@ test.describe.serial("Pannello di permesso", () => {
     await request.post(`${BASE}/api/tool-grants`, { data: { pattern: TOOL }, ignoreHTTPSErrors: true });
     await openChat(page, chatPage);
 
-    // I consensi non hanno una voce propria: stanno nel livello «Strumenti»
-    // del menu utente, sotto i server MCP. Un pannello che di default è vuoto
-    // non merita un posto fisso, ma deve restare raggiungibile, ed è
-    // esattamente ciò che questo test difende.
-    const settings = await openUserMenuLevel(page, "tools");
+    // I consensi non hanno una voce propria: stanno nel pannello «Strumenti
+    // MCP», sotto i server, che si apre dal «+» del composer o dalla palette.
+    // Un pannello che di default è vuoto non merita un posto fisso, ma deve
+    // restare raggiungibile, ed è esattamente ciò che questo test difende.
+    const settings = await openHomePanel(page, "tools");
 
     const row = settings.locator(`[data-testid="tool-grant-${TOOL}"]`);
     await expect(row).toBeVisible({ timeout: 5_000 });

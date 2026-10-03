@@ -29,7 +29,9 @@ import { PALLINO_OK, SEGNALE_OK } from './chromeSignals';
 import { moveDevice, renameDevice, revokeDevice } from '@/lib/devicesApi';
 import type { DevicePerson, DevicesSnapshot, PairedDevice } from '@/lib/devicesRead';
 import { pendingRemoteRequests } from '@/lib/remoteNodeRequests';
-import { openUserMenu } from '@/lib/openUserMenu';
+import { NotificationBadge } from '../Shared/NotificationBadge';
+import { MachinesLevel } from './FormLevels';
+import { nodeRequestsLabel } from './formLevelTails';
 import { deviceRevokedLine, deviceSeenLine } from '@/lib/deviceAudit';
 import { useActiveLocale, useT } from '@/hooks/useT';
 
@@ -37,7 +39,7 @@ const ROW = 'flex items-center gap-2 px-3 py-1 text-mini coarse:min-h-11 coarse:
 const ICON_BUTTON = 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:h-11 coarse:w-11';
 const TEXT_BUTTON = 'flex-shrink-0 rounded px-1.5 py-0.5 text-mini coarse:min-h-11 coarse:px-3';
 
-export function DevicesLevel({ devices, failed = false, width, onReadDevices, defaultOpen = false }: {
+export function DevicesLevel({ devices, failed = false, width, onReadDevices, defaultOpen = false, machinesOpen = false }: {
   /** `null` until the route has answered once. */
   devices: DevicesSnapshot | null;
   /** The last read did not answer. */
@@ -47,10 +49,22 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
   /** Asks the route again. Stable: the level calls it on open. */
   onReadDevices: () => void;
   defaultOpen?: boolean;
+  /** The Machines section open too (`openUserMenu('nodes')`, the palette). */
+  machinesOpen?: boolean;
 }) {
   const tr = useT();
   const locale = useActiveLocale();
   const [remote, setRemote] = useState(0);
+  // Bumped by the requests line: the Machines level opens on it, fresh.
+  const [machinesAsked, setMachinesAsked] = useState(0);
+  // THE BADGE IS ON THE ROW, so it is read with the menu (mounting is
+  // opening): a request from another computer waits for an answer, and the
+  // person must not have to open Devices to learn there is one.
+  useEffect(() => {
+    let alive = true;
+    void pendingRemoteRequests().then((n) => { if (alive) setRemote(n); });
+    return () => { alive = false; };
+  }, []);
   // Stable, because `SubmenuItem` reports from an effect keyed on it.
   const onOpenChange = useCallback((open: boolean) => {
     if (!open) return;
@@ -84,19 +98,31 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
       maxWidth={Math.max(width, 300)}
       onOpenChange={onOpenChange}
       defaultOpen={defaultOpen}
-      tail={active.length > 0 ? (
-        <span data-testid="devices-count" className={`flex-shrink-0 tabular-nums ${activeOnline > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-          {tr('statusBar.me.devicesCount', { n: online, tot: listed })}
-        </span>
+      tail={active.length > 0 || remote > 0 ? (
+        <>
+          {active.length > 0 && (
+            <span data-testid="devices-count" className={`flex-shrink-0 tabular-nums ${activeOnline > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
+              {tr('statusBar.me.devicesCount', { n: online, tot: listed })}
+            </span>
+          )}
+          {remote > 0 && (
+            <NotificationBadge
+              count={remote}
+              testId="devices-requests-badge"
+              ariaLabel={nodeRequestsLabel(remote, tr)}
+              title={nodeRequestsLabel(remote, tr)}
+            />
+          )}
+        </>
       ) : undefined}
     >
       {remote > 0 && (
         <button
           type="button"
           data-testid="devices-remote-requests"
-          // The requests are answered in the Nodes level, one row below this
-          // one in the same menu: the menu reopens on it.
-          onClick={() => openUserMenu('nodes')}
+          // The requests are answered in the Machines section at the foot of
+          // this level: it opens beside it.
+          onClick={() => setMachinesAsked((n) => n + 1)}
           className={`${ROW} w-full text-left text-app-text hover:bg-app-hover`}
         >
           <Server size={12} className="flex-shrink-0 text-app-text-muted" />
@@ -158,6 +184,16 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
           </SubmenuItem>
         </div>
       )}
+      {/* THE MACHINES ARE COMPUTERS TOO: the nodes this board spans and the
+          requests from other computers, at the foot of the devices
+          (SETHOME-01). A form, so a level of its own beside this one. */}
+      <div className="border-t border-app-border py-1">
+        <MachinesLevel
+          key={machinesAsked}
+          defaultOpen={machinesOpen || machinesAsked > 0}
+          onRequestsRead={setRemote}
+        />
+      </div>
     </SubmenuItem>
   );
 }

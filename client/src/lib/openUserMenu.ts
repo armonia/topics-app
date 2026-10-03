@@ -1,14 +1,14 @@
 /**
  * OPEN THE USER MENU, optionally on one of its levels, from anywhere.
  *
- * The user menu is the one home of every setting: the preferences, and since
- * the Settings panel went away the forms too (AI providers, tools, calendar,
- * plan, nodes). Every door that led to a page of the panel now leads to a level
- * of the menu: the bell's gear to Notifications, the plan-limit notice and the
- * model selector to AI providers, ⌘, to the menu itself. The menu is owned by
- * two hosts (the user card on the desktop, the title menu on the phone) that no
- * caller can reach through props, so the request is an event, in the same shape
- * as `topics:open-utility`.
+ * The user menu holds who you are and how the app looks: the account and its
+ * plan, the people, the devices with the machines, Appearance, Notifications,
+ * View. The other forms live where they are used (`lib/openHome`). Doors that
+ * land here: the bell's gear on Notifications, ⌘, on the menu itself, and the
+ * palette's commands for the plan, the machines, the look and the
+ * notifications. The menu is owned by two hosts (the user card on the desktop,
+ * the title menu on the phone) that no caller can reach through props, so the
+ * request is an event, in the same shape as `topics:open-utility`.
  */
 
 /** The event both hosts listen to. */
@@ -18,10 +18,8 @@ export const OPEN_USER_MENU_EVENT = 'topics:open-user-menu';
 export type UserMenuLevel =
   | 'plan'
   | 'devices'
+  /** Devices, with its Machines section open. */
   | 'nodes'
-  | 'providers'
-  | 'tools'
-  | 'calendar'
   | 'appearance'
   | 'notifications'
   | 'view';
@@ -46,4 +44,10 @@ export interface UserMenuRequest {
   n: number;
   /** Asked from the keyboard without a level (⌘,): focus the first row. */
   focusFirst?: boolean;
+  /**
+   * Bumped by a request that arrives while the menu is ALREADY open. `n` then
+   * stays put: remounting would throw away a half-typed form in an open level.
+   * The host moves the focus instead (the first row, or the level asked for).
+   */
+  focusN?: number;
 }

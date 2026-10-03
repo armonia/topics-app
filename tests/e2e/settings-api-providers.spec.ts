@@ -10,7 +10,7 @@ import { beat, didascalia } from './helpers/evidence';
 import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { goToApp, openTopic } from './helpers';
 import { mockChatStream } from './helpers/sse-helpers';
-import { openUserMenuLevel } from './helpers/user-menu';
+import { openHomePanel } from './helpers/user-menu';
 
 hermetic(test);
 
@@ -93,21 +93,21 @@ async function mockProviders(page: Page, providers: ProviderSnapshotEntry[] = [e
   };
 }
 
-/** The AI providers form is a level of the user menu (a sheet on the phone). */
+/** The AI providers form is a panel of its own (a sheet on the phone). */
 async function openProviders(page: Page) {
   await page.goto('/');
-  const level = await openUserMenuLevel(page, 'providers');
+  const level = await openHomePanel(page, 'providers');
   await expect(page.getByTestId('ai-providers-settings')).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => level.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
   return level;
 }
 
-/** From one form level to another: Escape closes only the open level, the
- *  menu stays, and the next row opens its own. */
+/** From one form to the other: Escape closes the panel, and the other opens
+ *  on its own. */
 async function switchLevel(page: Page, from: 'providers' | 'tools', to: 'providers' | 'tools') {
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId(`topics-menu-${from}-menu`)).toHaveCount(0);
-  return openUserMenuLevel(page, to);
+  await expect(page.getByTestId(`home-panel-${from}`)).toHaveCount(0);
+  return openHomePanel(page, to);
 }
 
 for (const device of [

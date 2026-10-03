@@ -1,17 +1,21 @@
 /**
  * THE TAILS OF THE FORM ROWS SAY HOW THINGS STAND, AND NOTHING THEY DO NOT KNOW.
  *
- * Each row of the user menu that opens a form (plan, AI providers, tools,
- * calendar, nodes) answers the common question in its tail. These are the
+ * Each row that opens a form where it is used (the plan under the account, the
+ * providers at the foot of the model selector, the tools in the composer's «+»,
+ * the calendar in its tile's menu, the machines in Dispositivi) answers the
+ * common question in its tail. These are the
  * translations from the facts the menu reads to the words it shows, in both
  * languages, without a DOM.
  *
  * @covers USERMENU-10
+ * @covers SETHOME-01
  */
 import { describe, expect, test } from 'bun:test';
-import { t, missingKeys, type Locale } from '../../lib/i18n';
+import { t, missingKeys, ensureLocaleLoaded, type Locale } from '../../lib/i18n';
 import {
-  calendarTail, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersTail, subscriptionLabel, toolsTail, usageLine,
+  calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersReadyTail, runsOnClaudePlan,
+  subscriptionLabel, toolsTail, usageLine,
 } from './formLevelTails';
 import type { ProvidersSnapshot } from '../../types';
 
@@ -30,13 +34,15 @@ describe('planTail', () => {
     expect(planTail({ plan: 'team', seats: 1, expiresAt: null }, NOW, it)?.text).toBe('Team · 1 posto');
   });
 
-  test('inside thirty days the expiry joins the tail, in the warning tone', () => {
+  test('inside thirty days the expiry LEADS the tail, in the warning tone', () => {
+    // First, not last: the tail truncates at its right end, and in a 288 px
+    // menu the end was the warning (`user-menu-forms.spec.ts` measures it).
     expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW + 12 * DAY + 1000 }, NOW, it))
-      .toEqual({ text: 'Team · 5 posti · scade tra 12 g', warn: true });
+      .toEqual({ text: 'Scade tra 12 g · Team · 5 posti', warn: true });
     expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW + 3_600_000 }, NOW, it)?.text)
-      .toBe('Team · 5 posti · scade oggi');
+      .toBe('Scade oggi · Team · 5 posti');
     expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW - 2 * DAY }, NOW, it))
-      .toEqual({ text: 'Team · 5 posti · scaduto', warn: true });
+      .toEqual({ text: 'Scaduto · Team · 5 posti', warn: true });
   });
 
   test('a plan not read yet says nothing', () => {
@@ -92,27 +98,61 @@ describe('claudeSubscription', () => {
   });
 });
 
-describe('providersTail', () => {
-  test('the default provider and the Claude plan it runs on', () => {
-    expect(providersTail(snapshot('claude-code', { type: 'max', tier: 'default_claude_max_20x' }), it)).toBe('Claude Code · Max 20x');
+describe('providersReadyTail', () => {
+  /** The same snapshot with one row's status changed. */
+  const withStatus = (name: string, status: 'ready' | 'unavailable') => {
+    const base = snapshot('claude-code');
+    return { ...base, providers: base.providers.map((p) => (p.name === name ? { ...p, status } : p)) };
+  };
+
+  test('how many providers can run a turn; topics, the routing switch, is not one of them', () => {
+    expect(providersReadyTail(snapshot('claude-code'), null, it)).toEqual({ text: '2 pronti', warn: false });
+    expect(providersReadyTail(withStatus('codex', 'unavailable'), null, it)).toEqual({ text: '1 pronto', warn: false });
   });
 
-  test('the default runtime, topics, runs on the same Claude plan and says it', () => {
-    expect(providersTail(snapshot('topics', { type: 'max', tier: 'default_claude_max_20x' }), it)).toBe('Topics · Max 20x');
+  test('the chosen provider not ready is the one thing the row says, in the warning tone', () => {
+    expect(providersReadyTail(withStatus('codex', 'unavailable'), 'codex', it)).toEqual({ text: 'Codex non pronto', warn: true });
+    // A ready choice does not change the count.
+    expect(providersReadyTail(snapshot('claude-code'), 'codex', it)).toEqual({ text: '2 pronti', warn: false });
   });
 
-  test('without a known plan, the provider alone', () => {
-    expect(providersTail(snapshot('claude-code'), it)).toBe('Claude Code');
-    expect(providersTail(snapshot('claude-code', { type: 'mystery', tier: null }), it)).toBe('Claude Code');
+  test('nothing ready is a warning; no snapshot yet is silence', () => {
+    const none = { ...snapshot('claude-code'), providers: snapshot('claude-code').providers.map((p) => ({ ...p, status: 'unavailable' as const })) };
+    expect(providersReadyTail(none, null, it)).toEqual({ text: 'Nessuno pronto', warn: true });
+    expect(providersReadyTail(null, null, it)).toBeNull();
   });
 
-  test('the Claude plan is not pinned on another provider', () => {
-    expect(providersTail(snapshot('codex', { type: 'max', tier: 'default_claude_max_20x' }), it)).toBe('Codex');
+  test('in english too', async () => {
+    await ensureLocaleLoaded('en');
+    const en = (key: string, vars?: Record<string, string | number>) => t(key, 'en', vars);
+    expect(providersReadyTail(snapshot('claude-code'), null, en)?.text).toBe('2 ready');
+    expect(providersReadyTail(withStatus('codex', 'unavailable'), 'codex', en)?.text).toBe('Codex not ready');
+  });
+});
+
+describe('claudePlanCompact', () => {
+  const max = { type: 'max', tier: 'default_claude_max_20x' };
+
+  test('the plan and the five-hour window in one line', () => {
+    expect(claudePlanCompact(max, { utilization: 41.6 }, it)).toEqual({ text: 'Max 20x · 5 h al 42%', warn: false });
   });
 
-  test('no default is «Nessuno»; no snapshot yet is silence', () => {
-    expect(providersTail(snapshot(null), it)).toBe('Nessuno');
-    expect(providersTail(null, it)).toBeNull();
+  test('past the warning threshold the line asks for attention', () => {
+    expect(claudePlanCompact(max, { utilization: 80 }, it)).toEqual({ text: 'Max 20x · 5 h al 80%', warn: true });
+  });
+
+  test('either half alone, and nothing with neither', () => {
+    expect(claudePlanCompact(max, null, it)).toEqual({ text: 'Max 20x', warn: false });
+    expect(claudePlanCompact(null, { utilization: 10 }, it)).toEqual({ text: '5 h al 10%', warn: false });
+    expect(claudePlanCompact({ type: 'mystery', tier: null }, null, it)).toBeNull();
+    expect(claudePlanCompact(null, null, it)).toBeNull();
+  });
+
+  test('only the Claude runtimes run on the plan', () => {
+    expect(runsOnClaudePlan('claude-code')).toBe(true);
+    expect(runsOnClaudePlan('topics')).toBe(true);
+    expect(runsOnClaudePlan('codex')).toBe(false);
+    expect(runsOnClaudePlan(null)).toBe(false);
   });
 });
 
@@ -161,6 +201,8 @@ describe('every word of the tails exists in both languages', () => {
     'userMenu.calendar.on', 'userMenu.calendar.paused', 'userMenu.calendar.none', 'userMenu.nodes.one', 'userMenu.nodes.many',
     'userMenu.nodes.requests', 'userMenu.subscription', 'userMenu.usage.fiveHours', 'userMenu.usage.fiveHoursReset',
     'userMenu.level.close', 'userMenu.subscriptionUnknown', 'userMenu.usage.none',
+    'home.providers.ready', 'home.providers.readyOne', 'home.providers.noneReady', 'home.providers.notReady',
+    'home.claudeUsage', 'home.providers', 'home.tools', 'home.calendar', 'home.machines',
   ];
 
   test('italian: no bare key', () => {

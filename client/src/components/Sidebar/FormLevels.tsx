@@ -1,28 +1,24 @@
 /**
- * THE FIVE FORM LEVELS OF THE USER MENU, and what each row says closed.
+ * THE TWO FORMS LEFT IN THE USER MENU, and what each row says closed.
  *
- * Plan, nodes, AI providers, tools and calendar (USERMENU-06, USERMENU-10). Each
- * row reads its fact when the menu opens (the menu is mounted only while open,
- * so mounting IS opening and nothing polls while it is closed), and reads it
- * again when its level closes, so a change made inside shows in the tail at
+ * The plan and the machines (USERMENU-06, USERMENU-10, SETHOME-01): they stay in
+ * the menu because they ARE the account and its computers. Every other form
+ * lives where it is used (providers in the model selector, tools in the
+ * composer, calendar in its tile) and is drawn by `Settings/HomePanelHost`.
+ * Each row reads its fact when the menu opens (the menu is mounted only while
+ * open, so mounting IS opening and nothing polls while it is closed), and reads
+ * it again when its level closes, so a change made inside shows in the tail at
  * once. The words are `formLevelTails.ts`; the frame is `FormLevel`.
- *
- * Where they sit is the host's decision (`IdentityMenuItems` for the plan and
- * the nodes, `TopicsMenuItems` for the engine): this file only says what each
- * level holds.
  */
 import { lazy, useCallback, useEffect, useState } from 'react';
-import { CalendarDays, Cpu, CreditCard, Plug, Server } from 'lucide-react';
+import { CreditCard, Server } from 'lucide-react';
 import { FormLevel } from './FormLevel';
-import { calendarTail, nodeRequestsLabel, nodesTail, planTail, providersTail, toolsTail, type LicensePlan, type Tail } from './formLevelTails';
+import { nodeRequestsLabel, nodesTail, planTail, type LicensePlan, type Tail } from './formLevelTails';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
-import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
-import { appSettingsApi, mcpApi, type AppBehaviorSettings, type McpFleetStatus } from '@/lib/api';
 import { apiFetch } from '@/lib/shell/net';
 import { pendingRemoteRequests } from '@/lib/remoteNodeRequests';
 import { nodesOf, useMachines } from '@/state/machinesStore';
-import type { UserMenuLevel } from '@/lib/openUserMenu';
 import { useT } from '@/hooks/useT';
 
 // The forms load the first time their level opens. Destructured on purpose: a
@@ -33,18 +29,6 @@ const PlanSection = lazy(async () => {
 });
 const NodesSection = lazy(async () => {
   const { NodesSection: Body } = await import('../Settings/NodesSection');
-  return { default: Body };
-});
-const ProvidersLevelBody = lazy(async () => {
-  const { ProvidersLevelBody: Body } = await import('./ProvidersLevelBody');
-  return { default: Body };
-});
-const ToolsSection = lazy(async () => {
-  const { ToolsSection: Body } = await import('../Settings/ToolsSection');
-  return { default: Body };
-});
-const CalendarSection = lazy(async () => {
-  const { CalendarSection: Body } = await import('../Settings/CalendarSection');
   return { default: Body };
 });
 
@@ -111,28 +95,37 @@ export function PlanLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   );
 }
 
-/** The machines this board spans, beside the devices; a request from another
- *  computer needs an answer, so it is a badge and not a word. */
-export function NodesLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
+/**
+ * THE MACHINES THIS BOARD SPANS, inside the Devices level: both are computers.
+ * Pair a node (an address and a code) and answer the requests from other
+ * computers. A request needs an answer, so it is a badge and not a word.
+ */
+export function MachinesLevel({ defaultOpen = false, onRequestsRead }: {
+  defaultOpen?: boolean;
+  /** Told how many requests wait, every time they are read: the Devices row
+   *  carries the same badge. */
+  onRequestsRead?: (n: number) => void;
+}) {
   const tr = useT();
   const machines = useMachines();
   const [pending, again] = useMenuRead(pendingRemoteRequests);
   const onOpenChange = useReadOnClose(again);
   const requests = pending ?? 0;
+  useEffect(() => { if (pending !== null) onRequestsRead?.(pending); }, [pending, onRequestsRead]);
   return (
     <FormLevel
       icon={Server}
-      label={tr('settings.section.nodes')}
-      testId="topics-menu-nodes"
+      label={tr('home.machines')}
+      testId="devices-machines"
       defaultOpen={defaultOpen}
       onOpenChange={onOpenChange}
       tail={
         <>
-          <TailText testId="topics-menu-nodes-tail" tail={machines ? nodesTail(nodesOf(machines).length, tr) : null} />
+          <TailText testId="devices-machines-tail" tail={machines ? nodesTail(nodesOf(machines).length, tr) : null} />
           {requests > 0 && (
             <NotificationBadge
               count={requests}
-              testId="topics-menu-nodes-requests"
+              testId="devices-machines-requests"
               ariaLabel={nodeRequestsLabel(requests, tr)}
               title={nodeRequestsLabel(requests, tr)}
             />
@@ -142,56 +135,5 @@ export function NodesLevel({ defaultOpen = false }: { defaultOpen?: boolean }) {
     >
       <NodesSection />
     </FormLevel>
-  );
-}
-
-const readFleet = (signal: AbortSignal): Promise<McpFleetStatus> => mcpApi.peek(signal);
-const readCalendar = (): Promise<AppBehaviorSettings> => appSettingsApi.get();
-
-/**
- * WHAT THE APP RUNS ON AND WHAT IT REACHES: AI providers, tools, calendar.
- * One group, hairline above and below in the host.
- */
-export function EngineLevels({ openLevel = null }: { openLevel?: UserMenuLevel | null }) {
-  const tr = useT();
-  // The snapshot is a shared store fed by the socket: reading it here costs no
-  // request when the picker has already asked.
-  const { snapshot } = useProvidersSnapshot();
-  const [fleet, againFleet] = useMenuRead(readFleet);
-  const [calendar, againCalendar] = useMenuRead(readCalendar);
-  const onToolsOpenChange = useReadOnClose(againFleet);
-  const onCalendarOpenChange = useReadOnClose(againCalendar);
-  return (
-    <>
-      <FormLevel
-        icon={Cpu}
-        label={tr('settings.section.providers')}
-        testId="topics-menu-providers"
-        defaultOpen={openLevel === 'providers'}
-        tail={<TailText testId="topics-menu-providers-tail" tail={providersTail(snapshot, tr)} />}
-      >
-        <ProvidersLevelBody />
-      </FormLevel>
-      <FormLevel
-        icon={Plug}
-        label={tr('settings.section.tools')}
-        testId="topics-menu-tools"
-        defaultOpen={openLevel === 'tools'}
-        onOpenChange={onToolsOpenChange}
-        tail={<TailText testId="topics-menu-tools-tail" tail={toolsTail(fleet, tr)} />}
-      >
-        <ToolsSection />
-      </FormLevel>
-      <FormLevel
-        icon={CalendarDays}
-        label={tr('settings.section.calendar')}
-        testId="topics-menu-calendar"
-        defaultOpen={openLevel === 'calendar'}
-        onOpenChange={onCalendarOpenChange}
-        tail={<TailText testId="topics-menu-calendar-tail" tail={calendarTail(calendar, tr)} />}
-      >
-        <CalendarSection />
-      </FormLevel>
-    </>
   );
 }

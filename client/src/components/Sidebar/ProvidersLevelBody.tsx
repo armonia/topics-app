@@ -1,6 +1,6 @@
 /**
- * THE AI PROVIDERS LEVEL: the Claude plan and how much of it is spent, then the
- * providers form.
+ * THE AI PROVIDERS PANEL: the Claude plan and how much of it is spent, then the
+ * providers form. It opens beside the model selector (SETHOME-01).
  *
  * The line on top answers what a person checks most often here: which Claude
  * subscription this machine is signed in with, and how full its five-hour

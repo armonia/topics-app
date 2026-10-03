@@ -92,6 +92,9 @@ export function AccountPanel({ who, onOpenProfile }: {
         type="button"
         onClick={onOpenProfile}
         data-testid="account-identity"
+        // The row the user menu opens on from the keyboard (⌘,): once it has
+        // the focus, `PresencePopover` stops following the first row.
+        data-menu-first-row=""
         className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-app-hover transition-colors"
       >
         {who.avatarUrl

@@ -6,7 +6,7 @@ import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useWorktrees } from './hooks/useWorktrees';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
-import { openUserMenu } from './lib/openUserMenu';
+import { HomePanelHost } from './components/Settings/HomePanelHost';
 import { useMenuPreferences, useUserMenuRequest } from './hooks/useUserMenuHost';
 import { ConfirmInsidePopoverContext } from './hooks/confirmInsidePopover';
 import { runNotificationAction } from './lib/notify/notificationAction';
@@ -468,8 +468,9 @@ function App() {
   // `worktreeId` rides along from a sidebar worktree section ("New topic in
   // this worktree"): the dialog opens with that worktree already picked.
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string; worktreeId?: string }>(false);
-  // There is no Settings window: every setting is a level of the user menu
-  // (USERMENU-06), reached through `openUserMenu`, ⌘, included.
+  // There is no Settings window: each form lives where it is used (SETHOME-01),
+  // drawn by `HomePanelHost` below; the user menu keeps who you are and how the
+  // app looks, and ⌘, opens it (`openUserMenu`).
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -2448,7 +2449,6 @@ function App() {
             onAddPane={handleStandaloneAddPane}
             onProjectPicker={handleOpenProjectPicker}
             onToggleTheme={toggleTheme}
-            onOpenSettings={() => { setShowSearch(false); openUserMenu(); }}
             // "Reimposta pannelli" (collapse to one tabbed cell) + "Disponi
             // automaticamente" (auto-tile into a balanced grid) — per-window
             // CustomEvent bus (same pattern as topics:open-project-picker); the
@@ -2512,6 +2512,10 @@ function App() {
           />
         </Suspense>
       )}
+
+      {/* The one host of the forms that live where they are used: providers,
+          tools, calendar (SETHOME-01). */}
+      <HomePanelHost />
 
       {import.meta.env.DEV && DevOverlay && <DevOverlay />}
 

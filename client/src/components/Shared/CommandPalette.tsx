@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
-  Search, Settings, Moon, Sun, Monitor, File,
+  Search, Moon, Sun, Monitor, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
@@ -37,6 +37,7 @@ import { BrowserFavicon } from '../Browser/BrowserFavicon';
 import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 import { shortcut } from '../../lib/shortcutLabel';
+import { homeCommands } from './paletteHomeCommands';
 
 export interface CommandAction {
   id: string;
@@ -98,7 +99,6 @@ interface CommandPaletteProps {
    *  serviva a produrre proprio la divergenza (opencode non c'era). */
   onAddPane?: (type: PaneType, subType?: string) => void;
   onToggleTheme: () => void;
-  onOpenSettings: () => void;
   onOpenFileSearch?: () => void;
   /** "Reimposta pannelli al primo livello" — flattens the FOCUSED surface's
    *  split layout to a single row (App dispatches the per-window
@@ -129,7 +129,6 @@ export function CommandPalette({
   onProjectPicker,
   onAddPane,
   onToggleTheme,
-  onOpenSettings,
   onResetPanels,
   onAutoTilePanels,
   themeMode,
@@ -460,8 +459,10 @@ export function CommandPalette({
         action: () => { onAutoTilePanels(); onClose(); },
       });
     }
+    // EVERY FORM BY ITS NAME (SETHOME-01): no «Settings» to open.
+    items.push(...homeCommands(t, onClose));
     return items;
-  }, [focusedTabTarget, copyTabLink, onResetPanels, onAutoTilePanels, onClose]);
+  }, [focusedTabTarget, copyTabLink, onResetPanels, onAutoTilePanels, onClose, t]);
 
   // ── File search results (only when query has text) ──────────────────────
   const searchFileItems = useMemo((): CommandAction[] => {
@@ -856,7 +857,7 @@ export function CommandPalette({
                       </>
                     )}
                     {(searchResults.length > 0 || searchLoading) && (
-                      <SectionHeader label="Messaggi" rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
+                      <SectionHeader label={t('palette.section.messages')} rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
                     )}
                     {searchResults.map(item => renderRow(item, { highlight: true }))}
                   </>
@@ -880,7 +881,6 @@ export function CommandPalette({
               ⌘N è legato senza condizioni (useKeyboardShortcuts) ma ci ARRIVA
               solo nel guscio desktop: in una scheda del browser il tasto se lo
               tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
-          <ActionPill isMobile={isMobile} icon={<Settings size={12} />} label={t('settings.title')} shortcut={shortcut(',')} onClick={() => { onOpenSettings(); onClose(); }} />
           {/* THE THEME PILL SAYS WHERE YOU ARE: the icon and the name of the
               current theme. It had two icons for three states (the sun only on
               Dark, the moon on both Light and System), so it said neither the

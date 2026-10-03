@@ -10,8 +10,10 @@
  *
  * THREE GROUPS, hairline between them. What you are and what you pay (the
  * account, the plan right under it), who is around (friends, groups), and the
- * machines (this one's devices, then the nodes the board spans: both are
- * computers, and the devices level already points at the nodes' requests).
+ * machines (the devices, with the nodes the board spans and the requests from
+ * other computers as the Machines section inside the same level: both are
+ * computers). The plan and the machines are the only forms left in the menu,
+ * because they ARE the account and its computers (SETHOME-01).
  *
  * The data comes from `useIdentityMenuData`, which each host calls once: the
  * desktop card needs it for the card itself, the phone only while its menu is
@@ -23,7 +25,7 @@ import { SubmenuItem } from '../Shared/SubmenuItem';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { AccountPanel } from './accountPanelLazy';
 import { DevicesLevel } from './DevicesLevel';
-import { NodesLevel, PlanLevel } from './FormLevels';
+import { PlanLevel } from './FormLevels';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
 import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { mergePeople } from './orgPresence';
@@ -66,9 +68,9 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
         failed={data.devicesFailed}
         width={width}
         onReadDevices={data.readDevices}
-        defaultOpen={openLevel === 'devices'}
+        defaultOpen={openLevel === 'devices' || openLevel === 'nodes'}
+        machinesOpen={openLevel === 'nodes'}
       />
-      <NodesLevel defaultOpen={openLevel === 'nodes'} />
     </>
   );
 }

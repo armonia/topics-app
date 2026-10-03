@@ -151,18 +151,18 @@ test.describe("Floating surfaces enter and leave", () => {
     await expectExit(page, "notification panel", "popover", POPOVER_MAX_MS);
   });
 
-  // The settings are levels of the user menu since the 02/10/2026 change: a form
+  // The forms left in the user menu (the plan, the machines) are levels: a form
   // level moves like every level, with no veil of its own.
-  test("MOTION-04e: a form level of the user menu (AI providers)", async ({ page }) => {
+  test("MOTION-04e: a form level of the user menu (Plan)", async ({ page }) => {
     await ready(page);
     await page.getByTestId("identity-me-profile").click();
     await expect(page.getByTestId("profile-menu")).toBeVisible();
-    await watch(page, '[data-testid="topics-menu-providers-menu"]');
-    await page.getByTestId("topics-menu-providers").click();
-    await expect(page.getByTestId("topics-menu-providers-menu")).toBeVisible();
+    await watch(page, '[data-testid="topics-menu-plan-menu"]');
+    await page.getByTestId("topics-menu-plan").click();
+    await expect(page.getByTestId("topics-menu-plan-menu")).toBeVisible();
     await expectEntrance(page, "form level", POPOVER_MAX_MS, COMPOSITOR_PROPS);
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("topics-menu-providers-menu")).toHaveCount(0);
+    await expect(page.getByTestId("topics-menu-plan-menu")).toHaveCount(0);
     await expectExit(page, "form level", "popover", POPOVER_MAX_MS);
   });
 

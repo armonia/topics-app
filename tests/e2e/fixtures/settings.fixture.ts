@@ -1,6 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
 import { closeProfileMenu } from "../helpers/open-perf-panel";
-import { openUserMenuLevel } from "../helpers/user-menu";
+import { openHomePanel, openUserMenuLevel } from "../helpers/user-menu";
 
 export class SettingsPage {
   constructor(private page: Page) {}
@@ -8,14 +8,12 @@ export class SettingsPage {
   // --- Navigation ---
 
   /**
-   * Open the settings: every setting is a level of the user menu since
-   * the 02/10/2026 change, and the forms land on AI providers, the first one a
-   * person comes for. The user card on the desktop, the title button on the
-   * phone (`openUserMenuLevel` picks). Rows are found by testid, never by their
-   * translated label.
+   * Open the AI providers, the form a person comes for first. Since the
+   * 03/10/2026 change it lives where it is used, beside the model selector,
+   * and one host draws it (`openHomePanel`, SETHOME-01).
    */
   async openSettings() {
-    await openUserMenuLevel(this.page, "providers");
+    await openHomePanel(this.page, "providers");
     await this.page.getByTestId("ai-providers-settings").waitFor({ state: "visible", timeout: 15_000 });
   }
 
@@ -72,14 +70,14 @@ export class SettingsPage {
 
   // --- Locator Getters ---
 
-  /** The AI providers level of the user menu. */
+  /** The AI providers panel. */
   get panel() {
-    return this.page.getByTestId("topics-menu-providers-menu");
+    return this.page.getByTestId("home-panel-providers");
   }
 
-  /** Closes the user menu, the level first: one Escape per level. */
+  /** Closes the providers panel: one Escape. */
   async closeSettings() {
-    await closeProfileMenu(this.page);
+    await this.page.keyboard.press("Escape");
     await this.panel.waitFor({ state: "hidden", timeout: 10_000 });
   }
 

@@ -101,7 +101,7 @@ function useAnchorWidth(anchorEl: HTMLElement | null, floor: number): number {
 }
 
 export function ProfileMenu({
-  anchorEl, onClose, identity, signals, commands, openLevel = null, focusFirstRow = false,
+  anchorEl, onClose, identity, signals, commands, openLevel = null, focusFirstRow = false, focusRequest = 0,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
@@ -114,6 +114,8 @@ export function ProfileMenu({
   openLevel?: UserMenuLevel | null;
   /** Opened by ⌘, : the first row has the focus. */
   focusFirstRow?: boolean;
+  /** Changes when the menu is asked for again while open: focus it again. */
+  focusRequest?: number;
 }) {
   const width = useAnchorWidth(anchorEl, MIN_WIDTH);
 
@@ -124,6 +126,7 @@ export function ProfileMenu({
       testId="profile-menu"
       width={width}
       focusFirstRow={focusFirstRow}
+      focusRequest={focusRequest}
     >
       {/* THE PANEL SCROLLS, THE WINDOW DOES NOT. Everything the chrome knows is
           in here now, and the account block plus the performance panel opened

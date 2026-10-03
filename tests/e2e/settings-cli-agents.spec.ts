@@ -17,7 +17,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
-import { openUserMenuLevel } from "./helpers/user-menu";
+import { openHomePanel } from "./helpers/user-menu";
 
 hermetic(test);
 
@@ -27,10 +27,11 @@ const SHOT_PATH = "test-results/settings-cli-agents.png";
 test.describe("Settings · agent CLIs", () => {
   test.describe.configure({ timeout: 60_000 });
 
-  // The providers form is a level of the user menu since the 02/10/2026 change.
+  // The providers form lives beside the model selector since the 03/10/2026
+  // change, drawn by one host (`openHomePanel`).
   async function openProviders(page: import("@playwright/test").Page) {
     await page.goto("/");
-    const panel = await openUserMenuLevel(page, "providers");
+    const panel = await openHomePanel(page, "providers");
     await panel.getByTestId("ai-providers-advanced-toggle").click();
     return panel;
   }

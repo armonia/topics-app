@@ -9,9 +9,9 @@
  *
  * Questa spec È il criterio di accettazione, non un controllo a occhio. Misura,
  * a 390×844 con `hasTouch`:
- *  · che ogni modulo (Piano, Nodi, Provider AI, Strumenti, Calendario, livelli
- *    del menu utente dal the 02/10/2026 change) sia un foglio largo quanto lo
- *    schermo, senza scorrimento ORIZZONTALE;
+ *  · che ogni modulo (Piano e Macchine, livelli del menu utente; Provider e
+ *    chiavi, Strumenti MCP, Calendario, pannelli dove si usano dal 03/10/2026)
+ *    sia un foglio largo quanto lo schermo, senza scorrimento ORIZZONTALE;
  *  · che ogni bersaglio toccabile dentro ciascun foglio sia ≥ 44px;
  *  · che NON esista un solo `<select>` nativo in pagina;
  *  · che i comandi sugli split — che sotto i 768px non fanno niente, perché
@@ -27,7 +27,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { openProfileMenu } from "./helpers/open-perf-panel";
-import { openUserMenuLevel } from "./helpers/user-menu";
+import { openHomePanel, openUserMenuLevel } from "./helpers/user-menu";
 import { beat, didascalia, isEvidenceRun } from "./helpers/evidence";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -43,23 +43,49 @@ test.use({
 
 const AUDIT_JS = readFileSync(join(__dirname, "helpers", "ui-audit.js"), "utf8");
 
+/** Where each form's sheet is: a level of the user menu, or a panel of the
+ *  host of the forms that live where they are used (SETHOME-01). */
+const SHEET_ID: Record<Level, string> = {
+  plan: "topics-menu-plan",
+  nodes: "devices-machines",
+  providers: "home-panel-providers",
+  tools: "home-panel-tools",
+  calendar: "home-panel-calendar",
+};
+
 /**
- * Opens one form level of the title menu and WAITS FOR THE SHEET TO SETTLE.
+ * Opens one form and WAITS FOR THE SHEET TO SETTLE.
  *
- * The forms are levels of the user menu since the 02/10/2026 change (there is no
- * Settings window), and on the phone a level is a sheet that slides up from the
- * bottom. Measuring while it slides returns a geometry that changes every frame,
- * so the wait is for the fact: the transform back to the identity.
+ * On the phone a level of the user menu and a panel of the forms' host are
+ * both sheets that slide up from the bottom. Measuring while it slides returns
+ * a geometry that changes every frame, so the wait is for the fact: the
+ * transform back to the identity.
  */
 async function openFormLevel(page: Page, level: Level) {
-  const sheet = await openUserMenuLevel(page, level);
+  const sheet = level === "plan" || level === "nodes"
+    ? await openUserMenuLevel(page, level)
+    : await openHomePanel(page, level);
   await expect
     .poll(() => sheet.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
     .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
   // The form is a chunk of its own: measure it, not its loading placeholder.
-  await expect(sheet.getByTestId(`topics-menu-${level}-form`)).toBeVisible();
+  await expect(sheet.getByTestId(`${SHEET_ID[level]}-form`)).toBeVisible();
   await page.waitForTimeout(300);
   return sheet;
+}
+
+/** Closes a sheet: the panel with one Escape, a level and its menu with as
+ *  many as it takes. */
+async function closeSheet(page: Page, sheet: import("@playwright/test").Locator) {
+  await expect(async () => {
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+  await expect(async () => {
+    if (await page.getByTestId("sidebar-topics-menu-panel").count() === 0) return;
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("sidebar-topics-menu-panel")).toHaveCount(0, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
 }
 
 /**
@@ -112,12 +138,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 /**
- * Every form level of the user menu, in the order the menu lists them: plan,
- * nodes (with the machines), then AI providers, tools, calendar.
+ * Every form: the two the user menu keeps (plan; machines, inside devices) and
+ * the three that live where they are used (providers, tools, calendar).
  *
  * A fixed list does not go red when a form is added, it just measures less
- * while the comment keeps saying "all of them": the count assertion in the test
- * compares it with the rows the menu really has.
+ * while the comment keeps saying "all of them": the test compares the menu's
+ * form rows with the two this list says it keeps.
  */
 const LEVELS = ["plan", "nodes", "providers", "tools", "calendar"] as const;
 type Level = (typeof LEVELS)[number];
@@ -127,11 +153,14 @@ test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli s
   await page.getByTestId("sidebar-topics-menu").click();
   const menu = page.getByTestId("sidebar-topics-menu-panel");
   await expect(menu).toBeVisible({ timeout: 10_000 });
-  // The rows the menu has, against the list this spec walks.
+  // The form rows the menu has: the plan only (the machines are inside
+  // Devices, the other three left the menu, SETHOME-01).
   const rows = await menu.locator('[data-testid^="topics-menu-"]').evaluateAll((els) =>
     els.map((el) => el.getAttribute("data-testid") ?? "")
       .filter((id) => /^topics-menu-(plan|nodes|providers|tools|calendar)$/.test(id)));
-  expect(rows, "the form rows of the menu and the list this spec walks").toEqual(LEVELS.map((l) => `topics-menu-${l}`));
+  expect(rows, "the form rows of the menu").toEqual(["topics-menu-plan"]);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
   await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
   await expect(page.getByTestId("settings-panel")).toHaveCount(0);
 
@@ -154,12 +183,11 @@ test("a 390px ogni modulo è un foglio largo quanto lo schermo, senza bersagli s
     const audit = await page.evaluate((scope) => {
       const fn = (window as unknown as { __uiAudit: (o: unknown) => string }).__uiAudit;
       return JSON.parse(fn({ scope, minTap: 44 }));
-    }, `[data-testid="topics-menu-${level}-menu"]`);
+    }, level === "plan" || level === "nodes" ? `[data-testid="${SHEET_ID[level]}-menu"]` : `[data-testid="${SHEET_ID[level]}"]`);
     const tap = (audit.findings?.tapTargets ?? []) as Array<{ el: string; w: number; h: number }>;
     if (tap.length > 0) belowThreshold[level] = tap;
     if (audit.overflowX?.present) horizontalScroll.push(level);
-    await page.keyboard.press("Escape");
-    await expect(sheet).toHaveCount(0);
+    await closeSheet(page, sheet);
   }
   expect(outside, "fogli fuori dallo schermo o più stretti").toEqual({});
   expect(belowThreshold, "bersagli sotto i 44px, per livello").toEqual({});

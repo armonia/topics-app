@@ -44,7 +44,7 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     // peggio di una non tradotta, perché sembra che le due metà siano cose
     // diverse.
     const voci = menu.locator('[role="menuitem"]');
-    await expect(menu.getByTestId("topics-menu-providers")).toBeVisible();
+    await expect(menu.getByTestId("topics-menu-appearance")).toBeVisible();
     const testi = (await voci.allInnerTexts()).map((t) => t.trim()).filter(Boolean);
     expect(testi.length, "il menu deve avere delle voci").toBeGreaterThan(8);
 

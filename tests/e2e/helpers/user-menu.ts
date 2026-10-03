@@ -2,22 +2,23 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import { openProfileMenu } from "./open-perf-panel";
 
 /**
- * EVERY SETTING IS A LEVEL OF THE USER MENU, and these are its doors.
+ * EVERY SETTING HAS ONE HOME, and these are its doors.
  *
- * The preferences (Appearance, Notifications, View), the devices and, since
- * the Settings window went away, the forms (Plan, Nodes, AI providers, Tools,
- * Calendar) are levels of the user menu: the user card on the desktop, the
- * title menu on the phone (`openProfileMenu` picks). The profile, the
- * followers and the organisation are the Profile tab. A spec asks for the
- * level or the page, never for the row that opens it on one screen only.
+ * The user menu keeps who you are and how the app looks: Plan, Devices (with
+ * the Machines section inside), Appearance, Notifications, View (the user card
+ * on the desktop, the title menu on the phone: `openProfileMenu` picks). The
+ * other forms live where they are used and one host draws them
+ * (`openHomePanel`): AI providers beside the model selector, MCP tools beside
+ * the composer's «+», the calendar beside its tile (SETHOME-01). The profile,
+ * the followers and the organisation are the Profile tab. A spec asks for the
+ * level, the panel or the page, never for the row that opens it on one screen
+ * only.
  */
 const LEVEL_ROW = {
   plan: "topics-menu-plan",
   devices: "profile-menu-devices",
-  nodes: "topics-menu-nodes",
-  providers: "topics-menu-providers",
-  tools: "topics-menu-tools",
-  calendar: "topics-menu-calendar",
+  /** The Machines section, a level inside Devices. */
+  nodes: "devices-machines",
   appearance: "topics-menu-appearance",
   notifications: "topics-menu-notifications",
   view: "topics-menu-view",
@@ -28,6 +29,13 @@ export type UserMenuLevelName = keyof typeof LEVEL_ROW;
 /** Opens the user menu and one of its levels; hands back the level's panel. */
 export async function openUserMenuLevel(page: Page, level: UserMenuLevelName): Promise<Locator> {
   await openProfileMenu(page);
+  // The Machines section is a level of Devices: Devices opens first.
+  if (level === "nodes") {
+    const devices = page.getByTestId(LEVEL_ROW.devices);
+    await expect(devices).toBeVisible({ timeout: 15_000 });
+    await devices.click();
+    await expect(page.getByTestId(`${LEVEL_ROW.devices}-menu`)).toBeVisible({ timeout: 15_000 });
+  }
   const row = page.getByTestId(LEVEL_ROW[level]);
   await expect(row).toBeVisible({ timeout: 15_000 });
   await row.click();
@@ -84,4 +92,28 @@ export async function openOrganizationPage(page: Page): Promise<Locator> {
   const org = page.getByTestId("settings-page-organization");
   await requestProfilePage(page, "organization", org);
   return org;
+}
+
+/** The forms that live where they are used, drawn by `HomePanelHost`. */
+export type HomePanelName = "providers" | "tools" | "calendar";
+
+/**
+ * Opens one of those forms the way a door with no anchor of its own does (the
+ * palette's command, `topics:open-home`): beside its home when the home is on
+ * screen, a centred sheet when it is not, a bottom sheet on the phone. Retried,
+ * because the host listens only once the app has mounted. Hands back the panel.
+ * The real doors (the selector's footer, the «+», the tile's menu) have specs
+ * of their own (`settings-homes.spec.ts`).
+ */
+export async function openHomePanel(page: Page, home: HomePanelName): Promise<Locator> {
+  const panel = page.getByTestId(`home-panel-${home}`);
+  await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+  await expect(async () => {
+    if (await panel.isVisible()) return;
+    await page.evaluate((h) => {
+      window.dispatchEvent(new CustomEvent("topics:open-home", { detail: { home: h } }));
+    }, home);
+    await expect(panel).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 20_000 });
+  return panel;
 }

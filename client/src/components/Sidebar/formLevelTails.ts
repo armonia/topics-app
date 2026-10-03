@@ -1,20 +1,23 @@
 /**
- * WHAT THE FIVE FORM ROWS OF THE USER MENU SAY WITH THEIR LEVEL CLOSED.
+ * WHAT A ROW THAT OPENS A FORM SAYS BEFORE YOU OPEN IT.
  *
- * Plan, AI providers, tools, calendar and nodes used to be pages of a Settings
- * window, and the only way to learn "which plan am I on" or "is the calendar
- * connected" was to open it and read. Now they are levels of the user menu, and
- * the row answers the common question in its tail, the way «View» already says
- * the order of the column: the level is for changing it.
+ * Plan, AI providers, tools, calendar and machines used to be pages of a
+ * Settings window, and the only way to learn "which plan am I on" or "is the
+ * calendar connected" was to open it and read. Now each lives where it is used
+ * (SETHOME-01): the plan and the machines in the user menu, the providers at the
+ * foot of the model selector, the tools in the composer's «+», the calendar in
+ * its tile's menu. The row that opens each answers the common question in its
+ * tail, the way «View» already says the order of the column.
  *
- * Pure on purpose. The menu fetches the facts while it is open and hands them
- * here; what a fact becomes on screen is the part that can be wrong in silence
+ * Pure on purpose. The surfaces fetch the facts while they are open and hand
+ * them here; what a fact becomes on screen is the part that can be wrong in silence
  * (a free plan announced as a team, a subscription label made up from a field
  * we do not understand), so it is the part with tests (`formLevelTails.test.ts`).
  */
 import type { McpFleetStatus } from '../../../../shared/session-environment';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
 import { giorniAllaScadenza, scadenzaVicina } from '../Settings/pianoState';
+import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 
 import type { Translate } from '../../../../shared/queue-reason-text';
 
@@ -35,7 +38,7 @@ export interface Tail {
 /**
  * THE TOPICS PLAN, and its expiry when it is close enough to name.
  *
- * «Free» and «Team · 5 seats». The expiry joins only inside the same thirty days
+ * «Free» and «Team · 5 seats». The expiry leads it only inside the same thirty days
  * the Plan level itself uses (`scadenzaVicina`): a countdown that starts a year
  * out is noise, and noise teaches people not to read the tail at all.
  */
@@ -49,7 +52,9 @@ export function planTail(plan: LicensePlan | null, now: number, tr: Translate): 
   const expiry = days < 0
     ? tr('userMenu.plan.expired')
     : days === 0 ? tr('userMenu.plan.expiresToday') : tr('userMenu.plan.expiresIn', { n: days });
-  return { text: `${base} · ${expiry}`, warn: true };
+  // The warning LEADS: the tail truncates at its right end, and in a 288 px
+  // menu the seats pushed the expiry past it. What is cut now is the seats.
+  return { text: `${expiry} · ${base}`, warn: true };
 }
 
 /**
@@ -93,15 +98,44 @@ export function claudeSubscription(snapshot: ProvidersSnapshot | null): Provider
   return snapshot.providers.find((p) => CLAUDE_SUBSCRIPTION_PROVIDERS.has(p.name) && p.subscription)?.subscription ?? null;
 }
 
-/** The default provider's row, and the Claude plan when that row runs on it. */
-export function providersTail(snapshot: ProvidersSnapshot | null, tr: Translate): string | null {
+/**
+ * THE PROVIDERS ROW OF A MODEL SELECTOR: how many can run a turn right now, or
+ * the one problem that matters, which is the provider this selector has chosen
+ * not being ready: "3 ready"; "Codex not ready" in the warning tone; "None
+ * ready" when nothing can run. `topics` is not counted: it is the routing
+ * switch above the list, not a provider of its own (AICTRL-01).
+ */
+export function providersReadyTail(snapshot: ProvidersSnapshot | null, chosen: string | null, tr: Translate): Tail | null {
   if (!snapshot) return null;
-  const name = snapshot.defaultProvider;
-  if (!name) return tr('userMenu.none');
-  const row = snapshot.providers.find((p) => p.name === name);
-  const label = row?.label ?? name;
-  const plan = row && CLAUDE_SUBSCRIPTION_PROVIDERS.has(row.name) ? subscriptionLabel(row.subscription) : null;
-  return plan ? `${label} · ${plan}` : label;
+  const chosenRow = chosen ? snapshot.providers.find((p) => p.name === chosen) : undefined;
+  if (chosenRow && chosenRow.status !== 'ready') {
+    return { text: tr('home.providers.notReady', { name: chosenRow.label ?? chosenRow.name }), warn: true };
+  }
+  const ready = snapshot.providers.filter((p) => p.name !== 'topics' && p.status === 'ready').length;
+  if (ready === 0) return { text: tr('home.providers.noneReady'), warn: true };
+  return { text: ready === 1 ? tr('home.providers.readyOne') : tr('home.providers.ready', { n: ready }), warn: false };
+}
+
+/** Is this provider one whose models run on the Claude subscription? */
+export function runsOnClaudePlan(provider: string | null | undefined): boolean {
+  return !!provider && CLAUDE_SUBSCRIPTION_PROVIDERS.has(provider);
+}
+
+/**
+ * THE CLAUDE PLAN IN ONE SHORT LINE, beside the Claude models of a selector:
+ * «Max 20x · 5 h al 42%». The plan alone without a reading, the reading alone
+ * without a known plan, nothing with neither.
+ */
+export function claudePlanCompact(
+  sub: ProviderSnapshotEntry['subscription'] | null | undefined,
+  fiveHour: { utilization: number } | null | undefined,
+  tr: Translate,
+): Tail | null {
+  const plan = subscriptionLabel(sub);
+  const usage = fiveHour ? tr('home.claudeUsage', { pct: Math.round(fiveHour.utilization) }) : null;
+  if (!plan && !usage) return null;
+  const text = plan && usage ? `${plan} · ${usage}` : (plan ?? usage!);
+  return { text, warn: !!fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT };
 }
 
 /** How many MCP servers are mounted and answering. A fleet never mounted (or

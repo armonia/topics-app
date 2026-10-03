@@ -124,7 +124,9 @@ test.describe("il menu utente apre i livelli di lato", () => {
     const menu = await openProfileMenu(page);
     const host = await box(menu);
 
-    const rows = await menu.locator('[aria-haspopup="menu"]').evaluateAll(
+    // A form level declares a dialog (its body holds fields), a list level a
+    // menu: both open beside the row, so both are walked.
+    const rows = await menu.locator('[aria-haspopup="menu"], [aria-haspopup="dialog"]').evaluateAll(
       (els) => els.map((el) => el.getAttribute("data-testid") ?? ""),
     );
     // The five groups plus the two that used to be accordions: if this list
@@ -152,7 +154,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
 
     // AND ONE AT A TIME: walking the rows leaves one level open, not seven
     // panels stacked across the screen.
-    await expect(page.locator('[role="menu"][data-testid$="-menu"]')).toHaveCount(1);
+    await expect(page.locator('[role="menu"][data-testid$="-menu"], [role="dialog"][data-testid$="-menu"]:not([data-testid="profile-menu"])')).toHaveCount(1);
   });
 
   test("da tastiera: destra apre, sinistra torna indietro, Escape chiude un livello per volta", async ({ page }) => {
@@ -329,28 +331,32 @@ test.describe("il menu utente apre i livelli di lato", () => {
     expect(width, `the version level is ${width}px`).toBeGreaterThanOrEqual(260);
   });
 
-  test("nessuna riga Impostazioni: i moduli sono livelli del menu, ognuno con la coda che dice come sta", async ({ page }) => {
+  test("nessuna riga Impostazioni né Provider, Strumenti, Calendario: il menu tiene chi sei e com'è l'app", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     await goToApp(page);
     const menu = await openProfileMenu(page);
 
-    // THE MENU IS THE ONE HOME OF EVERY SETTING (USERMENU-06). The last row
-    // used to open a Settings window holding five forms; the maintainer asked
-    // for the button to go and the forms
-    // to be levels here. What this pins is the absence of that door, and the
-    // presence of the five rows in their groups: the plan under the account,
-    // the nodes after the devices, the engine above the preferences.
+    // THE MENU KEEPS WHO YOU ARE AND HOW THE APP LOOKS (SETHOME-01). The
+    // Settings row went on 02/10; on 03/10 the forms that are not the account
+    // left too, each for where it is used. What this pins: no settings rows,
+    // and the plan under the account, the devices after the people, the look
+    // right after them.
     await expect(menu.getByTestId("topics-menu-settings")).toHaveCount(0);
     await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    for (const gone of ["topics-menu-providers", "topics-menu-tools", "topics-menu-calendar", "topics-menu-nodes"]) {
+      await expect(menu.getByTestId(gone)).toHaveCount(0);
+    }
+    for (const word of ["Provider AI", "Strumenti", "Calendario", "Impostazioni"]) {
+      await expect(menu.getByRole("menuitem", { name: word, exact: true })).toHaveCount(0);
+    }
     const order = await menu.locator("[data-testid]").evaluateAll((els) => els
       .map((el) => el.getAttribute("data-testid") ?? "")
       .filter((id) => [
         "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
-        "topics-menu-nodes", "topics-menu-providers", "topics-menu-tools", "topics-menu-calendar",
         "topics-menu-appearance",
       ].includes(id)));
     expect(order).toEqual([
       "account-identity", "topics-menu-plan", "profile-menu-friends", "profile-menu-devices",
-      "topics-menu-nodes", "topics-menu-providers", "topics-menu-tools", "topics-menu-calendar",
       "topics-menu-appearance",
     ]);
     // The plan says itself without opening anything.

@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from '../../shared/types';
 import { hermetic } from './fixtures/hermetic';
 import { goToApp } from './helpers';
-import { openUserMenuLevel } from './helpers/user-menu';
+import { openHomePanel } from './helpers/user-menu';
 
 hermetic(test);
 
@@ -101,10 +101,10 @@ async function mockEndpoints(page: Page, options: { reachable?: boolean; provide
   return { saved, sentTokens };
 }
 
-/** The AI providers form is a level of the user menu. */
+/** The AI providers form is a panel of its own (SETHOME-01). */
 async function openProviders(page: Page) {
   await page.goto('/');
-  const level = await openUserMenuLevel(page, 'providers');
+  const level = await openHomePanel(page, 'providers');
   await expect(page.getByTestId('ai-providers-settings')).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => level.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
 }

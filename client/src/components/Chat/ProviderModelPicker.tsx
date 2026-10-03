@@ -9,6 +9,7 @@ import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
 import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
+import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
 
 export interface ProviderModelOverride {
   provider: string;
@@ -19,7 +20,6 @@ interface Props {
   override: ProviderModelOverride | null;
   defaultProviderLabel?: string;
   onChange: (override: ProviderModelOverride | null) => void;
-  onOpenSettings?: () => void;
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   onTopicsRoutingChange?: (next: boolean) => void;
@@ -100,6 +100,9 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         onPointerEnter={prefetchMenu}
         onFocus={prefetchMenu}
         data-testid="provider-model-picker"
+        // The providers' home (SETHOME-01): a door with no anchor of its own
+        // (the palette) opens the providers panel beside this chip.
+        {...{ [HOME_ANCHOR_ATTR]: 'providers' }}
         data-model={activeModelId ?? undefined}
         data-load-state={loadState === 'idle' ? undefined : loadState}
         aria-haspopup="listbox"

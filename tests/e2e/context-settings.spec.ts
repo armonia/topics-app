@@ -260,19 +260,19 @@ test.describe("Context, Memory & Settings", () => {
     expect(putBody.content).toBe("Updated global memory content");
   });
 
-  test("SET-01: the settings open from the user menu, as its levels", async ({
+  test("SET-01: the providers open as a panel of their own, and the look is a level of the user menu", async ({
     settingsPage, page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
-    // The forms are levels of the user menu: no Settings window, no Settings row.
+    // The form lives where it is used: no Settings window, no Settings row.
     await expect(settingsPage.panel).toBeVisible();
     await expect(settingsPage.panel.getByTestId("ai-providers-settings")).toBeVisible();
     await expect(page.getByTestId("settings-panel")).toHaveCount(0);
     await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
 
-    // Escape closes the level, then the menu.
+    // Escape closes the panel.
     await settingsPage.closeSettings();
     await expect(settingsPage.panel).not.toBeVisible();
 
