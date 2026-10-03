@@ -120,7 +120,7 @@ test.describe("the «/» menu of a chat", () => {
     const cmds = await menu(page).locator('[data-testid="slash-menu-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-cmd")));
     expect(cmds.length).toBeGreaterThan(0);
     for (const c of cmds) expect(c, String(c)).toMatch(/^\/con/);
-    // No skill starts with «con» here (`vai`, `spenta`, and `recap` the CLI lists): that group is not drawn at all.
+    // No skill starts with "con" here (`vai`, `spenta`, and `recap` the CLI lists): that group is not drawn at all.  allow-italian: skill names
     await expect(groups(page).filter({ has: page.locator('[data-group="skills"]') })).toHaveCount(0);
     await expect(menu(page).locator('[role="group"][aria-label="Le tue skill"]')).toHaveCount(0);
   });
