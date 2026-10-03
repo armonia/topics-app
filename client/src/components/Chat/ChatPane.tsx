@@ -8,6 +8,7 @@ import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { Pin } from 'lucide-react';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
+import { requestHistoryCompletion } from '../../state/historyCompleteness';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, chatApi, apiErrorCode, type CommandResult } from '../../lib/api';
@@ -1801,6 +1802,10 @@ function ChatPaneComponent({
   // l'insieme dei messaggi appuntati cambia solo quando qualcuno clicca la
   // puntina, non a ogni token.
   const pinnedIds = topic.pinnedMessages;
+  // The count comes from the topic, not from the rows on screen: a long chat
+  // opens on its last page, and a pin older than that page is still in the
+  // agent's context (CMDUI-10).
+  const pinnedCount = pinnedIds?.length ?? 0;
   const pinnedMessages = useMemo(
     () => (pinnedIds?.length ? currentMessages.filter((m) => pinnedIds.includes(m.id)) : EMPTY_MESSAGES),
     [currentMessages, pinnedIds],
@@ -1888,21 +1893,27 @@ function ChatPaneComponent({
       )}
       {/* What stays in the agent's context, said where it is read (CMDUI-10):
           «Appunta» put messages there and nothing showed it. */}
-      {pinnedMessages.length > 0 && (
+      {pinnedCount > 0 && (
         <button
           type="button"
           data-testid="chat-pinned-line"
           aria-expanded={showPinned}
-          onClick={() => setShowPinned((v) => !v)}
+          onClick={() => {
+            // Pins older than the loaded page: the list asks for the rest of
+            // the thread, as a jump to an older message does.
+            if (!showPinned && pinnedMessages.length < pinnedCount) void requestHistoryCompletion(topic.sessionKey, 'apply');
+            setShowPinned((v) => !v);
+          }}
           className="chat-measure px-3 py-1 flex items-center gap-1.5 flex-shrink-0 text-mini text-app-text-secondary hover:text-app-text text-left"
         >
           <Pin size={12} className="text-yellow-500 flex-shrink-0" aria-hidden="true" />
-          <span className="truncate">{tr(pinnedMessages.length === 1 ? 'chat.pinned.lineOne' : 'chat.pinned.lineMany', { n: pinnedMessages.length })}</span>
+          <span className="truncate">{tr(pinnedCount === 1 ? 'chat.pinned.lineOne' : 'chat.pinned.lineMany', { n: pinnedCount })}</span>
         </button>
       )}
       <PinnedMessages
-        show={showPinned && pinnedMessages.length > 0}
+        show={showPinned && pinnedCount > 0}
         pinnedMessages={pinnedMessages}
+        notLoaded={pinnedCount - pinnedMessages.length}
         onGoTo={(id) => { setShowPinned(false); requestScrollToMessage(topic.id, id); }}
         onUnpin={(m) => { void handleTogglePin(m); }}
       />

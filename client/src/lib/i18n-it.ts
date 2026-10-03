@@ -453,6 +453,7 @@ const IT: Dict = {
   'chat.cliRefused.openTerminal': 'Apri un terminale',
   'chat.pinned.lineOne': '1 appuntato · resta nel contesto dell\'agente',
   'chat.pinned.lineMany': '{n} appuntati · restano nel contesto dell\'agente',
+  'chat.pinned.notLoaded': 'altri {n} nei messaggi più vecchi, in caricamento',
   'chat.pinned.unpin': 'Stacca',
   'chat.message.pinnedMark': 'Appuntato',
   'home.claudeWeek': 'sett. {pct}%',

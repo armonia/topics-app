@@ -5,6 +5,8 @@ import type { ChatMessage } from '../../types';
 interface PinnedMessagesProps {
   show: boolean;
   pinnedMessages: ChatMessage[];
+  /** Pins whose message is not among the loaded rows yet. */
+  notLoaded: number;
   /** Takes the transcript to the message (CMDUI-10). */
   onGoTo: (messageId: string) => void;
   /** Unpins it from here. */
@@ -16,9 +18,9 @@ interface PinnedMessagesProps {
  * many there are and that they stay in the agent's context (CMDUI-10). Each
  * entry takes the transcript to its message, and unpins from here.
  */
-export function PinnedMessages({ show, pinnedMessages, onGoTo, onUnpin }: PinnedMessagesProps) {
+export function PinnedMessages({ show, pinnedMessages, notLoaded, onGoTo, onUnpin }: PinnedMessagesProps) {
   const tr = useT();
-  if (!show || pinnedMessages.length === 0) return null;
+  if (!show || (pinnedMessages.length === 0 && notLoaded <= 0)) return null;
 
   return (
     <div data-testid="chat-pinned-list" className="chat-measure border-b border-app-border bg-yellow-50/50 dark:bg-yellow-900/10 p-2 max-h-40 overflow-y-auto flex-shrink-0">
@@ -46,6 +48,11 @@ export function PinnedMessages({ show, pinnedMessages, onGoTo, onUnpin }: Pinned
           </button>
         </div>
       ))}
+      {notLoaded > 0 && (
+        <div data-testid="chat-pinned-not-loaded" className="text-mini text-app-text-muted p-1.5">
+          {tr('chat.pinned.notLoaded', { n: notLoaded })}
+        </div>
+      )}
     </div>
   );
 }

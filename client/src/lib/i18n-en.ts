@@ -449,6 +449,7 @@ const EN = {
   'chat.cliRefused.openTerminal': 'Open a terminal',
   'chat.pinned.lineOne': '1 pinned · stays in the agent\'s context',
   'chat.pinned.lineMany': '{n} pinned · stay in the agent\'s context',
+  'chat.pinned.notLoaded': '{n} more in the older messages, loading',
   'chat.pinned.unpin': 'Unpin',
   'chat.message.pinnedMark': 'Pinned',
   'home.claudeWeek': 'wk {pct}%',

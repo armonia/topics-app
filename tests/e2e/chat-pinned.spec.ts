@@ -1,7 +1,8 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, fetchTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, fetchTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -52,6 +53,32 @@ test.describe("Appunta", () => {
       await entry.getByTestId("chat-pinned-unpin").click();
       await expect(line).toHaveCount(0, { timeout: 10_000 });
       await expect(page.getByTestId("message-pinned-mark")).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
+  });
+
+  test("a pin older than the first page: the line counts it and the list loads it", async ({ page, request }) => {
+    const name = `pinned-long-${Date.now()}`;
+    const topic = await createTopic(request, name);
+    try {
+      const sessionKey = ((await fetchTopic(request, topic.id)) as unknown as { sessionKey: string }).sessionKey;
+      const first = await seedMessage(request, { sessionKey, role: "user", content: "il primo, appuntato" });
+      const total = HISTORY_FIRST_PAGE + 30;
+      for (let i = 1; i < total; i++) await seedMessage(request, { sessionKey, role: i % 2 ? "assistant" : "user", content: `messaggio numero ${i}` });
+      await patchTopic(request, topic.id, { pinnedMessages: [first.id] });
+      await resetPaneStore(request, [topic.id]);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(name));
+      await expect(page.getByTestId("virtuoso-item-list").getByText(`messaggio numero ${total - 1}`)).toBeVisible({ timeout: 15_000 });
+      // The first message is not among the loaded rows, and the line is there.
+      await expect(page.locator(`[data-message-id="${first.id}"]`)).toHaveCount(0);
+      const line = page.getByTestId("chat-pinned-line");
+      await expect(line).toHaveText("1 appuntato · resta nel contesto dell'agente", { timeout: 10_000 });
+      await line.click();
+      await expect(page.getByTestId("chat-pinned-entry")).toContainText("il primo, appuntato", { timeout: 15_000 });
+      await expect(page.getByTestId("chat-pinned-not-loaded")).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id);
     }
