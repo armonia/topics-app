@@ -129,6 +129,9 @@ describe('the rows of the engine group (CMDUI-01)', () => {
     expect(names('claude-code')).not.toContain('/reasoning');
     expect(names('openclaw')).not.toContain('/mcp');
     expect(names('claude-code')).toContain('/resume');
+    // /fork only where the server can fork (shared/chat-fork.ts).
+    for (const p of ['claude-code', 'codex', 'topics']) expect(names(p), p).toContain('/fork');
+    for (const p of ['gemini', 'jcode', 'openclaw']) expect(names(p), p).not.toContain('/fork');
     expect(commandKind('cost', 'claude-code')).toBe('control');
   });
 });

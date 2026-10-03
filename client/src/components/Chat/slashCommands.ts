@@ -3,6 +3,7 @@ import {
   Brain, ChevronsDownUp, Cpu, Download, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, History, Info, PenLine,
   Plug, RotateCcw, Settings2, ShieldCheck, Target, Trash2, Wallet, Zap,
 } from 'lucide-react';
+import { forkModeFor } from '../../../../shared/chat-fork';
 
 /**
  * THE «TOPICS» GROUP OF THE «/» MENU: the commands Topics runs itself or the
@@ -43,6 +44,8 @@ export interface SlashCommandEntry {
   readonly onlyOn?: readonly string[];
   /** The providers that have their own command under this name: there it travels as typed. */
   readonly notOn?: readonly string[];
+  /** Offered only where this holds for the declared provider (unknown provider = offered). */
+  readonly onlyIf?: (provider: string) => boolean;
 }
 
 /** Engines with a compaction to ask for (CMDUI-06): the CLI, the gateway, the native engine. */
@@ -74,7 +77,9 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
   { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target, kind: 'topics', takesArgs: true },
   // Handled in `ChatPane` (the same call as the message's «Fork into a new
   // chat»), and NOT in the server's `CLI_BUILTINS`: the CLI never receives it.
-  { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch, kind: 'topics', takesArgs: true },
+  // Not where the runtime keeps the conversation outside Topics (openclaw, the
+  // ACP agents): the server refuses the fork there (`shared/chat-fork.ts`).
+  { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch, kind: 'topics', takesArgs: true, onlyIf: (p) => forkModeFor(p) !== null },
   { cmd: '/rewind', descriptionKey: 'chat.slash.rewind.description', icon: RotateCcw, kind: 'topics' },
   { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen, kind: 'topics' },
   { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe, kind: 'topics', takesArgs: true },
@@ -93,5 +98,6 @@ export const SLASH_COMMANDS: readonly SlashCommandEntry[] = [
 export function offeredSlashCommands(provider: string | null | undefined): readonly SlashCommandEntry[] {
   return SLASH_COMMANDS.filter((c) =>
     (!c.onlyOn || (!!provider && c.onlyOn.includes(provider)))
-    && (!c.notOn || !provider || !c.notOn.includes(provider)));
+    && (!c.notOn || !provider || !c.notOn.includes(provider))
+    && (!c.onlyIf || !provider || c.onlyIf(provider)));
 }
