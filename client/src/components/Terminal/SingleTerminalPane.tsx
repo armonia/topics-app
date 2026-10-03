@@ -161,11 +161,11 @@ function useTerminalFinder(
     let sub: { dispose(): void } | null = null;
     let subscribedTo: SearchAddon | null = null;
     const listen = () => {
-      const addon = searchRef.current;
-      if (!addon || addon === subscribedTo) return;
+      const engine = searchRef.current;
+      if (!engine || engine === subscribedTo) return;
       sub?.dispose();
-      subscribedTo = addon;
-      sub = addon.onDidChangeResults(({ resultIndex, resultCount }) => {
+      subscribedTo = engine;
+      sub = engine.onDidChangeResults(({ resultIndex, resultCount }) => {
         last = { index: resultIndex, count: resultCount };
         const over = resultCount >= TERMINAL_FIND_LIMIT ? TERMINAL_FIND_LIMIT : null;
         if (getFindState(paneId).open && query) reportFindResult(paneId, { total: resultCount, index: resultIndex >= 0 ? resultIndex + 1 : 0, overLimit: over });
@@ -186,11 +186,11 @@ function useTerminalFinder(
         listen();
         query = q;
         opts = { caseSensitive: o.matchCase, decorations: TERMINAL_FIND_DECORATIONS };
-        const addon = searchRef.current;
-        if (!addon) return 0;
+        const engine = searchRef.current;
+        if (!engine) return 0;
         const wait = settle();
         // Incremental, as in every terminal's find: the first match is selected.
-        addon.findNext(q, { ...opts, incremental: true });
+        engine.findNext(q, { ...opts, incremental: true });
         await wait;
         const found = last;
         // The registry stores {total, index: 0} after this resolves; the
@@ -203,11 +203,11 @@ function useTerminalFinder(
       },
       async step(forward) {
         listen();
-        const addon = searchRef.current;
-        if (!addon || !query) return { index: 0, total: 0 };
+        const engine = searchRef.current;
+        if (!engine || !query) return { index: 0, total: 0 };
         const wait = settle();
-        if (forward) addon.findNext(query, opts);
-        else addon.findPrevious(query, opts);
+        if (forward) engine.findNext(query, opts);
+        else engine.findPrevious(query, opts);
         await wait;
         return { index: last.index >= 0 ? last.index + 1 : 0, total: last.count };
       },
@@ -564,9 +564,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     term.loadAddon(fitAddon);
     // Find in the terminal (TERM-FIND-01): the screen plus the 5000 lines of
     // scrollback. Decorations need the proposed API, already on above.
-    const searchAddon = new SearchAddon();
-    term.loadAddon(searchAddon);
-    searchRef.current = searchAddon;
+    const termSearch = new SearchAddon();
+    term.loadAddon(termSearch);
+    searchRef.current = termSearch;
     term.open(el);
     // Fit NOW, in the same task as `open`, before the browser paints: xterm
     // opens at its default 80x24 and the first fit used to come 50 ms later, so

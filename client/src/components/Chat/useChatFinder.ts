@@ -185,7 +185,7 @@ export function useChatFinder(args: {
       });
       observer.observe(list, { subtree: true, childList: true, characterData: true });
     };
-    const unwatch = () => {
+    const stopWatching = () => {
       observer?.disconnect();
       observer = null;
       if (throttle) clearTimeout(throttle);
@@ -259,7 +259,7 @@ export function useChatFinder(args: {
         st.hits = []; st.serverHits = []; st.total = 0; st.serverTotal = 0;
         for (const t of paintTimers) clearTimeout(t);
         paintTimers = [];
-        unwatch();
+        stopWatching();
         clearFindHighlights(owner);
         const f = getChatFindFocus();
         if (f && f.topicId === topicId) setChatFindFocus(null);

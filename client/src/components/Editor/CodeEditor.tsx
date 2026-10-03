@@ -4,7 +4,7 @@ import { EditorState, Compartment, StateField, StateEffect, type Extension } fro
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
 import { search, highlightSelectionMatches } from '@codemirror/search';
-import { createCodeMirrorFinder, findMarks, searchKeymapWithoutPanel } from '../../lib/cmFind';
+import { createCodeMirrorFinder, findMarks, searchKeysWithoutPanel } from '../../lib/cmFind';
 import { registerFinder } from '../../state/findRegistry';
 import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { javascript } from '@codemirror/lang-javascript';
@@ -253,7 +253,7 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
         ...historyKeymap,
         // Without ⌘F / ⌘G: the app's find bar drives this editor, and
         // CodeMirror's own panel never opens (FILE-FIND-01).
-        ...searchKeymapWithoutPanel,
+        ...searchKeysWithoutPanel,
         indentWithTab,
         {
           key: 'Mod-s',

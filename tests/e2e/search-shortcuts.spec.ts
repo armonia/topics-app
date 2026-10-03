@@ -10,25 +10,23 @@ hermetic(test);
 /**
  * SRC — la mappa della ricerca.
  *
- * 2026-08-06: ⌘⇧P trova un progetto · ⌘P apre un file per nome · ⌘F cerca nel
- * contenuto dei progetti · ⌘⇧F ritirato, perché era un alias identico di ⌘P e
- * la stessa lettera F portava a due cose diverse, distinte solo dallo shift.
+ * 2026-08-06: ⌘⇧P finds a project · ⌘P opens a file by name · ⌘F searches
+ * the projects' contents · ⌘⇧F withdrawn, an identical alias of ⌘P, with the
+ * letter F leading to two different things told apart only by Shift.
  *
- * 2026-10-03 (change find-in-pane), IL ROVESCIO: ⌘F cerca DENTRO la pane a
- * fuoco (la barra della chat, del terminale, del file, del browser), come in
- * ogni applicazione del mondo; la ricerca nel contenuto dei progetti passa a
- * ⇧⌘F e resta su ⌘F solo nelle pane che non hanno niente da cercare. ⌘F e ⇧⌘F
- * tornano a essere la stessa lettera, ma adesso per LA STESSA ricerca con due
- * ampiezze, qui o in tutti i progetti, come in VS Code: non è più l'ambiguità
- * del 06/08. Quindi SRC-02 e SRC-04 passano a ⇧⌘F, SRC-03 si rovescia (⌘F in un
- * campo di testo apre la barra della pane, non la ricerca nei progetti) e
- * SRC-05 si rovescia (⇧⌘F apre la ricerca nel contenuto).
+ * 2026-10-03 (change find-in-pane), THE REVERSAL: ⌘F finds INSIDE the
+ * focused pane (the chat's, terminal's, file's, browser's bar), as in every
+ * application; the search in the projects' contents moves to ⇧⌘F and stays
+ * on ⌘F only in panes with nothing to search. ⌘F and ⇧⌘F share the letter
+ * again, but now for THE SAME search at two widths, here or across the
+ * projects, as in VS Code: not the ambiguity of 08/06. So SRC-02 and SRC-04
+ * move to ⇧⌘F, SRC-03 flips (⌘F in a text field opens the pane's bar, not
+ * the project search) and SRC-05 flips (⇧⌘F opens the contents search).
  *
  * E il difetto che rendeva tutto inservibile: `focusedProjectPath` riconosceva
  * solo la tab del progetto o una chat che vi appartiene. Dentro un progetto il
  * fuoco finisce quasi subito su una pane interna (terminale, git, file), che
- * non è né l'una né l'altra — quindi il progetto spariva e la ricerca non
- * rispondeva.
+ * non è né l'una né l'altra — quindi il progetto spariva e ⌘F non rispondeva.
  *
  * @covers CMD-01
  * @covers FIND-02
@@ -102,12 +100,12 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
   });
 
   test("SRC-03: ⌘F in un campo di testo apre la barra della pane, non la ricerca nei progetti", async ({ page, request }) => {
-    // Rovesciato il 2026-10-03: prima il gestore usciva su ogni campo di testo
-    // e lasciava ⌘F al campo; sul Mac il campo non ne faceva niente (la webview
-    // dell'app non ha una ricerca sua), su Windows si apriva la barra di
-    // WebView2 sopra l'interfaccia. Ora ⌘F dal campo della chat apre la barra
-    // della chat. Il Ctrl proprio del Mac resta al campo: lo prova
-    // find-in-pane.spec.ts.
+    // Flipped on 2026-10-03: the handler used to step aside for every text
+    // field and leave ⌘F to it; on a Mac the field did nothing with it (the
+    // app's webview has no find of its own), on Windows WebView2's find bar
+    // opened over the interface. Now ⌘F from the chat composer opens the
+    // chat's bar. The Mac's real Ctrl stays with the field: find-in-pane.spec.ts
+    // proves it.
     // A chat of its own, outside any project: a project-linked chat lives
     // inside its project window, not as a top-level tab.
     const chat = await createTopic(request, `E2E-SearchShortcuts-chat-${Date.now()}`);
@@ -164,8 +162,8 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
   });
 
   test("SRC-05: ⇧⌘F apre la ricerca nel CONTENUTO dei progetti", async ({ page, request }) => {
-    // Rovesciato il 2026-10-03 (vedi l'intestazione): ⇧⌘F è la ricerca in tutti
-    // i progetti aperti, ⌘F quella nella pane a fuoco.
+    // Flipped on 2026-10-03 (see the header): ⇧⌘F is the search across the
+    // open projects, ⌘F the one inside the focused pane.
     await resetPaneStore(request, [PROJECT_PANE]);
     await goToApp(page);
     await page.keyboard.press("Escape");

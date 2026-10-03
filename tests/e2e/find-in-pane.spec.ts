@@ -14,7 +14,7 @@ import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
 hermetic(test);
 
 /**
- * ⌘F cerca DENTRO la pane su cui stai (change find-in-pane).
+ * ⌘F finds INSIDE the pane you are on (change find-in-pane).
  *
  * One bar (`FindBar`), one finder per pane, ⌘F on the focused pane wherever
  * the cursor is. The chat searches the whole conversation on the server
@@ -166,17 +166,23 @@ test.describe("Cerca nella pane: la chat", () => {
     expect(await page.evaluate(() => (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.has("find-current") ?? false)).toBe(false);
   });
 
-  test("FIND-02: on a Mac, Ctrl+F in the composer stays with the composer", async ({ page, chatPage }) => {
-    test.skip(process.platform !== "darwin", "Ctrl is the app modifier off the Mac: there Ctrl+F opens the bar by design");
+  test("FIND-02: Ctrl+F in the composer: the field's own key on a Mac, the bar elsewhere", async ({ page, chatPage }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
     await chatPage.messageInput.click();
     await page.keyboard.press("Control+f");
-    // DELIBERATE FIXED WAIT: the assertion is that nothing opens, and nothing has no event.
-    await page.waitForTimeout(400);
-    await expect(page.getByTestId("find-bar")).toHaveCount(0);
+    // The next letter tells where the keyboard is: in the composer (the Mac,
+    // where Ctrl+F is "forward one character"), or in the find bar (Windows
+    // and Linux, where Ctrl is the app modifier).
+    await page.keyboard.type("Z");
+    if (process.platform === "darwin") {
+      await expect(chatPage.messageInput).toHaveValue(/Z$/);
+      await expect(page.getByTestId("find-bar")).toHaveCount(0);
+    } else {
+      await expect(input(page)).toHaveValue("Z");
+    }
     await expect(page.getByTestId("file-search")).toHaveCount(0);
   });
 
@@ -197,18 +203,27 @@ test.describe("Cerca nella pane: la chat", () => {
     await chatPage.messageInput.press("Enter");
     await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
 
+    // Every stop request, with the moment it left: the Esc in the bar must
+    // send none, the Esc out of it exactly one.
+    const aborts: number[] = [];
+    page.on("request", (r) => { if (r.url().includes("/api/chat/abort")) aborts.push(Date.now()); });
+
     await page.keyboard.press("Meta+f");
     await expect(input(page)).toBeFocused();
     await page.keyboard.type("messaggio");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("find-bar")).toHaveCount(0);
-    // The turn is still running: before this change Esc here stopped it.
-    await page.waitForTimeout(800);
+    const barClosedAt = Date.now();
     await expect(chatPage.streamingIndicator).toBeVisible();
     // Counter-proof: with the cursor out of the bar, Esc stops the turn as before.
     await page.locator('[data-testid="chat-message-list"]').first().click({ position: { x: 5, y: 5 } });
+    const secondEscAt = Date.now();
     await page.keyboard.press("Escape");
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+    await expect.poll(() => aborts.length).toBe(1);
+    // ...and that one stop came from the second Esc, not from the first.
+    expect(aborts[0]!).toBeGreaterThanOrEqual(secondEscAt);
+    expect(secondEscAt).toBeGreaterThanOrEqual(barClosedAt);
     await unmockChatStream(page);
   });
 });

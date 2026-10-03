@@ -4,9 +4,9 @@
  * receives) and the client (the message still streaming, and the guest who
  * has no access to that route). CHAT-FIND-01.
  *
- * Una funzione sola per i due lati, perché il contatore somma i risultati del
- * server e quelli del messaggio in streaming: due regole diverse per «dove sta
- * una parola» darebbero un totale che salta quando il turno finisce.
+ * One function for both sides, because the counter adds the server's hits
+ * to those of the streaming message: two rules for "where a word is" would
+ * give a total that jumps when the turn ends.
  *
  * What is searched, per message, in the order the conversation shows it:
  * - with `blocks` (the timeline the bubble draws): each block in order, text

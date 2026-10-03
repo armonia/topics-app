@@ -8,10 +8,10 @@ import { clearFindHighlights, setFindHighlights } from './findHighlights';
  * lists: what is not in the DOM is not found, which is the reason the chat
  * and the diff use their own engines.
  *
- * Il testo si legge come lo legge una persona: i nodi di testo in ordine di
- * documento, uniti dentro lo stesso blocco (così «Instal<b>lazione</b>» si
- * trova) e separati fra un blocco e l'altro (così la fine di un titolo e
- * l'inizio del paragrafo dopo non fanno una parola che non c'è).
+ * The text is read the way a person reads it: the text nodes in document
+ * order, joined inside one block (so "Instal<b>lation</b>" is found) and
+ * separated between blocks (so the end of a heading and the start of the
+ * next paragraph do not make a word that is not there).
  *
  * Highlights go through the CSS Custom Highlight API of the subtree's own
  * document (`find-hit`, `find-current`): no `<mark>` is inserted, so nothing
@@ -179,7 +179,7 @@ export function createDomFinder(opts: DomFinderOptions): DomFinder {
     observer.observe(root, { subtree: true, childList: true, characterData: true });
   };
 
-  const unwatch = () => {
+  const stopWatching = () => {
     observer?.disconnect();
     observer = null;
     if (throttle) clearTimeout(throttle);
@@ -213,7 +213,7 @@ export function createDomFinder(opts: DomFinderOptions): DomFinder {
       index = 0;
       ranges = [];
       total = 0;
-      unwatch();
+      stopWatching();
       clearFindHighlights(owner);
     },
     recount() {

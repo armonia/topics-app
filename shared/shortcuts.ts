@@ -92,17 +92,17 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'General',
     shortcuts: [
       { keys: [MOD, 'K'], description: 'Command palette', native: { chars: ['k'] } },
-      // ⌘F cerca DENTRO la pane a fuoco (FIND-02), ovunque sia il cursore,
-      // anche dentro la pagina di una pane browser: per questo è inoltrato
-      // (`native`), e sul Mac la pagina non lo riceve più. ⇧⌘F condivide il
-      // char "f" ed è la stessa ricerca in tutti i progetti aperti; il
-      // renderer li separa sullo shiftKey, come ⌘P/⌘⇧P.
-      { keys: [MOD, 'F'], description: 'Cerca qui', native: { chars: ['f'] } },
-      { keys: [MOD, SHIFT, 'F'], description: 'Cerca nei progetti aperti', native: { chars: ['f'] } },
-      // ⌘G / ⇧⌘G: il risultato dopo e quello prima, con la barra aperta.
-      // Inoltrati per la stessa ragione di ⌘F.
-      { keys: [MOD, 'G'], description: 'Risultato successivo', native: { chars: ['g'] } },
-      { keys: [MOD, SHIFT, 'G'], description: 'Risultato precedente', native: { chars: ['g'] } },
+      // ⌘F finds INSIDE the focused pane (FIND-02) wherever the cursor is, the
+      // page of a browser pane included: hence forwarded (`native`), and on a
+      // Mac the page no longer receives it. ⇧⌘F shares the char "f" and is
+      // the same search across the open projects; the renderer splits them
+      // on shiftKey, like ⌘P/⌘⇧P.
+      { keys: [MOD, 'F'], description: 'Find in this pane', native: { chars: ['f'] } },
+      { keys: [MOD, SHIFT, 'F'], description: 'Find in open projects', native: { chars: ['f'] } },
+      // ⌘G / ⇧⌘G: next and previous result with the bar open. Forwarded for
+      // the reason ⌘F is.
+      { keys: [MOD, 'G'], description: 'Next result', native: { chars: ['g'] } },
+      { keys: [MOD, SHIFT, 'G'], description: 'Previous result', native: { chars: ['g'] } },
       // ⌘P e ⌘⇧P condividono il char "p": il renderer li separa sullo shiftKey,
       // come già fa per ⌘N/⌘⇧N.
       { keys: [MOD, 'P'], description: 'Apri un file per nome', native: { chars: ['p'] } },

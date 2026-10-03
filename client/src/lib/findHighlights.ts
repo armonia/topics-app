@@ -9,22 +9,17 @@
  */
 
 interface HighlightRegistryLike { set(name: string, h: unknown): void; delete(name: string): void }
-type HighlightCtor = new (...r: Range[]) => unknown;
+type HighlightClass = new (...r: Range[]) => unknown;
 
 interface Owned { doc: Document; hits: Range[]; current: Range | null }
 
 const owners = new Map<string, Owned>();
 
-function api(doc: Document): { registry: HighlightRegistryLike; Ctor: HighlightCtor } | null {
-  const win = doc.defaultView as (Window & { CSS?: { highlights?: HighlightRegistryLike }; Highlight?: HighlightCtor }) | null;
+function api(doc: Document): { registry: HighlightRegistryLike; Highlight: HighlightClass } | null {
+  const win = doc.defaultView as (Window & { CSS?: { highlights?: HighlightRegistryLike }; Highlight?: HighlightClass }) | null;
   const registry = win?.CSS?.highlights;
-  const Ctor = win?.Highlight;
-  return registry && Ctor ? { registry, Ctor } : null;
-}
-
-/** Is the Custom Highlight API there at all (WebKit 17.2+, Chromium 105+)? */
-export function highlightsSupported(doc: Document | null | undefined): boolean {
-  return !!doc && !!api(doc);
+  const Highlight = win?.Highlight;
+  return registry && Highlight ? { registry, Highlight } : null;
 }
 
 function repaint(doc: Document): void {
@@ -37,9 +32,9 @@ function repaint(doc: Document): void {
     for (const r of o.hits) if (r !== o.current) hits.push(r);
     if (o.current) current.push(o.current);
   }
-  if (hits.length) a.registry.set('find-hit', new a.Ctor(...hits));
+  if (hits.length) a.registry.set('find-hit', new a.Highlight(...hits));
   else a.registry.delete('find-hit');
-  if (current.length) a.registry.set('find-current', new a.Ctor(...current));
+  if (current.length) a.registry.set('find-current', new a.Highlight(...current));
   else a.registry.delete('find-current');
 }
 

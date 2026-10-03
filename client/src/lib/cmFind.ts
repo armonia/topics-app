@@ -17,10 +17,10 @@ import { stepMatchIndex } from '../components/Browser/findInPageModel';
  * CodeMirror draws only the lines near the screen, so a DOM count would
  * change while you scroll.
  *
- * Il pannello di CodeMirror non si apre più: il suo evidenziatore di tutti i
- * risultati vive DENTRO il pannello (`searchHighlighter` non disegna niente a
- * pannello chiuso), quindi l'evidenziazione qui è un campo di decorazioni
- * nostro, con il corrente in un colore suo.
+ * CodeMirror's panel no longer opens, and its highlighter of all matches lives
+ * INSIDE the panel (`searchHighlighter` draws nothing while it is closed), so
+ * the highlighting here is a decoration field of our own, the current match
+ * in a colour of its own.
  */
 
 const setFindMarks = StateEffect.define<{ hits: Array<{ from: number; to: number }>; current: { from: number; to: number } | null }>();
@@ -51,7 +51,7 @@ export const findMarks: Extension = findMarksField;
  * CodeMirror's search keymap without the keys that would open its panel:
  * ⌘F goes to the app's bar (FIND-02), ⌘G / ⇧⌘G and F3 to the bar's step.
  */
-export const searchKeymapWithoutPanel = searchKeymap.filter(
+export const searchKeysWithoutPanel = searchKeymap.filter(
   (b) => !['Mod-f', 'Mod-g', 'Shift-Mod-g', 'F3', 'Shift-F3'].includes(b.key ?? ''),
 );
 
@@ -130,8 +130,8 @@ export function createCodeMirrorFinder(opts: CodeMirrorFinderOptions): PaneFinde
 
   /** Where the main selection of `view` sits among `list`, 1-based. */
   const indexOfSelection = (list: ReturnType<typeof all>, view: EditorView) => {
-    const sel = view.state.selection.main;
-    const i = list.findIndex((m) => m.view === view && m.from === sel.from && m.to === sel.to);
+    const selection = view.state.selection.main;
+    const i = list.findIndex((m) => m.view === view && m.from === selection.from && m.to === selection.to);
     return i + 1;
   };
 

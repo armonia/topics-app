@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test';
 import { collectText, findMatches, locate, type TextNodeLike } from './domFind';
 
-const txt = (v: string): TextNodeLike => ({ nodeType: 3, nodeName: '#text', nodeValue: v, childNodes: [] });
+const textNode = (v: string): TextNodeLike => ({ nodeType: 3, nodeName: '#text', nodeValue: v, childNodes: [] });
 const el = (name: string, ...children: TextNodeLike[]): TextNodeLike => ({ nodeType: 1, nodeName: name, nodeValue: null, childNodes: children });
 
 function count(root: TextNodeLike, q: string, matchCase = false) {
@@ -17,10 +17,10 @@ function count(root: TextNodeLike, q: string, matchCase = false) {
 
 describe('collectText + findMatches', () => {
   const doc = el('DIV',
-    el('H1', txt('Installazione')),
-    el('P', txt('Prima di tutto, l\''), el('B', txt('instal')), txt('lazione '), el('EM', txt('richiede')), txt(' Bun.')),
-    el('SCRIPT', txt('installazione nel codice, non a schermo')),
-    el('P', txt('Prezzi e prezzi.')),
+    el('H1', textNode('Installazione')),
+    el('P', textNode('Prima di tutto, l\''), el('B', textNode('instal')), textNode('lazione '), el('EM', textNode('richiede')), textNode(' Bun.')),
+    el('SCRIPT', textNode('installazione nel codice, non a schermo')),
+    el('P', textNode('Prezzi e prezzi.')),
   );
 
   test('count is case-insensitive and finds a word split across inline nodes', () => {
@@ -62,10 +62,10 @@ describe('collectText + findMatches', () => {
   });
 
   test('a recount after a mutation sees the new text', () => {
-    const p = el('P', txt('Prezzi'));
+    const p = el('P', textNode('Prezzi'));
     const root = el('BODY', p);
     expect(count(root, 'prezzi')).toBe(1);
-    (p.childNodes as TextNodeLike[]).push(txt(' e altri prezzi'));
+    (p.childNodes as TextNodeLike[]).push(textNode(' e altri prezzi'));
     expect(count(root, 'prezzi')).toBe(2);
   });
 

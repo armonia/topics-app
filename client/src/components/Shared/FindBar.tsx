@@ -12,11 +12,11 @@ import {
  * The find bar of one pane (FIND-01): field, counter, match case, previous,
  * next, close, and a Replace row when the pane's engine can replace.
  *
- * Sta SOPRA il contenuto della pane, nel flusso della sua colonna: non copre
- * una webview nativa, quindi non entra nell'occlusione e non porta né
- * `.native-occlude` né `role="dialog"` (che per `hasOpenModalSurface` la
- * farebbe passare per un modale, ed Esc smetterebbe di fermare il turno anche
- * col cursore fuori dalla barra).
+ * It sits ABOVE the pane's content, in the flow of its column: it covers no
+ * native webview, so it stays out of the occlusion and carries neither
+ * `.native-occlude` nor `role="dialog"` (which `hasOpenModalSurface` would
+ * read as a modal, and Esc would stop interrupting the turn even with the
+ * cursor outside the bar).
  *
  * Esc is NOT handled here: the window-level capture handler
  * (`useKeyboardShortcuts`) runs before this field ever sees the key, and that
@@ -43,11 +43,11 @@ export function FindBar({ paneId, floating = false }: {
   useEffect(() => {
     if (!st.open || st.focusTick === 0) return;
     releaseNativeFocus();
-    const raf = requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
     });
-    return () => cancelAnimationFrame(raf);
+    return () => cancelAnimationFrame(frame);
   }, [st.open, st.focusTick]);
 
   if (!paneId || !st.open) return null;

@@ -5,11 +5,11 @@ import { stepMatchIndex } from '../components/Browser/findInPageModel';
  * ⌘F inside the pane you are on: one bar (`Shared/FindBar`), one finder per
  * pane, keyed by `paneId` (FIND-01, FIND-02).
  *
- * Il registro sta fuori da React per la stessa ragione di
- * `historyCompleteness`: chi chiede (il gestore globale dei tasti, il menu
- * della tab) conosce un `paneId` e niente del tipo di pane, e la barra di una
- * pane deve ritrovarsi com'era quando la pane torna a fuoco. Lo stato della
- * barra quindi vive qui, per pane, e il componente lo legge soltanto.
+ * The registry lives outside React for the reason `historyCompleteness`
+ * does: whoever asks (the global key handler, the tab menu) knows a `paneId`
+ * and nothing of the pane's kind, and a pane's bar must be found as it was
+ * when the pane comes back into focus. So the bar's state lives here, per
+ * pane, and the component only reads it.
  *
  * A pane registers a {@link PaneFinder}: the engine (chat route, xterm addon,
  * CodeMirror search, `window.find`, the DOM walker). The registry owns the
