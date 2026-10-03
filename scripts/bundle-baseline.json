@@ -741,13 +741,24 @@
     "their own branches; the merge kept the numbers already written here, because",
     "the three together measure inside 2% of them with build:client on this Mac:",
     "entry 1.593.672 / 505.499, critical path 2.211.374 / 665.133 (ceiling 677.271,",
-    "12 KB of room against CI's ~0,9 KB more), total assets 8.569.090. Nothing raised."
+    "12 KB of room against CI's ~0,9 KB more), total assets 8.569.090. Nothing raised.",
+    "",
+    "2026-10-03, feat/find-in-page-1003: entry eager 1.593.672 / 505.499 (main) ->",
+    "1.616.800 / 513.364 (+23.128 raw / +7.865 gz), past the 2% ceiling of the old",
+    "number by 6.184 raw / 4.230 gz. Bought: ⌘F inside every pane. Eager because the",
+    "surfaces it lives in are eager (chat, browser, layout, key handler): the per-pane",
+    "registry and bar (state/findRegistry, Shared/FindBar), the chat finder",
+    "(Chat/useChatFinder, state/chatFindFocus, shared/chat-find), the DOM walker and",
+    "highlight registry (lib/domFind, lib/findHighlights), the find strings",
+    "(lib/i18n-find-it). The CodeMirror engine (lib/cmFind) and the xterm addon stay",
+    "in their lazy chunks. Critical path 2.234.953 / 673.102, inside its ceiling",
+    "(677.271) with ~3,3 KB against CI's ~0,9 KB more: not raised."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1579035,
-    "gz": 499151
+    "raw": 1616800,
+    "gz": 513364
   },
   "critical_path": {
     "raw": 2211033,
