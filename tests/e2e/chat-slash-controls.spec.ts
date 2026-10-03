@@ -77,6 +77,20 @@ test.describe("commands that open a control", () => {
     expect(received()).toEqual([]);
   });
 
+  test("/effort opens the slider with the focus on it; /context opens the inspector with the focus inside", async ({ page, chatPage }) => {
+    await send(chatPage, page, "/effort");
+    await expect(page.getByTestId("chat-session-config")).toHaveAttribute("aria-expanded", "true", { timeout: 10_000 });
+    await expect(page.getByTestId("session-effort-slider")).toBeFocused({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("chat-session-config-panel")).toHaveCount(0);
+
+    await send(chatPage, page, "/context");
+    const inspector = page.locator('[data-popover="context-inspector"]');
+    await expect(inspector.getByTestId("context-inspector")).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => inspector.evaluate((el) => el.contains(document.activeElement)), { timeout: 10_000 }).toBe(true);
+    expect(received()).toEqual([]);
+  });
+
   test("/model opus sets the model without opening anything", async ({ page, request, chatPage }) => {
     await send(chatPage, page, "/model opus");
     await expect.poll(async () => ((await fetchTopic(request, topicId)) as unknown as { model?: string | null } | null)?.model ?? null, { timeout: 15_000 }).toBe("opus");

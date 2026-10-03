@@ -613,6 +613,8 @@ export function ChatInput({
   // with the ring). The picker and the popover own their open state, so they
   // hand their door up; the inspector's state lives here.
   const openModelRef = useRef<(() => void) | null>(null);
+  // `/context` puts the focus inside the inspector it opens (CMDUI-02).
+  const focusContextOnOpenRef = useRef(false);
   const openEffortRef = useRef<(() => void) | null>(null);
   const openAutonomyRef = useRef<(() => void) | null>(null);
   const fastButtonRef = useRef<HTMLButtonElement>(null);
@@ -630,7 +632,7 @@ export function ChatInput({
       openFast: () => fastButtonRef.current?.focus(),
       openCommands: () => openSlashMenuRef.current?.('/'),
       openResume: (filter) => openSlashMenuRef.current?.(`/resume ${filter ?? ''}`),
-      openContext: () => { if (!isDraftTopic && !isGlobalOrchestrator) setShowContextPopover(true); },
+      openContext: () => { if (!isDraftTopic && !isGlobalOrchestrator) { focusContextOnOpenRef.current = true; setShowContextPopover(true); } },
       // Opened by a TYPED command: on close the focus goes back to the field
       // it was typed in, so the next words land in the composer.
       openTools: () => openToolsRef.current?.(textareaRef.current),
@@ -690,6 +692,16 @@ export function ChatInput({
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
   }, [contextPopoverOpen]);
+  // Opened by `/context`: the focus goes to the inspector's first control, or
+  // to the panel itself while its lazy content is still loading.
+  useEffect(() => {
+    if (!showContextPopover || !focusContextOnOpenRef.current) return;
+    focusContextOnOpenRef.current = false;
+    const panel = contextPopoverRef.current;
+    if (!panel) return;
+    const first = panel.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    (first ?? panel).focus();
+  }, [showContextPopover]);
   // The context inspector leaves like every floating surface: the anchored
   // card fades, the phone sheet slides back down with its scrim (lib/exitGhost).
   const contextSheetOpen = showContextPopover && !!onUpdateTopic && isMobile && !isGlobalOrchestrator;
@@ -1997,7 +2009,8 @@ export function ChatInput({
             contextPopoverPanelRef.current = node;
           }}
           data-popover="context-inspector"
-          className={`fixed ${POPOVER_PANEL} flex flex-col overflow-hidden`}
+          tabIndex={-1}
+          className={`fixed ${POPOVER_PANEL} flex flex-col overflow-hidden outline-none`}
           // `visibility: hidden` per un solo fotogramma: il pannello è nel DOM
           // (serve, per misurarlo e per il click-outside) ma non lampeggia in
           // alto a sinistra prima che il layout effect lo collochi.
@@ -2032,7 +2045,8 @@ export function ChatInput({
           <div
             ref={contextPopoverRef}
             data-popover="context-inspector"
-            className={`fixed left-0 right-0 bottom-0 ${POPOVER_SHEET} flex flex-col overflow-hidden`}
+            tabIndex={-1}
+            className={`fixed left-0 right-0 bottom-0 ${POPOVER_SHEET} flex flex-col overflow-hidden outline-none`}
             style={{ zIndex: Z_POPOVER, height: '70vh' }}
           >
             <SheetGrabber />
