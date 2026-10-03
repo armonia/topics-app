@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.432 — 2026-10-03
+
+### Sotto il cofano
+- Fai vincere la chiusura arrivata mentre browser_open era in volo
+- Ricontrolla il registro delle viste nel momento in cui la pane la adotta
+
 ## 2.2.431 — 2026-10-03
 
 ### Sotto il cofano
@@ -34,6 +40,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Sposta a tab il browser della topic senza ricaricarlo
 - Fai dello spostamento a tab un passaggio di mano e non adottare mai una vista già chiusa
 - Scrivi in inglese il commento del test sulla chiusura che passa da nativeBrowserViews
+- Nascondi la vista nativa mentre aspetta di essere adottata da uno spostamento
+- Fai vedere al cancello anche la browser_close con argomento di tipo
 
 ## 2.2.430 — 2026-10-03
 
