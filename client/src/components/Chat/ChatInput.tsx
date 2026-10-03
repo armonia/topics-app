@@ -732,14 +732,14 @@ export function ChatInput({
   // menu opens: the engine's group arrives with its CLI's first turn.
   const [customCmds, setCustomCmds] = useState<CustomSlashCommand[]>([]);
   const slashListTopicId = isDraftTopic ? undefined : topic.id;
-  const loadSlashList = useCallback(() => {
+  const loadSlashList = useCallback((fresh = false) => {
     if (isGlobalOrchestrator) return () => {};
     let alive = true;
-    slashCommandsApi.list(slashListTopicId, declaredProvider).then((c) => { if (alive) { setCustomCmds(c); rememberSlashNames(c.map((x) => x.name)); } }).catch(() => { /* best-effort */ });
+    slashCommandsApi.list(slashListTopicId, declaredProvider, fresh).then((c) => { if (alive) { setCustomCmds(c); rememberSlashNames(c.map((x) => x.name)); } }).catch(() => { /* best-effort */ });
     return () => { alive = false; };
   }, [isGlobalOrchestrator, slashListTopicId, declaredProvider]);
   useEffect(() => loadSlashList(), [loadSlashList]);
-  useEffect(() => { if (showSlashMenu) return loadSlashList(); return undefined; }, [showSlashMenu, loadSlashList]);
+  useEffect(() => { if (showSlashMenu) return loadSlashList(true); return undefined; }, [showSlashMenu, loadSlashList]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);

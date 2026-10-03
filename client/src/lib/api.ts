@@ -1079,11 +1079,15 @@ export const slashCommandsApi = {
     return request(`/slash-commands/${encodeURIComponent(name)}${q}`);
   },
 
-  /** The list for a topic (`topicId`), or for a draft that declares `provider`. */
-  async list(topicId?: string, provider?: string | null): Promise<CustomSlashCommand[]> {
+  /**
+   * The list for a topic (`topicId`), or for a draft that declares `provider`.
+   * `fresh` skips the cache: the menu opening asks it, because the engine's
+   * group arrives with the chat's first turn, after the mount already read.
+   */
+  async list(topicId?: string, provider?: string | null, fresh = false): Promise<CustomSlashCommand[]> {
     const key = topicId ? `t:${topicId}` : `p:${provider ?? ''}`;
     const hit = slashCommandsCache.get(key);
-    if (hit && Date.now() - hit.at < SLASH_LIST_TTL_MS) return hit.list;
+    if (!fresh && hit && Date.now() - hit.at < SLASH_LIST_TTL_MS) return hit.list;
     const q = topicId ? `?topicId=${encodeURIComponent(topicId)}` : provider ? `?provider=${encodeURIComponent(provider)}` : '';
     // A failed request must not stay cached: the next caller retries.
     const list = request<CustomSlashCommand[]>(`/slash-commands${q}`).catch((e) => {
