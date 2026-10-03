@@ -58,7 +58,7 @@ Quello che è verde resta verde. Le suite intere le fa la CI.
   - `gpt-5.5` porta il ritiro;
   - le finestre GPT valgono 272000;
   - un modello offerto da due motori diventa una riga con due motori.
-- [ ] 1.9 `tests/e2e/model-selector.spec.ts` su :13334, con lo snapshot finto via `page.routeWebSocket`. Prima guarda `provider-picker.spec.ts` e `picker-keyboard-nav.spec.ts` e riusa i loro helper.
+- [x] 1.9 `tests/e2e/model-selector.spec.ts` su :13334, con lo snapshot finto via `page.routeWebSocket`. Prima guarda `provider-picker.spec.ts` e `picker-keyboard-nav.spec.ts` e riusa i loro helper.
   - Composer chat: aperto il selettore, Opus 5.5 e GPT-6.1-Sol sono visibili insieme, senza clic.
   - «gpt» nella ricerca lascia solo OpenAI.
   - ⌘⇧M apre; le frecce arrivano da Opus a GPT; Invio sceglie; Esc riporta il fuoco al chip.
@@ -67,7 +67,7 @@ Quello che è verde resta verde. Le suite intere le fa la CI.
   - Con quattro aziende nello snapshot finto e un viewport alto 900 px, il pannello resta dentro il viewport, l'area delle sezioni scorre e le intestazioni restano ferme.
   - A 390x844: foglio, righe da 44 px, ricerca senza fuoco.
   - Riferimenti: MSEL-02, MSEL-03, MSEL-07, MSEL-08.
-- [ ] 1.10 Stesso spec, le altre superfici (MSEL-01, MSEL-10):
+- [x] 1.10 Stesso spec, le altre superfici (MSEL-01, MSEL-10): *le superfici delle card (composer, cassetto, impostazioni della board, chip «· via Topics») stanno in `task-model-labels.spec.ts`, che già le apriva; la chat, le sue impostazioni e `/model` in `model-selector.spec.ts`. Girate su Chromium del PC Windows (porta 14201), una spec alla volta.*
   - composer delle card e cassetto: stesso pannello, `data-variant="compact"`, solo motori di codice;
   - impostazioni della board e della chat: `data-variant="full"`;
   - card della board: `chip` di sola lettura;
@@ -121,8 +121,9 @@ Quello che è verde resta verde. Le suite intere le fa la CI.
 
 ## 5. Prova
 
-- [ ] 5.1 La barra, verde.
-- [ ] 5.2 In `screenshots/`:
+- [ ] 5.1 La barra, verde. *03/10: verdi typecheck, unit e `model-selector.spec.ts` (5/5). Sul PC Windows `provider-picker`, `picker-keyboard-nav` e `composer-model-memory` non trovano righe `claude-code` pronte: lì Claude Code non è collegato («claude login»), la stessa precondizione della versione di prima; `task-model-labels` si ferma su `openProjectBoard` (percorso Windows), dopo le asserzioni del selettore. Restano da vedere in CI (Linux).*
+- [x] 5.2 In `screenshots/`:
   - i video `.webm` di 1.9, desktop e 390 px;
   - uno screenshot chiaro e uno scuro del pannello aperto, accanto a `mockup.html`.
+  *`screenshots/impl-desktop-{light,dark}.png`, `impl-phone-{light,dark}.png`, `impl-main-flow.webm` (Chromium, PC Windows).*
 - [x] 5.3 `docs/board-protocol.md` non cambia: il dispatcher legge `topicsRoute`, e l'envelope non nomina l'interruttore. Si verifica con `grep -n topicsRouting server/services/task-dispatcher.ts`, e l'esito va annotato qui.
