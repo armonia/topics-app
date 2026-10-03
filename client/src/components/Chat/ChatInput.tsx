@@ -24,7 +24,7 @@ import { errMessage } from '../../lib/errMessage';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
-import { modelCommandSuggestions } from '../Shared/ModelSelector/useModelCatalog';
+import { modelCommandSuggestions } from '../Shared/ModelSelector/modelCommand';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';

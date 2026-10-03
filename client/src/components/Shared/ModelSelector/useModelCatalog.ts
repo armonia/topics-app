@@ -23,6 +23,7 @@ import {
   type TopicsRouteScope,
 } from '../../../../../shared/task-coding-models';
 import { friendlyModelLabel } from '../../../lib/modelLabel';
+import { fold } from './modelCommand';
 
 /** What a selector holds: a provider and a model. `null` model = Automatic
  *  (within the provider when the provider is set, on cards). */
@@ -218,11 +219,6 @@ export function rowSelected(row: CatalogRow, value: AiExecutionSelection): boole
   return row.stale || !value.provider || row.engines.some((engine) => engine.name === value.provider);
 }
 
-/** Lowercase, accents gone: an accented letter matches its plain twin. */
-function fold(text: string): string {
-  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
-
 /**
  * MSEL-03: a substring search, case and accents ignored, on label, id,
  * company, engine and description. Several words must all be found. Older
@@ -280,23 +276,4 @@ export function useModelCatalog(
   const snapshot = snapshotOverride ?? live;
   const sections = useMemo(() => buildModelCatalog(snapshot, scope, value), [snapshot, scope, value]);
   return { snapshot, sections };
-}
-
-/**
- * MSEL-10: what `/model <text>` proposes. `/model` writes only the chat's
- * model, never its engine, so it offers only the models of the engine the
- * chat runs on now, with the selector's labels. Changing engine is the
- * selector's job.
- */
-export function modelCommandSuggestions(
-  snapshot: ProvidersSnapshot | null,
-  provider: string | null | undefined,
-  query: string,
-): Array<{ id: string; label: string }> {
-  const entry = snapshot?.providers.find((candidate) => candidate.name === provider);
-  if (!entry) return [];
-  const words = fold(query).split(/\s+/).filter(Boolean);
-  return entry.models
-    .map((id) => ({ id, label: modelMaker(id) === 'anthropic' || modelMaker(id) === 'openai' ? (entry.modelInfo?.[id]?.label ?? friendlyModelLabel(id)) : id }))
-    .filter((model) => words.every((word) => fold(`${model.id} ${model.label}`).includes(word)));
 }

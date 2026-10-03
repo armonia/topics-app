@@ -6,10 +6,11 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  buildModelCatalog, filterModelCatalog, modelCommandSuggestions, rowEngine, rowSelected, taskMenuSelection,
+  buildModelCatalog, filterModelCatalog, rowEngine, rowSelected, taskMenuSelection,
   type CatalogSection,
 } from './useModelCatalog';
 import { contextWindowFor } from '../../../../../shared/context-window';
+import { modelCommandSuggestions } from './modelCommand';
 import { CLAUDE_CODE, CODEX_ENTRY, MEASURED, entry, snapshotOf } from './fixtures';
 
 const label = (maker: string) => ({ anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google', other: 'Altri' })[maker] ?? maker;
