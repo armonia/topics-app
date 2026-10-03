@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
@@ -13,6 +14,8 @@ import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openTerminalLink } from './wrappedLinkProvider';
 import { createPaneId } from '../../state/pane/adapters';
+import { FindBar } from '../Shared/FindBar';
+import { getFindState, registerFinder, reportFindResult, useFindPaneId, type PaneFinder } from '../../state/findRegistry';
 import { signalsActions, useTerminalReloading } from '../../state/signals';
 import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
 import { shouldDeclareExpired } from '../../hooks/rosterTrust';
@@ -125,9 +128,107 @@ interface SingleTerminalPaneProps {
  */
 const WINDOW_RESIZE_SETTLE_MS = 120;
 
+/** Decorations of the terminal's matches: the colours must be `#RRGGBB`. */
+const TERMINAL_FIND_DECORATIONS: NonNullable<ISearchOptions['decorations']> = {
+  matchBorder: '#facc15',
+  matchOverviewRuler: '#facc15',
+  activeMatchBackground: '#f97316',
+  activeMatchBorder: '#f97316',
+  activeMatchColorOverviewRuler: '#f97316',
+};
+
+/** The addon's default `highlightLimit`: past it, no position (TERM-FIND-01). */
+const TERMINAL_FIND_LIMIT = 1000;
+
+/**
+ * The terminal's finder (TERM-FIND-01): `@xterm/addon-search` over what xterm
+ * holds (screen + scrollback). Total and position come from the addon's
+ * `onDidChangeResults`; past its limit of 1000 the index is -1 and the counter
+ * says «over 1000», while Enter keeps moving. Nothing is written to the
+ * program: the bar is a DOM field outside xterm. Closing gives the keyboard
+ * back to the terminal.
+ */
+function useTerminalFinder(
+  paneId: string,
+  termRef: { current: { term: Terminal } | null },
+  searchRef: { current: SearchAddon | null },
+): void {
+  useEffect(() => {
+    let query = '';
+    let opts: ISearchOptions = {};
+    let last = { index: -1, count: 0 };
+    let waiters: Array<() => void> = [];
+    let sub: { dispose(): void } | null = null;
+    let subscribedTo: SearchAddon | null = null;
+    const listen = () => {
+      const addon = searchRef.current;
+      if (!addon || addon === subscribedTo) return;
+      sub?.dispose();
+      subscribedTo = addon;
+      sub = addon.onDidChangeResults(({ resultIndex, resultCount }) => {
+        last = { index: resultIndex, count: resultCount };
+        const over = resultCount >= TERMINAL_FIND_LIMIT ? TERMINAL_FIND_LIMIT : null;
+        if (getFindState(paneId).open && query) reportFindResult(paneId, { total: resultCount, index: resultIndex >= 0 ? resultIndex + 1 : 0, overLimit: over });
+        const w = waiters;
+        waiters = [];
+        for (const fn of w) fn();
+      });
+    };
+    /** The addon answers through its event: wait for it, briefly. */
+    const settle = () => new Promise<void>((resolve) => {
+      waiters.push(resolve);
+      setTimeout(resolve, 200);
+    });
+    const finder: PaneFinder = {
+      placeholderKey: 'find.terminal.placeholder',
+      debounceMs: 60,
+      async search(q, o) {
+        listen();
+        query = q;
+        opts = { caseSensitive: o.matchCase, decorations: TERMINAL_FIND_DECORATIONS };
+        const addon = searchRef.current;
+        if (!addon) return 0;
+        const wait = settle();
+        // Incremental, as in every terminal's find: the first match is selected.
+        addon.findNext(q, { ...opts, incremental: true });
+        await wait;
+        const found = last;
+        // The registry stores {total, index: 0} after this resolves; the
+        // addon's own position follows right after.
+        setTimeout(() => reportFindResult(paneId, {
+          index: found.index >= 0 ? found.index + 1 : 0,
+          overLimit: found.count >= TERMINAL_FIND_LIMIT ? TERMINAL_FIND_LIMIT : null,
+        }), 0);
+        return found.count;
+      },
+      async step(forward) {
+        listen();
+        const addon = searchRef.current;
+        if (!addon || !query) return { index: 0, total: 0 };
+        const wait = settle();
+        if (forward) addon.findNext(query, opts);
+        else addon.findPrevious(query, opts);
+        await wait;
+        return { index: last.index >= 0 ? last.index + 1 : 0, total: last.count };
+      },
+      clear() {
+        query = '';
+        searchRef.current?.clearDecorations();
+        termRef.current?.term.clearSelection();
+      },
+      restoreFocus() { termRef.current?.term.focus(); },
+    };
+    const off = registerFinder(paneId, finder);
+    return () => { off(); sub?.dispose(); };
+  }, [paneId, termRef, searchRef]);
+}
+
 export function SingleTerminalPane({ sessionId, onStale, isActive = true }: SingleTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
+  const findPaneId = useFindPaneId() ?? createPaneId('terminal', sessionId);
+  useTerminalFinder(findPaneId, termRef, searchRef);
   const [stale, setStale] = useState(false);
   /** Topics is holding a command of this session stopped: the pane gets the ring. */
   const swapFreeze = useSwapFreeze({ terminalId: sessionId });
@@ -461,6 +562,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    // Find in the terminal (TERM-FIND-01): the screen plus the 5000 lines of
+    // scrollback. Decorations need the proposed API, already on above.
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+    searchRef.current = searchAddon;
     term.open(el);
     // Fit NOW, in the same task as `open`, before the browser paints: xterm
     // opens at its default 80x24 and the first fit used to come 50 ms later, so
@@ -912,6 +1018,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       coalescerRef.current = null;
       term.dispose();
       termRef.current = null;
+      searchRef.current = null;
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1237,7 +1344,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       // and makes the TUI redraw. The tab carries the label instead.
       className={`relative flex-1 min-h-0 flex flex-col${swapFreeze ? ' swap-ice-ring' : ''}`}
       data-swap-frozen={swapFreeze ? 'true' : undefined}
+      data-find-pane={findPaneId}
     >
+      {/* The find bar FLOATS over the top of the terminal instead of taking a
+          line in flow, for the reason written just above: a line in flow
+          resizes the xterm grid and the program redraws (TERM-FIND-01). */}
+      <FindBar paneId={findPaneId} floating />
       {/* Virtual key toolbar — touch devices only.
           Fondo bg-[#111] scuro in ENTRAMBI i temi, quindi i `bg-white/N` qui sotto
           sono il rialzo corretto (bianco su nero) — è l'eccezione alla regola in

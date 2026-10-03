@@ -86,14 +86,24 @@ interface Props {
   sendInput: SendInput;
   /** Agent lock — while true, this viewer's input is suppressed (take-control parity). */
   agentActive: boolean;
+  /** Hands the pane a reader of the mirror's document: the pane's finder
+   *  searches the rebuilt page with it (BROWSER-FIND-04), no server involved. */
+  exposeMirrorDocument?: (read: (() => Document | null) | null) => void;
 }
 
-export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive, exposeMirrorDocument }: Props) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
+  // The mirror's document, for find (BROWSER-FIND-04). A reader and not the
+  // document itself: rrweb swaps the iframe's document on a full snapshot.
+  useEffect(() => {
+    if (!exposeMirrorDocument) return;
+    exposeMirrorDocument(() => (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument ?? null);
+    return () => exposeMirrorDocument(null);
+  }, [exposeMirrorDocument]);
   /** Riallinea il parcheggio del timer live (definita nell'effetto sotto). Sta
    *  in una ref perché `handle` può correre prima che la closure esista. */
   const parkWhenHiddenRef = useRef<(() => void) | null>(null);
