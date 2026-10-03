@@ -126,7 +126,7 @@ describe('decisione sul singolo item', () => {
   const ctx = (over: Partial<Parameters<typeof decideQueuedMessage>[1]> = {}) => ({
     now: NOW,
     locked: false,
-    sessionMessages: [] as { role: string; content?: string; queued?: boolean }[],
+    sessionMessages: [] as { role: string; content?: string; queued?: boolean; clientMessageId?: string }[],
     ...over,
   });
 
@@ -182,5 +182,22 @@ describe('decisione sul singolo item', () => {
       ctx({ sessionMessages: [{ role: 'user', content: 'ciao', queued: true }] }),
     );
     expect(v).toEqual({ action: 'send' });
+  });
+
+  it('the same words on a row sent under ANOTHER key are another message: this one is sent', () => {
+    // Another device's "ciao", answered: not this item, whose key is `a`.
+    const v = decideQueuedMessage(
+      fresco(),
+      ctx({ sessionMessages: [{ role: 'user', content: 'ciao', clientMessageId: 'k-phone' }, { role: 'assistant', content: 'eccomi' }] }),
+    );
+    expect(v).toEqual({ action: 'send' });
+  });
+
+  it('the row with this item\'s key is this message, delivered', () => {
+    const v = decideQueuedMessage(
+      fresco(),
+      ctx({ sessionMessages: [{ role: 'user', content: 'ciao', clientMessageId: 'a' }, { role: 'assistant', content: 'eccomi' }] }),
+    );
+    expect(v).toEqual({ action: 'drop', reason: 'delivered' });
   });
 });

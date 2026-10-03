@@ -143,6 +143,8 @@ export interface DecisionMessage {
   role: string;
   content?: string;
   queued?: boolean;
+  /** The key the row was sent with: the server writes it on the person's row. */
+  clientMessageId?: string;
 }
 
 export type QueueVerdict =
@@ -182,8 +184,12 @@ export function decideQueuedMessage(item: QueuedMessage, ctx: DecisionContext): 
 
   // Il messaggio dell'utente è già in trascritto e non è più marcato "queued":
   // vuol dire che il server l'ha preso. Da lì in poi guardo cosa lo segue.
+  // A row that carries a key is this item only under this item's key: the
+  // same words under another key are another message. Words alone match only
+  // a row with no key (stored before the key was written on the row).
   const idx = ctx.sessionMessages.findLastIndex(
-    (m) => m.role === 'user' && m.content === item.content && !m.queued,
+    (m) => m.role === 'user' && !m.queued
+      && (m.clientMessageId && item.id ? m.clientMessageId === item.id : m.content === item.content),
   );
   if (idx >= 0) {
     const after = ctx.sessionMessages.slice(idx + 1);

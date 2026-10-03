@@ -230,3 +230,43 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(out.map((m) => m.id)).toEqual(['srv-u1', 'altra-finestra-u1']);
   });
 });
+
+/**
+ * The history rows carry the send's key (`clientMessageId`, written on the
+ * person's row since migration 20261003202540): a bubble still under its
+ * local name is matched to its row BY KEY, and to a row without a key (stored
+ * before the key was) by its words, as before.
+ */
+describe('mergeFetchedHistory: my bubble is known by its key', () => {
+  const bubble = (id: string, content: string, key: string): ChatMessage =>
+    ({ id, role: 'user', content, clientMessageId: key, timestamp: '2026-10-03T10:00:00.000Z' } as ChatMessage);
+  const row = (id: string, content: string, key?: string): ChatMessage =>
+    ({ id, role: 'user', content, ...(key ? { clientMessageId: key } : {}), timestamp: '2026-10-03T10:00:00.000Z' } as ChatMessage);
+
+  it('same-words-not-mine: an older row with the same words and ANOTHER key is not taken for my bubble', () => {
+    // Another device's "ok", stored before mine and not on this screen yet.
+    const existing = [bubble('msg_2', 'ok', 'k-mine')];
+    const fetched = [row('srv-u1', 'ok', 'k-other')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.id)).toEqual(['srv-u1', 'msg_2']);
+  });
+
+  it('two bubbles with the same words: the row with the second key takes the second, the first stays', () => {
+    const existing = [bubble('msg_1', 'ok', 'k1'), bubble('msg_2', 'ok', 'k2')];
+    const fetched = [row('srv-u2', 'ok', 'k2')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => [m.id, m.clientMessageId])).toEqual([['srv-u2', 'k2'], ['msg_1', 'k1']]);
+  });
+
+  it('the row with my key is my bubble even when its words differ from the bubble', () => {
+    const existing = [bubble('msg_1', 'deploy it', 'k1')];
+    const fetched = [row('srv-u1', 'deploy it\n\nand run the tests', 'k1')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+
+  it('old-row-text-match: a row stored before the key was (no key) still matches my bubble by its words', () => {
+    const existing = [bubble('msg_1', 'deploy it', 'k1')];
+    const fetched = [row('srv-u1', 'deploy it')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+});

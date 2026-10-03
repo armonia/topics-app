@@ -91,6 +91,8 @@ export interface ChatMessage extends Message {
    * On the person's bubble drawn by THIS window: the key its send carried
    * (`clientMessageId`), which the server writes back on the row it stores.
    * The bubble's identity until it adopts that row's id (`hooks/ownBubble.ts`).
+   * On a history row: the key the person's row was stored with (absent on rows
+   * stored before migration 20261003202540, and on rows no send keyed).
    */
   clientMessageId?: string;
   streamedAt?: string;            // When streaming started (for recovery)

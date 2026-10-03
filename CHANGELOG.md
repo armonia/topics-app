@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.436 — 2026-10-03
+
+### Sotto il cofano
+- Dichiara la strada del modello su chip e fascia, non sul turno (MSEL-06, AICTRL-01)
+
 ## 2.2.434 — 2026-10-03
 
 ### Sotto il cofano

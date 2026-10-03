@@ -93,6 +93,10 @@ export function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
  * se ne ha una sola mentre a schermo ce ne sono due (la seconda appena spedita,
  * che il server ancora non conosce) la seconda resta a schermo. Nascondere un
  * messaggio che c'è sarebbe un difetto peggiore di mostrarne uno di troppo.
+ *
+ * Since the person's rows carry the send's key (`clientMessageId`), a bubble
+ * is matched to the row with ITS key, and the words are asked only of rows
+ * with no key at all (stored before the key was written on the row).
  */
 export interface MergeHistoryOptions {
   /**
@@ -114,12 +118,21 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
   const coda = fetched[fetched.length - 1];
   const codaInVolo = coda?.role === 'assistant' && coda.partial === true;
 
-  // Le righe della storia che nessun messaggio a schermo rivendica già per id:
-  // sono le sole su cui un segnaposto locale può riconoscersi, e si contano
-  // perché due righe uguali valgono due echi, non uno.
+  // The keys the history rows were sent with: a bubble under its local name
+  // whose key is here IS that row, whatever its words.
+  const fetchedKeys = new Set<string>();
+  for (const m of fetched) if (m.role === 'user' && m.clientMessageId) fetchedKeys.add(m.clientMessageId);
+
+  // The history rows no message on screen already claims by id, and that
+  // carry no key (stored before the key was written on the row): the only
+  // ones a local bubble can recognise by its words. Counted, because two equal
+  // rows are two echoes, not one. A row WITH a key is never matched by words:
+  // it belongs to the send that carried that key, and another send with the
+  // same words is another message.
   const echiDisponibili = new Map<string, number>();
   for (const m of fetched) {
     if (m.id && existingIds.has(m.id)) continue;
+    if (m.clientMessageId) continue;
     const k = echoKey(m);
     if (!k) continue;
     echiDisponibili.set(k, (echiDisponibili.get(k) ?? 0) + 1);
@@ -145,9 +158,10 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     if (m.role === 'assistant' && m.partial === true && !isClientGeneratedMessageId(m.id) && m.id !== opts.liveRowId) return false;
     // A bubble still under its local name is one whose row's announcement did
     // not reach this window (the announcement renames it, `hooks/ownBubble.ts`).
-    // The history rows do not carry the send's key (it is not stored on the
-    // row), so the text is the only way left to recognise it here.
+    // Its row is the one with its key; failing that, a row with no key and
+    // the same words (`echiDisponibili`).
     if (isClientGeneratedMessageId(m.id)) {
+      if (m.clientMessageId && fetchedKeys.has(m.clientMessageId)) return false;
       const k = echoKey(m);
       const disponibili = k ? echiDisponibili.get(k) ?? 0 : 0;
       if (k && disponibili > 0) {

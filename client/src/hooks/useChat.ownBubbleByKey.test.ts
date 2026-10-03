@@ -499,6 +499,46 @@ describe('a queued send the server stored before answering with an error', () =>
   });
 });
 
+/**
+ * The history rows carry the send's key (migration 20261003202540): a queued
+ * message that may already be stored is settled by the history itself, by
+ * key, and words alone never settle it against a row with another key.
+ */
+describe('a queued send a history read shows under its key', () => {
+  test('history-drops-queued: the echo never came, the read brings the row with my key: the item leaves the queue and is not resent', async () => {
+    const app = mountBoth();
+    await queuedBehindATurn(app);
+    const key = await drainHeld(app);
+    net.answerChat!(new Response('bad gateway', { status: 502 }));
+    await settle();
+    expect(getQueue(chat.sk).map((q) => q.id)).toEqual([key]);
+    net.holdChat = true;
+    net.historyAnswer = [{ ...ROW, clientMessageId: key }];
+    await app.chat().loadHistory(chat.sk, { fresh: true });
+    await settle();
+    // Before: the read let the queue go and the same key left again.
+    expect(getQueue(chat.sk)).toHaveLength(0);
+    expect(net.sentKeys).toEqual([key]);
+    expect(app.rows().map((r) => r.id)).toEqual([ROW.id]);
+    app.unmount();
+  });
+
+  test('the same words under ANOTHER key are not my message: my queued item is still resent, and drawn', async () => {
+    const app = mountBoth();
+    await queuedBehindATurn(app);
+    const key = await drainHeld(app);
+    net.answerChat!(new Response('bad gateway', { status: 502 }));
+    await settle();
+    net.holdChat = true;
+    net.historyAnswer = [{ ...ROW, clientMessageId: 'k-phone' }];
+    await app.chat().loadHistory(chat.sk, { fresh: true });
+    await settle();
+    expect(net.sentKeys).toEqual([key, key]);
+    expect(app.rows().filter((r) => r.role === 'user').map((r) => r.content)).toEqual([MINE, MINE]);
+    app.unmount();
+  });
+});
+
 describe('Stop, with a row from the phone written beside the turn', () => {
   test('V4c: Stop before the answer starts, a sub-agent row announced after mine: the empty placeholder goes by its id', async () => {
     const app = mountBoth();

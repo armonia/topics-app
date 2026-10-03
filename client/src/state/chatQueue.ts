@@ -323,6 +323,25 @@ export function removeTurn(sessionKey: string, id: string): void {
   if (next.length === 0) releaseHold(sessionKey);
 }
 
+/**
+ * The queued messages the server already stored: a `sent` item whose key (its
+ * id) is on one of the person's rows a history read brought. Resent, it would
+ * only be refused as `duplicate_message`, and it would wait for the turn in
+ * flight to do it. Words alone never settle it: a row with the same words and
+ * another key is another message. Returns how many left the queue.
+ */
+export function dropStoredTurns(sessionKey: string, rows: ReadonlyArray<{ role: string; clientMessageId?: string }>): number {
+  const stored = new Set<string>();
+  for (const r of rows) if (r.role === 'user' && r.clientMessageId) stored.add(r.clientMessageId);
+  if (stored.size === 0) return 0;
+  const items = readFresh(sessionKey);
+  const next = items.filter((i) => !(i.sent && stored.has(i.id)));
+  if (next.length === items.length) return 0;
+  setQueue(sessionKey, next);
+  if (next.length === 0) releaseHold(sessionKey);
+  return items.length - next.length;
+}
+
 export function clearQueue(sessionKey: string): void {
   setQueue(sessionKey, []);
   // Il freno è DUREVOLE e finora lo toglieva solo un invio riuscito

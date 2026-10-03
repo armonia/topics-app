@@ -287,6 +287,12 @@ export interface StoredMessage {
    */
   authorPersonId?: string | null;
   authorDeviceId?: string | null;
+  /**
+   * The key the window minted for the send that stored this person's row
+   * (`clientMessageId`, migration 20261003202540). Absent on every other row,
+   * and on the rows written before that migration.
+   */
+  clientMessageId?: string;
 }
 
 // ─── Domain entities: declared in shared/, not here ────────────────────
@@ -573,6 +579,8 @@ export interface AppContext {
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
     /** Blocks written on the row (today: the goal continuation's `goal-nudge`). */
     blocks?: ContentBlock[],
+    /** The send's key, on the person's row a send stored (unique per session). */
+    clientMessageId?: string,
   ) => StoredMessage;
   /** Append pre-formed messages (id/parentId/toolCalls fixed by the caller) to
    *  the tail — the incremental-import complement to `saveLocalMessages`. */

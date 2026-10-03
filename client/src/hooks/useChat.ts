@@ -44,6 +44,7 @@ import {
   releaseClaim,
   releaseHold,
   removeTurn,
+  dropStoredTurns,
   requeueFront,
   storedQueueSessions,
   unshiftTurn,
@@ -2277,6 +2278,8 @@ export function useChat() {
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
         setMessages(prev => ({ ...prev, [sessionKey]: withRowsArrivedDuringOwnSse(sessionKey, prev[sessionKey], chatMessages) }));
+        // Before the queue drains at the end of this send: what it holds already stored leaves it.
+        dropStoredTurns(sessionKey, chatMessages);
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
         // No [DONE], and the server still has the turn in flight: what ended is
         // the response (a proxy, an idle timeout), not the turn. It stays lit and
@@ -2883,6 +2886,9 @@ export function useChat() {
       // count to decide whether this is a brand-new chat that can be
       // wiped. Until this point a Stop click MUST refuse to wipe.
       hydratedSessionsRef.current.add(sessionKey);
+      // A queued message this read shows stored under its key leaves the queue
+      // before the drain below can resend it (`QueuedTurn.sent`).
+      dropStoredTurns(sessionKey, chatMessages);
 
       // Clear any queued outbound messages for this session — the server already has them
       const queue = getOutboundQueue();
