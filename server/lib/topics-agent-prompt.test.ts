@@ -237,14 +237,20 @@ describe('resolveMcpOutputTokens — il tetto ai risultati dei tool MCP', () => 
 });
 
 describe('languageDirective', () => {
-  test("'auto' non è una lingua: nessuna direttiva", () => {
-    expect(languageDirective('auto')).toBe('');
+  // topic:d740f8ae: con la stringa vuota il modello seguiva l'ultimo messaggio
+  // del turno, cioè l'avviso inglese del goal, e ha risposto in inglese a una
+  // chat italiana per ore.
+  test("'auto' non sceglie una lingua: segue la persona, non gli avvisi di Topics", () => {
+    const auto = languageDirective('auto');
+    expect(auto).toContain('the language the person writes in');
+    expect(auto).toContain('objective reminders');
+    expect(auto).not.toMatch(/\b(Italian|italiano)\b/);
   });
 
-  test('italiano e inglese danno una riga sola, e nomina la lingua', () => {
+  test('ogni scelta dà una riga sola; it ed en nominano la lingua', () => {
     expect(languageDirective('it')).toContain('italiano');
     expect(languageDirective('en')).toContain('English');
-    for (const lang of ['it', 'en'] as const) {
+    for (const lang of ['auto', 'it', 'en'] as const) {
       expect(languageDirective(lang).split('\n')).toHaveLength(1);
     }
   });
@@ -267,17 +273,13 @@ describe('topicsAgentSystemPrompt', () => {
     expect(win).not.toContain('run_command');
     expect(win).toContain('mcp__topics__run_script');
     expect(win).toContain('mcp__topics__wait_for_process');
-    expect(win.endsWith('or the command is a short one-off.')).toBe(true);
+    expect(win).toContain('or the command is a short one-off.');
   });
 
-  test("con 'auto' il prompt è ESATTAMENTE quello di prima: nessuna coda", () => {
-    const auto = topicsAgentSystemPrompt('auto');
-    expect(auto.endsWith('or the command is a short one-off.')).toBe(true);
-  });
-
-  test('con una lingua scelta la direttiva chiude il prompt', () => {
-    expect(topicsAgentSystemPrompt('it').endsWith(languageDirective('it'))).toBe(true);
-    expect(topicsAgentSystemPrompt('en').endsWith(languageDirective('en'))).toBe(true);
+  test('la direttiva di lingua chiude il prompt, anche con auto', () => {
+    for (const lang of ['auto', 'it', 'en'] as const) {
+      expect(topicsAgentSystemPrompt(lang).endsWith(languageDirective(lang))).toBe(true);
+    }
   });
 
   /**
@@ -370,7 +372,7 @@ describe('shell in background: risveglio reale ma condizionato', () => {
     expect(p).toContain('`mcp__topics__run_command`');
     expect(p).toMatch(/run_command`[\s\S]*survives a restart of your CLI/);
     expect(p).toContain('`wake: false`');
-    expect(p.endsWith('or the command is a short one-off.')).toBe(true);
+    expect(p.endsWith(`or the command is a short one-off. ${languageDirective()}`)).toBe(true);
   });
 
   // A board card's turn is judged when it ends: told it could end its turn on

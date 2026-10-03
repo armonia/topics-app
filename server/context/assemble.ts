@@ -721,9 +721,8 @@ function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {
 /**
  * La lingua in cui rispondere, come blocco del contesto.
  *
- * Nessun blocco quando la scelta è «auto»: un blocco vuoto nell'ispettore è
- * peggio di un blocco assente — sembra rotto, e non lo è. `auto` significa
- * appunto che al modello non arriva nessuna direttiva.
+ * C'è anche con «auto»: lì la riga dice di seguire la lingua della persona e
+ * non quella degli avvisi di Topics (vedi `languageDirective`).
  *
  * Su claude-code questa riga è la SECONDA copia (la prima viaggia in
  * `--append-system-prompt` allo spawn, vedi `topicsAgentSystemPrompt`), e va
@@ -733,7 +732,6 @@ function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {
  */
 function pushLanguageBlock(blocks: SystemBlock[]): void {
   const content = languageDirective();
-  if (!content) return;
   blocks.push({
     id: "synthetic:output-language",
     label: "Output language",
