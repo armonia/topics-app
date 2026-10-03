@@ -230,4 +230,28 @@ describe('useTauriBrowser: letting go of a view does not kill it in another wind
     // only if the move expires: pinned in nativeBrowserViews.test.ts).
     expect(sent(ctx, 'browser_close')).toEqual([]);
   });
+
+  test('a page let go of for a pop-out is asked for again, never adopted blind', async () => {
+    const ctx = 'ctx-release-popout-back';
+    const first = surface(ctx, 'https://example.com/start', []);
+    await settle();
+    beginNativeViewMovesToAnotherWindow();
+    first.unmount();
+    await new Promise((r) => setTimeout(r, PAST_GRACE_MS));
+    await settle();
+    // Meanwhile the pop-out took the view and was closed with it (a group's
+    // «Riporta qui», a detached topic's window closed): nothing tells this
+    // document. The pane comes back here inside the move timeout.
+    invocations = [];
+    const seen: NativeBrowserHandle[] = [];
+    const again = surface(ctx, 'https://example.com/start', seen);
+    await settle();
+    // The shell is the only one that knows whether the view still exists, and
+    // where: it keeps a live page and creates a destroyed one.
+    expect(sent(ctx, 'browser_open')).toHaveLength(1);
+    expect(seen[seen.length - 1]!.ready).toBe(true);
+    // The parked close was taken by this mount: it never runs.
+    expect(sent(ctx, 'browser_close')).toEqual([]);
+    again.unmount();
+  });
 });

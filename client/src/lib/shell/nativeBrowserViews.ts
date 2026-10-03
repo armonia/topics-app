@@ -68,6 +68,8 @@ interface PendingMove {
   timer: ReturnType<typeof setTimeout>;
   /** The leaving surface's close, parked until the move lands or expires. */
   parkedClose: (() => void) | null;
+  /** Another window may take the view (`beginNativeViewMovesToAnotherWindow`). */
+  toAnotherWindow: boolean;
 }
 const pendingMoves = new Map<string, PendingMove>();
 
@@ -145,11 +147,12 @@ export function closeNativeView(id: string, invoke: Invoke, hostWindow?: string)
  * The page under `id` is about to change surface. Until a mount takes the mark
  * (or it expires) the surface that lets go of the view does not close it.
  */
-export function beginNativeViewMove(id: string): void {
+export function beginNativeViewMove(id: string, toAnotherWindow = false): void {
   const previous = pendingMoves.get(id);
   if (previous) clearTimeout(previous.timer);
   const move: PendingMove = {
     parkedClose: previous?.parkedClose ?? null,
+    toAnotherWindow: toAnotherWindow || (previous?.toAnotherWindow ?? false),
     timer: setTimeout(() => {
       if (pendingMoves.get(id) !== move) return;
       pendingMoves.delete(id);
@@ -188,6 +191,12 @@ export function deferCloseToMove(id: string, close: () => void): boolean {
   const move = pendingMoves.get(id);
   if (!move) return false;
   move.parkedClose = close;
+  // Let go while another window may take it: from here on this document cannot
+  // know whether the view still exists (that window can take it and then close
+  // with it, and nothing tells us). So it is no longer recorded as open, and a
+  // mount here goes through `browser_open`, which keeps a live page and creates
+  // a destroyed one. The mark stays: that mount still takes the parked close.
+  if (move.toAnotherWindow) openedViews.delete(id);
   return true;
 }
 
@@ -203,11 +212,12 @@ export function deferCloseToMove(id: string, close: () => void): boolean {
  * `closeNativeView`), so it frees what nobody took and spares what moved.
  *
  * Views that stay mounted are untouched: a mark only matters to a surface that
- * lets go, and a later mount here adopts a view that is still open, which is
- * what it would have done anyway.
+ * lets go. A view let go of under such a mark is never ADOPTED by a later mount
+ * here (see `deferCloseToMove`): the pop-out may have taken it and been closed
+ * with it, so that mount asks the shell with `browser_open`.
  */
 export function beginNativeViewMovesToAnotherWindow(): void {
-  for (const id of openedViews) beginNativeViewMove(id);
+  for (const id of openedViews) beginNativeViewMove(id, true);
 }
 
 /** Ids whose view is held by nobody while a move waits for its pane: a bundle

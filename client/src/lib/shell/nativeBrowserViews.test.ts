@@ -84,6 +84,8 @@ describe('nativeBrowserViews: a page another window is about to take', () => {
     settleNativeViewOpen(beginNativeViewOpen('w1'), () => Promise.resolve());
     beginNativeViewMovesToAnotherWindow();
     expect(deferCloseToMove('w1', () => { closed++; })).toBe(true);
+    // Let go while another window may take it: never adopted blind again.
+    expect(isNativeViewOpened('w1')).toBe(false);
     expect(deferCloseToMove('w-never-opened', () => {})).toBe(false);
     // Nobody took it in time: the parked close runs, as any move's does.
     jest.advanceTimersByTime(NATIVE_VIEW_MOVE_TIMEOUT_MS);

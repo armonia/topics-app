@@ -5194,8 +5194,8 @@ fn browser_open_inner(
                 // three engines (`unstable` feature, see Cargo.toml): an NSView
                 // added to the new window's content view, `SetParent` of the
                 // WebView2 host window, the GTK widget moved to the new vbox.
-                // A failure leaves the view where it was, which is today's
-                // behaviour, not a lost page.
+                // A failure is NOT harmless: tauri-runtime-wry detaches the view
+                // from its old window before it knows the move will succeed.
                 match wv.reparent(target) {
                     Ok(()) => forget_pane_geometry(&id),
                     Err(e) => eprintln!("[browser_open] {id}: reparent to {} failed: {e}", target.label()),
