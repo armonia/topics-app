@@ -76,6 +76,7 @@ import { companionSplitIsFresh } from '../companionSplit';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { isTauri } from '../../../lib/shell';
 import { tauriInvoke } from '../../../lib/shell/tauri';
+import { closeNativeView } from '../../../lib/shell/nativeBrowserViews';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { stripWrapperPaneId } from './projectPersistence';
@@ -751,7 +752,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             // tombstone) e le webview native sopravvivono al reload per
             // progetto, quindi quella pagina resta dipinta sopra
             // l'interfaccia finché non si riavvia l'app.
-            if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
+            if (isTauri) void closeNativeView(bctx, tauriInvoke).catch(() => {});
           }
         }
 

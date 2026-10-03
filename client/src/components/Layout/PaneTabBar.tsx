@@ -12,6 +12,7 @@ import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { useSignalsStore, projectAttentionTier, attentionFillFor, useTopicLoading } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
+import { TopicColorDot } from '../Shared/TopicColorDot';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { rememberDraggedPane } from '../../lib/dragPayload';
@@ -1404,9 +1405,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <CodexIcon size={14} />
               </span>
             ) : pane.type === 'chat' ? (
-              // Topic chats carry NO leading glyph — name only. Explicit null so
-              // a chat never falls through to the generic MessageSquare below.
-              null
+              // Topic chats carry NO leading glyph, name only, and never fall
+              // through to the generic MessageSquare below. The one mark a chat
+              // tab can carry is the colour the person CHOSE for the topic
+              // (TOPIC-02), the same dot as its sidebar row; a default colour
+              // draws nothing.
+              pane.topicId ? <TopicColorDot color={topics[pane.topicId]?.color} onFill={onFill} /> : null
             ) : pane.type === 'project' && pane.projectPath ? (
               // The real project favicon, or the project-type glyph when it
               // ships none, with the marker / org warning on its corner

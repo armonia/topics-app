@@ -28,12 +28,31 @@ export interface OpenHomeDetail {
   home: SettingHome;
   /** The element the panel hangs from. Absent: the home's own, if mounted. */
   anchor?: HTMLElement | null;
+  /**
+   * Where the focus goes back when the panel closes, when that is not the
+   * anchor. A command typed in the composer (`/mcp`, `/usage`) hands its own
+   * field: the person was writing, and with the focus given to the «+» or to
+   * the model chip the next words typed went nowhere.
+   */
+  returnFocus?: HTMLElement | null;
 }
 
-/** Open `home`, hung from `anchor` when given. */
-export function openHome(home: SettingHome, anchor?: HTMLElement | null): void {
-  window.dispatchEvent(new CustomEvent<OpenHomeDetail>(OPEN_HOME_EVENT, { detail: { home, anchor: anchor ?? null } }));
+/** Open `home`, hung from `anchor` when given; on close the focus goes back to
+ *  `returnFocus` when given, to the anchor otherwise. */
+export function openHome(home: SettingHome, anchor?: HTMLElement | null, returnFocus?: HTMLElement | null): void {
+  window.dispatchEvent(new CustomEvent<OpenHomeDetail>(OPEN_HOME_EVENT, {
+    detail: { home, anchor: anchor ?? null, returnFocus: returnFocus ?? null },
+  }));
 }
+
+/**
+ * The attribute a home puts on its element while the pane it belongs to is the
+ * FOCUSED one. With two chats side by side there are two «+» and two model
+ * chips on screen, and a door without an anchor (the palette) opened the panel
+ * beside the first one in the document, i.e. in the pane on the left, whatever
+ * pane the person was in.
+ */
+export const HOME_ANCHOR_FOCUSED_ATTR = 'data-home-anchor-focused';
 
 /** The attribute a home puts on its element so a door without an anchor (the
  *  palette) can still open the panel beside it. A space-separated list. */

@@ -304,6 +304,93 @@ describe("comandi built-in della CLI", () => {
   });
 });
 
+describe("skill invocations travel bare, the context beside them", () => {
+  // `<context>…/recap` is prose to the CLI and the skill never expands; context
+  // AFTER the command becomes the skill's `$ARGUMENTS`. The context goes in its
+  // own content block instead (`payload.slashContext`).
+  const SKILLS = new Set(["vai", "recap", "opsx:propose"]);
+  const isSlashCommand = (name: string) => SKILLS.has(name);
+
+  it("first turn: a skill invocation stays bare and the whole preamble moves to slashContext", () => {
+    const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE, README], "/vai solo il bug X"), { alreadySent: new Map(), isSlashCommand });
+    expect(p.userContent).toBe("/vai solo il bug X");
+    expect(p.slashContext).toStartWith("<context>\n");
+    expect(p.slashContext).toEndWith("\n</context>");
+    expect(p.slashContext).toContain("sei un assistente");
+    expect(p.slashContext).toContain("# Quadra");
+    // The context did reach the session: the slots are marked as for any message.
+    expect(p.inlineSlots?.map((s) => s.slot)).toEqual(["prompt", "template"]);
+  });
+
+  it("plan mode, restated on every turn, also goes beside the command", () => {
+    const sent = sentFrom([PROMPT, AWARE, PLAN]);
+    const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE, PLAN], "/recap"), { alreadySent: sent, isSlashCommand });
+    expect(p.userContent).toBe("/recap");
+    expect(p.slashContext).toContain("PLAN MODE attivo.");
+    expect(p.slashContext).not.toContain("sei un assistente");
+  });
+
+  it("nothing to say: bare message, no slashContext at all", () => {
+    const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "/vai"), { alreadySent: sentFrom([PROMPT, AWARE]), isSlashCommand });
+    expect(p.userContent).toBe("/vai");
+    expect(p.slashContext).toBeUndefined();
+  });
+
+  it("a namespaced skill name is an invocation too", () => {
+    const p = adaptEnvelope(inlineEnvelope([AWARE], "/opsx:propose aggiungi X"), { alreadySent: new Map(), isSlashCommand });
+    expect(p.userContent).toBe("/opsx:propose aggiungi X");
+    expect(p.slashContext).toContain("quadra");
+  });
+
+  it("a normal message is unchanged: context in front, no slashContext", () => {
+    const withPredicate = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "vai avanti"), { alreadySent: new Map(), isSlashCommand });
+    const without = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "vai avanti"), { alreadySent: new Map() });
+    expect(withPredicate).toEqual(without);
+    expect(withPredicate.userContent).toStartWith("<context>\n");
+    expect(withPredicate.userContent).toEndWith("</context>\n\nvai avanti");
+    expect(withPredicate.slashContext).toBeUndefined();
+  });
+
+  it("a pasted path starting with / is unchanged, even when its first segment is well formed", () => {
+    // A pasted `/tmp …` path has a first token the CLI would parse as a command:
+    // only the predicate (a name that exists) tells the two apart.
+    for (const testo of ["/tmp da controllare", "/Users/utente/Projects/topics-app va rivisto", "/etc/hosts"]) {
+      const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], testo), { alreadySent: new Map(), isSlashCommand });
+      expect(p.userContent).toStartWith("<context>\n");
+      expect(p.userContent).toEndWith(testo);
+      expect(p.slashContext).toBeUndefined();
+    }
+  });
+
+  it("a slash with leading blanks is prose to the CLI, so it keeps the prefix", () => {
+    const p = adaptEnvelope(inlineEnvelope([AWARE], "  /vai"), { alreadySent: new Map(), isSlashCommand });
+    expect(p.userContent).toStartWith("<context>\n");
+    expect(p.slashContext).toBeUndefined();
+  });
+
+  it("built-ins keep their own rule: bare, no context anywhere", () => {
+    const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "/compact"), { alreadySent: new Map(), isSlashCommand: () => true });
+    expect(p.userContent).toBe("/compact");
+    expect(p.slashContext).toBeUndefined();
+    expect(p.inlineSlots).toBeUndefined();
+  });
+
+  it("the native runtime gets the same channel", () => {
+    const env = { ...inlineEnvelope([PROMPT, AWARE], "/vai"), providerName: "topics" };
+    const p = adaptEnvelope(env, { alreadySent: new Map(), isSlashCommand });
+    expect(p.userContent).toBe("/vai");
+    expect(p.slashContext).toContain("sei un assistente");
+  });
+
+  it("an inline provider without the channel (ACP) keeps the old prefix", () => {
+    const env = { ...inlineEnvelope([PROMPT, AWARE], "/vai"), providerName: "jcode" };
+    const p = adaptEnvelope(env, { alreadySent: new Map(), isSlashCommand });
+    expect(p.userContent).toStartWith("<context>\n");
+    expect(p.userContent).toEndWith("\n\n/vai");
+    expect(p.slashContext).toBeUndefined();
+  });
+});
+
 describe("le altre strategie non deduplicano", () => {
   it("history-aware antepone i system message come sempre e non riporta slot", () => {
     const env = { ...inlineEnvelope([PROMPT, AWARE, README]), providerStrategy: "history-aware" as const };

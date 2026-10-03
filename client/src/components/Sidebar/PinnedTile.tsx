@@ -21,6 +21,8 @@ import { usePinnedLabelFit } from './usePinnedLabelFit';
 import { RowSplitMap } from './RowSplitMap';
 import { isCalendarPageUrl } from '../../../../shared/calendar';
 import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
+import { TopicColorDot } from '../Shared/TopicColorDot';
+import { topicColorInk } from '../../lib/topicColor';
 
 /**
  * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
@@ -385,6 +387,11 @@ export function PinnedTile({
             ? item.projectPath
             : item.projectPath ? getProjectLabel(item.projectPath) : undefined,
           badges: item.notificationCount > 0 ? [String(item.notificationCount)] : [],
+          // A pinned chat's chosen colour, in the ink of the theme on screen:
+          // the same accent the row's preview carries (`TopicItem`).
+          accent: item.type === 'chat'
+            ? topicColorInk(item.topic?.color, document.documentElement.classList.contains('dark'))
+            : undefined,
         });
         onDragStart?.();
       }}
@@ -608,6 +615,18 @@ export function PinnedTile({
         // and the tile reserved 14 (measured by tests/e2e/sidebar-pinned-alignment).
         isRow ? PINNED_ALIGN.row.iconSlot : PINNED_ALIGN.grid.iconSlot
       } ${hasIdentityIcon || iconProbing ? 'flex' : 'hidden'}`}>
+        {/* THE COLOUR THE PERSON CHOSE for a pinned chat (TOPIC-02), the same
+            dot as its row and its tab. On the corner of the type glyph and out
+            of the flow, like a marker on a favicon: in grid form the identity
+            is centred and in row form the name sits in the column, and a dot
+            in the flow would move either. A default colour draws nothing. */}
+        {item.type === 'chat' && (
+          <TopicColorDot
+            color={item.topic?.color}
+            onFill={!!tier}
+            className="absolute -top-0.5 -right-1"
+          />
+        )}
         {hasRealIcon
           ? <ProjectFavicon path={projectPath} size={18} />
           : Glyph

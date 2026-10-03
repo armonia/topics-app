@@ -36,6 +36,7 @@ import { openProfileMenu } from "./helpers/open-perf-panel";
 import { openUserMenuLevel } from "./helpers/user-menu";
 import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, calendarTile, navigateToSidebar, setPins } from "./helpers/pinned-calendar-tile";
 import { E2E_BASE } from "./helpers/test-server";
+import { splitViaContextMenu } from "./helpers/layout";
 
 const test = base.extend<{ bp: BrowserProcessPage }>({
   bp: async ({ page }, use) => {
@@ -333,6 +334,55 @@ test.describe("ogni modulo vive dove si usa", () => {
     await page.keyboard.press("Escape");
     await expect(machines).toHaveCount(0);
     await expect(devices).toBeVisible();
+  });
+
+  test("SETHOME-01l: con due chat affiancate la palette apre Strumenti accanto al «+» della chat in cui sei", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
+    await page.route("**/api/mcp/fleet**", async (route) => {
+      if (route.request().method() !== "GET") { await route.fallback(); return; }
+      await route.fulfill({ json: { enabled: true, mounted: true, mounting: false, servers: [] } });
+    });
+    const left = await createTopic(request, `Homes left ${Date.now()}`);
+    const right = await createTopic(request, `Homes right ${Date.now()}`);
+    try {
+      await resetPaneStore(request, [left.id, right.id]);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await splitViaContextMenu(page, "Dividi a destra", 1);
+      const pluses = page.getByTestId("composer-add-menu");
+      await expect(pluses).toHaveCount(2, { timeout: 15_000 });
+      // Which «+» is on the right is read from the screen, not assumed.
+      const xs = await pluses.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().left));
+      const rightIdx = xs[0] > xs[1] ? 0 : 1;
+      // The defect needs the left one FIRST in the document: otherwise the
+      // first-on-screen rule would pass by luck.
+      expect(rightIdx, "the right pane's «+» comes second in the document").toBe(1);
+      const rightPlus = pluses.nth(rightIdx);
+      // The person is in the right chat: a click in its field.
+      const fields = page.getByTestId("chat-message-input");
+      await fields.nth(rightIdx).click();
+      // The app has taken the right pane as the focused one: its tab says so.
+      await expect.poll(async () => {
+        const box = await page.locator('[role="tab"][data-focused="true"]').first().boundingBox();
+        return box ? box.x > xs[rightIdx] - 200 : false;
+      }, { timeout: 10_000, message: "the focused tab is the right pane's" }).toBe(true);
+
+      const palette = page.getByTestId("command-palette");
+      await expect(async () => {
+        await page.keyboard.press("Meta+k");
+        await expect(palette).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 20_000 });
+      await palette.getByRole("textbox").first().fill("Strumenti MCP");
+      await palette.getByTestId("palette-home-tools").click();
+      const panel = page.getByTestId("home-panel-tools");
+      await expect(panel).toBeVisible();
+      await expectBeside(panel, rightPlus);
+      await page.keyboard.press("Escape");
+      await expect(panel).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, left.id);
+      await deleteTopic(request, right.id);
+    }
   });
 
   test("SETHOME-01f: la palette apre ogni modulo per nome, senza una voce Impostazioni", async ({ page }) => {

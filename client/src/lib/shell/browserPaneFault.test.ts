@@ -152,7 +152,9 @@ describe('recreatePane', () => {
     const src = readFileSync(new URL('../../hooks/useTauriBrowser.ts', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('const recreate ='), src.indexOf('const viewId ='));
     expect(body).toContain('recreatePane({');
-    expect(body).toContain("tauriInvoke('browser_close'");
+    // The close goes through the single door of `browser_close` (`nativeBrowserViews`),
+    // which forgets the view: a remounted pane never adopts the one being rebuilt.
+    expect(body).toContain('closeNativeView(id).then(() => true, () => false)');
     // L'esito della chiusura si legge (niente `.catch(() => {})` che lo ingoia)…
     expect(body).not.toContain('.catch(() => {})');
     // …e il guasto non si azzera a mano: lo cancella la vista nuova.

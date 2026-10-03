@@ -1135,12 +1135,14 @@ function ChatPaneComponent({
     if (cmd === '/model') { setCommandResult(null); composerControlsRef.current?.openModel(); return true; }
     if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.modelSet', { model: m }) : r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/effort') { setCommandResult(null); composerControlsRef.current?.openEffort(); return true; }
-    // Bare `/mcp` and `/config` (with its alias `/settings`) open where Topics
-    // keeps those things now (SETHOME-01), on Claude Code only: with arguments,
-    // or on a provider with its own commands under these names, they travel
-    // as typed (`topicsHomeCommand`).
+    // Bare `/mcp`, `/config` (with its alias `/settings`) and `/usage` (with
+    // `/cost` and `/stats`) open where Topics keeps those things now
+    // (SETHOME-01), on Claude Code only: with arguments, or on a provider with
+    // its own commands under these names, they travel as typed
+    // (`topicsHomeCommand`).
     const home = topicsHomeCommand(cmd, declared);
     if (home === 'tools') { setCommandResult(null); composerControlsRef.current?.openTools(); return true; }
+    if (home === 'providers') { setCommandResult(null); composerControlsRef.current?.openProviders(); return true; }
     if (home === 'userMenu') { setCommandResult(null); openUserMenu(); return true; }
     if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.effortSet', { level: tier }) : r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 

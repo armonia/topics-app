@@ -64,6 +64,7 @@ import {
   isProjectBrowserPaneOpen,
 } from '../../state/pane/adapters/projectBrowserPanes';
 import { returnSheetToWindow } from './returnToTopicWindow';
+import { beginNativeViewMove, cancelNativeViewMove } from '../../lib/shell/nativeBrowserViews';
 import {
   createPaneId,
   getBrowserContextFromPaneId,
@@ -429,11 +430,18 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   /** Hand the active sheet to the layout, with the same contextId. */
   const openAsTab = useCallback((contextId: string, url: string) => {
-    const detail: OpenTabDetail = { url: url || 'about:blank', contextId, topicId, projectPath };
+    // `live`: the page is already loaded under this contextId, and the layout
+    // only takes it over. Without it the project's door navigated the new pane
+    // to `url`, a reload of everything the sheet was showing.
+    const detail: OpenTabDetail = { url: url || 'about:blank', contextId, topicId, projectPath, live: true };
+    // A HANDOFF, not a race against the close grace: the sheet that unmounts
+    // parks its close until the layout's pane mounts and adopts the view, however
+    // late that comes (see `nativeBrowserViews`).
+    beginNativeViewMove(contextId);
     const claimed = !window.dispatchEvent(new CustomEvent<OpenTabDetail>(OPEN_TAB_EVENT, { detail, cancelable: true }));
     // Nobody can host a tab here (a detached window with no grid): the sheet
     // stays where it is rather than vanishing into a layout that refused it.
-    if (!claimed) return;
+    if (!claimed) { cancelNativeViewMove(contextId); return; }
     promotedAt.current.set(contextId, Date.now());
     topicBrowserWindow.promoteToTab(topicId, contextId);
   }, [topicId, projectPath]);

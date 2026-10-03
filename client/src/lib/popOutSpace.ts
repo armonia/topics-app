@@ -13,10 +13,6 @@
 // il `server_seq`: non serve un secondo modello.
 import { isTauri } from './shell/index';
 import { tauriInvoke } from './shell/tauri';
-import { usePaneStore } from '../state/pane/store';
-import { DEFAULT_SPACE_ID } from '../state/pane/types';
-import { isLiveSpaceId } from '../state/pane/reducers/spaces';
-import { createSpaceId, nextSpaceName, movePaneToSpace } from '../components/Layout/spaceHelpers';
 
 /**
  * I gruppi che QUESTA finestra ha rivendicato a mano.
@@ -109,40 +105,4 @@ export async function closeSpaceWindow(windowLabel: string): Promise<boolean> {
     console.error('[space] chiusura della finestra fallita:', e);
     return false;
   }
-}
-
-/**
- * Trascinare una tab FUORI dalla finestra: nasce un gruppo suo, in una finestra
- * sua.
- *
- * Prima quel gesto apriva una pop-out `?topics=`, cioè una vista morta: niente
- * pane-store, niente tab nuove, e la pane di partenza andava chiusa a mano. Una
- * tab portata fuori invece è una tab che vuole una casa: le si dà un gruppo (che
- * è l'unità con cui l'app ragiona) e la finestra di quel gruppo. La pane non si
- * chiude nemmeno — cambiando gruppo lascia da sola l'insieme visibile di qui.
- *
- * Ritorna false se la finestra non si è aperta: in quel caso il gruppo appena
- * creato viene sciolto e la tab torna dov'era, invece di restare in un gruppo
- * fantasma che nessuno disegna.
- */
-export async function detachPaneToNewSpace(paneId: string): Promise<boolean> {
-  const store = usePaneStore.getState();
-  const pane = store.panes[paneId];
-  if (!pane) return false;
-  const from = pane.spaceId;
-  const id = createSpaceId();
-  store.dispatch({ type: 'SPACE_UPSERT', payload: { space: { id, name: nextSpaceName(store.spaces) } } });
-  movePaneToSpace(paneId, id);
-  const opened = await popOutSpace(id);
-  if (!opened) {
-    const back = usePaneStore.getState();
-    // Il gruppo di partenza può non esserci più: se la tab era la sua ultima,
-    // uscendo l'ha sciolto (`movePaneToSpace`). Rimandarcela dentro
-    // significherebbe stamparle addosso l'id di una lapide — che si legge come
-    // "Principale", ma per la via lunga. Meglio dirlo.
-    const backTo = from && isLiveSpaceId(from, back.spaces) ? from : DEFAULT_SPACE_ID;
-    movePaneToSpace(paneId, backTo);
-    back.dispatch({ type: 'SPACE_DELETE', payload: { id } });
-  }
-  return opened;
 }

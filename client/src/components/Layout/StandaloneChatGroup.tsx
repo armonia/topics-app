@@ -6,6 +6,7 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType,
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
+import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
@@ -523,8 +524,7 @@ export function StandaloneChatGroup({
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     // WKWebView (Tauri) needs an explicit dropEffect or the source dragend reads
-    // 'none' and the pop-out path closes the dragged pane (this merge drop has
-    // its own handler, so PanelGrid's dropConsumedRef guard doesn't cover it).
+    // 'none', as if the tab had been dropped outside the app.
     e.dataTransfer.dropEffect = 'move';
     // ONE indicator, and this card owns it only when nobody else does. For a tab
     // of the GRID's own scope, PanelGrid already paints this cell's centre
@@ -987,6 +987,13 @@ export function StandaloneChatGroup({
               data-testid="mobile-pane-title"
               className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
+              {/* The open chat's chosen colour, before its name: the phone
+                  has no tab strip and its list is a drawer, so without this
+                  the colour the person picked shows nowhere on the screen
+                  they read the chat on (TOPIC-02). A default draws nothing. */}
+              {surfaceInFront?.type === 'chat' && surfaceInFront.topicId && (
+                <TopicColorDot color={topics[surfaceInFront.topicId]?.color} className="mr-2" />
+              )}
               <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
               <MobileFindButton paneId={activePaneId} />
             </div>

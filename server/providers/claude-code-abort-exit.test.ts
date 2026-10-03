@@ -299,6 +299,54 @@ describe("sendChat resends transparently once on a lost session (capped)", () =>
     expect(h.calls.some((c) => c.includes("code 1"))).toBe(false);
     expect(h.calls.some((c) => c.includes("died"))).toBe(false);
   });
+
+  /**
+   * A deduplicated skill turn (bare `/recap x`, no context) hits a lost session:
+   * the fresh session never saw the context, so the resend carries the full one
+   * from `resetFallbackSlashContext` in the block BEFORE the bare command.
+   * @covers SKILL-03
+   */
+  test("SESSION_RESET on a skill turn: the resend puts the full context beside the bare command", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const noop = () => {};
+    const written: string[] = [];
+    let spawns = 0;
+    const makeFake = () => {
+      const first = spawns === 1;
+      const pp: any = fakePP({
+        alive: true,
+        sessionKey: "topic:x",
+        spawnMeta: { claudeSessionId: first ? "dead" : "fresh", isNewSession: !first },
+        recovering: first,
+        ready: Promise.resolve(),
+        needsHistoryReplay: false,
+        fullText: "",
+        sidechain: { clear: noop },
+        activeToolCalls: { clear: noop },
+        settledToolCalls: { clear: noop },
+        pendingInputs: new Map(),
+      });
+      pp.io = { writeStdin: (line: string) => { written.push(line); (provider as any).onSessionClosed(pp, first ? 1 : 0); }, signal: noop, kill: noop };
+      return pp;
+    };
+    (provider as any).getOrCreateProcess = () => { spawns++; return makeFake(); };
+    (provider as any).startHeartbeat = noop;
+    (provider as any).stopHeartbeat = noop;
+    (provider as any).resetInactivityTimer = noop;
+
+    await (provider as any).sendChatInternal(
+      "topic:x", "/recap x", spyHandler(), false, undefined, undefined,
+      undefined, "<context>\nFULL-CONTEXT\n</context>",
+    );
+
+    expect(spawns).toBe(2);
+    const contents = written.map((l) => JSON.parse(l).message.content);
+    expect(contents[0]).toBe("/recap x");
+    expect(contents[1]).toEqual([
+      { type: "text", text: "<context>\nFULL-CONTEXT\n</context>" },
+      { type: "text", text: "/recap x" },
+    ]);
+  });
 });
 
 /**

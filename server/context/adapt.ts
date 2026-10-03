@@ -132,6 +132,47 @@ function isCliBuiltin(content: string): boolean {
   return CLI_BUILTINS.has(first.toLowerCase());
 }
 
+/**
+ * The command-name shape the CLI itself accepts (`looksLikeCommand` in Claude
+ * Code 2.1.288: `/^[a-zA-Z0-9_][a-zA-Z0-9:_-]*$/`). A first token outside it
+ * is never parsed as a command, so it can never be a skill invocation.
+ */
+const COMMAND_NAME_RE = /^[a-zA-Z0-9_][a-zA-Z0-9:_-]*$/;
+
+/**
+ * The skill (or custom command) named by a message, or null.
+ *
+ * Syntax alone is not enough, for the same reason as `CLI_BUILTINS`: «/tmp to
+ * check» has a well-formed first token and is a pasted path. Only a name the
+ * caller KNOWS to be a command counts (`isKnownSlashCommand` on disk); with no
+ * predicate nothing does, and the message keeps today's shape.
+ */
+function slashInvocationName(content: string, isSlashCommand: ((name: string) => boolean) | undefined): string | null {
+  if (!isSlashCommand) return null;
+  // No trimStart here: the CLI tests `startsWith("/")` on the raw text, so a
+  // message with leading blanks is prose to it whatever we do.
+  if (!content.startsWith("/")) return null;
+  const first = content.slice(1).split(/\s/, 1)[0] ?? "";
+  if (!COMMAND_NAME_RE.test(first)) return null;
+  return isSlashCommand(first) ? first : null;
+}
+
+/**
+ * The providers that can carry the context NEXT TO a bare slash invocation
+ * instead of in front of it:
+ *  - `claude-code`: a stream-json user message whose content is two text
+ *    blocks. The CLI parses the LAST block as the input and hands the blocks
+ *    before it to the command as `precedingInputBlocks`, which it places in the
+ *    meta message just before the expanded skill body. Read in the 2.1.288
+ *    binary (`H=UIn(x),be=H===null?x:x.slice(0,-1)` then
+ *    `processSlashCommand(H,be,...)`; the prompt command builds `[...be, ...body]`)
+ *    and observed on a real run: `/probe alpha beta` expanded with
+ *    `$ARGUMENTS` = «alpha beta» and the context block in front of the body.
+ *  - `topics` (native): the API user message takes the same two blocks.
+ * Any other inline-system provider (ACP agents) keeps the old prefix.
+ */
+const SLASH_SIDE_CHANNEL_PROVIDERS = new Set(["claude-code", "topics"]);
+
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────────────────────────────────────
@@ -146,6 +187,13 @@ export interface AdaptOptions {
    * that is why the byte-for-byte regression test still holds).
    */
   alreadySent?: ReadonlyMap<string, string>;
+  /**
+   * Whether `name` is a skill or custom command the provider will expand
+   * (`/recap`, `/opsx:propose`). Injected so this function stays pure: the answer lives
+   * on disk and depends on the topic's working directory. Absent ⇒ no message
+   * is treated as a skill invocation.
+   */
+  isSlashCommand?: (name: string) => boolean;
 }
 
 /**
@@ -175,7 +223,7 @@ export function adaptEnvelope(envelope: ContextEnvelope, opts?: AdaptOptions): P
     case "history-aware":
       return adaptHistoryAware(envelope, composedSystem);
     case "inline-system":
-      return adaptInlineSystem(envelope, slots, opts?.alreadySent);
+      return adaptInlineSystem(envelope, slots, opts?.alreadySent, opts?.isSlashCommand);
     case "gateway-stateful":
       return adaptGatewayStateful(envelope, composedSystem);
     default: {
@@ -220,6 +268,7 @@ function adaptInlineSystem(
   envelope: ContextEnvelope,
   slots: SystemSlot[],
   alreadySent: ReadonlyMap<string, string> | undefined,
+  isSlashCommand: ((name: string) => boolean) | undefined,
 ): ProviderPayload {
   // Un comando built-in della CLI va consegnato NUDO. `/compact` & co. li parsa
   // la CLI guardando l'inizio del messaggio: qualunque cosa messa davanti — anche
@@ -272,17 +321,31 @@ function adaptInlineSystem(
   parts.push(...emitted.map((s) => s.content));
 
   let userContent = envelope.userMessage.content;
+  const notes = buildInlineSystemNotes(envelope, emitted.length, skipped, savedTokens, withdrawn);
   // Niente da dire ⇒ il messaggio utente NUDO, senza un `<context></context>`
   // vuoto. È il caso a regime, ed è ciò che rende un turno "riaccedi" tre token
   // invece di millenovecentosettantatré.
   if (parts.length > 0) {
-    userContent = `<context>\n${parts.join("\n\n---\n\n")}\n</context>\n\n${userContent}`;
+    const preamble = `<context>\n${parts.join("\n\n---\n\n")}\n</context>`;
+    // A SKILL INVOCATION STAYS BARE. With the preamble in front, the CLI reads
+    // `<context>…/recap` as prose and the skill never expands; moving it AFTER
+    // the command makes it the skill's `$ARGUMENTS`, substituted inline in the
+    // skill body. So it travels beside the message, never inside it: the slots
+    // are still marked, because the context does reach the session.
+    const skill = SLASH_SIDE_CHANNEL_PROVIDERS.has(envelope.providerName)
+      ? slashInvocationName(userContent, isSlashCommand)
+      : null;
+    if (skill) {
+      notes.unshift(`Skill invocation /${skill}: message sent bare, <context> delivered as a separate content block before it`);
+      return { userContent, slashContext: preamble, adaptationNotes: notes, inlineSlots };
+    }
+    userContent = `${preamble}\n\n${userContent}`;
   }
 
   return {
     userContent,
     // No `history` field — process-resident CLI keeps its own session state.
-    adaptationNotes: buildInlineSystemNotes(envelope, emitted.length, skipped, savedTokens, withdrawn),
+    adaptationNotes: notes,
     inlineSlots,
   };
 }
