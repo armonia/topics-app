@@ -80,7 +80,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
 
   const choose = useCallback(async (row: Row | undefined) => {
     if (!row || adopting) return;
-    if (row.kind === 'more') { void loadPage(cursor); return; }
+    if (row.kind === 'more') { if (!loading) void loadPage(cursor); return; }
     const s = row.session;
     // Two processes writing one session fork it: a session still running in a
     // terminal is continued here only if the person says so.
@@ -108,7 +108,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
     } finally {
       setAdopting(null);
     }
-  }, [adopting, loadPage, cursor, confirm, tr, toast, onAdopted, inputRef]);
+  }, [adopting, loading, loadPage, cursor, confirm, tr, toast, onAdopted, inputRef]);
 
   // The keys of the field while the list is open.
   useEffect(() => {

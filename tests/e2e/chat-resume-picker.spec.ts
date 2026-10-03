@@ -121,10 +121,13 @@ test.describe("/resume", () => {
     await expect(rows(page).first().getByTestId("resume-row-active")).toHaveText("attiva adesso");
     await expect(rows(page).first()).toContainText("feat/menu");
 
-    // «Load older» brings the other five.
-    await picker(page).getByTestId("resume-load-more").click();
+    // «Load older» brings the other five, once even on a double click.
+    const older: string[] = [];
+    page.on("request", (r) => { if (r.url().includes("/resumable-sessions?before=")) older.push(r.url()); });
+    await picker(page).getByTestId("resume-load-more").dblclick();
     await expect(rows(page)).toHaveCount(25, { timeout: 15_000 });
     await expect(picker(page).getByTestId("resume-load-more")).toHaveCount(0);
+    expect(older).toHaveLength(1);
 
     // The word after `/resume ` filters on title and branch.
     // Every fixture's branch is `feat/menu`, so the word is one of a title only.
