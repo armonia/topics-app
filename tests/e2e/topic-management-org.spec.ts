@@ -377,6 +377,16 @@ test.describe("Topic Management - Settings & Organization", () => {
     const tabDot = () => page.getByTestId(`pane-tab-${betaId}`).locator("[data-topic-color]");
     await expect(rowDot()).toHaveCount(0);
     await expect(tabDot()).toHaveCount(0);
+    // Where the name starts before any colour: the dot must not move it
+    // (LAYOUT-27, one name column in the sidebar).
+    const rowName = page.locator('[aria-label="Topics sidebar"]')
+      .locator(`[aria-label="E2E-Beta-${TS}"] [data-row-name="chat"]`);
+    const nameBox = async () => {
+      const box = await rowName.boundingBox();
+      if (!box) throw new Error("the chat name has no box");
+      return { x: Math.round(box.x), y: Math.round(box.y) };
+    };
+    const plainName = await nameBox();
 
     // Right-click → «Cambia colore» → the green swatch.
     await betaTopic.click({ button: "right" });
@@ -394,6 +404,9 @@ test.describe("Topic Management - Settings & Organization", () => {
     await expect(tabDot()).toBeVisible();
     // Light theme ink of #059669 (lib/topicColor): emerald-700, rgb(4, 120, 87).
     await expect(rowDot()).toHaveCSS("background-color", "rgb(4, 120, 87)");
+    await expect(rowDot()).toBeVisible();
+    // The dot fills a box the row already reserves: the name stays put.
+    expect(await nameBox(), "the colour dot moved the chat name").toEqual(plainName);
 
     // …and it is persisted server-side.
     // GET /api/topics returns `{ topics: Record<id, Topic>, … }` — a keyed map.

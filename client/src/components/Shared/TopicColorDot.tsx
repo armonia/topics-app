@@ -3,8 +3,10 @@ import { cn } from '@/lib/utils';
 import { topicColorInks } from '@/lib/topicColor';
 
 /**
- * The colour a person chose for a topic, as a small dot before its name: the
- * same mark on the sidebar row and on the tab, so the two read as one thing.
+ * The colour a person chose for a topic, as a small dot: the same mark on the
+ * sidebar row and on the tab, so the two read as one thing. On the row it sits
+ * where the row already has room (see `TopicItem`), never in a column that
+ * would move the name.
  *
  * Nothing renders for a default colour (see `topicColorInks`): the dot exists
  * only where there was a choice, and clearing the colour takes it away. It is

@@ -255,6 +255,15 @@ export const TopicItem = memo(function TopicItem({
     });
   }, [topic.id, topic.name, topic.color, topic.projectPath, notificationCount, archived]);
 
+  // THE COLOUR THE PERSON CHOSE (TOPIC-02), and only that: a default colour
+  // draws nothing. It never takes a column of its own, because a column is what
+  // moves the name (LAYOUT-27, one name column): it fills the reserved accordion
+  // box when that box is empty, and on a row whose box holds the chevron, or a
+  // nested row that has no box, it leads the quiet rail instead.
+  const colorDot = <TopicColorDot color={topic.color} onFill={onFill} />;
+  const leadDot = !hasChildren && depth === 0 ? colorDot : null;
+  const trailDot = leadDot ? null : colorDot;
+
   return (
     <div
       {...lp.handlers}
@@ -371,7 +380,7 @@ export const TopicItem = memo(function TopicItem({
         // Only at the top of the tree, where the project rows open: below
         // it nothing has an accordion (sub-agents nest without one), so the
         // box was 16px of air on every nested row (card 058ea722, 2026-09-03).
-        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT}>{leadDot}</span>
       ) : null}
 
       {/* IL GLIFO D'ARCHIVIO IN TESTA NON C'È PIÙ, ed è la metà visibile della
@@ -415,16 +424,7 @@ export const TopicItem = memo(function TopicItem({
           up to an even number of pixels (see its note in `index.css`), and the
           gap follows. With the old 13 + 3 + 11 = 27 the name started at 1.5px
           from the top of the row, measured on 28/08. */}
-      {/* A two-column grid and not a flex column, for the colour dot alone:
-          the dot sits in the first column ON THE NAME'S LINE, and the name
-          and the subline share the second, so the two lines stay aligned with
-          each other. Without a dot the first column is 0 wide and the row is
-          the flex column it was (same gap, same centring). */}
-      <div className="flex-1 min-w-0 grid grid-cols-[auto_minmax(0,1fr)] content-center gap-y-1 *:col-start-2">
-        {/* THE COLOUR THE PERSON CHOSE (TOPIC-02), and only that: a default
-            colour draws nothing, so a chat without a choice keeps starting at
-            the row's own padding (see the note above). Same mark as the tab. */}
-        <TopicColorDot color={topic.color} onFill={onFill} className="col-start-1! row-start-1 self-center mr-1.5" />
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
         <span data-row-name="chat" title={topic.name} className={cn(
           "truncate-tight",
           onFill && cn("font-semibold", ON_FILL_TEXT),
@@ -486,6 +486,7 @@ export const TopicItem = memo(function TopicItem({
           state (the ink of the time, then 36, then 28), so the button turned up
           at a different x every time. */}
       <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+        {trailDot}
         {/* Notification badge — hidden when focused so the user doesn't see a
             count for the topic they're actively looking at. */}
         {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
