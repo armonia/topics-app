@@ -10,7 +10,7 @@
  */
 import { describe, expect, test, beforeEach } from 'bun:test';
 import {
-  __setQueueStorage, adoptLegacyQueue, claimBatch, clearQueue, decideSend, enqueueTurn,
+  __setQueueStorage, adoptLegacyQueue, claimBatch, clearQueue, decideSend, dropStoredTurns, enqueueTurn,
   getQueue, holdQueue, isHeld, legacyQueueKey, mergeBatch, parseQueue, queueKey, releaseClaim,
   liftedStop, releaseHold, removeTurn, requeueFront, updateTurn, BATCH_SEPARATOR, CLAIM_LEASE_MS,
 } from './chatQueue';
@@ -383,5 +383,21 @@ describe('an item the server may already hold', () => {
   test('the mark survives the disk', () => {
     enqueueTurn(SK, 'resent', { clientMessageId: 'key-1' });
     expect(parseQueue(store.map.get(queueKey(SK)) ?? null)[0]!.sent).toBe(true);
+  });
+});
+
+describe('a history read settles what the queue may have already sent', () => {
+  test('a `sent` item whose key is on a row of the read leaves the queue; the rest stays', () => {
+    enqueueTurn(SK, 'deploy it', { clientMessageId: 'k-stored' });
+    enqueueTurn(SK, 'and run the tests');
+    const removed = dropStoredTurns(SK, [{ role: 'user', clientMessageId: 'k-stored' }, { role: 'assistant' }]);
+    expect(removed).toBe(1);
+    expect(getQueue(SK).map((q) => q.content)).toEqual(['and run the tests']);
+  });
+
+  test('the same words under another key, or a row with no key, settle nothing', () => {
+    enqueueTurn(SK, 'ok', { clientMessageId: 'k-mine' });
+    expect(dropStoredTurns(SK, [{ role: 'user', clientMessageId: 'k-other' }, { role: 'user' }])).toBe(0);
+    expect(getQueue(SK).map((q) => q.id)).toEqual(['k-mine']);
   });
 });

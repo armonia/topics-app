@@ -113,6 +113,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
+import { keyTakenBy, rowStoredUnderKey } from "../lib/client-message-key";
 import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
@@ -125,19 +126,10 @@ import {
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 
 /**
- * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
- *
- * TTL lungo (mezz'ora) perche' non costa niente sbagliare da questa parte: la
- * chiave e' un uuid coniato UNA volta per invio, non un'impronta del testo.
- * Rimandare due volte «ok» resta due messaggi distinti, con due chiavi diverse;
- * l'unica cosa che una chiave ripetuta puo' significare e' «e' lo stesso invio
- * che ci riprova». Tenerla in memoria a lungo copre una riconnessione lenta,
- * scaderla presto rimetterebbe in gioco il doppione che vogliamo evitare.
- *
- * Vive nel processo, quindi un riavvio la perde: e' un limite accettato, non un
- * difetto nascosto. Il caso che protegge (client che ritenta subito una richiesta
- * caduta) si consuma in secondi, e la finestra dopo un riavvio e' coperta dalla
- * riga utente gia' scritta, che il client rilegge dalla history.
+ * The keys of the messages already taken, to recognise a resend: the fast
+ * path. Half an hour, because a key is a uuid minted once per send, never a
+ * fingerprint of the text. It lives in the process and a restart loses it, so
+ * the table is asked next: the key is on the row (`lib/client-message-key.ts`).
  */
 const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
 
@@ -410,19 +402,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * having arrived just fine.
        *
        * With a key the doubt disappears: the client ALWAYS resends, and we
-       * are the ones who say whether we'd already taken it. The key is only
-       * remembered AFTER the user row is written (further below), because
-       * that's the moment the message truly exists: if we die before that,
-       * the resend must be able to start clean.
-       *
-       * Same mechanism as `POST /api/terminal/sessions`, same module.
+       * say whether we'd already taken it. The key is written ON the user row
+       * (further below), the moment the message truly exists: the map, then
+       * the table, answer for it, across a restart too.
        */
       const idempotencyKey =
         req.headers.get("x-idempotency-key")
         ?? (typeof body.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null);
       const idempotencySlot = idempotencyKey ? `${sessionKey} ${idempotencyKey}` : null;
       if (idempotencySlot) {
-        const already = chatIdempotency.lookup(idempotencySlot);
+        const already = chatIdempotency.lookup(idempotencySlot) ?? rowStoredUnderKey(ctx.db, sessionKey, idempotencyKey!);
         if (already) {
           console.log(`[HTTP] POST /api/chat: ripetizione di ${idempotencyKey} su ${sessionKey} — già preso come ${already}, non lo rifaccio`);
           return json(
@@ -687,14 +676,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // envelope are `user` rows because that is the only role a provider
         // answers, and the mark is what stops the transcript from showing the
         // person saying words they never wrote.
-        const storedUserMsg = appendLocalMessage(
-          sessionKey, "user", lastUserMsg.content,
-          autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
-          userRowMarks({
-            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit, subagentResults: body.subagentResults,
-            repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),
-          }),
-        );
+        let storedUserMsg: ReturnType<typeof appendLocalMessage>;
+        try {
+          storedUserMsg = appendLocalMessage(
+            sessionKey, "user", lastUserMsg.content,
+            autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+            userRowMarks({
+              goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit, subagentResults: body.subagentResults,
+              repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),
+            }),
+            idempotencyKey ?? undefined,
+          );
+        } catch (err) {
+          // Another request stored this key first: the unique index refused the second row.
+          const taken = keyTakenBy(err, ctx.db, sessionKey, idempotencyKey);
+          if (!taken) throw err;
+          return json({ error: "message already accepted", code: "duplicate_message", messageId: taken }, 409);
+        }
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
         // l'unica cosa giusta da fare.
