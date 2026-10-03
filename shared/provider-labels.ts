@@ -2,7 +2,7 @@
  * The name a provider is shown by. The server puts it in the providers
  * snapshot (`server/providers/snapshot-manager.ts`); the client needs it too
  * for a provider the snapshot does not list (not connected here, yet declared
- * by a topic), or it shows the bare id: «codex non compatta» (CMDUI-06).
+ * by a topic), or it shows the bare id: «codex» instead of «Codex» (CMDUI-06).
  *
  * Names not in the table come from the ACP agents (`ACP_AGENTS`): (a) the
  * lookup goes through `hasOwnProperty`, or an agent called `toString` would
