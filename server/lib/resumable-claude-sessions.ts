@@ -35,29 +35,7 @@ import { claudeProjectDirName } from "./claude-transcript-path";
 import { DEFAULT_ACTIVE_MS, parseTranscriptFacts, type TranscriptFacts } from "./external-claude-sessions";
 import { isInsideDir } from "./path-containment";
 
-/** Where the title of a row comes from: `/rename`, the CLI's own title, or the last question. */
-export type ResumableTitleSource = "custom" | "ai" | "prompt";
-
-export interface ResumableSession {
-  sessionId: string;
-  title: string | null;
-  titleSource: ResumableTitleSource | null;
-  branch: string | null;
-  cwd: string;
-  /** Last activity: the transcript's mtime, epoch ms. */
-  lastActivityAt: number;
-  /** Touched within the last 15 minutes: maybe still running in a terminal. */
-  active: boolean;
-  transcriptPath: string;
-}
-
-export interface ResumablePage {
-  sessions: ResumableSession[];
-  /** More transcripts are left after this page. */
-  more: boolean;
-  /** Where the next page starts (`before`), when there is one. */
-  cursor: string | null;
-}
+import type { ResumablePage, ResumableSession, ResumableTitleSource } from "../../shared/resumable-sessions";
 
 export interface ResumableFs {
   readdir(dir: string): Promise<string[]>;

@@ -396,8 +396,12 @@ describe('outbound registry contract', () => {
   // under a code block) started or ended; the windows showing that reply read
   // its runs again. Owner-only. Sender `server/routes/processes.ts`, listener
   // `client/src/components/Chat/commandRunStore.ts`.
-  test('all 105 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(105);
+  // 105 -> 106: `stream:command-answer`, the CLI's own answer to a local
+  // command (`/compact` failed, `/output-style`), shown as the chat's command
+  // card and never saved (CMDUI-04). Sender `server/routes/chat.ts`, listener
+  // `client/src/hooks/useChat.ts`.
+  test('all 106 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(106);
   });
 });
 

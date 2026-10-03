@@ -1037,17 +1037,8 @@ export interface CustomSlashCommand {
 }
 
 /** A row of `/resume` (`GET /topics/:id/resumable-sessions`). */
-export interface ResumableSession {
-  sessionId: string;
-  title: string | null;
-  titleSource: 'custom' | 'ai' | 'prompt' | null;
-  branch: string | null;
-  cwd: string;
-  lastActivityAt: number;
-  active: boolean;
-  transcriptPath: string;
-}
-export interface ResumablePage { sessions: ResumableSession[]; more: boolean; cursor: string | null }
+import type { ResumablePage } from '../../../shared/resumable-sessions';
+export type { ResumableSession, ResumablePage } from '../../../shared/resumable-sessions';
 
 /**
  * Cache di processo della lista comandi, per topic: a chiederla è `ChatInput`,
