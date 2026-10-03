@@ -152,8 +152,8 @@ describe('recreatePane', () => {
     const src = readFileSync(new URL('../../hooks/useTauriBrowser.ts', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('const recreate ='), src.indexOf('const viewId ='));
     expect(body).toContain('recreatePane({');
-    // La chiusura passa dall'unica porta di `browser_close` (`nativeBrowserViews`),
-    // che dimentica la vista: una pane rimontata non adotta quella in ricostruzione.
+    // The close goes through the single door of `browser_close` (`nativeBrowserViews`),
+    // which forgets the view: a remounted pane never adopts the one being rebuilt.
     expect(body).toContain('closeNativeView(id).then(() => true, () => false)');
     // L'esito della chiusura si legge (niente `.catch(() => {})` che lo ingoia)…
     expect(body).not.toContain('.catch(() => {})');
