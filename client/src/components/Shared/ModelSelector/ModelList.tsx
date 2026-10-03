@@ -462,19 +462,22 @@ export function ModelList(props: ModelListProps) {
   const pick = (selection: AiExecutionSelection) => { onSelect(selection); onClose(); };
 
   // The search takes the focus once the popover is placed and visible (a
-  // hidden element refuses `focus()`), after `Menu` has focused its panel.
+  // hidden element refuses `focus()`), after `Menu` has focused its panel. It
+  // only ever takes it from the panel itself or the page: once the person has
+  // moved into the list, the focus is theirs.
   useEffect(() => {
     if (!props.focusSearch) return;
     let frames = 0;
     let handle = 0;
     const tick = () => {
       const input = searchRef.current;
-      const host = panelRef.current?.closest<HTMLElement>('[data-popover]');
+      const host = panelRef.current?.closest<HTMLElement>('[data-popover]') ?? null;
       const visible = !!input && (!host || getComputedStyle(host).visibility === 'visible');
-      if (visible && document.activeElement !== input) {
-        input!.focus({ preventScroll: true });
-        if (document.activeElement === input && frames > 2) return;
-      }
+      const active = document.activeElement;
+      const free = active === host || active === document.body || active === null;
+      if (visible && free) input!.focus({ preventScroll: true });
+      if (visible && document.activeElement === input) return;
+      if (visible && !free && active !== input) return;
       if (frames++ < 12) handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
