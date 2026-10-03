@@ -269,7 +269,7 @@ describe("every menu entry does something when picked", () => {
   });
 });
 
-describe("`/new` and `/reset` are `/clear`, on Claude Code", () => {
+describe("`/new` and `/reset` are `/clear` on every engine with a session, OpenClaw aside (CMDUI-06)", () => {
   // Claude Code's aliases of /clear (measured: each emits conversation_reset
   // and changes the session id). Forwarded, the live process forgot while the
   // screen kept the history and Topics kept the old session id.
@@ -283,10 +283,17 @@ describe("`/new` and `/reset` are `/clear`, on Claude Code", () => {
 
   test("on openclaw they are the gateway's own reset gestures and travel as typed", () => {
     // openclaw lists /new and /reset among its commands, and has no /clear.
-    for (const c of ["/new", "/reset"]) {
-      expect(isClearCommand(c, "openclaw"), c).toBe(false);
-      expect(isClearCommand(c, "gemini"), c).toBe(false);
+    for (const c of ["/new", "/reset"]) expect(isClearCommand(c, "openclaw"), c).toBe(false);
+  });
+
+  test("on the ACP agents, Codex and Topics' engine they clear too: sent, they were prose to the engine", () => {
+    // Each of these providers forgets its session on `resetSession` (acp.ts,
+    // codex.ts, native/provider.ts); none announces `/new` or `/reset` itself.
+    for (const provider of ["gemini", "jcode", "codex", "topics"]) {
+      for (const c of ["/new", "/reset"]) expect(isClearCommand(c, provider), `${c} on ${provider}`).toBe(true);
     }
+    // An undeclared provider is not assumed.
+    expect(isClearCommand("/new", null)).toBe(false);
   });
 });
 

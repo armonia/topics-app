@@ -88,15 +88,24 @@ export function cliRefusedCommand(
 }
 
 /**
- * Is `cmd` (lower-cased, trimmed) Topics' `/clear`? `/new` and `/reset` are
- * Claude Code's aliases of it: forwarded there, the live process forgot while
- * the screen kept the history and Topics kept the old session id. On openclaw
- * the same two words are the gateway's own reset gestures, and openclaw has no
- * `/clear`, so elsewhere they travel as typed.
+ * Do `/new` and `/reset` mean Topics' `/clear` on `declaredProvider`
+ * (CMDUI-06)? On Claude Code they are the CLI's own aliases of it: forwarded,
+ * the live process forgot while the screen kept the history and Topics kept
+ * the old session id. On the ACP agents, Codex and Topics' engine nobody
+ * answers to them, and sent they were prose to the model, while each of those
+ * forgets its session on `/clear`. On openclaw the same two words are the
+ * gateway's own reset gestures, so there they travel as typed. An undeclared
+ * provider is not assumed.
  */
+export function clearAliasesApply(declaredProvider: string | null | undefined): boolean {
+  const p = declaredProvider?.trim();
+  return !!p && p !== 'openclaw';
+}
+
+/** Is `cmd` (lower-cased, trimmed) Topics' `/clear`, or one of its aliases where they apply? */
 export function isClearCommand(cmd: string, declaredProvider: string | null | undefined): boolean {
   if (cmd === '/clear') return true;
-  return (cmd === '/new' || cmd === '/reset') && declaresClaudeCode(declaredProvider);
+  return (cmd === '/new' || cmd === '/reset') && clearAliasesApply(declaredProvider);
 }
 
 /**

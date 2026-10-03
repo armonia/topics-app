@@ -20,7 +20,7 @@
  * `checkup` are not in it). The menu shows the canonical name only; typed, an
  * alias resolves to its name before any other rule.
  */
-import { CLI_REFUSED, declaresClaudeCode } from './cliRefused';
+import { CLI_REFUSED, clearAliasesApply, declaresClaudeCode } from './cliRefused';
 import { offeredSlashCommands, SLASH_COMMANDS, type SlashCommandEntry } from './slashCommands';
 
 export type CommandKind = 'topics' | 'control' | 'engine' | 'refused' | 'hidden';
@@ -67,9 +67,10 @@ export const HIDDEN: ReadonlySet<string> = new Set([
 /** The canonical name of `name` (no slash, lower-cased) on a topic that declares `provider`. */
 export function canonicalCommand(name: string, provider: string | null | undefined): string {
   const n = name.replace(/^\//, '').toLowerCase();
-  // The aliases are Claude Code's: on OpenClaw `/new` and `/reset` are the
-  // gateway's own reset gestures, and travel as typed.
-  return declaresClaudeCode(provider) ? CLAUDE_ALIASES[n] ?? n : n;
+  if (declaresClaudeCode(provider)) return CLAUDE_ALIASES[n] ?? n;
+  // Elsewhere only `/new` and `/reset` are `/clear` (CMDUI-06), and not on
+  // OpenClaw, where they are the gateway's own reset gestures.
+  return (n === 'new' || n === 'reset') && clearAliasesApply(provider) ? 'clear' : n;
 }
 
 /** The Topics entry a name stands for on this provider, if it is offered there. */

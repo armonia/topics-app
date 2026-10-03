@@ -58,6 +58,17 @@ describe('every engine name of the map is a command of the CLI', () => {
     expect(canonicalCommand('new', 'openclaw')).toBe('new');
   });
 
+  test('`/new` and `/reset` are `/clear` on every declared engine but OpenClaw (CMDUI-06)', () => {
+    for (const provider of ['gemini', 'jcode', 'codex', 'topics']) {
+      for (const a of ['new', '/reset']) {
+        expect(canonicalCommand(a, provider), `${a} on ${provider}`).toBe('clear');
+        expect(commandKind(a, provider), `${a} on ${provider}`).toBe('topics');
+      }
+    }
+    // The other aliases stay Claude Code's: `/review` elsewhere is the engine's own word.
+    expect(canonicalCommand('review', 'gemini')).toBe('review');
+  });
+
   test('no refused name is one the CLI runs, and every refused name is one it refuses', () => {
     for (const n of Object.keys(CLI_REFUSED)) {
       expect(listed.has(n), `${n} is refused here and run by the CLI`).toBe(false);
