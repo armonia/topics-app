@@ -88,10 +88,10 @@ test.describe("sidebar: the name column", () => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-27" });
     // ONE CHAT WITH A CHOSEN COLOUR AND ONE WITHOUT, both open so their rows
     // exist. The colour dot (TOPIC-02) used to take a column of its own and
-    // pushed the coloured chat's name 14px right of the plain one's: the very
+    // pushed the colored chat's name 14px right of the plain one's: the very
     // crooked column this test guards, born from a decoration.
     const stamp = Date.now();
-    const coloured = await createTopic(request, `ROWALIGN-colour-${stamp}`, { color: "#059669" });
+    const colored = await createTopic(request, `ROWALIGN-colour-${stamp}`, { color: "#059669" });
     // `createTopic` opens each one's tab on top of the seeded project's pane:
     // `resetPaneStore` here would close the project and lose the other half
     // of the comparison.
@@ -110,13 +110,13 @@ test.describe("sidebar: the name column", () => {
     const names = await readNames(page);
     expect(names.length, "no sidebar name was measurable").toBeGreaterThan(1);
 
-    // The two chats, coloured and plain: their names start at the same x.
+    // The two chats, colored and plain: their names start at the same x.
     const chatLeft = (prefix: string) => names.find((n) => n.kind === "chat" && n.text.startsWith(prefix))?.left;
-    const colouredLeft = chatLeft("ROWALIGN-colour-");
+    const colorLeft = chatLeft("ROWALIGN-colour-");
     const plainLeft = chatLeft("ROWALIGN-plain-");
-    expect(colouredLeft, "the coloured chat's name was measured").toBeDefined();
+    expect(colorLeft, "the colored chat's name was measured").toBeDefined();
     expect(plainLeft, "the plain chat's name was measured").toBeDefined();
-    expect(colouredLeft, `the colour dot moved the chat name: ${colouredLeft} against ${plainLeft}`).toBe(plainLeft);
+    expect(colorLeft, `the colour dot moved the chat name: ${colorLeft} against ${plainLeft}`).toBe(plainLeft);
 
     // Top level only: the indent step per depth is a WANTED difference, and it
     // is guarded elsewhere. The shallowest row left is the top level.
@@ -163,7 +163,7 @@ test.describe("sidebar: the name column", () => {
           "the empty leading box must be gone.",
       ).toBeLessThan(glyphStarts[0]!);
     }
-    await cleanupAll(request, { topics: [coloured.id, plain.id] });
+    await cleanupAll(request, { topics: [colored.id, plain.id] });
   });
 
   // ROWNAME-TITLE: a truncated chat name has to stay READABLE on hover. The

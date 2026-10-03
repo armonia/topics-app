@@ -301,7 +301,7 @@ describe("sendChat resends transparently once on a lost session (capped)", () =>
   });
 
   /**
-   * A deduplicated skill turn (bare `/vai x`, no context) hits a lost session:
+   * A deduplicated skill turn (bare `/recap x`, no context) hits a lost session:
    * the fresh session never saw the context, so the resend carries the full one
    * from `resetFallbackSlashContext` in the block BEFORE the bare command.
    * @covers SKILL-03
@@ -335,16 +335,16 @@ describe("sendChat resends transparently once on a lost session (capped)", () =>
     (provider as any).resetInactivityTimer = noop;
 
     await (provider as any).sendChatInternal(
-      "topic:x", "/vai x", spyHandler(), false, undefined, undefined,
+      "topic:x", "/recap x", spyHandler(), false, undefined, undefined,
       undefined, "<context>\nFULL-CONTEXT\n</context>",
     );
 
     expect(spawns).toBe(2);
     const contents = written.map((l) => JSON.parse(l).message.content);
-    expect(contents[0]).toBe("/vai x");
+    expect(contents[0]).toBe("/recap x");
     expect(contents[1]).toEqual([
       { type: "text", text: "<context>\nFULL-CONTEXT\n</context>" },
-      { type: "text", text: "/vai x" },
+      { type: "text", text: "/recap x" },
     ]);
   });
 });

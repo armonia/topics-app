@@ -72,7 +72,7 @@ const PALETTE: Readonly<Record<string, { light: string; dark: string }>> = {
 /** The swatches the context menu offers, in display order. */
 export const TOPIC_COLOR_OPTIONS: readonly string[] = Object.keys(PALETTE);
 
-function lowestContrast(ink: RGB, grounds: readonly string[]): number {
+function minContrast(ink: RGB, grounds: readonly string[]): number {
   return Math.min(...grounds.map((g) => contrastRatio(ink, fromHex(g)!)));
 }
 
@@ -87,7 +87,7 @@ export function topicDotRing(ink: string, theme: 'light' | 'dark'): string | nul
   const rgb = fromHex(ink);
   if (!rgb) return null;
   const grounds = TOPIC_DOT_GROUNDS[theme];
-  if (lowestContrast(rgb, grounds) >= TOPIC_DOT_MIN_CONTRAST) return null;
+  if (minContrast(rgb, grounds) >= TOPIC_DOT_MIN_CONTRAST) return null;
   const toward = theme === 'light' ? 0 : 255;
   for (let step = 1; step <= 20; step++) {
     const t = step / 20;
@@ -97,7 +97,7 @@ export function topicDotRing(ink: string, theme: 'light' | 'dark'): string | nul
       b: rgb.b + (toward - rgb.b) * t,
     };
     const hex = toHex(mixed);
-    if (lowestContrast(fromHex(hex)!, grounds) >= TOPIC_DOT_MIN_CONTRAST) return hex;
+    if (minContrast(fromHex(hex)!, grounds) >= TOPIC_DOT_MIN_CONTRAST) return hex;
   }
   return theme === 'light' ? '#000000' : '#ffffff';
 }

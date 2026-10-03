@@ -3645,9 +3645,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               countCompactions(ctx, sessionKey),
             );
             // A skill invocation (`/recap`) reaches the CLI bare, its context comes back apart
-            // (`payload.slashContext`). Skills are looked up where the CLI looks: the topic's cwd,
-            // after the list the CLI itself reported (its bundled and plugin skills), which only
-            // a claude-code session has.
+            // (`payload.slashContext`). Known skills: the CLI's own list (claude-code only), then the topic's cwd.
             const slashCwd = matchedTopic ? ctx.resolveTopicCwd(matchedTopic) : null;
             const cliSessionKey = topicProvider.name === "claude-code" ? sessionKey : null;
             const isSlashCommand = (name: string) => isKnownSlashCommand(name, { cwd: slashCwd, cliSessionKey });

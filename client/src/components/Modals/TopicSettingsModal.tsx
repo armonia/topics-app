@@ -27,12 +27,12 @@ import { fromHex, toHex } from '../../lib/iconTint';
 
 /** What the native picker holds while there is no colour: a neutral grey,
  *  hidden under the dashed swatch, so the panel does not open on black. */
-const NO_COLOUR_PLACEHOLDER = '#808080';
+const NO_COLOR_PLACEHOLDER = '#808080';
 
 /** `#abc` → `#aabbcc`: a native colour input accepts only the long form. */
 function fullHex(hex: string): string {
   const rgb = fromHex(hex);
-  return rgb ? toHex(rgb) : NO_COLOUR_PLACEHOLDER;
+  return rgb ? toHex(rgb) : NO_COLOR_PLACEHOLDER;
 }
 
 interface TopicSettingsModalProps {
@@ -393,7 +393,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   type="color"
                   data-testid="topic-color-input"
                   aria-label={tr('ctx.pickColour')}
-                  value={chosenColor ? fullHex(chosenColor.value) : NO_COLOUR_PLACEHOLDER}
+                  value={chosenColor ? fullHex(chosenColor.value) : NO_COLOR_PLACEHOLDER}
                   onChange={e => setTopicColor(storableTopicColor(e.target.value))}
                   className={`block w-8 h-8 rounded border border-app-border-light cursor-pointer ${chosenColor ? '' : 'opacity-0'}`}
                 />

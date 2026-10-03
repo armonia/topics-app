@@ -55,21 +55,21 @@ async function open(page: Page): Promise<void> {
 test.describe("the chosen colour on the surfaces of a chat", () => {
   test("TOPICCOLOR-01: a pinned chat carries its colour on the tile, a plain one does not", async ({ page, request }) => {
     const stamp = Date.now();
-    const coloured = await chat(request, `TC-pin-colour-${stamp}`, GREEN);
+    const colored = await chat(request, `TC-pin-colour-${stamp}`, GREEN);
     const plain = await chat(request, `TC-pin-plain-${stamp}`);
-    await resetPaneStore(request, [coloured, plain]);
+    await resetPaneStore(request, [colored, plain]);
     await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
       data: {
         viewMode: "timeline",
         showArchived: false,
         expandedNodes: [],
-        pinnedItems: [coloured, plain],
-        pinnedLayout: [{ keys: [coloured, plain], widths: [1, 1] }],
+        pinnedItems: [colored, plain],
+        pinnedLayout: [{ keys: [colored, plain], widths: [1, 1] }],
       },
     });
     await open(page);
 
-    const tile = page.locator(`[data-pinned-tile="${coloured}"]`).first();
+    const tile = page.locator(`[data-pinned-tile="${colored}"]`).first();
     await expect(tile).toBeVisible({ timeout: 10_000 });
     await expect(tile.locator("[data-topic-color]")).toHaveAttribute("data-topic-color", GREEN);
     await expect(tile.locator("[data-topic-color]")).toBeVisible();
