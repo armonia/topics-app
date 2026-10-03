@@ -107,6 +107,11 @@ export function isClearCommand(cmd: string, declaredProvider: string | null | un
  * the MCP tools are the «Strumenti» panel of the composer's «+», the rest of
  * the configuration is the user menu. `cmd` is lower-cased and trimmed.
  *
+ * `/usage` (aliases `/cost` and `/stats`, `claudeCliCommands.fixture.json`)
+ * opens the providers panel of the model chip: the Claude plan and its 5-hour
+ * window are read there. Forwarded, the CLI answered in English with its own
+ * table, as if it were the agent's reply.
+ *
  * Only BARE and only on Claude Code. With arguments (`/mcp enable github`) the
  * command travels to the CLI, which runs both names in `--print`: opening a
  * panel instead dropped the arguments without a word. Other providers have
@@ -117,9 +122,10 @@ export function isClearCommand(cmd: string, declaredProvider: string | null | un
 export function topicsHomeCommand(
   cmd: string,
   declaredProvider: string | null | undefined,
-): 'tools' | 'userMenu' | null {
+): 'tools' | 'userMenu' | 'providers' | null {
   if (!declaresClaudeCode(declaredProvider)) return null;
   if (cmd === '/mcp') return 'tools';
   if (cmd === '/config' || cmd === '/settings') return 'userMenu';
+  if (cmd === '/usage' || cmd === '/cost' || cmd === '/stats') return 'providers';
   return null;
 }
