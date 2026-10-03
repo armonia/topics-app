@@ -25,6 +25,8 @@ import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { useTouchDrag } from '@/hooks/useTouchDrag';
 import { useT } from '@/hooks/useT';
 import { WorktreeChip } from './WorktreeChip';
+import { TopicColorDot } from '@/components/Shared/TopicColorDot';
+import { topicColorInks } from '@/lib/topicColor';
 import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
@@ -237,20 +239,21 @@ export const TopicItem = memo(function TopicItem({
     // (`lib/dragPreview`). La riga porta un nome, il progetto in cui vive e i
     // segnali che la stanno chiamando: chi trascina deve riconoscere la cosa,
     // e fra due chat omonime di due progetti diversi il nome da solo non basta.
-    // Niente glifo e niente `accent`: la riga non li porta. Il glifo davanti al
-    // nome di una chat non c'è per scelta («solo le sessioni agente hanno un
-    // marchio»), e `topic.color` è un default inventato che la sidebar non
-    // dipinge da nessuna parte. Un'anteprima che mostra ciò che la cosa non ha
-    // non è l'anteprima della cosa.
+    // No glyph: the row has none (only agent sessions carry a brand mark).
+    // The accent is the topic's colour only when a person CHOSE it, the same
+    // condition under which the row paints its dot (`TopicColorDot`); a default
+    // colour is invented and stays off both. A preview that shows what the
+    // thing does not have is not a preview of the thing.
     startDragPreview(e, {
       title: topic.name,
+      accent: topicColorInks(topic.color)?.value,
       subtitle: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
       badges: [
         notificationCount > 0 ? String(notificationCount) : '',
         archived ? 'archiviata' : '',
       ].filter(Boolean),
     });
-  }, [topic.id, topic.name, topic.projectPath, notificationCount, archived]);
+  }, [topic.id, topic.name, topic.color, topic.projectPath, notificationCount, archived]);
 
   return (
     <div
@@ -412,7 +415,16 @@ export const TopicItem = memo(function TopicItem({
           up to an even number of pixels (see its note in `index.css`), and the
           gap follows. With the old 13 + 3 + 11 = 27 the name started at 1.5px
           from the top of the row, measured on 28/08. */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
+      {/* A two-column grid and not a flex column, for the colour dot alone:
+          the dot sits in the first column ON THE NAME'S LINE, and the name
+          and the subline share the second, so the two lines stay aligned with
+          each other. Without a dot the first column is 0 wide and the row is
+          the flex column it was (same gap, same centring). */}
+      <div className="flex-1 min-w-0 grid grid-cols-[auto_minmax(0,1fr)] content-center gap-y-1 *:col-start-2">
+        {/* THE COLOUR THE PERSON CHOSE (TOPIC-02), and only that: a default
+            colour draws nothing, so a chat without a choice keeps starting at
+            the row's own padding (see the note above). Same mark as the tab. */}
+        <TopicColorDot color={topic.color} onFill={onFill} className="col-start-1! row-start-1 self-center mr-1.5" />
         <span data-row-name="chat" title={topic.name} className={cn(
           "truncate-tight",
           onFill && cn("font-semibold", ON_FILL_TEXT),

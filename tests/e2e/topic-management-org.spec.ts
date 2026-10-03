@@ -363,32 +363,39 @@ test.describe("Topic Management - Settings & Organization", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
-    // Navigate to app and find Beta topic
     await goToApp(page);
     const betaTopic = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
+    // Open it, so its tab is there to carry the same mark as the row.
+    await betaTopic.click();
+    const betaTab = page.getByTestId(`pane-tab-${betaId}`);
+    await expect(betaTab).toBeVisible({ timeout: 10000 });
 
-    // Right-click to open context menu
+    // A topic created with the default colour shows no colour anywhere: the
+    // default is written by the code, not chosen by a person.
+    const rowDot = () => page.locator('[aria-label="Topics sidebar"]')
+      .locator(`[aria-label="E2E-Beta-${TS}"] [data-topic-color]`);
+    const tabDot = () => page.getByTestId(`pane-tab-${betaId}`).locator("[data-topic-color]");
+    await expect(rowDot()).toHaveCount(0);
+    await expect(tabDot()).toHaveCount(0);
+
+    // Right-click → «Cambia colore» → the green swatch.
     await betaTopic.click({ button: "right" });
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible({ timeout: 5000 });
-
-    // Click "Cambia colore" menuitem to open color submenu
     await menu.getByRole("menuitem", { name: /Cambia colore/i }).click();
-
-    // Wait for color submenu to appear
     await expect(menu.getByText("Scegli colore")).toBeVisible({ timeout: 3000 });
-
-    // Click the green color swatch (#059669 = rgb(5, 150, 105))
     await menu.getByRole("button", { name: "Colore #059669" }).click();
-
-    // Context menu should auto-close (handleColorChange calls onClose)
     await expect(menu).toBeHidden({ timeout: 3000 });
 
-    // The colour is DATA, not a sidebar decoration: the redesign dropped the
-    // coloured accent from the tree row (nothing under components/Sidebar reads
-    // `topic.color` any more — it feeds the pane/settings surfaces instead), so
-    // asserting a tinted svg in the row tested an affordance that no longer
-    // exists. What the feature must still guarantee is that the pick STICKS.
+    // The colour is SHOWN where the topic is recognised: a dot on its sidebar
+    // row and the same dot on its tab, painted with the palette's ink.
+    await expect(rowDot()).toHaveAttribute("data-topic-color", "#059669");
+    await expect(tabDot()).toHaveAttribute("data-topic-color", "#059669");
+    await expect(tabDot()).toBeVisible();
+    // Light theme ink of #059669 (lib/topicColor): emerald-700, rgb(4, 120, 87).
+    await expect(rowDot()).toHaveCSS("background-color", "rgb(4, 120, 87)");
+
+    // …and it is persisted server-side.
     // GET /api/topics returns `{ topics: Record<id, Topic>, … }` — a keyed map.
     const colorOf = async () => {
       const res = await page.request.get(`${E2E_BASE}/api/topics`);
@@ -400,12 +407,13 @@ test.describe("Topic Management - Settings & Organization", () => {
       timeout: 5000,
     }).toBe("#059669");
 
-    // …and that it survives a reload: reopening the submenu shows THAT swatch
-    // as the selected one (ContextMenu marks `topic.color === color` with the
-    // scale-110 ring), which is the user-visible proof the value round-tripped.
+    // A reload keeps the dot on the row and on the tab, and the submenu marks
+    // the swatch as the selected one.
     await page.reload();
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const betaAfterReload = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
+    await expect(rowDot()).toHaveAttribute("data-topic-color", "#059669");
+    await expect(tabDot()).toHaveAttribute("data-topic-color", "#059669");
     await betaAfterReload.click({ button: "right" });
     const menuAfterReload = page.getByRole("menu");
     await expect(menuAfterReload).toBeVisible({ timeout: 5000 });
@@ -414,7 +422,14 @@ test.describe("Topic Management - Settings & Organization", () => {
     await expect(
       menuAfterReload.getByRole("button", { name: "Colore #059669" }),
       "the previously picked swatch is marked selected after reload",
-    ).toHaveClass(/scale-110/);
+    ).toHaveAttribute("aria-pressed", "true");
+
+    // Clearing the colour takes the dot away from both places.
+    await menuAfterReload.getByRole("button", { name: "Nessun colore" }).click();
+    await expect(menuAfterReload).toBeHidden({ timeout: 3000 });
+    await expect(rowDot()).toHaveCount(0);
+    await expect(tabDot()).toHaveCount(0);
+    await expect.poll(colorOf, { message: "the cleared colour is persisted", timeout: 5000 }).toBe("");
   });
 
   // TOPIC-12 ("drag-reorder using dnd-helpers persists across reload") was

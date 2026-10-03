@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, Square, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, Square, X, type LucideIcon } from 'lucide-react';
 import { useTopicLoading } from '@/state/signals';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 import { useCopyTabLink } from '@/hooks/useCopyTabLink';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
+import { TOPIC_COLOR_OPTIONS, topicColorInks } from '@/lib/topicColor';
 
 interface ContextMenuProps {
   x: number;
@@ -39,12 +40,6 @@ interface ContextMenuProps {
   onStopStreaming?: () => void;
 }
 
-const COLOR_OPTIONS = [
-  '#0066cc', '#059669', '#dc2626', '#7c3aed',
-  '#ea580c', '#0891b2', '#be185d', '#4338ca',
-  '#16a34a', '#eab308',
-];
-
 type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
 
 export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut, onStopStreaming }: ContextMenuProps) {
@@ -70,7 +65,10 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
     onClose();
   };
 
+  // An empty string is «no colour»: the server stores it as given, and
+  // `topicColorInks` reads it, like a default, as nothing to paint.
   const handleColorChange = async (color: string) => { await onUpdate(topic.id, { color }); onClose(); };
+  const chosenColor = topicColorInks(topic.color)?.value ?? null;
 
   const handleDelete = async () => { await onDelete(topic.id); onClose(); };
 
@@ -167,18 +165,30 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
         <div className="p-3">
           <div className="text-mini font-semibold text-app-text-muted mb-2">{tr('ctx.pickColour')}</div>
           <div className="grid grid-cols-5 gap-2">
-            {COLOR_OPTIONS.map((color) => (
+            {TOPIC_COLOR_OPTIONS.map((color) => (
               <button
                 key={color}
                 onClick={() => handleColorChange(color)}
                 aria-label={`Colore ${color}`}
+                aria-pressed={chosenColor === color}
                 className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-transform hover:scale-110 ${
-                  topic.color === color ? 'border-[#1a1a1a] dark:border-[#e5e5e5] scale-110' : 'border-transparent'
+                  chosenColor === color ? 'border-[#1a1a1a] dark:border-[#e5e5e5] scale-110' : 'border-transparent'
                 }`}
                 style={{ backgroundColor: color }}
               />
             ))}
           </div>
+          {/* Taking the colour back is part of choosing it: without this the
+              dot, once set, could only be swapped for another colour. */}
+          {chosenColor && (
+            <button
+              onClick={() => handleColorChange('')}
+              className={`${POPOVER_ITEM} mt-2`}
+            >
+              <X size={14} className="text-app-text-tertiary" />
+              {tr('ctx.clearColour')}
+            </button>
+          )}
         </div>
       )}
 
