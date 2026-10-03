@@ -9,7 +9,7 @@ e `general-auto-model-ui`, perché il delta modifica i loro requisiti.
 **Barra.** Si esegue uguale a ogni giro:
 1. `bun run typecheck` (client e server);
 2. `bun test` sui 14 file di 1.6, più `server/services/task-dispatcher-topics-routing-default.test.ts`, `server/services/task-dispatcher-auto-topics-routing.test.ts`, `server/providers/native/agent-loop.test.ts` e `client/src/components/Shared/ModelSelector`;
-3. `bunx playwright test tests/e2e/model-selector.spec.ts tests/e2e/provider-picker.spec.ts tests/e2e/picker-keyboard-nav.spec.ts tests/e2e/effort-single-surface.spec.ts tests/e2e/task-model-labels.spec.ts --project=webkit` sul server isolato :13334.
+3. `bunx playwright test tests/e2e/model-selector.spec.ts tests/e2e/provider-picker.spec.ts tests/e2e/picker-keyboard-nav.spec.ts tests/e2e/effort-single-surface.spec.ts tests/e2e/task-model-labels.spec.ts --project=chromium` sul server isolato :13334 (il progetto `webkit` le esclude e uscirebbe 1 con «No tests found»: sul Mac si corrono con una config locale che dà al progetto chromium `browserName: "webkit"`).
 
 Quello che è verde resta verde. Le suite intere le fa la CI.
 
