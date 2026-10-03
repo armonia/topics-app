@@ -236,8 +236,9 @@ export function classifyTurnEnd(end: TurnEndFacts): { outcome: "done" | "error" 
     const resumes = end.stopCause === "server-shutdown" || outageNoticeResumes(errorText);
     return { outcome: resumes ? null : "error", resumes, detail: errorText.replace(/^⚠️\s*/, "").slice(0, 200) };
   }
-  // The clean end, by the gates of `isCleanChatTurnEnd` (shared/chat-turn-end.ts):
-  // marked complete, not a stop of the person, not the watchdog's cut.
+  // The clean end: marked complete, not a stop of the person, not the
+  // watchdog's cut. The client no longer judges a turn end on its own, so this
+  // is the only copy of the rule.
   const clean = end.completed === true && end.reason !== "user_abort" && end.stopCause !== "watchdog" && end.stopReason !== "cancelled";
   if (clean && !end.discarded) return { outcome: "done", resumes: false, detail: null };
   return { outcome: null, resumes: false, detail: null };
@@ -262,10 +263,9 @@ export type SilenceableTopic = {
  *   - the project in `mutedProjects`: per-project mute, keyed by
  *     `projectPath`, compared EXACTLY (a prefix is not the project).
  *
- * The safe side is OPPOSITE to the client twin (`client/src/lib/notify/muteGate.ts`)
- * on purpose: there an unknown topic is NOT muted (losing a banner is worse
- * than one too many), here a topic that does not exist is silenced: there is
- * nothing to name, and a push is an interruption on a phone.
+ * A topic that does not exist is silenced: there is nothing to name, and a
+ * push is an interruption on a phone. The client has no twin of this gate any
+ * more: its banner rides the server's `announce`.
  */
 export function isTopicSilenced(
   topic: SilenceableTopic | null | undefined,

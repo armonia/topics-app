@@ -595,14 +595,6 @@ export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): At
   return recompose(subject, { live: true });
 }
 
-/** One task enters (a hook's `PostToolUse`). */
-export function addBackgroundTask(subject: string, id: string, task: Omit<AttentionTask, "id">): AttentionSnapshot {
-  const e = entryOf(subject);
-  e.row.background = { ...e.row.background, [id]: task };
-  if (countingTaskCount(e.row.background) > 0) clearGrace(e);
-  return recompose(subject, { live: true });
-}
-
 /** One task leaves (its report arrived). False when it was not in the map. */
 export function removeBackgroundTask(subject: string, id: string): boolean {
   const e = peek(subject);
@@ -664,11 +656,6 @@ export function closeHold(subject: string, source: string): AttentionSnapshot | 
   delete next[source];
   e.live.holds = next;
   return recompose(subject, { live: true });
-}
-
-/** Whether a wait from this source is open on the subject. */
-export function hasHold(subject: string, source: string): boolean {
-  return !!peek(subject)?.live.holds[source];
 }
 
 /** The card's state is not a wait any more: its rows are seen with it (NOTIF-SEEN-01). */

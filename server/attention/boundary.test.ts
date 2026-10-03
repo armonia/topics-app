@@ -9,11 +9,12 @@
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
 function trackedLines(pattern: string): string[] {
-  const r = Bun.spawnSync(["git", "grep", "--untracked", "-n", "-E", pattern, "--", "server", "server.ts", "shared"], { cwd: ROOT });
+  const r = Bun.spawnSync(["git", "grep", "--untracked", "-n", "-E", pattern, "--", "server", "server.ts", "shared"], { cwd: ROOT, env: gitEnv() });
   return r.stdout.toString().split("\n").filter(Boolean)
     // Tests read and write the table to set up their cases; migrations create it.
     .filter((l) => !/\.test\.ts:/.test(l) && !l.startsWith("server/db/migrations/"));

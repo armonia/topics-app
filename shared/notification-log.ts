@@ -154,10 +154,6 @@ export function taskParkedNotificationKey(taskId: string): string {
   return `task-parked:${taskId}`;
 }
 
-export function approvalNotificationKey(approvalId: string): string {
-  return `approval:${approvalId}`;
-}
-
 /**
  * Il raggruppamento di default: il BERSAGLIO. Due notifiche che portano allo
  * stesso task (o allo stesso topic) sono la stessa cosa da guardare, e
@@ -185,14 +181,6 @@ export const TERMINAL_TARGET_KIND = 'terminal';
 
 export function terminalNotificationGroupKey(sessionId: string): string {
   return `${TERMINAL_TARGET_KIND}:${sessionId}`;
-}
-
-/** The way back: the terminal session a group key stands for, or null when the
- *  key is not a terminal's. Reads the same prefix the birth key writes. */
-export function terminalSessionOfGroupKey(groupKey: string | null | undefined): string | null {
-  const prefix = terminalNotificationGroupKey('');
-  if (!groupKey || !groupKey.startsWith(prefix)) return null;
-  return groupKey.slice(prefix.length) || null;
 }
 
 export function defaultNotificationGroupKey(
