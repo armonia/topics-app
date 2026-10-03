@@ -9,6 +9,7 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types';
 import { SettingSelect } from './SettingSelect';
+import { ProviderDefaultModel } from './ProviderDefaultModel';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
 import { ApiKeyForm, ApiProviderSetup } from './ApiProviderSetup';
 import { DirectEndpointsPanel } from './DirectEndpointsPanel';
@@ -491,12 +492,9 @@ function ProviderSettings({
 
   const modelField = PROVIDER_MODEL_FIELD[entry.name];
   const modelValue = modelField ? settings[modelField] : null;
-  // Preserve a saved model absent from the catalog so it can still be cleared.
-  const modelOptions = useMemo(() => {
-    const all = [...entry.models];
-    if (modelValue && !all.includes(modelValue)) all.unshift(modelValue);
-    return all.map((m) => ({ value: m, label: m }));
-  }, [entry.models, modelValue]);
+  // A saved model absent from the catalog stays visible (and clearable) as the
+  // selector's disabled selected row.
+  const modelOptions = useMemo(() => (modelValue && !entry.models.includes(modelValue) ? [modelValue, ...entry.models] : entry.models), [entry.models, modelValue]);
 
   const rows: ReactNode[] = [];
 
@@ -505,8 +503,9 @@ function ProviderSettings({
       ? ` Lo stesso campo vale anche per ${modelSharedWith.join(', ')}.`
       : '';
     rows.push(
-      <SettingSelect
+      <ProviderDefaultModel
         key="model"
+        provider={entry.name}
         label="Modello di default"
         // API providers resolve settings on each request; local runtimes may
         // still retain their startup config until the server restarts.
@@ -514,7 +513,6 @@ function ProviderSettings({
         value={modelValue}
         disabled={saving}
         onChange={(v) => save({ [modelField]: v } as Partial<AppBehaviorSettings>)}
-        options={modelOptions}
         autoLabel="Auto (lo decide il provider)"
       />,
     );

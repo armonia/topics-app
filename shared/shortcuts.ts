@@ -163,6 +163,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['@'], description: 'Mention file (in project)' },
       // ⌘U (attach) is NOT forwarded — only ⌘⇧U is (reopen-tab alias above).
       { keys: [MOD, 'U'], description: 'Attach file' },
+      // Handled inside ChatInput like the voice chords: no native forward.
+      { keys: [MOD, SHIFT, 'M'], description: 'Choose the model' },
       // Bare Escape keys off keyCode 53 — hand-written branch in lib.rs.
       { keys: ['Esc'], description: 'Interrupt the running turn' },
       // CHAT-WAIT-03. `native` for the reason ⌘E carries it: without the field

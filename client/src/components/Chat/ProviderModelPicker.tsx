@@ -1,12 +1,13 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ChevronDown, Loader2, Route } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { Menu } from '../Shared/Menu';
-import { AiExecutionMenuOptions, aiExecutionMenuReady, loadAiExecutionMenu } from '../Shared/aiExecutionMenuLazy';
+import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
+import { loadModelList, modelListReady } from '../Shared/ModelSelector/modelListLazy';
 import { isChunkLoadError } from '../../lib/chunkReloadGuard';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
-import { resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
+import { chatTopicsRoute, resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
+import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 import { HOME_ANCHOR_ATTR } from '../../lib/openHome';
@@ -23,14 +24,16 @@ interface Props {
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   onTopicsRoutingChange?: (next: boolean) => void;
-  /** Filled with this menu's door, for a typed `/model`. */
-  openRef?: React.RefObject<(() => void) | null>;
+  /** Filled with this menu's door, for a typed `/model` and ⌘⇧M (`toggle`). */
+  openRef?: React.RefObject<((mode?: 'open' | 'toggle') => void) | null>;
 }
 
-/** Chat adapter for the execution-first menu shared with coding tasks. */
+/** The chat composer's model selector (`ModelSelector`, scope `chat`, variant `compact`). */
 export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange, openRef }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const openNowRef = useRef(open);
+  useEffect(() => { openNowRef.current = open; }, [open]);
   // Where the menu chunk stands, as far as this chip knows: a click that waits
   // shows it is working, a load that failed shows it on the chip. `failed` =
   // the chunk did not arrive (a reload is the cure); `broken` = it arrived and
@@ -69,38 +72,46 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // The failure itself is reported by the loader (the reload prompt); the
   // chip only records it, so a hover that failed does not look like nothing.
   const prefetchMenu = () => {
-    if (aiExecutionMenuReady()) return;
-    loadAiExecutionMenu().then(() => setLoadState('idle'), onLoadError);
+    if (modelListReady()) return;
+    loadModelList().then(() => setLoadState('idle'), onLoadError);
   };
-  // The menu body is a chunk of its own (see `aiExecutionMenuLazy`). Opening
+  // The menu body is a chunk of its own (see `ModelSelector/modelListLazy`). Opening
   // waits for it, so the panel is placed and focused with its rows already in
   // it. A chunk that fails to load leaves the menu closed but NOT the click
   // unanswered: the loader raises the reload prompt and the chip turns to a
   // warning. The next click tries again.
   const toggle = () => {
-    if (open || aiExecutionMenuReady()) {
+    if (open || modelListReady()) {
       setOpen((current) => !current);
       return;
     }
     setLoadState('loading');
-    loadAiExecutionMenu().then(
+    loadModelList().then(
       () => { setLoadState('idle'); setOpen(true); },
       onLoadError,
     );
   };
-  // A typed `/model` opens the menu the chip opens, through the same chunk load.
+  // A typed `/model` opens the menu the chip opens, through the same chunk
+  // load; ⌘⇧M (MSEL-08) opens it and, pressed again, closes it.
   useEffect(() => {
     if (!openRef) return;
-    openRef.current = () => {
-      if (aiExecutionMenuReady()) { setOpen(true); return; }
+    openRef.current = (mode = 'open') => {
+      if (mode === 'toggle' && openNowRef.current) { setOpen(false); return; }
+      if (modelListReady()) { setOpen(true); return; }
       setLoadState('loading');
-      loadAiExecutionMenu().then(
+      loadModelList().then(
         () => { setLoadState('idle'); setOpen(true); },
         (error: unknown) => setLoadState(isChunkLoadError(error) ? 'failed' : 'broken'),
       );
     };
     return () => { openRef.current = null; };
   }, [openRef]);
+  // MSEL-07: a mark on the chip when the current choice runs through Topics.
+  const route = useMemo(
+    () => chatTopicsRoute(topicsRouting, override, defaultProviderLabel, snapshot),
+    [topicsRouting, override, defaultProviderLabel, snapshot],
+  );
+  const routingEnabled = effectiveTopicsRouting(topicsRouting, null, 'chat');
   const failed = loadState === 'failed' || loadState === 'broken';
   const chipTitle = loadState === 'failed'
     ? tr('chat.picker.menuFailed')
@@ -128,6 +139,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         }`}
         title={chipTitle}
       >
+        {route.via === 'topics' && (
+          <span data-testid="model-route-mark" title={tr('ai.selector.route.topics')} className="inline-flex shrink-0">
+            <Route className="h-3 w-3 text-primary" aria-label={tr('ai.selector.route.topics')} />
+          </span>
+        )}
         <span className="max-w-[160px] truncate @max-[380px]:max-w-[70px]">
           {modelName ? friendlyModelLabel(modelName) : 'Model'}
         </span>
@@ -152,39 +168,29 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
           <ChevronDown className="h-3 w-3 shrink-0" />
         )}
       </button>
-      <Menu
+      <ModelSelector
         open={open}
         anchorRef={buttonRef}
         onClose={() => setOpen(false)}
-        role="listbox"
-        minWidth={320}
-        className="max-w-[calc(100vw-1rem)] overflow-hidden"
         testId="provider-model-popover"
         ariaLabel={tr('chat.picker.title')}
-      >
-        <Suspense fallback={null}>
-          <AiExecutionMenuOptions
-            snapshot={snapshot}
-            surface="chat"
-            value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
-            routingTarget={{ provider: routingTarget?.provider ?? null, model: routingTarget?.model ?? null }}
-            onSelect={(selection) => {
-              onChange(selection.provider && selection.model
-                ? { provider: selection.provider, model: selection.model }
-                : null);
-            }}
-            automaticLabel={tr('chat.picker.resetDefault')}
-            automaticHint={effectiveProviderLabel
-              ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
-              : tr('chat.picker.noneConfigured')}
-            onClose={() => setOpen(false)}
-            topicsRouting={onTopicsRoutingChange ? {
-              enabled: !!topicsRouting,
-              onToggle: onTopicsRoutingChange,
-            } : undefined}
-          />
-        </Suspense>
-      </Menu>
+        scope="chat"
+        variant="compact"
+        value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
+        routingTarget={{ provider: routingTarget?.provider ?? null, model: routingTarget?.model ?? null }}
+        onSelect={(selection) => {
+          onChange(selection.provider && selection.model
+            ? { provider: selection.provider, model: selection.model }
+            : null);
+        }}
+        automatic={{
+          label: tr('chat.picker.resetDefault'),
+          hint: effectiveProviderLabel
+            ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
+            : tr('chat.picker.noneConfigured'),
+        }}
+        topicsRouting={onTopicsRoutingChange ? { enabled: routingEnabled, onToggle: onTopicsRoutingChange } : undefined}
+      />
     </>
   );
 }

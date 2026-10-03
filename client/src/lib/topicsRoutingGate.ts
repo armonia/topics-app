@@ -1,7 +1,7 @@
 /** AICTRL-05 + MSEL-06: lo switch lato client, logica pura. Ogni lettura passa da `topicsRoute` (shared/task-coding-models.ts): un bersaglio che il motore non raggiunge va diretto e la strada si dichiara, l'invio non si blocca piu'. allow-italian: contratto dello switch, prosa gia' italiana in tutto il modulo */
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from "../types";
 import { resolveEffectiveProvider, type ProviderSelection } from "./effortTiers";
-import { effectiveTopicsRouting, topicsRoute, type TopicsRoute } from "../../../shared/task-coding-models";
+import { effectiveTopicsRouting, taskModelSelection, topicsRoute, type TopicsRoute } from "../../../shared/task-coding-models";
 
 /** Lo switch del default BOARD: una board mai toccata (null) col dispatchModel legacy `topics:<model>` si legge ON, che un `!!` mostrava spenta. allow-italian: il difetto che questa funzione ripara */
 export function boardTopicsRoutingEnabled(
@@ -87,4 +87,18 @@ export function topicsRoutingBlocked(
 ): boolean {
   if ((override?.provider ?? defaultProviderLabel) !== 'topics') return false;
   return topicsRoute(topicsRouting, { provider: 'topics', model: override?.model ?? null }, snapshot, 'chat').via !== 'topics';
+}
+
+/** MSEL-01, variant `chip`: whether a card's stored choice runs through Topics,
+ *  for the «· via Topics» the board card writes after the model. The card's
+ *  own preference (or the legacy prefix), card scope; a bare Claude model is a
+ *  Claude Code target, as the dispatcher reads it. */
+export function cardRunsThroughTopics(
+  task: { model?: string | null; topicsRouting?: boolean | null },
+  snapshot: ProvidersSnapshot | null,
+): boolean {
+  if (!task.model || !effectiveTopicsRouting(task.topicsRouting, task.model, 'task')) return false;
+  const selection = taskModelSelection(task.model);
+  const provider = selection.provider ?? (selection.model?.startsWith('claude-') ? 'claude-code' : null);
+  return topicsRoute(true, { provider, model: selection.model ?? null }, snapshot, 'task').via === 'topics';
 }
