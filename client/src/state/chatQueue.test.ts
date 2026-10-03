@@ -337,3 +337,51 @@ describe('the turn a message waits for (CHAT-QUEUE-07)', () => {
     expect(getQueue(SK)).toEqual([{ id: 'x', content: 'kept', options: undefined, queuedAt: 't' }]);
   });
 });
+
+/**
+ * An item that already left once under its id (the send's key) and that the
+ * server may hold (verifier, 03/10): merged with what was written after it,
+ * the server's `duplicate_message` for that key took the new words with it.
+ */
+describe('an item the server may already hold', () => {
+  test('it goes back as ONE item, under the head\'s key, with the words it left with', () => {
+    enqueueTurn(SK, 'first');
+    enqueueTurn(SK, 'second');
+    const batch = claimBatch(SK, 'w1');
+    releaseClaim(SK, 'w1');
+    requeueFront(SK, batch, undefined, mergeBatch(batch));
+    expect(getQueue(SK).map((i) => [i.id, i.content, i.sent])).toEqual([[batch[0]!.id, `first${BATCH_SEPARATOR}second`, true]]);
+  });
+
+  test('it travels alone: nothing written after it is merged into it, and it is merged into nothing', () => {
+    enqueueTurn(SK, 'first');
+    const batch = claimBatch(SK, 'w1');
+    releaseClaim(SK, 'w1');
+    requeueFront(SK, batch, undefined, mergeBatch(batch));
+    enqueueTurn(SK, 'written later');
+    enqueueTurn(SK, 'and later still');
+    expect(claimBatch(SK, 'w1').map((i) => i.content)).toEqual(['first']);
+    releaseClaim(SK, 'w1');
+    expect(claimBatch(SK, 'w1').map((i) => i.content)).toEqual(['written later', 'and later still']);
+  });
+
+  test('a message that carries its key keeps it as its id, and is marked', () => {
+    const item = enqueueTurn(SK, 'resent', { clientMessageId: 'key-1' });
+    expect([item?.id, item?.sent]).toEqual(['key-1', true]);
+    enqueueTurn(SK, 'resent', { clientMessageId: 'key-1' });
+    expect(getQueue(SK)).toHaveLength(1);
+  });
+
+  test('editing its words makes a new message, under a new key', () => {
+    enqueueTurn(SK, 'resent', { clientMessageId: 'key-1' });
+    updateTurn(SK, 'key-1', 'resent, corrected');
+    const [edited] = getQueue(SK);
+    expect(edited!.id).not.toBe('key-1');
+    expect(edited!.sent).toBeUndefined();
+  });
+
+  test('the mark survives the disk', () => {
+    enqueueTurn(SK, 'resent', { clientMessageId: 'key-1' });
+    expect(parseQueue(store.map.get(queueKey(SK)) ?? null)[0]!.sent).toBe(true);
+  });
+});

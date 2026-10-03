@@ -68,6 +68,8 @@ export function drivenSse() {
     body,
     content(text: string) { controller.enqueue(sseFrame(JSON.stringify({ choices: [{ delta: { content: text } }] }))); },
     done() { controller.enqueue(sseFrame('[DONE]')); controller.close(); },
+    /** What a browser does to the body of a fetch aborted mid-stream. */
+    abort() { try { controller.error(new DOMException('The operation was aborted.', 'AbortError')); } catch { /* already closed */ } },
   };
 }
 
@@ -107,7 +109,9 @@ function installFetch(): void {
           init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
         });
       }
-      return new Response(net.sse.body, { status: 200 });
+      const body = net.sse;
+      init?.signal?.addEventListener('abort', () => body.abort?.());
+      return new Response(body.body, { status: 200 });
     }
     if (url.endsWith('/regenerate')) return new Response(net.sse.body, { status: 200 });
     if (url.includes('/api/history/')) {

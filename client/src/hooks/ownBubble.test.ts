@@ -58,6 +58,12 @@ describe('afterUnfinishedSend', () => {
     const said = [bubble('msg_1', 'k1'), reply('msg_p', 'Half of the answer')];
     expect(afterUnfinishedSend(said, 'k1', 'msg_p', 'keep')).toBe(said);
   });
+
+  test('stopped: the bubble stays, an empty reply goes and a begun one is closed, by id and not as the last row', () => {
+    expect(afterUnfinishedSend(rows, 'k1', 'msg_p', 'stopped').map((m) => m.id)).toEqual(['msg_1', 'row-phone']);
+    const begun = afterUnfinishedSend([bubble('msg_1', 'k1'), reply('msg_p', 'Hal'), bubble('row-phone', 'phone-key')], 'k1', 'msg_p', 'stopped');
+    expect(begun.map((m) => [m.id, !!m.partial])).toEqual([['msg_1', false], ['msg_p', false], ['row-phone', false]]);
+  });
 });
 
 describe('placeOwnBubble', () => {
@@ -71,6 +77,15 @@ describe('placeOwnBubble', () => {
     const rows = [bubble('msg_1', 'k1', { queued: true, partial: true }), bubble('row-phone', 'phone-key')];
     const placed = placeOwnBubble(rows, mine);
     expect(placed.map((m) => [m.id, !!m.queued, !!m.partial])).toEqual([['msg_1', false, false], ['row-phone', false, false]]);
+  });
+
+  test('a resend the server may hold: the person\'s last row with these words, the server\'s, is taken for it', () => {
+    const stored = [bubble('row-mine'), reply('row-r', 'Done.')];
+    expect(placeOwnBubble(stored, mine, undefined, true)).toBe(stored);
+    // Not on a first send, not over a bubble of this window, not over other words.
+    expect(placeOwnBubble(stored, mine)).toHaveLength(3);
+    expect(placeOwnBubble([bubble('msg_0')], mine, undefined, true)).toHaveLength(2);
+    expect(placeOwnBubble([{ ...bubble('row-mine'), content: 'other' }], mine, undefined, true)).toHaveLength(2);
   });
 
   test('the draft\'s first bubble: reused by its id, and it takes the key', () => {

@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types';
+import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { isClientGeneratedMessageId } from './streamCatchupMerge';
 
 /**
@@ -35,10 +36,22 @@ export function namedByServer(rows: readonly ChatMessage[], key: string): boolea
  * message (the bubble a resend from the outbound queue finds under the same
  * key, or the draft's first bubble, `reuseId`) takes the key and leaves its
  * queued state: the same message is never drawn twice.
+ *
+ * `mayBeStored`: the message left once under this key and the server may hold
+ * it, while no row here carries the key (the history rows do not, and the
+ * echo may have been lost with the socket). If the person's LAST row says
+ * these very words and is the server's, nothing is drawn: it is most likely
+ * this message, and the resend's answer settles it (`duplicate_message`, or
+ * the echo of a new row). Without the key on the history rows, the text is
+ * all there is to go on.
  */
-export function placeOwnBubble(rows: ChatMessage[], bubble: ChatMessage & { clientMessageId: string }, reuseId?: string): ChatMessage[] {
+export function placeOwnBubble(rows: ChatMessage[], bubble: ChatMessage & { clientMessageId: string }, reuseId?: string, mayBeStored = false): ChatMessage[] {
   const at = rows.findIndex((m) => m.role === 'user' && (m.clientMessageId === bubble.clientMessageId || (!!reuseId && m.id === reuseId)));
-  if (at < 0) return [...rows, bubble];
+  if (at < 0) {
+    const lastUser = rows.findLast((m) => m.role === 'user');
+    const stored = mayBeStored && !!lastUser && !isClientGeneratedMessageId(lastUser.id) && !lastUser.clientMessageId && lastUser.content === bubble.content;
+    return stored ? rows : [...rows, bubble];
+  }
   const { queued: _queued, ...held } = rows[at]!;
   const out = [...rows];
   out[at] = { ...held, clientMessageId: bubble.clientMessageId, partial: false };
@@ -73,24 +86,28 @@ export function adoptDurableMessageId(rows: ChatMessage[], key: string, durableI
  *    named it, and then it IS the stored row;
  *  - `queued`: it waits in the outbound queue: the bubble stays, marked;
  *  - `keep`: the bubble stays as it is (the server holds the row, or the
- *    person reads the error beside it).
- * The reply's placeholder goes in every case while it holds nothing worth
- * keeping (a few characters at most, no thinking).
+ *    person reads the error beside it);
+ *  - `stopped`: the person pressed Stop: the bubble stays, and the reply is
+ *    closed where it stands, or goes if it holds nothing at all.
+ * Otherwise the reply's placeholder goes while it holds nothing worth keeping
+ * (a few characters at most, no thinking).
  */
 export function afterUnfinishedSend(
   rows: ChatMessage[],
   key: string,
   placeholderId: string | undefined,
-  fate: 'withdraw' | 'queued' | 'keep',
+  fate: 'withdraw' | 'queued' | 'keep' | 'stopped',
 ): ChatMessage[] {
   let changed = false;
   const out: ChatMessage[] = [];
   for (const m of rows) {
-    if (m.id === placeholderId && m.role === 'assistant' && (m.content ?? '').length < 10 && !m.thinking) {
-      changed = true;
+    if (m.id === placeholderId && m.role === 'assistant') {
+      const thin = fate === 'stopped' ? isEmptyAssistantTurn(m) : (m.content ?? '').length < 10 && !m.thinking;
+      if (thin || (fate === 'stopped' && m.partial)) changed = true;
+      if (!thin) out.push(fate === 'stopped' && m.partial ? { ...m, partial: false } : m);
       continue;
     }
-    if (fate !== 'keep' && waitsForName(m, key)) {
+    if ((fate === 'withdraw' || fate === 'queued') && waitsForName(m, key)) {
       changed = true;
       if (fate === 'queued') out.push({ ...m, partial: true, queued: true });
       continue;

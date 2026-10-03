@@ -43,9 +43,11 @@ import {
   mergeBatch,
   releaseClaim,
   releaseHold,
+  removeTurn,
   requeueFront,
   storedQueueSessions,
   unshiftTurn,
+  type QueuedTurn,
 } from '../state/chatQueue';
 import { lastStopOf, noteServerTurn, noteStopHeard, noteTurnSnapshot, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
 import { registerFeatureWeight, roughBytes } from '../lib/featureWeight';
@@ -204,6 +206,8 @@ export interface SendMessageOptions {
    * The send then adds no second row: the one on screen is this message.
    */
   userMessageId?: string;
+  /** This message already left once under `clientMessageId`, and the server may hold it (`QueuedTurn.sent`). */
+  mayBeStored?: boolean;
 }
 
 export type { QueuedMessage };
@@ -426,6 +430,34 @@ const TURN_DRAIN_RETRY_MS = 200;
 const TURN_DRAIN_MAX_ATTEMPTS = 10;
 
 const getOutboundQueue = (): QueuedMessage[] => readQueue(queueStorage, OUTBOUND_QUEUE_KEY);
+
+/**
+ * An outbound resend that meets a turn in flight waits in the turn queue,
+ * under the key it already left with (`enqueueTurn`): its bubble, still
+ * waiting for a name, leaves the thread, since the queue now shows it.
+ */
+function withdrawWaitingBubble(sessionKey: string, key: string | undefined): void {
+  if (!key) return;
+  setMessages(prev => {
+    const rows = prev[sessionKey] ?? [];
+    const next = afterUnfinishedSend(rows, key, undefined, 'withdraw');
+    return next === rows ? prev : { ...prev, [sessionKey]: next };
+  });
+}
+
+/**
+ * A claimed batch as ONE send: merged words, the head's id as the key. If it
+ * fails it goes back as it was, or, when the server may hold it, as one
+ * `sent` item with the words it left with (`requeueFront`).
+ */
+function batchSend(sessionKey: string, batch: QueuedTurn[]) {
+  const turn = mergeBatch(batch);
+  return {
+    content: turn.content,
+    options: { ...turn.options, clientMessageId: batch[0]!.id, ...(batch[0]!.sent ? { mayBeStored: true } : {}) },
+    restore: (waitsFor?: TurnRef, mayBeStored?: boolean) => requeueFront(sessionKey, batch, waitsFor, mayBeStored ? turn : undefined),
+  };
+}
 const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_QUEUE_KEY);
 
 /**
@@ -1902,6 +1934,9 @@ export function useChat() {
         const next = adoptDurableMessageId(rows, key, durableId);
         return next === rows ? prev : { ...prev, [sk]: next };
       });
+      // A queued item under this key went back after an error the server had
+      // already stored it through (`QueuedTurn.sent`): this row is it.
+      if (getTurnQueue(sk).some((item) => item.id === key)) removeTurn(sk, key);
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
@@ -1929,7 +1964,7 @@ export function useChat() {
    * chiamato SOLO quando il server non ha visto il messaggio: se lo stream era
    * partito, rimetterlo in coda vorrebbe dire spedirlo due volte.
    */
-  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: (waitsFor?: TurnRef) => void): Promise<boolean> => {
+  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: (waitsFor?: TurnRef, mayBeStored?: boolean) => void): Promise<boolean> => {
     if (isSendLocked(sessionKey)) {
       // Back where it came from when it came from the queue (same ids, same
       // attachments, same order); at the end of the queue when it did not.
@@ -1984,7 +2019,7 @@ export function useChat() {
       // the outbound queue, same key) takes it instead of a second bubble.
       setMessages(prev => ({ ...prev, [sessionKey]: placeOwnBubble(prev[sessionKey] ?? [], {
         id: options?.userMessageId ?? generateMessageId(), role: 'user', content, timestamp: new Date().toISOString(), clientMessageId: idemKey,
-      }, options?.userMessageId) }));
+      }, options?.userMessageId, options?.mayBeStored) }));
 
       // La coda, non tutto. Il ramo legato a una topic legge solo l'ultimo
       // elemento; quello senza topic usa `slice(0, -1)` come storia. Vedi
@@ -2001,6 +2036,10 @@ export function useChat() {
         timestamp: new Date().toISOString(),
         partial: true,
       }).id;
+      // The reply's writers find it by this name (`LiveTurnIds`): a row
+      // written beside the turn can be the last one now, and the text after it
+      // went nowhere, or into that row.
+      streamMessageIdRef.current.begin(sessionKey, placeholderId);
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages, clientMessageId: idemKey };
       if (options?.fastMode) chatRequest.fastMode = true;
@@ -2253,9 +2292,17 @@ export function useChat() {
 
       return true;
     } catch (err) {
-      // User-initiated abort — just finalize, no error
+      // What stays of this send in the thread, by its key and its
+      // placeholder's id, never the last rows: a row written beside the send
+      // while its POST was in flight sits after them, and may say the same words.
+      const leave = (fate: 'withdraw' | 'queued' | 'keep' | 'stopped') => setMessages(prev => {
+        const rows = prev[sessionKey] ?? [];
+        const next = afterUnfinishedSend(rows, idemKey, placeholderId, fate);
+        return next === rows ? prev : { ...prev, [sessionKey]: next };
+      });
+      // A person's Stop: the reply closes where it stands (`stopped`).
       if (err instanceof DOMException && err.name === 'AbortError') {
-        updateLastMessage(sessionKey, { partial: false });
+        leave('stopped');
         return true;
       }
 
@@ -2265,14 +2312,6 @@ export function useChat() {
       // Read the `code`, never the text: the message is the sentence a person
       // reads, and the code travels beside it.
       const code = is409 ? apiErrorCode(err) : undefined;
-      // What stays of this send in the thread, by its key and its
-      // placeholder's id, never the last rows: a row written beside the send
-      // while its POST was in flight sits after them, and may say the same words.
-      const leave = (fate: 'withdraw' | 'queued' | 'keep') => setMessages(prev => {
-        const rows = prev[sessionKey] ?? [];
-        const next = afterUnfinishedSend(rows, idemKey, placeholderId, fate);
-        return next === rows ? prev : { ...prev, [sessionKey]: next };
-      });
 
       /**
        * TWO 409s THAT WANT OPPOSITE THINGS, AND ONLY TWO THAT RE-DECIDE THE SEND.
@@ -2329,7 +2368,9 @@ export function useChat() {
       // stream, no 409 about this very message, no row announced with its
       // key). Back in the queue AND on screen was two copies after the drain.
       const backToQueue = !streamStarted && !is409 && !!restoreOnFailure && !namedByServer(messagesRef.current[sessionKey] ?? [], idemKey);
-      if (backToQueue) restoreOnFailure();
+      // The POST reached the server, which may have stored the row before
+      // failing: the message goes back under its key, alone (`mayBeStored`).
+      if (backToQueue) restoreOnFailure(undefined, true);
 
       setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to send message' }));
       leave(backToQueue ? 'withdraw' : 'keep');
@@ -2346,6 +2387,8 @@ export function useChat() {
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
+      // A name outliving its bubble makes the next turn write into it (`LiveTurnIds`).
+      if (streamMessageIdRef.current.get(sessionKey) === placeholderId) streamMessageIdRef.current.end(sessionKey);
       if (liveAfterCut) {
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey);
@@ -2356,7 +2399,8 @@ export function useChat() {
       // The same after `duplicate_message`: the row is the server's, and only a read shows it.
       if (staleSnapshot || alreadyStored) {
         lastHistoryFetchAtRef.current.delete(sessionKey);
-        void loadHistoryRef.current?.(sessionKey);
+        // `fresh`: a read already in flight may predate the row; it is read again after it.
+        void loadHistoryRef.current?.(sessionKey, alreadyStored ? { fresh: true } : undefined);
       } else if (liveAfterCut && swallowedAfterReply) {
         // A frame of the live turn came while the reload was in flight and the
         // gate dropped it: read again now that the socket's frames land, on a
@@ -2414,11 +2458,10 @@ export function useChat() {
     if (verdict !== 'drain') return;
     const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
     if (batch.length === 0) return;
-    const turn = mergeBatch(batch);
     // The head's id is the idempotency key: two windows that both won the claim
     // send the same key, and the server takes the batch once (`duplicate_message`).
-    const options = { ...turn.options, clientMessageId: batch[0]!.id };
-    void performSend(sessionKey, turn.content, options, (waitsFor) => requeueFront(sessionKey, batch, waitsFor))
+    const send = batchSend(sessionKey, batch);
+    void performSend(sessionKey, send.content, send.options, send.restore)
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
   }, [performSend]);
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
@@ -2483,6 +2526,7 @@ export function useChat() {
       // the close found the queue held, and nothing else asks again.
       if (content.trim()) releaseHold(sessionKey);
       enqueueTurn(sessionKey, content, options, waitsFor);
+      withdrawWaitingBubble(sessionKey, options?.clientMessageId);
       return true;
     }
 
@@ -2492,10 +2536,11 @@ export function useChat() {
       // l'umano aveva scritto prima. Parte tutta la coda in un turno solo — il
       // nuovo messaggio compreso, se le opzioni combaciano.
       enqueueTurn(sessionKey, content, options);
+      withdrawWaitingBubble(sessionKey, options?.clientMessageId);
       const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
       if (batch.length === 0) return true;
-      const turn = mergeBatch(batch);
-      return performSend(sessionKey, turn.content, { ...turn.options, clientMessageId: batch[0]!.id }, (waitsFor) => requeueFront(sessionKey, batch, waitsFor))
+      const send = batchSend(sessionKey, batch);
+      return performSend(sessionKey, send.content, send.options, send.restore)
         .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
     }
 

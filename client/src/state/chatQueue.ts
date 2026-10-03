@@ -75,6 +75,14 @@ export interface QueuedTurn {
    * end of it does not send on a stale "free".
    */
   waitsFor?: TurnRef;
+  /**
+   * This item already left once under its `id` as the send's key, and the
+   * server may hold it (an error after the POST reached it, a network error).
+   * It travels ALONE and under that key (`claimBatch`): merged with what was
+   * written after it, the server's `duplicate_message` for the key took the
+   * new words away with it (verifier, 03/10).
+   */
+  sent?: true;
 }
 
 export const QUEUE_PREFIX = 'msgQueue:v2:';
@@ -161,6 +169,7 @@ export function parseQueue(raw: string | null): QueuedTurn[] {
       options: rec.options,
       queuedAt: typeof rec.queuedAt === 'string' ? rec.queuedAt : new Date(0).toISOString(),
       ...(w && typeof w.boot === 'string' && typeof w.turnId === 'number' ? { waitsFor: { boot: w.boot, turnId: w.turnId } } : {}),
+      ...(rec.sent === true ? { sent: true as const } : {}),
     });
   }
   return out;
@@ -242,12 +251,23 @@ function setQueue(sessionKey: string, items: QueuedTurn[]): void {
   emit(sessionKey);
 }
 
+/**
+ * A new item. A message that already carries its key (`clientMessageId`: an
+ * outbound resend that met a turn in flight) keeps it as its id and is marked
+ * `sent`: under a new key, a first attempt the server did store would be
+ * stored a second time.
+ */
+function newItem(content: string, options?: SendMessageOptions, waitsFor?: TurnRef): QueuedTurn {
+  const key = options?.clientMessageId;
+  return { id: key ?? newId(), content, options, queuedAt: new Date().toISOString(), ...(waitsFor ? { waitsFor } : {}), ...(key ? { sent: true as const } : {}) };
+}
+
 /** Accoda in FONDO. Ritorna l'item, o null se non c'era niente da accodare. */
 export function enqueueTurn(sessionKey: string, content: string, options?: SendMessageOptions, waitsFor?: TurnRef): QueuedTurn | null {
   const trimmed = content.trim();
   if (!trimmed) return null;
-  const item: QueuedTurn = { id: newId(), content: trimmed, options, queuedAt: new Date().toISOString(), ...(waitsFor ? { waitsFor } : {}) };
-  setQueue(sessionKey, [...readFresh(sessionKey), item]);
+  const item = newItem(trimmed, options, waitsFor);
+  setQueue(sessionKey, [...readFresh(sessionKey).filter(i => i.id !== item.id), item]);
   return item;
 }
 
@@ -259,11 +279,16 @@ export function enqueueTurn(sessionKey: string, content: string, options?: SendM
  * Prende una LISTA perché `claimBatch` estrae tutta la testa omogenea in un
  * colpo: se quel turno non parte, tornano indietro tutti, nel loro ordine.
  */
-export function requeueFront(sessionKey: string, batch: QueuedTurn[], waitsFor?: TurnRef): void {
+export function requeueFront(sessionKey: string, batch: QueuedTurn[], waitsFor?: TurnRef, sentAs?: { content: string; options?: SendMessageOptions }): void {
   const items = readFresh(sessionKey);
   const known = new Set(items.map(i => i.id));
+  // The server may hold what was sent (`sentAs`): it goes back as ONE item,
+  // under the key and with the very words it left with, so the server's
+  // `duplicate_message` and the row's echo both name all of it.
+  const head = batch[0];
+  const returning = sentAs && head ? [{ ...head, content: sentAs.content, options: sentAs.options, sent: true as const }] : batch;
   // Refused because a turn is in flight: the batch now waits for THAT turn.
-  const back = batch.filter(i => !known.has(i.id)).map(i => (waitsFor ? { ...i, waitsFor } : i));
+  const back = returning.filter(i => !known.has(i.id)).map(i => (waitsFor ? { ...i, waitsFor } : i));
   if (back.length === 0) return;
   setQueue(sessionKey, [...back, ...items]);
 }
@@ -272,14 +297,21 @@ export function requeueFront(sessionKey: string, batch: QueuedTurn[], waitsFor?:
 export function unshiftTurn(sessionKey: string, content: string, options?: SendMessageOptions, waitsFor?: TurnRef): QueuedTurn | null {
   const trimmed = content.trim();
   if (!trimmed) return null;
-  const item: QueuedTurn = { id: newId(), content: trimmed, options, queuedAt: new Date().toISOString(), ...(waitsFor ? { waitsFor } : {}) };
-  setQueue(sessionKey, [item, ...readFresh(sessionKey)]);
+  const item = newItem(trimmed, options, waitsFor);
+  setQueue(sessionKey, [item, ...readFresh(sessionKey).filter(i => i.id !== item.id)]);
   return item;
 }
 
 export function updateTurn(sessionKey: string, id: string, content: string): void {
   const items = readFresh(sessionKey);
-  const next = items.map(i => (i.id === id ? { ...i, content } : i));
+  // Edited words are a new message: a `sent` item takes a new key, or the
+  // server would answer `duplicate_message` for the old words and drop these.
+  const next = items.map((i) => {
+    if (i.id !== id) return i;
+    if (!i.sent || i.content === content) return { ...i, content };
+    const { sent: _sent, ...unsent } = i;
+    return { ...unsent, id: newId(), content };
+  });
   setQueue(sessionKey, next);
 }
 
@@ -364,7 +396,8 @@ export function claimBatch(sessionKey: string, clientId: string, now: number = D
   const head = items[0];
   if (!head) { releaseClaim(sessionKey, clientId); return []; }
   let end = 1;
-  while (end < items.length && sameOptions(head.options, items[end].options)) end++;
+  // A `sent` item travels alone, and nothing is merged into it.
+  while (!head.sent && end < items.length && !items[end].sent && sameOptions(head.options, items[end].options)) end++;
   setQueue(sessionKey, items.slice(end));
   return items.slice(0, end);
 }
