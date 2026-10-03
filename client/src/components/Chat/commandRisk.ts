@@ -19,10 +19,13 @@
  * scanned word by word: past the reserved words that lead into it (`then`,
  * `do`, `!`, `{`, `function name`...), the assignments in front of it
  * (`FOO="a b" rm -rf x`, `A+=1 rm -rf x`) and the wrappers that run another
- * command (`sudo`, `env`, `xargs`, `exec -a`, `builtin`, zsh's `noglob`...).
+ * command (`sudo`, `env`, `xargs`, `exec -a`, `builtin`, `watch -x`, zsh's
+ * `noglob`...). The commands of find's `-exec`, `-execdir`, `-ok` and `-okdir`
+ * are read the same way, up to their `;` or `+`.
  * A command handed over as text is read again from that text: the payload of
- * `sh -c`/`bash -c`/`zsh -c` and of `env -S`, the words of `eval` and those
- * after `ssh host` (a command run on another machine is no less destructive),
+ * `sh -c`/`bash -c`/`zsh -c`, of `su -c` and of `env -S`, the words of `eval`,
+ * of `watch` (which hands them to `sh -c`) and those after `ssh host` (a
+ * command run on another machine is no less destructive),
  * and what a shell reads on its input: a here-string, a heredoc, or the text
  * the command before it in a pipeline was given. Only a command's own name is
  * looked at: `echo "rm -rf x"` asks nothing.
@@ -81,7 +84,12 @@ const LONG_VALUE_OPTS = new Map(Object.entries({
   '--split-string': 'S', '--unset': 'u', '--chdir': 'C', '--argv0': 'a', '--user': 'u', '--group': 'g',
   '--signal': 's', '--kill-after': 'k', '--max-args': 'n', '--max-procs': 'P', '--max-lines': 'L', '--delimiter': 'd',
   '--arg-file': 'a', '--replace': 'I', '--eof': 'E', '--rcfile': 'f', '--init-file': 'f',
+  '--command': 'c', '--shell': 's', '--supp-group': 'G', '--whitelist-environment': 'w', '--interval': 'n',
 }));
+/** su's short options that take a value; `-c` is the command its shell runs. */
+const SU_VALUE_OPTS = 'cgGsw';
+/** find's actions that run a command, up to a `;` or `+` word. */
+const FIND_EXEC = new Set(['-exec', '-execdir', '-ok', '-okdir']);
 const SSH_VALUE_OPTS = 'BbcDEeFIiJLlmOoPpQRSWw';
 /** Shells whose `-c` takes the command to run as text, and that read a script on their input otherwise. */
 const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
@@ -484,7 +492,42 @@ function wrappedCommand(name: string, words: string[], i: number): number | stri
   if (name === 'eval') return words[i + 1] === '--' ? i + 2 : i + 1;
   if (name === 'ssh') return sshCommand(words, i);
   if (SHELL_NAMES.has(name)) return shellPayload(words, i);
+  if (name === 'su') return suPayload(words, i);
+  if (name === 'watch') {
+    let exec = false;
+    const at = skipOptions(words, i + 1, 'n');
+    for (let k = i + 1; k < at; k++) if (shortHas(words[k]!, 'x') || words[k] === '--exec') exec = true;
+    // `watch -x` runs the words; otherwise it joins them and hands them to `sh -c`.
+    return exec ? at : words.slice(at).join(' ');
+  }
   return null;
+}
+
+/**
+ * The text `su [options] [-] [user [args]]` hands its shell with `-c`: util-linux
+ * reads options also after the user, so `su root -c 'rm -rf x'` runs it too.
+ * Null without `-c`: an interactive shell, nothing written here runs.
+ */
+function suPayload(words: string[], i: number): string | null {
+  let payload: string | null = null;
+  const take = (letter: string, value: string) => { if (letter === 'c') payload = value; };
+  let at = skipOptions(words, i + 1, SU_VALUE_OPTS, take);
+  if (words[at] === '-') at = skipOptions(words, at + 1, SU_VALUE_OPTS, take);
+  if (at < words.length) skipOptions(words, at + 1, SU_VALUE_OPTS, take);
+  return payload;
+}
+
+/** The commands find runs for each file: the words after each `-exec`-like action, up to its `;` or `+`. */
+function findCommands(args: string[]): string[][] {
+  const out: string[][] = [];
+  for (let k = 0; k < args.length; k++) {
+    if (!FIND_EXEC.has(args[k]!)) continue;
+    let end = k + 1;
+    while (end < args.length && args[end] !== ';' && args[end] !== '+') end++;
+    out.push(args.slice(k + 1, end));
+    k = end;
+  }
+  return out;
 }
 
 /** The reasons found in one simple command, as the words the shell hands over, and what it reads on its input. */
@@ -508,7 +551,7 @@ function scanWords(words: string[], scan: Scan, input: () => string[]): void {
     const name = commandName(words[i] ?? '');
     const runs = wrappedCommand(name, words, i);
     if (runs === null) break;
-    if (name === 'sudo' || name === 'doas') add('sudo', name);
+    if (name === 'sudo' || name === 'doas' || name === 'su') add('sudo', name);
     if (typeof runs === 'string') { scanText(runs, scan); return; }
     if (lastChanging >= runs && !scan.exhausted) {
       // `eval` joins its words and the shell reads them again.
@@ -522,6 +565,7 @@ function scanWords(words: string[], scan: Scan, input: () => string[]): void {
   const name = commandName(words[i] ?? '');
   // A shell with no `-c` reads its script on its input.
   if (SHELL_NAMES.has(name)) { for (const text of input()) scanText(text, scan); return; }
+  if (name === 'find') for (const command of findCommands(words.slice(i + 1))) scanWords(command, scan, () => []);
   scanCommand(name, words.slice(i + 1), add);
 }
 
@@ -546,8 +590,9 @@ function scanCommand(name: string, args: string[], add: AddReason): void {
     }
     case 'find': {
       if (args.includes('-delete')) add('find-delete', 'find -delete');
-      const exec = args.findIndex((a) => a === '-exec' || a === '-execdir');
-      if (exec >= 0 && commandName(args[exec + 1] ?? '') === 'rm') add('find-delete', `find ${args[exec]} rm`);
+      for (let k = 0; k < args.length; k++) {
+        if (FIND_EXEC.has(args[k]!) && commandName(args[k + 1] ?? '') === 'rm') add('find-delete', `find ${args[k]} rm`);
+      }
       return;
     }
     case 'kill': {
@@ -557,6 +602,8 @@ function scanCommand(name: string, args: string[], add: AddReason): void {
       return;
     }
     case 'killall': case 'pkill': add('kill', name); return;
+    // Another user's shell, `root` when none is named: the same step as sudo.
+    case 'su': add('sudo', name); return;
     case 'launchctl': {
       const sub = args.find((a) => !a.startsWith('-'));
       if (sub === 'bootout') add('launchctl', 'launchctl bootout');

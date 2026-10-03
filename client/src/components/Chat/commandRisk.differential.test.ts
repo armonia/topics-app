@@ -111,6 +111,10 @@ const WRAPPERS: Array<(c: string) => string> = [
   (c) => `repeat 1 ${c}`,
   (c) => `coproc ${c}; wait`,
   (c) => `(- ${c})`,
+  (c) => `find . -maxdepth 0 -exec sh -c ${sq(c)} \\;`,
+  (c) => `find . -maxdepth 0 -execdir bash -c ${sq(c)} \\;`,
+  (c) => `find . -maxdepth 0 -exec ${c} \\;`,
+  (c) => `echo a | xargs -I{} sh -c ${sq(c)}`,
 ];
 
 /** mulberry32: the same draws on every run. */
@@ -183,6 +187,13 @@ const FOUND: Case[] = [
   { template: (v) => `coproc ${v} -rf x; wait`, kind: 'rm' },
   { template: (v) => `(- ${v} -9 2147483646)`, kind: 'kill' },
   { template: (v) => `{${v},-rf,x}`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec sh -c '${v} -rf {}' \\;`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -execdir bash -c '${v} -rf "$1"' _ {} \\;`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec ${v} -rf {} +`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec true \\; -exec ${v} -rf {} \\;`, kind: 'rm' },
+  { template: (v) => `echo a | xargs -I{} sh -c '${v} -rf {}'`, kind: 'rm' },
+  { template: (v) => `find . -maxdepth 0 -exec sh -c 'echo ${v} -rf {}' \\;`, kind: null },
+  { template: (v) => `find . -maxdepth 0 -exec echo ${v} -rf {} \\;`, kind: null },
   { template: () => 'FOO="a b" ls', kind: null },
   { template: (v) => `git commit -m "$(cat <<'EOF'\nDon't call ${v} -rf here\nEOF\n)"`, kind: null },
   { template: (v) => `cat > clean.sh <<'EOF'\n${v} -rf dist\nEOF`, kind: null },

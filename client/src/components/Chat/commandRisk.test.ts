@@ -242,6 +242,45 @@ describe('commandRisk: the second step', () => {
     }
   });
 
+  // The fourth review: commands run by find's actions, by `su -c` and by
+  // `watch`, which joins its words and hands them to `sh -c`.
+  const fourthReview: Array<[string, RiskKind]> = [
+    ["find . -exec sh -c 'rm -rf {}' \\;", 'rm'],
+    ["find . -execdir bash -c 'rm -rf \"$1\"' _ {} \\;", 'rm'],
+    ['find . -ok rm -rf {} \\;', 'rm'],
+    ['find . -okdir rm {} \\;', 'find-delete'],
+    ['find . -name x -exec echo {} \\; -exec rm {} +', 'find-delete'],
+    ["find . -exec sudo git reset --hard \\;", 'git-reset-hard'],
+    ['find . -delete', 'find-delete'],
+    ['su -c "rm -rf x"', 'rm'],
+    ["su root -c 'rm -rf x'", 'rm'],
+    ["su - -c 'git push --force'", 'git-push-force'],
+    ["su --command='rm -rf x' deploy", 'rm'],
+    ['su -c "rm -rf x"', 'sudo'],
+    ['watch rm -rf x', 'rm'],
+    ["watch -n 1 'rm -rf x'", 'rm'],
+    ['watch -x rm -rf x', 'rm'],
+    ['watch --interval=5 kill -9 99999', 'kill'],
+    ["xargs -I{} sh -c 'rm -rf {}'", 'rm'],
+    ["ls | xargs -I{} sh -c 'rm -rf {}'", 'rm'],
+  ];
+  for (const [command, kind] of fourthReview) {
+    test(`${JSON.stringify(command)} asks (${kind})`, () => {
+      expect(kinds(command)).toContain(kind);
+    });
+  }
+
+  test('everyday find, xargs and watch ask nothing', () => {
+    for (const c of [
+      "find . -name '*.ts' -exec grep -l foo {} +", 'find . -type f -exec wc -l {} \\;', "find . -exec sh -c 'echo {}' \\;",
+      'find . -name node_modules -prune -o -print', "find . -name '*.log' -mtime +7 -print", 'find . -execdir git status \\;',
+      'xargs -n1 echo', "git ls-files | xargs -I{} sh -c 'wc -l {}'", 'watch -n 2 git status', "watch 'ls -la'", 'watch -d df -h',
+      'watch -x ls -la',
+    ]) {
+      expect({ c, confirm: commandRisk(c).confirm }).toEqual({ c, confirm: [] });
+    }
+  });
+
   test('a loop of harmless commands still asks nothing', () => {
     expect(kinds('for f in *.ts; do echo "$f"; done')).toEqual([]);
     expect(kinds('if [ -f x ]; then cat x; else ls; fi')).toEqual([]);
