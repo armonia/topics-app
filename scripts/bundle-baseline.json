@@ -750,13 +750,24 @@
     "on the chip for /usage and /cost). That left 1.139 B under the 2% ceiling, less",
     "than CI's ~0,9 KB extra on the gzip plus a margin, so entry gz is raised to the",
     "measured value. Raw (1.600.445 <= 1.610.616) and the critical path",
-    "(667.838 <= 677.271) stay inside their tolerance and are not raised."
+    "(667.838 <= 677.271) stay inside their tolerance and are not raised.",
+    "",
+    "2026-10-03, feat/find-in-page-1003: entry eager 1.593.672 / 505.499 (main) ->",
+    "1.616.800 / 513.364 (+23.128 raw / +7.865 gz), past the 2% ceiling of the old",
+    "number by 6.184 raw / 4.230 gz. Bought: ⌘F inside every pane. Eager because the",
+    "surfaces it lives in are eager (chat, browser, layout, key handler): the per-pane",
+    "registry and bar (state/findRegistry, Shared/FindBar), the chat finder",
+    "(Chat/useChatFinder, state/chatFindFocus, shared/chat-find), the DOM walker and",
+    "highlight registry (lib/domFind, lib/findHighlights), the find strings",
+    "(lib/i18n-find-it). The CodeMirror engine (lib/cmFind) and the xterm addon stay",
+    "in their lazy chunks. Critical path 2.234.953 / 673.102, inside its ceiling",
+    "(677.271) with ~3,3 KB against CI's ~0,9 KB more: not raised."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1579035,
-    "gz": 507995
+    "raw": 1616800,
+    "gz": 513364
   },
   "critical_path": {
     "raw": 2211033,

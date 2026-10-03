@@ -8,6 +8,8 @@ import { basename } from '../../lib/path-utils';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 import { createPaneId } from '../../state/pane/adapters';
+import { FindBar } from '../Shared/FindBar';
+import { useFindPaneId } from '../../state/findRegistry';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { EditorSkeleton } from '../Layout/PaneSkeletons';
 import { readFileContentCache, writeFileContentCache } from '../../lib/fileContentCache';
@@ -62,6 +64,8 @@ interface FilePaneProps {
 }
 
 export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }: FilePaneProps) {
+  // ⌘F: the pane's id from its host (`PaneKeepAlive`), or the file's own.
+  const findPaneId = useFindPaneId() ?? createPaneId('file', filePath);
   // THE SEED: the text of this file as it was the last time it was open, read
   // synchronously so the first frame draws the editor instead of a spinner in
   // an empty pane. The fetch below leaves anyway and replaces it; what the seed
@@ -330,6 +334,11 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
 
       {diff && <DiffModeStrip />}
 
+      {/* ⌘F in this file (FILE-FIND-01/02): the editor, the diff or the
+          Markdown preview below registers the engine; media and the HTML
+          preview register none and ⌘F falls back to the project search. */}
+      <FindBar paneId={findPaneId} />
+
       {/* I blocchi, con le loro azioni. Stanno anche QUI e non solo nel
           pannello Git perche' dalla sidebar il diff si apre proprio come questa
           tab: se ci fossero solo la', lo staging per blocco sarebbe una cosa
@@ -355,11 +364,12 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
               modifiedContent={content}
               filename={shownName}
               darkMode={darkMode}
+              findPaneId={findPaneId}
             />
           </Suspense>
         ) : mdPreview && shownIsMd ? (
           <Suspense fallback={<SpinnerFallback />}>
-            <MarkdownPreview content={content} baseDir={shownMdBaseDir} />
+            <MarkdownPreview content={content} baseDir={shownMdBaseDir} findPaneId={findPaneId} />
           </Suspense>
         ) : htmlPreview && shownIsHtml ? (
           <HtmlPreview filePath={displayPath} filename={shownName} />
@@ -374,6 +384,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
               onChange={handleChange}
               wordWrap={wordWrap}
               onCursorChange={(l, c) => setCursorPos(prev => prev.line === l && prev.col === c ? prev : { line: l, col: c })}
+              findPaneId={findPaneId}
             />
           </Suspense>
         )}

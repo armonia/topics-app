@@ -17,10 +17,12 @@
 import type { Dict } from './i18n-types';
 import SPEND_IT from './i18n-spend-it';
 import CHAT_IT from './i18n-chat-it';
+import FIND_IT from './i18n-find-it';
 
 const IT: Dict = {
   ...SPEND_IT,
   ...CHAT_IT,
+  ...FIND_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
   'ai.selector.routingLine': 'Claude gira dentro Topics col tuo abbonamento, senza aprire un processo Claude Code per chat. GPT e Gemini restano diretti.',
@@ -2347,12 +2349,12 @@ const IT: Dict = {
   'shortcuts.close': 'Chiudi le scorciatoie da tastiera',
   'paneMenu.yolo': 'yolo: salta le richieste di permesso',
   'minimap.position': 'Posizione nel layout',
-  // ── Ricerca file (⌘P / ⌘F). Il `placeholder` non è un ancoraggio: lo dice il
+  // ── Ricerca file (⌘P / ⇧⌘F). Il `placeholder` non è un ancoraggio: lo dice il
   //    commento nel componente, e per quello c'è `data-testid`.
   'fileSearch.modeGroup': 'Modo di ricerca',
   'fileSearch.byNameTitle': 'Per nome (⌘P)',
   'fileSearch.byName': 'nome',
-  'fileSearch.inContentTitle': 'Nel contenuto (⌘F)',
+  'fileSearch.inContentTitle': 'Nel contenuto (⇧⌘F)',
   'fileSearch.inContent': 'contenuto',
   'fileSearch.dialogOpen': 'Apri un file',
   'fileSearch.dialogSearch': 'Cerca nei file',

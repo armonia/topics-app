@@ -1,6 +1,6 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
-import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2 } from 'lucide-react';
+import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2, Search } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
@@ -61,6 +61,7 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useToast } from '../Shared/Toast';
 import { restartTerminalSession } from '../../lib/terminalReload';
 import { renameTerminalSession } from '../../lib/terminalActions';
+import { hasFinder, openFind } from '../../state/findRegistry';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -1670,6 +1671,25 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             >
               <RotateCw size={14} />
               <span className="flex-1 text-left">{tr('terminal.reload')}</span>
+            </button>
+          )}
+          {/* «Cerca»: the same bar as ⌘F, for whoever has no ⌘F (the phone,
+              FIND-04). Only on a pane that registered a finder. The tab is
+              activated first: a bar opened on a hidden pane is a bar nobody
+              sees. */}
+          {hasFinder(ctxMenu.paneId) && (
+            <button
+              data-testid="tab-menu-find"
+              onClick={() => {
+                const id = ctxMenu.paneId;
+                setCtxMenu(null);
+                if (id !== activePaneId) onActivate(id);
+                requestAnimationFrame(() => { openFind(id); });
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Search size={14} />
+              <span className="flex-1 text-left">{tr('find.label')}</span>
             </button>
           )}
           {/* "Rinomina" — inline editor (Enter saves, Esc cancels).  allow-italian: quoted UI string

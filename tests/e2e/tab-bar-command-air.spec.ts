@@ -275,6 +275,9 @@ test.describe("La riga della superficie a 390px", () => {
 
   test.beforeEach(async ({ page, request }) => {
     await openTwoChat(page, request, 390, 844);
+    // «Cerca» appears once the chat in front has registered its finder: read
+    // the row after that, not in the instant before.
+    await expect(page.getByTestId("mobile-pane-find").filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
     m = await readRow(page);
   });
 
@@ -286,18 +289,23 @@ test.describe("La riga della superficie a 390px", () => {
     expect(m.titolo, "manca il nome della superficie").not.toBeNull();
   });
 
-  test("ARIA-TEL-2: l'unico comando ha il box da DITO e lo stesso respiro", async () => {
-    // Il «+» qui non c'è (il suo gemello sta nella fila in basso), quindi il
-    // comando è uno: quello che riapre la colonna. Il box è quello da dito,
-    // e il verticale resta derivato — (altezza riga − box) / 2.
-    expect(m.comandi.length, "comandi nella riga").toBe(1);
-    const c = m.comandi[0];
-    const attesa = (m.barra.h - BOX_FINGER) / 2;
-    expect(c.w, `larghezza di «${c.titolo}»`).toBe(BOX_FINGER);
-    expect(c.h, `altezza di «${c.titolo}»`).toBe(BOX_FINGER);
-    expect(c.sopra, `aria sopra «${c.titolo}»`).toBe(attesa);
-    expect(c.sotto, `aria sotto «${c.titolo}»`).toBe(attesa);
-    expect(c.daSx, `«${c.titolo}» dal bordo sinistro`).toBe(ROW_INSET);
+  test("ARIA-TEL-2: every command in the row has the FINGER box and the same breathing", async () => {
+    // The «+» is not here (its twin is in the bottom row). What is left is the
+    // command that reopens the column, at the left end, and, for a pane with a
+    // finder, «Cerca» at the right end (FIND-04): the chat in front has one.
+    // Both take the finger box, and the vertical air stays derived:
+    // (row height - box) / 2. Each sits ROW_INSET from its own edge.
+    expect(m.comandi.length, "comandi nella riga").toBe(2);
+    const expected = (m.barra.h - BOX_FINGER) / 2;
+    for (const c of m.comandi) {
+      expect(c.w, `larghezza di «${c.titolo}»`).toBe(BOX_FINGER);
+      expect(c.h, `altezza di «${c.titolo}»`).toBe(BOX_FINGER);
+      expect(c.sopra, `aria sopra «${c.titolo}»`).toBe(expected);
+      expect(c.sotto, `aria sotto «${c.titolo}»`).toBe(expected);
+    }
+    const [leftEnd, rightEnd] = [...m.comandi].sort((a, b) => a.daSx - b.daSx);
+    expect(leftEnd.daSx, `«${leftEnd.titolo}» dal bordo sinistro`).toBe(ROW_INSET);
+    expect(rightEnd.daDx, `«${rightEnd.titolo}» dal bordo destro`).toBe(ROW_INSET);
   });
 
   test("ARIA-TEL-3: la riga si svuota ma non si sposta", async () => {

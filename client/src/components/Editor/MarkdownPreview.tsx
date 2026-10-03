@@ -13,7 +13,9 @@
  * and once with would show a frame of escaped tags and then a jump, so the
  * plugin is not lazy — the whole preview is.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { createDomFinder } from '../../lib/domFind';
+import { registerFinder } from '../../state/findRegistry';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -56,16 +58,26 @@ const UNTRUSTED_COMPONENTS: Components = { ...markdownComponents, a: UntrustedLi
  * the stacking context and the clip of every box in it. `FilePane` shows the
  * owner's own disk and renders as it always did.
  */
-export default function MarkdownPreview({ content, baseDir, resolveImage, untrusted = false }: {
+export default function MarkdownPreview({ content, baseDir, resolveImage, untrusted = false, findPaneId }: {
   content: string;
   baseDir: string;
   resolveImage?: (src: string) => string | null;
   untrusted?: boolean;
+  /** Register the rendered text as the find engine of pane `findPaneId`
+   *  (FILE-FIND-02): no virtual list here, so the DOM is the whole text. */
+  findPaneId?: string | null;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!findPaneId) return;
+    const finder = createDomFinder({ root: () => rootRef.current, placeholderKey: 'find.file.placeholder' });
+    const off = registerFinder(findPaneId, finder);
+    return () => { off(); finder.dispose(); };
+  }, [findPaneId]);
   return (
     <MarkdownBaseDirContext.Provider value={baseDir}>
       <MarkdownImageResolverContext.Provider value={resolveImage ?? null}>
-        <div className={`h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2${untrusted ? ' contain-paint' : ''}`}>
+        <div ref={rootRef} className={`h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2${untrusted ? ' contain-paint' : ''}`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}

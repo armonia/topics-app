@@ -49,6 +49,11 @@ export interface SeedMessageOpts {
   media?: string[];
   thinking?: string;
   id?: string;
+  /** Position in the thread; defaults to the time of the seed. */
+  sortOrder?: number;
+  /** Store the big tool outputs of `blocks` apart, in `message_tool_outputs`,
+   *  the way an old closed row is on disk (the backfill's split). */
+  splitToolOutputs?: boolean;
   /** Parent message id. Omit → the seed endpoint defaults it to the session's
    *  LAST message (keeps linear threads linked). Pass `null` EXPLICITLY to force
    *  a real root (parent_id NULL) — needed to seed sibling-root edit branches;
