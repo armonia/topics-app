@@ -72,10 +72,9 @@ export function AccountPanel({ who, onOpenProfile }: {
   const signOut = useCallback(async () => {
     if (!await askConfirm({ title: t('account.unlink'), body: t('account.unlinkConfirm') })) return;
     // A REFUSED SIGN-OUT HAS TWO PLACES TO LAND, and it needs both. The row
-    // below draws it while the panel is open; but the pointer that presses the
-    // confirmation falls outside this popover, and `useDismissable` closes it
-    // in the capture phase, so on a refusal the panel is frequently already
-    // gone. The toast outlives it, and it is the same phrase.
+    // below draws it while the panel is open (the confirmation is asked inside
+    // the menu and leaves it open, `ConfirmInsidePopoverContext`); the toast
+    // outlives a menu closed meanwhile, and it is the same phrase.
     const refused = await unlink();
     if (refused) toast.error(t(refused));
   }, [askConfirm, t, toast, unlink]);
@@ -93,6 +92,9 @@ export function AccountPanel({ who, onOpenProfile }: {
         type="button"
         onClick={onOpenProfile}
         data-testid="account-identity"
+        // The row the user menu opens on from the keyboard (⌘,): once it has
+        // the focus, `PresencePopover` stops following the first row.
+        data-menu-first-row=""
         className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-app-hover transition-colors"
       >
         {who.avatarUrl

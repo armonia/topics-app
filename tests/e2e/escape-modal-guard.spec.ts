@@ -20,7 +20,7 @@ hermetic(test);
  * chiuso, e la risposta era morta a metà senza che nessuno lo dicesse.
  *
  * La prova sta nella coppia di asserzioni, non in una sola: il primo Escape
- * chiude Impostazioni e il turno resta VIVO; il secondo — a schermo pulito —
+ * chiude il menu utente (⌘,, a `role="dialog"`) e il turno resta VIVO; il secondo — a schermo pulito —
  * interrompe davvero. Se il gate fosse troppo largo il secondo fallirebbe, se
  * fosse assente fallirebbe il primo.
  *
@@ -55,7 +55,7 @@ test.describe("Escape non ammazza il turno se c'è un modale aperto", () => {
     await resetPaneStore(request, [topicId]);
   });
 
-  test("Impostazioni aperto: Escape chiude il modale e lascia vivo lo streaming", async ({ page, chatPage }) => {
+  test("menu utente aperto con ⌘,: Escape lo chiude e lascia vivo lo streaming", async ({ page, chatPage }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -81,13 +81,13 @@ test.describe("Escape non ammazza il turno se c'è un modale aperto", () => {
 
     await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
 
-    // ⌘, — le Preferenze. La palette dei comandi annunciava questa scorciatoia
-    // accanto a "Settings" e non la ascoltava nessuno: ora esiste.
+    // ⌘, — le Preferenze, cioè il menu utente: ogni impostazione è un suo
+    // livello, e non c'è più una finestra Impostazioni.
     await page.keyboard.press("Meta+Comma");
-    const settings = page.locator('[data-testid="settings-panel"]');
+    const settings = page.getByTestId("profile-menu");
     await expect(settings).toBeVisible({ timeout: 5_000 });
 
-    // IL PUNTO: Escape chiude Impostazioni…
+    // IL PUNTO: Escape chiude il menu…
     await page.keyboard.press("Escape");
     await expect(settings).toBeHidden({ timeout: 5_000 });
 

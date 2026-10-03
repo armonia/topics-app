@@ -42,6 +42,8 @@ export function PresencePopover({
   children,
   testId,
   width = LARGHEZZA,
+  focusFirstRow = false,
+  focusRequest = 0,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
@@ -49,6 +51,12 @@ export function PresencePopover({
   testId?: string;
   /** Wider than the default, for a panel that holds fields and not names. */
   width?: number;
+  /** Opened from the keyboard (⌘,): the focus goes to the first row instead
+   *  of the panel, so Enter acts and the arrows continue from there. */
+  focusFirstRow?: boolean;
+  /** Changes when the panel is asked for again while already open: the
+   *  focus is given again, by the same rule, without remounting anything. */
+  focusRequest?: number;
 }) {
   const pannello = useRef<HTMLDivElement>(null);
   const ancora = useRef<HTMLElement | null>(null);
@@ -119,8 +127,43 @@ export function PresencePopover({
   // `focus()`), so the arrows work from the first press, as in `Menu`.
   const placed = pos !== null;
   useEffect(() => {
-    if (anchorEl && placed) pannello.current?.focus({ preventScroll: true });
-  }, [anchorEl, placed]);
+    if (!anchorEl || !placed) return;
+    const panel = pannello.current;
+    if (!panel) return;
+    if (!focusFirstRow) {
+      panel.focus({ preventScroll: true });
+      return;
+    }
+    // THE FIRST ROW MAY ARRIVE LATE: the account block is a lazy chunk, so on
+    // a cold open the first button in the panel is a row further down. The
+    // focus follows the first row while the content settles, and the following
+    // ENDS, for good, on the first of two things: the person moves the focus
+    // themselves, or the row that leads the menu (`data-menu-first-row`) has
+    // had it. Kept alive past that, any later change of the panel (a tail
+    // updating, a row appearing above) took the focus back from where the
+    // person had it.
+    let given: Element | null = null;
+    let done = false;
+    let observer: MutationObserver | null = null;
+    const stop = () => { done = true; observer?.disconnect(); };
+    const follow = () => {
+      if (done) return;
+      const active = document.activeElement;
+      if (given !== null && active !== panel && active !== given) { stop(); return; }
+      const first = panel.querySelector<HTMLElement>('[role="menuitem"], button:not([disabled])') ?? panel;
+      if (first !== active) {
+        first.focus({ preventScroll: true });
+        given = first;
+      }
+      if (first.matches('[data-menu-first-row]') && document.activeElement === first) stop();
+    };
+    follow();
+    given ??= panel;
+    if (done) return;
+    observer = new MutationObserver(follow);
+    observer.observe(panel, { childList: true, subtree: true });
+    return stop;
+  }, [anchorEl, placed, focusFirstRow, focusRequest]);
 
   if (!anchorEl) return null;
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarDays, Check, Loader2, TriangleAlert } from 'lucide-react';
+import { Check, Loader2, TriangleAlert } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Switch } from '../Shared/Switch';
 import { Select } from '../Shared/Select';
@@ -89,13 +89,8 @@ export function CalendarSection() {
 
   return (
     <div className="space-y-5">
-      <header className="space-y-1">
-        <h3 className="flex items-center gap-2 text-body-lg font-semibold text-app-text">
-          <CalendarDays size={15} className="text-app-text-tertiary" />
-          {t('settings.section.calendar')}
-        </h3>
-        <p className="text-compact leading-relaxed text-app-text-muted">{t('calendar.blurb')}</p>
-      </header>
+      {/* The title is the level's header in the user menu (`FormLevel`). */}
+      <p className="text-compact leading-relaxed text-app-text-muted">{t('calendar.blurb')}</p>
 
       {/* The switch. Off with no address is not a choice yet, so it stays
           inert until there is something to switch on. */}

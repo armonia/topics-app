@@ -3,6 +3,8 @@ import { ChevronRight } from 'lucide-react';
 import { Menu } from './Menu';
 import { useMobile } from '../../hooks/useMobile';
 import { menuRowClass } from '../Sidebar/menuRow';
+import { isTypingSurface } from '../../hooks/useMenuKeyboard';
+import { LevelCloseContext } from './levelClose';
 
 /**
  * SubmenuItem: a menu row that opens a SECOND level beside itself.
@@ -22,8 +24,8 @@ import { menuRowClass } from '../Sidebar/menuRow';
  *   - its trigger lives inside the host panel, so the registry knows it as a
  *     CHILD: Escape closes the submenu first, one level per press
  *     (`popoverRegistry.descendantPopoverNodes`);
- *   - the portal, the glass surface, `role="menu"` (which is what lifts it
- *     over a native browser pane), the mobile bottom sheet and the z layer.
+ *   - the portal, the glass surface, `role="menu"` (`dialog` for a form level;
+ *     either lifts it over a native browser pane), the mobile bottom sheet and the z layer.
  *
  * Keyboard: ArrowRight or Enter/Space on the row opens the level and the
  * primitive moves focus into it; ArrowLeft inside the level closes it and the
@@ -39,6 +41,13 @@ import { menuRowClass } from '../Sidebar/menuRow';
  * an explicit gesture (click, ArrowRight) stays until something explicit
  * closes it: Escape, a press outside, or another level opening at the same
  * depth. A level opened by hover alone still closes on hover-out.
+ *
+ * USING A LEVEL PINS IT TOO. A press or a key inside a level opened by hover
+ * is the same decision as the click on its row: the level now holds a form
+ * half filled, or has asked a question. Left unpinned, the pointer drifting
+ * off it threw the typed key away, and a confirmation (portalled outside the
+ * level's React tree, so moving onto it is a `pointerleave`) closed the level
+ * before it could be answered.
  *
  * ONE LEVEL PER DEPTH. Pinning without this rule leaves two panels side by
  * side, both claiming to belong to the same host. Every level provides its own
@@ -131,6 +140,10 @@ export interface SubmenuItemProps {
   /** Open, and pinned, right after mounting: as if it had been clicked. For a
    *  host asked to land on this level (`lib/openUserMenu`). */
   defaultOpen?: boolean;
+  /** The level's role. 'dialog' for a level that holds a FORM: a text field
+   *  inside role=menu is announced as a menu item and has no business there.
+   *  The panel keeps `Menu`'s keyboard and dismissal either way. */
+  levelRole?: 'menu' | 'dialog';
 }
 
 /**
@@ -162,6 +175,7 @@ export function SubmenuItem({
   rowClassName = '',
   onOpenChange,
   defaultOpen = false,
+  levelRole = 'menu',
 }: SubmenuItemProps) {
   const { isMobile } = useMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -255,6 +269,9 @@ export function SubmenuItem({
     scheduleClose();
   };
 
+  // See «using a level pins it too» above.
+  const pin = () => { pinned.current = true; };
+
   const onTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowRight') {
       e.preventDefault();
@@ -269,9 +286,14 @@ export function SubmenuItem({
   // host's roving focus. The boundary stops that, and it is where ArrowLeft
   // means "one level up". Escape is not handled here: the dismissal contract
   // listens on the document and already closes the child first.
+  //
+  // NOT FROM A FIELD. A level can hold a form (an API key, a URL): there the
+  // left arrow moves the caret, and closing the level under it would throw the
+  // half-typed value away.
   const onLevelKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation();
-    if (e.key === 'ArrowLeft') {
+    pinned.current = true;
+    if (e.key === 'ArrowLeft' && !isTypingSurface(e.target)) {
       e.preventDefault();
       close();
     }
@@ -283,7 +305,7 @@ export function SubmenuItem({
         ref={triggerRef}
         type="button"
         role="menuitem"
-        aria-haspopup="menu"
+        aria-haspopup={levelRole}
         aria-expanded={open}
         data-testid={testId}
         // OPEN, never toggle: with a mouse the hover has already opened the
@@ -309,6 +331,7 @@ export function SubmenuItem({
           anchorRef={triggerRef}
           onClose={close}
           side="right"
+          role={levelRole}
           exclusive={false}
           minWidth={levelWidth}
           maxWidth={maxWidth}
@@ -316,9 +339,11 @@ export function SubmenuItem({
           ariaLabel={ariaLabel ?? label}
           testId={testId ? `${testId}-menu` : undefined}
         >
-          <div onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
+          <div onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} onPointerDown={pin}>
             <SiblingContext.Provider value={nested}>
-              <HostWidthContext.Provider value={levelWidth}>{children}</HostWidthContext.Provider>
+              <LevelCloseContext.Provider value={close}>
+                <HostWidthContext.Provider value={levelWidth}>{children}</HostWidthContext.Provider>
+              </LevelCloseContext.Provider>
             </SiblingContext.Provider>
           </div>
         </Menu>

@@ -7,7 +7,10 @@ import {
   descendantPopoverNodes,
   openPopoverCount,
   popoversToClose,
+  popoversToCloseAround,
   registerOpenPopover,
+  shelterOpenPopovers,
+  shelteredNodes,
   subSurfaceNodes,
   type PopoverEntry,
 } from './popoverRegistry';
@@ -27,6 +30,8 @@ const CONTAINS: Record<string, string[]> = {
   // A host whose row opens a level, and a control inside the level.
   'panel-H': ['trigger-L'],
   'panel-L': ['row-in-L'],
+  // The board settings hold a model selector in their body.
+  'panel-BS': ['trigger-S'],
 };
 
 const contains = (parent: unknown, child: unknown) =>
@@ -97,6 +102,28 @@ describe('popoversToClose', () => {
     openEntries[0].nodes = () => [null, null];
     const victims = popoversToClose(openEntries, opener('trigger-B'), contains as never);
     expect(victims.map((v) => v.label)).toEqual(['A']);
+  });
+});
+
+describe('popoversToCloseAround', () => {
+  it('closes the door, keeps the menu that holds the anchor in its body', () => {
+    // The board settings, the model selector opened inside them, and an
+    // unrelated menu. The providers panel hangs from the selector's trigger:
+    // the selector (its trigger IS the anchor) goes, the board settings stay,
+    // or the anchor is unmounted and the panel lands in the corner.
+    const openEntries = [
+      entry('board', 'gear', 'panel-BS'),
+      entry('selector', 'trigger-S', 'panel-S'),
+      entry('other', 'trigger-B', 'panel-B'),
+    ];
+    const victims = popoversToCloseAround(openEntries, 'trigger-S' as never, contains as never);
+    expect(victims.map((v) => v.label)).toEqual(['selector', 'other']);
+  });
+
+  it('with the anchor in no panel, closes everything: the chat selector, the «+»', () => {
+    const openEntries = [entry('selector', 'trigger-S', 'panel-S'), entry('A', 'trigger-A', 'panel-A')];
+    const victims = popoversToCloseAround(openEntries, 'trigger-S' as never, contains as never);
+    expect(victims.map((v) => v.label)).toEqual(['selector', 'A']);
   });
 });
 
@@ -219,5 +246,26 @@ describe('il registro degli aperti', () => {
     expect(openPopoverCount()).toBe(0);
     expect(a.closed).toBe(1);
     expect(b.closed).toBe(1);
+  });
+
+  // A confirmation asked from a level of the user menu (remove the licence)
+  // is a modal on <body>: without the shelter, answering it was a press
+  // outside the menu, and the menu closed under the answer.
+  it('a sheltered dialog counts as inside for the popovers open when it came up, and stops when it goes', () => {
+    const dialog = 'confirm-veil' as unknown as Node;
+    const host = popover();
+    const level = popover({ exclusive: false });
+    registerOpenPopover(host);
+    registerOpenPopover(level);
+    const releaseShelter = shelterOpenPopovers(() => dialog);
+    expect(shelteredNodes(host)).toEqual([dialog]);
+    expect(shelteredNodes(level)).toEqual([dialog]);
+    // A popover opened later was not asked: the dialog is not its.
+    const later = popover({ exclusive: false });
+    registerOpenPopover(later);
+    expect(shelteredNodes(later)).toEqual([]);
+    releaseShelter();
+    expect(shelteredNodes(host)).toEqual([]);
+    expect(host.closed).toBe(0);
   });
 });

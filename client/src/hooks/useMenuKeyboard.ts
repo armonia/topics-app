@@ -34,7 +34,12 @@ const ITEM_SELECTOR =
 /** L'attributo che una riga usa per dichiarare la propria lettera. */
 export const MNEMONIC_ATTR = 'data-mnemonic';
 
-function isTypingSurface(el: EventTarget | null): boolean {
+/**
+ * A field that owns its own keys. Exported because a menu that hosts a form (a
+ * level of the user menu with an API key field) must not steal them either:
+ * the arrows, Home and End move the caret there, never the menu's focus.
+ */
+export function isTypingSurface(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
   if (!n || !n.tagName) return false;
   const tag = n.tagName.toLowerCase();
@@ -65,6 +70,10 @@ export function useMenuKeyboard({ panelRef, enabled = true }: UseMenuKeyboardOpt
       if (!enabled) return;
       const panel = panelRef.current;
       if (!panel) return;
+      // A key typed into a field of the menu belongs to the field: the arrows,
+      // Home and End move its caret, a letter is a letter (a form level of the
+      // user menu holds API keys, URLs and codes).
+      if (isTypingSurface(e.target)) return;
 
       if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
         const items = Array.from(panel.querySelectorAll<HTMLElement>(ITEM_SELECTOR));
@@ -82,7 +91,6 @@ export function useMenuKeyboard({ panelRef, enabled = true }: UseMenuKeyboardOpt
 
       // Mnemonic: tasto nudo, fuori da un campo di testo.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (isTypingSurface(e.target)) return;
       const rows = Array.from(panel.querySelectorAll<HTMLElement>(`[${MNEMONIC_ATTR}]`));
       if (rows.length === 0) return;
       const hit = mnemonicMatch(rows.map((r) => r.getAttribute(MNEMONIC_ATTR)), e.key);

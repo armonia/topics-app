@@ -5,11 +5,11 @@
  * The original work (6134a25e) split one single entry in two: `SectionId` said
  * `devices` while the label said "Profile". Since `sidebar-menu-settings` the
  * two answers left the Settings panel altogether: who you are is the Profile
- * tab, the machines are the Devices level of the user menu. What is defended
- * here is what a regression would break first: the panel holds neither, the
- * two surfaces show DIFFERENT content, and the two deep links each land on
- * their own one, including an old `openSettings('devices')` that must not fall
- * on the panel's first page.
+ * tab, the machines are the Devices level of the user menu, and since
+ * the 02/10/2026 change there is no Settings panel at all: ⌘, opens the user
+ * menu. What is defended here is what a regression would break first: the
+ * menu has no Settings row to send you elsewhere, the two surfaces show
+ * DIFFERENT content, and the two deep links each land on their own one.
  *
  * The active surface is read from the accessibility marks it already writes
  * (`aria-expanded` on the level's row, the profile page itself).
@@ -19,7 +19,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { hermetic, resetToBaseline } from "./fixtures/hermetic";
-import { openOwnProfile, openUserMenuLevel, requestSettingsSection } from "./helpers/user-menu";
+import { openOwnProfile, openUserMenuLevel, requestUserMenuLevel } from "./helpers/user-menu";
 
 // The boundary between this file and the previous one: without it this spec
 // inherits whatever the tests before it left behind in the shared DB.
@@ -28,7 +28,7 @@ hermetic(test);
 const SHOTS = "test-results/settings";
 
 /**
- * Cmd+comma opens Preferences: the same door `escape-modal-guard` uses.
+ * Cmd+comma opens the user menu, the one home of every setting.
  *
  * THE WAIT BEFORE THE KEYSTROKE is not ceremony. The shortcut is listened for
  * by an effect of the mounted app, so a keypress sent to a freshly loaded
@@ -44,7 +44,7 @@ async function apriImpostazioni(page: Page) {
   // Profile tab): waiting for it here made the wait fail for a reason that has
   // nothing to do with the panel this file is about.
   await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20000 });
-  const pannello = page.locator('[data-testid="settings-panel"]');
+  const pannello = page.getByTestId("profile-menu");
   await expect(async () => {
     await page.keyboard.press("Meta+Comma");
     await expect(pannello).toBeVisible({ timeout: 2000 });
@@ -53,15 +53,16 @@ async function apriImpostazioni(page: Page) {
 }
 
 test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
-  test("SETTINGS-01: Profilo e Dispositivi non sono voci del pannello, e hanno ciascuno la sua superficie", async ({ page }) => {
+  test("SETTINGS-01: ⌘, apre il menu utente, senza una riga Impostazioni, e i Dispositivi sono un suo livello", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "APPSET-03" });
     await page.goto("/");
-    const pannello = await apriImpostazioni(page);
-    await expect(pannello.getByRole("button", { name: "Profilo", exact: true })).toHaveCount(0);
-    await expect(pannello.getByRole("button", { name: "Dispositivi", exact: true })).toHaveCount(0);
+    const menu = await apriImpostazioni(page);
+    await expect(page.getByTestId("settings-panel")).toHaveCount(0);
+    await expect(menu.getByTestId("topics-menu-settings")).toHaveCount(0);
+    await expect(menu.getByTestId("profile-menu-devices")).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "settings-due-voci.png") });
     await page.keyboard.press("Escape");
-    await expect(pannello).toHaveCount(0);
+    await expect(menu).toHaveCount(0);
     await expect(await openUserMenuLevel(page, "devices")).toBeVisible();
   });
 
@@ -105,8 +106,7 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
         }) }));
     await page.goto("/");
 
-    const level = page.getByTestId("profile-menu-devices-menu");
-    await requestSettingsSection(page, "devices", level);
+    const level = await requestUserMenuLevel(page, "devices");
     await expect(page.getByTestId("profile-menu-devices"), "il collegamento deve aprire i DISPOSITIVI")
       .toHaveAttribute("aria-expanded", "true");
     await expect(level.getByTestId("device-row")).toHaveText([/Questo computer/, /iPhone di prova/]);

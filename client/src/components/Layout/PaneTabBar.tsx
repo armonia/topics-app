@@ -2073,7 +2073,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Settings size={14} />
-                  <span>{tr('common.settings')}</span>
+                  <span>{tr('chat.panel.topicSettings')}</span>
                 </button>
               </>
             );

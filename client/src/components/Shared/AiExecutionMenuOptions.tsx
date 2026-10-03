@@ -1,12 +1,16 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Route, Settings, Sparkles } from 'lucide-react';
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Check, KeyRound, Route, Sparkles } from 'lucide-react';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
 import { taskExecutionOptions, topicsRoutingAvailable } from '../../../../shared/task-coding-models';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
-import { openSettings } from '../../lib/openSettings';
+import { openHome } from '../../lib/openHome';
+import { usePlanUsage } from '../../state/planUsage';
 import { useT } from '../../hooks/useT';
+import { useMenuAnchor } from './menuAnchor';
+import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
+import { claudePlanCompact, claudeSubscription, providersReadyTail, runsOnClaudePlan } from '../Sidebar/formLevelTails';
 import { ownsSelection, selectedModelMissingIn, type AiExecutionSelection } from './aiExecutionSelection';
 
 interface Props {
@@ -72,6 +76,66 @@ function ModelWindowLabel(
     >
       {win.known ? '' : '≈'}{formatContextWindow(win.tokens)}
     </span>
+  );
+}
+
+
+/**
+ * THE FOOT OF EVERY MODEL SELECTOR: the providers and their keys, with how they
+ * stand in the tail (SETHOME-01). It opens the providers panel hung from the
+ * selector's own trigger (`useMenuAnchor`), so it is the same door in the chat
+ * composer, the card composer, the card drawer and the board defaults. A FOOTER
+ * on purpose: the selector's top belongs to the choice itself.
+ */
+function ProvidersFooterRow({ snapshot, chosen, disabled, onClose }: {
+  snapshot: ProvidersSnapshot | null;
+  chosen: string | null;
+  disabled?: boolean;
+  onClose?: () => void;
+}) {
+  const tr = useT();
+  const anchor = useMenuAnchor();
+  const tail = providersReadyTail(snapshot, chosen, tr);
+  return (
+    <div className="mt-1 border-t border-app-border pt-1">
+      <button
+        type="button"
+        disabled={disabled}
+        data-testid="ai-selector-providers"
+        className={`${POPOVER_ITEM} disabled:opacity-40`}
+        onClick={() => { const el = anchor?.current ?? null; onClose?.(); openHome('providers', el); }}
+      >
+        <KeyRound className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+        <span className="min-w-0 flex-1 truncate">{tr('home.providers')}</span>
+        {tail && (
+          <span
+            data-testid="ai-selector-providers-tail"
+            data-warn={tail.warn ? 'true' : undefined}
+            className={`shrink-0 text-micro tabular-nums ${tail.warn ? SEGNALE_ATTESA : 'text-app-text-muted'}`}
+          >
+            {tail.text}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/** The Claude plan in one line, above the Claude models: which plan these
+ *  models run on, and how much of its five hours is spent. */
+function ClaudePlanCompactLine({ snapshot }: { snapshot: ProvidersSnapshot | null }) {
+  const tr = useT();
+  const usage = usePlanUsage();
+  const line = claudePlanCompact(claudeSubscription(snapshot), usage?.fiveHour ?? null, tr);
+  if (!line) return null;
+  return (
+    <p
+      data-testid="ai-selector-claude-plan"
+      data-warn={line.warn ? 'true' : undefined}
+      className={`px-3 pb-1 pt-0.5 text-micro tabular-nums ${line.warn ? SEGNALE_ATTESA : 'text-app-text-muted'}`}
+    >
+      {line.text}
+    </p>
   );
 }
 
@@ -202,6 +266,7 @@ export function AiExecutionMenuOptions({
           <span className="min-w-0 flex-1 truncate">{active.label}</span>
           <span className={`h-1.5 w-1.5 rounded-full ${ready ? 'bg-emerald-400' : 'bg-amber-400'}`} />
         </button>
+        {runsOnClaudePlan(active.name) && <ClaudePlanCompactLine snapshot={snapshot} />}
         {value.model && ownsSelection(active, value) && (!ready || missingSelectedModel) && (
           <button
             role="option"
@@ -222,13 +287,8 @@ export function AiExecutionMenuOptions({
         {(!ready || missingSelectedModel) && (
           <div className="mx-2 my-1 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-mini text-app-text-secondary">
             <p>{unavailableReason}</p>
-            <button
-              className="mt-1.5 inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-40"
-              disabled={disabled}
-              onClick={() => { openSettings('providers'); onClose?.(); }}
-            >
-              <Settings className="h-3 w-3" /> {tr('ai.selector.openSettings')}
-            </button>
+            {/* The way out is the footer row right below (providers and keys),
+                whose tail already says this provider is not ready. */}
           </div>
         )}
         {ready && allowRuntimeAutomatic && active.supportsAutomatic && (
@@ -273,10 +333,12 @@ export function AiExecutionMenuOptions({
         {ready && active.models.length === 0 && !missingSelectedModel && (
           <p className="px-3 py-4 text-center text-mini text-app-text-muted">{tr('ai.selector.noModels')}</p>
         )}
+        <ProvidersFooterRow snapshot={snapshot} chosen={value.provider} disabled={disabled} onClose={onClose} />
       </div>
     );
   }
 
+  const planRow = executions.find((entry) => runsOnClaudePlan(entry.name))?.name;
   return (
     <div ref={panelRef} className="w-[min(22rem,calc(100vw-1rem))] max-w-full py-1" data-testid="ai-selector-runtimes">
       {routingRow}
@@ -298,31 +360,35 @@ export function AiExecutionMenuOptions({
         {value.provider === null && value.model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
       </button>
       {executions.map((entry) => (
-        <button
-          key={entry.name}
-          data-provider={entry.name}
-          role="option"
-          aria-selected={value.provider === entry.name}
-          disabled={disabled}
-          className={`${POPOVER_ITEM} disabled:opacity-40`}
-          onClick={() => openProvider(entry.name)}
-          title={entry.status === 'ready' ? tr('ai.selector.chooseModel') : entry.reason || tr('ai.selector.unavailable')}
-        >
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${entry.status === 'ready' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-          <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-          <span className="text-micro text-app-text-muted">
-            {entry.status === 'ready' ? tr('ai.selector.ready') : tr('ai.selector.unavailableShort')}
-          </span>
-        </button>
+        <Fragment key={entry.name}>
+          <button
+            data-provider={entry.name}
+            role="option"
+            aria-selected={value.provider === entry.name}
+            disabled={disabled}
+            className={`${POPOVER_ITEM} disabled:opacity-40`}
+            onClick={() => openProvider(entry.name)}
+            title={entry.status === 'ready' ? tr('ai.selector.chooseModel') : entry.reason || tr('ai.selector.unavailable')}
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${entry.status === 'ready' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            <span className="text-micro text-app-text-muted">
+              {entry.status === 'ready' ? tr('ai.selector.ready') : tr('ai.selector.unavailableShort')}
+            </span>
+          </button>
+          {/* The plan these runtimes spend, on the list the selector opens on: a
+              chat with no override never drills in, and the plan has to be read
+              without opening anything more than the selector. Once, under the
+              first runtime that runs on it. */}
+          {entry.name === planRow && <ClaudePlanCompactLine snapshot={snapshot} />}
+        </Fragment>
       ))}
       {executions.length === 0 && (
         <div className="px-3 py-4 text-center text-mini text-app-text-muted">
           <p>{tr('ai.selector.none')}</p>
-          <button disabled={disabled} className="mt-1.5 text-primary hover:underline disabled:opacity-40" onClick={() => { openSettings('providers'); onClose?.(); }}>
-            {tr('ai.selector.openSettings')}
-          </button>
         </div>
       )}
+      <ProvidersFooterRow snapshot={snapshot} chosen={value.provider} disabled={disabled} onClose={onClose} />
     </div>
   );
 }

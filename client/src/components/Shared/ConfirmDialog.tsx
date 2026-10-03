@@ -41,6 +41,9 @@ export interface ConfirmDialogProps {
    *  oppure non c'è niente da fare. Un tasto distruttivo attivo prima di sapere
    *  su cosa cade è la stessa promessa a vuoto che il dialogo serve a evitare. */
   confirmDisabled?: boolean;
+  /** Asked from inside a popover that keeps its questions (the user menu): the
+   *  popover stays open behind the dialog (`useModalDialog` `shelterRef`). */
+  insidePopover?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -52,6 +55,7 @@ export function ConfirmDialog({
   cancelLabel,
   tone = 'danger',
   confirmDisabled = false,
+  insidePopover = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -64,10 +68,10 @@ export function ConfirmDialog({
   const cancelWord = cancelLabel ?? tr('common.cancel');
   const panelRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  useModalDialog({ onClose: onCancel, panelRef, initialFocusRef: cancelRef });
-  // Callers unmount the dialog to close it: the veil and the card fade out as
-  // an inert copy (lib/exitGhost), like settings and the palette.
   const overlayRef = useRef<HTMLDivElement>(null);
+  useModalDialog({ onClose: onCancel, panelRef, initialFocusRef: cancelRef, shelterRef: insidePopover ? overlayRef : undefined });
+  // Callers unmount the dialog to close it: the veil and the card fade out as
+  // an inert copy (lib/exitGhost), like the palette.
   useExitGhost(overlayRef, true, 'modal');
 
   return (

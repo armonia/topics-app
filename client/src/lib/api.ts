@@ -1668,6 +1668,10 @@ export const mcpApi = {
   async fleet(signal?: AbortSignal): Promise<McpFleetStatus> {
     return request<McpFleetStatus>('/mcp/fleet', { signal });
   },
+  /** Mounted now, WITHOUT mounting: the Tools tail of the user menu. */
+  async peek(signal?: AbortSignal): Promise<McpFleetStatus> {
+    return request<McpFleetStatus>('/mcp/fleet?peek=1', { signal });
+  },
 
   /** Drop every connection and mount again, then answer with the new state. */
   async refresh(): Promise<McpFleetStatus> {

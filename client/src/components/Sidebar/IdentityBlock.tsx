@@ -43,7 +43,7 @@
  * disagree. The card says that number wherever it says one: the pill, the
  * working digit in the menu's tail and the tooltip's phrase.
  */
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { presenceSummary } from '../../../../shared/presence-phrase';
@@ -169,6 +169,9 @@ function UserCard({ identity, commands, alarm }: {
   const locale = useLocale();
   const { session, who, readDevices } = identity;
   const [open, setOpen] = useState(false);
+  // Read by the request listener, which is bound once.
+  const openRef = useRef(open);
+  useEffect(() => { openRef.current = open; }, [open]);
   // A level asked for from elsewhere (the bell's gear, an old deep link): the
   // menu remounts on every request so the level opens even when it is asked
   // for twice in a row (`lib/openUserMenu`).
@@ -195,7 +198,15 @@ function UserCard({ identity, commands, alarm }: {
     const onRequest = (e: Event) => {
       const level = (e as CustomEvent<OpenUserMenuDetail>).detail?.level ?? null;
       readDevices();
-      setRequest((r) => ({ level, n: r.n + 1 }));
+      // ALREADY OPEN AND NO LEVEL ASKED (⌘,): no remount. `key={request.n}`
+      // would rebuild the menu and lose whatever is half typed in an open level
+      // (⌘, pressed from inside the licence field). The same menu takes the
+      // focus instead. A LEVEL asked for is a place to go, and remounts.
+      if (openRef.current && level === null) {
+        setRequest((r) => ({ level, n: r.n, focusFirst: level === null, focusN: (r.focusN ?? 0) + 1 }));
+        return;
+      }
+      setRequest((r) => ({ level, n: r.n + 1, focusFirst: level === null }));
       setOpen(true);
     };
     window.addEventListener(OPEN_USER_MENU_EVENT, onRequest);
@@ -245,7 +256,7 @@ function UserCard({ identity, commands, alarm }: {
         onClick={() => {
           if (!open) {
             readDevices();
-            setRequest((r) => ({ level: null, n: r.n }));
+            setRequest((r) => ({ level: null, n: r.n, focusN: r.focusN }));
           }
           setOpen((v) => !v);
         }}
@@ -312,6 +323,8 @@ function UserCard({ identity, commands, alarm }: {
             signals={signals}
             commands={commands}
             openLevel={request.level}
+            focusFirstRow={request.focusFirst === true}
+            focusRequest={request.focusN ?? 0}
           />
         </Suspense>
       )}

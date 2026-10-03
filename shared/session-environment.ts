@@ -39,13 +39,16 @@ export interface McpServerStatus {
 
 /**
  * The answer of `GET /api/mcp/fleet`, which is also the whole content of the
- * mounted-tools panel in Settings.
+ * Tools level of the user menu.
  */
 export interface McpFleetStatus {
   /** False when the native MCP client is switched off (TOPICS_NATIVE_MCP=0). */
   enabled: boolean;
   /** True while the first mount is still in flight. */
   mounting: boolean;
+  /** False until a mount has finished at least once: an empty `servers` then
+   *  means "not asked yet", not "none" (`?peek=1` does not mount). */
+  mounted?: boolean;
   /** The config the fleet was read from. */
   source: string | null;
   servers: McpServerStatus[];

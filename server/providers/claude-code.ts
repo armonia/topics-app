@@ -59,6 +59,7 @@ import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type Wake
 import { resolveWakeSource } from "./claude/wake-source";
 import { backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
+import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -2440,6 +2441,12 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   effortTier(): string | undefined {
     return resolveClaudeEffort() ?? undefined;
+  }
+
+  /** The Claude plan the CLI is signed in with, as two labels: the user menu
+   *  says it in the tail of «AI providers» (`claude/subscription.ts`). */
+  subscription(): ClaudeSubscription | null {
+    return readClaudeSubscription();
   }
 
   // ============ Process Pool Internals ============

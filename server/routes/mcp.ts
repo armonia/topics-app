@@ -21,8 +21,13 @@ import { startMcpAuthorization } from "../providers/native/mcp-oauth";
 export function createMcpRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, errorResponse } = ctx;
 
-  return async (req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> => {
+  return async (req: Request, url: URL, pathname: string, method: string): Promise<Response | null> => {
     if (pathname === "/api/mcp/fleet" && method === "GET") {
+      // `?peek=1` answers with what is mounted NOW, without mounting: the tail
+      // of the user menu's Tools row asks every time the menu opens, and
+      // opening a menu must not start a fleet of MCP processes. The level
+      // itself reads without it, and that read mounts.
+      if (url.searchParams.get("peek") === "1") return json(mcpFleetStatus());
       await ensureMcpFleet();
       return json(mcpFleetStatus());
     }

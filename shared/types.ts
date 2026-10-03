@@ -539,6 +539,10 @@ export interface ProviderSnapshotEntry {
    * Key = model id, value = tokens.
    */
   modelContextWindows?: Record<string, number>;
+  /** The Claude plan the CLI is signed in with (`pro`, `max`) and its tier
+   *  (`default_claude_max_20x`): two labels and never a credential
+   *  (`server/providers/claude/subscription.ts`). Absent = not known. */
+  subscription?: { type: string | null; tier: string | null };
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }

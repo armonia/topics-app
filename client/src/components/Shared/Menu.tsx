@@ -5,6 +5,7 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { useSheetDrag } from '../../hooks/useSheetDrag';
 import { SheetGrabber } from './SheetGrabber';
+import { MenuAnchorContext } from './menuAnchor';
 // Import RELATIVI e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no. Da
 // quando `Shared/Select` (che passa di qui) è usato dalle Impostazioni e dai
 // modali, questo file entra nel grafo che i test unitari importano davvero —
@@ -48,8 +49,9 @@ export interface MenuProps {
   side?: 'bottom' | 'right';
   /** Gap in px between trigger and panel (default 4). */
   gap?: number;
-  /** Container role — 'menu' for action menus, 'listbox' for pickers. Default 'menu'. */
-  role?: 'menu' | 'listbox';
+  /** Container role — 'menu' for action menus, 'listbox' for pickers, 'dialog'
+   *  for a panel that holds a form (fields are not menu items). Default 'menu'. */
+  role?: 'menu' | 'listbox' | 'dialog';
   /** Desktop min panel width in px (default 150). */
   minWidth?: number;
   /** Desktop max panel width in px. Unset by default: most panels are meant
@@ -263,7 +265,7 @@ export function Menu({
         }
       >
         {isMobile && <SheetGrabber />}
-        {children}
+        <MenuAnchorContext.Provider value={anchorRef}>{children}</MenuAnchorContext.Provider>
       </div>
     </>,
     document.body,
