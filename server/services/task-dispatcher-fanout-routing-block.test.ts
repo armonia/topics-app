@@ -2,15 +2,17 @@
  * AICTRL-01 nel fan-out: un cancello duro non si trasforma in "tentativo fallito". allow-italian: la regola che il file difende
  * `runAttempt` catturava tutto e chiudeva il tentativo come fallito, che per il fan-out significa «e' partito davvero»: il ramo che parcheggia col motivo non veniva mai raggiunto e la card tornava in giro muta. allow-italian: nomina il difetto trovato in review
  * Il mismatch e' PERMANENTE: rimetterlo in coda ripete lo stesso errore per sempre. Il catalogo ancora freddo e' l'altro caso, e aspetta (task-dispatcher-topics-catalog-pending.test.ts). allow-italian: distingue i due esiti possibili
+ * MSEL-06: lo switch non e' piu' un cancello. Una card Codex con lo switch acceso nasce e gira diretta: resta permanente solo `task_model_unavailable`. allow-italian: il contratto nuovo
  *
- * @covers AICTRL-01
+ * @covers AICTRL-01, MSEL-06
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { createTaskAttemptStore } from "./task-attempts";
-import { TopicsRoutingUnavailableError } from "../../shared/task-coding-models";
+import { resolveDispatchTopicIdentity } from "./dispatch-topic-identity";
+import type { ProvidersSnapshot } from "../../shared/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
@@ -104,8 +106,30 @@ async function runFanOut(createTopic: DispatcherDeps["createTopic"], model?: str
 }
 
 describe("fan-out: il cancello di instradamento non si perde in un tentativo fallito", () => {
-  it("parcheggia la card come bloccata, col motivo, invece di chiudere il fan-out come se fosse partito", async () => {
-    const h = await runFanOut(() => { throw new TopicsRoutingUnavailableError("codex", "gpt-5.4"); });
+  it("MSEL-06: una card codex con lo switch acceso non si parcheggia: il fan-out nasce e gira diretto su Codex", async () => {
+    const fleet = { defaultProvider: "codex", providers: [
+      { name: "topics", label: "Topics", status: "ready", models: ["claude-opus-5"], requirements: [] },
+      { name: "codex", label: "Codex", status: "ready", models: ["gpt-6.1-sol"], requirements: [] },
+    ] } as unknown as ProvidersSnapshot;
+    const executors: string[] = [];
+    let n = 0;
+    const h = await runFanOut((o) => {
+      executors.push(resolveDispatchTopicIdentity(o, fleet).executor);
+      n++;
+      return { topicId: `topic-${n}`, sessionKey: `topic:sk${n}` };
+    }, "codex:gpt-6.1-sol");
+
+    const task = h.svc.get("t1")!.task;
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(executors.length).toBeGreaterThan(0);
+    expect(executors.every((e) => e === "codex")).toBe(true);
+    expect(h.turns.length).toBeGreaterThan(0);
+  });
+
+  it("un guasto permanente (task_model_unavailable) parcheggia la card come bloccata, col motivo, invece di chiudere il fan-out come se fosse partito", async () => {
+    const h = await runFanOut(() => {
+      throw Object.assign(new Error("The selected coding runtime codex is unavailable for gpt-5.4. Refresh its connection and retry."), { code: "task_model_unavailable" });
+    });
 
     const task = h.svc.get("t1")!.task;
     expect(task.dispatchState).toBe("blocked");
@@ -127,7 +151,7 @@ describe("fan-out: il cancello di instradamento non si perde in un tentativo fal
 
   it("i tentativi non restano `running` per sempre: la riga si chiude comunque", async () => {
     // Un tentativo eternamente in corso e' peggio di nessun tentativo: `runningCount` lo conta e il cancello del fan-out ci crede. allow-italian: perche' una riga aperta fa danno
-    const h = await runFanOut(() => { throw new TopicsRoutingUnavailableError("codex", "gpt-5.4"); });
+    const h = await runFanOut(() => { throw Object.assign(new Error("codex cannot run gpt-5.4"), { code: "task_model_unavailable" }); });
 
     const rows = h.db.query("SELECT state FROM task_attempts WHERE task_id = 't1'").all() as { state: string }[];
     expect(rows.length).toBeGreaterThan(0);

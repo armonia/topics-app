@@ -1,4 +1,4 @@
-/** @covers MP-TASK-01 */
+/** @covers MP-TASK-01, MSEL-06 */
 import { describe, expect, test } from 'bun:test';
 import { resolveTopicProvider, TopicsRoutingIncompatibleError } from './resolve-topic-provider';
 import type { AIProvider } from './types';
@@ -46,58 +46,63 @@ describe('explicit topic provider resolution', () => {
       expect(resolved.name).toBe('topics');
       expect(topic.provider).toBe('claude-code'); // the switch never touches it
     });
-    test('ON + a non-routable provider (Codex) never dispatches direct: explicit incompatibility, not a silent no-op', () => {
+    test('MSEL-06: ON + a non-routable provider (Codex) runs direct on it, never a block', () => {
       const codex = { name: 'codex', connected: true } as AIProvider;
-      let reached = false;
-      expect(() => resolveTopicProvider({ provider: 'codex', topicsRouting: true }, {
-        getProvider: () => { reached = true; return codex; }, getDefaultProvider: () => fallback,
-      })).toThrow(TopicsRoutingIncompatibleError);
-      // Never even asked the registry for codex directly: ON blocks before dispatch.
-      expect(reached).toBe(false);
-    });
-    test('ON + non-routable provider: the thrown reason is present and readable', () => {
-      const codex = { name: 'codex', connected: true } as AIProvider;
-      try {
-        resolveTopicProvider({ provider: 'codex', topicsRouting: true }, {
-          getProvider: () => codex, getDefaultProvider: () => fallback,
-        });
-        throw new Error('expected resolveTopicProvider to throw');
-      } catch (err) {
-        expect(err).toBeInstanceOf(TopicsRoutingIncompatibleError);
-        expect((err as Error).message.length).toBeGreaterThan(0);
+      const topicsNative = { name: 'topics', connected: true } as AIProvider;
+      for (const topicsRouting of [true, null]) {
+        expect(resolveTopicProvider({ provider: 'codex', topicsRouting }, {
+          getProvider: (name) => name === 'topics' ? topicsNative : codex, getDefaultProvider: () => fallback,
+        })).toBe(codex);
       }
     });
-    test('ON but the native engine is unavailable never falls through to the explicit provider', () => {
+    test('MSEL-06: ON but the native engine is unavailable runs the explicit provider direct', () => {
       const claudeCode = { name: 'claude-code', connected: true } as AIProvider;
-      expect(() => resolveTopicProvider({ provider: 'claude-code', topicsRouting: true }, {
+      expect(resolveTopicProvider({ provider: 'claude-code', topicsRouting: true }, {
         getProvider: (name) => { if (name === 'topics') throw new Error('not registered'); return claudeCode; },
         getDefaultProvider: () => fallback,
-      })).toThrow(TopicsRoutingIncompatibleError);
+      })).toBe(claudeCode);
     });
-    test('ON but the native engine is registered yet disconnected: same explicit block', () => {
+    test('MSEL-06: ON but the native engine is registered yet disconnected: direct too', () => {
       const claudeCode = { name: 'claude-code', connected: true } as AIProvider;
       const topicsNative = { name: 'topics', connected: false } as AIProvider;
-      expect(() => resolveTopicProvider({ provider: 'claude-code', topicsRouting: true }, {
+      expect(resolveTopicProvider({ provider: 'claude-code', topicsRouting: true }, {
         getProvider: (name) => name === 'topics' ? topicsNative : claudeCode,
         getDefaultProvider: () => fallback,
-      })).toThrow(TopicsRoutingIncompatibleError);
+      })).toBe(claudeCode);
     });
-    test('Automatico + ON routes through the native topics engine, not the registry default', () => {
+    test('MSEL-06: Automatico + ON resolves the registry default FIRST: a Codex default stays on Codex', () => {
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
-      const otherDefault = { name: 'codex' } as AIProvider;
-      let defaults = 0;
+      const codexDefault = { name: 'codex' } as AIProvider;
       const resolved = resolveTopicProvider({ provider: null, topicsRouting: true }, {
         getProvider: (name) => { if (name === 'topics') return topicsNative; throw new Error(`unexpected lookup: ${name}`); },
-        getDefaultProvider: () => { defaults++; return otherDefault; },
+        getDefaultProvider: () => codexDefault,
       });
-      expect(resolved).toBe(topicsNative);
-      expect(defaults).toBe(0);
+      expect(resolved).toBe(codexDefault);
     });
-    test('Automatico + ON but the native engine is unavailable: explicit incompatibility, not the registry default', () => {
-      const otherDefault = { name: 'codex' } as AIProvider;
-      expect(() => resolveTopicProvider({ provider: null, topicsRouting: true }, {
-        getProvider: () => { throw new Error('not registered'); },
-        getDefaultProvider: () => otherDefault,
+    test('MSEL-06: Automatico + ON with a Claude Code default goes through the engine', () => {
+      const topicsNative = { name: 'topics', connected: true } as AIProvider;
+      const claudeDefault = { name: 'claude-code' } as AIProvider;
+      expect(resolveTopicProvider({ provider: null, topicsRouting: null, model: 'claude-opus-5' }, {
+        getProvider: (name) => { if (name === 'topics') return topicsNative; throw new Error(`unexpected lookup: ${name}`); },
+        getDefaultProvider: () => claudeDefault,
+        getTopicsModels: () => ['claude-opus-5'],
+      })).toBe(topicsNative);
+    });
+    test('MSEL-06: a chat on Claude Code never touched (null) runs on the engine from its next turn', () => {
+      const claudeCode = { name: 'claude-code', connected: true } as AIProvider;
+      const topicsNative = { name: 'topics', connected: true } as AIProvider;
+      const topic = { provider: 'claude-code', model: 'claude-opus-5', topicsRouting: null };
+      expect(resolveTopicProvider(topic, {
+        getProvider: (name) => name === 'topics' ? topicsNative : claudeCode,
+        getDefaultProvider: () => fallback,
+        getTopicsModels: () => ['claude-opus-5'],
+      })).toBe(topicsNative);
+      expect(topic.topicsRouting).toBeNull();
+    });
+    test('the legacy provider:"topics" with the engine down is the one explicit block left', () => {
+      expect(() => resolveTopicProvider({ provider: 'topics' }, {
+        getProvider: () => ({ name: 'topics', connected: false } as AIProvider),
+        getDefaultProvider: () => fallback,
       })).toThrow(TopicsRoutingIncompatibleError);
     });
     test('ON + a legacy provider:"topics" (AICTRL-04 stale value, never re-selectable) resolves via the native engine, no throw', () => {
@@ -109,19 +114,14 @@ describe('explicit topic provider resolution', () => {
       });
       expect(resolved).toBe(topicsNative);
     });
-    test('Automatico + ON: il modello si controlla anche SENZA provider pinnato', () => {
-      // Col `name &&` davanti, Automatico saltava il controllo e dispacciava un modello che il motore nativo non serve: il no-op silenzioso che ON deve rendere impossibile, e che il lato task non aveva. allow-italian: nomina il buco chiuso qui
+    test('MSEL-06: ON + un modello che il motore non serve va diretto sul default, senza bloccare', () => {
       const topicsNative = { name: 'topics', connected: true } as AIProvider;
-      let thrown: unknown;
-      try {
-        resolveTopicProvider({ provider: null, model: 'claude-sonnet-5', topicsRouting: true }, {
-          getProvider: (name) => { if (name === 'topics') return topicsNative; throw new Error(`unexpected lookup: ${name}`); },
-          getDefaultProvider: () => fallback,
-          getTopicsModels: () => ['claude-opus-5'],
-        });
-      } catch (err) { thrown = err; }
-      expect(thrown).toBeInstanceOf(TopicsRoutingIncompatibleError);
-      expect((thrown as TopicsRoutingIncompatibleError).message).toContain('claude-sonnet-5');
+      const claudeDefault = { name: 'claude-code' } as AIProvider;
+      expect(resolveTopicProvider({ provider: null, model: 'claude-sonnet-5', topicsRouting: true }, {
+        getProvider: (name) => { if (name === 'topics') return topicsNative; throw new Error(`unexpected lookup: ${name}`); },
+        getDefaultProvider: () => claudeDefault,
+        getTopicsModels: () => ['claude-opus-5'],
+      })).toBe(claudeDefault);
     });
     test('Automatico + ON con un modello servito dal motore nativo passa', () => {
       const topicsNative = { name: 'topics', connected: true } as AIProvider;

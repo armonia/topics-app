@@ -23,6 +23,9 @@ export async function pickCodingTaskPlan(
   task: { text: string; description?: string | null },
   deps: {
     models: CodingModel[];
+    /** Where the classifier may come from, when narrower than `models` (MSEL-06:
+     *  the models the engine serves, with the switch ON). Absent = `models`. */
+    judges?: CodingModel[];
     requiredEffort?: string;
     complete: (prompt: string, options: CompletionOptions, provider: string) => Promise<string>;
     log?: (message: string) => void;
@@ -32,7 +35,8 @@ export async function pickCodingTaskPlan(
   const models = pool.filter(m => !deps.requiredEffort || supportedEfforts(m).includes(deps.requiredEffort));
   if (!models.length) throw Object.assign(new Error('No eligible coding model is available for this task and its effort setting. Refresh the provider catalog or choose a compatible effort, then retry.'), { code: 'task_model_unavailable' });
   const fallback = prefer(models, [/workhorse|balanced|everyday/i, /affordable|fast/i]);
-  const judge = prefer(pool, [/affordable|cheapest/i, /fast/i, /balanced|everyday/i]);
+  const judgePool = deps.judges?.filter(m => supportedEfforts(m).length > 0) ?? [];
+  const judge = prefer(judgePool.length ? judgePool : pool, [/affordable|cheapest/i, /fast/i, /balanced|everyday/i]);
   const fallbackEffort = deps.requiredEffort ?? (supportedEfforts(fallback).includes('medium') ? 'medium'
     : supportedEfforts(fallback).find(e => e === fallback.defaultEffort) ?? supportedEfforts(fallback)[0]!);
   const fallbackPlan: TaskPlan = { model: taskModel(fallback), provider: fallback.provider, effort: fallbackEffort as TaskPlan['effort'], weight: null };

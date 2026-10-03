@@ -1521,9 +1521,9 @@ function ChatPaneComponent({
       return;
     }
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
-    // AICTRL-05: gate finale, non estetico. Lo snapshot si legge senza abbonarsi (un hook qui ridisegnerebbe ChatPane a ogni push) e l'unico sblocco e' spegnere lo switch: provider e modello non si toccano mai da soli. allow-italian: perche' si legge lo store invece dell'hook
+    // MSEL-06: lo switch non blocca piu' l'invio. Resta la chat legacy legata al motore stesso col motore giu', dove un «diretto» non esiste. Lo snapshot si legge senza abbonarsi (un hook qui ridisegnerebbe ChatPane a ogni push). allow-italian: perche' si legge lo store invece dell'hook
     if (topicsRoutingBlocked(topicsRouting, providerOverride, defaultProviderLabel, getProvidersSnapshotState().snapshot)) {
-      toast.error(tr('chat.topicsRouting.blocked'));
+      toast.error(tr('chat.topicsEngine.down'));
       return;
     }
     let finalMessage = message.trim();

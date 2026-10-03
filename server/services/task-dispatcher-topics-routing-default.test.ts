@@ -3,7 +3,7 @@
  * L'ordine non e' "board vince sempre" ne' "task vince sempre": lo switch esplicito del task (true O false) vince quando c'e', altrimenti decide il default della board, e solo se anche quello e' null torna in gioco il vecchio prefisso `topics:<model>`. allow-italian: l'ordine di risoluzione, il cuore del file
  * Prima il dispatcher passava lo switch grezzo del task senza leggere il default della board: una board accesa non instradava niente se il task non l'aveva mai toccato. allow-italian: nomina il difetto trovato in review
  *
- * @covers AICTRL-05
+ * @covers AICTRL-05, MSEL-06
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -160,5 +160,78 @@ describe("AICTRL-05: default board dello switch di instradamento", () => {
     await flush();
 
     expect(h.topicsCreated[0]?.topicsRouting).toBe(false);
+  });
+});
+
+/**
+ * MSEL-06, the reused session (the scenario «sessione riusata»). A dependent
+ * card continues its blocker's topic, which keeps its own switch. A card whose
+ * preference was never written (task and board both null) adopts the
+ * session's route instead of parking; a written one that differs still parks;
+ * and a session from before the column existed (null) gets the card's
+ * effective value written before the turn.
+ */
+describe("MSEL-06: a card reusing a session", () => {
+  type Routing = boolean | null;
+  async function reuse(card: Routing, session: Routing, board: Routing = null) {
+    const events: string[] = [];
+    const h = harness({
+      topicModelSelection: () => ({ provider: "claude-code", model: "claude-sonnet-5", ...(session === null ? {} : { topicsRouting: session }) }),
+      setTopicRouting: (id, value) => { events.push(`write ${id}=${value}`); },
+      runTurn: (sessionKey) => { events.push(`turn ${sessionKey}`); return new Promise<TurnEndInfo | void>(() => {}); },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, ...(board === null ? {} : { dispatchTopicsRouting: board }) });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    const ts = new Date().toISOString();
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-s')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, assigned_topic_id)
+       VALUES ('b1', ?, 'blocker', 'done', ?, ?, 0, 'claude-code:claude-sonnet-5', 'topic-s')`,
+      [PID, ts, ts],
+    );
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
+       VALUES ('d1', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', ?, 'b1', 1)`,
+      [PID, ts, ts, card === null ? null : (card ? 1 : 0)],
+    );
+    await h.dispatcher.tick(PID);
+    await flush(40);
+    return { task: h.svc.get("d1")!.task, events, created: h.topicsCreated };
+  }
+
+  it("a never-written card reusing a session with 0 does not park, and runs as the session does (direct)", async () => {
+    const { task, events, created } = await reuse(null, false);
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(task.dispatchError ?? null).toBeNull();
+    expect(created).toHaveLength(0);
+    expect(events.filter((e) => e.startsWith("turn"))).toHaveLength(1);
+    expect(events.some((e) => e.startsWith("write"))).toBe(false);
+  });
+
+  it("a never-written card reusing a session with 1 does not park, and runs as the session does (engine)", async () => {
+    const { task, events } = await reuse(null, true);
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(task.dispatchError ?? null).toBeNull();
+    expect(events.filter((e) => e.startsWith("turn"))).toHaveLength(1);
+    expect(events.some((e) => e.startsWith("write"))).toBe(false);
+  });
+
+  it("a card written ON reusing a session with 0 parks with the switch-off reason, as before", async () => {
+    const { task, events } = await reuse(true, false);
+    expect(task).toMatchObject({ dispatchState: "blocked" });
+    expect(task.dispatchError).toBe("This task has Topics routing on, but the previous session runs with the switch off. Turn the switch off or turn off session reuse before starting the task.");
+    expect(events).toHaveLength(0);
+  });
+
+  it("a board default written ON is a written preference too: the card parks", async () => {
+    const { task } = await reuse(null, false, true);
+    expect(task).toMatchObject({ dispatchState: "blocked" });
+  });
+
+  it("a never-written card reusing a session from before the column (null): the effective value is written before the turn", async () => {
+    const { task, events } = await reuse(null, null);
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(events[0]).toBe("write topic-s=false");
+    expect(events[1]?.startsWith("turn ")).toBe(true);
   });
 });

@@ -40,7 +40,6 @@ import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { shortcut } from '../../lib/shortcutLabel';
-import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState } from './promptHistory';
 import { isMachineRow, lastConversationMessage, lastPersonText, messageToSpeak } from './machineRow';
 import { AttachmentStrip } from './AttachmentStrip';
@@ -473,8 +472,6 @@ export function ChatInput({
     }),
     [providersSnapshot, providerOverride, fastMode],
   );
-  // AICTRL-05: banner LIVE sull'abbonamento gia' pagato per `fastUi`, cosi' la ragione si vede prima di provare a inviare. Il gate VERO, che ferma anche l'Enter, sta in `ChatPane.handleSendMessage`. allow-italian: distingue il banner dal cancello vero
-  const topicsRoutingIsBlocked = topicsRoutingBlocked(topicsRouting, providerOverride ?? null, defaultProviderLabel, providersSnapshot);
   const { budgetPercent, sources: contextSources } = useContextInspector(
     isDraftTopic || isGlobalOrchestrator ? null : topic.id,
   );
@@ -1602,7 +1599,7 @@ export function ChatInput({
                   const isQueue = action.kind === 'queue';
                   // Ambra come la domanda a schermo: stesso colore, stessa cosa.
                   const isAnswer = action.kind === 'answer';
-                  const isDisabled = action.kind === 'disabled' || uploading || topicsRoutingIsBlocked;
+                  const isDisabled = action.kind === 'disabled' || uploading;
 
                   return (
                     <button
@@ -1837,7 +1834,6 @@ export function ChatInput({
           </>
         )}
         {chatError && <div className="text-red-500 text-mini px-3 pb-1.5">{chatError}</div>}
-        {topicsRoutingIsBlocked && <div className="text-red-500 text-mini px-3 pb-1.5">{tr('chat.topicsRouting.blocked')}</div>}
       </form>
 
       {/* Context Inspector popover — anchored to the ring on desktop, a bottom

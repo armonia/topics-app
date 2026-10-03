@@ -1,10 +1,12 @@
 /**
- * AICTRL-01, "ON with provider Automatic": Topics picks by its own rules, so the
- * automatic picker may only choose what the Topics engine routes. It used to
- * pick Codex (the board default here), and the topic gate then parked the card
- * with "Topics routing cannot dispatch to codex".
+ * AICTRL-01 + MSEL-06, "ON with provider Automatic". The switch used to narrow
+ * the automatic ballot to what the Topics engine routes; before that, a Codex
+ * pick parked the card with "Topics routing cannot dispatch to codex". With
+ * MSEL-06 the ballot keeps the GPT models, the pick decides the target, and
+ * `topicsRoute` decides the route afterwards: a Claude pick the engine serves
+ * runs there, a Codex pick runs direct, and nothing parks for the switch.
  *
- * @covers AICTRL-01
+ * @covers AICTRL-01, MSEL-06
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -76,7 +78,11 @@ const FLEET = {
 } as unknown as ProvidersSnapshot;
 const CODEX_MODELS = [{ slug: "gpt-5.5", description: "Reliable workhorse", defaultEffort: "medium", efforts: ["low", "medium", "high"] }];
 
-function harness(fleet = FLEET) {
+const CODEX_VOTE = '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}';
+const ENGINE_VOTE = '{"provider":"topics","model":"claude-sonnet-5","effort":"medium","weight":"light"}';
+const CLAUDE_CODE_VOTE = '{"provider":"claude-code","model":"claude-sonnet-5","effort":"medium","weight":"light"}';
+
+function harness(fleet = FLEET, vote = CODEX_VOTE) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const topics: DispatchTopicIdentity[] = [];
@@ -86,11 +92,11 @@ function harness(fleet = FLEET) {
     svc,
     attempts: createTaskAttemptStore(db),
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
-    // The hooks server.ts spreads, with a classifier that always votes Codex.
+    // The hooks server.ts spreads, with a classifier that always casts `vote`.
     ...automaticDispatchHooks({
       snapshot: () => fleet,
       codexModels: () => CODEX_MODELS,
-      getProvider: () => ({ connected: true, complete: async () => ({ content: '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}' }) }) as unknown as AIProvider,
+      getProvider: () => ({ connected: true, complete: async () => ({ content: vote }) }) as unknown as AIProvider,
     }),
     // Same gate as server.ts createTopic: this is what threw and parked the card.
     createTopic: (o) => {
@@ -102,7 +108,7 @@ function harness(fleet = FLEET) {
     // Same read-back as server.ts: what a hold or a reused session is judged against.
     topicModelSelection: (id) => {
       const topic = topics[Number(id.slice("topic-".length)) - 1];
-      return topic ? dispatchTopicBinding(topic, fleet.defaultProvider) : null;
+      return topic ? dispatchTopicBinding(topic, fleet.defaultProvider, fleet) : null;
     },
     createWorktree: async () => "wt-1",
     deleteWorktree: async () => {},
@@ -120,8 +126,8 @@ const flush = async (n = 40) => {
   await new Promise((r) => setTimeout(r, 5));
 };
 
-async function dispatchAutomaticWithRoutingOn(fanOut?: number, fleet = FLEET) {
-  const h = harness(fleet);
+async function dispatchAutomaticWithRoutingOn(fanOut?: number, fleet = FLEET, vote = CODEX_VOTE) {
+  const h = harness(fleet, vote);
   h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: true, ...(fanOut ? { dispatchFanOut: fanOut } : {}) });
   h.svc.setGlobalCap({ auto: false, max: 5 });
   const ts = new Date().toISOString();
@@ -135,20 +141,25 @@ async function dispatchAutomaticWithRoutingOn(fanOut?: number, fleet = FLEET) {
   return h;
 }
 
-describe("Automatic with Topics routing ON never picks what the switch cannot route", () => {
+describe("MSEL-06: Automatic with Topics routing ON keeps GPT on the ballot", () => {
   for (const [label, fanOut] of [["single launch", undefined], ["fan-out", 2]] as const) {
-    it(`${label}: the card starts on the Topics engine instead of parking`, async () => {
+    it(`${label}: a Codex pick starts direct on Codex instead of parking`, async () => {
       const h = await dispatchAutomaticWithRoutingOn(fanOut);
       const task = h.svc.get("t1")!.task;
       expect(task.dispatchError ?? "").not.toContain("Topics routing cannot dispatch");
       expect(task.dispatchState).not.toBe("blocked");
       expect(h.topics.length).toBeGreaterThan(0);
       for (const topic of h.topics) {
-        expect(topic.executor).toBe("topics");
-        expect(topic.model?.startsWith("claude-")).toBe(true);
-        // The native engine is the router, never a target: pinned on it, the
-        // card was stored as the legacy `topics:<model>` value.
-        expect(topic.provider).not.toBe("topics");
+        expect(topic).toMatchObject({ executor: "codex", provider: "codex", model: "gpt-5.5", topicsRouting: true });
+      }
+    });
+
+    it(`${label}: a Claude Code pick runs through the engine, pinned to its target`, async () => {
+      const h = await dispatchAutomaticWithRoutingOn(fanOut, FLEET, CLAUDE_CODE_VOTE);
+      const task = h.svc.get("t1")!.task;
+      expect(task.dispatchState).not.toBe("blocked");
+      for (const topic of h.topics) {
+        expect(topic).toMatchObject({ executor: "topics", provider: "claude-code", model: "claude-sonnet-5" });
       }
       expect(task.model?.startsWith("topics:")).toBe(false);
       // What the card was stored with still means something with the switch
@@ -176,7 +187,7 @@ describe("Automatic with Topics routing ON and the engine up without a Claude Co
   for (const [label, fleet] of Object.entries(fleets)) {
     for (const [launch, fanOut] of [["single launch", undefined], ["fan-out", 2]] as const) {
       it(`${label}, ${launch}: the card runs on the engine, pinned to no runtime`, async () => {
-        const h = await dispatchAutomaticWithRoutingOn(fanOut, fleet);
+        const h = await dispatchAutomaticWithRoutingOn(fanOut, fleet, ENGINE_VOTE);
         const task = h.svc.get("t1")!.task;
         expect(task).toMatchObject({ status: "in_progress", dispatchState: "working" });
         expect(h.topics.length).toBeGreaterThan(0);
@@ -192,7 +203,7 @@ describe("Automatic with Topics routing ON and the engine up without a Claude Co
 
   it("Claude Code still in discovery: the card waits for it, then starts pinned to it", async () => {
     const fleet = fleetOf(entry("topics", CLAUDE_MODELS), entry("claude-code", [], "loading"), entry("codex", ["gpt-5.5"]));
-    const h = await dispatchAutomaticWithRoutingOn(undefined, fleet);
+    const h = await dispatchAutomaticWithRoutingOn(undefined, fleet, CLAUDE_CODE_VOTE);
     const task = h.svc.get("t1")!.task;
     expect(task).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
     expect(task.dispatchError).toBe("Waiting for claude-code provider discovery.");
@@ -205,43 +216,41 @@ describe("Automatic with Topics routing ON and the engine up without a Claude Co
   });
 });
 
-describe("Automatic with Topics routing ON and no routable candidate", () => {
-  it("the Topics engine down: the card parks with the switch's reason, not the effort one", async () => {
+describe("MSEL-06: Automatic with Topics routing ON and the engine not usable", () => {
+  it("the Topics engine down: nothing parks, a Claude Code pick runs direct on Claude Code", async () => {
     const engineDown = { ...FLEET, providers: [entry("topics", [], "error"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;
-    const h = await dispatchAutomaticWithRoutingOn(undefined, engineDown);
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineDown, CLAUDE_CODE_VOTE);
     const task = h.svc.get("t1")!.task;
-    expect(task.dispatchState).toBe("blocked");
-    // Exactly the engine's reason: the Codex-pin message also says "Turn the switch off".
-    expect(task.dispatchError).toBe("The Topics routing engine is unavailable. Turn the switch off or reconnect it before starting the task.");
-    expect(h.topics).toHaveLength(0);
+    expect(task.dispatchState).not.toBe("blocked");
+    expect(h.topics.map((t) => t.executor)).toEqual(["claude-code"]);
   });
 
-  it("the Topics engine still in discovery: the card waits in the queue instead of parking", async () => {
+  it("the Topics engine still in discovery: a Claude pick waits in the queue, never parks", async () => {
     const engineLoading = { ...FLEET, providers: [entry("topics", [], "loading"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;
-    const h = await dispatchAutomaticWithRoutingOn(undefined, engineLoading);
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineLoading, CLAUDE_CODE_VOTE);
     const task = h.svc.get("t1")!.task;
     expect(task).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
     expect(task.dispatchError).toBe("Waiting for topics provider discovery.");
     expect(h.topics).toHaveLength(0);
   });
 
-  // Codex is free, so "some runtime is available" was true, but with ON
-  // every candidate runs on Claude: the card waits for the plan like an
-  // explicit Claude task, it is not parked for good.
+  it("the Topics engine still in discovery: a Codex pick does not wait for it", async () => {
+    const engineLoading = { ...FLEET, providers: [entry("topics", [], "loading"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineLoading);
+    expect(h.topics.map((t) => t.executor)).toEqual(["codex"]);
+  });
+
+  // Codex is free and on the ballot: with the GPT models back among the
+  // candidates a Claude hold no longer holds an Automatic card.
   for (const kind of ["hold", "threshold"] as const) {
-    it(`Claude ${kind === "hold" ? "on hold" : "past the five-hour threshold"} with Codex ready: the card waits in the queue`, async () => {
+    it(`Claude ${kind === "hold" ? "on hold" : "past the five-hour threshold"} with Codex ready: the card starts on Codex`, async () => {
       const untilMs = Date.now() + 3_600_000;
       if (kind === "hold") setProviderHold({ untilMs, window: "five_hour", reason: "Claude quota exhausted" });
       else recordPlanUsage({ fiveHour: { utilization: 95, resetsAtMs: untilMs }, sevenDay: null });
       const h = await dispatchAutomaticWithRoutingOn();
       const task = h.svc.get("t1")!.task;
-      expect(task).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
-      expect(task.dispatchError).toContain("Claude");
-      expect(h.topics).toHaveLength(0);
-      clearProviderHold(); clearPlanUsage();
-      await h.dispatcher.tick(PID);
-      await flush();
-      expect(h.topics.map((t) => t.executor)).toEqual(["topics"]);
+      expect(task.dispatchState).not.toBe("blocked");
+      expect(h.topics.map((t) => t.executor)).toEqual(["codex"]);
     });
   }
 });
@@ -255,7 +264,7 @@ describe("A card on the engine with no pinned runtime stays behind Claude's wall
   const engineOnly = () => fleetOf(entry("topics", CLAUDE_MODELS), entry("claude-code", [], "unavailable"), entry("codex", ["gpt-5.5"]));
 
   it("a provider error during a Claude hold retries at the hold's end, not at once", async () => {
-    const h = await dispatchAutomaticWithRoutingOn(undefined, engineOnly());
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineOnly(), ENGINE_VOTE);
     expect(h.topics).toHaveLength(1);
     expect(h.topics[0]!.provider).toBeUndefined();
     expect(h.turnEnds).toHaveLength(1);
@@ -269,7 +278,7 @@ describe("A card on the engine with no pinned runtime stays behind Claude's wall
   });
 
   it("a dependent reusing that session waits for the hold instead of starting on it", async () => {
-    const h = await dispatchAutomaticWithRoutingOn(undefined, engineOnly());
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineOnly(), ENGINE_VOTE);
     expect(h.topics[0]!.provider).toBeUndefined();
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
     const ts = new Date().toISOString();

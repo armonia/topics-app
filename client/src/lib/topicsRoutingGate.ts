@@ -1,14 +1,14 @@
-/** AICTRL-05: il cancello dello switch, logica pura. ON verso un bersaglio non instradabile blocca il send finche' non lo si spegne: provider e modello non cambiano mai da soli. Lo chiamano ChatPane (gate) e ChatInput (banner) con lo stesso esito. allow-italian: contratto dello switch ON, prosa gia' italiana in tutto il modulo */
+/** AICTRL-05 + MSEL-06: lo switch lato client, logica pura. Ogni lettura passa da `topicsRoute` (shared/task-coding-models.ts): un bersaglio che il motore non raggiunge va diretto e la strada si dichiara, l'invio non si blocca piu'. allow-italian: contratto dello switch, prosa gia' italiana in tutto il modulo */
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from "../types";
 import { resolveEffectiveProvider, type ProviderSelection } from "./effortTiers";
-import { effectiveTopicsRouting, topicsRoutingAvailable } from "../../../shared/task-coding-models";
+import { effectiveTopicsRouting, topicsRoute, type TopicsRoute } from "../../../shared/task-coding-models";
 
 /** Lo switch del default BOARD: una board mai toccata (null) col dispatchModel legacy `topics:<model>` si legge ON, che un `!!` mostrava spenta. allow-italian: il difetto che questa funzione ripara */
 export function boardTopicsRoutingEnabled(
   dispatchTopicsRouting: boolean | null | undefined,
   dispatchModel: string | null | undefined,
 ): boolean {
-  return effectiveTopicsRouting(dispatchTopicsRouting, dispatchModel);
+  return effectiveTopicsRouting(dispatchTopicsRouting, dispatchModel, 'task');
 }
 
 /** La cascata scelta locale > default board > prefisso legacy, per composer e cassetto: una funzione sola, perche' due copie divergono al primo cambio. `'auto'` non e' un modello e non porta nessun prefisso. allow-italian: ordine di risoluzione e trappola di `auto` */
@@ -19,7 +19,7 @@ export function surfaceTopicsRoutingEnabled(
   boardModel: string | null | undefined,
 ): boolean {
   const boardLegacy = boardModel && boardModel !== 'auto' ? boardModel : undefined;
-  return effectiveTopicsRouting(explicit ?? boardDefault, model ?? boardLegacy);
+  return effectiveTopicsRouting(explicit ?? boardDefault, model ?? boardLegacy, 'task');
 }
 
 /** La riga dello switch come la passa il pannello: stato canonico e un toggle che scrive SOLO il proprio asse, mai `dispatchModel`. allow-italian: la regola «un toggle, un asse» */
@@ -58,13 +58,33 @@ export function resolveTopicsRoutingTarget(
   return resolveEffectiveProvider(entries, override, defaultProviderLabel);
 }
 
+/** MSEL-06: the route of a chat turn, as the selector band and the chip show it.
+ *  Automatic with no pin is the snapshot's default, resolved BEFORE the route,
+ *  as the server resolver does (`resolveTopicProvider`). */
+export function chatTopicsRoute(
+  topicsRouting: boolean | null | undefined,
+  override: ProviderSelection | null,
+  defaultProviderLabel: string | undefined,
+  snapshot: ProvidersSnapshot | null,
+): TopicsRoute {
+  const target = resolveTopicsRoutingTarget(snapshot?.providers ?? [], override, defaultProviderLabel);
+  return topicsRoute(
+    topicsRouting,
+    target ?? { provider: snapshot?.defaultProvider ?? null, model: null },
+    snapshot,
+    'chat',
+  );
+}
+
+/** The one send the switch still refuses: a legacy chat pinned to the engine
+ *  itself (`provider: "topics"`, AICTRL-04) while the engine is down, where
+ *  no "direct" exists. Every other target runs direct (MSEL-06). */
 export function topicsRoutingBlocked(
   topicsRouting: boolean | null | undefined,
   override: ProviderSelection | null,
   defaultProviderLabel: string | undefined,
   snapshot: ProvidersSnapshot | null,
 ): boolean {
-  if (!topicsRouting) return false;
-  const target = resolveTopicsRoutingTarget(snapshot?.providers ?? [], override, defaultProviderLabel);
-  return !topicsRoutingAvailable(target?.provider ?? null, target?.model ?? null, snapshot);
+  if ((override?.provider ?? defaultProviderLabel) !== 'topics') return false;
+  return topicsRoute(topicsRouting, { provider: 'topics', model: override?.model ?? null }, snapshot, 'chat').via !== 'topics';
 }

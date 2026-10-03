@@ -1,7 +1,7 @@
-/** @covers MP-TASK-01, MP-TASK-02 */
+/** @covers MP-TASK-01, MP-TASK-02, MSEL-06 */
 import { describe, expect, test } from 'bun:test';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, isTopicsModelServed, reusedSessionRouteConflict, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable, TopicsRoutingUnavailableError } from './task-coding-models';
+import { availableTaskModels, effectiveTopicsRouting, isTopicsModelServed, reusedSessionRouteConflict, reusedSessionRouting, TOPICS_ROUTING_DEFAULT, topicsRoute, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -232,32 +232,114 @@ describe('task coding models', () => {
     expect(taskModelSelection('claude-code:claude-opus-5')).toEqual({ provider: 'claude-code', model: 'claude-opus-5' });
   });
 
-  test('canonical routing switch: ON with a non-routable explicit provider (Codex) hard-gates, never a silent direct dispatch', () => {
-    // Codex is categorically outside the native engine's reach. ON asked for
-    // routing; a silent fallback to direct execution would be exactly the
-    // no-op the AICTRL-01 contract forbids on the chat side too.
+  test('MSEL-06: ON with a non-routable explicit provider (Codex) runs it direct, never a block', () => {
+    // Codex is categorically outside the native engine's reach. The switch no
+    // longer refuses it: the route is declared ("via Codex"), the turn runs.
     const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
-    expect(taskProviderForModel('gpt-5.4', current, false)).toBe('codex'); // OFF: still executes Codex direct
-    expect(taskProviderForModel('gpt-5.4', current)).toBe('codex'); // omitted: same as OFF
-    expect(() => taskProviderForModel('gpt-5.4', current, true)).toThrow(TopicsRoutingUnavailableError);
+    expect(taskProviderForModel('gpt-5.4', current, false)).toBe('codex');
+    expect(taskProviderForModel('gpt-5.4', current)).toBe('codex');
+    expect(taskProviderForModel('gpt-5.4', current, true)).toBe('codex');
   });
 
-  test('canonical routing switch: Automatico + ON dispatches via the native topics engine, beating even a Codex default', () => {
+  test('MSEL-06: Automatico + ON follows the Codex default first, then decides the route', () => {
     const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
-    expect(taskProviderForModel(undefined, current, true)).toBe('topics');
+    expect(taskProviderForModel(undefined, current, true)).toBe('codex');
+    // With a Claude default the same Automatic goes through the engine.
+    const claude = snapshot([entry('topics', ['claude-opus-5']), entry('claude-code', ['claude-opus-5'])], 'claude-code');
+    expect(taskProviderForModel(undefined, claude, true)).toBe('topics');
   });
 
-  test('canonical routing switch: Automatico + ON with no native topics catalog hard-gates instead of falling back to the default', () => {
+  test('MSEL-06: Automatico + ON with no native engine runs the default direct', () => {
     const current = snapshot([entry('codex', ['gpt-5.4'])], 'codex');
-    expect(() => taskProviderForModel(undefined, current, true)).toThrow(TopicsRoutingUnavailableError);
+    expect(taskProviderForModel(undefined, current, true)).toBe('codex');
   });
 
-  test('simmetria col lato chat: Automatico + ON controlla il modello anche senza provider pinnato', () => {
-    // Il gemello del caso chat in resolve-topic-provider.test.ts: qui era gia' giusto e deve restarlo, e' la sponda che dice cosa doveva fare l'altra. allow-italian: dice perche' il caso esiste due volte
+  test('simmetria col lato chat: ON controlla il modello anche senza provider pinnato, e va diretto se il motore non lo serve', () => {
+    // Il gemello del caso chat in resolve-topic-provider.test.ts. allow-italian: dice perche' il caso esiste due volte
     const current = snapshot([entry('topics', ['claude-opus-5']), entry('claude-code', ['claude-opus-5', 'claude-sonnet-5'])], 'claude-code');
     expect(taskProviderForModel('claude-opus-5', current, true)).toBe('topics');
-    expect(() => taskProviderForModel('claude-sonnet-5', current, true)).toThrow(TopicsRoutingUnavailableError);
-    // OFF lo esegue diretto: il cancello e' dello switch, non del catalogo. allow-italian: la recinzione del caso sopra
+    expect(taskProviderForModel('claude-sonnet-5', current, true)).toBe('claude-code');
     expect(taskProviderForModel('claude-sonnet-5', current, false)).toBe('claude-code');
+  });
+});
+
+/** The catalogs measured on 2026-10-02: Claude Code's 11 ids, the engine's 14,
+ *  Codex's 8 visible. MSEL-06 / tasks 1.1. */
+const CLAUDE_CODE_IDS = [
+  'claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5', 'claude-sonnet-5-5[1m]', 'claude-haiku-4-5',
+  'claude-fable-5-1', 'claude-opus-4-8', 'claude-opus-4-8[1m]', 'claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'claude-haiku-3-5',
+];
+const ENGINE_IDS = [
+  'claude-opus-5-5[1m]', 'claude-opus-5-5', 'claude-opus-5[1m]', 'claude-opus-5', 'claude-sonnet-5-5[1m]', 'claude-sonnet-5-5',
+  'claude-sonnet-5', 'claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8[1m]', 'claude-opus-4-8', 'claude-opus-4-6',
+  'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
+];
+const CODEX_IDS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'];
+
+describe('MSEL-06: topicsRoute, the one reading of the preference', () => {
+  const fleet = (engine: ProviderSnapshotEntry['status'] = 'ready', defaultProvider = 'claude-code') => snapshot([
+    entry('topics', engine === 'ready' ? ENGINE_IDS : [], engine),
+    entry('claude-code', CLAUDE_CODE_IDS),
+    entry('codex', CODEX_IDS),
+  ], defaultProvider);
+  const target = (value: string) => {
+    const s = taskModelSelection(value);
+    return { provider: s.provider ?? null, model: s.model ?? null };
+  };
+
+  test('TOPICS_ROUTING_DEFAULT: ON for chats, OFF for cards and the board default', () => {
+    expect(TOPICS_ROUTING_DEFAULT).toEqual({ chat: true, task: false });
+  });
+  test('chat, null, claude-code:claude-opus-5-5: topics', () => {
+    expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'chat')).toEqual({ via: 'topics' });
+  });
+  test('chat, null, codex:gpt-6.1-sol: direct/family', () => {
+    expect(topicsRoute(null, target('codex:gpt-6.1-sol'), fleet(), 'chat')).toEqual({ via: 'direct', reason: 'family' });
+  });
+  test('chat, false: direct/off', () => {
+    expect(topicsRoute(false, target('claude-code:claude-opus-5-5'), fleet(), 'chat')).toEqual({ via: 'direct', reason: 'off' });
+  });
+  test('chat, null, claude-code:claude-haiku-3-5: direct/model', () => {
+    expect(topicsRoute(null, target('claude-code:claude-haiku-3-5'), fleet(), 'chat')).toEqual({ via: 'direct', reason: 'model' });
+  });
+  test('chat in Automatic, null, default codex: direct/family (the default is resolved first)', () => {
+    const current = fleet('ready', 'codex');
+    expect(topicsRoute(null, { provider: current.defaultProvider, model: null }, current, 'chat')).toEqual({ via: 'direct', reason: 'family' });
+  });
+  test('chat in Automatic, null, default claude-code: topics', () => {
+    const current = fleet('ready', 'claude-code');
+    expect(topicsRoute(null, { provider: current.defaultProvider, model: null }, current, 'chat')).toEqual({ via: 'topics' });
+  });
+  test('card, null, claude-code:claude-opus-5-5: direct/off', () => {
+    expect(topicsRoute(null, target('claude-code:claude-opus-5-5'), fleet(), 'task')).toEqual({ via: 'direct', reason: 'off' });
+  });
+  test('card, true, codex:gpt-6.1-sol: direct/family', () => {
+    expect(topicsRoute(true, target('codex:gpt-6.1-sol'), fleet(), 'task')).toEqual({ via: 'direct', reason: 'family' });
+  });
+  test('card in Automatic with the engine loading: pending', () => {
+    const current = fleet('loading');
+    expect(topicsRoute(true, { provider: taskProviderForModel(undefined, { ...current, providers: current.providers.filter(p => p.name !== 'topics') }), model: null }, current, 'task')).toEqual({ via: 'pending' });
+  });
+  test('null with the legacy topics:claude-opus-5: topics', () => {
+    expect(topicsRoute(null, target('topics:claude-opus-5'), fleet(), 'task', 'topics:claude-opus-5')).toEqual({ via: 'topics' });
+    expect(topicsRoute(null, target('topics:claude-opus-5'), fleet(), 'chat', 'topics:claude-opus-5')).toEqual({ via: 'topics' });
+  });
+  test('the engine down in a chat is direct/engine-down, never pending', () => {
+    expect(topicsRoute(true, target('claude-code:claude-opus-5-5'), fleet('error'), 'chat')).toEqual({ via: 'direct', reason: 'engine-down' });
+    expect(topicsRoute(true, target('claude-code:claude-opus-5-5'), fleet('loading'), 'chat')).toEqual({ via: 'direct', reason: 'engine-down' });
+  });
+  test('effectiveTopicsRouting reads a never-written value with the scope default, a written one as written', () => {
+    expect(effectiveTopicsRouting(null, null, 'chat')).toBe(true);
+    expect(effectiveTopicsRouting(undefined, 'claude-opus-5-5', 'task')).toBe(false);
+    expect(effectiveTopicsRouting(false, null, 'chat')).toBe(false);
+    expect(effectiveTopicsRouting(true, null, 'task')).toBe(true);
+  });
+  test('reuse: a never-written card adopts the session switch, a written one defends its own', () => {
+    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, null)).toBe(false);
+    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: true }, null)).toBe(true);
+    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: null }, null)).toBe(false);
+    expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, true)).toBe(true);
+    expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, null)).toBeNull();
+    expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, true)).toBe('switch-off');
   });
 });
