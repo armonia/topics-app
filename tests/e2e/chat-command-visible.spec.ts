@@ -16,32 +16,26 @@
  * the project window; the command ends, the line goes, and the answer to its
  * wake carries a banner naming the command, its exit code and its last line.
  */
-import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
+import { installFakeCli } from "./helpers/fake-claude-cli";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { E2E_HOME } from "./helpers/test-server";
 
-const VERSIONS_DIR = join(E2E_HOME, ".local", "share", "claude", "versions");
-/** Sorted above any real version: the server resolves the CLI at every spawn and takes the highest. */
-const CLI_ENTRY = join(VERSIONS_DIR, "999.0.4-e2e-command");
+/** The removal of the fake CLI the running test installed. */
+let removeCli: (() => void) | null = null;
 // allow-italian: the exact aria-label shipped in i18n-chat-it.ts.
 const STOP = 'button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]';
 const LINE = '[data-testid="background-work-line"]';
 
 /** Puts the fake CLI in front of the test server's; its switches live in `dir`. */
 function installCommandCli(dir: string, cwd: string): void {
-  // The server spawns the CLI with a trimmed environment: bun by absolute path.
-  const bun = execSync("command -v bun").toString().trim();
-  mkdirSync(VERSIONS_DIR, { recursive: true });
-  const script = resolve(__dirname, "helpers/fake-claude-command.ts");
-  writeFileSync(CLI_ENTRY, `#!/usr/bin/env bash\nexport CMDWATCH_DIR="${dir}"\nexport CMDWATCH_CWD="${cwd}"\nexec "${bun}" "${script}" "$@"\n`);
-  chmodSync(CLI_ENTRY, 0o755);
+  removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-command.ts"), { CMDWATCH_DIR: dir, CMDWATCH_CWD: cwd });
 }
 
 hermetic(test);
@@ -51,7 +45,8 @@ test.describe("a run_command in the chat", () => {
 
   let dir = "";
   test.afterEach(() => {
-    rmSync(CLI_ENTRY, { force: true });
+    removeCli?.();
+    removeCli = null;
     // The command stops once its folder is gone: it never outlives the test.
     if (dir) rmSync(dir, { recursive: true, force: true });
   });

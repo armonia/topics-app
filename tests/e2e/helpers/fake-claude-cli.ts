@@ -61,7 +61,16 @@ function fakeCliEntry(platform: NodeJS.Platform, bun: string, script: string, en
   return `#!/usr/bin/env bash\n${exports}exec "${bun}" "${script}" "$@"\n`;
 }
 
-/** Installs `script` as the CLI; returns its removal. */
+/**
+ * Installs `script` (a bun script) as the CLI, with `env` set for it, on any
+ * platform; returns its removal. Every spec that needs its own fake CLI goes
+ * through here: a hand-written bash entry found with `command -v bun` dies in
+ * `beforeAll` on the Windows bench.
+ */
+export function installFakeCli(script: string, env: Record<string, string> = {}): () => void {
+  return install(script, env);
+}
+
 function install(script: string, env: Record<string, string> = {}): () => void {
   mkdirSync(VERSIONS_DIR, { recursive: true });
   writeFileSync(ENTRY, fakeCliEntry(process.platform, bunPath(), script, env));

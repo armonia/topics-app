@@ -15,7 +15,6 @@
  * chat's processes list it; Stop ends it, the row says so and goes. A server
  * started WITH a wake is still work the chat waits for.
  */
-import { execSync } from "node:child_process";
 import { createServer } from "node:net";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,13 +22,13 @@ import { join, resolve } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
+import { installFakeCli } from "./helpers/fake-claude-cli";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { E2E_HOME } from "./helpers/test-server";
 
-const VERSIONS_DIR = join(E2E_HOME, ".local", "share", "claude", "versions");
-/** Sorted above any real version: the server resolves the CLI at every spawn and takes the highest. */
-const CLI_ENTRY = join(VERSIONS_DIR, "999.0.5-e2e-service");
+/** The removal of the fake CLI the running test installed. */
+let removeCli: (() => void) | null = null;
 // allow-italian: the exact aria-label shipped in i18n-chat-it.ts.
 const STOP = 'button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]';
 const LINE = '[data-testid="background-work-line"]';
@@ -49,9 +48,6 @@ async function freePort(): Promise<number> {
 
 /** Puts the fake CLI in front of the test server's, and the tiny server it starts in `dir`. */
 function installServiceCli(dir: string, cwd: string, port: number, wakePort: number): void {
-  // The server spawns the CLI with a trimmed environment: bun by absolute path.
-  const bun = execSync("command -v bun").toString().trim();
-  mkdirSync(VERSIONS_DIR, { recursive: true });
   // It stops once the test's folder is gone: a failed run never leaves it listening.
   writeFileSync(join(dir, "srv.ts"), [
     `import { existsSync } from "node:fs";`,
@@ -59,9 +55,7 @@ function installServiceCli(dir: string, cwd: string, port: number, wakePort: num
     `console.log("SRVCARD-LISTENING");`,
     `setInterval(() => { if (!existsSync(${JSON.stringify(dir)})) process.exit(0); }, 200);`,
   ].join("\n"));
-  const script = resolve(__dirname, "helpers/fake-claude-service.ts");
-  writeFileSync(CLI_ENTRY, `#!/usr/bin/env bash\nexport SRVCARD_DIR="${dir}"\nexport SRVCARD_CWD="${cwd}"\nexport SRVCARD_PORT="${port}"\nexport SRVCARD_WAKE_PORT="${wakePort}"\nexec "${bun}" "${script}" "$@"\n`);
-  chmodSync(CLI_ENTRY, 0o755);
+  removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-service.ts"), { SRVCARD_DIR: dir, SRVCARD_CWD: cwd, SRVCARD_PORT: String(port), SRVCARD_WAKE_PORT: String(wakePort) });
 }
 
 /** Every `browser:open-tab` the app dispatches, held before any pane takes it: what Open asked for. */
@@ -86,7 +80,8 @@ test.describe("a server the chat started", () => {
 
   let dir = "";
   test.afterEach(() => {
-    rmSync(CLI_ENTRY, { force: true });
+    removeCli?.();
+    removeCli = null;
     // The servers stop once their folder is gone: they never outlive the test.
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
