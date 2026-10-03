@@ -700,7 +700,22 @@
     "UI +1.946 (EntryIncognito, error rows of share, pairing, forget-site, spend",
     "caps); the six fixes +985 (shareRequest, https for :443/:8443, per-key dirty",
     "settings). Total assets raised to the measured 8.549.179. Entry 1.592.200 /",
-    "504.137 and critical path 2.210.862 / 663.955 are inside 2% and stay as written."
+    "504.137 and critical path 2.210.862 / 663.955 are inside 2% and stay as written.",
+    "",
+    "2026-10-03, same branch, CI run 37082316898: critical path over its ceiling,",
+    "664.892 gz > 664.403 (CI's gzip reads ~917 bytes more than this Mac's on the",
+    "same 2.210.923 raw). Measured locally with build:client after each step: main",
+    "c3cf4765e 2.208.163 / 663.054 (already +1,8% over the written 651.375); state",
+    "lane +840 / +326 (closed-tab refs, project-chat first sync, process log tail);",
+    "UI lane +1.032 / +306 (EntryIncognito, error rows of share, pairing,",
+    "forget-site, spend caps); the six follow-ups +890 / +289 (shareRequest and",
+    "revoke errors, https for :443/:8443, per-key dirty settings, the voice turn",
+    "and microphone on hangup, the first sync of a layout without chats); the",
+    "restore of the chats a server snapshot named before the topics arrived +108",
+    "/ +16. Only the entry chunk grew: the other four critical files keep their raw",
+    "size, no import",
+    "turned static, no dependency added. Critical path raised to the measured",
+    "2.211.033 / 663.991. Entry and total assets inside 2%, unchanged."
   ],
   "updated": "2026-10-03",
   "tolerance_pct": 2,
@@ -709,8 +724,8 @@
     "gz": 499151
   },
   "critical_path": {
-    "raw": 2172609,
-    "gz": 651375,
+    "raw": 2211033,
+    "gz": 663991,
     "files": 5
   },
   "total_assets": {
