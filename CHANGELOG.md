@@ -12,8 +12,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Passa gli hook di Topics solo alle sessioni Claude che lancia Topics
 - Fissa la finestra di riferimento di B3 e riapri la barra rossa
 - Lascia stare gli hook dell'utente in una cartella claude-hooks/ e tieni i test fuori dalla home vera
+- Archivia model-selector con le due change da cui dipende
 - Destruttura l'import del db nel test dello spawn: knip lo vedeva opaco
+- Togli il tool Agent nativo dalle chat e dalle card: la delega passa da spawn_agent
+- Mostra la risposta data a una domanda anche a riga chiusa
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-04 [skip ci]
+- Togli anche Workflow dalle chat e lascia invariato il prompt delle pane terminale
+- Tieni Workflow nelle chat: parte solo su richiesta della persona
+- Togli Workflow anche dalle chat: lo sceglie da solo
+- Tieni la risposta in vista anche nel turno piegato e su un pannello stretto
+- Dichiara chi copre AICTRL-03 e AICTRL-04, entrati con l'archivio
+- Scrivi ASK-12 e dichiara chi lo copre
 
 ## 2.2.441 — 2026-10-04
 
