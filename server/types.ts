@@ -357,6 +357,12 @@ export interface ActiveStream {
    */
   retry?: StreamRetryInfo;
   slow?: boolean;
+  /**
+   * The last output of each tool still running, by tool call id, for the
+   * catch-up of a socket that opens mid-command. Memory only, never on disk;
+   * the rules live in `lib/live-tool-tail.ts`.
+   */
+  liveToolTails?: Map<string, string>;
 }
 
 /** The wait announced by `StreamHandler.onRetry`, plus WHEN it was announced. */

@@ -270,3 +270,44 @@ describe('mergeFetchedHistory: my bubble is known by its key', () => {
     expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
   });
 });
+
+/**
+ * A history page that lands after the catch-up must not wipe the output of a
+ * running command: during a silent command the text does not grow, so the
+ * server's copy is never "ahead" and used to replace the bubble whole.
+ *
+ * @covers CHAT-TOOL-11
+ */
+describe('mergeFetchedHistory: the running tools keep the output on screen', () => {
+  const running = { id: 't-live', name: 'Bash', args: { command: 'bun test' }, status: 'running' as const, startedAt: 1_000 };
+  const withTool = (id: string, content: string, toolCall: Record<string, unknown>, extra: Partial<ChatMessage> = {}) =>
+    msg(id, content, { partial: true, blocks: [{ kind: 'tool', toolCall }], toolCalls: [toolCall], ...extra } as Partial<ChatMessage>);
+  const shown = (m: ChatMessage | undefined) => (m?.blocks?.[0] as { toolCall?: { result?: string } } | undefined)?.toolCall?.result;
+
+  it('a page without the tail keeps the one on screen, in the blocks and in the bucket', () => {
+    const user = { ...msg('u1', 'go'), role: 'user' } as ChatMessage;
+    const existing = [user, withTool('row-1', 'Running.', { ...running, result: 'r1\nr2\nr3' })];
+    const fetched = [user, withTool('row-1', 'Running.', running)];
+    const out = mergeFetchedHistory(existing, fetched, { liveRowId: 'row-1' });
+    expect(shown(out[1])).toBe('r1\nr2\nr3');
+    expect(out[1]!.toolCalls?.[0]?.result).toBe('r1\nr2\nr3');
+  });
+
+  it('a page with a tail of its own wins: it is the newer one', () => {
+    const existing = [withTool('row-1', 'Running.', { ...running, result: 'r1' })];
+    const fetched = [withTool('row-1', 'Running.', { ...running, result: 'r1\nr2' })];
+    expect(shown(mergeFetchedHistory(existing, fetched)[0])).toBe('r1\nr2');
+  });
+
+  it('a call the page closed takes the page, not the tail', () => {
+    const existing = [withTool('row-1', 'Running.', { ...running, result: 'r1' })];
+    const fetched = [withTool('row-1', 'Running.', { ...running, status: 'success', result: '3 pass' })];
+    expect(shown(mergeFetchedHistory(existing, fetched)[0])).toBe('3 pass');
+  });
+
+  it('a page with nothing to keep is returned as it came', () => {
+    const existing = [withTool('row-1', 'Running.', running)];
+    const fetched = [withTool('row-1', 'Running.', running)];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+});

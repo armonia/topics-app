@@ -20,6 +20,14 @@
  * you sent from that order is real, the result on the SSE and the partial on
  * WS; here it is played on one socket, which reaches the same guard in
  * `flushToolUpdates`.
+ *
+ * The third is the reopen (CHAT-TOOL-11): a socket that opens mid-command
+ * (a reconnect, a pane mounting, a reload) gets `stream:catchup`, whose blocks
+ * replace the bubble's. Built from the database row, that frame carried the
+ * running shell without its output, and the tail vanished until the command
+ * printed again (diagnosis of 04/10: three lines before, none after). The
+ * server now puts the live tail in the frame; the window also keeps the tail
+ * it shows when a frame comes without one, which is what is played here.
  */
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-fixtures";
@@ -192,6 +200,39 @@ test.describe("Running tail of a long command", () => {
     await expect(result).toContainText("0 fail");
     await expect(result).not.toContainText("r20");
     await expect(row.getByTestId("shell-running-tail")).toHaveCount(0);
+
+    ws.send({ type: "stream:end", sessionKey, topicId, messageId });
+  });
+
+  test("a catch-up without the tail does not wipe the lines on screen, and one with a tail updates them", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-11" });
+    const ws = await watchTopic(page, chatPage.messageInput, topicName, topicId);
+
+    const messageId = `live-tail-catchup-${Date.now()}`;
+    const toolCallId = "toolu_live_tail_catchup_e2e";
+    const command = "bun test";
+    const running = { id: toolCallId, name: "Bash", args: { command }, status: "running", startedAt: Date.now(), detail: { type: "shell", command } };
+    ws.send({ type: "stream:start", sessionKey, topicId, messageId });
+    ws.send({ type: "stream:tool_call", sessionKey, topicId, toolCall: running, messageId });
+    const row = page.getByTestId(`tool-call-row-${toolCallId}`);
+    await expect(row).toHaveAttribute("data-status", "running", { timeout: 10_000 });
+    ws.send({ type: "stream:tool_update", sessionKey, topicId, toolCallId, partialResult: "test 1 ok\ntest 2 ok\ntest 3 ok" });
+    const tailLines = row.getByTestId("shell-running-tail-line");
+    await expect(tailLines).toHaveText(["test 1 ok", "test 2 ok", "test 3 ok"], { timeout: 10_000 });
+
+    // The socket reopens: the turn comes back as the database row has it.
+    ws.send({ type: "stream:catchup", sessionKey, topicId, messageId, content: "", thinking: "", isThinking: false, blocks: [{ kind: "tool", toolCall: running }] });
+    // The next frame is the sync point: once its row is painted, the catch-up before it has been applied.
+    const nextId = "toolu_live_tail_catchup_next_e2e";
+    ws.send({ type: "stream:tool_call", sessionKey, topicId, toolCall: { id: nextId, name: "Bash", args: { command: "ls" }, status: "running" }, messageId });
+    await expect(page.getByTestId(`tool-call-row-${nextId}`)).toHaveAttribute("data-status", "running", { timeout: 10_000 });
+    await expect(row).toHaveAttribute("data-status", "running");
+    await expect(tailLines).toHaveText(["test 1 ok", "test 2 ok", "test 3 ok"]);
+    await row.screenshot({ path: test.info().outputPath("tail-after-catchup.png") });
+
+    // A catch-up that carries the tail, as the server builds it now, wins.
+    ws.send({ type: "stream:catchup", sessionKey, topicId, messageId, content: "", thinking: "", isThinking: false, blocks: [{ kind: "tool", toolCall: { ...running, result: "test 1 ok\ntest 2 ok\ntest 3 ok\ntest 4 ok" } }] });
+    await expect(tailLines).toHaveText(["test 1 ok", "test 2 ok", "test 3 ok", "test 4 ok"], { timeout: 10_000 });
 
     ws.send({ type: "stream:end", sessionKey, topicId, messageId });
   });
