@@ -62,7 +62,7 @@ import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettings
 import { budgetShare } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
-import { markTargetSeenAndAnnounce } from "../notification-registry";
+import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 
 export type Actor = "human" | "agent";
@@ -4201,7 +4201,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // here, next to the approval, because this is the ONLY line every exit
         // from review crosses - the board drag, `update({status})` over MCP,
         // archiving.
-        markTargetSeenAndAnnounce("task", taskId);
+        markTargetNotificationsSeen("task", taskId);
       }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
@@ -4565,7 +4565,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       logStatus(taskId, "review", target, by, null, origin);
       // As in `update()`: this door writes the status in raw SQL and does not
       // go through there. Approving and rejecting are both "I looked at it".
-      markTargetSeenAndAnnounce("task", taskId);
+      markTargetNotificationsSeen("task", taskId);
       // L'approvazione è la porta per cui uno step passa a `done` più spesso di
       // ogni altra, e scrive lo stato a SQL grezzo: senza questa riga il padre
       // non se ne accorgerebbe proprio nel caso più comune.

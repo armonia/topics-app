@@ -93,27 +93,10 @@ const pongSchema = z.object({
   type: z.literal('pong'),
 });
 
-// ---- Dashboard / unread ----------------------------------------------------
+// ---- Dashboard ---------------------------------------------------------------
 
 const dashboardUpdatedSchema = z.object({
   type: z.literal('dashboard:updated'),
-});
-
-const unreadInitSchema = z.object({
-  type: z.literal('unread:init'),
-  data: z.record(
-    z.string(),
-    z.object({
-      lastReadAt: z.string(),
-      unreadCount: z.number(),
-    }),
-  ),
-});
-
-const unreadUpdatedSchema = z.object({
-  type: z.literal('unread:updated'),
-  topicId: z.string(),
-  unreadCount: z.number(),
 });
 
 // ---- Stream lifecycle ------------------------------------------------------
@@ -1297,57 +1280,24 @@ const authSharesChangedSchema = z.object({
   type: z.literal('auth:shares-changed'),
 });
 
-// ---- Cronologia delle notifiche --------------------------------------------
+// ---- Notification history ---------------------------------------------------
 
 /**
- * Una notifica è appena stata REGISTRATA (migration 102 · db/notification-log).
- * Emesso una volta sola per evento, dopo il taglio del dedup: se due porte —
- * banner nativo e web-push — o N finestre staccate riportano la stessa notifica,
- * la riga è una e questo frame parte una volta.
- *
- * Porta la riga INTERA e non solo il conteggio, perché il tastino accanto a
- * Topics deve poter mostrare l'ultima voce senza rileggere l'elenco: il
- * contatore che si aggiorna «dal vivo» e una lista che si aggiorna solo
- * all'apertura sono due promesse diverse.
+ * One row of the notification log (`shared/notification-log.ts`,
+ * `NotificationRow`), as it travels in `attention:updated.history`.
  */
-const notificationNewSchema = z.looseObject({
-  type: z.literal('notification:new'),
-  row: z.looseObject({
-    id: z.string(),
-    createdAt: z.string(),
-    kind: z.string(),
-    title: z.string(),
-    body: z.string(),
-    targetKind: z.nullable(z.string()),
-    targetId: z.nullable(z.string()),
-    targetUrl: z.nullable(z.string()),
-    source: z.string(),
-    groupKey: z.nullable(z.string()),
-    seenAt: z.nullable(z.string()),
-  }),
-  unseen: z.number(),
-  /** The unseen subjects themselves (group key, or row id for an ungrouped
-   *  row): the dock and the bell union them with the live signals. */
-  unseenKeys: z.optional(z.array(z.string())),
-});
-
-/**
- * Il «visto» è stato applicato: il contatore vale ORA questo.
- *
- * Il frame porta solo il numero perché il «visto» è GLOBALE, non per
- * dispositivo: guardare la cronologia su una finestra deve spegnere il pallino
- * anche sulle altre e sul telefono. Senza questo frame ogni finestra resterebbe
- * con il suo conteggio vecchio fino al ricaricamento — cioè col difetto che il
- * contatore live doveva togliere.
- */
-const notificationSeenSchema = z.looseObject({
-  type: z.literal('notification:seen'),
-  unseen: z.number(),
-  /** Same as on `notification:new`: what is still unseen, by subject. */
-  unseenKeys: z.optional(z.array(z.string())),
-  /** The subjects (group keys: `topic:<id>`, `terminal:<id>`, `task:<id>`)
-   *  this seen cleared. Each window drops its own in-memory marks for them. */
-  subjects: z.optional(z.array(z.string())),
+const notificationRowSchema = z.looseObject({
+  id: z.string(),
+  createdAt: z.string(),
+  kind: z.string(),
+  title: z.string(),
+  body: z.string(),
+  targetKind: z.nullable(z.string()),
+  targetId: z.nullable(z.string()),
+  targetUrl: z.nullable(z.string()),
+  source: z.string(),
+  groupKey: z.nullable(z.string()),
+  seenAt: z.nullable(z.string()),
 });
 
 // ---- Attention (notifications-redesign) -------------------------------------
@@ -1392,7 +1342,10 @@ const attentionInitSchema = z.looseObject({
  * One subject's state changed: state, epoch, seen, unread, tasks. `live` is
  * false for a recomposition at boot, which never announces. `announce` comes
  * with a new epoch: the banner's words, and `bornSeen` when the subject was in
- * front of the person. Owner-only. Sender `server/attention/store.ts`.
+ * front of the person. `history` is the log row that epoch wrote, when it
+ * wrote one: the inbox's «History» tab grows from it without a read (it
+ * replaced `notification:new`, tasks.md 6.2). Owner-only. Sender
+ * `server/attention/store.ts`.
  */
 const attentionUpdatedSchema = z.looseObject({
   type: z.literal('attention:updated'),
@@ -1405,6 +1358,7 @@ const attentionUpdatedSchema = z.looseObject({
     url: z.string(),
   })),
   bornSeen: z.optional(z.boolean()),
+  history: z.optional(notificationRowSchema),
 });
 
 /**
@@ -1473,8 +1427,6 @@ const OUTBOUND_SCHEMAS = {
   'pong': pongSchema,
   // Notification
   'dashboard:updated': dashboardUpdatedSchema,
-  'unread:init': unreadInitSchema,
-  'unread:updated': unreadUpdatedSchema,
   // Turn ledger
   'turn:state': turnStateSchema,
   'turn:snapshot': turnSnapshotSchema,
@@ -1600,8 +1552,6 @@ const OUTBOUND_SCHEMAS = {
   'auth:device-revoked': authDeviceRevokedSchema,
   'auth:shares-changed': authSharesChangedSchema,
   // Cronologia delle notifiche
-  'notification:new': notificationNewSchema,
-  'notification:seen': notificationSeenSchema,
   // Lo stato di attenzione (notifications-redesign)
   'attention:init': attentionInitSchema,
   'attention:updated': attentionUpdatedSchema,

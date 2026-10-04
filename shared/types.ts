@@ -1423,7 +1423,7 @@ export interface TopicsData {
   workspaceProjects?: string[];
 }
 
-/** Stato "non letto" per topic — payload di `unread:init` e del suo REST. */
+/** Per-topic unread state, as the `unread` table holds it (and `GET /api/unread` returns it). */
 export interface UnreadData {
   [topicId: string]: {
     lastReadAt: string;

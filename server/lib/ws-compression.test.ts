@@ -14,7 +14,7 @@ const base = {
 describe("shouldCompressFrame", () => {
   test("yes for the bootstrap frames towards a remote peer: 86 KB that become 21", () => {
     expect(shouldCompressFrame(base)).toBe(true);
-    expect(shouldCompressFrame({ ...base, type: "unread:init", bytes: 81_713 })).toBe(true);
+    expect(shouldCompressFrame({ ...base, type: "attention:init", bytes: 81_713 })).toBe(true);
   });
 
   test("NO towards loopback: the Tauri shell and the CLI have no network in between", () => {

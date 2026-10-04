@@ -6,12 +6,13 @@
  * ora è «Da guardare» (ATTN-09): conta soggetti accesi e aprirlo non segna
  * niente. La cronologia resta, come seconda linguetta, in sola lettura. Le
  * prove di prima, una per una:
- *   NH-01  una riga registrata con l'app aperta arriva nella cronologia da
- *          sola (fronte WS, nessun refresh) e il clic porta sulla cosa che
- *          l'ha generata. Il numero del tasto NON sale: una riga non è una
- *          cosa accesa.
- *   NH-02  aprire la cronologia non segna niente: le righe non viste restano
- *          non viste sul server, anche dopo un ricaricamento.
+ *   NH-01  the row a live transition writes (a card entering review) reaches
+ *          the open history by itself, inside the `attention:updated` frame
+ *          that lit the card (no refresh), and the click leads to the thing
+ *          that produced it.
+ *   NH-02  opening the history marks nothing: an unseen row stays unseen on
+ *          the server, even after a reload; and a row is not a lit thing, so
+ *          the button's number does not rise for it.
  *   NH-04  due mittenti dello stesso evento fanno una riga sola.
  *   NH-06  oltre la prima pagina: il registro non finisce alla cinquantesima.
  * NH-03 (un gruppo visto una volta) e NH-05 (un fronte in ritardo non
@@ -20,8 +21,10 @@
  * visto vale per il soggetto ovunque, anche dopo ricarico e riconnessione) e
  * `attention-inbox.spec.ts` (aprire non spegne).
  *
- * Il registro si semina dalla sua rotta pubblica (`POST /api/notifications`):
- * seminare scrivendo in tabella proverebbe la tabella, non la catena.
+ * The log is seeded through its public route (`POST /api/notifications`):
+ * seeding by writing the table would prove the table, not the chain. NH-01
+ * drives a real transition instead, because the live row travels only in the
+ * frame of the transition that wrote it (tasks.md 6.2).
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
@@ -44,19 +47,21 @@ let taskId = "";
 async function postNotification(
   request: APIRequestContext,
   body: Record<string, unknown>,
-): Promise<{ recorded: boolean; unseen: number }> {
+): Promise<{ recorded: boolean; row: { id: string } }> {
   const res = await request.post(`${BASE}/api/notifications`, { data: body });
   expect(res.ok()).toBe(true);
-  return (await res.json()) as { recorded: boolean; unseen: number };
+  return (await res.json()) as { recorded: boolean; row: { id: string } };
 }
 
-async function unseenRows(request: APIRequestContext): Promise<number> {
-  return ((await (await request.get(`${BASE}/api/notifications`)).json()) as { unseen: number }).unseen;
+/** When the server says a row was seen (null: not yet), read from the log itself. */
+async function seenAtOf(request: APIRequestContext, rowId: string): Promise<string | null | undefined> {
+  const rows = ((await (await request.get(`${BASE}/api/notifications?limit=500`)).json()) as { rows: { id: string; seenAt: string | null }[] }).rows;
+  return rows.find((r) => r.id === rowId)?.seenAt;
 }
 
-/** Il registro riparte senza righe non viste: non c'è (di proposito) una rotta che lo cancella. */
-async function wipeRegistry(request: APIRequestContext): Promise<void> {
-  await request.post(`${BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
+/** The button's number as it reads, "" when it shows none. */
+async function litCount(page: Page): Promise<string> {
+  return (await count(page).count()) ? (await count(page).textContent())?.trim() ?? "" : "";
 }
 
 const button = (page: Page) => page.getByTestId("inbox-button");
@@ -93,52 +98,55 @@ test.describe("Cronologia notifiche", () => {
 
   test.beforeEach(async ({ page }) => {
     await resetPaneStore(page.request, []);
-    await wipeRegistry(page.request);
   });
 
-  test("NH-01: la riga arriva da sola nella cronologia, il numero non sale, il click porta al task", async ({ page }) => {
+  test("NH-01: the row of a live transition reaches the open history by itself, and the click leads to the task", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "ATTN-09" });
     await page.goto("/");
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
     await openHistory(page);
     const before = await historyRows(page).count();
+
+    // A card enters review while the history is open: the attention store
+    // writes its row and sends it in the frame that lights the card. No reload.
+    const text = `The card the row must open ${Date.now()}`;
+    const created = await page.request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text, status: "review" } });
+    expect(created.ok()).toBe(true);
+    const reviewId = ((await created.json()) as { id: string }).id;
+    try {
+      await expect(historyRows(page)).toHaveCount(before + 1, { timeout: 10_000 });
+      await expect(historyRows(page).first()).toContainText(text);
+
+      // The click leads TO THE THING: the drawer of the card that wrote the row.
+      await historyRows(page).first().click();
+      await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("task-detail-drawer")).toContainText(text);
+    } finally {
+      await deleteTask(page.request, PROJECT_ID, reviewId);
+    }
+  });
+
+  test("NH-02: opening the history marks nothing, not even after a reload, and a row raises no number", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "ATTN-09" });
+    await page.goto("/");
+    await expect(button(page)).toBeVisible({ timeout: 15_000 });
     // The badge counts what is lit on the whole test server, and a spec that ran
     // earlier in the shard can leave something lit (a question, a review): the
     // contract is that THIS row does not raise it, not that the server is empty.
-    const litBefore = (await count(page).count()) ? (await count(page).textContent())?.trim() ?? "" : "";
-
-    // La riga arriva mentre la cronologia è aperta. Nessun reload.
-    await postNotification(page.request, {
-      kind: "task-review",
-      title: "Task pronto per la review",
-      body: "Il task che la notifica deve aprire",
-      targetKind: "task",
-      targetId: taskId,
-      dedupeKey: `task-review:${taskId}:${Date.now()}`,
-    });
-    await expect(historyRows(page)).toHaveCount(before + 1, { timeout: 10_000 });
-    // Una riga non è una cosa accesa: il numero del tasto non sale.
-    if (litBefore) await expect(count(page)).toHaveText(litBefore);
-    else await expect(count(page)).toHaveCount(0);
-
-    // Il click porta ALLA COSA: il cassetto del task che ha generato la riga.
-    await historyRows(page).first().click();
-    await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("task-detail-drawer")).toContainText("Il task che la notifica deve aprire");
-  });
-
-  test("NH-02: aprire la cronologia non segna niente, nemmeno dopo un ricaricamento", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "ATTN-09" });
-    await postNotification(page.request, { kind: "chat-message", title: "Una risposta", dedupeKey: `e2e-seen-${Date.now()}` });
-    expect(await unseenRows(page.request)).toBe(1);
-    await page.goto("/");
-    await expect(button(page)).toBeVisible({ timeout: 15_000 });
-    await openHistory(page);
-    await expect(historyRows(page).first()).toBeVisible();
+    const litBefore = await litCount(page);
+    const posted = await postNotification(page.request, { kind: "chat-message", title: "Una risposta", dedupeKey: `e2e-seen-${Date.now()}` });
+    expect(posted.recorded).toBe(true);
+    expect(await seenAtOf(page.request, posted.row.id)).toBeNull();
     await page.reload();
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
-    // In sola lettura: la riga è ancora non vista sul server.
-    expect(await unseenRows(page.request)).toBe(1);
+    await openHistory(page);
+    await expect(historyRows(page).filter({ hasText: "Una risposta" }).first()).toBeVisible();
+    // A row is not a lit thing: the button's number did not rise.
+    expect(await litCount(page)).toBe(litBefore);
+    await page.reload();
+    await expect(button(page)).toBeVisible({ timeout: 15_000 });
+    // Read only: the row is still unseen on the server.
+    expect(await seenAtOf(page.request, posted.row.id)).toBeNull();
   });
 
   test("NH-04: due mittenti dello stesso evento = una riga", async ({ page }) => {
@@ -147,16 +155,16 @@ test.describe("Cronologia notifiche", () => {
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
     await openHistory(page);
     const before = await historyRows(page).count();
-    // The badge counts what is lit on the whole test server, and a spec that ran
-    // earlier in the shard can leave something lit (a question, a review): the
-    // contract is that THIS row does not raise it, not that the server is empty.
-    const litBefore = (await count(page).count()) ? (await count(page).textContent())?.trim() ?? "" : "";
     const key = `task-review:${taskId}:${Date.now()}`;
     const first = await postNotification(page.request, { kind: "task-review", title: "Consegna", targetKind: "task", targetId: taskId, dedupeKey: key });
     expect(first.recorded).toBe(true);
     // Il SECONDO mittente dello stesso evento (la spinta, un'altra finestra).
     const second = await postNotification(page.request, { kind: "task-review", title: "Consegna", targetKind: "task", targetId: taskId, dedupeKey: key, source: "push" });
     expect(second.recorded).toBe(false);
+    // A posted row has no frame (only a live transition's row does): the tab
+    // reads the log again at every open.
+    await page.getByTestId("inbox-tab-now").click();
+    await page.getByTestId("inbox-tab-history").click();
     await expect(historyRows(page)).toHaveCount(before + 1, { timeout: 10_000 });
   });
 

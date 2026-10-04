@@ -14,16 +14,17 @@ import type { UnreadData } from "../../shared/types";
 
 function harness(initial: UnreadData = {}, archived: string[] = []) {
   const store: UnreadData = structuredClone(initial);
-  const broadcasts: Array<Record<string, unknown>> = [];
+  // What the windows were told, with the count the attention frame would read at that moment.
+  const announced: Array<{ topicId: string; unreadCount: number }> = [];
   const deps: UnreadDeps = {
     bumpUnread: (id) => {
       store[id] ??= { lastReadAt: new Date().toISOString(), unreadCount: 0 };
       return ++store[id].unreadCount;
     },
-    broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
+    announce: (id) => { announced.push({ topicId: id, unreadCount: store[id]?.unreadCount ?? 0 }); },
     isArchived: (id) => archived.includes(id),
   };
-  return { deps, broadcasts, read: () => store };
+  return { deps, announced, read: () => store };
 }
 
 describe("bumpUnreadCount", () => {
@@ -59,10 +60,10 @@ describe("bumpUnreadCount", () => {
     expect(h.read().t1.lastReadAt).toBe(before);
   });
 
-  it("annuncia il conteggio NUOVO, non quello prima dell'incremento", () => {
+  it("announces AFTER the bump, so the attention frame reads the new count", () => {
     const h = harness({ t1: { lastReadAt: "2026-08-01T00:00:00.000Z", unreadCount: 7 } });
     bumpUnreadCount(h.deps, "t1");
-    expect(h.broadcasts).toEqual([{ type: "unread:updated", topicId: "t1", unreadCount: 8 }]);
+    expect(h.announced).toEqual([{ topicId: "t1", unreadCount: 8 }]);
   });
 
   // ─── la topic archiviata ────────────────────────────────────────────────
@@ -79,10 +80,10 @@ describe("bumpUnreadCount", () => {
     expect(h.read().t1, "l'archiviata si e' presa una riga di non-letto").toBeUndefined();
   });
 
-  it("e non annuncia niente: nessun client deve ridisegnare un badge che non esiste", () => {
+  it("and announces nothing: no window must redraw a badge that does not exist", () => {
     const h = harness({}, ["t1"]);
     bumpUnreadCount(h.deps, "t1");
-    expect(h.broadcasts).toEqual([]);
+    expect(h.announced).toEqual([]);
   });
 
   it("un conteggio gia' presente su un'archiviata resta com'e', non cresce", () => {
@@ -103,13 +104,13 @@ describe("bumpUnreadCount", () => {
   });
 
   it("un errore di persistenza non propaga: il badge è accessorio, il messaggio no", () => {
-    const broadcasts: Array<Record<string, unknown>> = [];
+    const announced: string[] = [];
     const deps: UnreadDeps = {
       bumpUnread: () => { throw new Error("db locked"); },
-      broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
+      announce: (id) => { announced.push(id); },
       isArchived: () => false,
     };
     expect(() => bumpUnreadCount(deps, "t1")).not.toThrow();
-    expect(broadcasts).toEqual([]);
+    expect(announced).toEqual([]);
   });
 });

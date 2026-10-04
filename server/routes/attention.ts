@@ -31,8 +31,9 @@ export function parseSeenItems(body: unknown): AttentionSeenItem[] {
  * never reaches it: `/api/attention/` is not in the guest allowlist of
  * `lib/grants.ts`, and the store drops a guest's seen anyway.
  *
- * `POST /api/topics/:id/read` and `POST /api/notifications/seen` are aliases
- * while the old client exists (tasks.md 6.2 removes them).
+ * The only door: the aliases it had while the old client existed
+ * (`POST /api/topics/:id/read`, `POST /api/notifications/seen`) went with
+ * that client (tasks.md 6.2).
  */
 export function createAttentionRouter(ctx: Pick<AppContext, "json" | "readJSON">): RouteHandler {
   const { json, readJSON } = ctx;

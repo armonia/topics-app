@@ -9,9 +9,9 @@
  * test che la fissano.
  *
  * ── La politica ─────────────────────────────────────────────────────────────
- * Un messaggio in arrivo incrementa SEMPRE il non-letto; solo un `read`
- * esplicito (POST /api/topics/:id/read, che il client manda dopo SEEN_DWELL_MS
- * di sguardo continuo) lo azzera.
+ * An incoming message ALWAYS raises the unread; only an explicit seen zeroes
+ * it: `POST /api/attention/seen`, which the client sends after SEEN_DWELL_MS
+ * of continuous looking.
  *
  * Prima c'era un gate `if (!isTopicFocused(topicId))` — «presente = letto»,
  * senza nozione di tempo. Era rotto in due modi: (1) un messaggio ad app in
@@ -22,13 +22,15 @@
  * con quella topic focussata perché NESSUNO ricevesse il badge. Da quando il
  * client marca letto sulla soglia, quel gate era ridondante E dannoso.
  */
-import type { OutboundMessage } from "../../shared/ws-outbound";
-import { noteUnreadChanged } from "../attention/store";
-
 export interface UnreadDeps {
   /** +1 on this topic's row (created at 1 when missing), returns the new count. */
   bumpUnread: (topicId: string) => number;
-  broadcastToAll: (message: OutboundMessage) => void;
+  /**
+   * Tell the windows: the attention store's frame of the chat carries the new
+   * count (`noteUnreadChanged`). There is no frame of its own any more: the
+   * client reads the number from the attention row (ATTN-05).
+   */
+  announce: (topicId: string) => void;
   /**
    * Whether this topic is archived. REQUIRED, and deliberately not optional:
    * an optional predicate defaults to "no" at every call site that forgets it,
@@ -63,15 +65,8 @@ export function bumpUnreadCount(deps: UnreadDeps, topicId: string): void {
     // wrong edge.
     if (deps.isArchived(topicId)) return;
 
-    const unreadCount = deps.bumpUnread(topicId);
-    deps.broadcastToAll({
-      type: "unread:updated",
-      topicId,
-      unreadCount,
-    } as OutboundMessage);
-    // The count of a lit chat moves in its attention frame too: the client
-    // reads its number from there, not from `unread:updated` (ATTN-05).
-    noteUnreadChanged(topicId);
+    deps.bumpUnread(topicId);
+    deps.announce(topicId);
   } catch (err) {
     console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
   }

@@ -19,14 +19,6 @@ describe('validateOutbound — valid registered messages', () => {
     { type: 'connected', clientId: 'ws-abc' },
     { type: 'pong' },
     { type: 'dashboard:updated' },
-    {
-      type: 'unread:init',
-      data: {
-        'topic-1': { lastReadAt: '2026-05-13T00:00:00Z', unreadCount: 0 },
-        'topic-2': { lastReadAt: '2026-05-13T01:00:00Z', unreadCount: 3 },
-      },
-    },
-    { type: 'unread:updated', topicId: 'topic-1', unreadCount: 5 },
     { type: 'stream:end', sessionKey: 'sk-1', messageId: 'm-1' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: 'hello' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: '' },
@@ -64,12 +56,6 @@ describe('validateOutbound — malformed registered messages', () => {
     if (!r.ok) expect(r.error).toContain('clientId');
   });
 
-  test('rejects unread:updated with wrong type for unreadCount', () => {
-    const r = validateOutbound({ type: 'unread:updated', topicId: 't', unreadCount: 'many' });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('unreadCount');
-  });
-
   test('rejects stream:end missing sessionKey', () => {
     const r = validateOutbound({ type: 'stream:end', messageId: 'm-1' });
     expect(r.ok).toBe(false);
@@ -88,12 +74,37 @@ describe('validateOutbound — malformed registered messages', () => {
     if (!r.ok) expect(r.error).toContain('toSessionKey');
   });
 
-  test('rejects unread:init with wrong nested shape', () => {
-    const r = validateOutbound({
-      type: 'unread:init',
-      data: { 'topic-1': { lastReadAt: 0, unreadCount: 'oops' } },
-    });
+  test('rejects attention:updated whose history row has no id', () => {
+    const r = validateOutbound({ ...attentionUpdatedWithHistory, history: { ...historyRow, id: undefined } });
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('history');
+  });
+});
+
+// ----- attention:updated carries the log row its epoch wrote (tasks.md 6.2) --
+
+const historyRow = {
+  id: 'n-1', createdAt: '2026-10-05T10:00:00.000Z', kind: 'chat-message', title: 'Finished', body: '',
+  targetKind: 'topic', targetId: 't-1', targetUrl: null, source: 'push', groupKey: 'topic:t-1', seenAt: null,
+};
+const attentionUpdatedWithHistory = {
+  type: 'attention:updated',
+  row: {
+    subject: 'topic:t-1', state: 'finished', reason: null, outcome: 'done', detail: null,
+    since: '2026-10-05T10:00:00.000Z', epoch: 1, seenEpoch: 0, lit: true, unread: 1,
+    turnUnseen: true, lastTurnAt: '2026-10-05T10:00:00.000Z', background: [],
+  },
+  live: true,
+  history: historyRow,
+};
+
+describe('validateOutbound — attention:updated history', () => {
+  test('accepts the frame with the row it wrote', () => {
+    expect(validateOutbound(attentionUpdatedWithHistory).ok).toBe(true);
+  });
+  test('accepts the frame without one', () => {
+    const { history: _history, ...plain } = attentionUpdatedWithHistory;
+    expect(validateOutbound(plain).ok).toBe(true);
   });
 });
 
@@ -207,8 +218,6 @@ describe('outbound registry contract', () => {
       'message',
       'message:media',
       'message:new',
-      'notification:new',
-      'notification:seen',
       'open-project',
       'pane:focus-suggest',
       'pong',
@@ -277,8 +286,6 @@ describe('outbound registry contract', () => {
       'ui-state:updated',
       'ui:bundle-rev',
       'ui:bundle-updated',
-      'unread:init',
-      'unread:updated',
       'welcome',
       'worktree:deleted',
       'worktree:new',
@@ -407,8 +414,14 @@ describe('outbound registry contract', () => {
   // the server (notifications-redesign). Owner-only (not in the guest
   // allowlist of `lib/grants.ts`). Sender `server/attention/store.ts`,
   // listener the client's attention store (tasks.md 3.1).
-  test('all 108 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
+  // 108 -> 104: out go `unread:init`, `unread:updated`, `notification:new` and
+  // `notification:seen` (notifications-redesign, tasks.md 6.2). Once a client
+  // with the attention store shipped (Tauri v2.2.441), nothing read them but
+  // the history's live row, which now travels in `attention:updated.history`.
+  // A chat's unread is on its attention row; a row's seen dot is drawn from
+  // the attention store.
+  test('all 104 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(104);
   });
 });
 

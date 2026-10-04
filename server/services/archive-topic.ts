@@ -14,7 +14,7 @@
  *
  * COSA GARANTISCE. Dopo questa funzione, per quel topic valgono tutte e quattro:
  *   1. `archived = true`, salvato e broadcastato,
- *   2. unread azzerato e broadcastato,
+ *   2. unread at zero (the windows read it in the attention frame of step 5b),
  *   3. nessun riferimento al topic nei record `ui_state` (tombstonato),
  *   4. la sua sessione Claude non è più in una fase viva (parcheggiata a
  *      `dormant`) — vedi `parkClaudeSession`.
@@ -127,8 +127,8 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
   const unread = deps.loadUnread();
   const stale = (unread[topicId]?.unreadCount ?? 0) > 0;
   if (!alreadyArchived || stale) {
+    // No frame of its own: step 5b's attention frame carries the zero.
     deps.saveUnreadEntries({ [topicId]: { lastReadAt: now, unreadCount: 0 } });
-    deps.broadcastToAll({ type: "unread:updated", topicId, unreadCount: 0 });
   }
 
   // 3. Via da ui_state, o l'id risuscita al prossimo reload del client.

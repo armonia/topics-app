@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
+import type { ConnectionStatus, WSMessage } from '../types';
 import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
-import { applyUnreadUpdate } from '../state/unread';
 import { setWsClientId } from '../state/wsIdentity';
 import { onSubjectInFrontChange, subjectInFront } from '../state/chatInView';
 import { isWindowFocused, onWindowAwakeChange } from '../state/windowAwake';
@@ -28,7 +27,6 @@ const NOTHING_IN_FRONT = 'none';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
-  unreadData: UnreadData;
   sendWS: (message: WSMessage) => void;
   onMessage: (handler: (msg: WSMessage) => void) => () => void;
   reconnect: () => void;
@@ -59,57 +57,12 @@ const PONG_TIMEOUT_MS = 75_000;
  */
 const WAKE_PROBE_MS = 8_000;
 
-/** Device-local copy of the unread map, so the first frame after a reload
- *  already shows the badges the socket will confirm a few hundred ms later. */
-const UNREAD_CACHE_KEY = 'topics-unread-cache';
-function readUnreadCache(): UnreadData {
-  try {
-    const raw = localStorage.getItem(UNREAD_CACHE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === 'object' ? (parsed as UnreadData) : {};
-  } catch {
-    return {};
-  }
-}
-function writeUnreadCache(data: UnreadData): void {
-  try { localStorage.setItem(UNREAD_CACHE_KEY, JSON.stringify(data)); } catch { /* storage denied: the socket still fills it */ }
-}
-
 export function useWebSocket(): UseWebSocketReturn {
   // Start as 'connected' initially — only show connecting states after a grace period
   // This prevents UI flicker on page load when the WS hasn't connected yet
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [displayStatus, setDisplayStatus] = useState<ConnectionStatus>('connected');
   const connectingGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Seeded from the last value this device saw, not from `{}`: the badges on
-  // the tabs and the unread rows in the sidebar are drawn from here, and
-  // `unread:init` only arrives with the socket, 300-500 ms after the first
-  // paint. On a reload that gap was a tab trail growing 24 px and the label
-  // sliding under it (measured 2026-09-03). The socket's snapshot still wins
-  // the moment it lands; the cache only decides what the first frame shows.
-  const [unreadData, setUnreadData] = useState<UnreadData>(readUnreadCache);
-  // Specchio sincrono di `unreadData`. Serve a `sendWS`, che sul ping di focus
-  // deve sapere SUBITO se c'è davvero qualcosa da azzerare prima di azzerarlo
-  // ottimisticamente: lo stato React lo leggerebbe un render troppo tardi, e la
-  // decisione arriverebbe sempre dopo lo zero, cioè sempre sbagliata.
-  const unreadRef = useRef<UnreadData>(unreadData);
-  /**
-   * Unico punto di scrittura dell'unread: aggiorna il ref (verità sincrona) e
-   * poi lo stato. Il valore passato a `setUnreadData` è già calcolato, mai una
-   * funzione updater: gli updater in StrictMode vengono invocati due volte e
-   * scriverci dentro il ref lo corromperebbe.
-   *
-   * I riduttori in `state/unread` restituiscono `prev` identico quando non
-   * cambia niente, e qui quell'identità diventa il gate: nessun `setState`,
-   * quindi nessun render dell'albero.
-   */
-  const applyUnread = useCallback((next: (prev: UnreadData) => UnreadData) => {
-    const computed = next(unreadRef.current);
-    if (computed === unreadRef.current) return;
-    unreadRef.current = computed;
-    setUnreadData(computed);
-    writeUnreadCache(computed);
-  }, []);
   const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -386,36 +339,9 @@ export function useWebSocket(): UseWebSocketReturn {
 
         // Fan out to the module-level frame bus FIRST — the pane-store
         // bootstrap subscribes here (review I4: keeps a single WS per tab
-        // instead of bootstrap.ts opening its own). Before this hook,
-        // `unread:init` triggers the setState below; both need to run.
+        // instead of bootstrap.ts opening its own), then to this hook's
+        // handlers below; both need to run.
         dispatchFrame(data);
-
-        // L'id che il server ha assegnato a QUESTA socket. Il campo esisteva da
-        // sempre nel `welcome` («Echo of the WS client id») e non lo leggeva
-        // nessuno: senza, un client non sa riconoscere i propri echi. Va
-        // sostituito a ogni riconnessione — il server assegna un id nuovo per
-        // socket, e tenere il primo farebbe fallire il confronto in silenzio.
-        // Handle unread init
-        if (data.type === 'unread:init') {
-          applyUnread(() => data.data || {});
-          return;
-        }
-
-        // Handle unread updates.
-        //
-        // Bail su valore INVARIATO. `unreadData` risale fino ad App e da lì
-        // scende nel provider delle notifiche e nella sidebar: una nuova
-        // identità di oggetto ri-renderizza l'albero intero. Un
-        // `unread:updated` che riporta il conteggio che avevamo già è però il
-        // caso PIÙ frequente — ogni client lo riceve ogni volta che qualcuno,
-        // ovunque, apre una tab — e pagarlo con un render globale era il costo
-        // più grosso dello switch di tab. Restituire `prev` lo azzera.
-        if (data.type === 'unread:updated') {
-          applyUnread(prev => applyUnreadUpdate(prev, data.topicId, data.unreadCount));
-          // A message that lands on the chat being read is seen by the dwell
-          // of the pane in front (`useSeenFocusedPane`): it re-arms on any
-          // unread of the subject, and the server's seen door zeroes it.
-        }
 
         // Forward to all handlers
         for (const handler of handlersRef.current) {
@@ -429,7 +355,7 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onerror = () => {
       // onclose will handle reconnection
     };
-  }, [clearOfflineTimer, startOfflineTimer, applyUnread]);
+  }, [clearOfflineTimer, startOfflineTimer]);
 
   useEffect(() => {
     // Keep the self-reference current so scheduled reconnects invoke the
@@ -581,5 +507,5 @@ export function useWebSocket(): UseWebSocketReturn {
     return () => { if (connectingGraceRef.current) { clearTimeout(connectingGraceRef.current); connectingGraceRef.current = null; } };
   }, [status]);
 
-  return { status: displayStatus, unreadData, sendWS, onMessage, reconnect, lastConnectedAt };
+  return { status: displayStatus, sendWS, onMessage, reconnect, lastConnectedAt };
 }

@@ -12,7 +12,8 @@
  *     has the same cause and makes none (section 4.1);
  *   - a new live epoch writes ONE history row (born seen when the subject is
  *     in front of the person), decides the announce and sends the push
- *     (section 10.1);
+ *     (section 10.1); the row travels in the same frame (`history`), so the
+ *     inbox's «History» tab grows live;
  *   - the seen is written, per person, as `seen_epoch` and `seen_at`
  *     (section 6);
  *   - `attention:updated` goes out, and `attention:init` is composed for
@@ -29,7 +30,8 @@
  */
 import type { Database } from "bun:sqlite";
 import { getDatabase } from "../db";
-import { recordAndAnnounce, markSubjectSeenAndAnnounce } from "../notification-registry";
+import { recordNotificationRow } from "../notification-registry";
+import { markGroupNotificationsSeen } from "../db/notification-log";
 import { sendPushToAll, type OutgoingPushPayload } from "../push-service";
 import { buildAnnouncement, type AnnounceFact } from "../push-triggers";
 import type { NotificationRecordInput, NotificationRow } from "../../shared/notification-log";
@@ -114,8 +116,8 @@ const DEFAULT_DEPS: AttentionStoreDeps = {
   now: () => Date.now(),
   unreadOf: () => 0,
   resetUnread: () => {},
-  recordRow: (input) => recordAndAnnounce(input),
-  markRowsSeen: (subject, before) => markSubjectSeenAndAnnounce(subject, before),
+  recordRow: (input) => recordNotificationRow(input),
+  markRowsSeen: (subject, before) => markGroupNotificationsSeen(subject, before),
   sendPush: (payload) => { sendPushToAll(payload).catch((err) => console.warn("[attention] push failed:", err?.message || err)); },
   describe: () => null,
   graceMs: 5_000,
@@ -495,6 +497,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
   persist(row);
 
   let announce: AttentionAnnounce | undefined;
+  let history: NotificationRow | null = null;
   if (newEpoch && opts.live) {
     let description: SubjectDescription | null = null;
     try { description = deps.describe(subject); } catch { description = null; }
@@ -504,7 +507,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
     if (words) {
       // The row is written always, born seen when the subject was in front
       // (section 10.1 step 1); an archived subject never gets here (rule 1).
-      try { deps.recordRow({ ...words.record, ...(bornSeen ? { seen: true } : {}) }); } catch (err) {
+      try { history = deps.recordRow({ ...words.record, ...(bornSeen ? { seen: true } : {}) }); } catch (err) {
         console.warn("[attention] history row failed:", (err as Error)?.message || err);
       }
       // The announce, unless the subject is silenced or a board agent's (rule 2 never lights one).
@@ -524,7 +527,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
 
   const snap = snapshotOf(e);
   const key = frameKey(snap);
-  if (opts.force || announce || key !== e.sentKey) {
+  if (opts.force || announce || history || key !== e.sentKey) {
     e.sentKey = key;
     try {
       deps.broadcast({
@@ -532,6 +535,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
         row: snap,
         live: opts.live,
         ...(announce ? { announce, bornSeen } : {}),
+        ...(history ? { history } : {}),
       } as OutboundMessage);
     } catch (err) {
       console.warn("[attention] broadcast failed:", (err as Error)?.message || err);
@@ -880,12 +884,6 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
     out.push(recompose(item.subject, { live: true, force: true }));
   }
   return out;
-}
-
-/** Everything about this subject seen now: the aliases of the old doors. */
-export function seenItemNow(subject: string): AttentionSeenItem {
-  const s = getAttention(subject);
-  return { subject, epoch: s.epoch, turnAt: s.lastTurnAt };
 }
 
 /** The chat's unread changed: a lit chat's count moves in the same frame. */

@@ -557,7 +557,7 @@ function App() {
   } = useChat();
 
 
-  const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage, lastConnectedAt } = useWebSocket();
+  const { status: wsStatus, sendWS, onMessage: onWSMessage, lastConnectedAt } = useWebSocket();
 
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
@@ -1374,10 +1374,10 @@ function App() {
   // browser — sent nothing, and for the server the last chat looked at was still
   // the one in front.
   //
-  // This is not cosmetic. After `SEEN_DWELL_MS` that chat enters `seenTopicRef`,
-  // and from there every `unread:updated{n>0}` about it is RE-MARKED READ on the
-  // spot (`useWebSocket`, the "a message arrived while you were already reading"
-  // branch). Measured with two chats open and focus moved to the board: the
+  // This is not cosmetic. After `SEEN_DWELL_MS` that chat entered `seenTopicRef`,
+  // and from there every unread about it was RE-MARKED READ on the spot (the
+  // old "a message arrived while you were already reading" branch of
+  // `useWebSocket`). Measured with two chats open and focus moved to the board: the
   // first chat never raises the badge (delta 0), the second does (delta 1). So a
   // turn finishing on a chat you are not watching can leave no trace on the
   // dock, and WHICH chat loses the count depends on which tab was opened first.
@@ -1921,7 +1921,6 @@ function App() {
             onTopicClick={handleTopicClick}
             onTopicDoubleClick={handleTopicDoubleClick}
             onTopicContextMenu={handleTopicContextMenu}
-            unreadData={unreadData}
             onArchiveTopic={handleArchiveTopicDeferred}
             onArchiveProject={handleArchiveProjectDeferred}
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}

@@ -297,9 +297,6 @@ export function createAppContext(baseDir: string): AppContext {
     // Unread
     getAllUnread: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread`),
     getUnreadOne: db.prepare(`SELECT unread_count FROM unread WHERE topic_id = ?`),
-    // All but the zeroed rows of archived topics (1,128 of 1,146 on prod).
-    getUnreadForInit: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread u
-      WHERE u.unread_count > 0 OR NOT EXISTS (SELECT 1 FROM topics t WHERE t.id = u.topic_id AND t.archived = 1)`),
     upsertUnread: db.prepare(`INSERT OR REPLACE INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, ?)`),
     deleteUnread: db.prepare(`DELETE FROM unread WHERE topic_id = ?`),
     // A new row starts at 1 stamped now; an existing one keeps `last_read_at`.
@@ -1300,8 +1297,8 @@ export function createAppContext(baseDir: string): AppContext {
     resetUnread: (topicId) => {
       const current = (stmts.getUnreadOne.get(topicId) as { unread_count?: number } | null)?.unread_count ?? 0;
       if (current <= 0) return;
+      // The seen door's own frame carries the zero (`attention:updated.row.unread`).
       saveUnreadEntries({ [topicId]: { lastReadAt: new Date().toISOString(), unreadCount: 0 } });
-      broadcastToAll({ type: "unread:updated", topicId, unreadCount: 0 });
     },
     describe: (subject) => {
       const topicId = topicIdOfSubject(subject);
@@ -1322,11 +1319,10 @@ export function createAppContext(baseDir: string): AppContext {
     },
   });
 
-  // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove
-  // annunciare la riga nuova, e se il topic bersaglio è archiviato.
+  // The notification log, as above: the one fact it lacks, whether the target
+  // topic is archived. A new row reaches the windows in the attention store's
+  // frame, never from the log.
   configureNotificationRegistry({
-    announce: (row, snapshot) => broadcastToAll({ type: "notification:new", row, ...snapshot }),
-    announceSeen: (snapshot, subjects) => broadcastToAll({ type: "notification:seen", ...snapshot, subjects }),
     isTopicArchived: (topicId) => !!getTopicById(topicId)?.archived,
   });
 
@@ -1368,12 +1364,6 @@ export function createAppContext(baseDir: string): AppContext {
     return result;
   }
   function loadUnread(): UnreadData { return unreadFromRows(stmts.getAllUnread.all() as any[]); }
-  /**
-   * The `unread:init` rows: an archived topic's zeroed row draws no badge (a
-   * missing row reads as 0), a non-zero one still ships. Never feed this to
-   * `saveUnread`, which deletes the rows it does not see.
-   */
-  function loadUnreadForInit(): UnreadData { return unreadFromRows(stmts.getUnreadForInit.all() as any[]); }
 
   function saveUnread(data: UnreadData): void {
     db.transaction(() => {
@@ -2992,7 +2982,7 @@ export function createAppContext(baseDir: string): AppContext {
     broadcast, broadcastToAll, broadcastProject, broadcastToProjectViewers, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
-    loadUnread, loadUnreadForInit, saveUnread, bumpUnread, saveUnreadEntries,
+    loadUnread, saveUnread, bumpUnread, saveUnreadEntries,
     loadLocalMessages, hydrateMessageBodies, messageBodyHydrator, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,

@@ -37,7 +37,6 @@ export type {
   Machine,
   Worktree,
   TopicsData,
-  UnreadData,
 } from '../../../shared/types';
 // `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
 // più sotto i payload WS li usano. Import separato, non è una ridondanza.
@@ -902,18 +901,6 @@ export interface WSTerminalActivityMessage {
   kind?: TerminalSessionType;
 }
 
-// --- Notifications -----------------------------------------------------------
-/** Initial unread snapshot sent on WS connect. Keyed by topicId. */
-export interface WSUnreadInitMessage {
-  type: 'unread:init';
-  data?: Record<string, { lastReadAt: string; unreadCount: number }>;
-}
-export interface WSUnreadUpdatedMessage {
-  type: 'unread:updated';
-  topicId: string;
-  unreadCount: number;
-}
-
 /**
  * Emitted by the server to ask listeners to bring a topic's pane into focus.
  */
@@ -1228,29 +1215,6 @@ export interface WSTaskDeletedMessage {
   taskIds?: string[];
 }
 
-/** Una notifica è appena stata REGISTRATA (migration 102). Porta la riga intera
- *  e il conteggio: il tastino accanto a Topics si aggiorna dal vivo senza
- *  rileggere l'elenco. */
-export interface WSNotificationNewMessage {
-  type: 'notification:new';
-  row: NotificationRow;
-  unseen: number;
-  /** The unseen subjects (group key, or row id when ungrouped). */
-  unseenKeys?: string[];
-}
-
-/** Il «visto» è stato applicato — il contatore vale ORA questo. Il «visto» è
- *  globale, quindi guardare la cronologia da una finestra spegne il pallino su
- *  tutte le altre. */
-export interface WSNotificationSeenMessage {
-  type: 'notification:seen';
-  unseen: number;
-  /** The unseen subjects left (group key, or row id when ungrouped). */
-  unseenKeys?: string[];
-  /** Group keys of the subjects this seen cleared (`topic:<id>`, `terminal:<id>`, ...). */
-  subjects?: string[];
-}
-
 /** Every subject that is not idle, at every open of the socket: the client
  *  REPLACES its attention store with it (notifications-redesign, ATTN-07). */
 export interface WSAttentionInitMessage {
@@ -1259,20 +1223,20 @@ export interface WSAttentionInitMessage {
 }
 
 /** One subject's attention changed. `announce` comes with a new live epoch:
- *  the banner's words, decided once on the server (ATTN-11). */
+ *  the banner's words, decided once on the server (ATTN-11). `history` is the
+ *  log row that epoch wrote: the inbox's «History» tab grows from it. */
 export interface WSAttentionUpdatedMessage {
   type: 'attention:updated';
   row: AttentionSnapshot;
   live: boolean;
   announce?: AttentionAnnounce;
   bornSeen?: boolean;
+  history?: NotificationRow;
 }
 
 export type WSMessage =
   | WSAttentionInitMessage
   | WSAttentionUpdatedMessage
-  | WSNotificationNewMessage
-  | WSNotificationSeenMessage
   | WSTaskDeletedMessage
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage
@@ -1319,8 +1283,6 @@ export type WSMessage =
   | WSClearMessage
   | WSTerminalSessionsMessage
   | WSTerminalActivityMessage
-  | WSUnreadInitMessage
-  | WSUnreadUpdatedMessage
   | WSPaneFocusSuggestMessage
   | WSAgentActiveMessage
   | WSDashboardUpdatedMessage

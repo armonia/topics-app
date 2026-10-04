@@ -4195,21 +4195,11 @@ const opzioniServer = {
       // broadcast reloads itself on reconnect (null when the flag is off —
       // standalone installs never see this frame).
       { const __rev = devBundleReload.getRev(); if (__rev) inviaIniziale({ type: "ui:bundle-rev", rev: __rev }); }
-      // I non-letti si RESTRINGONO invece di sparire: il pallino sulla chat che
-      // gli hai condiviso è suo, quelli delle altre no. Scartare tutto sarebbe
-      // sicuro e sbagliato — un ospite senza pallini non sa mai che è arrivato
-      // qualcosa.
-      {
-        const tutti = ctx.loadUnreadForInit() as Record<string, unknown>;
-        const suoi = ospiteWS
-          ? Object.fromEntries(Object.entries(tutti).filter(([topicId]) =>
-              hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)))
-          : tutti;
-        inviaIniziale({ type: "unread:init", data: suoi });
-      }
       // The attention state, whole, at every open of a socket of the person
       // (ATTN-07): the client replaces its store with it, so a seen lost while
-      // a phone slept is not lost for good. Never to a guest.
+      // a phone slept is not lost for good. It carries each chat's unread too:
+      // the old `unread:init` snapshot went with the client that read it
+      // (notifications-redesign, tasks.md 6.2). Never to a guest.
       if (!ospiteWS) inviaIniziale(attentionInitFrame());
       // `ui-state:init` e `providers:snapshot` NON hanno una versione ristretta,
       // e non devono averla: il primo è l'area di lavoro del proprietario — le

@@ -26,11 +26,11 @@ import { initDatabase, closeDatabase, getDatabase } from "../db";
 import {
   countUnseenNotifications,
   listNotifications,
-  markNotificationsSeen,
+  markGroupNotificationsSeen,
   markTargetNotificationsSeen,
   recordNotification,
 } from "./notification-log";
-import { configureNotificationRegistry, markTargetSeenAndAnnounce, recordAndAnnounce, __resetNotificationRegistry } from "../notification-registry";
+import { configureNotificationRegistry, recordNotificationRow, __resetNotificationRegistry } from "../notification-registry";
 import { createTaskService } from "../services/tasks";
 import { NOTIFICATION_DEDUPE_MS, NOTIFICATION_MAX_AGE_DAYS, NOTIFICATION_MAX_ROWS } from "../../shared/notification-log";
 
@@ -106,42 +106,37 @@ describe("il bersaglio", () => {
   });
 });
 
-describe("il «visto»", () => {
-  test("upTo azzera il contatore e ce lo lascia", () => {
-    wipe();
-    recordNotification({ kind: "other", title: "a", dedupeKey: "a" });
-    recordNotification({ kind: "other", title: "b", dedupeKey: "b" });
-    expect(countUnseenNotifications()).toBe(2);
-    const newest = listNotifications()[0]!.createdAt;
-    markNotificationsSeen({ upTo: newest });
-    expect(countUnseenNotifications()).toBe(0);
-    // Riletto da capo (è il "dopo un refresh"): resta zero, perché lo stato sta
-    // sulla riga e non nella memoria di una finestra.
-    expect(listNotifications().every((r) => r.seenAt !== null)).toBe(true);
-  });
-
-  test("vista UNA del gruppo, viste tutte — il contatore torna a zero", () => {
+describe("the seen of one subject (the seen door's writer)", () => {
+  test("every row of the subject is seen, the counter goes back to zero, another subject stays", () => {
     wipe();
     const t0 = Date.now();
-    // Due notifiche dello stesso topic: una notifica RAGGRUPPATA, cioè una cosa
-    // sola da guardare. Distanziate oltre la finestra di dedup, altrimenti la
-    // seconda non nascerebbe proprio.
-    const first = recordNotification({ kind: "chat-message", title: "m1", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0);
+    // Two rows of the same chat: ONE thing to look at. Spaced beyond the dedup
+    // window, or the second would not be born.
+    recordNotification({ kind: "chat-message", title: "m1", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0);
     recordNotification({ kind: "chat-message", title: "m2", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0 + NOTIFICATION_DEDUPE_MS + 1);
-    // Two rows, ONE subject: the bell counts things to look at, not rows.
-    expect(unseenRows()).toBe(2);
+    recordNotification({ kind: "chat-message", title: "other", dedupeKey: "chat:y", targetKind: "topic", targetId: "y" }, t0);
+    expect(countUnseenNotifications()).toBe(2);
+    expect(markGroupNotificationsSeen("topic:x")).toBe(2);
     expect(countUnseenNotifications()).toBe(1);
-    markNotificationsSeen({ ids: [first!.id] });
-    // Senza la cascata sul gruppo qui resterebbe 1 — ed è esattamente il difetto
-    // per cui il contatore non tornava mai a zero.
-    expect(unseenRows()).toBe(0);
-    expect(countUnseenNotifications()).toBe(0);
+    // Read again from scratch (the "after a refresh"): the state is on the row.
+    expect(listNotifications().filter((r) => r.groupKey === "topic:x").every((r) => r.seenAt !== null)).toBe(true);
+    expect(listNotifications().find((r) => r.groupKey === "topic:y")?.seenAt).toBeNull();
   });
 
-  test("una chiamata senza ids né upTo non tocca niente", () => {
+  test("with `before`, a row written for a newer epoch stays unseen", () => {
+    wipe();
+    const t0 = Date.now();
+    recordNotification({ kind: "chat-message", title: "old", dedupeKey: "chat:z", targetKind: "topic", targetId: "z" }, t0);
+    const latest = recordNotification({ kind: "chat-message", title: "new", dedupeKey: "chat:z", targetKind: "topic", targetId: "z" }, t0 + NOTIFICATION_DEDUPE_MS + 1);
+    expect(markGroupNotificationsSeen("topic:z", latest!.createdAt)).toBe(1);
+    expect(listNotifications().find((r) => r.id === latest!.id)?.seenAt).toBeNull();
+  });
+
+  test("nothing to mark says zero", () => {
     wipe();
     recordNotification({ kind: "other", title: "a", dedupeKey: "a" });
-    expect(markNotificationsSeen({})).toBe(0);
+    expect(markGroupNotificationsSeen("")).toBe(0);
+    expect(markGroupNotificationsSeen("topic:never")).toBe(0);
     expect(countUnseenNotifications()).toBe(1);
   });
 });
@@ -170,54 +165,40 @@ describe("tetto e scadenza", () => {
   });
 });
 
-describe("recordAndAnnounce — il cancello degli archiviati", () => {
-  test("un topic archiviato non entra nel registro, e nessuno lo annuncia", () => {
+describe("recordNotificationRow: the gate of the archived topics", () => {
+  test("an archived topic does not enter the log", () => {
     wipe();
-    const announced: string[] = [];
-    configureNotificationRegistry({
-      announce: (row) => { announced.push(row.title); },
-      announceSeen: () => {},
-      isTopicArchived: (id) => id === "archiviato",
-    });
-    const dead = recordAndAnnounce({ kind: "chat-message", title: "rumore", dedupeKey: "chat:archiviato", targetKind: "topic", targetId: "archiviato" });
-    const alive = recordAndAnnounce({ kind: "chat-message", title: "vivo", dedupeKey: "chat:vivo", targetKind: "topic", targetId: "vivo" });
+    configureNotificationRegistry({ isTopicArchived: (id) => id === "archiviato" });
+    const dead = recordNotificationRow({ kind: "chat-message", title: "rumore", dedupeKey: "chat:archiviato", targetKind: "topic", targetId: "archiviato" });
+    const alive = recordNotificationRow({ kind: "chat-message", title: "vivo", dedupeKey: "chat:vivo", targetKind: "topic", targetId: "vivo" });
     expect(dead).toBeNull();
     expect(alive).not.toBeNull();
-    expect(announced).toEqual(["vivo"]);
+    expect(listNotifications().map((r) => r.title)).toEqual(["vivo"]);
     __resetNotificationRegistry();
   });
 
-  // The banner about a chat the person is looking at: the row is kept, and
-  // the frame that announces it already carries a counter without it, so no
+  // The row of a chat the person is looking at: kept, and never unseen, so no
   // badge goes up to come back down one seen dwell later.
-  test("a row born seen is announced, but it never counts as unseen", () => {
+  test("a row born seen is written, but it never counts as unseen", () => {
     wipe();
-    const snapshots: { unseen: number; unseenKeys?: string[] }[] = [];
-    configureNotificationRegistry({
-      announce: (_row, snap) => { snapshots.push(snap); },
-      announceSeen: () => {},
-      isTopicArchived: () => false,
-    });
-    const row = recordAndAnnounce({
+    configureNotificationRegistry({ isTopicArchived: () => false });
+    const row = recordNotificationRow({
       kind: "chat-message", title: "In front", dedupeKey: "chat-done:front",
       targetKind: "topic", targetId: "front", seen: true,
     });
     expect(row?.seenAt).not.toBeNull();
     expect(listNotifications().map((r) => r.id)).toEqual([row!.id]);
     expect(countUnseenNotifications()).toBe(0);
-    expect(snapshots).toEqual([{ unseen: 0, unseenKeys: [] }]);
-    // Nothing is left for the seen dwell to clear, so it announces nothing.
+    // Nothing is left for the seen dwell to clear.
     expect(markTargetNotificationsSeen("topic", "front")).toBe(0);
     __resetNotificationRegistry();
   });
 
-  test("un doppione non viene annunciato una seconda volta", () => {
+  test("a duplicate is not written twice: the second call returns null", () => {
     wipe();
-    let calls = 0;
-    configureNotificationRegistry({ announce: () => { calls++; }, announceSeen: () => {}, isTopicArchived: () => false });
-    recordAndAnnounce({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" });
-    recordAndAnnounce({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" });
-    expect(calls).toBe(1);
+    configureNotificationRegistry({ isTopicArchived: () => false });
+    expect(recordNotificationRow({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" })).not.toBeNull();
+    expect(recordNotificationRow({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" })).toBeNull();
     __resetNotificationRegistry();
   });
 });
@@ -269,10 +250,8 @@ describe("markTargetNotificationsSeen — leggere una chat spegne la sua campane
   });
 
   test("torna ZERO quando non c'e' niente da segnare", () => {
-    // Il chiamante lo usa per NON mandare un broadcast: un `notification:seen`
-    // che non cambia niente sveglia ogni client connesso, gli fa validare il
-    // frame e ri-renderizzare. La rotta della lettura evita gia' lo stesso
-    // costo sul non-letto, e sarebbe strano reintrodurlo nella riga accanto.
+    // A no-op says so with zero: the caller can tell a seen that changed a row
+    // from one that found nothing to mark.
     wipe();
     notifica("t1", "una");
     expect(markTargetNotificationsSeen("topic", "t1")).toBe(1);
@@ -408,18 +387,5 @@ describe("una card che esce da review spegne la propria campanella", () => {
     const s = bench();
     inReview(s);
     expect(countUnseenNotifications()).toBe(1);
-  });
-
-  test("markTargetSeenAndAnnounce announces once, and stays silent when it changed nothing", () => {
-    wipe();
-    let announced = 0;
-    configureNotificationRegistry({
-      announce: () => {}, announceSeen: () => { announced++; }, isTopicArchived: () => false,
-    });
-    recordNotification({ kind: "task-review", title: "x", body: "", targetKind: "task", targetId: "t-x", dedupeKey: "task-review:t-x" });
-    expect(markTargetSeenAndAnnounce("task", "t-x")).toBe(1);
-    expect(markTargetSeenAndAnnounce("task", "t-x")).toBe(0);
-    expect(announced, "un fronte che non cambia niente sveglia ogni client per nulla").toBe(1);
-    __resetNotificationRegistry();
   });
 });

@@ -369,10 +369,11 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     const body = formatSubAgentExitBody(info, language);
     const content = formatSubAgentExitMessage(info, language);
     const blocks = [{ kind: "subagent-result" as const, results: [subagentResultCard(subAgentResultOf(info))] }];
-    // NON si usa `deliverMessage` qui: l'ordine dei broadcast è quello
-    // originale e va tenuto — `unread:updated` arriva DOPO `topic:updated`, non
-    // prima. Sono due messaggi che il client applica in sequenza, e invertirli
-    // è il genere di modifica che si scopre da un badge che non compare.
+    // Not `deliverMessage` here: the order of the frames is the original one
+    // and is kept. The unread bump (and the attention frame it moves) comes
+    // AFTER `topic:updated`, never before: the client applies the two in
+    // sequence, and swapping them is the kind of change found by a badge that
+    // does not appear.
     const stored = deps.appendLocalMessage(info.parentSessionKey, "assistant", content, undefined, blocks);
     deps.broadcastToAll({
       type: "message:new",

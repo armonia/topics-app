@@ -279,8 +279,8 @@ test.describe("Topic Management - Settings & Organization", () => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-09" });
     // Il figlio deve avere una NOTIFICA per comparire senza una tab aperta:
     // `buildSidebarItems` elenca una chat di progetto solo se ha una pane aperta
-    // dentro il progetto, un'attenzione pendente, o è fissata. L'`unread:updated`
-    // iniettato è la stessa strada di TOPIC-10.
+    // dentro il progetto, un'attenzione pendente, o è fissata. The injected
+    // attention frame is the same road as TOPIC-10.
     const ws = await interceptWebSocket(page);
     // La riga del progetto esiste finché la sua pane è aperta (`hasProjectTab`):
     // il beforeEach ha appena azzerato il pane-store, quindi si semina QUI.
@@ -323,7 +323,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     // a clean two-tab layout (one active). In the accumulated shared-DB state Alpha
     // could hydrate as an open/visible pane (or a split alongside Beta) — and the
     // client suppresses the unread badge for a topic whose pane is currently shown,
-    // so the injected unread:updated would never paint. With this reset, clicking
+    // so the injected attention frame would never paint. With this reset, clicking
     // Beta activates Beta and leaves Alpha an INACTIVE tab (still a sidebar row),
     // which is the precondition the badge assertion needs.
     // Niente `.catch`: un reset che fallisce in silenzio si traveste da
@@ -342,7 +342,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await betaTopic.click();
     await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 5000 });
 
-    // Inject unread:updated event for Alpha topic via intercepted WebSocket
+    // Inject a finished attention frame for the Alpha topic via the intercepted WebSocket
     await stageAttention(ws, attentionUpdated(`topic:${alphaId}`, { state: "finished", unread: 3 }));
 
     // Verify unread badge appears on Alpha topic (which is visible but not focused)

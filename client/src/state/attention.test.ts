@@ -89,7 +89,7 @@ describe("the store: init replaces, updated applies", () => {
     expect(rows()).toBe(before);
   });
   test("other frames are not its business", () => {
-    expect(attentionActions.applyFrame({ type: "unread:updated" })).toBe(false);
+    expect(attentionActions.applyFrame({ type: "message:new" })).toBe(false);
   });
 });
 

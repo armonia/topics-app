@@ -1,120 +1,54 @@
 /**
- * La PORTA UNICA del registro delle notifiche, lato server.
+ * THE ONE DOOR of the notification log, server side.
  *
- * Sotto c'è `db/notification-log.ts` (la tabella e le sue query). Qui sopra ci
- * sono le due cose che ogni scrittore deve fare e che nessuno deve poter
- * dimenticare: il cancello dei topic ARCHIVIATI, e il fronte `notification:new`
- * per le finestre aperte. Scritte in un posto solo perché gli scrittori sono
- * due — la rotta (banner del client) e i trigger della push — e una regola
- * copiata due volte diverge alla prima modifica.
+ * Underneath sits `db/notification-log.ts` (the table and its queries). Here
+ * sits the one thing every writer must do and nobody may forget: the gate of
+ * the ARCHIVED topics. Written in one place because there are three writers
+ * (the attention store, the system notices, the public route), and a rule
+ * copied three times drifts at the first change.
  *
- * Il cablaggio (broadcast + lettura del topic) è INIETTATO al bootstrap, come
- * per `configureAttentionStore`: il modulo resta senza dipendenze sul contesto
- * dell'app e i test lo montano con due funzioni finte.
+ * No frame leaves from here: a new row reaches the windows inside the
+ * `attention:updated` frame of the transition that wrote it, sent by the
+ * attention store (notifications-redesign, tasks.md 6.2).
+ *
+ * The topic lookup is INJECTED at bootstrap, as for `configureAttentionStore`:
+ * the module keeps no dependency on the app context and the tests mount it
+ * with one fake function.
  */
 
 import { recordNotification } from "./db/notification-log";
-import { markGroupNotificationsSeen, markTargetNotificationsSeen, unseenSnapshot, type UnseenSnapshot } from "./db/notification-log";
 import type { NotificationRecordInput, NotificationRow } from "../shared/notification-log";
-import { defaultNotificationGroupKey } from "../shared/notification-log";
 
-let announce: ((row: NotificationRow, snapshot: UnseenSnapshot) => void) | null = null;
-let announceSeen: ((snapshot: UnseenSnapshot, subjects: string[]) => void) | null = null;
 let topicArchived: ((topicId: string) => boolean) | null = null;
 
 export function configureNotificationRegistry(opts: {
-  /** Dillo a tutte le finestre: contatore live + ultima riga. */
-  announce: (row: NotificationRow, snapshot: UnseenSnapshot) => void;
   /**
-   * The same, the other way round: rows CLEARED, so the counter alone. It sits
-   * next to `announce` on purpose - lighting the bell and clearing it are one
-   * fact seen from two sides, and keeping them apart is how 400 unseen rows
-   * accumulated against ten live signals.
-   */
-  announceSeen: (snapshot: UnseenSnapshot, subjects: string[]) => void;
-  /**
-   * Questo topic è archiviato? OBBLIGATORIO di proposito. Le sessioni dei topic
-   * archiviati hanno già notificato per mesi dopo che la chat era sparita
-   * dall'interfaccia: il registro non deve diventare il posto dove quel rumore
-   * si accumula per sempre. Un default permissivo rimetterebbe il difetto in
-   * piedi in silenzio il giorno in cui il cablaggio si perde.
+   * Is this topic archived? REQUIRED on purpose. The sessions of archived
+   * topics kept notifying for months after the chat had left the interface:
+   * the log must not become the place where that noise piles up forever. A
+   * permissive default would bring the defect back, silently, the day the
+   * wiring gets lost.
    */
   isTopicArchived: (topicId: string) => boolean;
 }): void {
-  announce = opts.announce;
-  announceSeen = opts.announceSeen;
   topicArchived = opts.isTopicArchived;
 }
 
-/** Solo per i test. */
+/** Tests only. */
 export function __resetNotificationRegistry(): void {
-  announce = null;
-  announceSeen = null;
   topicArchived = null;
 }
 
 /**
- * Scrivi la riga, e se è NUOVA annunciala. `null` quando non è stata scritta:
- * doppione entro la finestra di dedup, topic archiviato, o errore di scrittura.
+ * Write the row. `null` when it was not written: a duplicate inside the dedup
+ * window, an archived topic, or a write error.
  *
- * Il valore di ritorno NON è decorativo: solo una riga nuova alza il contatore,
- * e solo una riga nuova merita il fronte. È anche la difesa contro la trappola
- * del boot — se all'avvio qualcuno rigioca eventi vecchi, il dedup li riconosce
- * e la cronologia non li ripresenta come nuovi.
+ * The return value is NOT decorative: only a new row travels in the store's
+ * frame. It is also the defence against the boot trap: if something replays
+ * old events at start, the dedup recognises them and the history does not
+ * present them as new.
  */
-export function recordAndAnnounce(input: NotificationRecordInput): NotificationRow | null {
+export function recordNotificationRow(input: NotificationRecordInput): NotificationRow | null {
   if (input.targetKind === "topic" && input.targetId && topicArchived?.(input.targetId)) return null;
-  const row = recordNotification(input);
-  if (!row) return null;
-  try {
-    announce?.(row, unseenSnapshot());
-  } catch (err) {
-    console.warn("[notification-log] announce failed:", (err as Error)?.message || err);
-  }
-  return row;
-}
-
-/**
- * LOOKING AT THE THING IS HAVING SEEN IT, from the server side.
- *
- * `markTargetNotificationsSeen` knows how to clear the rows but not how to tell
- * anyone, and the counter lives in EVERY open window: without the edge, whoever
- * has the app in front of them keeps seeing the bell lit on a task they just
- * approved, until they reload.
- *
- * Zero rows touched means there was nothing to clear: no edge, so clients are
- * not woken for nothing. Same discipline as `recordAndAnnounce`, reversed.
- */
-export function markTargetSeenAndAnnounce(targetKind: string, targetId: string): number {
-  const changed = markTargetNotificationsSeen(targetKind, targetId);
-  if (changed <= 0) return 0;
-  try {
-    // The subject travels with the counter, so every window can drop its own
-    // in-memory mark for it (a terminal's "finished" lives in each window).
-    // Same key composer as the clearing query, so the two cannot drift.
-    const subject = defaultNotificationGroupKey(targetKind as NotificationRecordInput["targetKind"], targetId);
-    announceSeen?.(unseenSnapshot(), subject ? [subject] : []);
-  } catch (err) {
-    console.warn("[notification-log] announce seen failed:", (err as Error)?.message || err);
-  }
-  return changed;
-}
-
-/**
- * The rows of one attention subject seen, and the old clients told: the
- * attention store calls this from its seen door and from the transitions that
- * take a subject off (archive, a card leaving review or its park). The
- * `notification:seen` frame stays for the clients older than `attention:*`,
- * until they are gone (tasks.md 6.2). Announced only when rows changed: the
- * attention frame is what tells every window, always.
- */
-export function markSubjectSeenAndAnnounce(subject: string, before?: string | null): number {
-  const changed = markGroupNotificationsSeen(subject, before);
-  if (changed <= 0) return 0;
-  try {
-    announceSeen?.(unseenSnapshot(), [subject]);
-  } catch (err) {
-    console.warn("[notification-log] announce seen failed:", (err as Error)?.message || err);
-  }
-  return changed;
+  return recordNotification(input);
 }

@@ -33,8 +33,7 @@ import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
-import { markTopicSeen } from "../subject-seen";
-import { markAttentionSeen, seenItemNow, setClosed, turnEnded } from "../attention/store";
+import { noteUnreadChanged, setClosed, turnEnded } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
@@ -640,7 +639,7 @@ export function createTopicsRouter(
   /** Politica di lettura e incremento: `server/lib/unread-count.ts`. */
   function updateUnreadCount(topicId: string) {
     bumpUnreadCount(
-      { bumpUnread: ctx.bumpUnread, broadcastToAll, isArchived: (id) => getTopicById(id)?.archived === true },
+      { bumpUnread: ctx.bumpUnread, announce: noteUnreadChanged, isArchived: (id) => getTopicById(id)?.archived === true },
       topicId,
     );
   }
@@ -1982,7 +1981,6 @@ export function createTopicsRouter(
       for (const topic of updatedTopics) {
         broadcastToAll({ type: "topic:archived", topic });
         if (archived) {
-          broadcastToAll({ type: "unread:updated", topicId: topic.id, unreadCount: 0 });
           // Stesso passo 4 del percorso singolo (services/archive-topic.ts).
           // È QUESTA la strada che ha prodotto la perdita misurata: le 28
           // sessioni rimaste vive su chat chiuse portavano tutte la data di
@@ -2087,35 +2085,6 @@ export function createTopicsRouter(
     // GET /api/unread
     if (method === "GET" && pathname === "/api/unread") {
       return json(loadUnread());
-    }
-
-    // POST /api/topics/:id/read
-    //
-    // Idempotente e SILENZIOSA quando non c'è niente da azzerare. Il client la
-    // chiamava a ogni cambio di tab, e a contatore già a zero il no-op costava
-    // caro su entrambi i lati: `saveUnread` riscrive TUTTE le righe (legge la
-    // tabella, cancella le sparite, fa l'upsert di ognuna, in transazione) e il
-    // `broadcastToAll` sveglia OGNI client connesso con un `unread:updated{0}`
-    // che non cambia nulla ma gli fa comunque validare il frame e ri-renderizzare.
-    // Con una dozzina di tab aperte era il costo principale dello switch.
-    //
-    // `lastReadAt` non avanza in questo ramo, di proposito: è informativo. È
-    // questa POST — e SOLO questa — a decidere che una topic è letta: il server
-    // non deduce più "letto" dal focus (vedi updateUnreadCount).
-    {
-      const params = matchRoute(pathname, "/api/topics/:id/read");
-      if (params && method === "POST") {
-        // ONE door for "I have seen this chat" (`server/subject-seen.ts`): the
-        // unread counter AND the notification rows, each announced only when
-        // it changed. The panel's seen goes through the same function, so the
-        // bell and the badges cannot tell two different stories.
-        const body = (await readJSON(req)) as { doneMark?: unknown } | null;
-        markTopicSeen({ loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll }, params.id, { doneMark: body?.doneMark === true });
-        // An alias of the seen door (`POST /api/attention/seen`) while the old
-        // client exists (design section 6, tasks.md 6.2): everything seen now.
-        markAttentionSeen([seenItemNow(topicSubject(params.id))]);
-        return json({ ok: true });
-      }
     }
 
     // Il ponte MCP del browser: sei rotte (`open-pane`, `close-pane`,
