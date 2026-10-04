@@ -264,6 +264,18 @@ describe("a dead turn (chat-error)", () => {
     expect(classifyTurnEnd({ ...DEAD, stopCause: "broker-died", error: "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge). Riprende da solo." }).resumes).toBe(true);
   });
 
+  test("every notice that promises the resume is no epoch: the rate limit and the cut the sweep resends (T10b)", () => {
+    const rateLimit = avvisoPerTurno({ end: "error", cause: "rate-limit" } as never, { haProdotto: true, riprendeDaSolo: true })!;
+    expect(classifyTurnEnd({ ...DEAD, stopCause: "rate-limit", error: rateLimit })).toMatchObject({ outcome: null, resumes: true });
+    const withHour = avvisoPerTurno({ end: "error", cause: "rate-limit", detail: "resets at 2026-10-04T12:00:00Z" } as never, { haProdotto: true })!;
+    expect(classifyTurnEnd({ ...DEAD, stopCause: "rate-limit", error: withHour }).resumes).toBe(true);
+    const watchdog = avvisoPerTurno({ end: "cancelled", cause: "watchdog" } as never, { haProdotto: true, riprendeDaSolo: true })!;
+    expect(classifyTurnEnd({ ...DEAD, stopReason: "cancelled", stopCause: "watchdog", error: watchdog })).toMatchObject({ outcome: null, resumes: true });
+    // The same cut without the promise asks the person: an error.
+    const asks = avvisoPerTurno({ end: "cancelled", cause: "watchdog" } as never, { haProdotto: true, riprendeDaSolo: false })!;
+    expect(classifyTurnEnd({ ...DEAD, stopReason: "cancelled", stopCause: "watchdog", error: asks }).outcome).toBe("error");
+  });
+
   test("the same outage on a wake is NOT muted: its notice asks the person", () => {
     for (const cause of ["api-unavailable", "broker-died"] as const) {
       const error = avvisoPerTurno({ end: "error", cause }, { haProdotto: true, riprendeDaSolo: false })!;

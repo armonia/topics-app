@@ -200,7 +200,7 @@ export function avvisoPerTurno(
   }
   const perche = cancelledNotice(info);
   if (!perche) return null;
-  if (opts.riprendeDaSolo) return `${perche} Riprendo da solo: non serve che tu faccia niente.`;
+  if (opts.riprendeDaSolo) return `${perche} ${RESUME_PROMISE_TAIL}`;
   return opts.haProdotto
     ? `${perche} Quello che era già arrivato resta qui sotto: se ti serve il resto, chiedilo con un nuovo messaggio.`
     : `${perche} «Riprova» rimanda il tuo messaggio.`;
@@ -358,6 +358,24 @@ export const BROKER_DIED_NOTICE = `${BROKER_DIED_OPENING} Riprende da solo.`;
  *  (`outageCutNotResent`). */
 export function outageNoticeResumes(text: string): boolean {
   return text === API_UNAVAILABLE_NOTICE || text === BROKER_DIED_NOTICE;
+}
+
+/** The tail `avvisoPerTurno` puts on a cut the sweep will resend (`riprendeDaSolo`). */
+const RESUME_PROMISE_TAIL = "Riprendo da solo: non serve che tu faccia niente.";
+
+/** The opening every rate-limit notice shares, with or without the hour (`rateLimitNotice`). */
+const RATE_LIMIT_OPENING = "⚠️ Turno interrotto: il limite di richieste dell'API";
+
+/**
+ * Does this notice promise that the system resumes the turn by itself? Every
+ * shape `avvisoPerTurno` writes when it does: an outage's resume notice, a
+ * rate limit (always resumed once the limit frees), and the tail of a cut the
+ * sweep resends. The attention state reads it (notifications-redesign, T10b):
+ * such a turn stays `working` with no epoch instead of turning red.
+ */
+export function noticePromisesResume(text: string): boolean {
+  const t = text.trim();
+  return outageNoticeResumes(t) || t.startsWith(RATE_LIMIT_OPENING) || t.endsWith(` ${RESUME_PROMISE_TAIL}`);
 }
 
 /**

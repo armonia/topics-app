@@ -9,7 +9,7 @@ import {
   type NotificationRecordInput,
 } from "../shared/notification-log";
 import { questionAsksHuman } from "../shared/board";
-import { outageNoticeResumes } from "./lib/cancelled-notice";
+import { noticePromisesResume } from "./lib/cancelled-notice";
 
 /**
  * WHAT A NEW EPOCH SAYS, AND WHAT A TURN END MEANS.
@@ -233,7 +233,7 @@ export function classifyTurnEnd(end: TurnEndFacts): { outcome: "done" | "error" 
   if (end.dispatched === true) return { outcome: null, resumes: false, detail: null };
   const errorText = typeof end.error === "string" ? end.error.trim() : "";
   if (end.reason === "error" && errorText) {
-    const resumes = end.stopCause === "server-shutdown" || outageNoticeResumes(errorText);
+    const resumes = end.stopCause === "server-shutdown" || noticePromisesResume(errorText);
     return { outcome: resumes ? null : "error", resumes, detail: errorText.replace(/^⚠️\s*/, "").slice(0, 200) };
   }
   // The clean end: marked complete, not a stop of the person, not the
