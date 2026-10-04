@@ -82,7 +82,7 @@ import { isTauriWindows } from '../lib/shell';
 import { createWantedEdge, panePollEnv } from '../lib/shell/windowFocus';
 import { useNativePanePause, type PauseState } from './useNativePanePause';
 import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
-import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
+import { attemptNativeOpen, settleOpenedView } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
 import { openLink } from '../lib/openLink';
 import { createPaneId } from '../state/pane/adapters';
@@ -186,6 +186,11 @@ function closeNativeView(id: string): Promise<unknown> {
   return closeRecordedNativeView(id, tauriInvoke);
 }
 
+/** Closes only if the view is still in THIS window: one moved to another is not ours (see `closeNativeView`). */
+function releaseNativeView(id: string): Promise<unknown> {
+  return closeRecordedNativeView(id, tauriInvoke, currentWindowLabel() ?? 'main');
+}
+
 /**
  * A RELOAD IS THE ONE UNMOUNT REACT NEVER RUNS, and these views survive it.
  *
@@ -206,7 +211,7 @@ onBeforeBundleReload(() => {
   // close it after the reload.
   for (const id of new Set([...browserViewRefs.keys(), ...movingNativeViews()])) {
     markBrowserViewDead(id);
-    void closeNativeView(id).catch(() => {});
+    void releaseNativeView(id).catch(() => {});
   }
 });
 
@@ -871,13 +876,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // login once on this switch (recoverable via browser_import_chrome /
     // browser_load_state). macOS 14+; degrades to the shared store on older.
     // A view whose close we just cancelled is ADOPTED below (`openOrAdopt`),
-    // without `browser_open`: its reuse branch in lib.rs would navigate it.
+    // without `browser_open`: no round trip (and an older shell would navigate).
     markBrowserViewLive(id);
-    const applyOpened = (adopted = false) => {
+    const applyOpened = (adopted = false, shownUrl?: string) => {
         openedRef.current = true;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
         // `browser_open` ha appena restituito può essere una view RIUSATA, e
-        // il suo ramo idempotente (lib.rs) fa solo navigate + set_bounds —
+        // il suo ramo idempotente (lib.rs) fa solo set_bounds —
         // non chiama mai `show()`. Se la ref dice già `true`, il primo
         // `setNativeVisible(true)` esce subito come no-op e la view resta
         // `setHidden:YES`: la pane si apre con la sua toolbar e sotto NIENTE.
@@ -916,7 +921,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // about:blank perché la porta è spenta: è l'indirizzo di questa scheda,
         // e farlo sparire la renderebbe anonima proprio nel momento in cui serve
         // sapere quale porta non risponde.
-        setUrl(wantedUrl === 'about:blank' ? '' : wantedUrl);
+        // A reused view shows ITS page; about:blank says nothing about the tab.
+        const barUrl = shownUrl && shownUrl !== 'about:blank' ? shownUrl : wantedUrl;
+        setUrl(barUrl === 'about:blank' ? '' : barUrl);
         // The flush is skipped while the pane is parked: `pendingRectRef` holds
         // the rect the cell had before it collapsed, and re-pushing it here
         // would put a freshly (re)created view back on screen over a cell that
@@ -940,7 +947,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // a posto lo stato; questa promessa non li sposta, li ASCOLTA — perché chi
     // RICREA una scheda morta è l'unico chiamante che deve sapere se sotto c'è
     // di nuovo una vista, prima di lasciar cadere il guasto.
-    const attemptOpen = (openUrl: string): Promise<boolean> => {
+    const attemptOpen = (openUrl: string, landOn = false): Promise<boolean> => {
       // The other door a url reaches the view from (first open, parked retry,
       // recreate). Stamped here and in `navigate` so the catch-up drain of the
       // did-fail queue can tell "we are still on this" from "we left long ago".
@@ -968,11 +975,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // a metà apertura: chi aspetta l'esito riceve un `false` invece di
           // restare appeso a una promessa che nessuno risolverà più.
           isCancelled: () => { if (!cancelled) return false; resolve(false); return true; },
-          onOpened: () => {
+          onOpened: (answer: unknown) => {
             // Closed while opening: the view is not this pane's to show, and it
             // has been closed already. The pane is going away with that close.
             if (!owned) { setLoading(false); resolve(false); return; }
-            applyOpened();
+            const opened = settleOpenedView(answer, openUrl, landOn);
+            if (opened.navigate) void paneInvoke('browser_navigate', { id, url: openUrl });
+            requestedUrlRef.current = opened.url;
+            applyOpened(false, opened.url);
             resolve(true);
           },
           onGaveUp: () => {
@@ -992,9 +1002,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // that has been declared dead gets rebuilt (`recreate` below), and how a
     // parked tab opens late. It used to be set only inside the gated branch, so
     // an ordinary https pane had no way back once its webview stopped answering.
-    openViewRef.current = (u: string) => (cancelled ? Promise.resolve(false) : attemptOpen(u));
-    // A live view is adopted, never re-opened: `browser_open` on it would
-    // navigate it whenever the persisted url is not the one we last asked for.
+    openViewRef.current = (u: string) => (cancelled ? Promise.resolve(false) : attemptOpen(u, true));
+    // A live view is adopted, never re-opened: no round trip, and an older
+    // shell's `browser_open` would navigate it.
     // Adopted on a microtask, where the open would have answered, so the effects
     // that follow see the same order of events in both cases.
     //
@@ -1014,13 +1024,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!gateLoopback) {
       openOrAdopt(wantedUrl);
     } else {
-      // La sonda PRIMA dell'apertura, non dopo: aprire su about:blank e navigare
-      // alla risposta farebbe lampeggiare bianca ogni pane su un server locale
-      // VIVO, a ogni rimontaggio (l'auto-split ne fa parecchi), e su una view
-      // RIUSATA butterebbe via la pagina che stava già mostrando —
-      // `browser_open` è idempotente e il suo ramo di riuso naviga. Costa un
-      // giro su loopback, che su una porta rifiutata è immediato: il timeout da
-      // 300ms riguarda una porta filtrata, cosa che in locale non capita.
+      // The probe goes BEFORE the open: opening on about:blank and navigating on
+      // the answer would flash every pane on a LIVE local server white at each
+      // remount, and throw away the page of a REUSED view. One loopback round
+      // trip, immediate on a refused port.
       void loopbackAlive(wantedUrl).then((alive) => {
         if (cancelled) return;
         if (!alive) {
@@ -1062,7 +1069,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // Re-checked when it runs: a remount may have re-retained the id.
       const closeUnheld = (): void => {
         if ((browserViewRefs.get(id) ?? 0) > 0) return;
-        void closeNativeView(id).catch(() => {});
+        void releaseNativeView(id).catch(() => {});
       };
       // A move in flight: the arriving pane adopts the view whenever it mounts,
       // so nothing is queued here. The close runs only if the move expires.

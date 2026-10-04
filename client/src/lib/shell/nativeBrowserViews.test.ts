@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import {
   NATIVE_VIEW_MOVE_TIMEOUT_MS,
   beginNativeViewMove,
+  beginNativeViewMovesToAnotherWindow,
   beginNativeViewOpen,
   cancelNativeViewMove,
   closeNativeView,
@@ -71,6 +72,33 @@ describe('nativeBrowserViews: a move is a handoff with a safety timeout', () => 
     jest.advanceTimersByTime(NATIVE_VIEW_MOVE_TIMEOUT_MS);
     expect(closed).toBe(0);
     forgetNativeView('m4');
+  });
+});
+
+describe('nativeBrowserViews: a page another window is about to take', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('a pop-out marks every open view as moving, and only those', () => {
+    let closed = 0;
+    settleNativeViewOpen(beginNativeViewOpen('w1'), () => Promise.resolve());
+    beginNativeViewMovesToAnotherWindow();
+    expect(deferCloseToMove('w1', () => { closed++; })).toBe(true);
+    // Let go while another window may take it: never adopted blind again.
+    expect(isNativeViewOpened('w1')).toBe(false);
+    expect(deferCloseToMove('w-never-opened', () => {})).toBe(false);
+    // Nobody took it in time: the parked close runs, as any move's does.
+    jest.advanceTimersByTime(NATIVE_VIEW_MOVE_TIMEOUT_MS);
+    expect(closed).toBe(1);
+    forgetNativeView('w1');
+  });
+
+  test('a release close names its window, a real close does not', async () => {
+    const args: Array<Record<string, unknown> | undefined> = [];
+    const invoke = (_cmd: string, a?: Record<string, unknown>) => { args.push(a); return Promise.resolve(); };
+    await closeNativeView('w2', invoke, 'main');
+    await closeNativeView('w3', invoke);
+    expect(args).toEqual([{ id: 'w2', hostWindow: 'main' }, { id: 'w3' }]);
   });
 });
 

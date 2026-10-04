@@ -53,12 +53,13 @@ export function namedByServer(rows: readonly ChatMessage[], key: string): boolea
  * queued state: the same message is never drawn twice.
  *
  * `mayBeStored`: the message left once under this key and the server may hold
- * it, while no row here carries the key (the history rows do not, and the
- * echo may have been lost with the socket). If the person's LAST row says
- * these very words and is the server's, nothing is drawn: it is most likely
- * this message, and the resend's answer settles it (`duplicate_message`, or
- * the echo of a new row). Without the key on the history rows, the text is
- * all there is to go on.
+ * it, while no row here carries the key (the echo may have been lost with the
+ * socket, and a history read that brought the row took the item off the queue,
+ * `dropStoredTurns`). If the person's LAST row says these very words, is the
+ * server's and carries NO key (stored before the key was written on the row),
+ * nothing is drawn: it is most likely this message, and the resend's answer
+ * settles it (`duplicate_message`, or the echo of a new row). A row with
+ * another key is another message, whatever its words.
  */
 export function placeOwnBubble(rows: ChatMessage[], bubble: ChatMessage & { clientMessageId: string }, reuseId?: string, mayBeStored = false): ChatMessage[] {
   const at = rows.findIndex((m) => m.role === 'user' && (m.clientMessageId === bubble.clientMessageId || (!!reuseId && m.id === reuseId)));

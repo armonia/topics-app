@@ -334,7 +334,7 @@ export function createAppContext(baseDir: string): AppContext {
               plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms,
               usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
               cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
-              author_device_id, end_reason
+              author_device_id, end_reason, client_message_id
        FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
     ),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
@@ -458,8 +458,8 @@ export function createAppContext(baseDir: string): AppContext {
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id, author_device_id, end_reason)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model, $author_person_id, $author_device_id, $end_reason)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id, author_device_id, end_reason, client_message_id)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model, $author_person_id, $author_device_id, $end_reason, $client_message_id)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET
@@ -846,6 +846,8 @@ export function createAppContext(baseDir: string): AppContext {
     // Idem: senza questa lettura il giro carica→salva perderebbe l'autore.
     if (row.author_person_id !== undefined && row.author_person_id !== null) msg.authorPersonId = row.author_person_id;
     if (row.author_device_id !== undefined && row.author_device_id !== null) msg.authorDeviceId = row.author_device_id;
+    // The send's key: how the window that sent this row recognises it in a history read.
+    if (row.client_message_id) msg.clientMessageId = row.client_message_id;
     return msg;
   }
 
@@ -871,6 +873,9 @@ export function createAppContext(baseDir: string): AppContext {
       $author_person_id: msg.authorPersonId ?? null,
       $author_device_id: msg.authorDeviceId ?? null,
       $end_reason: msg.endReason ?? null,
+      // Insert only (`updateMessage` has no such parameter): a session rewritten
+      // whole keeps the keys its rows were sent with, like their author.
+      $client_message_id: msg.clientMessageId ?? null,
       // `blocksForDisk` e non `JSON.stringify`: dentro un tool block, `result`
       // e `detail` portano spesso la STESSA stringa byte per byte, e quella
       // copia e' il 30% del payload misurato (shared/lean-tool-call.ts). Qui si
@@ -1651,6 +1656,8 @@ export function createAppContext(baseDir: string): AppContext {
      * the human never typed (`services/goal-loop.ts`).
      */
     blocks?: ContentBlock[],
+    /** The send's key (`clientMessageId`), on the person's row a send stored. Unique per session. */
+    clientMessageId?: string,
   ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     // Find the last message in the active thread to set as parent.
@@ -1666,6 +1673,7 @@ export function createAppContext(baseDir: string): AppContext {
       authorPersonId: autore?.authorPersonId ?? null,
       authorDeviceId: autore?.authorDeviceId ?? null,
       ...(blocks && blocks.length ? { blocks } : {}),
+      ...(clientMessageId ? { clientMessageId } : {}),
       // Written whole, in one go: a sub-agent's report, a notice, an answer.
       ...(role === "assistant" ? { endReason: "done" as const } : {}),
     };
