@@ -45,13 +45,20 @@ export interface UseDismissableOptions {
   /** false = aprendosi NON caccia gli altri popover. Per le sotto-superfici che
    *  devono convivere con quella che le ospita. Default true. */
   exclusive?: boolean;
+  /** Nodes where a press neither closes this popover nor is eaten, without
+   *  being part of it: the panel that HOSTS a level (the tab sheet). A press on
+   *  another row of the host is a choice made there, and the host decides what
+   *  it does; listed in `refs` instead they would make the host this popover's
+   *  own node, and the registry would read every sibling level as its child. */
+  hostRefs?: Array<React.RefObject<HTMLElement | null>>;
 }
 
-export function useDismissable({ open, onClose, refs, restoreFocus = true, exclusive = true }: UseDismissableOptions): void {
+export function useDismissable({ open, onClose, refs, restoreFocus = true, exclusive = true, hostRefs }: UseDismissableOptions): void {
   // Latest values without re-subscribing the document listeners each render.
   const onCloseRef = useRef(onClose);
   const refsRef = useRef(refs);
   const exclusiveRef = useRef(exclusive);
+  const hostRefsRef = useRef(hostRefs);
   // Mirror in an effect (NOT during render) so the react-hooks/refs rule holds:
   // both are read only inside the effects/handlers below, which run after this
   // mirror commits. Declared first so it wins the commit-order race against the
@@ -60,6 +67,7 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     onCloseRef.current = onClose;
     refsRef.current = refs;
     exclusiveRef.current = exclusive;
+    hostRefsRef.current = hostRefs;
   });
 
   // Element focused when the menu opened — the focus-restore target.
@@ -103,6 +111,8 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     const onPointer = (e: Event) => {
       const t = e.target as Node | null;
       if (t && inside(t)) return;
+      // The panel that hosts this level: see `hostRefs`.
+      if (t && hostRefsRef.current?.some((r) => !!r.current?.contains(t))) return;
       // Una SOTTO-SUPERFICIE dichiarata (`exclusive: false`) conta come dentro
       // per tutti: un menu al cursore aperto da una riga di questo pannello
       // vive in un portal su `<body>`, quindi geometricamente è «fuori» — e

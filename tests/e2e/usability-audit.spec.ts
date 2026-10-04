@@ -50,6 +50,8 @@
  * Runs in the `webkit` project: WebKit is the engine Topics ships.
  *
  * @covers UI-READ-01 CONTRAST-01 A11Y-01 GATE-14
+ * The browser group also measures the tab's sheet opened by the right click
+ * and its Tab level (TABSHEET-01), on both viewports.
  */
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
@@ -668,6 +670,25 @@ function groups(vp: Viewport) {
         await recorder.measure("browser pane (tab hovered)", ".content-flip-layer");
       });
     }
+    // THE TAB'S SHEET, opened by the right click (TABSHEET-01): the first level
+    // and one level beside it. On the phone the tab strip is the surface's
+    // title, which opens the same sheet from the bottom.
+    await recorder.step("tab sheet (right click)", async () => {
+      const tab = isPhone(vp) ? page.getByTestId("mobile-pane-title") : page.locator('[role="tab"][data-tab-extras]').first();
+      // A blank pane opens its sheet on the address by itself, and the focus
+      // is in the page's own field, which keeps its Escape: the right click on
+      // the tab is the door that closes it.
+      if (await page.getByTestId("tab-sheet").count()) {
+        await tab.click({ button: "right" });
+        await expect(page.getByTestId("tab-sheet")).toHaveCount(0);
+      }
+      await tab.click({ button: "right" });
+      await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 5_000 });
+      await recorder.measure("tab sheet", '[data-testid="tab-sheet"]');
+      await page.getByTestId("tab-sheet-level-tab").click();
+      await expect(page.getByTestId("tab-sheet-level-tab-menu")).toBeVisible({ timeout: 5_000 });
+      await recorder.measure("tab sheet, Tab level", '[data-testid="tab-sheet-level-tab-menu"]');
+    });
     recorder.assertClean();
   });
 }

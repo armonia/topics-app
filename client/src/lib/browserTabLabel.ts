@@ -14,7 +14,7 @@
  * purpose, and there are now two surfaces that answer it without touching the
  * label: the hover card (name on the first line, the whole address on the
  * second) and the SHEET that opens under the tab, address at the top
- * (`BrowserTabSheet`). Stealing the label to answer it made the tab you are
+ * (`TabSheet`). Stealing the label to answer it made the tab you are
  * working in the one tab in the bar that does not say what page it is, and it
  * made the label CHANGE under you every time focus moved.
  *

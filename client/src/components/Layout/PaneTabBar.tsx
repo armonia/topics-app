@@ -1,16 +1,15 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
-import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2, Search } from 'lucide-react';
+import { MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, isDraftPaneId, pinKeyForPane, sessionKeyForPaneId, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isDraftPaneId, pinKeyForPane, sessionKeyForPaneId, type PaneScope } from '../../state/pane/adapters';
 import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
-import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
-import { useCopyTabLink } from '../../hooks/useCopyTabLink';
-import { attentionFillFor, useTopicLoading } from '../../state/signals';
+import { getBrowserPaneUrl } from '../../state/pane/browserPaneUrl';
+import { attentionFillFor } from '../../state/signals';
 import { litTierOf, useAttentionRows } from '../../state/attention';
 import { projectAttention } from '../../state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../../shared/attention';
@@ -24,7 +23,6 @@ import { DND_TYPES, paneTabScopeType, dragMatchesScope, STANDALONE_SCOPE } from 
 import { dragLeftHost } from '../../lib/dragLeave';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile } from '../../hooks/useMobile';
-import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import type { ZoomScope } from './zoomScope';
 import { paneZoomActions } from '../../state/paneZoom';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -35,36 +33,21 @@ import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
-import { type AnchorRect } from '@/lib/popoverPosition';
-import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
-import { usePaneStore } from '../../state/pane/store';
-import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
-import { DEFAULT_SPACE_ID, SPACES_MAX } from '../../state/pane/types';
-import {
-  DEFAULT_SPACE_LABEL,
-  createSpaceId,
-  isDetachedWindow,
-  liveSpacesOrdered,
-  movePaneToSpace,
-  nextSpaceName,
-} from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
   BrowserTabIcon, BrowserTabMenuButton, BrowserTabCornerMark, BrowserTabTakeControl,
 } from '../Browser/BrowserTabChrome';
 import { useBrowserKindNames } from '../Browser/browserKindNames';
-import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
-import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
+import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
+import { prefetchTabSheet } from '../Shared/tabSheetLazy';
+import type { TabSheetActions } from '../Shared/tabSheetTypes';
+import { openTabSheet } from '../../state/tabSheet';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
-import { useToast } from '../Shared/Toast';
-import { restartTerminalSession } from '../../lib/terminalReload';
-import { renameTerminalSession } from '../../lib/terminalActions';
-import { hasFinder, openFind } from '../../state/findRegistry';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -95,7 +78,7 @@ const TAB_DRAG_SLOP_PX = 4;
  *
  * React bubbles events along the COMPONENT tree, not the DOM tree, so anything
  * portalled from inside a tab arrives at the tab's handlers even though it is
- * drawn in `<body>`. A browser tab portals its whole sheet (`BrowserTabSheet`):
+ * drawn in `<body>`. A browser tab portals its whole sheet (`TabSheet`):
  * a double click on the address field zoomed the pane (or pinned a preview
  * tab), a right click opened the TAB's menu instead of the field's, selecting
  * text and dragging it started a TAB drag, and a long press armed the tab menu.
@@ -322,7 +305,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
   // inglese finalmente dice qualcosa.
   const tr = useT();
-  const toast = useToast();
   /** The sessions Topics is holding stopped: one list for the whole bar. */
   const swapFreezes = useSwapFreezeViews();
   // Ridisegna quando arriva uno snapshot di consumo nuovo. Senza, il title
@@ -417,11 +399,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const dropConsumedRef = useRef(false);
 
   const { isTouch } = useMobile();
-  // «Un comando compare dove ha effetto»: sotto i 768px non ci sono split, e le
-  // tre voci che li governano — Dividi a destra, Dividi in basso, Reimposta
-  // pannelli — non facevano niente. Il gate è qui, sul menu, e non sui
-  // chiamanti: le callback restano quelle, cambia solo chi le mostra.
-  const splitLayoutAvailable = useSplitLayoutAvailable();
+  // «Un comando compare dove ha effetto» (no splits under 768px) is applied
+  // by the tab sheet, which reads the same gate (`TabSheetBody`).
 
   // Is the zoom command reachable from THIS tab?
   //
@@ -435,76 +414,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // single surviving cell (LAYOUT-40): live cells are down to one, so `canZoom`
   // is false, and without the OR the double click and both menu entries would
   // go dead on a zoom that is still on screen — while LAYOUT-40 requires the
-  // menu to offer "Riduci" the whole time the zoom is open.
+  // menu to offer "Riduci" the whole time the zoom is open. The tab sheet
+  // applies the same predicate to its Layout level.
   const zoomAvailableFor = (paneId: string): boolean =>
     !!onToggleZoom && (isZoomed || !!canZoom) && !isDraftPaneId(paneId);
-
-  // Context menu state. Si tiene il RETTANGOLO della tab, non un punto: la
-  // posizione va ricalcolata ogni volta che il pannello cambia altezza da sé
-  // (editor di rinomina aperto, sottomenu «Sposta nel gruppo» espanso), e per
-  // farlo serve l'ancora, non l'esito di un conto fatto una volta sola.
-  const [ctxMenu, setCtxMenu] = useState<{ paneId: string; anchor: AnchorRect } | null>(null);
-  // "Sposta nello Spazio →" inline submenu (expanded space list inside the
-  // context menu). Collapses whenever the menu re-opens on another tab.
-  const [spaceSubmenuOpen, setSpaceSubmenuOpen] = useState(false);
-  // Inline "Rinomina" editor for terminal tabs, expanded IN PLACE inside the
-  // context menu (mirrors the sidebar ContextMenu rename submenu). null = not
-  // editing; a string = the draft label. Collapses whenever the menu re-opens.
-  const [renameDraft, setRenameDraft] = useState<string | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
-  // Collapse both inline sub-editors whenever the context menu re-opens on
-  // another tab (or closes). Adjusting state DURING render on the prev-value
-  // change is React's idiomatic reset — one render, no effect round-trip — and
-  // keeps clear of react-hooks/set-state-in-effect.
-  const [ctxMenuForReset, setCtxMenuForReset] = useState(ctxMenu);
-  if (ctxMenu !== ctxMenuForReset) {
-    setCtxMenuForReset(ctxMenu);
-    setSpaceSubmenuOpen(false);
-    setRenameDraft(null);
-  }
-  useEffect(() => {
-    if (renameDraft !== null) {
-      // Defer focus so the input has mounted; select-all so a re-label is one keystroke.
-      const t = window.setTimeout(() => { renameInputRef.current?.focus(); renameInputRef.current?.select(); }, 30);
-      return () => window.clearTimeout(t);
-    }
-  }, [renameDraft]);
-
-  // Persist a terminal-tab rename via PATCH /api/terminal/sessions/:id (marks
-  // name_source='user' so the auto-namer leaves it alone) — mirrors the raw
-  // fetch the "Ricarica" entry uses. The server re-broadcasts the roster so the
-  // tab relabels without a local write.
-  const submitRename = useCallback((paneId: string, next: string) => {
-    const name = next.replace(/\s+/g, ' ').trim();
-    if (name) {
-      const pane = panes.find(p => p.id === paneId);
-      const sid = getTerminalSessionFromPaneId(paneId);
-      if (sid) {
-        // Terminal: PATCH the session name (name_source='user') — the server
-        // re-broadcasts the roster so the tab relabels without a local write.
-        // Which is exactly why a refusal has to be SAID: with no local write,
-        // a 404 or a dead network just leaves the old label there, and the
-        // editor has already closed on the line below.
-        renameTerminalSession(sid, name, toast, tr);
-      } else if (pane?.type === 'chat' && pane.topicId) {
-        // Chat: route through the host's canonical topic-update path.
-        onRenameChat?.(pane.topicId, name);
-      } else if (isBrowserPaneId(paneId)) {
-        // Browser: pin the tab title (titleSource='user') via the host.
-        onRenameBrowser?.(paneId, name);
-      }
-    }
-    setRenameDraft(null);
-    setCtxMenu(null);
-  }, [panes, onRenameChat, onRenameBrowser, toast, tr]);
-  // «Copia link»: costruzione + copia + toast stanno in un posto solo, condiviso
-  // con il menu del topic in sidebar e con la palette ⌘K (useCopyTabLink), così
-  // le tre superfici non possono dire parole diverse per lo stesso gesto.
-  const { copyTabLink, copyUrl } = useCopyTabLink();
-  // Registry read is cheap (identity-stable slice); only consulted when the
-  // context menu offers the move entry.
-  const spacesRegistry = usePaneStore((s) => s.spaces);
-  const showMoveToSpace = !!canMoveToSpace && !isDetachedWindow();
 
   // Auto-scroll the active tab into view when it changes. The FIRST positioning
   // (mount / reload) must be INSTANT — a tab bar that was already scrolled
@@ -551,35 +464,33 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     }
   }, [activePaneId]);
 
-  // Apre il menu della tab ANCORANDOLO alla tab. Una sola porta per il tasto
-  // destro e per il dito: il menu è lo stesso, e non può divergere.
-  const openTabMenu = useCallback((paneId: string, tabEl: HTMLElement) => {
-    const r = tabEl.getBoundingClientRect();
-    setCtxMenu({ paneId, anchor: { top: r.top, right: r.right, bottom: r.bottom, left: r.left } });
-  }, []);
-
-  // IL MENU SI MISURA, NON SI INDOVINA, e lo fa `ContextMenuPortal` con
-  // l'ancora della tab: misura il pannello vero, lo mette sotto la tab o sopra
-  // se sotto non ci sta, e lo rimette a posto quando cambia altezza da sé
-  // (editor di rinomina aperto, sottomenu «Sposta nel gruppo» espanso). Qui
-  // c'era una copia scritta a mano di tutto questo, senza il fuoco: il menu non
-  // lo prendeva (le frecce non lo percorrevano) e un tasto destro SUL menu
-  // apriva quello di sistema sopra il nostro.
-  // «Tieni premuto» = la primitiva condivisa (hooks/useLongPress). Qui c'era la
-  // copia locale del gesto: timer a 500ms, tolleranza ZERO su `onTouchMove` (un
-  // pixel di tremolio lo uccideva, quindi con un dito vero spesso non partiva) e
-  // nessun `onTouchCancel` (se il sistema si prendeva il tocco il timer restava
-  // armato e il menu si apriva dopo, da solo).
+  // A RIGHT CLICK, A LONG PRESS AND SHIFT+F10 OPEN THE TAB'S SHEET, from the
+  // commands door (TABSHEET-01): the same surface a click on an active browser
+  // tab opens, grown out of the tab, and no dropdown of its own. A right click
+  // on the tab whose sheet is open closes it: `TabSheet` sees that press first
+  // and drops the request this handler makes (`state/tabSheet`).
   //
-  // L'hook è UNO per tutta la barra — gli hook non possono stare dentro
-  // `panes.map` — quindi `pressed` da solo marcherebbe TUTTE le tab: la tab
-  // premuta si ricorda a parte, e il feedback visivo è l'intersezione dei due.
+  // The long press is the shared primitive (hooks/useLongPress), ONE for the
+  // whole bar because hooks cannot live inside `panes.map`: the pressed tab is
+  // remembered apart, and the visual feedback is the intersection of the two.
   const [pressingPaneId, setPressingPaneId] = useState<string | null>(null);
+  /** A press on a tab is under way: the focus it brings is not kept (see the tab's `onFocus`). */
+  const pointerOnTab = useRef(false);
+  /** The tab a press focused, to be let go of when the press ends. */
+  const focusedByPress = useRef<HTMLElement | null>(null);
+  // THE FOCUS A PRESS BROUGHT IS DROPPED WHEN THE PRESS ENDS, never while it is
+  // under way: a blur inside the focus event of the mousedown cancels the drag
+  // that press is starting, in WebKit and in Chromium alike (measured on this
+  // branch: `focusin`, `focusout`, then no `dragstart` at all). Only when the
+  // tab still holds it: a sheet opened by the same press has moved it already.
+  const releasePressFocus = useCallback(() => {
+    const tab = focusedByPress.current;
+    focusedByPress.current = null;
+    if (tab && document.activeElement === tab) tab.blur();
+  }, []);
   const tabLongPress = useLongPress(({ element }) => {
-    // L'ancora è la tab su cui è partito il gesto: la porta il callback, non
-    // serve una closure per riga.
     const paneId = element.dataset.paneId;
-    if (paneId) openTabMenu(paneId, element);
+    if (paneId) openTabSheet(paneId, 'commands');
   }, { enabled: isTouch });
 
   const handleContextMenu = useCallback((paneId: string) => (e: React.MouseEvent) => {
@@ -587,8 +498,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (!fromThisTab(e)) return;
     e.preventDefault();
     e.stopPropagation();
-    openTabMenu(paneId, e.currentTarget as HTMLElement);
-  }, [openTabMenu]);
+    openTabSheet(paneId, 'commands');
+  }, []);
+
+  // What every tab's sheet acts with: the callbacks this bar already receives
+  // from its host, nothing new (`TabSheetActions`).
+  const sheetActions = useMemo<TabSheetActions>(() => ({
+    panes, activePaneId, onActivate, onClose, onCloseImmediate, onCloseOthers, onSplitRight, onSplitDown,
+    onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser,
+    onSettings, onPopOut, onPopOutGroup, onStopStreaming, onToggleFissato, isFissato, projectPinKey,
+    nonClosablePaneIds, linkContext, onOpenPaneInProject, onDetach, onReattach,
+  }), [
+    panes, activePaneId, onActivate, onClose, onCloseImmediate, onCloseOthers, onSplitRight, onSplitDown,
+    onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser,
+    onSettings, onPopOut, onPopOutGroup, onStopStreaming, onToggleFissato, isFissato, projectPinKey,
+    nonClosablePaneIds, linkContext, onOpenPaneInProject, onDetach, onReattach,
+  ]);
 
   // L'ETICHETTA DI UNA TAB, UNA VOLTA SOLA. Il `title` non basta da solo: per
   // le utility è una copia congelata il giorno in cui la pane è nata (comanda
@@ -600,7 +525,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     const config = getPaneConfig(pane.type);
     // A BROWSER TAB WRITES THE PAGE TITLE, whether it is the active one or not.
     // The address is not on the label any more: it is on the hover card and in
-    // the sheet the tab opens under itself (`BrowserTabSheet`), so the tab
+    // the sheet the tab opens under itself (`TabSheet`), so the tab
     // you are working in says what page it is like every other tab in the bar.
     // The rule (and the why) lives in `lib/browserTabLabel`; here we only hand
     // it the pane's state.
@@ -1274,11 +1199,32 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // Tauri: a native browser pane (sibling WKWebView) can hold AppKit
             // first-responder; yank it back to the chrome on pointer-down so the
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
-            onPointerDown={() => releaseNativeFocus()}
+            onPointerDown={() => { pointerOnTab.current = true; releaseNativeFocus(); }}
+            onPointerUp={() => { pointerOnTab.current = false; releasePressFocus(); }}
+            // A finger the system took back. Not a mouse: a native drag starts
+            // with a `pointercancel` too, and its focus waits for `dragend`.
+            onPointerCancel={(e) => { if (e.pointerType !== 'touch') return; pointerOnTab.current = false; releasePressFocus(); }}
             // The sheet's body is a lazy chunk: warm it while the pointer is
             // on its way to the click, so the panel does not open empty.
-            onPointerEnter={pane.type === 'browser' ? prefetchBrowserTabSheet : undefined}
-            onFocus={pane.type === 'browser' ? prefetchBrowserTabSheet : undefined}
+            onPointerEnter={prefetchTabSheet}
+            onFocus={(e) => {
+              prefetchTabSheet();
+              // A TAB TAKES THE FOCUS FROM THE KEYBOARD, NOT FROM THE POINTER.
+              // It is focusable so Shift+F10 has a target and its sheet can give
+              // the focus back; a click focusing it too would light the bar's
+              // and the row's focus-within reveals (the «+», the X) and leave
+              // them on. After a press the focus goes where it went before the
+              // tab was focusable: nowhere in particular.
+              if (e.target === e.currentTarget && pointerOnTab.current) {
+                pointerOnTab.current = false;
+                focusedByPress.current = e.currentTarget;
+              }
+            }}
+            // The tab is the surface its sheet grows out of, and it takes the
+            // focus (out of the Tab order) so Shift+F10 and the return of the
+            // focus on close have somewhere to be.
+            {...{ [TAB_SHEET_ANCHOR_ATTR]: '' }}
+            tabIndex={-1}
             // No private clear here: the tab click only FOCUSES the pane, like a
             // click inside it, and the seen event of the focused pane clears its
             // marks on every surface (`useSeenFocusedPane`).
@@ -1328,7 +1274,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             draggable={!isTouch && !!onReorderPanes}
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
-            onDragEnd={handleTabDragEnd}
+            // A drag ends without a `pointerup`: its focus is let go here.
+            onDragEnd={(e) => { handleTabDragEnd(e); releasePressFocus(); }}
             // DOVE CADRÀ: la tab lo dice da sé, con l'attributo del contratto
             // (`lib/dragPreview`, DROP_ACTIVE_ATTR) invece di montarsi dentro
             // una lama disegnata a parte. Il disegno sta in `index.css` in una
@@ -1406,7 +1353,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               subjectId={pane.type === 'chat' ? pane.topicId : termSid}
               projectPath={pane.type === 'project' && !isSelected ? pane.projectPath : undefined}
               // CLICK THE LABEL AND THE TAB SHEET DROPS DOWN
-              // (`BrowserTabSheet`). Only on the tab you are already looking
+              // (`TabSheet`). Only on the tab you are already looking
               // at: the first click on another tab still means "bring me
               // there".
               onClick={pane.type === 'browser' && isFullyActive
@@ -1425,7 +1372,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 pane.type === 'browser' ? pane.id : null,
                 pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
-            >{pane.type === 'browser' ? <BrowserTabSheet paneId={pane.id} label={label} /> : label}</TabLabel>
+            >{label}</TabLabel>
+            <TabSheet
+              sheetKey={pane.id}
+              target={{ pane, label, surface: 'bar', focused: isFullyActive, actions: sheetActions }}
+            />
             {/* The browser's extra commands, on hover only and OVER the label's
                 tail (`.tab-extras`): take back control while an agent drives,
                 and the dots, which open the sheet, downloads and console
@@ -1540,566 +1491,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         </div>
       )}
 
-      {/* Right-click context menu, the shared cursor menu anchored to the tab (CTXMENU-01) */}
-      {ctxMenu && (
-        <ContextMenuPortal
-          open
-          x={ctxMenu.anchor.left}
-          y={ctxMenu.anchor.bottom}
-          anchor={ctxMenu.anchor}
-          onClose={() => setCtxMenu(null)}
-          minWidth={150}
-        >
-          {/* "Fissa" / "Rimuovi dai Fissati" — sidebar pinning parity for tabs.
-              Pin key = the sidebar-item id, resolved by the canonical
-              pinKeyForPane so every pinnable type (chat, terminal, browser,
-              project) is covered from one place — previously this was inlined
-              as chat|terminal only, which silently hid "Fissa" on browser tabs.
-              Returns undefined for non-pinnable panes → item hidden. Also hidden
-              when the host doesn't wire onToggleFissato (project tab bars). */}
-          {onToggleFissato && (() => {
-            const pane = panes.find(p => p.id === ctxMenu.paneId);
-            if (!pane) return null;
-            const tabKey = pinKeyForPane(pane);
-            /**
-             * DENTRO UN PROGETTO LE COSE FISSABILI SONO DUE, e finora il menu
-             * ne offriva zero.
-             *
-             * «Per le sotto-tab di un progetto dovremmo mettere fissa progetto
-             * e tab» (Attilio, 08/08). La voce singola diceva solo «Fissa» e —
-             * peggio — dentro una finestra di progetto non compariva affatto,
-             * perché l'ospite non cablava `onToggleFissato`: il commento
-             * precedente lo ammetteva («hidden … project tab bars»). Il
-             * risultato era che sulla tab di un progetto fissare era possibile
-             * solo trascinando, e sul telefono il drag HTML5 non esiste — cioè
-             * lì non era possibile affatto.
-             *
-             * Quando `projectPinKey` c'è, le due voci si nominano: fissare il
-             * PROGETTO (torna sempre sotto mano con tutte le sue tab) è una
-             * cosa diversa dal fissare QUESTA tab (che si riapre da sola,
-             * fuori dal progetto). Senza `projectPinKey` — barra di primo
-             * livello — resta la voce singola di prima, che lì non è ambigua.
-             */
-            const voci: { key: string; etichetta: string; pinned: boolean }[] = [];
-            if (projectPinKey) {
-              voci.push({ key: projectPinKey, etichetta: 'il progetto', pinned: isFissato?.(projectPinKey) ?? false });
-            }
-            // `tabKey !== projectPinKey`: la tab del progetto stesso, dentro la
-            // sua barra, sarebbe la stessa voce due volte.
-            if (tabKey && tabKey !== projectPinKey) {
-              voci.push({
-                key: tabKey,
-                etichetta: projectPinKey ? 'questa tab' : '',
-                pinned: isFissato?.(tabKey) ?? false,
-              });
-            }
-            if (voci.length === 0) return null;
-            return voci.map(({ key, etichetta, pinned }) => (
-              <button
-                key={key}
-                data-testid={`tab-menu-pin-${etichetta === 'il progetto' ? 'project' : 'tab'}`}
-                onClick={() => { onToggleFissato(key); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-              >
-                {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                <span className="flex-1 text-left">
-                  {pinned
-                    ? (etichetta ? `Togli ${etichetta} dai Fissati` : 'Rimuovi dai Fissati')
-                    : (etichetta ? `Fissa ${etichetta}` : 'Fissa')}
-                </span>
-              </button>
-            ));
-          })()}
-          {/* "Ricarica" — terminal panes only (pane id `terminal:<sessionId>`).
-              Restarts the session in place via POST /reload: claude/codex resume
-              via --resume (conversation preserved, same tab id), shell gets a fresh
-              PTY in the same cwd. Unsticks a wedged session (e.g. a claude CLI
-              latched on "Not logged in") without CLI surgery or an app restart. */}
-          {isTerminalPaneId(ctxMenu.paneId) && (
-            <button
-              onClick={() => {
-                const sid = getTerminalSessionFromPaneId(ctxMenu.paneId);
-                if (sid) {
-                  // Show a "Riavvio…" overlay over the pane during the  allow-italian: quoted UI string
-                  // kill→respawn gap (cleared on WS reconnect); safety-clear if
-                  // it never comes back.
-                  //
-                  // A REFUSAL IS NOT A WAIT. Before, the result of the POST was
-                  // thrown away — no check on `ok`, and a `.catch(() => {})`
-                  // that swallowed everything. But the server refuses in three
-                  // ways (409 if a reload is already under way, 404 if the
-                  // session is not there, 500 if the spawn fails:
-                  // `routes/terminal.ts`), and in all three the interface showed
-                  // «Riavvio…» for FIFTEEN SECONDS and then took it away  allow-italian: quoted UI string
-                  // in silence. That is exactly the shape of "it doesn't work,
-                  // or it hangs": it looks like it is working, and nothing is
-                  // happening. The 15s cap is the safety net for the case where
-                  // the reconnect never arrives, not the normal way of finding
-                  // out that it went wrong.
-                  restartTerminalSession(sid, toast, tr);
-                }
-                setCtxMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-              title={tr('tab.restartSession')}
-            >
-              <RotateCw size={14} />
-              <span className="flex-1 text-left">{tr('terminal.reload')}</span>
-            </button>
-          )}
-          {/* «Cerca»: the same bar as ⌘F, for whoever has no ⌘F (the phone,
-              FIND-04). Only on a pane that registered a finder. The tab is
-              activated first: a bar opened on a hidden pane is a bar nobody
-              sees. */}
-          {hasFinder(ctxMenu.paneId) && (
-            <button
-              data-testid="tab-menu-find"
-              onClick={() => {
-                const id = ctxMenu.paneId;
-                setCtxMenu(null);
-                if (id !== activePaneId) onActivate(id);
-                requestAnimationFrame(() => { openFind(id); });
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-            >
-              <Search size={14} />
-              <span className="flex-1 text-left">{tr('find.label')}</span>
-            </button>
-          )}
-          {/* "Rinomina" — inline editor (Enter saves, Esc cancels).  allow-italian: quoted UI string
-              Terminal tabs PATCH the session name (name_source='user'); chat
-              tabs route through the host's topic-update path; browser tabs pin
-              pane.title (titleSource='user'). The chat/browser entries hide
-              when the host doesn't wire the matching callback (e.g.
-              project-inner bars that don't thread onRenameChat). */}
-          {(() => {
-            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-            const canRename = isTerminalPaneId(ctxMenu.paneId)
-              || (ctxPane?.type === 'chat' && !!ctxPane.topicId && !!onRenameChat)
-              || (isBrowserPaneId(ctxMenu.paneId) && !!onRenameBrowser);
-            if (!canRename) return null;
-            return renameDraft === null ? (
-              <button
-                onClick={() => setRenameDraft(ctxPane?.title ?? '')}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                title={tr('tab.rename')}
-              >
-                <Edit3 size={14} />
-                <span className="flex-1 text-left">{tr('tab.menu.rename')}</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-2 px-3 py-2">
-                <Edit3 size={14} className="shrink-0 text-app-text-muted" />
-                <input
-                  ref={renameInputRef}
-                  value={renameDraft}
-                  onChange={(e) => setRenameDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Enter') submitRename(ctxMenu.paneId, renameDraft);
-                    else if (e.key === 'Escape') setRenameDraft(null);
-                  }}
-                  placeholder={tr('tab.newName')}
-                  maxLength={120}
-                  className="flex-1 min-w-0 bg-app-input border border-app-border rounded px-2 py-1 text-prose md:text-compact text-app-text focus:outline-none focus:border-primary"
-                />
-                <button
-                  onClick={() => submitRename(ctxMenu.paneId, renameDraft)}
-                  className="shrink-0 p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
-                  title={tr('common.save')}
-                  aria-label={tr('common.save')}
-                >
-                  <Check size={14} />
-                </button>
-              </div>
-            );
-          })()}
-          {/* «Copia link» — il permalink `/tab/…` di QUESTA tab.
-              Il gate è il `null` di `tabTargetForPane`: la voce compare solo se
-              la tab è davvero indirizzabile. Sono esclusi per costruzione i
-              pane il cui id è sorteggiato a ogni apertura (kanban, git, files,
-              log) e le pane SINTETICHE del drawer di un task — Thread (una chat
-              senza topicId), Piano, allegati — che non esistono nel pane-store
-              e non avrebbero niente da riaprire.
-              Su una tab BROWSER le voci sono due, perché le domande sono due:
-              «Copia link alla tab» dà l'indirizzo della tab dentro l'app,
-              «Copia URL della pagina» quello del sito che ci sta dentro.
-              Il feedback è un toast: il menu si chiude al click, quindi lo swap
-              d'icona alla TaskDetail non si vedrebbe mai. */}
-          {/* «Apri nel progetto». Sta PRIMA dei due «copia link» perché è
-              l'unico gesto di questo menu che sposta la scheda invece di
-              descriverla, e perché è quello che si cerca: prima viveva come
-              icona-mappamondo nella testata del drawer, senza nome scritto e
-              per TUTTE le tab insieme. Qui parla alla tab su cui hai premuto. */}
-          {onOpenPaneInProject && (() => {
-            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-            if (!ctxPane || ctxPane.type !== 'browser') return null;
-            const paneId = ctxMenu.paneId;
-            return (
-              <button
-                onClick={() => { onOpenPaneInProject(paneId); setCtxMenu(null); }}
-                data-testid="tab-menu-open-in-project"
-                title={tr('board.task.openTabInProjectTitle')}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-              >
-                <ArrowUpRight size={14} />
-                <span className="flex-1 text-left">{tr('board.task.openTabInProject')}</span>
-              </button>
-            );
-          })()}
-          {(() => {
-            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-            if (!ctxPane) return null;
-            const target = tabTargetForPane(ctxPane, linkContext);
-            // `pane.url` è la fonte per le pane di progetto e del drawer (non
-            // sono nel pane-store); `getBrowserPaneUrl` copre quelle di primo
-            // livello, che la barra standalone ricostruisce dai soli id.
-            const pageUrl = ctxPane.type === 'browser'
-              ? (isRealUrl(ctxPane.url) ? ctxPane.url : getBrowserPaneUrl(ctxPane.id))
-              : undefined;
-            if (!target && !pageUrl) return null;
-            return (
-              <>
-                {target && (
-                  <button
-                    onClick={() => { void copyTabLink(target); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                    title={tr('tab.copyLink')}
-                  >
-                    <Link2 size={14} />
-                    <span className="flex-1 text-left">{pageUrl ? 'Copia link alla tab' : 'Copia link'}</span>
-                  </button>
-                )}
-                {pageUrl && (
-                  <button
-                    onClick={() => { void copyUrl(pageUrl); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                    title={pageUrl}
-                  >
-                    <Globe size={14} />
-                    <span className="flex-1 text-left">{tr('tab.menu.copyUrl')}</span>
-                  </button>
-                )}
-              </>
-            );
-          })()}
-          {/* STOP THE TURN, and the row exists for the FINGER: in the tab's
-              trailing rail the stop is revealed by the pointer, and under
-              `hover: none` a command revealed by hover is a command that does
-              not exist. It sits BEFORE the close rows, which is the rail's own
-              order (`rowCommandSequence`). Only on a chat that is actually
-              working: a row with nothing to stop is a row you read and
-              discard. */}
-          {onStopStreaming && (() => {
-            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-            if (!ctxPane || ctxPane.type !== 'chat' || !ctxPane.topicId) return null;
-            const paneId = ctxMenu.paneId;
-            return (
-              <TabMenuStopItem
-                topicId={ctxPane.topicId}
-                onStop={() => { onStopStreaming(paneId); setCtxMenu(null); }}
-              />
-            );
-          })()}
-          {/* Right-click "Close" is the explicit-confirmation path — bypass
-              the PendingAction countdown that gates the default X button.
-              Falls back to onClose for legacy callers that don't pass
-              onCloseImmediate. Hidden for structurally-owned (non-closable)
-              panes, same as the tab X. */}
-          {!nonClosablePaneIds?.has(ctxMenu.paneId) && (
-            <>
-              <button
-                onClick={() => {
-                  (onCloseImmediate ?? onClose)(ctxMenu.paneId);
-                  setCtxMenu(null);
-                }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-              >
-                <X size={14} />
-                <span className="flex-1 text-left">{tr('tab.menu.closeNow')}</span>
-              </button>
-              <button
-                onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                title={tr('tab.closeCountdown')}
-              >
-                <X size={14} />
-                <span className="flex-1 text-left">{tr('tab.menu.closeCountdown')}</span>
-              </button>
-            </>
-          )}
-          {panes.length > 1 && (
-            <button
-              onClick={() => {
-                if (onCloseOthers) {
-                  onCloseOthers(ctxMenu.paneId);
-                } else {
-                  // Fallback: close all except the targeted pane
-                  panes.forEach(p => { if (p.id !== ctxMenu.paneId) onClose(p.id); });
-                }
-                setCtxMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-            >
-              <X size={14} />
-              <span>{tr('tab.menu.closeOthers')}</span>
-            </button>
-          )}
-          {/* The split section, which the zoom entries open. Its gate carries
-              the zoom on its own OR because the two are not the same offer:
-              `canSplitPane` turns the split entries off on a solo group of one
-              tab, and a surface can very well have several live cells there.
-              Nesting the zoom under the split gate would take the command away
-              on a layout that has plenty to collapse. */}
-          {(zoomAvailableFor(ctxMenu.paneId) || (splitLayoutAvailable && (onSplitRight || onSplitDown))) && (
-            <>
-              <div className="h-px bg-app-border my-1" />
-              {/* TWO entries to enter, ONE to leave (LAYOUT-40). Both stay on
-                  offer every time the command exists, the degraded case
-                  included, where they do the very same thing: dropping one
-                  exactly there would put the content of the menu back at the
-                  mercy of the derived set, which is the one collection nobody
-                  can see on screen. The only place the menu gets shorter is a
-                  zoom that is already open. */}
-              {zoomAvailableFor(ctxMenu.paneId) && (isZoomed ? (
-                <button
-                  onClick={() => { onToggleZoom?.(ctxMenu.paneId, 'derived'); setCtxMenu(null); }}
-                  data-testid="tab-menu-unzoom"
-                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                >
-                  <Minimize2 size={14} />
-                  <span>{tr('tab.menu.unzoom')}</span>
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => { onToggleZoom?.(ctxMenu.paneId, 'derived'); setCtxMenu(null); }}
-                    data-testid="tab-menu-zoom"
-                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    <Maximize2 size={14} />
-                    <span>{tr('tab.menu.zoom')}</span>
-                  </button>
-                  <button
-                    onClick={() => { onToggleZoom?.(ctxMenu.paneId, 'cell'); setCtxMenu(null); }}
-                    data-testid="tab-menu-zoom-cell"
-                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    <Maximize size={14} />
-                    <span>{tr('tab.menu.zoomCellOnly')}</span>
-                  </button>
-                </>
-              ))}
-              {splitLayoutAvailable && onSplitRight && (
-                <button
-                  onClick={() => { onSplitRight(ctxMenu.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                >
-                  <Columns2 size={14} />
-                  <span>{tr('tab.menu.splitRight')}</span>
-                </button>
-              )}
-              {splitLayoutAvailable && onSplitDown && (
-                <button
-                  onClick={() => { onSplitDown(ctxMenu.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                >
-                  <Rows2 size={14} />
-                  <span>{tr('tab.menu.splitDown')}</span>
-                </button>
-              )}
-            </>
-          )}
-          {/* Layout-actions section (divider owned here): "Reimposta pannelli"
-              first, then "Sposta nello Spazio →" (Spazi), then "Sposta in una
-              nuova finestra" (pop-out) — coherence ruling 3.2 order. */}
-          {(() => {
-            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-            const showPopOutHere = ctxPane?.type === 'chat' && !!onPopOut;
-            return ((onResetLayout && splitLayoutAvailable) || showMoveToSpace || showPopOutHere);
-          })() && (
-            <>
-              <div className="h-px bg-app-border my-1" />
-              {onResetLayout && splitLayoutAvailable && (
-                <button
-                  onClick={() => { onResetLayout(); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                  title={tr('tab.flattenSplits')}
-                >
-                  <LayoutGrid size={14} />
-                  <span className="flex-1 text-left">Reimposta pannelli</span>
-                </button>
-              )}
-              {showMoveToSpace && (() => {
-                // Read the AUTHORITATIVE store pane, not the `panes` prop: the
-                // latter is reconstructed from ids in StandaloneChatGroup and
-                // never copies `spaceId`, so resolvePaneSpace(ctxPane) always
-                // returned DEFAULT_SPACE_ID → the "Principale" row was ALWAYS
-                // disabled, so a pane in another Space could never be moved back
-                // to Principale ("non mi fa selezionare il progetto principale").
-                const ctxPane = usePaneStore.getState().panes[ctxMenu.paneId] ?? panes.find(p => p.id === ctxMenu.paneId);
-                const currentSpace = resolvePaneSpace(ctxPane, spacesRegistry);
-                const targets: { id: string; name: string }[] = [
-                  { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
-                  ...liveSpacesOrdered(spacesRegistry).map(s => ({ id: s.id, name: s.name || 'Gruppo' })),
-                ];
-                return (
-                  <>
-                    <button
-                      onClick={() => setSpaceSubmenuOpen(open => !open)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                      title={tr('tab.moveToGroup.hint')}
-                      aria-expanded={spaceSubmenuOpen}
-                    >
-                      <Layers size={14} />
-                      <span className="flex-1 text-left">{tr('tab.moveToGroup')}</span>
-                      <ChevronRight size={12} className={`text-app-text-muted transition-transform ${spaceSubmenuOpen ? 'rotate-90' : ''}`} />
-                    </button>
-                    {spaceSubmenuOpen && (
-                      <>
-                        {targets.map(target => {
-                          const isCurrent = target.id === currentSpace;
-                          return (
-                            <button
-                              key={target.id}
-                              disabled={isCurrent}
-                              onClick={() => {
-                                movePaneToSpace(ctxMenu.paneId, target.id);
-                                setCtxMenu(null);
-                              }}
-                              className={`w-full flex items-center gap-2 pl-8 pr-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg transition-colors ${
-                                isCurrent
-                                  ? 'text-app-text-muted cursor-default'
-                                  : 'text-app-text hover:bg-app-hover'
-                              }`}
-                            >
-                              <span className="flex-1 text-left truncate">{target.name}</span>
-                              {isCurrent && <Check size={12} className="text-app-text-muted" />}
-                            </button>
-                          );
-                        })}
-                        {liveSpaceCount(spacesRegistry) < SPACES_MAX && (
-                          <button
-                            onClick={() => {
-                              const id = createSpaceId();
-                              usePaneStore.getState().dispatch({
-                                type: 'SPACE_UPSERT',
-                                payload: { space: { id, name: nextSpaceName(spacesRegistry) } },
-                              });
-                              movePaneToSpace(ctxMenu.paneId, id);
-                              setCtxMenu(null);
-                            }}
-                            className="w-full flex items-center gap-2 pl-8 pr-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                          >
-                            <Plus size={12} />
-                            <span className="flex-1 text-left">{tr('tab.newGroup')}</span>
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </>
-                );
-              })()}
-              {(() => {
-                const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-                if (ctxPane?.type !== 'chat' || !onPopOut) return null;
-                return (
-                  <button
-                    onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                    title={tr('tab.popOut.hint')}
-                  >
-                    <ExternalLink size={14} />
-                    <span className="flex-1 text-left">{tr('tab.popOut')}</span>
-                  </button>
-                );
-              })()}
-              {onPopOutGroup && panes.length > 1 && (
-                <button
-                  onClick={() => { onPopOutGroup!(); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                  title={tr('tab.popOutGroup.hint')}
-                >
-                  <ExternalLink size={14} />
-                  <span className="flex-1 text-left">{tr('tab.popOutGroup')}</span>
-                </button>
-              )}
-            </>
-          )}
-          {onDetach && (
-            <>
-              <div className="h-px bg-app-border my-1" />
-              <button
-                onClick={() => { onDetach(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                title={tr('tab.splitOut.hint')}
-              >
-                <Columns2 size={14} />
-                <span>{tr('tab.splitOut')}</span>
-              </button>
-            </>
-          )}
-          {/* Inverse of Detach — a solo split cell's tab merging back into the
-              main pool. Distinct label + icon: the two directions used to share
-              one 'Detach' entry that meant the OPPOSITE thing per group kind. */}
-          {onReattach && (
-            <>
-              <div className="h-px bg-app-border my-1" />
-              <button
-                onClick={() => { onReattach(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                title={tr('tab.reattach.hint')}
-              >
-                <Combine size={14} />
-                <span>{tr('tab.reattach')}</span>
-              </button>
-            </>
-          )}
-          {(() => {
-            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
-            const isChat = ctxPane?.type === 'chat';
-            const showSettings = isChat && onSettings;
-            // Pop-out moved into the layout-actions section as "Sposta in una
-            // nuova finestra" (ruling 3.2) — this trailing section is now
-            // Settings only.
-            if (!showSettings) return null;
-            return (
-              <>
-                <div className="h-px bg-app-border my-1" />
-                <button
-                  onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-                >
-                  <Settings size={14} />
-                  <span>{tr('chat.panel.topicSettings')}</span>
-                </button>
-              </>
-            );
-          })()}
-        </ContextMenuPortal>
-      )}
     </div>
-  );
-}
-
-/**
- * The tab menu's stop-the-turn row. A component and not an inline branch
- * because deciding whether to show it means asking `useTopicLoading`, and a
- * hook cannot run inside the menu's render expression.
- */
-function TabMenuStopItem({ topicId, onStop }: { topicId: string; onStop: () => void }) {
-  const tr = useT();
-  const streaming = useTopicLoading(topicId);
-  if (!streaming) return null;
-  return (
-    <button
-      onClick={onStop}
-      data-testid="tab-menu-stop"
-      className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-    >
-      <SquareIcon size={14} />
-      <span className="flex-1 text-left">{tr('tab.menu.stopTurn')}</span>
-    </button>
   );
 }
 

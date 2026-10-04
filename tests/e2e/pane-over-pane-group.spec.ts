@@ -28,6 +28,7 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, closeAllBrowserContexts } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { chooseInTabSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -202,11 +203,10 @@ test.describe("Una pane sopra un'altra pane fa un gruppo", () => {
       .poll(async () => (await celle(page)).find((c) => c.includes(b2)) ?? [], { timeout: 8000 })
       .toEqual([b2, b1]);
 
-    // Il gesto inverso, dal menu della tab: la tab esce e si ripiglia una cella.
+    // The opposite gesture, from the tab's sheet: the tab leaves and takes a cell back.
     await didascalia(page, "E adesso una tab ESCE dal gruppo");
     await battuta(page, 1400);
-    await page.locator(`[role="main"] [data-pane-id="${b1}"]`).first().click({ button: "right" });
-    await page.getByText("Dividi a destra", { exact: true }).click();
+    await chooseInTabSheet(page, page.locator(`[role="main"] [data-pane-id="${b1}"]`).first(), "Dividi a destra");
 
     await expect
       .poll(async () => {

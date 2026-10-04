@@ -6,7 +6,7 @@
  * static import of the window would have carried `RemoteBrowserPanel`, the
  * native placeholder and the whole per-topic store in with it, on a budget
  * (`check:bundle`, entry_eager gz) that is already a few hundred bytes from its
- * ceiling. Same cut, same reasoning as `browserTabSheetLazy.ts`.
+ * ceiling. Same cut, same reasoning as `tabSheetLazy.ts`.
  *
  * So the eager side keeps only what it needs to DECIDE: does this topic have a
  * window, in which mode, how wide. That is `useTopicBrowserPresence`, and it is

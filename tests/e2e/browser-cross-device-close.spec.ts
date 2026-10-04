@@ -100,7 +100,7 @@ test.describe("Cross-device browser tab close (tombstone eviction)", () => {
       await expect(browserB).toHaveAttribute("data-active", "false", { timeout: 15000 });
       await browserB.getByTestId("pane-tab-label").click();
       await expect(browserB).toHaveAttribute("data-active", "true", { timeout: 15000 });
-      const sheetB = dev.pageB.getByTestId("browser-tab-sheet");
+      const sheetB = dev.pageB.getByTestId("tab-sheet");
       await expect(sheetB, "the blank pane opened its sheet on device B").toBeVisible({ timeout: 30000 });
 
       await closeTabViaX(dev.pageA, closePane);

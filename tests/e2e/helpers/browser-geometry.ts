@@ -108,9 +108,10 @@ export interface OverlayOffender {
  *    mirror): it is not over the page, it IS the page;
  *  - `browser-nav-error`: a failed navigation reported where the page would be,
  *    cleared by the next navigation — the alternative was reporting it nowhere;
- *  - `browser-tab-sheet`: portalled to the body and covering on purpose, only
- *    while it is open, and the pane parks its page behind a still for exactly
- *    that reason;
+ *  - `tab-sheet`, and the levels it opens beside itself
+ *    (`tab-sheet-level-*-menu`, TABSHEET-02): portalled to the body and
+ *    covering on purpose, only while open, and the pane parks its page behind
+ *    a still for exactly that reason;
  *  - `browser-dom-select-mode`: the temporary, user-armed element-select mode,
  *    which the requirement admits in so many words:
  *    «uno stato temporaneo attivato dall'utente ... resta ammesso finché la modalità è attiva» (allow-italian: the requirement is quoted verbatim).
@@ -142,7 +143,8 @@ export async function elementsOverThePage(page: Page): Promise<OverlayOffender[]
       '[data-testid="browser-dom-cobrowse"]', // the rrweb mirror: it IS the page
       '[data-testid="browser-webrtc-video"]', // the pixel stream: it IS the page
       '[data-testid="browser-nav-error"]',    // a failed goto, reported in place
-      '[data-testid="browser-tab-sheet"]',    // portalled, covers on purpose
+      '[data-testid="tab-sheet"]',            // portalled, covers on purpose
+      '[data-testid^="tab-sheet-level-"]',    // a level of the sheet, beside it
       '[data-testid="browser-dom-select-mode"]', // temporary, user-armed mode
     ].join(",");
 

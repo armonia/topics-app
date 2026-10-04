@@ -8,6 +8,7 @@ import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectPanesKey } from "../../shared/project-keys";
 import { addPaneInProject, openProjectFromSidebar, projectWindow } from "./helpers/project-window";
 import { randomUUID } from "crypto";
+import { findInTabSheet, findRowInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -350,14 +351,11 @@ test.describe("Project Tabs", () => {
     const tabs = projectBars.first().locator('[draggable="true"]');
     if ((await tabs.count()) >= 2) {
       await tabs.first().click({ button: "right" });
-      const menu = page.locator('[role="menu"]').first();
-      await expect(menu).toBeVisible({ timeout: 5000 });
-      const splitBtn = menu
-        .locator("button")
-        .filter({ hasText: /Dividi a destra/ })
-        .first();
+      // The split commands are in the Layout level of the tab's sheet.
+      const found = await findRowInTabSheet(page, "Dividi a destra");
+      const splitBtn = found ?? page.getByText("Dividi a destra", { exact: true });
 
-      if ((await splitBtn.count()) > 0) {
+      if (found) {
         await splitBtn.click();
 
         // Wait for split to render — a SECOND project-internal group bar.
@@ -779,6 +777,8 @@ test.describe("Project Tabs", () => {
     const tab = tabBar.locator('[data-testid^="pane-tab-"]').first();
     await expect(tab).toBeVisible({ timeout: 10000 });
     await tab.click({ button: "right" });
+    // The pins live in the Tab level of the sheet (TABSHEET-03).
+    await findInTabSheet(page, "tab-menu-pin-project");
 
     // Due voci DISTINTE, non una: il progetto torna sotto mano con tutte le sue
     // tab, la tab si riapre da sola e fuori dal progetto. Chiamarle nello stesso

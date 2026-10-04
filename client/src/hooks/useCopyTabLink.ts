@@ -24,8 +24,6 @@ import type { TabTarget } from '../../../shared/tab-link';
 
 /** Copiato: il permalink di una tab. */
 export const TAB_LINK_COPIED = 'Link copiato';
-/** Copiato: la URL della pagina aperta in una pane browser. */
-export const PAGE_URL_COPIED = 'URL copiato';
 /** La clipboard non c'è o l'ha negata il browser (HTTP in LAN, webview). */
 export const COPY_FAILED = 'Copia non riuscita';
 /** Il target non è indirizzabile: non dovrebbe accadere (ogni voce è gated sul
@@ -35,8 +33,6 @@ export const LINK_UNAVAILABLE = 'Questa tab non ha un link';
 export interface CopyTabLink {
   /** Costruisce il permalink del target e lo copia. */
   copyTabLink: (target: TabTarget | null | undefined) => Promise<void>;
-  /** Copia una URL già pronta (la pagina di una pane browser). */
-  copyUrl: (url: string | null | undefined) => Promise<void>;
 }
 
 export function useCopyTabLink(): CopyTabLink {
@@ -57,11 +53,5 @@ export function useCopyTabLink(): CopyTabLink {
     else toast.warning(COPY_FAILED);
   }, [toast]);
 
-  const copyUrl = useCallback(async (url: string | null | undefined) => {
-    if (!url) { toast.warning(LINK_UNAVAILABLE); return; }
-    if (await copyText(url)) toast.success(PAGE_URL_COPIED);
-    else toast.warning(COPY_FAILED);
-  }, [toast]);
-
-  return useMemo(() => ({ copyTabLink, copyUrl }), [copyTabLink, copyUrl]);
+  return useMemo(() => ({ copyTabLink }), [copyTabLink]);
 }

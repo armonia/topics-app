@@ -31,6 +31,11 @@ const ITEM_SELECTOR =
   // reached through the control, never by the arrows of the menu.
   + 'button:not([disabled]):not([data-roving-skip]):not([role="radio"][aria-checked="false"])';
 
+/** The first row the arrows would reach in `panel`, or null when it has none. */
+export function firstMenuItem(panel: HTMLElement): HTMLElement | null {
+  return panel.querySelector<HTMLElement>(ITEM_SELECTOR);
+}
+
 /** L'attributo che una riga usa per dichiarare la propria lettera. */
 export const MNEMONIC_ATTR = 'data-mnemonic';
 

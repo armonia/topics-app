@@ -20,7 +20,7 @@
  * fuori o col suo bottone. Passa dalla primitiva `Menu`, che è anche ciò che lo
  * fa comparire SOPRA la webview nativa.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Download, Check, X as XIcon, FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
@@ -100,18 +100,32 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
   // Same adjust-during-render rule for the "open it now" request from the tab
   // menu: a bump opens, a reset (new pane identity) only re-syncs.
   //
-  // FROM ZERO, NOT FROM WHAT IT ALREADY IS. A request can be older than this
-  // component: a download arriving while the toolbar is hidden reveals the row
-  // and asks for the list in the SAME render, so this menu first draws with the
-  // counter already raised. Starting the comparison at the current value made
-  // that request unobservable - the button appeared, the list stayed shut - and
-  // it is precisely the case the feature exists for. Zero is also the value a
-  // pane resets to, so a genuinely fresh mount still opens nothing.
-  const [seenRequest, setSeenRequest] = useState(0);
+  // A request can be older than this component: the downloads cue opens the
+  // sheet and asks for the list in the SAME render, so this menu first draws
+  // with the counter already raised. Ignoring that value made the request
+  // unobservable - the row appeared, the list stayed shut - and it is precisely
+  // the case the feature exists for. Zero is the value a pane resets to, so a
+  // genuinely fresh mount still opens nothing.
+  //
+  // A REQUEST OLDER THAN THIS COMPONENT OPENS ONE TASK LATER, as a click would
+  // (the rule of `SubmenuItem`'s `defaultOpen`). Drawn inside a level of the tab
+  // sheet, this list mounts in the SAME commit as the level that holds it, and
+  // its effects run before the level's: opened in that commit it registers as a
+  // popover while its level is not registered yet, so the registry cannot see
+  // that the sheet holds it, and the sheet is evicted with the list on its way
+  // up (the downloads cue opened nothing). A bump that arrives later still
+  // opens in the render that sees it.
+  const [mountRequest] = useState(requestOpen);
+  const [seenRequest, setSeenRequest] = useState(mountRequest);
   if (requestOpen !== seenRequest) {
     setSeenRequest(requestOpen);
     if (requestOpen > seenRequest) setWanted(true);
   }
+  useEffect(() => {
+    if (mountRequest <= 0) return;
+    const timer = setTimeout(() => setWanted(true), 0);
+    return () => clearTimeout(timer);
+  }, [mountRequest]);
 
   if (items.length === 0) return null;
 

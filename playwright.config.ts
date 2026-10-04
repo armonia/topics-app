@@ -607,6 +607,9 @@ export default defineConfig({
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.
         "**/chat-goal.spec.ts",
+        // The tab sheet grows out of its tab: the seam, the shared fill and the
+        // levels beside it are painted and focused by the engine that ships.
+        "**/tab-sheet.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",

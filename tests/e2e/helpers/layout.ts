@@ -76,7 +76,7 @@ export async function collapseSidebarSections(page: Page): Promise<void> {
 
 /**
  * Right-click the tab at `tabIndex` (default: first) and pick "Dividi a destra"/
- * "Dividi in basso" from its context menu.
+ * "Dividi in basso" from the Layout level of its sheet.
  *
  * The wait afterwards is CONDITIONAL, not a sleep: a split always carves one
  * cell into two, and every cell owns a tab bar, so the tab-bar count is the
@@ -98,9 +98,14 @@ export async function splitViaContextMenu(
 
   const tab = page.locator('[role="main"] [draggable="true"]').nth(tabIndex);
   await expect(tab).toBeVisible({ timeout: 5000 });
+  // The split commands live in the Layout level of the tab's sheet (TABSHEET-03).
   await tab.click({ button: "right" });
+  await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 3000 });
+  await page.getByTestId("tab-sheet-level-layout").click();
+  const level = page.getByTestId("tab-sheet-level-layout-menu");
+  await expect(level).toBeVisible({ timeout: 3000 });
 
-  const splitBtn = page.getByText(direction, { exact: true });
+  const splitBtn = level.getByText(direction, { exact: true });
   await expect(splitBtn).toBeVisible({ timeout: 3000 });
   await splitBtn.click();
 

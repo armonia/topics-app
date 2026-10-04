@@ -17,6 +17,7 @@ import {
 import { getVisibleTabLabels } from "./helpers/layout";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { chooseInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -250,18 +251,12 @@ test.describe("PanelGrid: resize works after split", () => {
       .poll(() => countTabs(page), { timeout: 10000 })
       .toBeGreaterThanOrEqual(2);
 
-    // Split the first tab to the right via context menu
+    // Split the first tab to the right via the tab's sheet
     const firstTab = page.locator('[role="main"] [draggable="true"]').first();
     await expect(firstTab).toBeVisible({ timeout: 5000 });
-    await firstTab.click({ button: "right" });
-
-    // Pane context menu moved from a `.z-[9999]` class to an inline zIndex +
-    // role="menu" (PaneTabBar.tsx). Target the menu role.
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible({ timeout: 3000 });
-    const splitBtn = menu.getByText("Dividi a destra", { exact: true });
-    await expect(splitBtn).toBeVisible({ timeout: 3000 });
-    await splitBtn.click();
+    // The tab's right click opens its sheet (TABSHEET-01), and the split is a
+    // row of it, on the first level or in its Layout level.
+    await chooseInTabSheet(page, firstTab, "Dividi a destra");
 
     // Wait for split to create multiple tab bars (one per solo panel group)
     await expect

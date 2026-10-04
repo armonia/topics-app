@@ -19,6 +19,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { projectPanesKey } from "../../shared/project-keys";
 import { removeTmpDir } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { findRowInTabSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -146,7 +147,8 @@ function overlaps(a: { x: number; y: number; width: number; height: number }, b:
 async function splitTabRight(page: Page, tab: Locator): Promise<void> {
   await expect(tab).toBeVisible({ timeout: 15000 });
   await tab.click({ button: "right" });
-  const item = page.getByText("Dividi a destra", { exact: true });
+  // The split commands are in the Layout level of the tab's sheet.
+  const item = (await findRowInTabSheet(page, "Dividi a destra")) ?? page.getByText("Dividi a destra", { exact: true });
   await expect(item).toBeVisible({ timeout: 5000 });
   await item.click();
 }
@@ -686,7 +688,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       const label = paneTab.getByTestId("pane-tab-label").first();
       await expect(label).toHaveClass(/cursor-text/, { timeout: 10000 });
       await label.click();
-      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10000 });
       await page.getByTestId("browser-tab-return-to-window").click();
 
       // Same contextId back in the window, and gone from the layout: one page,

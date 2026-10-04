@@ -22,6 +22,7 @@ import {
   navigateAndOpenTerminal,
 } from "./helpers/terminal-workspace";
 import { hermetic } from "./fixtures/hermetic";
+import { revealInTabSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -59,7 +60,8 @@ test.describe.serial("Rinomina di una tab terminale · il rifiuto si vede", () =
     });
 
     await tab.click({ button: "right" });
-    const renameItem = page.getByTitle("Rinomina questa scheda");
+    // The rename row lives in the Tab level of the tab's sheet (TABSHEET-03).
+    const renameItem = await revealInTabSheet(page, "tab-sheet-rename");
     await expect(renameItem).toBeVisible({ timeout: 3_000 });
     await renameItem.click();
 

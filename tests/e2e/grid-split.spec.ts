@@ -14,6 +14,7 @@ import {
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpRoot } from "./helpers/file-project";
 import { join } from "path";
+import { closeTabSheet, findRowInTabSheet, openSheetLevel } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -725,9 +726,8 @@ test.describe("Grid Split System", () => {
       await expect(tab).toBeVisible({ timeout: 5000 });
       await tab.click({ button: 'right' });
 
-      // Wait for context menu
-      const ctxMenu = page.getByRole('menu').last();
-      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
+      // The split commands are in the Layout level of the tab's sheet.
+      const ctxMenu = await openSheetLevel(page, 'layout');
 
       // Verify both split options are present
       await expect(ctxMenu.getByText('Dividi a destra')).toBeVisible();
@@ -775,7 +775,7 @@ test.describe("Grid Split System", () => {
       // Right-click a tab → "Reimposta pannelli" is offered on a nested layout.
       const tab = page.locator('[role="main"] [draggable="true"]').first();
       await tab.click({ button: 'right' });
-      const resetBtn = page.getByText('Reimposta pannelli', { exact: true });
+      const resetBtn = (await openSheetLevel(page, 'layout')).getByText('Reimposta pannelli', { exact: true });
       await expect(resetBtn, 'nested layout must offer Reimposta pannelli').toBeVisible({ timeout: 3000 });
       await resetBtn.click();
 
@@ -815,10 +815,8 @@ test.describe("Grid Split System", () => {
       // Already flat → the menu entry is hidden.
       const tabAfter = page.locator('[role="main"] [draggable="true"]').first();
       await tabAfter.click({ button: 'right' });
-      const ctxMenu = page.getByRole('menu').last();
-      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
-      await expect(ctxMenu.getByText('Reimposta pannelli', { exact: true }), 'menu entry must hide on a flat layout').toHaveCount(0);
-      await page.keyboard.press('Escape');
+      expect(await findRowInTabSheet(page, 'Reimposta pannelli'), 'menu entry must hide on a flat layout').toBeNull();
+      await closeTabSheet(page);
     });
 
     test("GRID-GROUP: dropping a sidebar topic onto a pane opens & groups it (raggruppa da sidebar)", async ({ page, request }) => {
@@ -871,8 +869,7 @@ test.describe("Grid Split System", () => {
         timeout: 10_000,
       });
       await tab.click({ button: 'right' });
-      const ctxMenu = page.getByRole('menu').last();
-      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
+      const ctxMenu = await openSheetLevel(page, 'layout');
       const splitDown = ctxMenu.getByText('Dividi in basso', { exact: true });
       await expect(
         splitDown,
@@ -906,7 +903,7 @@ test.describe("Grid Split System", () => {
       // Flatten from any project tab's context menu.
       const anyTab = page.locator('[role="main"] [draggable="true"]').first();
       await anyTab.click({ button: 'right' });
-      const resetBtn = page.getByText('Reimposta pannelli', { exact: true });
+      const resetBtn = (await openSheetLevel(page, 'layout')).getByText('Reimposta pannelli', { exact: true });
       await expect(resetBtn, 'project window with a stack must offer Reimposta pannelli').toBeVisible({ timeout: 3000 });
       await resetBtn.click();
 

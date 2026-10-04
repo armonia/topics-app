@@ -22,7 +22,7 @@
  *  - `BrowserTabTakeControl`: while an agent drives, "take back control", a
  *    command of its own beside the dots, clear of Reload.
  *  - `BrowserTabMenuButton`: the three dots, which OPEN THE TAB SHEET
- *    (`BrowserTabSheet`) where everything else lives in plain sight, and the
+ *    (`TabSheet`) where everything else lives in plain sight, and the
  *    downloads with it.
  *
  * Both read the pane's live state from `state/browserPaneChrome`, which the

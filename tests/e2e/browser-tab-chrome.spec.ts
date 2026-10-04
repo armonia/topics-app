@@ -23,7 +23,7 @@
  *
  * Under `E2E_CLIP=1` the same path also records the delivery clip (helpers/clip).
  *
- * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01 @covers BROWSER-CHROME-HYDRATE-01b @covers BROWSER-CHROME-INLINE-01
+ * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01 @covers BROWSER-CHROME-HYDRATE-01b @covers BROWSER-CHROME-INLINE-01 @covers TABSHEET-01
  */
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "http";
@@ -429,7 +429,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // (b) The click on the tab you are ALREADY in opens the dropdown, seeded
     //     with the address, and the label is still there underneath.
     await tab.getByTestId("pane-tab-label").click();
-    const dropdown = page.getByTestId("browser-tab-sheet");
+    const dropdown = page.getByTestId("tab-sheet");
     await expect(dropdown, "the dropdown opens under the tab").toBeVisible({ timeout: 10_000 });
     await expect(tab, "the label is not replaced by the field").toContainText(label);
     const editor = page.getByTestId("browser-tab-address-input");
@@ -592,7 +592,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
           //    it, seeded with the address, and the label goes on naming the
           //    page: it is never replaced by the field.
           await tab.getByTestId("pane-tab-label").click();
-          const dropdown = page.getByTestId("browser-tab-sheet");
+          const dropdown = page.getByTestId("tab-sheet");
           await expect(dropdown).toBeVisible({ timeout: 15_000 });
           await expect(page.getByTestId("browser-tab-address-input")).toHaveValue(`${origin}/rapporto`);
           await expect(tab, "the label is not replaced by the field").toContainText(/Rapporto/);
@@ -652,13 +652,13 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // Park the focus somewhere else, so the browser tab is the one you are NOT in.
     await dashboardTab.click();
     await expect(browserTab).toHaveAttribute("data-active", "false", { timeout: 15_000 });
-    await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0);
+    await expect(page.getByTestId("tab-sheet")).toHaveCount(0);
 
     // The first click brings you there, and only that.
     await browserTab.getByTestId("pane-tab-label").click();
     await expect(browserTab).toHaveAttribute("data-active", "true", { timeout: 15_000 });
     await expect(
-      page.getByTestId("browser-tab-sheet"),
+      page.getByTestId("tab-sheet"),
       "reaching a tab must not open its address",
     ).toHaveCount(0);
 
@@ -672,7 +672,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // up. Measured: one run in two red here without it, green on retry.
     await expect(page.locator(`[data-browser-pane="${ctx}"]`)).toBeVisible({ timeout: 30_000 });
     await browserTab.getByTestId("pane-tab-label").click();
-    await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 15_000 });
   });
 
   /**
@@ -709,7 +709,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // In the app's language: the e2e project runs `it-IT`, and a fresh settings
     // row follows the browser locale.
     await expect(tab).toContainText(/New tab|Nuova scheda/, { timeout: 30_000 });
-    await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 30_000 });
     // The pane's ONLY address field is the one in the dropdown.
     await expectNoRowAboveThePage(page, "a blank pane has no row above its page");
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
@@ -819,7 +819,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await mountPane(page, topic.id, `${origin}/rapporto`);
     const tab = tabDelBrowser(page);
     await expect(tab).toContainText(label, { timeout: 60_000 });
-    const sheet = page.getByTestId("browser-tab-sheet");
+    const sheet = page.getByTestId("tab-sheet");
     const address = page.getByTestId("browser-tab-address-input");
 
     // 0. THE PAGE IS LOADED, IN A FRAME. Opened on a loopback address, the pane
@@ -918,6 +918,20 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await address.click({ button: "right" });
     await expect(page.getByRole("menu"), "the tab's menu does not open from inside the sheet").toHaveCount(menusBefore);
     await expect(sheet).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+
+    // 7. THE RIGHT CLICK ON THE TAB OPENS THE SAME SHEET (TABSHEET-01), from
+    //    the commands door: the address is there without the caret, and no
+    //    other panel of commands opens with it - the old dropdown is gone.
+    await tab.click({ button: "right" });
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    await expect(sheet).toHaveAttribute("data-door", "commands");
+    await expect(address).toBeVisible();
+    await expect(address).not.toBeFocused();
+    await expect(page.locator('[role="menu"]:not([data-testid="tab-sheet-commands"])'), "no second panel of commands").toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
   });
 
   /**
@@ -952,7 +966,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       groupOrder: ["group:default"],
       closedStack: [],
     }));
-    const body = /\/assets\/BrowserTabSheetBody-[^/]*\.js$/;
+    // The body of every tab's sheet is one lazy chunk (`Shared/TabSheetBody`).
+    const body = /\/assets\/TabSheetBody-[^/]*\.js$/;
 
     /** Open the sheet with its body held back, and hand back the function that
      *  lets the body through. One page per call: a second load in the same
@@ -968,7 +983,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       const arrived = p.waitForResponse(body);
       await tab.getByTestId("pane-tab-label").click();
       await expect.poll(() => asked, { timeout: 10_000 }).toBe(true);
-      await expect(p.getByTestId("browser-tab-sheet"), "held back, the body has drawn nothing").toHaveCount(0);
+      await expect(p.getByTestId("tab-sheet"), "held back, the body has drawn nothing").toHaveCount(0);
       return async () => { letThrough(); await (await arrived).finished(); };
     };
 
@@ -979,7 +994,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       const other = await control.newPage();
       const release = await openOnAColdBody(other);
       await release();
-      await expect(other.getByTestId("browser-tab-sheet"), "the click opened the sheet").toBeVisible({ timeout: 10_000 });
+      await expect(other.getByTestId("tab-sheet"), "the click opened the sheet").toBeVisible({ timeout: 10_000 });
     } finally {
       await control.close();
     }
@@ -994,7 +1009,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     const cameBack = await page.evaluate(() => new Promise<boolean>((done) => {
       const since = performance.now();
       const look = () => {
-        if (document.querySelector('[data-testid="browser-tab-sheet"]')) return done(true);
+        if (document.querySelector('[data-testid="tab-sheet"]')) return done(true);
         if (performance.now() - since > 1_500) return done(false);
         requestAnimationFrame(look);
       };

@@ -446,7 +446,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     toggleShare: onToggleShare,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
     // The sheet covers the page: it says so itself instead of waiting for the
-    // occlusion watcher to measure it (see `BrowserTabSheet`).
+    // occlusion watcher to measure it (see `TabSheet`).
     freeze: browser.freeze,
     thaw: browser.thaw,
     // Offered only while one is driving: a command that ends a state nobody is

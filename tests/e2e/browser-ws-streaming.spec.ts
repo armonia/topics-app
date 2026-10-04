@@ -483,14 +483,15 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await expect(dots).toHaveAttribute("data-downloads", "1", { timeout: 5000 });
       await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
       await expectNoRowAboveThePage(page, "a download brings no row over the page");
-      await expect(page.getByTestId("browser-tab-sheet"), "a download does not open the sheet").toHaveCount(0);
+      await expect(page.getByTestId("tab-sheet"), "a download does not open the sheet").toHaveCount(0);
 
       // 2. THE CLICK ON THE DOTS IS WHAT OPENS, with the sheet already on its
-      //    Downloads section - and without taking the address caret. The dots
+      //    Tools level and the downloads list down - and without taking the
+      //    address caret. The dots
       //    ride over the label's tail under the pointer.
       await page.locator('[data-pane-id^="browser:"]').first().hover();
       await dots.click();
-      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
       const menu = page.getByTestId("browser-downloads-menu");
       await expect(menu).toBeVisible({ timeout: 5000 });
@@ -505,7 +506,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       //    once). The row inside the sheet reopens the list.
       await page.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
-      await expect(page.getByTestId("browser-tab-sheet"), "the first Esc leaves the sheet open").toHaveCount(1);
+      await expect(page.getByTestId("tab-sheet"), "the first Esc leaves the sheet open").toHaveCount(1);
       await page.getByTestId("browser-tab-downloads").click();
       await expect(menu).toBeVisible();
 
@@ -516,10 +517,17 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
 
       // 5. ...and ESC STILL CLOSES THE SHEET, although this door never put the
       //    caret in the address field: the focus is nowhere near it.
-      await expect(page.getByTestId("browser-tab-sheet"), "dismissing an entry left the sheet open").toHaveCount(1);
+      await expect(page.getByTestId("tab-sheet"), "dismissing an entry left the sheet open").toHaveCount(1);
       await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
+      // The downloads lived in the Tools level (TABSHEET-02). With the last file
+      // gone the level is left with one row at most, and a level of one does
+      // not exist: its row went up to the first level and the level closed with
+      // it. So there is no level for an Esc to close first, and ONE Esc closes
+      // the sheet.
+      await expect(page.getByTestId("tab-sheet-level-tools-menu"), "a level of one row does not exist").toHaveCount(0);
+      await expect(page.getByTestId("browser-tab-downloads"), "no row for an empty list").toHaveCount(0);
       await page.keyboard.press("Escape");
-      await expect(page.getByTestId("browser-tab-sheet"), "Esc closes the sheet from any focus").toHaveCount(0);
+      await expect(page.getByTestId("tab-sheet"), "Esc closes the sheet from any focus").toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
