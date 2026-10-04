@@ -596,3 +596,66 @@ Scarti, uno per riga, col motivo:
   interruttore solo se sono cambiati (niente respawn per un valore uguale).
 - **La misura di §2.5** è stata fatta senza chiamare un modello (vedi l'esito
   sopra): il 200 attraverso il proxy vero non è verificato.
+
+### 9.1 Revisione del 04/10 (`revision-2026-10-04.md`): dove il design si scosta
+
+La revisione dei pannelli di scelta del modello, dopo l'audit visivo, è in
+`revision-2026-10-04.md`. Il mockup e gli screenshot sono in `screenshots/revision-*`. La sessione
+del maintainer ha deciso l'asse il 04/10: «le metti in colonna Anthropic, OpenAI... il resto sono
+altri? Non mi sembra così ben fatto». Il risultato è un solo asse, l'azienda, a ogni livello, e
+nessun gruppo di ripiego. Gli scenari toccati sono corretti nelle spec e gli id restano.
+
+**Ribaltamento 1: il motore si sceglie dal titolo del gruppo d'azienda, non dalla riga.**
+- Cambia MSEL-05 («la riga SHALL permettere di cambiarlo sul posto»), MSEL-04 (la strada su ogni
+  riga), MSEL-08 (`→` `←` aprono il motore sulla riga), AICTRL-02 e MP-TASK-04 (il motore scritto e
+  cambiato sulla riga).
+- Il titolo di ogni gruppo dice «via <chi esegue>». La ⌄ apre sul posto un `radiogroup` coi motori,
+  e la riga scrive «via X» solo quando per lei è diverso.
+- Motivo: col motore su ogni riga, le righe salgono a due linee (MS-01), il «via» cambia forma da
+  riga a riga (MS-02) e ogni riga annida un pulsante (A11Y-01, 6 per pannello).
+- La regola di MSEL-05 (salvato, default, preferenza) resta, e decide il motore del gruppo.
+
+**Ribaltamento 2: «Provider e chiavi» è un livello dello stesso pannello, non un pannello da
+420 px accanto al selettore.**
+- Cambia SETHOME-01 e USERMENU-10 di `sidebar-menu-settings`: pannello ancorato e largo circa 420 px;
+  riga del piano sotto Claude Code e accanto ai modelli; abbonamento in cima al pannello.
+- Motivo: 704 + 420 px non stanno a 1024, e un pannello che cambia forma senza ritorno è il difetto
+  PK-03. La riga del piano su due righe ambra, in tre punti, è MS-05; resta un avviso corto nel
+  titolo Anthropic, da `PLAN_USAGE_WARN_AT` in su.
+
+Gli altri scostamenti, uno per riga:
+- **Niente «Altri».** Ogni azienda ha un gruppo col suo nome, e quelle oltre le prime tre stanno
+  impilate nella quarta colonna. Un'azienda sconosciuta prende il nome del provider. Cambiano
+  MSEL-02 e il §3.1 qui sopra.
+- **Il livello Provider è una lista** in ordine fisso (`PROVIDER_ORDER`), senza gruppi né per
+  azienda né per tipo di connessione. Ogni scheda dice quali aziende serve.
+- **Le colonne hanno un ordine fisso** (Anthropic, OpenAI, Google): l'azienda del valore salvato non
+  passa in testa (§4.1, punto 4).
+- **Gruppi di bottoni invece di `listbox`/`option`** (§7 e la voce «Il pannello è `role=dialog`»
+  qui sopra). Motivo: A11Y-01, perché 1M, «Precedenti» e il motore non possono stare dentro un
+  `option`.
+- **Automatico sta nella riga della ricerca** su desktop (§4.1, punto 3), perché sono 48 px di
+  parte fissa in meno (MS-01). Sul telefono resta la prima riga.
+- **Generazione degli id non dichiarati.** È corrente la versione più alta di ogni famiglia della
+  stessa azienda, mentre il §4.3 diceva «tutti correnti». Motivo: col jcode vero OpenAI avrebbe 34
+  righe correnti invece di 16.
+- **Un provider non pronto** è una riga del riquadro «collega» della sua azienda (solo se è nello
+  snapshot, e si nasconde con «Non mi serve») e una scheda della lista. Non lo rappresentano più
+  righe di modelli disabilitate (AICTRL-02).
+- **Testo della fascia**: «Gli altri vanno diretti» invece di «GPT e Gemini restano diretti»
+  (MSEL-07), perché ora la fascia sta sopra anche Meta, Mistral e gli altri.
+- **Trigger chiuso**: «etichetta · chi esegue» su ogni superficie, senza la finestra di contesto. Il
+  segno `Route` del §5.3 resta.
+- **«Apri impostazioni» diventa «Sistema ›»** e apre il dettaglio del motore. Le azioni che chiedono
+  di scrivere qualcosa portano la › («Aggiungi chiave ›», «Configura ›»); «Accedi» agisce con un
+  tocco.
+
+Non sono scostamenti, e la revisione li ha tolti dalla bozza:
+- la scheda «Topics» non ha «Predefinito»: AICTRL-01 resta com'è, e Topics è il motore della fascia,
+  non un provider da scegliere;
+- ↓ ↑ attraversano tutte le sezioni, come vuole MSEL-08;
+- il checkpoint a ogni turno e il motore degli agenti restano in «Provider e chiavi», nel dettaglio
+  di Topics sotto «Per tutte le chat» (SETHOME-01), e non vanno nel popover della sessione.
+
+La scheda Topics si scosta solo dal filtro del codice `AGENT_RUNTIMES` (`AIProvidersSection.tsx:40-43`),
+che oggi nasconde le schede di Topics e jcode (IA-06).

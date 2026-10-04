@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Selettore del modello: revisione del 04/10</title>
+<!-- Mockup statico della revisione del 04/10 (revision-2026-10-04.md). Non collegato a niente.
+     Le righe NON sono scritte a mano: le calcolano le regole del §3 (catalog.js, inlined qui sotto)
+     sul fixture dell'audit (con chiavi / senza chiavi) e sui 134 id veri di jcode.
+     Token da client/src/index.css; sfondo del popover misurato negli screenshot dell'audit.
+     Icone: tracciati lucide copiati a mano. -->
+<style>
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:13px/1.45 -apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;background:hsl(220 5.6% 93%);color:hsl(220 3.5% 10.6%)}
+.top{padding:22px 28px 18px;border-bottom:1px solid hsl(220 4.9% 86%)}
+.top h1{font-size:16px;margin:0 0 6px}
+.top p{margin:0 0 4px;max-width:1040px;color:hsl(220 2.8% 30%)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+.light{--page:hsl(220 5.6% 96%);--pop:#f2f2f3;--sheet:#e3e4e7;--inset:rgba(15,20,30,.055);--hover:rgba(15,20,30,.05);
+  --text:hsl(220 3.5% 10.6%);--text2:hsl(220 2.8% 34%);--divider:#d3d5d9;--hair:#e2e3e6;
+  --primary:#0066ff;--on-primary:#fff;--ink:#1e40af;--sel:rgba(0,102,255,.10);--band:rgba(0,102,255,.08);
+  --ok:#0f9f6e;--err:#dc2626;--idle:#8a9099;--load:#2563eb;--warn-ink:#92400e;--err-ink:#b91c1c;--track:#d6d8dc;
+  --shadow:0 12px 32px rgba(0,0,0,.13),0 1px 3px rgba(0,0,0,.07);--cap:hsl(220 2.8% 34%)}
+.dark{--page:hsl(222 5.6% 8.5%);--pop:#292b2d;--sheet:#232528;--inset:rgba(255,255,255,.055);--hover:rgba(255,255,255,.06);
+  --text:#e6e8ec;--text2:#aab0ba;--divider:#3d4044;--hair:#34373a;
+  --primary:#4d94ff;--on-primary:#0b1220;--ink:#8cb8ff;--sel:rgba(77,148,255,.14);--band:rgba(77,148,255,.10);
+  --ok:#34d399;--err:#f87171;--idle:#7b818b;--load:#60a5fa;--warn-ink:#fbbf24;--err-ink:#fca5a5;--track:#3a3d42;
+  --shadow:0 12px 32px rgba(0,0,0,.55),0 1px 3px rgba(0,0,0,.4);--cap:#aab0ba}
+
+.theme{background:var(--page);color:var(--text);padding:22px 28px 30px}
+.theme>h2{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--cap);margin:0 0 14px;font-weight:600}
+.grid{display:flex;flex-wrap:wrap;gap:30px 30px;align-items:flex-start}
+figure{margin:0;display:flex;flex-direction:column;gap:8px}
+figcaption{font-size:11px;color:var(--cap);max-width:704px;line-height:1.45}
+figcaption b{color:var(--text);font-weight:600}
+.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.i.s{width:12px;height:12px}
+button{font:inherit;color:inherit}
+
+/* pannello */
+.pop{width:704px;height:var(--h,456px);background:var(--pop);border:1px solid var(--hair);border-radius:8px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;overflow:hidden;font-size:12px;padding-top:4px;position:relative}
+.pop.phone{width:390px;height:var(--h,780px);border-radius:14px 14px 0 0;background:var(--sheet);padding-top:0;font-size:14px}
+.grab{height:20px;display:flex;align-items:center;justify-content:center;flex:none}
+.grab span{width:36px;height:5px;border-radius:3px;background:var(--divider)}
+
+.band{margin:0 4px 4px;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--band);
+  box-shadow:inset 2px 0 0 var(--primary);flex:none;text-align:left;border:0;width:calc(100% - 8px);min-height:32px}
+.band .ic{color:var(--primary)}
+.band .t{font-weight:600;white-space:nowrap}
+.band .l{color:var(--text2);font-size:11px;flex:1;min-width:0}
+.phone .band{margin:0 8px 6px;width:calc(100% - 16px);align-items:flex-start;padding:10px 12px;min-height:44px}
+.phone .band .bt{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.phone .band .t{font-size:14px}.phone .band .l{font-size:12px}
+.sw{width:28px;height:16px;border-radius:99px;background:var(--primary);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:14px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.off{background:var(--divider)}.sw.off::after{left:2px}
+.phone .sw{width:44px;height:26px}.phone .sw::after{width:22px;height:22px;left:20px}
+
+.toprow{display:flex;gap:4px;margin:0 4px 4px;flex:none}
+.search{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:6px;background:var(--inset);color:var(--text2)}
+.auto{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:6px;background:var(--inset);border:0;font-size:12px;white-space:nowrap}
+.auto .sub{color:var(--text2)}
+.auto[aria-pressed=true]{background:var(--sel)}
+.auto .ck{color:var(--ok)}
+.phone .search{height:44px;margin:0 8px 6px;flex:none;font-size:15px}
+
+.cols{flex:1;min-height:0;display:grid;border-top:1px solid var(--divider)}
+.col{min-width:0;min-height:0;overflow:auto;border-left:1px solid var(--divider);position:relative}
+.col:first-child{border-left:0}
+.list{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--divider)}
+
+.head{position:sticky;top:0;z-index:2;background:var(--pop);display:flex;flex-direction:column;align-items:flex-start;padding:7px 12px 4px;min-height:42px}
+.head .h1{display:flex;align-items:center;gap:6px;width:100%;min-width:0;height:15px}
+.phone .head{background:var(--sheet);padding:4px 8px 4px 16px;min-height:44px;flex-direction:row;align-items:center}
+.phone .head .h1{width:auto;flex:1}
+.head .mk{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phone .head .mk{font-size:11px}
+.head .eng{margin:1px 0 0 10px;display:inline-flex;align-items:center;gap:2px;font-size:11px;line-height:16px;height:16px;color:var(--text2);background:none;border:0;padding:0 2px;white-space:nowrap;max-width:calc(100% - 10px);border-radius:4px}
+.head .eng.topics{color:var(--ink)}
+.head .eng .nm{overflow:hidden;text-overflow:ellipsis}
+.phone .head .eng{font-size:13px;height:44px;min-width:44px;padding:0 8px;margin:0 0 0 auto}
+.head .warn{margin-left:auto;font-size:11px;color:var(--warn-ink);white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none;display:inline-block}
+.dot.idle{background:var(--idle)}.dot.err{background:var(--err)}.dot.load{background:var(--load)}
+.engmenu{margin:0 8px 6px;border-radius:6px;background:var(--inset);padding:3px}
+.engmenu .er{display:flex;align-items:center;flex-wrap:wrap;column-gap:6px;min-height:26px;padding:3px 8px;border-radius:4px;font-size:12px;width:100%;background:none;border:0;text-align:left}
+.engmenu .er .s{color:var(--text2);font-size:11px}
+.engmenu .er[aria-checked=true]{background:var(--sel)}
+.engmenu .er .rd{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--text2);flex:none}
+.engmenu .er[aria-checked=true] .rd{border:3px solid var(--primary)}
+
+/* riga: un <button>; 1M è un fratello */
+.row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto 12px;align-items:center;column-gap:6px;padding:6px 12px;min-height:28px}
+.row.sel{background:var(--sel)}
+.row .pick{all:unset;position:absolute;inset:0;cursor:default}
+.row .pick:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.row .lb{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:16px;pointer-events:none}
+.row .m1{position:relative;z-index:1;font-size:10px;font-weight:600;line-height:16px;border:0;border-radius:4px;padding:0 4px;color:var(--text2);background:var(--inset)}
+.row .m1[aria-checked=true]{background:var(--sel);color:var(--ink)}
+.row.sel .m1[aria-checked=false]{color:var(--text)}
+.row .w{font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums;text-align:right;min-width:30px;pointer-events:none}
+.row .w:empty{min-width:0}
+.row .ck{color:var(--ok);display:flex;pointer-events:none}
+.row .l2{grid-column:1/-1;font-size:11px;color:var(--text2);line-height:14px;margin-top:1px;pointer-events:none}
+.row .l2.topics{color:var(--ink)}
+.row .l2.warn{color:var(--warn-ink)}
+.row.auto-in .lb{display:flex;align-items:center;gap:6px}
+.phone .row{min-height:44px;padding:8px 16px;column-gap:8px}
+.phone .row .lb{line-height:20px}
+.phone .row .m1{min-width:44px;min-height:44px;margin:-8px 0;padding:0;background:none;display:grid;place-items:center}
+.phone .row .m1 span{font-size:11px;line-height:20px;padding:2px 6px;border-radius:4px;background:var(--inset);color:var(--text2)}
+.phone .row .w{font-size:12px}
+.phone .row .l2{font-size:12px;line-height:16px}
+.more{display:flex;align-items:center;gap:6px;padding:6px 12px;min-height:28px;color:var(--text2);font-size:12px;width:100%;background:none;border:0;text-align:left}
+.phone .more{min-height:44px;padding:0 16px;font-size:14px}
+
+/* blocco «collega» */
+.connect{margin:2px 8px 8px;border-radius:6px;background:var(--inset);padding:8px 0 2px}
+.connect p{margin:0 10px 4px;font-size:11px;color:var(--text2);line-height:1.4}
+.cr{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;padding:5px 10px;min-height:30px}
+.cr b{font-weight:500;font-size:12px}
+.cr .st{display:block;font-size:11px;color:var(--text2)}
+.connect .hide{margin:2px 4px 2px auto;display:flex}
+.btn{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:5px;border:1px solid var(--divider);background:var(--pop);font-size:11px;white-space:nowrap}
+.btn.pri{background:var(--primary);border-color:transparent;color:var(--on-primary);font-weight:600}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink)}
+.phone .btn{height:44px;padding:0 14px;font-size:14px;border-radius:8px}
+.phone .connect{margin:4px 12px 10px;padding:10px 0 4px}
+.phone .connect p{font-size:13px;margin:0 12px 6px}
+.phone .cr{padding:6px 12px}.phone .cr b{font-size:15px}.phone .cr .st{font-size:13px}
+
+.foot{flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;height:34px;border:0;border-top:1px solid var(--divider);background:none;width:100%;text-align:left}
+.foot .cnt{margin-left:auto;font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums}
+.foot .cnt .e{color:var(--err-ink)}
+.foot .ic{color:var(--text2)}
+.phone .foot{height:52px;padding:0 16px;font-size:14px}.phone .foot .cnt{font-size:13px}
+
+/* livello Provider: UNA lista, nessun gruppo */
+.lvhead{flex:none;display:flex;align-items:center;gap:6px;padding:0 8px 4px 4px;height:36px}
+.back{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;border:0;background:none}
+.lvhead .tt{font-weight:600;font-size:13px;white-space:nowrap}
+.lvhead .st{font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.lvhead .r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.phone .lvhead{height:auto;min-height:52px;padding:4px 12px 6px 6px;flex-wrap:wrap}.phone .lvhead .r{order:2}.phone .lvhead .st{order:3;flex-basis:100%;padding-left:50px;white-space:normal;font-size:13px}.phone .back{width:44px;height:44px;flex:none}.phone .lvhead .btn{min-width:44px;justify-content:center}.phone .lvhead .tt{font-size:16px}
+.plist{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--divider);display:grid;grid-template-columns:1fr 1fr;align-content:start;list-style:none;margin:0;padding:4px}
+.phone .plist{grid-template-columns:1fr;padding:4px 0}
+.acc{position:relative;display:flex;align-items:flex-start;gap:8px;padding:7px 10px;min-height:44px;border-radius:6px}
+.acc .open{all:unset;position:absolute;inset:0;border-radius:6px}
+.acc .open:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.acc .dot{margin-top:6px}
+.acc .n{flex:1;min-width:0;pointer-events:none}
+.acc .n b{display:block;font-weight:500;font-size:12px;line-height:18px}
+.acc .n b .w{display:inline;font-weight:400;font-size:11px;color:var(--text2);margin-left:6px}
+.acc .n b .w.err{color:var(--err-ink)}
+.acc .n span{display:block;font-size:11px;color:var(--text2);line-height:15px}
+.acc .n span.err{color:var(--err-ink)}
+.acc .n span.def{color:var(--ink)}
+.acc .n span.mk{color:var(--text2)}
+.acc .chev{color:var(--text2);margin-top:2px;pointer-events:none}
+.acc .btn{position:relative;z-index:1}
+.phone .acc{min-height:60px;padding:10px 16px;gap:10px;border-radius:0}
+.phone .acc .n b{font-size:15px;line-height:22px}.phone .acc .n span{font-size:13px;line-height:18px}
+.phone .acc .dot{margin-top:8px;width:8px;height:8px}
+.lvfoot{flex:none;display:flex;gap:6px;padding:5px 8px;border-top:1px solid var(--divider)}
+.phone .lvfoot{padding:8px 12px}
+
+.det{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--divider);padding:2px 0 10px}
+.fr{display:grid;grid-template-columns:168px minmax(0,1fr);gap:12px;padding:9px 14px;border-top:1px solid var(--hair)}
+.fr:first-child{border-top:0}
+.fr .k{font-size:12px;font-weight:500;padding-top:2px}
+.fr .k small{display:block;font-size:11px;font-weight:400;color:var(--text2);margin-top:2px;line-height:1.35}
+.fr .v{min-width:0;font-size:12px}
+.phone .fr{grid-template-columns:1fr;gap:6px;padding:12px 16px}
+.phone .fr .k{font-size:14px}.phone .fr .k small{font-size:13px}.phone .fr .v{font-size:14px}
+.bar{height:4px;border-radius:2px;background:var(--track);overflow:hidden;margin:4px 0 3px}
+.bar i{display:block;height:100%;background:var(--primary)}
+.bar.w i{background:#d97706}
+.bl{font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums}
+.bl.warn{color:var(--warn-ink)}
+.radio{border-radius:6px;background:var(--inset);padding:2px 0}
+.radio .row{min-height:26px;padding:4px 10px;grid-template-columns:14px minmax(0,1fr) auto auto}
+.radio .rd{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--text2);pointer-events:none}
+.radio .row.sel .rd{border:4px solid var(--primary)}
+.phone .radio .row{min-height:44px}
+.sel2{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;border:1px solid var(--divider);background:var(--pop);font-size:12px}
+.phone .sel2{height:44px;font-size:14px}
+.mono{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text2);word-break:break-all}
+.phone .mono{font-size:13px}
+.tog{display:flex;align-items:flex-start;gap:10px}
+.tog .sw{margin-top:2px}
+
+/* trigger chiusi */
+.trig{width:704px;background:var(--pop);border:1px solid var(--hair);border-radius:8px;padding:6px 0}
+.trow{display:grid;grid-template-columns:200px 1fr;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--hair);font-size:12px}
+.trow:first-child{border-top:0}
+.trow .k{color:var(--text2)}
+.chip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:6px;background:var(--inset);font-size:12px;white-space:nowrap;border:0}
+.chip .d{color:var(--text2)}
+.chip .rt{color:var(--primary)}
+.field{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:6px;border:1px solid var(--divider);background:var(--page);font-size:12px;min-width:260px}
+.field .d{color:var(--text2)}
+.field .cd{margin-left:auto;color:var(--text2)}
+
+/* schema: apertura dal composer a metà schermo */
+.vp{position:relative;width:512px;height:384px;border:1px solid var(--divider);border-radius:6px;background:var(--page);overflow:hidden;font-size:10px}
+.vp .cmp{position:absolute;left:96px;width:320px;height:28px;border-radius:8px;background:var(--pop);border:1px solid var(--hair);display:flex;align-items:center;padding:0 8px;gap:6px}
+.vp .pnl{position:absolute;left:80px;width:352px;border-radius:6px;background:var(--sel);border:1px dashed var(--primary);display:flex;align-items:center;justify-content:center;color:var(--ink);text-align:center;padding:6px}
+.vp .ruler{position:absolute;left:8px;color:var(--text2);font-variant-numeric:tabular-nums}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+ <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+ <symbol id="i-cr" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+ <symbol id="i-cl" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+ <symbol id="i-cd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+ <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+ <symbol id="i-key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+ <symbol id="i-spark" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
+ <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+ <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+ <symbol id="i-term" viewBox="0 0 24 24"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></symbol>
+ <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+</svg>
+
+<div class="top">
+ <h1>Selettore del modello e «Provider e chiavi»: revisione del 04/10</h1>
+ <p>Un asse solo, l'azienda, a ogni livello. Nessun gruppo «Altri», nessun raggruppamento per tipo di connessione. Dopo Anthropic, OpenAI e Google, la quarta colonna impila le altre aziende, ognuna col suo titolo a due righe (azienda, motore). «Provider e chiavi» è un livello dello stesso pannello: UNA lista di account in ordine fisso, e ogni scheda dice quali aziende serve.</p>
+ <p>Le righe non sono scritte a mano: le calcolano le regole del §3 (inlined da catalog.js) sul fixture dell'audit e, nell'ultimo pannello, sui 134 id veri di jcode.</p>
+</div>
+<div id="root"></div>
+
+<script>// Revision 2026-10-04 of the model selector: the pure rules of §3 (maker, merge key,
+// generation, label, columns, group engine), runnable in node and inlined in the mockup.
+(function (root) {
+  const MAKERS = { anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google', meta: 'Meta', mistral: 'Mistral', qwen: 'Qwen', deepseek: 'DeepSeek',
+    nvidia: 'NVIDIA', zai: 'Z.ai', moonshot: 'Moonshot', ibm: 'IBM', microsoft: 'Microsoft', xai: 'xAI', cohere: 'Cohere', writer: 'Writer',
+    '01ai': '01.AI', ai21: 'AI21 Labs', aisingapore: 'AI Singapore', bigcode: 'BigCode' };
+  const VENDOR = { anthropic: 'anthropic', openai: 'openai', google: 'google', meta: 'meta', 'meta-llama': 'meta', mistralai: 'mistral', 'nv-mistralai': 'mistral',
+    'deepseek-ai': 'deepseek', deepseek: 'deepseek', moonshotai: 'moonshot', 'z-ai': 'zai', zai: 'zai', thudm: 'zai', 'x-ai': 'xai', '01-ai': '01ai', ai21labs: 'ai21',
+    aisingapore: 'aisingapore', bigcode: 'bigcode', qwen: 'qwen', nvidia: 'nvidia', ibm: 'ibm', microsoft: 'microsoft', writer: 'writer', cohere: 'cohere' };
+  const FAMILY = [[/^claude-/, 'anthropic'], [/^(gpt-|o\d|codex)/, 'openai'], [/^(gemini|gemma|codegemma|recurrentgemma|diffusiongemma)/, 'google'],
+    [/^(llama|codellama)/, 'meta'], [/^(mistral|mixtral|codestral|devstral|magistral|ministral)/, 'mistral'], [/^(qwen|qwq)/, 'qwen'],
+    [/^deepseek/, 'deepseek'], [/^(nemotron|nvidia$)/, 'nvidia'], [/^(glm|zai-)/, 'zai'], [/^kimi/, 'moonshot'], [/^granite/, 'ibm'], [/^phi/, 'microsoft'],
+    [/^grok/, 'xai'], [/^command/, 'cohere'], [/^palmyra/, 'writer']];
+  const RUNTIMES = new Set(['topics', 'claude-code', 'codex', 'jcode', 'claude', 'openai', 'gemini']);
+  const FIXED = ['anthropic', 'openai', 'google'];
+
+  function bareId(id) {
+    let m = id.trim().toLowerCase();
+    const c = m.indexOf(':');
+    if (c > 0 && RUNTIMES.has(m.slice(0, c))) m = m.slice(c + 1);
+    return m;
+  }
+  function modelMaker(id, offeredBy) {
+    const m = bareId(id);
+    const slash = m.indexOf('/');
+    if (slash > 0) {
+      const v = m.slice(0, slash);
+      const k = VENDOR[v];
+      return k ? { id: k, label: MAKERS[k] } : { id: 'vendor:' + v, label: v[0].toUpperCase() + v.slice(1) };
+    }
+    const bare = m.split(':')[0];
+    for (const [re, k] of FAMILY) if (re.test(bare)) return { id: k, label: MAKERS[k] };
+    return { id: 'provider:' + offeredBy.name, label: offeredBy.label };
+  }
+  // §3.3: one row per model whatever engine serves it. `vendor/` goes, `:tag` becomes `-tag`
+  // (`:latest` goes), dots become dashes: gpt-oss:20b and openai/gpt-oss-20b are one key.
+  function mergeKey(id) {
+    let m = bareId(id);
+    const slash = m.indexOf('/');
+    if (slash > 0) m = m.slice(slash + 1);
+    m = m.replace(/:latest$/, '').replace(/:/g, '-').replace(/\./g, '-').replace(/-\d{8}(?=\[|$)/, '');
+    return m;
+  }
+  const DATE8 = /^\d{8}$/;
+  // §3.4: family = the key without its version run; version = the first run of bare numbers.
+  function familyVersion(key) {
+    const base = key.replace(/\[[^\]]*\]$/, '');
+    const words = base.split('-').filter((w) => !DATE8.test(w));
+    const at = words.findIndex((w) => /^\d+$/.test(w));
+    if (at < 0) return { family: base, version: null };
+    let end = at;
+    while (end < words.length && end - at < 2 && /^\d+$/.test(words[end])) end++;
+    const version = words.slice(at, end).map(Number);
+    const family = words.slice(0, at).concat(words.slice(end)).join('-') + (key.match(/\[[^\]]*\]$/)?.[0] ?? '');
+    return { family, version };
+  }
+  const cmpV = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? 0) - (b[i] ?? 0); if (d) return d; } return 0; };
+
+  // §3.6: one label rule for every maker but Anthropic (which keeps today's rule).
+  const UPPER = new Set(['glm', 'it', 'moe', 'xs', 'er', 'dbrx', 'oss']);
+  const NAMES = { deepseek: 'DeepSeek', qwen: 'Qwen', nvidia: 'NVIDIA', ibm: 'IBM' };
+  const MMDD = /^(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/;
+  function claudeLabel(id) {
+    const m = bareId(id).replace(/\[1m\]$/, '').replace(/-\d{8}$/, '').replace(/\./g, '-');
+    const p = m.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?$/);
+    if (!p) return m;
+    return p[1][0].toUpperCase() + p[1].slice(1) + ' ' + p[2] + (p[3] ? '.' + p[3] : '');
+  }
+  function modelLabel(id, info) {
+    if (info && info.label) return info.label;
+    let m = bareId(id);
+    const slash = m.indexOf('/');
+    const hadVendor = slash > 0;
+    if (hadVendor) m = m.slice(slash + 1);
+    if (/^claude-/.test(m)) return claudeLabel(m);
+    let suffix = '';
+    m = m.replace(/\[([a-z0-9]+)\]$/i, (_, t) => { suffix = ` (${t})`; return ''; });
+    let tag = '';
+    const c = m.indexOf(':');
+    if (c > 0) { tag = m.slice(c + 1); m = m.slice(0, c); }
+    let words = m.split('-');
+    if (tag && tag !== 'latest') words.push(tag);
+    while (words.length > 1 && (DATE8.test(words[words.length - 1]) || MMDD.test(words[words.length - 1]))) words.pop();
+    if (words.length > 2 && /^\d{4}$/.test(words[words.length - 1]) && /^(0[1-9]|1[0-2])$/.test(words[words.length - 2])) words.splice(-2, 2);
+    if (!hadVendor && words.length > 1 && words[0] === 'zai') words.shift();
+    if (/^o\d/.test(words[0])) return words.join('-') + suffix;
+    const gpt = words[0] === 'gpt';
+    if (gpt) words.shift();
+    const out = words.map((w, i) => {
+      if (/^\d+(\.\d+)?[bmk]$/i.test(w) || /^a\d+(\.\d+)?[bm]$/i.test(w) || /^\d+x\d+[bm]$/i.test(w)) return w.toUpperCase().replace('X', 'x');
+      if (/^v\d/.test(w)) return w;
+      if (i === 0 && NAMES[w]) return NAMES[w];
+      if (UPPER.has(w)) return w.toUpperCase();
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    });
+    if (gpt) return 'GPT-' + out[0] + (out.length > 1 ? ' ' + out.slice(1).join(' ') : '') + suffix;
+    return out.join(' ') + suffix;
+  }
+
+  // The static window table of shared/context-window.ts (substring match, longest first).
+  const WINDOWS = { 'claude-fable-5': '1M', 'claude-opus': '200K', 'claude-sonnet': '200K', 'claude-haiku': '200K', 'gpt-4o-mini': '128K', 'gpt-4o': '128K', 'gpt-4-1': '1M', 'gpt-4.1': '1M',
+    'gpt-5-codex': '400K', 'gpt-5': '400K', 'o3-mini': '200K', 'o3': '200K', 'gemini-2-5-pro': '1M', 'gemini-2.5-pro': '1M' };
+  function windowOf(id, declared) {
+    if (declared) return declared >= 1e6 ? Math.round(declared / 1e6) + 'M' : Math.round(declared / 1000) + 'K';
+    const l = id.toLowerCase();
+    const k = Object.keys(WINDOWS).sort((a, b) => b.length - a.length).find((key) => l.includes(key));
+    return k ? WINDOWS[k] : '';
+  }
+
+  // Build the catalog: rows merged by key, grouped by maker; each group gets its engine (§3.5).
+  function buildCatalog(snapshot, opts = {}) {
+    const topicsModels = new Set((snapshot.providers.find((p) => p.name === 'topics')?.models ?? []).map(mergeKey));
+    const order = snapshot.providers.filter((p) => p.name !== 'topics').map((p) => p.name);
+    const engines = snapshot.providers.filter((p) => p.name !== 'topics');
+    const label = Object.fromEntries(engines.map((p) => [p.name, p.label]));
+    const rows = new Map();
+    for (const p of engines) {
+      if (p.status !== 'ready') continue;
+      for (const id of p.models) {
+        if (/\[1m\]$/i.test(id) && p.models.includes(id.replace(/\[1m\]$/i, ''))) continue; // the 1M switch
+        const key = mergeKey(id);
+        let r = rows.get(key);
+        if (!r) {
+          const mk = modelMaker(id, p);
+          r = { key, id, maker: mk.id, makerLabel: mk.label, engines: [], gen: null, label: modelLabel(id, p.modelInfo?.[id]), m1: p.models.includes(id + '[1m]'),
+            win: windowOf(id, p.modelContextWindows?.[id]) };
+          rows.set(key, r);
+        }
+        if (!r.engines.includes(p.name)) r.engines.push(p.name);
+        const g = p.modelInfo?.[id]?.generation;
+        if (g && !r.gen) r.gen = g;
+        if (p.modelInfo?.[id]?.label) r.label = p.modelInfo[id].label;
+      }
+    }
+    // generation: declared wins; otherwise newest version of each family of the same maker
+    const all = [...rows.values()];
+    for (const r of all) {
+      if (r.gen) continue;
+      const fv = familyVersion(r.key);
+      if (!fv.version) { r.gen = 'current'; continue; }
+      const newer = all.some((o) => o !== r && o.maker === r.maker && familyVersion(o.key).family === fv.family && familyVersion(o.key).version && cmpV(familyVersion(o.key).version, fv.version) > 0);
+      r.gen = newer ? 'older' : 'current';
+    }
+    const groups = new Map();
+    for (const r of all) {
+      if (!groups.has(r.maker)) groups.set(r.maker, { maker: r.maker, label: r.makerLabel, rows: [], older: [] });
+      (r.gen === 'older' ? groups.get(r.maker).older : groups.get(r.maker).rows).push(r);
+    }
+    // a ready engine with no models: «Automatico» row in its maker's group (§3.7)
+    for (const p of engines) {
+      if (p.status !== 'ready' || p.models.length) continue;
+      const mk = p.maker ? { id: p.maker, label: MAKERS[p.maker] } : { id: 'provider:' + p.name, label: p.label };
+      if (!groups.has(mk.id)) groups.set(mk.id, { maker: mk.id, label: mk.label, rows: [], older: [] });
+      groups.get(mk.id).rows.unshift({ key: 'auto:' + p.name, auto: true, label: 'Automatico', engines: [p.name], win: '' });
+    }
+    // not-ready engines present in the snapshot: connect box of their maker (§4.6)
+    for (const p of engines) {
+      if (p.status === 'ready' || !p.maker) continue;
+      if (opts.hidden?.includes(p.name)) continue;
+      if (!groups.has(p.maker)) groups.set(p.maker, { maker: p.maker, label: MAKERS[p.maker], rows: [], older: [] });
+      const g = groups.get(p.maker);
+      (g.connect ??= []).push(p);
+    }
+    const saved = opts.saved; // {provider, key}
+    const routeOn = opts.routeOn !== false;
+    for (const g of groups.values()) {
+      const served = [...new Set([...g.rows, ...g.older].flatMap((r) => r.engines))];
+      g.engineList = order.filter((n) => served.includes(n));
+      let eng = null;
+      if (saved && [...g.rows, ...g.older].some((r) => r.key === saved.key)) eng = saved.provider;
+      else if (served.includes(snapshot.defaultProvider)) eng = snapshot.defaultProvider;
+      else eng = g.engineList[0] ?? null;
+      g.engine = eng;
+      const display = (r, e) => (routeOn && (e === 'claude-code') && topicsModels.has(r.key) ? 'Topics' : label[e]);
+      g.display = eng ? (routeOn && eng === 'claude-code' ? 'Topics' : label[eng]) : null;
+      for (const r of [...g.rows, ...g.older]) {
+        const e = r.engines.includes(eng) ? eng : order.find((n) => r.engines.includes(n));
+        r.engine = e;
+        r.display = r.auto ? label[e] : display(r, e);
+        r.via = r.auto ? null : (r.display !== g.display ? 'via ' + r.display : null);
+      }
+      g.rows.sort((a, b) => (a.auto ? -1 : b.auto ? 1 : 0));
+    }
+    // columns: Anthropic, OpenAI, Google fixed; the rest stack in the fourth, by rows then name
+    const list = [...groups.values()];
+    const fixed = FIXED.map((m) => list.find((g) => g.maker === m)).filter(Boolean);
+    const rest = list.filter((g) => !FIXED.includes(g.maker)).sort((a, b) => (b.rows.length + b.older.length) - (a.rows.length + a.older.length) || a.label.localeCompare(b.label));
+    const cols = fixed.map((g) => [g]);
+    if (fixed.length + rest.length <= 4) rest.forEach((g) => cols.push([g])); else if (rest.length) cols.push(rest);
+    return { cols, groups: list, label };
+  }
+
+  // Providers level (§5.2): one list, static order, makers each card serves.
+  const PROVIDER_ORDER = ['claude-code', 'topics', 'claude', 'codex', 'openai', 'gemini', 'jcode', 'openclaw', 'goose'];
+  const STATIC_MAKER = { 'claude-code': 'anthropic', topics: 'anthropic', claude: 'anthropic', codex: 'openai', openai: 'openai', gemini: 'google' };
+  function providerCards(snapshot) {
+    const rank = (p) => { const i = PROVIDER_ORDER.indexOf(p.name); return i < 0 ? PROVIDER_ORDER.length + (p.name.startsWith('direct-') ? 0 : 1) : i; };
+    return [...snapshot.providers].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label)).map((p) => {
+      const counts = {};
+      for (const id of p.models) { if (/\[1m\]$/i.test(id)) continue; const mk = modelMaker(id, p); counts[mk.label] = (counts[mk.label] || 0) + 1; }
+      let makers = Object.keys(counts);
+      if (!makers.length && STATIC_MAKER[p.name]) makers = [MAKERS[STATIC_MAKER[p.name]]];
+      const fixedFirst = ['Anthropic', 'OpenAI', 'Google'];
+      makers.sort((a, b) => { const ia = fixedFirst.indexOf(a), ib = fixedFirst.indexOf(b); if (ia >= 0 || ib >= 0) return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib); return (counts[b] || 0) - (counts[a] || 0) || a.localeCompare(b); });
+      return { name: p.name, label: p.label, status: p.status, models: p.models.filter((m) => !/\[1m\]$/i.test(m)).length, makers, p };
+    });
+  }
+
+  root.MSEL = { modelMaker, mergeKey, familyVersion, modelLabel, windowOf, buildCatalog, providerCards, MAKERS };
+})(typeof module !== 'undefined' ? module.exports : window);
+</script>
+<script>// The audit fixture (msel-audit/ib/zz-msel-audit.spec.ts), «with keys» and «without keys», plus the jcode case with the 134 real ids.
+(function (root) {
+  const CLAUDE_CODE_IDS = ['claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5', 'claude-sonnet-5-5[1m]', 'claude-haiku-4-5',
+    'claude-fable-5-1', 'claude-opus-4-8', 'claude-opus-4-8[1m]', 'claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'claude-haiku-3-5'];
+  const OLDER = new Set(['claude-opus-4-8', 'claude-opus-4-8[1m]', 'claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'claude-haiku-3-5']);
+  const CODEX = [['gpt-6.1-sol', 'GPT-6.1-Sol', 'current'], ['gpt-6-astra', 'GPT-6-Astra', 'current'], ['gpt-6-sol', 'GPT-6-Sol', 'current'],
+    ['gpt-6-luna', 'GPT-6-Luna', 'current'], ['gpt-5.6-sol', 'GPT-5.6-Sol', 'older'], ['gpt-5.6-terra', 'GPT-5.6-Terra', 'older'],
+    ['gpt-5.6-luna', 'GPT-5.6-Luna', 'older'], ['gpt-5.5', 'GPT-5.5', 'older']];
+  const row = (name, label, models, extra = {}) => ({ name, label, status: 'ready', models, ...extra });
+  const claudeCode = (extra = {}) => row('claude-code', 'Claude Code', CLAUDE_CODE_IDS, { maker: 'anthropic',
+    modelInfo: Object.fromEntries(CLAUDE_CODE_IDS.map((id) => [id, { generation: OLDER.has(id) ? 'older' : 'current' }])), ...extra });
+  const topics = row('topics', 'Topics', ['claude-opus-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5', 'claude-haiku-4-5', 'claude-fable-5-1'], { maker: 'anthropic' });
+  const codex = row('codex', 'Codex', CODEX.map(([id]) => id), { maker: 'openai',
+    modelContextWindows: Object.fromEntries(CODEX.map(([id]) => [id, 272000])),
+    modelInfo: Object.fromEntries(CODEX.map(([id, label, generation]) => [id, { label, generation }])) });
+  const KEYS = { defaultProvider: 'claude-code', providers: [
+    claudeCode(),
+    row('claude', 'Claude API', ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-6'], { maker: 'anthropic',
+      modelInfo: { 'claude-opus-4-8': { generation: 'older' }, 'claude-sonnet-4-6': { generation: 'older' } } }),
+    codex,
+    row('openai', 'OpenAI API', ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-5.5', 'o4-mini', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini'], { maker: 'openai' }),
+    row('gemini', 'Gemini CLI', ['gemini-3-pro', 'gemini-3-flash', 'gemini-2.5-pro'], { maker: 'google' }),
+    row('jcode', 'jcode', ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5']),
+    row('direct-ollama', 'Ollama (Mac mini)', ['gpt-oss:20b', 'qwen3-coder:30b', 'llama3.3:70b', 'deepseek-r1:32b', 'gemma3:27b']),
+    row('direct-openrouter', 'OpenRouter', ['anthropic/claude-sonnet-4.5', 'openai/gpt-5', 'google/gemini-2.5-pro', 'meta-llama/llama-4-maverick', 'mistralai/devstral-medium', 'x-ai/grok-4']),
+    row('goose', 'goose', [], { status: 'error', lastError: 'Uscito con codice 1: manca GOOSE_PROVIDER' }),
+    topics,
+  ] };
+  const NOKEYS = { defaultProvider: 'claude-code', providers: [
+    claudeCode(),
+    row('codex', 'Codex', [], { status: 'unavailable', maker: 'openai' }),
+    row('gemini', 'Gemini CLI', [], { status: 'unavailable', maker: 'google' }),
+    row('direct-lmstudio', 'LM Studio', [], { status: 'error', lastError: 'Non risponde su 127.0.0.1:1234' }),
+    topics,
+  ] };
+  const jcode = (ids) => ({ defaultProvider: 'claude-code', providers: [claudeCode(), codex, row('jcode', 'jcode', ids), topics] });
+  root.FIXTURE = { KEYS, NOKEYS, jcode };
+})(typeof module !== 'undefined' ? module.exports : window);
+</script>
+<script>const JCODE_IDS = ["claude-fable-5","claude-fable-5-1","claude-haiku-4-5-20251001","claude-opus-4-5-20251101","claude-opus-4-6","claude-opus-4-7","claude-opus-4-8","claude-opus-5","claude-opus-5-5","claude-sonnet-4-5-20250929","claude-sonnet-4-6","claude-sonnet-5","claude-sonnet-5-5","gpt-5.6-pro[web]","gpt-oss-120b","zai-glm-4.7","gemini-2.5-flash","gemini-2.5-pro","gemini-2.0-flash","gemini-2.0-flash-lite","nvidia/nemotron-3-ultra-550b-a55b","nvidia/nemotron-3-super-120b-a12b","deepseek-ai/deepseek-v4-flash-0731","nvidia/nemotron-3.5-lightning-30b-a3b","qwen38-27b-200k","qwen38-27b-unc","gemini-3.1-pro-preview","gemini-3-flash-preview","gemini-2.5-computer-use-preview-10-2025","gemini-2.5-flash-lite","gemini-3.1-flash-lite","gemini-3.1-flash-lite-preview","gemini-3.1-pro-preview-customtools","gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.6-flash","gemini-3.7-flash","gemini-3.8-flash","gemini-flash-latest","gemini-flash-lite-latest","gemini-omni-1.1-flash","gemini-omni-flash-preview","gemini-pro-latest","gemini-robotics-er-2-preview","nvidia","01-ai/yi-large","ai21labs/jamba-1.5-large-instruct","aisingapore/sea-lion-7b-instruct","bigcode/starcoder2-15b","databricks/dbrx-instruct","deepseek-ai/deepseek-coder-6.7b-instruct","deepseek-ai/deepseek-v4.1-flash","google/codegemma-1.1-7b","google/codegemma-7b","google/diffusiongemma-26b-a4b-it","google/gemma-2b","google/gemma-3-12b-it","google/gemma-3-4b-it","google/gemma-4-31b-it","google/recurrentgemma-2b","ibm/granite-3.0-3b-a800m-instruct","ibm/granite-3.0-8b-instruct","ibm/granite-34b-code-instruct","ibm/granite-8b-code-instruct","meta/codellama-70b","meta/llama-3.2-11b-vision-instruct","meta/llama-3.2-90b-vision-instruct","meta/llama2-70b","meta/muse-glimmer-30b","microsoft/phi-3-vision-128k-instruct","microsoft/phi-3.5-moe-instruct","mistralai/codestral-22b-instruct-v0.1","mistralai/mistral-7b-instruct-v0.3","mistralai/mistral-large","mistralai/mistral-large-2-instruct","mistralai/mixtral-8x22b-v0.1","moonshotai/kimi-k2.6","moonshotai/kimi-k3","nv-mistralai/mistral-nemo-12b-instruct","nvidia/cosmos-reason2-8b","nvidia/ising-calibration-1.5-31b","nvidia/llama-3.1-nemotron-51b-instruct","nvidia/llama-3.1-nemotron-70b-instruct","nvidia/llama-3.1-nemotron-ultra-253b-v1","nvidia/llama3-chatqa-1.5-70b","nvidia/mistral-nemo-minitron-8b-8k-instruct","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning","nvidia/nemotron-3.5-content-safety","nvidia/nemotron-4-340b-instruct","nvidia/nemotron-nano-3-30b-a3b","openai/gpt-oss-20b","poolside/laguna-xs-2.1","writer/palmyra-creative-122b","writer/palmyra-fin-70b-32k","writer/palmyra-med-70b","writer/palmyra-med-70b-32k","z-ai/glm-5.3","z-ai/glm-5.3-flash","zyphra/zamba2-7b-instruct","claude-opus-4-6[1m]","claude-sonnet-4-6[1m]","claude-haiku-4-5","claude-opus-4-5","claude-sonnet-4-5","claude-sonnet-4-20250514","claude-sonnet-4-5-20250929[1m]","gpt-6-astra","gpt-5.6-sol","gpt-5.6-pro","gpt-5.6","gpt-5.6-terra","gpt-5.6-luna","gpt-5.5-pro","gpt-5.5","gpt-5.4","gpt-5.4-pro","gpt-5.3-codex","gpt-5.3-codex-spark","gpt-5.2-chat-latest","gpt-5.2-codex","gpt-5.2-pro","gpt-5.1-codex-mini","gpt-5.1-codex-max","gpt-5.2","gpt-5.1-chat-latest","gpt-5.1","gpt-5.1-codex","gpt-5-chat-latest","gpt-5-codex","gpt-5-codex-mini","gpt-5-pro","gpt-5-mini","gpt-5-nano","gpt-5"];</script>
+<script>
+const I=(id,c='')=>`<svg class="i ${c}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+const WORD={ready:'Pronto',unavailable:'Da collegare',error:'Errore',loading:'In verifica…'};
+const DOTC={ready:'',unavailable:'idle',error:'err',loading:'load'};
+const dot=(st='ready')=>`<span class="dot ${DOTC[st]}" title="${WORD[st]}" role="img" aria-label="${WORD[st]}"></span>`;
+const BAND='Claude gira in Topics col tuo abbonamento, senza un processo per chat. Gli altri vanno diretti.';
+
+// ── selettore ─────────────────────────────────────────────────────
+function row(r, o){
+  const ph=o.phone;
+  const name = r.auto ? 'Automatico' : r.label;
+  const acc = [name, r.win, (r.display==='Topics'?'Claude Code, via Topics':'via '+r.display)].filter(Boolean).join(', ');
+  const m1 = r.m1 ? `<button class="m1" role="switch" aria-checked="${!!r.on1}" aria-label="Finestra da 1M token, ${name}">${ph?'<span>1M</span>':'1M'}</button>` : '<span></span>';
+  const sel = o.saved===r.key;
+  const lab = r.auto ? `<span class="lb">${I('spark','s')}<span>Automatico</span></span>` : `<span class="lb" title="${r.label}">${r.label}</span>`;
+  const l2 = [r.via?`<span class="l2">${r.via}</span>`:'', r.ret?`<span class="l2 warn">${r.ret}</span>`:''].join('');
+  return `<div class="row ${sel?'sel':''} ${r.auto?'auto-in':''}" data-key="${r.key}"><button class="pick" aria-pressed="${sel}" aria-label="${acc}" tabindex="${sel?0:-1}"></button>${lab}${m1}<span class="w">${r.win||''}</span><span class="ck">${sel?I('check','s'):''}</span>${l2}</div>`;
+}
+function head(g, o, cat){
+  const multi = (g.engineList||[]).length>1;
+  const st = g.rows.length||g.older.length ? 'ready' : (g.connect||[]).some(p=>p.status==='error') ? 'error' : 'unavailable';
+  const warn = o.warn && g.maker==='anthropic' ? `<span class="warn">${o.warn}</span>` : '';
+  const engLabel = g.display ? 'via '+g.display : '';
+  const eng = g.display ? (multi
+    ? `<button class="eng ${g.display==='Topics'?'topics':''}" aria-expanded="${!!(o.menu===g.maker)}" aria-label="Motore per ${g.label}: ${g.display==='Topics'?'Claude Code, via Topics':g.display}"><span class="nm">${engLabel}</span>${I('cd','s')}</button>`
+    : `<span class="eng ${g.display==='Topics'?'topics':''}"><span class="nm">${engLabel}</span></span>`) : '';
+  const id=`h-${o.id}-${g.maker.replace(/[^a-z0-9]/gi,'')}`;
+  const menu = o.menu===g.maker ? `<div class="engmenu" role="radiogroup" aria-label="Motore per ${g.label}">${g.engineList.map(n=>{const on=n===g.engine;const lb=n==='claude-code'?'Claude Code · in Topics':cat.label[n];return `<button class="er" role="radio" aria-checked="${on}"><span class="rd"></span>${lb}<span class="s">${KIND[n]||''}</span></button>`;}).join('')}</div>` : '';
+  return {id, html:`<div class="head" id="${id}"><span class="h1">${dot(st)}<span class="mk">${g.label}</span>${warn}</span>${eng}</div>${menu}`};
+}
+const KIND={'claude-code':'abbonamento',claude:'chiave',codex:'abbonamento',openai:'chiave',gemini:'programma',jcode:'agente','direct-ollama':'endpoint','direct-openrouter':'endpoint'};
+function connect(g, o){
+  const items = g.connect.map(p=>{
+    const act = p.name==='codex' ? `<button class="btn pri">${I('term','s')}Accedi</button>` : p.name==='gemini' ? `<button class="btn pri">Configura ${I('cr','s')}</button>` : `<button class="btn">Aggiungi chiave ${I('cr','s')}</button>`;
+    return `<div class="cr"><span><b>${p.label}</b><span class="st">${WORD[p.status]} · ${p.name==='codex'?'abbonamento ChatGPT':p.name==='gemini'?'manca la chiave Gemini':'chiave a consumo'}</span></span>${act}</div>`;
+  }).join('');
+  const sentence = g.maker==='openai' ? 'Codex è installato, manca l’accesso.' : g.maker==='google' ? 'Gemini CLI è installato, manca la chiave.' : 'Nessun account collegato.';
+  return `<div class="connect" data-connect="${g.maker}"><p>${sentence}</p>${items}<button class="btn ghost hide" aria-label="Non mi serve: nascondi questo riquadro">Non mi serve</button></div>`;
+}
+function group(g, o, cat){
+  const h=head(g,o,cat);
+  const rows=g.rows.map(r=>row(r,o)).join('');
+  const older=g.older.length?(o.open===g.maker?g.older.map(r=>row(r,o)).join('')+`<button class="more" aria-expanded="true">Nascondi i precedenti ${I('cd','s')}</button>`:`<button class="more" aria-expanded="false">Precedenti (${g.older.length}) ${I('cd','s')}</button>`):'';
+  return `<div class="grp" role="group" aria-labelledby="${h.id}" data-maker="${g.maker}">${h.html}${g.connect&&!g.rows.length?connect(g,o):''}${rows}${older}</div>`;
+}
+function selector(o){
+  const cat = MSEL.buildCatalog(o.snap, {saved:o.savedRef, hidden:o.hidden});
+  o.saved = o.savedRef?.key;
+  const ph=!!o.phone;
+  const band = ph
+    ? `<button class="band" role="switch" aria-checked="true">${I('route','ic')}<span class="bt"><span class="t">Esegui in Topics</span><span class="l">${BAND}</span></span><span class="sw"></span></button>`
+    : `<button class="band" role="switch" aria-checked="true">${I('route','ic')}<span class="t">Esegui in Topics</span><span class="l">${BAND}</span><span class="sw"></span></button>`;
+  const autoSel=!o.savedRef;
+  const top = ph
+    ? `<div class="search">${I('search')}<span>Cerca modello o azienda</span></div>`
+    : `<div class="toprow"><div class="search">${I('search')}<span>Cerca modello o azienda</span></div><button class="auto" aria-pressed="${autoSel}" aria-describedby="auto-d-${o.id}">${I('spark','s')}Automatico<span class="sub">· Claude Code</span>${autoSel?`<span class="ck">${I('check','s')}</span>`:''}</button><span class="sr" id="auto-d-${o.id}">Usa il predefinito: Claude Code</span></div>`;
+  let body;
+  if (ph) {
+    const auto = `<div class="row auto-in ${autoSel?'sel':''}" style="grid-template-columns:minmax(0,1fr) 14px"><button class="pick" aria-pressed="${autoSel}" aria-label="Automatico, usa il predefinito: Claude Code"></button><span class="lb">${I('spark','s')}<span>Automatico</span></span><span class="ck">${autoSel?I('check','s'):''}</span><span class="l2">Usa il predefinito: Claude Code</span></div>`;
+    body = `<div class="list">${auto}${cat.cols.flat().map(g=>group(g,o,cat)).join('')}</div>`;
+  } else {
+    body = `<div class="cols" style="grid-template-columns:repeat(${cat.cols.length},minmax(0,1fr))">${cat.cols.map(c=>`<div class="col">${c.map(g=>group(g,o,cat)).join('')}</div>`).join('')}</div>`;
+  }
+  const cards=MSEL.providerCards(o.snap); const nr=cards.filter(c=>c.status==='ready').length, ne=cards.filter(c=>c.status==='error').length;
+  const count=`${nr} pront${nr===1?'o':'i'}${ne?` · <span class="e">${ne} error${ne===1?'e':'i'}</span>`:''}`;
+  const foot = `<button class="foot">${I('key','s ic')}<span>Provider e chiavi</span><span class="cnt">${count}</span>${I('cr','s ic')}</button>`;
+  return `<div class="pop ${ph?'phone':''}" style="--h:${o.h||(ph?780:456)}px" data-panel="${o.id}" role="dialog" aria-label="Scegli il modello">${ph?'<div class="grab"><span></span></div>':''}${band}${top}${body}${foot}</div>`;
+}
+
+// ── livello Provider: una lista ───────────────────────────────────
+const FACT={'claude-code':[{t:'Predefinito · Max 20x · sett. 67%',c:'def'}],topics:['Motore di «Esegui in Topics»'],claude:['Chiave a consumo'],codex:['Piano ChatGPT'],openai:['Chiave a consumo'],gemini:['Programma'],jcode:['Agente'],goose:[],'direct-ollama':['Endpoint · 192.168.1.20'],'direct-openrouter':['Endpoint · openrouter.ai'],'direct-lmstudio':[]};
+function card(c, ph){
+  const word = c.status==='ready'?'':`<span class="w ${c.status==='error'?'err':''}">${WORD[c.status]}</span>`;
+  const facts=(FACT[c.name]||[]).map(s=>typeof s==='string'?`<span>${s}${c.models?` · ${c.models} modell${c.models===1?'o':'i'}`:''}</span>`:`<span class="${s.c}">${s.t}</span>`);
+  if (c.status==='error') facts.push(`<span class="err">${c.p.lastError}</span>`);
+  if (c.status==='unavailable') facts.push(`<span>${c.name==='codex'?'Manca l’accesso':'Manca la chiave Gemini'}</span>`);
+  const mk = c.makers.length ? `<span class="mk">${c.makers.join(' · ')}</span>` : '';
+  const act = c.status==='error' ? `<button class="btn">${I('refresh','s')}Riprova</button>` : c.status==='unavailable' ? (c.name==='codex'?`<button class="btn pri">Accedi</button>`:`<button class="btn pri">Configura ${I('cr','s')}</button>`) : I('cr','s chev');
+  return `<li class="acc" data-card="${c.name}"><button class="open" aria-label="${c.label}, ${WORD[c.status]}${c.makers.length?', serve '+c.makers.join(', '):''}"></button>${dot(c.status)}<span class="n"><b>${c.label}${word}</b>${facts.join('')}${mk}</span>${act}</li>`;
+}
+function accounts(o){
+  const ph=!!o.phone;
+  const cards=MSEL.providerCards(o.snap); const nr=cards.filter(c=>c.status==='ready').length, ne=cards.filter(c=>c.status==='error').length;
+  const count=`${nr} pront${nr===1?'o':'i'}${ne?` · <span style="color:var(--err-ink)">${ne} error${ne===1?'e':'i'}</span>`:''}`;
+  const hd = `<div class="lvhead"><button class="back" aria-label="Torna ai modelli">${I('cl')}</button><span class="tt">Provider e chiavi</span><span class="r"><span class="st">${count}</span></span></div>`;
+  const list = `<ul class="plist" data-providers-level aria-label="Provider e chiavi">${cards.map(c=>card(c,ph)).join('')}</ul>`;
+  const foot = `<div class="lvfoot"><button class="btn">${I('plus','s')}Chiave API</button><button class="btn">${I('plus','s')}Endpoint</button></div>`;
+  return `<div class="pop ${ph?'phone':''}" style="--h:${o.h||(ph?780:456)}px" data-panel="${o.id}" role="dialog" aria-label="Provider e chiavi">${ph?'<div class="grab"><span></span></div>':''}${hd}${list}${foot}</div>`;
+}
+
+// ── dettaglio ─────────────────────────────────────────────────────
+function radioList(ph){
+  return `<div class="radio" role="radiogroup" aria-label="Modello di default">${[
+      {l:'Automatico',s:'lo sceglie Claude Code (oggi Opus 5.5 · 1M)',sel:true},
+      {l:'Opus 5.5',m1:true,w:'200K'},{l:'Sonnet 5.5',m1:true,w:'200K'},{l:'Haiku 4.5',w:'200K'},{l:'Fable 5.1',w:'1M'}]
+    .map(r=>`<div class="row ${r.sel?'sel':''}"><button class="pick" role="radio" aria-checked="${!!r.sel}" aria-label="${r.l}"></button><span class="rd"></span><span class="lb">${r.l}${r.s?` <span style="color:var(--text2);font-size:11px">· ${r.s}</span>`:''}</span>${r.m1?`<button class="m1" role="switch" aria-checked="false" aria-label="Finestra da 1M token, ${r.l}">${ph?'<span>1M</span>':'1M'}</button>`:'<span></span>'}<span class="w">${r.w||''}</span></div>`).join('')}<button class="more" aria-expanded="false">Precedenti (3) ${I('cd','s')}</button></div>`;
+}
+function detail(o){
+  const ph=!!o.phone;
+  const hd = `<div class="lvhead"><button class="back" aria-label="Torna a Provider e chiavi">${I('cl')}</button><span class="tt">Claude Code</span><span class="st">${dot()}Pronto · v2.1.283 · aggiornato 12 s fa</span><span class="r"><button class="btn" aria-label="Prova la connessione">${I('refresh','s')}${ph?'':'Prova'}</button></span></div>`;
+  return `<div class="pop ${ph?'phone':''}" style="--h:${o.h||(ph?780:456)}px" data-panel="${o.id}" role="dialog" aria-label="Claude Code">${ph?'<div class="grab"><span></span></div>':''}${hd}<div class="det" tabindex="0" aria-label="Impostazioni di Claude Code">
+   <div class="fr"><div class="k">Abbonamento</div><div class="v">Claude Max 20x
+     <div class="bar"><i style="width:42%"></i></div><div class="bl">5 ore al 42% · riparte alle 03:06</div>
+     <div class="bar w"><i style="width:67%"></i></div><div class="bl warn">Settimana al 67% · riparte mer 01:06</div></div></div>
+   <div class="fr"><div class="k">Predefinito<small>Usato dalle chat in Automatico</small></div><div class="v" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span>Sì, per ripiego: nessuna scelta salvata.</span><button class="btn">Fissa come predefinito</button></div></div>
+   <div class="fr"><div class="k">Modello di default<small>Vale anche per Claude API, dal prossimo avvio del server</small></div><div class="v">${radioList(ph)}</div></div>
+   <div class="fr"><div class="k">Effort<small>Una chat può cambiarlo per sé</small></div><div class="v"><button class="sel2">Automatico ${I('cd','s')}</button></div></div>
+   <div class="fr"><div class="k">Attivazione</div><div class="v"><button class="sel2">Automatica: si accende se trova la CLI ${I('cd','s')}</button></div></div>
+   <div class="fr"><div class="k">Programma</div><div class="v"><div class="mono">/Users/me/.local/bin/claude</div><button class="btn ghost" style="padding:0 4px;margin-top:2px">Cambia percorso</button></div></div>
+  </div></div>`;
+}
+function detailCodex(o){
+  const ph=!!o.phone;
+  const hd = `<div class="lvhead"><button class="back" aria-label="Torna a Provider e chiavi">${I('cl')}</button><span class="tt">Codex</span><span class="st">${dot('unavailable')}Da collegare · v0.71.0</span><span class="r"><button class="btn" aria-label="Prova la connessione">${I('refresh','s')}${ph?'':'Prova'}</button></span></div>`;
+  return `<div class="pop ${ph?'phone':''}" style="--h:${o.h||(ph?780:456)}px" data-panel="${o.id}" role="dialog" aria-label="Codex">${ph?'<div class="grab"><span></span></div>':''}${hd}<div class="det" tabindex="0" aria-label="Impostazioni di Codex">
+   <div class="fr"><div class="k">Accesso<small>Abbonamento ChatGPT</small></div><div class="v" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn pri" data-primary>Accedi</button><button class="btn">${I('copy','s')}Copia comando</button><div style="flex-basis:100%;font-size:11px;color:var(--text2)">Apre un terminale di Topics con <span class="mono">codex login</span> già scritto: lo esegui tu.</div></div></div>
+   <div class="fr"><div class="k">Programma</div><div class="v"><div class="mono">/opt/homebrew/bin/codex</div><button class="btn ghost" style="padding:0 4px;margin-top:2px">Cambia percorso</button></div></div>
+   <div class="fr"><div class="k">Modello di default</div><div class="v" style="color:var(--text2)">Si sceglie dopo l’accesso: Codex elenca i modelli solo da collegato.</div></div>
+  </div></div>`;
+}
+function detailTopics(o){
+  const hd = `<div class="lvhead"><button class="back" aria-label="Torna a Provider e chiavi">${I('cl')}</button><span class="tt">Topics</span><span class="st">${dot()}Pronto · motore di «Esegui in Topics»</span><span class="r"><button class="btn">${I('refresh','s')}Prova</button></span></div>`;
+  const opt=(l,s,on)=>`<div class="row ${on?'sel':''}"><button class="pick" role="radio" aria-checked="${on}" aria-label="${l}"></button><span class="rd"></span><span class="lb">${l} <span style="color:var(--text2);font-size:11px">· ${s}</span></span><span></span><span></span></div>`;
+  return `<div class="pop" style="--h:456px" data-panel="${o.id}" role="dialog" aria-label="Topics">${hd}<div class="det" tabindex="0" aria-label="Impostazioni di Topics">
+   <div class="fr"><div class="k">Modelli<small>Quelli che il motore serve</small></div><div class="v">Opus 5.5 · Sonnet 5.5 · Haiku 4.5 · Fable 5.1</div></div>
+   <div class="fr"><div class="k">Per una sola chat</div><div class="v">Si accende e si spegne con «Esegui in Topics», in cima al selettore. Topics non è un provider da fissare come predefinito.</div></div>
+   <div class="fr"><div class="k">Motore degli agenti<small>Per tutte le chat</small></div><div class="v"><div class="radio" role="radiogroup" aria-label="Motore degli agenti">${opt('Claude Code','un processo per chat',false)}${opt('jcode','agente leggero',false)}${opt('Topics','nel server, col tuo abbonamento',true)}</div></div></div>
+   <div class="fr"><div class="k">Checkpoint a ogni turno<small>Per tutte le chat</small></div><div class="v"><div class="tog"><button class="sw off" role="switch" aria-checked="false" aria-label="Checkpoint a ogni turno" style="border:0;padding:0"></button><span style="color:var(--text2);font-size:11px">Prima di ogni turno Topics fotografa l’albero; <span class="mono">/rewind</span> lo rimette com’era. La conversazione non torna indietro.</span></div></div></div>
+  </div></div>`;
+}
+
+// ── trigger chiusi, un formato ────────────────────────────────────
+function triggers(o){
+  const chip=(l,d,rt)=>`<span class="chip">${rt?I('route','s rt'):''}${l}<span class="d">· ${d}</span>${I('cd','s')}</span>`;
+  const field=(l,d)=>`<span class="field">${l}<span class="d">· ${d}</span><span class="cd">${I('cd','s')}</span></span>`;
+  const rows=[
+    ['Composer della chat (chip)', chip('Opus 5.5','via Topics',true)],
+    ['Impostazioni della chat', field('Opus 5.5','via Topics')],
+    ['Composer della chat, Automatico', chip('Automatico','Claude Code')],
+    ['Composer della card (chip)', chip('GPT-6.1-Sol','via Codex')],
+    ['Cassetto della card (chip)', chip('Automatico','segue la board')],
+    ['Card della board (riga del chip)', `<span style="font-size:12px">Automatico <span style="color:var(--text2)">· segue la board</span></span>`],
+    ['Impostazioni della board', field('Automatico','Topics sceglie')],
+  ];
+  return `<div class="trig" data-panel="${o.id}">${rows.map(([k,v])=>`<div class="trow"><span class="k">${k}</span><span>${v}</span></div>`).join('')}</div>`;
+}
+
+// ── schema dell'apertura a metà schermo ───────────────────────────
+function mid(o){
+  // 1024×768 a metà scala. Composer della chat vuota col chip a y=420: sopra 408 px utili, sotto 308.
+  const s=0.5, chipY=420, chipH=28;
+  const above=chipY-4-8, below=768-8-(chipY+chipH+4);
+  const panelH=Math.min(456, Math.max(above,below));
+  return `<div class="vp" data-panel="${o.id}">
+    <div class="ruler" style="top:364px">1024 × 768, chat vuota</div>
+    <div class="pnl" style="top:${(chipY-4-panelH)*s}px;height:${panelH*s}px">pannello sopra il chip: ${above} px di spazio (sotto ${below})<br>altezza ${panelH} px, nessuna sovrapposizione col chip</div>
+    <div class="cmp" style="top:${chipY*s-6}px"><span class="chip" style="height:18px;font-size:10px">${I('route','s rt')}Opus 5.5<span class="d">· via Topics</span></span><span style="color:var(--text2)">Scrivi un messaggio…</span></div>
+    <div class="ruler" style="top:${(chipY+chipH)*s+10}px">sotto: ${below} px</div>
+  </div>`;
+}
+
+// ── telefono: impostazioni della chat ─────────────────────────────
+function settingsPhone(o){
+  return `<div class="pop phone" style="--h:520px" data-panel="${o.id}" role="dialog" aria-label="Impostazioni della chat"><div class="grab"><span></span></div>
+   <div class="lvhead"><span class="tt" style="padding-left:12px">Impostazioni della chat</span></div>
+   <div class="det" tabindex="0" aria-label="Impostazioni della chat">
+    <div class="fr"><div class="k">Nome</div><div class="v"><span class="field" style="height:44px;min-width:0;width:100%">Migrazione Stripe</span></div></div>
+    <div class="fr"><div class="k">Modello<small>Si apre come foglio dal basso, sopra questo</small></div><div class="v"><button class="field" style="height:44px;min-width:0;width:100%;font-size:14px">Opus 5.5<span class="d">· via Topics</span><span class="cd">${I('cd','s')}</span></button></div></div>
+    <div class="fr"><div class="k">Come ci arrivi</div><div class="v" style="color:var(--text2)">Tieni premuta la scheda della chat, poi «Impostazioni della chat». Oggi a 390 px il passo dell'audit non trova la voce (timeout): AC-35.</div></div>
+   </div></div>`;
+}
+
+// ── dati ──────────────────────────────────────────────────────────
+const F = FIXTURE;
+const SAVED_OPUS = {provider:'claude-code', key:'claude-opus-5-5'};
+function theme(cls, title, dark){
+  const t=dark?'dark':'light';
+  const f=(html,cap)=>`<figure>${html}<figcaption>${cap}</figcaption></figure>`;
+  return `<section class="theme ${cls}" data-theme-name="${cls}"><h2>${title}</h2><div class="grid">
+   ${f(selector({id:'sel-keys-'+t, snap:F.KEYS, savedRef:SAVED_OPUS, warn:'sett. 67%', menu:dark?'openai':null, open:dark?'anthropic':null}),
+     '<b>Selettore, desktop, fixture «con chiavi».</b> Anthropic, OpenAI, Google fissi; la quarta colonna impila Meta, DeepSeek, Mistral, Qwen, xAI, ognuna col titolo a due righe (azienda, motore). gpt-oss sta in OpenAI, gemma in Google. «via X» sulla riga solo se diverso dal titolo.'+(dark?' Qui: scelta del motore di OpenAI aperta sul posto, e i Precedenti di Anthropic aperti: Opus 4.8 «via Claude Code» perché Topics non lo serve (stessa azienda, strada diversa).':''))}
+   ${f(accounts({id:'acc-keys-'+t, snap:F.KEYS}), '<b>Provider e chiavi, nello stesso pannello: una lista.</b> Ogni provider una volta, in ordine fisso, nessun titolo di gruppo. Ogni scheda dice stato, un fatto, le aziende che serve, e al massimo un\'azione. In fondo: aggiungere una chiave API o un endpoint.')}
+   ${f(detail({id:'det-'+t}), '<b>Dettaglio, terzo livello.</b> Intestazione ferma, corpo che scorre dentro lo stesso pannello (stessa altezza). Modello di default come lista in linea.')}
+   ${f(selector({id:'sel-nokeys-'+t, snap:F.NOKEYS, savedRef:SAVED_OPUS, warn:'sett. 91%'}), '<b>Senza chiavi.</b> Solo i provider che lo snapshot ha davvero (Codex, Gemini CLI). «Accedi» agisce con un tocco (terminale di Topics con <code>codex login</code> scritto); «Configura ›» è una navigazione. «Non mi serve» nasconde il riquadro su questo dispositivo. LM Studio in errore: solo nel conto e nella lista.')}
+   ${f(detailCodex({id:'det-codex-'+t}), '<b>Dettaglio di un account da collegare.</b> L\'azione dello stato è la prima riga del corpo.')}
+   ${f(triggers({id:'trig-'+t}), '<b>Trigger chiusi: un formato.</b> «etichetta · chi esegue» ovunque, Automatico compreso. Nessuna finestra di contesto nel trigger chiuso: sta nella riga aperta.')}
+   ${f(selector({id:'sel-phone-'+t, phone:true, snap:F.KEYS, savedRef:SAVED_OPUS}), '<b>Telefono: selettore.</b> Lista, stessi titoli; azienda e motore sulla stessa riga da 44 px. Automatico è la prima riga, con la seconda riga visibile.')}
+   ${f(accounts({id:'acc-phone-'+t, phone:true, snap:F.KEYS}), '<b>Telefono: Provider e chiavi.</b> La stessa lista, una colonna.')}
+   ${f(detail({id:'det-phone-'+t, phone:true}), '<b>Telefono: dettaglio.</b> Etichetta sopra il valore, bersagli da 44 px, il corpo scorre nel foglio.')}
+   ${f(selector({id:'sel-nokeys-phone-'+t, phone:true, snap:F.NOKEYS, savedRef:SAVED_OPUS, h:780}), '<b>Telefono: blocco «collega».</b> Bottoni da 44 px, «Non mi serve» compreso.')}
+   ${dark?'':f(detailTopics({id:'det-topics'}), '<b>Dettaglio di Topics.</b> Nessun «Predefinito» (AICTRL-01). Il motore degli agenti e il checkpoint a ogni turno restano in «Provider e chiavi», sotto «Per tutte le chat»: impostazioni globali, non della sessione.')}
+   ${dark?'':f(settingsPhone({id:'settings-phone'}), '<b>Telefono: impostazioni della chat.</b> Raggiungibili tenendo premuta la scheda; il campo Modello ha lo stesso formato del chip.')}
+   ${dark?'':f(mid({id:'mid'}), '<b>Chat vuota, composer a metà schermo.</b> Il pannello si apre dal lato con più spazio e non copre il chip.')}
+   ${dark?'':f(selector({id:'sel-jcode', snap:F.jcode(JCODE_IDS), savedRef:SAVED_OPUS}), '<b>jcode registrato: i 134 id veri.</b> 20 aziende, 0 senza nome. La quarta colonna impila tutte le 17 aziende oltre le prime tre (NVIDIA 15, Mistral 6, Meta 5, …), ognuna col suo titolo. Un\'etichetta che a questa larghezza vuole tre righe si ferma a due con l\'ellissi e il nome intero in <code>title</code> e nel nome accessibile.')}
+  </div></section>`;
+}
+document.getElementById('root').innerHTML = theme('light','Chiaro',false) + theme('dark','Scuro',true);
+</script>
+</body></html>

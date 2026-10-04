@@ -73,19 +73,24 @@ instradabile.
 ### Requirement: AICTRL-02 — Ogni provider dello snapshot e' rappresentato, con il suo stato
 
 Il selettore SHALL rappresentare **ogni** provider presente nello snapshot. I
-modelli dei provider `ready` si possono selezionare. Quelli dei provider non-`ready`
-sono **visibili con il motivo** ma disabilitati, e l'azione «Apri impostazioni»
-è a portata. Nessuna integrazione inventata: l'elenco è quello dello snapshot.
+modelli dei provider `ready` si possono selezionare. Un provider non-`ready`
+SHALL essere **visibile col suo stato** e con un'azione a portata: una riga del
+riquadro «collega» della sua azienda («Accedi», «Configura ›», «Aggiungi
+chiave ›»), oppure la sua scheda nel livello «Provider e chiavi» quando
+l'azienda non è nota o il riquadro è stato nascosto con «Non mi serve»
+(emendamento del 04/10: prima erano righe di modelli disabilitate). Nessuna
+integrazione inventata: l'elenco è quello dello snapshot.
 
 Le righe sono **per modello**, divise per azienda (MSEL-02, MSEL-05). Il
-provider che esegue un modello è scritto sulla sua riga, e si cambia sul posto
-quando ce n'è più d'uno.
+provider che esegue i modelli di una sezione è scritto nel suo titolo, e si
+cambia lì sul posto quando ce n'è più d'uno. Una riga lo ripete solo quando per
+lei è diverso (emendamento del 04/10: prima lo scriveva ogni riga).
 
 #### Scenario: pronto e non pronto convivono
 - **GIVEN** uno snapshot con un provider `ready` e uno non-`ready` con motivo
 - **WHEN** l'utente apre il selettore
-- **THEN** i modelli di entrambi compaiono
-- **AND** quelli del primo sono selezionabili, quelli del secondo disabilitati con il motivo
+- **THEN** i modelli del primo compaiono e sono selezionabili
+- **AND** il secondo compare col suo stato e la sua azione, nel riquadro «collega» della sua azienda
 
 #### Scenario: i modelli di aziende diverse insieme
 - **WHEN** l'utente apre il selettore

@@ -326,11 +326,12 @@ cifre tabellari, come la coda di Vista, lì dove la riga sta:
   l'interruttore sopra l'elenco), o, nel tono di avviso, «Nessuno pronto» e
   «<provider> non pronto» quando non lo è quello scelto. L'abbonamento Claude
   (Claude Code, o Topics, il runtime predefinito, che entra con le stesse
-  credenziali) SHALL stare in cima al pannello insieme alla finestra di 5 ore
-  già usata, e come riga compatta («Max 20x · 5 h al 42%») nel selettore:
-  sotto la riga Claude Code dell'elenco con cui il selettore si apre (una
-  chat senza scelta propria non entra mai nei modelli) e accanto ai modelli
-  Claude. Il server SHALL esporre dell'abbonamento solo due
+  credenziali) SHALL stare nella scheda di Claude Code («Max 20x · sett. 67%»)
+  e, con le due finestre per intero, nel suo dettaglio; nel selettore SHALL
+  esserci solo un avviso corto nel titolo Anthropic, e solo da
+  `PLAN_USAGE_WARN_AT` in su (emendamento del 04/10, model-selector: prima era
+  una riga compatta sotto Claude Code e accanto ai modelli Claude, e in cima al
+  pannello). Il server SHALL esporre dell'abbonamento solo due
   etichette (`subscriptionType`, `rateLimitTier`), mai un token né il percorso
   delle credenziali; un tipo che il client non conosce NON SHALL essere
   nominato;
@@ -355,9 +356,8 @@ lingue.
 #### Scenario: il piano Claude
 - **GIVEN** le credenziali della CLI con `subscriptionType` `max` e `rateLimitTier` `default_claude_max_20x`, e la finestra di 5 ore al 42%
 - **WHEN** apro il selettore del modello di una chat che usa il predefinito
-- **THEN** sotto la riga Claude Code c'è «Max 20x · 5 h al 42%», senza aprire altro
-- **AND** entrando nei modelli di Claude Code la stessa riga sta accanto ai modelli
-- **AND** il pannello Provider e chiavi dice in cima «Abbonamento Claude Max 20x» con la finestra al 42%
+- **THEN** il titolo Anthropic non porta nessun avviso, perché nessuna finestra è al 50%
+- **AND** nel livello «Provider e chiavi» la scheda di Claude Code dice «Max 20x», e il suo dettaglio mostra «Abbonamento Claude Max 20x» con la finestra di 5 ore al 42%
 - **AND** lo snapshot dei provider serializzato non contiene nessun token
 
 #### Scenario: la scadenza vicina
@@ -373,9 +373,12 @@ col proprio nome:
 
 - Provider e chiavi (chiavi, endpoint, CLI, runtime, predefiniti, checkpoint):
   una riga in FONDO a ogni selettore del modello (composer della chat,
-  composer e cassetto della card, predefiniti della board), che apre il
-  pannello ancorato al selettore; l'avviso dei limiti del piano apre lo stesso
-  pannello, ancorato all'avviso;
+  composer e cassetto della card, predefiniti della board), che apre
+  «Provider e chiavi» come livello dello STESSO pannello, con ‹ ed Escape per
+  tornare ai modelli; l'avviso dei limiti del piano apre il selettore del pane a
+  fuoco sul dettaglio di Claude Code, o, senza un selettore sullo schermo, il
+  foglio al centro (emendamento del 04/10, model-selector: prima era un
+  pannello largo circa 420 px ancorato al selettore o all'avviso);
 - Strumenti MCP (server e permessi): la riga «Strumenti» del «+» del composer
   della chat, che apre il pannello ancorato al «+»; aprire un composer o il suo
   «+» NON SHALL montare la flotta;
@@ -408,11 +411,11 @@ fuoco SHALL tornare all'ancora.
 - **WHEN** apro il selettore del modello
 - **THEN** l'ultima riga è «Provider e chiavi» con in coda quanti sono pronti
 - **WHEN** la premo
-- **THEN** il selettore si chiude e il pannello Provider e chiavi si apre accanto al selettore, largo circa 420 px
-- **WHEN** scrivo una chiave e premo Invio
-- **THEN** la chiave parte al server e la risposta si legge nel pannello
-- **WHEN** premo Escape
-- **THEN** il pannello si chiude e il fuoco è sul selettore
+- **THEN** «Provider e chiavi» prende il posto dei modelli nello stesso pannello, con la stessa posizione e larghezza
+- **WHEN** apro la scheda di un provider, scrivo una chiave e premo Invio
+- **THEN** la chiave parte al server e la risposta si legge nel dettaglio
+- **WHEN** premo Escape due volte
+- **THEN** torno alla lista e poi ai modelli, con la ricerca e lo scorrimento di prima
 
 #### Scenario: il primo Tab resta nel pannello
 - **GIVEN** il pannello Provider e chiavi appena aperto dal selettore, o Strumenti MCP dalla palette
@@ -422,9 +425,9 @@ fuoco SHALL tornare all'ancora.
 #### Scenario: i provider dai predefiniti della board
 - **GIVEN** le impostazioni della board aperte, a 1280×800
 - **WHEN** apro il loro selettore del modello e premo «Provider e chiavi»
-- **THEN** il pannello si apre accanto al selettore e le impostazioni della board restano aperte
+- **THEN** il livello si apre nello stesso pannello del selettore e le impostazioni della board restano aperte
 - **WHEN** premo Escape
-- **THEN** si chiude solo il pannello e il fuoco è sul selettore
+- **THEN** si torna ai modelli del selettore, e le impostazioni della board restano aperte
 
 #### Scenario: il calendario con la colonna chiusa
 - **GIVEN** una pagina di calendario fissata e la colonna chiusa con ⌘B
@@ -477,7 +480,7 @@ fuoco SHALL tornare all'ancora.
 #### Scenario: l'avviso dei limiti
 - **GIVEN** l'avviso dei limiti del piano Claude nella colonna
 - **WHEN** apro i dettagli e premo «Provider e chiavi»
-- **THEN** si apre il pannello Provider e chiavi, senza il menu utente, e Escape lo chiude riportando il fuoco sull'avviso
+- **THEN** si apre il selettore del pane a fuoco sul dettaglio di Claude Code (senza un selettore sullo schermo, il foglio al centro), senza il menu utente, e Escape fino in fondo riporta il fuoco sull'avviso
 
 ## MODIFIED Requirements
 

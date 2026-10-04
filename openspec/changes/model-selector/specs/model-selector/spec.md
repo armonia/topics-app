@@ -36,7 +36,13 @@ variante o `scope` è un difetto.
 
 Aperto il selettore, i modelli correnti di ogni azienda presente nello snapshot
 SHALL essere visibili nello stesso pannello, senza passare da un livello
-intermedio. Le sezioni sono per azienda (Anthropic, OpenAI, Google, Altri).
+intermedio. Le sezioni sono per azienda, e ogni sezione SHALL portare il nome di
+un'azienda o, per un'azienda sconosciuta, il nome del provider che offre il
+modello. Nessuna sezione SHALL raccogliere ciò che resta («Altri», «Other») né
+raggruppare per tipo di connessione (emendamento del 04/10, revisione).
+Anthropic, OpenAI e Google SHALL essere le prime tre colonne, sempre in
+quest'ordine. Con più di quattro sezioni, le aziende successive SHALL stare
+impilate nella quarta colonna, ognuna col suo titolo.
 
 Da 720 px di finestra in su le sezioni SHALL essere colonne affiancate, una per
 azienda, tutte in vista insieme senza scorrere il pannello di lato; una colonna
@@ -44,12 +50,15 @@ più lunga dello spazio SHALL scorrere da sola, con l'intestazione ferma. Sotto
 i 720 px le sezioni SHALL essere una lista sola, e l'intestazione di ciascuna
 SHALL restare in vista mentre si scorre.
 
-Il pannello SHALL restare dentro il viewport. Quando le righe non ci stanno,
+Il pannello SHALL restare dentro il viewport e SHALL aprirsi dal lato del trigger
+con più spazio quando non ci sta da nessuno dei due. Quando le righe non ci stanno,
 SHALL scorrere solo l'area delle sezioni, e fascia, ricerca e Automatico SHALL
 restare ferme.
 
-Le generazioni non correnti SHALL stare in una riga «Altri modelli (n)» in fondo
-alla loro sezione, che si apre sul posto.
+Le generazioni non correnti SHALL stare in una riga «Precedenti (n)» in fondo
+alla loro sezione, che si apre sul posto. Una generazione dichiarata dal provider
+vince; senza dichiarazione, è corrente la versione più alta di ogni famiglia
+della stessa azienda.
 
 La variante a finestra estesa dello stesso modello (`[1m]`) SHALL essere un
 interruttore dentro la riga del modello, non una riga a sé.
@@ -76,7 +85,18 @@ interruttore dentro la riga del modello, non una riga a sé.
 - **GIVEN** Codex con `gpt-5.5` fuori dalla generazione corrente
 - **WHEN** l'utente apre il selettore
 - **THEN** `gpt-5.5` non è tra le righe visibili della sezione OpenAI
-- **AND** compare aprendo «Altri modelli», o cercandolo
+- **AND** compare aprendo «Precedenti», o cercandolo
+
+#### Scenario: nessun gruppo di ripiego
+- **GIVEN** Ollama con `gpt-oss:20b`, `gemma3:27b` e `llama3.3:70b`, e OpenClaw con `openclaw`
+- **WHEN** l'utente apre il selettore
+- **THEN** `gpt-oss:20b` sta nella sezione OpenAI, `gemma3:27b` in Google, `llama3.3:70b` in Meta e `openclaw` in una sezione «OpenClaw»
+- **AND** nessuna sezione si chiama «Altri», «Other» o con un tipo di connessione
+
+#### Scenario: chat vuota, composer a metà schermo
+- **GIVEN** una finestra di 1024 × 768 px e il composer di una chat vuota a metà altezza
+- **WHEN** l'utente apre il selettore
+- **THEN** il pannello si apre dal lato con più spazio, sta dentro il viewport e non copre il chip
 
 ### Requirement: MSEL-03: La ricerca è il primo elemento
 
@@ -96,8 +116,10 @@ corrispondenza».
 
 Ogni riga SHALL mostrare:
 - il nome leggibile del modello;
-- la finestra di contesto, solo nello `scope` `chat`;
-- la strada («via Topics», «via Codex», …);
+- la finestra di contesto, solo nello `scope` `chat` e solo se è nota;
+- chi la esegue («via Topics», «via Codex», …) solo quando è diverso da quello
+  scritto nel titolo della sua sezione (emendamento del 04/10: il titolo lo dice
+  per tutte);
 - la spunta se è il valore attuale.
 
 Nella variante `full` SHALL mostrare anche la descrizione, quando il catalogo ne
@@ -108,7 +130,7 @@ SHALL battere la tabella statica. Codex SHALL dichiarare `context_window` della
 sua cache.
 
 Una riga non utilizzabile SHALL restare visibile e disabilitata, con il motivo e
-l'azione «Apri impostazioni». Un valore salvato che non è più nel catalogo
+l'azione «Sistema ›», che apre il dettaglio del suo motore. Un valore salvato che non è più nel catalogo
 SHALL restare selezionato e disabilitato, mai sostituito in silenzio
 (MP-TASK-06).
 
@@ -121,27 +143,37 @@ SHALL restare selezionato e disabilitato, mai sostituito in silenzio
 - **GIVEN** `gpt-5.5` con `upgrade.retirement_at` al 14/10/2026
 - **THEN** la sua riga dice «si ritira il 14/10»
 
-### Requirement: MSEL-05: Una riga per modello, il motore sulla riga
+### Requirement: MSEL-05: Una riga per modello, il motore nel titolo della sezione
 
-Lo stesso modello offerto da più motori SHALL essere una riga sola. Il motore
-SHALL essere deciso da una regola sola e ripetibile:
-1. quello già salvato;
-2. il default dello snapshot;
+Lo stesso modello offerto da più motori SHALL essere una riga sola, anche quando
+gli id differiscono solo per `vendor/`, `:tag`, punti o una data finale
+(`gpt-oss:20b` e `openai/gpt-oss-20b`). Il motore di una sezione SHALL essere
+deciso da una regola sola e ripetibile:
+1. quello già salvato, se la riga salvata sta nella sezione;
+2. il default dello snapshot, se serve una riga della sezione;
 3. l'ordine di preferenza del server, prima l'abbonamento e poi le API.
 
-Se i motori sono più di uno, la riga SHALL permettere di cambiarlo sul posto,
-senza un sottomenu. Il valore salvato SHALL restare `provider` più `model`.
+Una riga SHALL usare il motore della sezione se lo serve, altrimenti il primo che
+la serve nello stesso ordine. Se i motori della sezione sono più di uno, il
+titolo della sezione SHALL permettere di cambiarlo sul posto, senza un sottomenu
+né un popover (emendamento del 04/10: prima lo faceva la riga). Il valore salvato
+SHALL restare `provider` più `model`.
 
 #### Scenario: un modello, due motori
 - **GIVEN** `claude-sonnet-5-5` offerto da Claude Code e da jcode
 - **WHEN** l'utente apre il selettore
 - **THEN** Sonnet 5.5 compare una volta
-- **AND** la riga offre i due motori sul posto
+- **AND** il titolo della sezione Anthropic offre i due motori sul posto
+
+#### Scenario: due id, un modello
+- **GIVEN** Ollama con `gpt-oss:20b` e jcode con `openai/gpt-oss-20b`
+- **WHEN** l'utente apre il selettore
+- **THEN** la sezione OpenAI ha una riga sola «GPT-OSS 20B» servita da due motori
 
 #### Scenario: la scelta non salta
 - **GIVEN** una chat salvata su jcode con Sonnet 5.5
 - **WHEN** lo snapshot cambia default in Claude Code
-- **THEN** la riga resta su jcode
+- **THEN** la sezione Anthropic resta su jcode, e così la riga
 
 ### Requirement: MSEL-06: «Esegui in Topics» è acceso dove si può
 
@@ -219,8 +251,9 @@ In cima al pannello SHALL esserci una fascia con:
 - una riga di spiegazione leggibile senza passare col mouse, anche sul telefono.
 
 La riga SHALL dire cosa fa (Claude gira dentro Topics col tuo abbonamento,
-senza aprire un processo Claude Code per chat) e cosa resta fuori (GPT e Gemini
-restano diretti). La riga SHALL NOT promettere né la stessa quota né meno
+senza aprire un processo Claude Code per chat) e cosa resta fuori («Gli altri
+vanno diretti»: emendamento del 04/10, perché sotto la fascia ci sono anche Meta,
+Mistral e le altre aziende). La riga SHALL NOT promettere né la stessa quota né meno
 memoria: la quota è la stessa solo con MSEL-11, e per jcode la memoria non
 cambia.
 
@@ -228,7 +261,9 @@ Quando il valore attuale va diretto pur con la preferenza accesa, la fascia
 SHALL dire perché.
 
 Il trigger del composer SHALL mostrare un segno quando la strada del valore
-attuale passa da Topics.
+attuale passa da Topics. Ogni trigger chiuso SHALL scrivere il valore nello
+stesso formato, «etichetta · chi esegue» («Automatico · chi decide» per la scelta
+automatica).
 
 #### Scenario: acceso e diretto
 - **GIVEN** la preferenza accesa e GPT-6.1-Sol selezionato
@@ -245,10 +280,12 @@ attuale passa da Topics.
 
 - ⌘⇧M SHALL aprire e chiudere il selettore del composer con il fuoco, e SHALL
   essere nel catalogo delle scorciatoie.
-- Le frecce SHALL attraversare fascia, Automatico, righe e «Altri modelli» di
-  tutte le sezioni, senza fermarsi alle intestazioni. Invio sceglie; Esc chiude
-  e riporta il fuoco al trigger; `→` e `←` aprono e chiudono la scelta del
-  motore sulla riga.
+- ↓ e ↑ SHALL attraversare fascia, Automatico, righe e «Precedenti» di tutte le
+  sezioni, senza fermarsi sul testo delle intestazioni; il bottone del motore di
+  un'intestazione è una fermata solo quando offre una scelta. Invio sceglie; Esc
+  chiude e riporta il fuoco al trigger. A colonne, `→` e `←` SHALL passare alla
+  colonna accanto, e Tab SHALL fermarsi una volta per colonna (emendamento del
+  04/10: la scelta del motore è nel titolo, e si apre con Invio sul suo bottone).
 - Sotto 768 px il pannello SHALL essere un foglio dal basso a tutta larghezza,
   con righe alte almeno 44 px e lo scorrimento di sfondo bloccato.
 
