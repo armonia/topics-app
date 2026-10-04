@@ -48,7 +48,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
-import { resolveClaudeEffort } from "../../lib/topics-agent-prompt";
+import { languageDirective, resolveClaudeEffort } from "../../lib/topics-agent-prompt";
 import { resolveClaudeModel, resolveClaudeMaxTokens } from "../../services/app-settings";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -161,6 +161,33 @@ const NO_WORKSPACE_NOTE =
   "modificare file. Puoi comunque leggere una pagina web e tenere la lista di cose da fare. " +
   "Per il resto rispondi a voce; se serve lavorare su un progetto, di' all'utente di " +
   "collegarne uno alla conversazione.";
+
+/**
+ * Il prompt di sistema di un turno nativo, oltre all'identità di Claude Code.
+ *
+ * LA LINGUA STA QUI, non solo nel `<context>` del messaggio. La rotta non passa
+ * mai `systemPrompt` a questo runtime: la direttiva arrivava soltanto inline,
+ * nel turno utente, dove la deduplica la toglie dai turni successivi (lo scope
+ * è l'id della sessione CLI, che una chat nativa non rinnova) e la storia
+ * ricostruita dal DB dopo un riavvio non la contiene. Il 04/10 topic:d740f8ae,
+ * passata al nativo con MSEL-06, rispondeva in inglese a una chat italiana
+ * anche dopo il fix della direttiva: il modello seguiva gli avvisi inglesi di
+ * Topics. Nel system la riga c'è a ogni giro, e resta nel prefisso in cache.
+ *
+ * Si rilegge a ogni turno, come effort e modello: cambiare lingua vale dal
+ * messaggio dopo.
+ */
+export function nativeSystemPrompt(args: {
+  base?: string;
+  /** La chat ha un progetto: niente nota sull'assenza di strumenti. */
+  workspace: boolean;
+  /** Il coordinatore: senza progetto per costruzione, la nota mentirebbe. */
+  globalOrchestrator: boolean;
+  language?: string;
+}): string {
+  const note = args.workspace || args.globalOrchestrator ? undefined : NO_WORKSPACE_NOTE;
+  return [args.base, note, args.language ?? languageDirective()].filter(Boolean).join("\n\n");
+}
 
 /**
  * I modelli che questo runtime sa usare.
@@ -707,11 +734,7 @@ export class NativeProvider implements AIProvider {
           // registry-backed coordinator is different: it intentionally has no
           // workspace and only its five board tools, so adding that ordinary
           // note would falsely advertise web/file capabilities.
-          system: globalOrchestrator
-            ? options?.systemPrompt
-            : (workspace
-              ? options?.systemPrompt
-              : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n")),
+          system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
           history: session.history,
           // Passed by REFERENCE: every turn restarts from what the previous
           // one measured, instead of from the assumed 4 chars per token.
