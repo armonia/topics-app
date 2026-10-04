@@ -73,7 +73,6 @@ export function configureSubagentRuntime(d: SubagentRuntimeDeps): void {
 
 // Max depth 2 (subagent-nativi, choice 3): shared with the native provider,
 // which hides the delegation tools from a grandchild.
-export { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
 import { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
 /** Max live children per parent — a runaway parent can't fork unbounded PTYs. */
 export const MAX_CHILDREN_PER_PARENT = 5;
