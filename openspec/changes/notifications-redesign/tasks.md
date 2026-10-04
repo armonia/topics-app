@@ -211,7 +211,7 @@ server (rotta degli hook, provider finto). Ogni spec lascia il `.webm`.
   Screenshot chiaro e scuro, desktop e 390 px.
 - [x] 5.4 `tests/e2e/attention-archive-park.spec.ts`: chiudere la tab di una chat finita
   cala il numero; una card parcheggiata rimessa in coda esce dalla inbox.
-- [ ] 5.5 `tests/e2e/chat-finished-banner.spec.ts`, `chat-next-waiting.spec.ts` e le
+- [x] 5.5 `tests/e2e/chat-finished-banner.spec.ts`, `chat-next-waiting.spec.ts` e le
   altre spec che iniettano `stream:end`, `session:state` o `unread:updated` per
   l'attenzione o per i badge (TAB-BADGE, PARITY): riscritte sul server vero o su frame
   `attention:*`, nessuna cancellata senza un gemello. Fatte: chat-finished-banner,
@@ -221,9 +221,13 @@ server (rotta degli hook, provider finto). Ogni spec lascia il `.webm`.
   project-badge-attributable, unread-clearing, unread-badge-cross-client,
   turn-awaiting-input, chat-streaming-indicator, pane-zoom, profile-menu,
   topic-management-org, motion-floating-surfaces, sidebar-header-fit, user-menu-*
-  (e i testid della campanella in window-chrome-inset e mobile-chrome-bar). Resta `seen-on-any-focus.spec.ts` (8 prove,
-  rosse su questo ramo): inietta `stream:end`/`terminal:activity` e legge le righe di
-  cronologia che il client non scrive più; va riscritta sul server vero.
+  (e i testid della campanella in window-chrome-inset e mobile-chrome-bar), e
+  `seen-on-any-focus` (8 prove, rosse sul ramo prima della riscrittura, verdi dopo su
+  Chromium al PC, due giri). Adattate alla presenza per stato acceso (ATTN-14), rosse
+  nella CI della PR #210: `sidebar-chevron-column`, `sidebar-label-gutter`,
+  `card-058ea722`, `tab-label-baseline`, `window-chrome-inset`, `tab-sync` TAB-SYNC-02,
+  `mobile-list-under-chrome`; `project-folder-loader` mette in scena il tier
+  `background`.
 - [x] 5.6 `tests/e2e/attention-board-sidebar.spec.ts`: una card che chiede un permesso a
   metà turno compare in inbox e sulla tab board, e la risposta la spegne; una chat letta
   scende dalla cima della sidebar in entrambe le pagine. Scostamento in design.md

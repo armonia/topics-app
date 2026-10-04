@@ -840,3 +840,53 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   `tab-one-slot` a) (il progetto non si crea dal path di Windows) e `tab-widget-geometry`
   GEO-3 (a 11px nessuna famiglia di Windows sposta la cifra, la guardia cade): stessi
   rossi sul merge-base `f75d6d16e`, GEO-3 rimisurato lì con le stesse metriche (A=12, D=3).
+
+- **`seen-on-any-focus`, riscritta sul server vero** (5.5, dopo l'unione di main per la
+  PR): i turni delle due chat dalla rotta `/api/chat` con la CLI finta, quelli del
+  terminale dagli hook di Claude Code, il permesso dalle gambe del ponte. Prima di
+  chiudere un turno la spec aspetta il frame `focus` che dice al server chi è davanti
+  (soggetto e veglia): senza, il turno non nasce visto e la prova misurerebbe la corsa.
+  Tre scostamenti dalla versione vecchia. (1) Il numero della inbox non si conta più da
+  una base: un terminale Claude Code senza hook chiude un turno suo quando il PTY tace
+  dopo il primo output della CLI (T2, `server/attention/terminal-turns.ts`), in un
+  momento che la spec non sceglie; la spec dice quali soggetti sono accesi e prova che
+  la inbox mostra esattamente i soggetti accesi che il server ha mandato. (2) Il
+  testimone del dwell non è più una fase iniettata: è la chat davanti finita mentre la
+  finestra stava dietro un'altra app, che il ritorno davanti spegne. (3) SEEN-ANY-FOCUS-02d,
+  il coordinatore nel cassetto della board, non chiude un turno: il coordinatore è solo
+  Codex e il server di test non ha Codex (`codex_unavailable`). La spec prova la metà
+  del client: con la board davanti e il cassetto aperto la finestra nomina il
+  coordinatore come soggetto davanti, sveglia o no, e lasciata la board non lo nomina
+  più; la nascita vista sul server è `server/attention/born-seen.test.ts`. La riga di
+  cronologia «vista» del terminale a fuoco (la vecchia `terminalRowState`) non si
+  legge più: la inbox non conta righe.
+- **Le spec che si appoggiavano alle chat seminate con non-letti** (rosse nella CI della
+  PR #210): da ATTN-14 una chat senza tab resta in sidebar solo se è accesa, e «Web
+  Search Test» e «Best Ramen» hanno solo messaggi di sistema. Un helper,
+  `openBaselineChats` (`tests/e2e/helpers/api-fixtures.ts`), le apre come tab:
+  `sidebar-chevron-column`, `sidebar-label-gutter` (LABELGUTTER-02 confronta la chat
+  annidata con una di primo livello), `card-058ea722` (la chat senza glifo con cui si
+  allinea il progetto), `tab-label-baseline` LABEL-2 (le righe con una sottoriga piena
+  erano loro: il `stream:start` iniettato non ne riempie nessuna, né qui né su main) e
+  `window-chrome-inset` (senza la riga, `openTestChat` seminava la tab e ricaricava
+  senza `?windowChrome=mac`). `tab-sync` TAB-SYNC-02 apre la chat dalla palette
+  (`openTopic` l'avrebbe seminata dal test, e nessun PUT sarebbe partito dalla pagina
+  A); `mobile-list-under-chrome` passa da 14 a 20 chat, perché 14 tab e la riga della
+  board finivano a 774 px, dentro lo schermo, e la lista non scorreva sotto la barra.
+- **`project-folder-loader`, il tier `background`** viene dal frame `attention:updated`,
+  non più dal poll: le due prove della cartella in background mettono in scena quel
+  frame dopo l'`attention:init` (`stageAttention`), il poll finto resta per il turno vero
+  che vince.
+- **Difetti trovati dalla CI della PR e corretti nel server e nel client.** (1) La chiave
+  del frame (`frameKey` in `store.ts`) contava i compiti per id: la CLI elenca un
+  Monitor come Bash e lo riconosce un attimo dopo con lo stesso id, e il frame che
+  diceva «Monitor» non partiva mai (`chat-monitor-visible`). Ora la chiave porta tipo e
+  nome. (2) Il `command` di una chat entrava nella mappa solo a fine turno: un
+  `run_command` avviato a metà turno non si vedeva sulla riga, e uno fermato dal pannello
+  restava sulla riga fino al turno dopo (`chat-command-visible`, `chat-running-server`).
+  Ora ogni avvio e fine di un comando riscrive la mappa (`observeCommandChanged` in
+  `lib/command-background.ts`, `syncChatBackgroundTasks` in `server.ts`), e lo stesso
+  fa ogni cambio dei compiti della CLI, che prima la riscriveva senza il `command`; le
+  tre strade passano da `withCommandTask` (`attention/background-tasks.ts`). (3) La riga
+  dei compiti nomina anche i `run_command` che non svegliano nessuno: lo stato non li
+  porta, il poll sì, e su main la riga li elencava (BGVIS-07).
