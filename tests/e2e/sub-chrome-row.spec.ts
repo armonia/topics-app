@@ -33,6 +33,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { chooseInTabSheet } from "./helpers/tab-sheet";
 import { waitForLayoutSettled } from "./helpers/layout";
 import { canonicalTmpDir } from "./helpers/file-project";
 
@@ -193,8 +194,7 @@ test.describe("La riga di chrome subordinata", () => {
       await page.getByRole("menuitem").filter({ hasText: /^Chat/ }).first().click();
       await expect(win.locator(".pane-chrome-bar [data-pane-id]")).toHaveCount(i + 1, { timeout: 15000 });
     }
-    await win.locator(".pane-chrome-bar [data-pane-id]").first().click({ button: "right" });
-    await page.getByText("Dividi a destra", { exact: true }).click();
+    await chooseInTabSheet(page, win.locator(".pane-chrome-bar [data-pane-id]").first(), "Dividi a destra");
     await expect(win.locator(".pane-chrome-bar")).toHaveCount(2, { timeout: 15000 });
 
     const barre = await win.locator(".pane-chrome-bar").evaluateAll((els) =>

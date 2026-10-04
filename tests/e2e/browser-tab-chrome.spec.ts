@@ -966,7 +966,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       groupOrder: ["group:default"],
       closedStack: [],
     }));
-    const body = /\/assets\/BrowserTabSheetBody-[^/]*\.js$/;
+    // The body of every tab's sheet is one lazy chunk (`Shared/TabSheetBody`).
+    const body = /\/assets\/TabSheetBody-[^/]*\.js$/;
 
     /** Open the sheet with its body held back, and hand back the function that
      *  lets the body through. One page per call: a second load in the same

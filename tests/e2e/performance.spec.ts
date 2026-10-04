@@ -1,6 +1,7 @@
 import { test, expect, Page, Locator } from '@playwright/test';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
 import { hermetic } from "./fixtures/hermetic";
+import { findRowInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -354,7 +355,9 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     const barsBefore = await page.locator('[data-testid="panel-tab-bar"]').count();
     const cls = await measureCLS(page, async () => {
       await tab.click({ button: 'right' });
-      const splitOption = page.getByText('Dividi a destra', { exact: true });
+      // The split is a row of the tab's sheet (TABSHEET-01), on its first level
+      // or in its Layout level.
+      const splitOption = (await findRowInTabSheet(page, 'Dividi a destra')) ?? page.getByText('Dividi a destra', { exact: true });
       await expect(splitOption).toBeVisible({ timeout: 5_000 });
       await splitOption.click();
       // The split is done when a new pane exists — not after a fixed sleep.
