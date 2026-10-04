@@ -518,37 +518,27 @@ pub fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<u
         .map_err(|_| "forget site timeout".to_string())?
 }
 
-/// Put this pane's WebView on top of the other child webviews of its window,
-/// without moving it, resizing it or taking the keyboard.
+/// Put this pane's WebView on top of the other child webviews of its window.
+/// Under WebKitGTK this is a deliberate NO-OP, and the reason is a measurement.
 ///
-/// Same hole as the other two engines, reached by a third road: wry puts every
-/// child webview into the window's `GtkFixed` with `Fixed::put`
-/// (`webkitgtk/mod.rs`), which APPENDS, and `set_bounds` only calls `move_`,
-/// which never reorders. So a pane born after the floating browser window
-/// covers it for good.
+/// The shell does not stack its panes here at all: tauri-runtime-wry turns
+/// `window.add_child` into `build_gtk(default_vbox())`, and wry `pack_start`s
+/// every child webview into that GtkBox (`webkitgtk/mod.rs`). Two packed widgets
+/// are laid out one after the other and never overlap, so there is no z order
+/// for a raise to win.
 ///
-/// A GtkFixed has no reorder call, and taking the widget out to put it back in
-/// would tear down the web process view along with its page. What decides the
-/// stacking of a widget that owns its GdkWindow is the GdkWindow, and that one
-/// does have a `raise`: it restacks the native window above its siblings
-/// without touching geometry, focus or the page.
-///
-/// A widget WITHOUT its own GdkWindow draws into its parent's, and `window()`
-/// would then answer the toplevel: raising that would lift the whole
-/// application above the other applications on the desktop, which is a much
-/// louder bug than the one being fixed. Hence the `has_window` guard, and the
-/// gap stays declared in the shell until a probe on a real WebKitGTK says which
-/// of the two a WebKitWebView is.
-pub fn raise(wv: &tauri::Webview) -> Result<(), String> {
-    on_view(wv, |v| {
-        use gtk::prelude::WidgetExt;
-        if !v.has_window() {
-            return;
-        }
-        if let Some(w) = v.window() {
-            w.raise();
-        }
-    })
+/// This used to call `GdkWindow::raise` on the widget's own window, behind a
+/// `has_window` guard. The GTK probe (`tools/wkzprobe`, workflow `sonda-gtk.yml`)
+/// measured that call alone on the shell's road, in run 37168587456: the guard
+/// is true, and every verdict is identical with and without the call,
+/// `raise-wins=false` included. It moved nothing and changed nothing. The probe
+/// does see a change when there is one: `reorder_child`, which the shell never
+/// made, flips `first-responder-survives-the-raise` to false (runs 35436785550
+/// and 37168332624). So the call is gone, and the gap stays declared in
+/// `browser_raise` (lib.rs) and pinned in
+/// `tests/unit/browser-platform-parity.test.ts`.
+pub fn raise(_wv: &tauri::Webview) -> Result<(), String> {
+    Ok(())
 }
 
 pub fn go_back(wv: &tauri::Webview) -> Result<(), String> {

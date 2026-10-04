@@ -16,7 +16,7 @@
  *  - a skill only the CLI's own `slash_commands` names (a bundled one): bare
  *    too, once the child's `system/init` has listed it.
  *
- * @covers SKILL-03
+ * @covers SKILL-03, CMDUI-09
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges";

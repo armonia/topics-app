@@ -8,7 +8,9 @@ Common preconditions shared across scenarios:
 - The user is logged into Topics App at http://localhost:3333
 - A topic exists and is selected in the sidebar
 - The chat panel is visible with the message input ready
+
 ## Requirements
+
 ### Requirement: CHAT-01 — Message Lifecycle
 
 The system SHALL support sending messages, receiving streamed responses, loading conversation history, and aborting in-progress streams.
@@ -394,7 +396,6 @@ A rollback SHALL touch only the files THIS chat changed since the checkpoint, de
 - **WHEN** the user clicks the compact bar again
 - **THEN** the detailed checkpoint list collapses
 - **AND** only the compact bar with count and dots remains visible
-
 
 ### Requirement: CHAT-CHANGES-01 - Cosa ha toccato questa conversazione
 
@@ -1418,45 +1419,65 @@ Each sub-agent action used to trigger a deep copy, a database write and a broadc
 
 ### Requirement: SUBAGENT-04 — A sub-agent that exits reports its real result to the chat that delegated
 
-A sub-agent spawned from a topic chat reports its end into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The end is classified from the child's own transcript into a status: `completed` (its turn closed with `end_turn`), `failed` (an API error record, or a PTY that died mid-turn), `stopped` (stopped by its parent, its tab closed, or swept), `undelivered` (its transcript holds no prompt) or `lost` (its terminal did not survive a restart). Only a `completed` body is the child's own words; every other status SHALL be named with its reason, and SHALL NOT read as a clean but silent finish. Every way a child ends SHALL be reported: the bridge's exit frame, `stop_agent`, a closed tab, the orphan sweep, and a restart that found no PTY; a Reload of the child's tab is not an end.
+A sub-agent spawned from a topic chat reports the end of each of its turns into
+that conversation (SUBAGENT-11), so the chat that promised an update reaches an
+end instead of hanging on a promise nobody can keep.
+
+The report SHALL be persisted with a structured `subagent-result` block, which
+the client draws as a card with i18n labels. It SHALL also carry a plain-text
+content: the provider reads that text when the parent is woken (SUBAGENT-12).
+
+The body SHALL prefer the child's own final text only when the turn
+`completed`. For every other status it SHALL name the status and its reason. A
+partial text SHALL be labelled as the last line seen, never presented as the
+outcome.
+
+The header SHALL name the sub-agent by the name its parent chose, and SHALL NOT
+contain an emoji.
 
 #### Scenario: The child's own words are the body
-- **GIVEN** a `completed` outcome carrying the child's final assistant text
+- **GIVEN** a result `completed` carrying the child's final assistant text
 - **WHEN** the body is formatted
 - **THEN** it SHALL be that text, trimmed
 
+#### Scenario: No output, and the exit code says why
+- **GIVEN** a result `failed` with no text, no reason and a non-zero exit code
+- **WHEN** the body is formatted
+- **THEN** it SHALL be an italic note naming that exit code and saying no output was recovered
+
 #### Scenario: A failure names its reason
-- **GIVEN** a `failed` outcome with a non-zero exit code, or an API error line such as a spend limit
+- **GIVEN** a result `failed` with a reason, for example an expired login or a spend limit
 - **WHEN** the body is formatted
 - **THEN** it SHALL be an italic note naming the failure and that reason
 
 #### Scenario: A prompt that never arrived is not called a silent finish
-- **GIVEN** a child whose transcript holds only its start-up records
-- **WHEN** it ends and the body is formatted
-- **THEN** it SHALL say that the task never reached the sub-agent
+- **GIVEN** a result `undelivered`
+- **WHEN** the body is formatted
+- **THEN** it SHALL say that the prompt never reached the sub-agent
+- **AND** it SHALL NOT read "finished with no output"
 
 #### Scenario: A stop mid-turn is marked partial
-- **GIVEN** a child stopped while its turn was open, its last text a working sentence
+- **GIVEN** a result `stopped` or `lost` with `partial: true` and a last line of text
 - **WHEN** the body is formatted
-- **THEN** it SHALL say it was stopped before its turn ended, and why
-- **AND** it SHALL quote that text as the last line seen, not as the outcome
+- **THEN** it SHALL say that the sub-agent was stopped, or lost, before finishing
+- **AND** it SHALL quote the last line as the last line seen, not as the outcome
 
 #### Scenario: A clean but silent finish gets the neutral note
-- **GIVEN** a `completed` outcome whose final message holds no text
+- **GIVEN** a result `completed` whose final message holds no text
 - **WHEN** the body is formatted
 - **THEN** it SHALL be the neutral "finished with no output" note, not a failure
 
 #### Scenario: The report names the sub-agent above its body
-- **GIVEN** a formatted exit for a sub-agent whose parent named it
+- **GIVEN** a formatted result for a sub-agent spawned with the name "dnd-audit" and later auto-renamed
 - **WHEN** the chat message is composed
-- **THEN** it SHALL open with a bold header naming that sub-agent by that name, with the body below it and no emoji
-- **AND** with no result the status note SHALL be embedded in the same shape
+- **THEN** it SHALL open with a bold header naming "dnd-audit", with the body below it
+- **AND** the header SHALL contain no emoji
 
 #### Scenario: The report names the branch when the child had one
-- **GIVEN** an exit for a sub-agent that ran in a worktree of its own (WORKTREE-14)
+- **GIVEN** a result for a sub-agent that ran in a worktree of its own (WORKTREE-14)
 - **WHEN** the chat message is composed
 - **THEN** a closing line SHALL name that branch and how to read its commits
-- **AND** an exit with no branch SHALL produce exactly the message it produces today
+- **AND** a result with no branch SHALL have no branch line
 
 ### Requirement: SUBAGENT-05 — The child's real transcript is found, not the one it was assigned
 
@@ -1540,7 +1561,23 @@ Gateway-side sub-agents announce their completion inside the PARENT session's tr
 
 ### Requirement: SUBAGENT-07 — A sub-agent's exit report is its own row and does not swallow the live turn
 
-The exit report is persisted and broadcast as an ordinary new message at once, while the PARENT's turn is still open: the parent usually stops its child from inside a turn, and a report held in memory until that turn closes is lost for good by a restart. The open turn writes its own row by id, so the report's row keeps its content when the turn ends. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
+The report SHALL be durable the moment it exists: it is written at once on the
+child's `subagents` row (`pending_results`), so a restart while the parent's
+turn is still open re-sends it instead of losing it. It reaches the parent chat
+when that turn has ended, as the row of the wake (SUBAGENT-12), and the copy on
+the child's row is dropped only once the chat holds it. A report that cannot
+wake the parent is written as an ordinary assistant row at once, as before.
+
+Whatever its role, the report's row is a NEW row: the open turn writes its own
+row by id, so the report never takes over the live bubble. The client SHALL
+place it by identity — the id announced when the turn started — and never by
+position, so the rest of the answer keeps landing in its own bubble.
+
+> Changed by the implementation: the requirement used to say the report row
+> is in the database BEFORE the turn closes. With choice 3 the row is the
+> wake's `user` row, which must not cut into an open turn (SUBAGENT-12), so
+> what is persisted at once is the result on the child's row, and the chat
+> row follows the turn's end.
 
 #### Scenario: The report lands beside the live turn, which keeps filling
 - **GIVEN** a turn that announced its id and has already streamed part of its text
@@ -1562,8 +1599,9 @@ The exit report is persisted and broadcast as an ordinary new message at once, w
 #### Scenario: A report delivered under the parent's open turn is written at once and outlives that turn
 - **GIVEN** a parent turn still streaming, from which the parent stops its child
 - **WHEN** the child's end is reported
-- **THEN** the report's row SHALL be in the database before the turn closes
-- **AND** when the turn ends, the report's row SHALL keep its content and the turn's row SHALL hold the turn's text
+- **THEN** the result SHALL be on the child's `subagents` row before the turn closes
+- **AND** no chat row SHALL be written while the turn is open
+- **AND** when the turn ends, the wake's row SHALL carry the result, and the turn's row SHALL hold the turn's text
 
 ### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
 
@@ -2281,7 +2319,6 @@ ridotto SHALL essere un SOTTOINSIEME stretto di quello pieno.
 #### Scenario: un binario locale
 - **GIVEN** un comando esterno che parte da un binario installato
 - **THEN** NON SHALL essere escluso
-
 
 ### Requirement: CCLI-12 — Una CLI che esce presto NON deve portarsi dietro il server
 
@@ -5364,3 +5401,333 @@ dell'evento (`toolUpdatePatch`) resta com'è.
 - **WHEN** arriva un `stream:tool_update` per la stessa riga
 - **THEN** `result` resta quello finale
 - **AND** sulla chat di `:13334`, con la riga senza `detail` tipizzato (come arriva dall'SSE nella finestra mittente), `tool-call-result` mostra ancora l'output finale
+
+### Requirement: CHAT-RUN-01 — Il blocco shell di una risposta finita offre Esegui, e niente gira da solo
+
+Un blocco di codice SHALL offrire «Esegui» e «Apri nel terminale», accanto a
+Copia, solo quando valgono tutte queste condizioni:
+
+- è dentro una risposta `assistant` con `sessionKey` e `messageId`, e la
+  risposta NON è `partial` (durante lo streaming `completePartialMarkdown`,
+  `client/src/components/MessageContent.tsx:59`, chiude i fence aperti e un
+  comando troncato si disegnerebbe come finito);
+- il blocco NON è il fence che un testo della risposta lascia aperto: Stop, il
+  riavvio del server e l'errore del provider chiudono la riga con
+  `partial = 0` e il testo troncato, e un fence aperto si disegna comunque
+  chiuso. Su quel blocco l'intestazione dice «Troncato» al posto di Esegui;
+  Apri nel terminale resta (incolla senza eseguire, CHAT-RUN-05). La regola è
+  `isCommandCut` (`shared/cut-fence.ts`), la stessa della route (CMDRUN-05);
+- l'etichetta del fence è `bash`, `sh`, `zsh`, `shell`, `console` o
+  `shellsession`, e `runnableCommand` (funzione pura) ne estrae un comando non
+  vuoto: il testo intero per le prime quattro; per `console`/`shellsession`
+  solo le righe che cominciano con `$ ` o `% `, senza il prompt;
+- la sessione è di un proprietario e il server ha una shell POSIX
+  (`hasCommandShell`, `server/lib/command-process.ts:20`).
+
+Il bottone NON SHALL comparire nei messaggi `user`, nei blocchi senza
+etichetta, nell'anteprima dei file markdown
+(`client/src/components/Editor/MarkdownPreview.tsx`), nell'editor
+(`EditorTabs.tsx`), né per un ospite. `markdownComponents`
+(`MessageContent.tsx:574`) SHALL restare una costante di modulo: l'abilitazione
+arriva da un contesto React che solo `MessageContent` fornisce.
+
+Nessun comando SHALL partire senza un clic su Esegui: non all'arrivo del
+messaggio, non al ricarico, non al riaprire la chat, non da una scorciatoia da
+tastiera. Il blocco intero SHALL girare come un solo script.
+
+#### Scenario: una risposta finita con un blocco bash
+- **GIVEN** una risposta dell'agente completa con un fence `bash` che contiene `echo ciao`
+- **WHEN** la chat si apre
+- **THEN** l'intestazione del blocco mostra Esegui e Apri nel terminale accanto a Copia
+- **AND** nessun processo è partito (`GET /api/scripts` non ha righe nuove)
+
+#### Scenario: mentre l'agente scrive, niente Esegui
+- **GIVEN** una risposta ancora in streaming il cui fence `bash` è a metà
+- **THEN** il blocco non mostra Esegui
+
+#### Scenario: una risposta troncata dentro il fence, niente Esegui su quel blocco
+- **GIVEN** una risposta con `partial = 0` chiusa da Stop, da un riavvio o da un errore, che finisce con `` ```bash\nrm -rf ./ `` senza il fence di chiusura
+- **THEN** quel blocco non mostra Esegui e la sua intestazione dice «Troncato»
+- **AND** un blocco della stessa risposta chiuso prima del taglio mostra Esegui
+- **AND** lo mostra appena la risposta è completa
+
+#### Scenario: console esegue solo le righe col prompt
+- **WHEN** `runnableCommand('console', '$ git status\nOn branch main\n$ ls')`
+- **THEN** il risultato è `git status\nls`
+
+#### Scenario: dove il bottone non c'è
+- **GIVEN** lo stesso fence `bash` in un tuo messaggio, in un file `.md` aperto nell'anteprima, e in un fence senza etichetta
+- **THEN** in nessuno dei tre compare Esegui
+
+### Requirement: CHAT-RUN-02 — Un comando distruttivo o con un segnaposto chiede un secondo passo; uno con caratteri invisibili non si esegue
+
+`commandRisk(command)` (funzione pura) SHALL restituire le ragioni per un
+secondo passo e l'eventuale blocco, valutando **tutto** il testo anche quando
+il blocco di codice è collassato.
+
+- Nessuna ragione: il clic su Esegui SHALL bastare.
+- Ragioni di conferma (`rm` con `-r`/`-f`, `sudo`, `git push` forzato,
+  `git reset --hard`, `git clean -f`, `git checkout -- .`, `git restore .`,
+  `dd`, `mkfs`, `diskutil erase`, `chmod -R`, `chown -R`, `find … -delete`,
+  `xargs rm`, `curl`/`wget` in pipe verso una shell, `kill -9`, `killall`,
+  `pkill`, `launchctl bootout`, `launchctl kickstart -k`, e un segnaposto
+  `<parola>` che non sia `<<` né `< file`): il clic SHALL aprire, al posto
+  dell'intestazione, una striscia che nomina le ragioni con «Esegui comunque»
+  e «Annulla», con il fuoco su Annulla. Nessuna finestra modale.
+- Caratteri invisibili (controlli bidi U+202A–U+202E e U+2066–U+2069, larghezza
+  zero U+200B–U+200D, U+2060, U+FEFF, byte C0 diversi da tab e a capo):
+  Esegui NON SHALL esserci, e l'intestazione SHALL dire perché; Copia e Apri
+  nel terminale restano.
+
+#### Scenario: un ls parte al primo clic
+- **GIVEN** un blocco `bash` con `ls -la`
+- **WHEN** clicchi Esegui
+- **THEN** il comando parte senza altre domande
+
+#### Scenario: rm -rf chiede conferma
+- **GIVEN** un blocco `bash` di 30 righe (collassato a 10) la cui riga 25 è `rm -rf build`
+- **WHEN** clicchi Esegui
+- **THEN** compare la striscia che nomina `rm -rf` e nessun processo è partito
+- **AND** Annulla la chiude senza lanciare niente; Esegui comunque lancia il blocco
+
+#### Scenario: un segnaposto chiede conferma
+- **WHEN** `commandRisk('python3 analyze_song.py <take>.mp3')`
+- **THEN** fra le ragioni c'è `placeholder`
+- **AND** `commandRisk('cat <<EOF\nx\nEOF')` e `commandRisk('wc -l < file.txt')` non la contengono
+
+#### Scenario: caratteri invisibili
+- **GIVEN** un blocco `bash` con `echo ok` seguito da U+202E
+- **THEN** Esegui non c'è e l'intestazione dice che il comando contiene caratteri invisibili
+
+### Requirement: CHAT-RUN-03 — L'output si legge sotto il blocco, come in un terminale fatto bene
+
+Dopo Esegui, sotto il blocco di codice SHALL comparire il blocco
+dell'esecuzione (`data-testid="command-run"`), con:
+
+- **intestazione**: stato (in corso con il tempo che scorre; `exit 0` con
+  pallino verde; `exit N` con barra rossa a sinistra; «fermato»; «esito
+  sconosciuto»), durata, cartella in cui è girato (abbreviata con `~`), e
+  per un'esecuzione di un'altra giornata quando è girata;
+- **azioni**: Stop mentre gira; poi Riesegui, Copia output, Manda
+  all'agente (CHAT-RUN-04), Apri nel terminale (CHAT-RUN-05), Nascondi output;
+- **output**: monospazio, colori SGR resi come span (16, 256, truecolor,
+  grassetto, corsivo, sottolineato, dim), ogni altra sequenza ANSI tolta, di
+  ogni riga solo il segmento dopo l'ultimo `\r`; mai `innerHTML`.
+
+Mentre gira, l'output SHALL stare in un riquadro alto 16 righe che segue il
+fondo, e SHALL smettere di seguirlo se chi legge scorre in su, finché non torna
+in fondo. Finito, fino a 20 righe SHALL mostrarsi tutto; oltre, le **ultime** 20
+con «Mostra tutte le N righe» sopra. Se il server ha tagliato righe (CMDRUN-06),
+il blocco SHALL dirlo.
+
+L'esecuzione SHALL restare legata al blocco dopo un ricarico e su ogni
+dispositivo del proprietario: si mostra l'ultima esecuzione del blocco, solo se
+il suo comando coincide col testo del blocco disegnato. Riesegui SHALL creare
+un'esecuzione nuova, che prende il posto della precedente nella vista.
+
+#### Scenario: un comando lento si vede mentre gira, poi chiude verde
+- **GIVEN** un blocco `bash` con `for i in 1 2 3; do echo L$i; sleep 1; done`
+- **WHEN** clicchi Esegui
+- **THEN** entro 2 s il blocco dell'esecuzione mostra `L1` e lo stato in corso con Stop
+- **AND** alla fine mostra `L1`, `L2`, `L3`, `exit 0` e una durata di circa 3 s
+
+#### Scenario: un fallimento si vede rosso
+- **GIVEN** un blocco `bash` con `echo boom >&2; exit 3`
+- **WHEN** gira
+- **THEN** l'intestazione mostra `exit 3` con la barra rossa e l'output `boom`
+
+#### Scenario: Stop
+- **GIVEN** un'esecuzione di `sleep 60` in corso
+- **WHEN** clicchi Stop
+- **THEN** entro 5 s lo stato è «fermato» e il processo non esiste più
+
+#### Scenario: output lungo dalla coda
+- **GIVEN** un'esecuzione finita di `seq 1 500`
+- **THEN** si vedono le righe da 481 a 500 e «Mostra tutte le 500 righe»
+- **AND** il clic le mostra tutte
+
+#### Scenario: i colori si leggono
+- **GIVEN** un'esecuzione di `printf '\033[31mrosso\033[0m ok\n'`
+- **THEN** `rosso` è in uno span colorato, ` ok` no, e nel testo non resta nessun `[31m`
+
+#### Scenario: dopo un ricarico l'esito è ancora lì
+- **GIVEN** un'esecuzione finita con `exit 0`
+- **WHEN** ricarichi la pagina
+- **THEN** sotto lo stesso blocco ci sono di nuovo output, `exit 0` e durata
+
+### Requirement: CHAT-RUN-04 — L'agente vede l'esecuzione solo se la mandi tu
+
+Un'esecuzione NON SHALL entrare nel contesto dell'agente, né aprire un turno,
+né scrivere una riga nella conversazione. «Manda all'agente» SHALL aggiungere in
+fondo alla bozza della chat, senza sostituirla e senza inviare, un fence
+`console` con `$ <comando>`, una riga `(exit N, durata, in <cartella>)` e le
+ultime 50 righe dell'output senza ANSI, con il fuoco sul composer.
+
+L'evento `topics:seed-composer` (`client/src/components/Chat/ChatPane.tsx:208-218`)
+SHALL accettare `mode: 'append'`; senza `mode` SHALL sostituire, come oggi.
+
+#### Scenario: niente arriva all'agente da solo
+- **GIVEN** un'esecuzione finita in una chat
+- **THEN** nessun messaggio nuovo compare nella conversazione e nessun turno parte
+
+#### Scenario: Manda all'agente riempie la bozza
+- **GIVEN** una bozza che contiene `guarda qui:`
+- **WHEN** clicchi Manda all'agente su un'esecuzione di `seq 1 80` finita con `exit 0`
+- **THEN** la bozza comincia con `guarda qui:` e continua con il fence che contiene `$ seq 1 80`, `exit 0` e le righe da 31 a 80
+- **AND** nessun messaggio è stato inviato
+
+### Requirement: CHAT-RUN-05 — Apri nel terminale: una shell nella stessa cartella, il comando scritto e non eseguito
+
+«Apri nel terminale» SHALL creare una shell nella cartella in cui girerebbe
+l'esecuzione (la sceglie il server da `cwdOf: <sessionKey>`, CMDRUN-05), aprirla
+come pane accanto alla chat, e incollarvi il comando **senza Invio**, con
+`term.paste()` di xterm alla prima schermata della shell. Se il comando ha più
+righe e la shell non ha il bracketed paste acceso, NON SHALL incollare niente:
+il comando va negli appunti e un avviso lo dice. Nessun byte di controllo
+diverso da tab e a capo SHALL arrivare alla shell: un `\r` diventa a capo, gli
+altri (C0, DEL) si tolgono, perché un `ESC[201~` chiuderebbe il bracketed paste
+e farebbe girare le righe dopo. È l'uscita per ciò che
+l'esecuzione in linea non può fare: `sudo`, login, prompt, modificare il
+comando prima di lanciarlo.
+
+#### Scenario: sudo va nel terminale
+- **GIVEN** un blocco `bash` con `sudo wg-quick up edm`
+- **WHEN** clicchi Apri nel terminale
+- **THEN** si apre una pane terminale la cui shell è nella cartella della chat
+- **AND** la riga di comando contiene `sudo wg-quick up edm` e nessun comando è stato eseguito
+
+#### Scenario: un blocco di due righe non parte a metà
+- **GIVEN** un blocco `bash` con `cd app\nbun test`
+- **WHEN** clicchi Apri nel terminale
+- **THEN** la shell mostra entrambe le righe nella riga di comando e nessuna è stata eseguita
+
+#### Scenario: un byte di controllo non chiude l'incolla
+- **GIVEN** un blocco `bash` con `echo safe`, `ESC[201~`, a capo, `touch x`
+- **WHEN** clicchi Apri nel terminale
+- **THEN** alla shell arrivano `echo safe[201~` e `touch x` senza l'ESC, e nessuna riga è stata eseguita
+
+### Requirement: CHAT-BROWSER-01 — Un'apertura del browser lascia un segno nel turno, e il segno non si piega
+
+Una chiamata riuscita di `open_browser_pane` (anche col prefisso `mcp__topics__`) o di
+`browser_open` SHALL essere resa nel transcript come un **segno di browser aperto** al
+posto della riga generica di tool MCP. Il segno SHALL mostrare: il favicon della
+pagina (un'icona di globo finché manca), un titolo (il nome dato dall'agente, altrimenti
+il titolo della pagina, altrimenti il dominio), il dominio, e lo stato corrente della
+pagina (nella finestra della topic, in una tab, chiusa, non a schermo). Il segno NON
+SHALL contenere una webview, uno stream o un'immagine della pagina.
+
+Il segno SHALL stare nel punto del turno in cui la chiamata è avvenuta e SHALL restare
+visibile anche dopo:
+
+- NON SHALL entrare nella riga di sintesi di un gruppo di tool (`CHAT-TOOL-02`): il
+  gruppo si spezza attorno al segno e i suoi conteggi non lo includono;
+- NON SHALL essere nascosto dal riepilogo di un turno finito: come un'immagine, resta
+  fra ciò che si vede, prima della risposta, nell'ordine in cui è comparso;
+- nella chat di un task (`CHAT-TOOL-06`), dove l'accordion ripiega messaggi interi e
+  non riordina, i segni di un tratto piegato SHALL comparire nella riga di riepilogo
+  dell'accordion, con lo stesso titolo e lo stesso clic.
+
+Dentro uno stesso messaggio, aperture successive sullo stesso contesto SHALL produrre
+un segno solo, nella posizione della prima, che mostra l'ultima pagina aperta e quante
+sono; aperto, il segno SHALL elencarle in ordine. Aperture su contesti diversi SHALL
+restare segni distinti.
+
+Un'apertura fallita (tool in errore) NON SHALL diventare un segno: resta la riga di tool
+di sempre, col suo errore, dentro il gruppo.
+
+#### Scenario: l'apertura si vede nel punto del turno in cui è successa
+- **GIVEN** un turno finito con 12 tool call, di cui la settima è `open_browser_pane` riuscita su `http://localhost:5173/` con titolo «Vite App», e una risposta finale
+- **WHEN** l'utente apre la chat
+- **THEN** fra il riepilogo piegato del lavoro e la risposta si vede un segno con titolo «Vite App» e dominio `localhost:5173`
+- **AND** la riga di riepilogo conta 11 azioni, non 12
+
+#### Scenario: fuori dalla riga «N azioni» mentre il turno scorre
+- **GIVEN** un turno in streaming con tre `Read`, un `open_browser_pane` riuscito e altri tre `Read`
+- **WHEN** i tool sono completati
+- **THEN** il transcript mostra il gruppo dei primi tre, il segno, e il gruppo degli ultimi tre, in quest'ordine
+
+#### Scenario: tre aperture sullo stesso contesto fanno un segno solo
+- **GIVEN** un messaggio con tre `open_browser_pane` riuscite sullo stesso `contextId`, su `/a`, `/b` e `/c` dello stesso sito
+- **WHEN** il messaggio si disegna
+- **THEN** c'è un solo segno, che mostra la pagina `/c` e dice «3 pagine»
+- **AND** aprendolo si leggono le tre pagine in ordine
+
+#### Scenario: due contesti, due segni
+- **GIVEN** un messaggio con due `open_browser_pane` riuscite con `name` «App» e «Report» su due contesti diversi
+- **WHEN** il messaggio si disegna
+- **THEN** ci sono due segni, «App» e «Report»
+
+#### Scenario: un'apertura fallita non finge di essersi aperta
+- **GIVEN** una `open_browser_pane` in errore «navigation failed: goto: net::ERR_CONNECTION_REFUSED»
+- **WHEN** il messaggio si disegna
+- **THEN** non c'è nessun segno di browser aperto
+- **AND** la chiamata è una riga di tool in errore, contata negli errori del suo gruppo
+
+#### Scenario: un'apertura che non dichiara l'errore ma non ha caricato niente
+- **GIVEN** nella chat di un task una `open_browser_pane` il cui risultato comincia con «navigation failed: goto: net::ERR_CONNECTION_REFUSED» e prosegue con «Browser context ready at …» (lì la navigazione non è fatale e la chiamata non è in errore), oppure una `browser_open` del percorso SDK che risponde `{error}` su una pane nativa
+- **WHEN** il messaggio si disegna
+- **THEN** non c'è nessun segno di browser aperto
+- **AND** la chiamata resta la riga di tool generica che era
+
+#### Scenario: nella chat di un task il segno sta nel riepilogo dell'accordion
+- **GIVEN** la chat di un task con un tratto di lavoro piegato che contiene una `open_browser_pane` riuscita con `name` «Darkroom»
+- **WHEN** l'utente guarda l'accordion chiuso
+- **THEN** la riga di riepilogo mostra «Darkroom» col favicon della pagina
+- **AND** i messaggi dell'accordion restano nel loro ordine
+
+### Requirement: CHAT-BROWSER-02 — Il segno porta alla pagina, e la riapre se è stata chiusa
+
+Un clic sul segno SHALL portare l'utente alla pagina di quel contesto nella superficie
+in cui vive ora, in quest'ordine: una tab del layout (focalizzata), una tab del task
+(il task si apre), la finestra della topic della chat che si sta guardando (la scheda
+si attiva e la finestra, se nascosta, torna ridotta). Se la pagina non vive in nessuna
+superficie, il clic SHALL riaprirla nella finestra della topic sullo stesso contesto e
+sull'ultimo URL del segno; se quella chat non può ospitare una finestra (sotto 768 px,
+chat dentro una finestra di progetto) SHALL aprirla come tab, come fa oggi un link.
+
+Lo stato scritto sul segno SHALL essere derivato dalle superfici vive e aggiornarsi
+quando la pagina cambia superficie o si chiude, senza ricaricare la chat. Il segno SHALL
+essere raggiungibile da tastiera, con l'URL intero come nome accessibile.
+
+#### Scenario: la pagina è nella finestra della topic
+- **GIVEN** un segno il cui contesto è una scheda della finestra della topic, con la finestra nascosta
+- **WHEN** l'utente clicca il segno
+- **THEN** la finestra torna ridotta con quella scheda attiva
+- **AND** il layout non cambia
+
+#### Scenario: la pagina è diventata una tab
+- **GIVEN** un segno il cui contesto è stato portato nel layout come tab
+- **WHEN** l'utente clicca il segno
+- **THEN** quella tab prende il focus e la finestra della topic non si apre
+
+#### Scenario: la pagina è stata chiusa
+- **GIVEN** un segno il cui contesto non è più in nessuna superficie
+- **WHEN** l'utente guarda il segno
+- **THEN** lo stato dice «chiuso»
+- **WHEN** l'utente lo clicca
+- **THEN** la pagina si riapre nella finestra della topic sullo stesso contesto
+- **AND** lo stato diventa «nella finestra»
+
+#### Scenario: lo stato segue la pagina
+- **GIVEN** un segno con stato «nella finestra»
+- **WHEN** l'utente chiude la scheda dalla finestra
+- **THEN** il segno dice «chiuso» senza ricaricare la chat
+
+### Requirement: CHAT-BROWSER-03 — Le righe già scritte diventano segni con quello che hanno
+
+Il segno SHALL comparire anche sulle chiamate già salvate prima di questa change, con il
+dettaglio registrato come tool MCP generico: il client SHALL riderivarle dal nome del
+tool e dagli argomenti. Senza titolo nel risultato il segno SHALL mostrare il dominio
+dell'URL; senza `contextId` SHALL usare il contesto predefinito della topic della chat
+per il clic. Nessun dato storico SHALL essere riscritto.
+
+#### Scenario: una riga vecchia senza risultato
+- **GIVEN** una `open_browser_pane` salvata ad agosto con `args.url` = `http://127.0.0.1:3535/p/profilo` e nessun risultato
+- **WHEN** la chat si apre
+- **THEN** si vede un segno col dominio `127.0.0.1:3535`
+- **AND** nessuna riga del DB cambia
+
+#### Scenario: una riga vecchia col titolo nel risultato
+- **GIVEN** una chiamata salvata col risultato `Opened browser pane at https://example.com/ (title: Example Domain)` e senza `contextId`
+- **WHEN** la chat si apre
+- **THEN** il segno mostra «Example Domain» e il dominio `example.com`

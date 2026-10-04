@@ -360,6 +360,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
+    test.info().annotations.push({ type: "spec", description: "TOPIC-COLOR-01" });
     await goToApp(page);
     const betaTopic = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
     // Open it, so its tab is there to carry the same mark as the row.

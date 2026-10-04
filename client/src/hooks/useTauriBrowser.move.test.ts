@@ -453,6 +453,42 @@ describe('useTauriBrowser: a page in the middle of a move is not painted where i
     expect(after.final).toMatchObject({ visible: true, ...IN_TAB });
     tab.unmount();
   });
+
+  test('adopted under an open overlay: shown BEFORE the pane turns ready, so the freeze never shoots it hidden', async () => {
+    const ctx = 'ctx-ghost-overlay-order';
+    await letGo(ctx);
+    overlays = [{ left: IN_TAB.x, top: IN_TAB.y, right: IN_TAB.x + 200, bottom: IN_TAB.y + 200 }];
+    /** At every render: is the pane ready, and was the view last told to show? */
+    const renders: Array<{ ready: boolean; shown: boolean }> = [];
+    const shownNow = (): boolean => {
+      const last = invocations.filter((i) => i.cmd === 'browser_set_visible' && i.args.id === ctx).at(-1);
+      return last?.args.visible === true;
+    };
+    const tab = mount(createElement(function Surface(): null {
+      const handle = useTauriBrowser(ctx, 'https://example.com/inbox?after=login', true);
+      renders.push({ ready: handle.ready, shown: shownNow() });
+      return null;
+    }));
+    await settle();
+
+    // Adoption marks the pane ready and asks for the occlusion check right after,
+    // in the same callback; React runs the effects of `ready` only after that
+    // commit, so the freeze is requested BEFORE any of them. A view the leaving
+    // surface hid must be shown by adoption itself, ahead of `ready`, or the
+    // freeze shoots a hidden view and the still is blank. This bench renders
+    // synchronously and would let the `ready` effect show it first, so the
+    // order is read at the render where `ready` turns true, not after it.
+    const firstReady = renders.find((r) => r.ready);
+    expect(firstReady, 'the adopted pane never turned ready').toBeDefined();
+    expect(firstReady!.shown, 'the view was still hidden when the pane turned ready').toBe(true);
+    const order = invocations.filter((i) => i.args.id === ctx).map((i) => i.cmd);
+    const shownAt = invocations.findIndex((i) => i.cmd === 'browser_set_visible' && i.args.id === ctx && i.args.visible === true);
+    const shotAt = invocations.findIndex((i) => i.cmd === 'browser_screenshot' && i.args.id === ctx);
+    expect(shotAt, `no freeze under the overlay: ${order.join(', ')}`).toBeGreaterThan(-1);
+    expect(shownAt, `shown after the freeze: ${order.join(', ')}`).toBeLessThan(shotAt);
+    expect(shownAt).toBeGreaterThan(-1);
+    tab.unmount();
+  });
 });
 
 describe('useTauriBrowser: a close that overtakes browser_open wins', () => {
@@ -500,6 +536,32 @@ describe('useTauriBrowser: a close that overtakes browser_open wins', () => {
     await settle();
     expect(destructive(ctx), 'a view born after its close has no owner left to close it').toEqual(['browser_open', 'browser_close', 'browser_close']);
     expect(isNativeViewOpened(ctx)).toBe(false);
+  });
+
+  test('closed while opening: the pane does not place, show or steer the view the late open produced', async () => {
+    const ctx = 'ctx-open-overtaken-owned';
+    holdOpens = true;
+    const seen: NativeBrowserHandle[] = [];
+    const pane = surface(ctx, 'https://example.com/start', seen);
+    await settle();
+    // The placeholder measured its slot while the shell was still creating the
+    // view: the rect waits to be pushed when the open answers.
+    seen[seen.length - 1]!.setBounds(IN_TAB);
+    await settle();
+    void closeNativeView(ctx, invoke);
+    await settle();
+    const closedAt = invocations.length;
+    heldOpens.shift()!();
+    await settle();
+
+    // The view that answered is not this pane's: a close took it first, and the
+    // record already closed it again. Placing it would put a page on screen that
+    // nobody owns, and a navigation would load into it.
+    const after = invocations.slice(closedAt).filter((i) => i.args.id === ctx).map((i) => i.cmd);
+    expect(after, 'the pane treated a view it lost to a close as its own').toEqual(['browser_close']);
+    expect(seen[seen.length - 1]!.ready).toBe(false);
+    pane.unmount();
+    holdOpens = false;
   });
 });
 

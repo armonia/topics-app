@@ -58,7 +58,7 @@ Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
 
 ## Dopo questa change
 
-- [ ] T12 La meta' rimandata della card af8ba9b4 ha una sua card (o change)
+- [x] T12 La meta' rimandata della card af8ba9b4 ha una sua card (o change)
       `changeset-chat-strip` prima che il land chiuda af8ba9b4: il contratto
       `ChangeSet` in `shared/`, `/api/topics/:id/changes` con `revs`, e la
       striscia della chat che monta `UnifiedDiff` con sorgente `topic`
@@ -67,3 +67,4 @@ Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
       Ancora aperto al 29/09: nessun'altra card sulla board nomina `changeset-chat-strip`,
       `ChangeSet` o `af8ba9b4` (4195 card lette), quindi la change resta fuori
       dall'archivio finche' quella meta' non ha una card.
+      Fatto il 04/10: card `967609de` «changeset-chat-strip» in backlog su topics-app.
