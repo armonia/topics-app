@@ -3,26 +3,21 @@
  *
  * The bug (29/09): a chat whose runtime reports no Claude Code hooks (provider
  * `topics`, Topics routing on, codex, jcode, ACP) never raised an OS banner when
- * its turn ended. The only edge every runtime sends is the server's
- * `stream:end { completed: true }`, and the client used it only to re-sort the
- * sidebar. The two paths that did banner needed either a hook phase
- * (`session:state`) or a HIDDEN window (`message:new`), and a Topics window that
- * sits behind another app is `visible`, not `hidden`.
+ * its turn ended, and its mark lived in each window's memory.
  *
- * What is faked and what is not: the OS banner does not exist in a headless
- * browser, so `window.Notification` is a stub that counts and paints what the
- * app asked for. The window is modelled as "behind another app" the way macOS
- * reports it to a WKWebView: `visibilityState === 'visible'`, `hasFocus() ===
- * false`. The turn end is injected on the real WebSocket through
- * `page.routeWebSocket` (an external boundary), with the exact shape the server
- * broadcasts (`server/routes/chat.ts`). Everything in between is the real code.
- *
- * The second half is the mark (CHAT-DONE-01): a finished terminal keeps a
- * 'done' tier on its tab until you open it, and a hookless chat had nothing but
- * an unread count, hidden on the active tab. Now the chat's row and tab carry
- * the same `data-attention="done"` a finished terminal's tab carries. The
- * third test is a chat held by ANOTHER window: its row here is the only place
- * the mark shows, and the click that brings that window forward must clear it.
+ * Since notifications-redesign the mark and the banner are the server's: the
+ * chat route closes the turn, the attention store composes `finished(done)`
+ * and announces it on `attention:updated`, and every window paints that frame
+ * (CHAT-DONE-01, CHAT-DONE-02, ATTN-11). So the turns here are REAL: the chat
+ * route runs them on a fake CLI (`fake-claude-slow-turn.ts`), as the composer
+ * would. What is faked is the OS banner (`window.Notification`, a stub that
+ * counts and paints), the window being "behind another app" the way macOS
+ * reports it to a WKWebView (`visibilityState === 'visible'`, `hasFocus() ===
+ * false`), the Badging API (recorded), and, in the last test, the roster of
+ * windows (`presence:windows`) and the desktop shell. One frame is staged on
+ * the socket: the `attention:updated` with no announce that the server sends
+ * for a turn that is not a finished chat (a board agent's, a stopped one), to
+ * prove the client rings only on an announce.
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
@@ -30,6 +25,8 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { fakeTauriShell } from "./helpers/fake-tauri-shell";
+import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { attentionUpdated, recordAttentionFrames, runChatTurn } from "./helpers/attention";
 
 hermetic(test);
 
@@ -83,12 +80,6 @@ function bannerLog(page: Page): Promise<{ title: string; body: string }[]> {
   return page.evaluate(() => window.__bannerLog ?? []);
 }
 
-async function sessionKeyOf(request: APIRequestContext, id: string): Promise<string> {
-  const res = await request.get(`${E2E_BASE}/api/topics/${id}`, { ignoreHTTPSErrors: true });
-  const { topic } = await res.json() as { topic: { sessionKey: string } };
-  return topic.sessionKey;
-}
-
 /** Pass the page's socket through and return a way to push frames on it, as
  *  the server would broadcast them. Survives a reload: the route re-catches
  *  the new socket and `send` follows it. With `otherWindow`, every roster the
@@ -121,7 +112,10 @@ async function routeStreamFrames(
 }
 
 test.describe.serial("chat turn end → OS banner, whatever the runtime", () => {
-  test.describe.configure({ timeout: 60_000 });
+  test.describe.configure({ timeout: 90_000 });
+  let removeCli: (() => void) | null = null;
+  test.beforeAll(() => { removeCli = installSlowTurnCli(); });
+  test.afterAll(() => { removeCli?.(); removeCli = null; });
 
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, []);
@@ -131,53 +125,33 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
     test.info().annotations.push({ type: "spec", description: "CHAT-DONE-02" });
     const stamp = Date.now();
     const nameA = `Finished Chat ${stamp}`;
-    const nameB = `Sentinel Chat ${stamp}`;
     const nameC = `Gate Chat ${stamp}`;
-    const topicA = await createTopic(request, nameA, { provider: "topics" });
-    const topicB = await createTopic(request, nameB, { provider: "topics" });
-    const topicC = await createTopic(request, nameC, { provider: "topics" });
-    const keyA = await sessionKeyOf(request, topicA.id);
-    const keyB = await sessionKeyOf(request, topicB.id);
-    const keyC = await sessionKeyOf(request, topicC.id);
+    const topicA = await createTopic(request, nameA, { provider: "claude-code" });
+    const topicC = await createTopic(request, nameC, { provider: "claude-code" });
+    await resetPaneStore(request, [topicA.id, topicC.id]);
 
     try {
       await prepareBackgroundWindow(page);
-      const push = await routeStreamFrames(page);
-      const send = (frame: Record<string, unknown>): void => push({ type: "stream:end", ...frame });
-
+      const frames = recordAttentionFrames();
+      const push = await routeStreamFrames(page, { onServerFrame: frames.feed });
       await goToApp(page);
-      // The banner title is the topic's name: the window must know the topic.
-      for (const name of [nameA, nameB, nameC]) {
+      for (const name of [nameA, nameC]) {
         await expect(page.getByRole("treeitem", { name: new RegExp(name) })).toBeVisible({ timeout: 15_000 });
       }
+      await expect.poll(() => frames.inits(), { timeout: 15_000 }).toBeGreaterThan(0);
 
-      // Ends that are NOT a finished chat stay silent: a board agent's turn and a
-      // turn the user stopped. They go to ANOTHER chat than the clean end, so a
-      // banner leaking from them cannot hide behind the per-topic cooldown the
-      // clean end would then hit. The clean end right after is the sentinel:
-      // frames on one socket arrive in order, so when its banner is there the
-      // two before it have been handled.
-      send({ sessionKey: keyC, topicId: topicC.id, messageId: "m-agent", completed: true, dispatched: true });
-      send({ sessionKey: keyC, topicId: topicC.id, reason: "user_abort" });
-      send({ sessionKey: keyA, topicId: topicA.id, messageId: "m-done", completed: true, stopReason: "end_turn", latencyMs: 4200 });
-
+      // A turn that is NOT a finished chat (a board agent's, a stopped one):
+      // the server sends its state with no announce, and nothing rings.
+      push(attentionUpdated(`topic:${topicC.id}`, { state: "finished" }));
+      // The clean end of A, on the real chat route: one banner, the server's words.
+      await runChatTurn(request, topicA.id, "finish please");
       await expect
         .poll(async () => (await bannerLog(page)).length, { timeout: 10_000, message: "the finished chat raised no banner" })
         .toBeGreaterThan(0);
-      expect(await bannerLog(page)).toEqual([{ title: nameA, body: "In attesa di te" }]);
+      expect((await bannerLog(page)).map((b) => b.title)).toEqual([`💬 ${nameA}`]);
       await expect(page.locator('[data-testid="fake-os-banner"]')).toContainText(nameA);
-
-      // A second end of the same chat within the cooldown does not stack a
-      // second banner; another chat's end, sent after it, is the sentinel.
-      send({ sessionKey: keyA, topicId: topicA.id, messageId: "m-done-2", completed: true });
-      send({ sessionKey: keyB, topicId: topicB.id, messageId: "m-b", completed: true });
-      await expect
-        .poll(async () => (await bannerLog(page)).length, { timeout: 10_000, message: "the sentinel chat raised no banner" })
-        .toBe(2);
-      expect((await bannerLog(page)).map((b) => b.title)).toEqual([nameA, nameB]);
     } finally {
       await deleteTopic(request, topicA.id);
-      await deleteTopic(request, topicB.id);
       await deleteTopic(request, topicC.id);
     }
   });
@@ -187,32 +161,16 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
     const stamp = Date.now();
     const nameA = `Marked Chat ${stamp}`;
     const nameO = `Other Chat ${stamp}`;
-    const nameC = `Sentinel Chat ${stamp}`;
-    const topicA = await createTopic(request, nameA, { provider: "topics" });
-    const topicO = await createTopic(request, nameO, { provider: "topics" });
-    const topicC = await createTopic(request, nameC, { provider: "topics" });
-    const keyA = await sessionKeyOf(request, topicA.id);
-    const keyO = await sessionKeyOf(request, topicO.id);
-    const keyC = await sessionKeyOf(request, topicC.id);
-    await resetPaneStore(request, [topicA.id, topicO.id, topicC.id]);
+    const topicA = await createTopic(request, nameA, { provider: "claude-code" });
+    const topicO = await createTopic(request, nameO, { provider: "claude-code" });
+    await resetPaneStore(request, [topicA.id, topicO.id]);
+    const subjectA = `topic:${topicA.id}`;
 
     try {
       // The window is in FRONT of you here: the mark must not depend on the
       // window being away, only on this chat not being the one you look at.
       await prepareBackgroundWindow(page, { focused: true });
-      const push = await routeStreamFrames(page);
-      const finish = (messageId: string): void =>
-        push({ type: "stream:end", sessionKey: keyA, topicId: topicA.id, messageId, completed: true, stopReason: "end_turn" });
-      // C is never the pane in front: its end always marks it, so once C is
-      // marked every frame sent before it has been applied. It replaces a
-      // clock in the two assertions that something did NOT happen.
-      const tabC = page.locator('[role="tab"][data-pane-id]', { hasText: nameC });
-      const sentinel = async (messageId: string): Promise<void> => {
-        push({ type: "stream:start", sessionKey: keyC, topicId: topicC.id, messageId: `${messageId}-start` });
-        push({ type: "stream:end", sessionKey: keyC, topicId: topicC.id, messageId, completed: true, stopReason: "end_turn" });
-        await expect(tabC, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-      };
-
+      const frames = recordAttentionFrames(page);
       await goToApp(page);
       const tabA = page.locator('[role="tab"][data-pane-id]', { hasText: nameA });
       const tabO = page.locator('[role="tab"][data-pane-id]', { hasText: nameO });
@@ -223,60 +181,51 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       // Another pane is the one you are looking at.
       await tabO.click();
       await expect(tabO).toHaveAttribute("data-active", "true");
-      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
+      await expect(tabA).not.toHaveAttribute("data-attention", /.+/);
 
-      finish("m-1");
-
+      await runChatTurn(request, topicA.id, "first");
       // The mark, on both surfaces, through the tier a finished terminal uses.
       await expect(tabA, "the finished chat's tab carries no 'done' mark").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
       await expect(rowA, "the finished chat's sidebar row carries no 'done' mark").toHaveAttribute("data-attention", "done");
       await expect(page.getByRole("tab", { name: new RegExp(`${nameA}.*turno finito`) })).toBeVisible();
       // And the banner, in the same breath.
-      await expect.poll(async () => (await bannerLog(page)).map((b) => b.title), { timeout: 10_000 }).toEqual([nameA]);
-      // It is a mark, not a flash: still there once a later frame has been applied.
-      await sentinel("m-c1");
-      await expect(tabA).toHaveAttribute("data-attention", "done");
+      await expect.poll(async () => (await bannerLog(page)).map((b) => b.title), { timeout: 10_000 }).toEqual([`💬 ${nameA}`]);
 
       // Opening the chat is having seen it: the mark goes from both surfaces.
       await tabA.click();
       await expect(tabA).toHaveAttribute("data-active", "true");
-      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
-      await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
+      await expect(tabA).not.toHaveAttribute("data-attention", /.+/, { timeout: 10_000 });
+      await expect(rowA).not.toHaveAttribute("data-attention", /.+/);
 
-      // A chat that finishes while you are looking at it gets no mark. The
-      // other chat's end, sent after it, is the sentinel: frames are applied in
-      // order, so once O is marked A's end has been handled too.
-      finish("m-2");
-      push({ type: "stream:end", sessionKey: keyO, topicId: topicO.id, messageId: "m-o", completed: true, stopReason: "end_turn" });
-      await expect(tabO, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
-      await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
+      // A chat that finishes while you are looking at it is born seen: no mark.
+      const epochBefore = frames.rows().get(subjectA)?.epoch ?? 0;
+      await runChatTurn(request, topicA.id, "second");
+      await expect.poll(() => {
+        const r = frames.rows().get(subjectA);
+        return r && r.epoch > epochBefore ? r.seenEpoch === r.epoch : null;
+      }, { timeout: 10_000, message: "the turn finished in front was not born seen" }).toBe(true);
+      await expect(tabA).not.toHaveAttribute("data-attention", /.+/);
+      await expect(rowA).not.toHaveAttribute("data-attention", /.+/);
 
-      // A new turn drops the mark too: finish behind another tab, then start.
+      // A new turn drops the mark: finish behind another tab, then start one.
       await tabO.click();
       await expect(tabO).toHaveAttribute("data-active", "true");
-      finish("m-3");
+      await runChatTurn(request, topicA.id, "third");
       await expect(tabA).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-      push({ type: "stream:start", sessionKey: keyA, topicId: topicA.id, messageId: "m-next" });
-      // The turn this start opened ends, so no spinner outlives the check below.
-      push({ type: "stream:end", sessionKey: keyA, topicId: topicA.id, messageId: "m-next", reason: "user_abort" });
-      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
+      const slow = runChatTurn(request, topicA.id, "SLOW:4:next");
+      await expect.poll(() => frames.rows().get(subjectA)?.state, { timeout: 10_000 }).toBe("working");
+      await expect(tabA).not.toHaveAttribute("data-attention", /.+/, { timeout: 10_000 });
+      await slow;
 
-      // Reload: the terminal mark (`terminalFinishedIds`) lives in memory and a
-      // reload starts without it; the chat mark mirrors it, so it does not
-      // come back either.
-      finish("m-4");
+      // The mark is the server's: a reload paints it again, unseen as it was.
       await expect(tabA).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
       await page.reload();
       await expect(tabA).toBeVisible({ timeout: 15_000 });
-      await expect(rowA).toBeVisible({ timeout: 15_000 });
-      await sentinel("m-c2");
-      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
-      await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
+      await expect(tabA).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+      await expect(rowA).toHaveAttribute("data-attention", "done");
     } finally {
       await deleteTopic(request, topicA.id);
       await deleteTopic(request, topicO.id);
-      await deleteTopic(request, topicC.id);
     }
   });
 
@@ -284,18 +233,8 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
     test.info().annotations.push({ type: "spec", description: "CHAT-DONE-01" });
     const stamp = Date.now();
     const nameA = `Front Chat ${stamp}`;
-    const nameS = `Sentinel Chat ${stamp}`;
-    const nameT = `Closing Chat ${stamp}`;
-    const topicA = await createTopic(request, nameA, { provider: "topics" });
-    const topicS = await createTopic(request, nameS, { provider: "topics" });
-    const topicT = await createTopic(request, nameT, { provider: "topics" });
-    const keyA = await sessionKeyOf(request, topicA.id);
-    const keyS = await sessionKeyOf(request, topicS.id);
-    const keyT = await sessionKeyOf(request, topicT.id);
-    await resetPaneStore(request, [topicA.id, topicS.id, topicT.id]);
-    // Earlier tests leave unseen rows in the registry: they count on the badge
-    // (NOTIF-ONE-02) and would land at an unknown moment after the load.
-    await request.post(`${E2E_BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
+    const topicA = await createTopic(request, nameA, { provider: "claude-code" });
+    await resetPaneStore(request, [topicA.id]);
 
     try {
       // The window is in front, and a switch puts it behind another app the
@@ -311,73 +250,44 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
         nav.setAppBadge = (n?: number) => { window.__badgeLog!.push(n ?? 0); return Promise.resolve(); };
         nav.clearAppBadge = () => { window.__badgeLog!.push(0); return Promise.resolve(); };
       });
-      // The targets of the `notification:new` frames the server sends this page.
-      const announced: string[] = [];
-      const push = await routeStreamFrames(page, {
-        onServerFrame: (m) => {
-          if (!m.includes('"notification:new"')) return;
-          const target = (JSON.parse(m) as { row?: { targetId?: string | null } }).row?.targetId;
-          if (target) announced.push(target);
-        },
-      });
-      const finish = (sessionKey: string, topicId: string, messageId: string): void =>
-        push({ type: "stream:end", sessionKey, topicId, messageId, completed: true, stopReason: "end_turn" });
+      const frames = recordAttentionFrames(page);
       // Consecutive repeats are the same paint: the history is the values it went through.
       const badgeHistory = async (): Promise<number[]> =>
         (await page.evaluate(() => window.__badgeLog ?? [])).filter((n, i, all) => i === 0 || n !== all[i - 1]);
 
       await goToApp(page);
       const tabA = page.locator('[role="tab"][data-pane-id]', { hasText: nameA });
-      const tabS = page.locator('[role="tab"][data-pane-id]', { hasText: nameS });
-      const tabT = page.locator('[role="tab"][data-pane-id]', { hasText: nameT });
       await expect(tabA).toBeVisible({ timeout: 15_000 });
-      await expect(tabS).toBeVisible({ timeout: 15_000 });
-      await expect(tabT).toBeVisible({ timeout: 15_000 });
       await tabA.click();
       await expect(tabA).toHaveAttribute("data-active", "true");
       await expect.poll(async () => (await badgeHistory()).length, { timeout: 10_000, message: "the badge was never painted" }).toBeGreaterThan(0);
       const history0 = await badgeHistory();
       const base = history0[history0.length - 1]!;
 
-      // Five turns end on the chat in front of you.
-      for (let i = 1; i <= 5; i++) finish(keyA, topicA.id, `front-${i}`);
-      // The sentinel: another chat's end, sent after them, lands in order, so
-      // once its mark is on its tab the five before it have been handled.
-      finish(keyS, topicS.id, "sentinel-1");
-      await expect(tabS, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-      // With the default settings ("notify even when focused") the chat in
-      // front banners too, and the banner is recorded: POST, then the server's
-      // `notification:new`, up to a second after the marks. Reading the Dock
-      // before that frame is applied proves nothing, so the check waits for
-      // both frames, then for a later sentinel: frames are applied in order.
-      await expect
-        .poll(() => [topicA.id, topicS.id].map((id) => announced.includes(id)), {
-          timeout: 10_000, message: "the two banners were not recorded",
-        })
-        .toEqual([true, true]);
-      finish(keyT, topicT.id, "sentinel-2");
-      await expect(tabT, "the late sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-      // The banner about the chat in front is recorded already seen: the row
-      // is in the history, and it never counted.
+      // Five turns end on the chat in front of you: each is born seen.
+      for (let i = 1; i <= 5; i++) await runChatTurn(request, topicA.id, `front-${i}`);
+      await expect.poll(() => {
+        const r = frames.rows().get(`topic:${topicA.id}`);
+        return r ? r.epoch >= 5 && r.seenEpoch === r.epoch : false;
+      }, { timeout: 10_000, message: "the five turns in front were not all born seen" }).toBe(true);
+      // Their rows are in the history, already seen, and the Dock never moved.
       const rows = ((await (await request.get(`${E2E_BASE}/api/notifications?limit=50`)).json()) as {
-        rows: { targetId: string | null; createdAt: string; seenAt: string | null }[];
-      }).rows;
-      const rowA = rows.find((r) => r.targetId === topicA.id)!;
-      expect(rowA.seenAt, "the banner of the chat in front was recorded unseen").toBe(rowA.createdAt);
-      expect(await badgeHistory()).toEqual([...history0, base + 1, base + 2]);
-      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
+        rows: { targetId: string | null; seenAt: string | null }[];
+      }).rows.filter((r) => r.targetId === topicA.id);
+      expect(rows.length, "no history row for the chat in front").toBeGreaterThan(0);
+      expect(rows.every((r) => r.seenAt !== null), "a turn finished in front was recorded unseen").toBe(true);
+      expect(await badgeHistory()).toEqual(history0);
+      await expect(tabA).not.toHaveAttribute("data-attention", /.+/);
 
       // Behind another app nobody is looking: the same chat's end counts...
       await page.evaluate(() => { window.__awake = false; window.dispatchEvent(new Event("blur")); });
-      finish(keyA, topicA.id, "behind-1");
-      await expect.poll(badgeHistory, { timeout: 10_000, message: "a chat finished while you were away does not count" }).toEqual([...history0, base + 1, base + 2, base + 3]);
+      await runChatTurn(request, topicA.id, "behind-1");
+      await expect.poll(badgeHistory, { timeout: 10_000, message: "a chat finished while you were away does not count" }).toEqual([...history0, base + 1]);
       // ...until the window comes back to the front, which is having seen it.
       await page.evaluate(() => { window.__awake = true; window.dispatchEvent(new Event("focus")); });
-      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1, base + 2, base + 3, base + 2]);
+      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1, base]);
     } finally {
       await deleteTopic(request, topicA.id);
-      await deleteTopic(request, topicS.id);
-      await deleteTopic(request, topicT.id);
     }
   });
 
@@ -386,9 +296,8 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
     const stamp = Date.now();
     const nameX = `Detached Chat ${stamp}`;
     const nameO = `Here Chat ${stamp}`;
-    const topicX = await createTopic(request, nameX, { provider: "topics" });
-    const topicO = await createTopic(request, nameO, { provider: "topics" });
-    const keyX = await sessionKeyOf(request, topicX.id);
+    const topicX = await createTopic(request, nameX, { provider: "claude-code" });
+    const topicO = await createTopic(request, nameO, { provider: "claude-code" });
     // Only the other chat is open HERE: X lives in the detached window.
     await resetPaneStore(request, [topicO.id]);
 
@@ -406,7 +315,7 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       });
       // Another window holds X. X has no tab here, so being held elsewhere is
       // also what gives it a row.
-      const push = await routeStreamFrames(page, {
+      await routeStreamFrames(page, {
         otherWindow: {
           windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true,
           topicIds: [topicX.id], tabs: [{ id: topicX.id, type: "chat", title: nameX }],
@@ -418,14 +327,14 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       const rowX = page.getByRole("treeitem", { name: nameX, exact: true });
       await expect(rowX.locator("[data-elsewhere]"), "the row does not know another window holds the chat").toBeVisible({ timeout: 10_000 });
 
-      push({ type: "stream:end", sessionKey: keyX, topicId: topicX.id, messageId: "dx-1", completed: true, stopReason: "end_turn" });
+      await runChatTurn(request, topicX.id, "finish over there");
       await expect(rowX, "the finished chat's row carries no 'done' mark").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
 
       // The click brings the other window forward and opens nothing here: the
       // chat never mounts a pane in this window, and the mark still goes.
       await rowX.click();
       await expect.poll(() => page.evaluate(() => window.__shellCalls ?? []), { timeout: 10_000 }).toContain("window_focus_label");
-      await expect(rowX, "the row kept its 'done' mark after the click").not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
+      await expect(rowX, "the row kept its 'done' mark after the click").not.toHaveAttribute("data-attention", /.+/, { timeout: 10_000 });
       await expect(page.locator('[role="tab"][data-pane-id]', { hasText: nameX })).toHaveCount(0);
     } finally {
       await deleteTopic(request, topicX.id);

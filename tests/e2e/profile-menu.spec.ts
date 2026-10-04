@@ -31,6 +31,8 @@ import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { presenceSummary, type PresenceCounts } from "../../shared/presence-phrase";
+import { attentionUpdated } from "./helpers/attention";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 
 hermetic(test);
 
@@ -456,7 +458,16 @@ test.describe("il menu utente apre i livelli di lato", () => {
           }),
         }));
 
+      // The tier `background` and its task come from the attention state now
+      // (notifications-redesign): staged as the server writes it, after the
+      // snapshot of the socket, which replaces whatever came before.
+      const ws = await interceptWebSocket(page, /\/ws(?:\?|$)/);
       await goToApp(page);
+      await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15_000 }).toBeGreaterThan(0);
+      ws.send(attentionUpdated(`topic:${chat.id}`, {
+        state: "background",
+        background: [{ id: "agent-1", kind: "agent", label: "Verifica build", startedAt: new Date().toISOString() }],
+      }));
       const badge = page.getByTestId("identity-agents-badge").locator("[data-notification-count]");
       await expect(badge).toHaveAttribute("data-notification-count", "1", { timeout: 20_000 });
       // THE CARD'S TOOLTIP says the badge's number too. Composed from the
