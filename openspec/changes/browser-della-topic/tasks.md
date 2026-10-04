@@ -245,4 +245,4 @@ video `.webm` degli spec, non resoconti.
 - [x] Archiviare `tab-is-the-chrome` come assorbita, senza implementarla. — Fatto in 6639a0b7a (`archive/2026-09-13-tab-is-the-chrome`).
 - [x] In `agent-inline-browser/tasks.md` segnare le fasi 4 e 6 come sostituite
       da questa change. — Gia' segnate: `agent-inline-browser/tasks.md:42` e `:58`.
-- [ ] Video `.webm` dei tre stati e del foglio, allegati alla card.
+- [x] Video `.webm` dei tre stati e del foglio, allegati alla card. — Girati il 04/10 con `clip-consegna.yml` (slowmo spento): `topic-browser-window.spec.ts` run 37168463481, 24 pass; `browser-tab-chrome.spec.ts` run 37168465146, 12 pass. Versionati in `screenshots/`: `clip-01-minimized.webm` (TOPIC-BROWSER-01), `clip-01b-expanded.webm` (01b), `clip-01d-tab-and-back.webm` (01d), `clip-02-sheet.webm` (TOPIC-BROWSER-02, il foglio). Tutti i 34 video delle due run copiati in `~/.topics/media/e0821533-clip-*.webm`; l'allegato alla card e0821533 (gia' done) resta da fare a mano.
