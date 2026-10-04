@@ -4,7 +4,9 @@
  * HTTP server: once its port is seen it leaves the chat's background tasks,
  * it is listed among the chat's servers with its address, the chat's
  * processes list it, and when it is stopped the servers say so for a moment.
- * A command that wakes the chat stays background work, port or not.
+ * A command that wakes the chat stays background work, port or not. A
+ * `run_script` an agent starts from its chat is that chat's server too
+ * (modified 2026-10-04): a dev server is the one state kept apart.
  *
  * @covers BGVIS-08
  */
@@ -134,6 +136,32 @@ describe("a command that serves a port without waking the chat", () => {
     // The Stop signals in the background: wait for the exit, or the test
     // process ends first and leaves the server running with no one to stop it.
     await until(() => !isRunning(topic.id, processId));
+    expect(await answers(port)).toBe(false);
+  }, 30_000);
+});
+
+describe("a run_script an agent starts from its chat", () => {
+  test("is the chat's server once its port is seen, never a task it waits for", async () => {
+    const topic = newTopic();
+    const port = freePort();
+    const { writeFileSync } = await import("fs");
+    // The manifest the gate reads: one dev server script in a Bun project.
+    writeFileSync(join(PROJECT, "package.json"), JSON.stringify({ scripts: { serve: serverCommand(port) } }));
+    writeFileSync(join(PROJECT, "bun.lock"), "");
+    const res = await call("POST", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/run`, { scriptName: "serve", tty: false });
+    expect(res.status).toBe(200);
+    const { processId } = (await res.json()) as { processId: string };
+    try {
+      await until(() => servicesOf(topic).length > 0);
+      const [service] = servicesOf(topic);
+      expect(service?.processId).toBe(processId);
+      expect(service?.listen).toEqual([{ host: "127.0.0.1", port }]);
+      expect(commandBackgroundWork.tasks(topic.sessionKey)).toEqual([]);
+    } finally {
+      await call("POST", `/api/scripts/${processId}/stop`);
+      const end = Date.now() + 12_000;
+      while ((await answers(port)) && Date.now() < end) await Bun.sleep(100);
+    }
     expect(await answers(port)).toBe(false);
   }, 30_000);
 });

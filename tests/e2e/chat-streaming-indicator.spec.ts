@@ -352,7 +352,7 @@ test.describe("Chat waiting on background work", () => {
    * `tasks` and the last news `newsAgeMs` ago, or nothing at all. Two sources,
    * as the client reads them since notifications-redesign: the PRESENCE of
    * the work and its tasks are the attention state (`attention:updated` with
-   * the tier `background`, staged as the server writes it), the DETAILS
+   * the state `working` and its tasks, staged as the server writes it), the DETAILS
    * (the last news, a stale job) are still the status poll. Before `goToApp`.
    */
   async function armBackgroundStatus(page: Page): Promise<BackgroundStatus> {
@@ -362,7 +362,7 @@ test.describe("Chat waiting on background work", () => {
     const publish = async (): Promise<void> => {
       await stageAttention(ws, attentionUpdated(`topic:${bgTopicId}`, background
         ? {
-            state: "background",
+            state: "working",
             // No task listed: one reported and the CLI is about to wake, which
             // the server writes as a task of kind `wake` (`attentionBackground`).
             background: tasks.length
@@ -516,19 +516,19 @@ test.describe("Chat waiting on background work", () => {
     await armBackgroundStatus(page);
     await openBackgroundChat(page, chatPage);
 
-    // THE GREY RING, on the sidebar row and on the tab: neither the blue of a
-    // reply nor the amber of a wait for you.
+    // THE WORKING RING, on the sidebar row and on the tab: a job the chat
+    // waits for is work in progress, like a reply (one state since 2026-10-04).
     const row = page.getByRole("treeitem", { name: new RegExp(bgTopicName) }).first();
-    const glyph = row.locator('[data-loader-state="background"]');
+    const glyph = row.locator('[data-loader-state="working"]');
     await expect(glyph).toBeVisible({ timeout: 15_000 });
-    await expect(row.locator('[data-loader-state="working"], [data-loader-state="waiting"]')).toHaveCount(0);
+    await expect(row.locator('[data-loader-state="waiting"]')).toHaveCount(0);
     // The tooltip says how many jobs run and that the chat is free.
     await expect(glyph).toHaveAttribute("title", /2 lavori in background\. La chat è libera/);
-    // The suite runs with reduced motion: the grey arc stands still, as the
-    // blue one does (`index.css`, the `prefers-reduced-motion` branch).
+    // The suite runs with reduced motion: the arc stands still
+    // (`index.css`, the `prefers-reduced-motion` branch).
     expect(await glyph.locator("svg").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
     const tab = page.locator(`[data-pane-id="${bgTopicId}"]`).first();
-    await expect(tab.locator('[data-loader-state="background"]')).toBeVisible({ timeout: 10_000 });
+    await expect(tab.locator('[data-loader-state="working"]')).toBeVisible({ timeout: 10_000 });
     // No turn is open, so the row offers no Stop: that one is the composer's.
     await row.hover();
     await expect(row.getByTestId("topic-row-stop")).toHaveCount(0);
@@ -580,7 +580,7 @@ test.describe("Chat waiting on background work", () => {
     // The card's badge counts this chat among the active agents (BGVIS-03).
     const badge = page.getByTestId("identity-agents-badge");
     await expect(line).toBeVisible({ timeout: 15_000 });
-    await expect(row.locator('[data-loader-state="background"]')).toBeVisible({ timeout: 10_000 });
+    await expect(row.locator('[data-loader-state="working"]')).toBeVisible({ timeout: 10_000 });
     await expect(badge.locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "1", { timeout: 10_000 });
 
     const stop = page.locator('[data-composer-action="stop"]');
@@ -607,7 +607,7 @@ test.describe("Chat waiting on background work", () => {
     await expect(line).toContainText("sta per riprendere");
     await expect(line).not.toHaveAttribute("data-stale", "true");
     // The glyph's tooltip says it too, and that the chat is free meanwhile.
-    await expect(row.locator('[data-loader-state="background"]')).toHaveAttribute("title", /sta per riprendere.*libera/);
+    await expect(row.locator('[data-loader-state="working"]')).toHaveAttribute("title", /sta per riprendere.*libera/);
 
     // Two jobs whose last news is eleven minutes old, past WORK_STALE_AFTER_MS.
     status.tasks = TASKS;

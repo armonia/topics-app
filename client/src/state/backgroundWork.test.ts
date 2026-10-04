@@ -1,5 +1,5 @@
 /**
- * THE BACKGROUND IS A STATE OF ITS OWN, never a turn in flight.
+ * THE POLL KEEPS THE BACKGROUND APART FROM THE TURNS, never a turn in flight.
  *
  * A `background` row of `/api/topics/streaming` says a chat has no turn open
  * but its last turn left an agent, a Bash or a Monitor running. If such a chat
@@ -17,7 +17,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { composerStopsTasks, composerStopsWork, mergeBackgroundWork, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
-import { projectBackgroundCount } from "./attentionRollups";
+import { projectWorkingCount } from "./attentionRollups";
 import { signalsActions, useSignalsStore } from "./signals";
 import type { Topic } from "../types";
 
@@ -90,22 +90,22 @@ describe("mergeBackgroundWork", () => {
   });
 });
 
-describe("projectBackgroundCount: the closed folder's grey glyph, from the attention state", () => {
+describe("projectWorkingCount: the closed folder's ring, from the attention state", () => {
   const bgRow = (subject: string) => ({
-    subject, state: "background" as const, reason: null, outcome: null, detail: null, since: "", epoch: 0, seenEpoch: 0,
+    subject, state: "working" as const, reason: null, outcome: null, detail: null, since: "", epoch: 0, seenEpoch: 0,
     lit: false, unread: 0, turnUnseen: false, lastTurnAt: null, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }],
   });
 
-  test("counts the children of the project waiting on background work", () => {
+  test("counts the children of the project at work, a job left running included", () => {
     const topics = {
       a: { id: "a", projectPath: "/p" },
       b: { id: "b", projectPath: "/p" },
       c: { id: "c", projectPath: "/q" },
     } as unknown as Record<string, Topic>;
     const rows = new Map(["topic:a", "topic:c", "topic:gone"].map((s) => [s, bgRow(s)]));
-    expect(projectBackgroundCount(rows, "/p", topics, [])).toBe(1);
-    expect(projectBackgroundCount(rows, "/q", topics, [])).toBe(1);
-    expect(projectBackgroundCount(rows, "/none", topics, [])).toBe(0);
+    expect(projectWorkingCount(rows, "/p", topics, [])).toBe(1);
+    expect(projectWorkingCount(rows, "/q", topics, [])).toBe(1);
+    expect(projectWorkingCount(rows, "/none", topics, [])).toBe(0);
   });
 
   test("an archived chat does not light the folder: no row, no tab and no agent row would name it", () => {
@@ -114,9 +114,9 @@ describe("projectBackgroundCount: the closed folder's grey glyph, from the atten
       b: { id: "b", projectPath: "/p" },
     } as unknown as Record<string, Topic>;
     const rows = new Map(["topic:a", "topic:b"].map((s) => [s, bgRow(s)]));
-    expect(projectBackgroundCount(rows, "/p", topics, [])).toBe(1);
+    expect(projectWorkingCount(rows, "/p", topics, [])).toBe(1);
     rows.delete("topic:b");
-    expect(projectBackgroundCount(rows, "/p", topics, [])).toBe(0);
+    expect(projectWorkingCount(rows, "/p", topics, [])).toBe(0);
   });
 });
 

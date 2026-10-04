@@ -77,8 +77,8 @@ export function projectAttention(
   return rollupAttention(projectAttentionChildren(rows, projectPath, topics, terminalSessions).map((c) => c.attention));
 }
 
-/** How many children of a project wait on background work: the closed folder's grey glyph. */
-export function projectBackgroundCount(
+/** How many children of a project are `working` (a turn open, or tasks still running): the closed folder's ring. */
+export function projectWorkingCount(
   rows: AttentionRows,
   projectPath: string,
   topics: Record<string, Topic>,
@@ -86,7 +86,7 @@ export function projectBackgroundCount(
 ): number {
   let n = 0;
   for (const c of projectChildSubjects(projectPath, topics, terminalSessions)) {
-    if (attentionOf(rows, c.subject).tier === 'background') n++;
+    if (attentionOf(rows, c.subject).tier === 'working') n++;
   }
   return n;
 }

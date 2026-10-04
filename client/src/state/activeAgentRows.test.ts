@@ -6,9 +6,9 @@
  * `activeAgentRowsFrom`, so the interesting cases are the gates: which
  * sessions are rows, which are not, and that every row has a name.
  *
- * A chat waiting on the work its closed turn left running is an active agent
- * too, in a list of its own: it holds a CLI in RAM right now, and that list is
- * what says which one to stop.
+ * A chat waiting on the work its closed turn left running is an agent at work,
+ * in the working list (one state since 2026-10-04): it holds a CLI in RAM right
+ * now, and nothing about it waits for the person.
  *
  * @covers STATUSLINE-05, BGVIS-03, ATTN-01
  */
@@ -21,14 +21,18 @@ const topic = (id: string, archived = false): Topic => ({ id, name: `chat ${id}`
 const none = new Set<string>();
 const quiet = { active: none, resting: none, busy: none, liveStream: none, hydratedStream: none, attention: new Map<string, AttentionSnapshot>() };
 
-/** Attention rows: `t:<id>` a chat, `s:<id>` a terminal; `finished` is lit (not seen). */
-function attention(entries: Record<string, AttentionState>): Map<string, AttentionSnapshot> {
-  return new Map(Object.entries(entries).map(([k, state]) => {
+/**
+ * Attention rows: `t:<id>` a chat, `s:<id>` a terminal; `finished` is lit (not
+ * seen); `job` is `working` with a Bash left running by a closed turn.
+ */
+function attention(entries: Record<string, AttentionState | "job">): Map<string, AttentionSnapshot> {
+  return new Map(Object.entries(entries).map(([k, given]) => {
+    const state: AttentionState = given === "job" ? "working" : given;
     const subject = k.startsWith("s:") ? `terminal:${k.slice(2)}` : `topic:${k.slice(2)}`;
     return [subject, {
       subject, state, reason: state === "needs-you" ? "permission" : null, outcome: state === "finished" ? "done" : null, detail: null,
       since: "", epoch: 1, seenEpoch: 0, lit: state === "needs-you" || state === "finished", unread: 0, turnUnseen: false, lastTurnAt: null,
-      background: state === "background" ? [{ id: "b", kind: "bash", label: "x", startedAt: "" }] : [],
+      background: given === "job" ? [{ id: "b", kind: "bash", label: "x", startedAt: "" }] : [],
     } satisfies AttentionSnapshot];
   }));
 }
@@ -102,7 +106,7 @@ describe("activeAgentRowsFrom", () => {
     const rows = activeAgentRowsFrom(roster, topics, { ...quiet, attention: attention({ "s:t1": "needs-you", "t:a": "needs-you" }) });
     expect(rows.awaitingInput).toHaveLength(2);
     expect(rows.finished).toEqual([]);
-    expect(rows.background).toEqual([]);
+    expect(rows.working).toEqual([]);
   });
 
   test("a terminal gone from the roster, or a shell, has no row among the finished either", () => {
@@ -110,35 +114,33 @@ describe("activeAgentRowsFrom", () => {
     expect(rows.finished).toEqual([]);
   });
 
-  test("a chat in the background is an active agent, in its own list, never also finished, and the badge counts it", () => {
+  test("a chat waiting on its job is an agent at work, never also finished, and the badge counts it", () => {
     const topics = { a: topic("a") };
-    const rows = activeAgentRowsFrom([], topics, { ...quiet, attention: attention({ "t:a": "background" }) });
-    expect(rows.background).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
+    const rows = activeAgentRowsFrom([], topics, { ...quiet, attention: attention({ "t:a": "job" }) });
+    expect(rows.working).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
     expect(rows.finished).toEqual([]);
-    expect(rows.working).toEqual([]);
     expect(activeAgentCount(rows)).toBe(1);
   });
 
-  test("a terminal in the background is a row too (its tasks are counted by id now)", () => {
-    const rows = activeAgentRowsFrom(roster, {}, { ...quiet, attention: attention({ "s:t4": "background" }) });
-    expect(rows.background).toEqual([{ id: "t4", kind: "terminal", label: "resting one" }]);
+  test("a terminal waiting on its job is at work too, with no active phase (its tasks are counted by id)", () => {
+    const rows = activeAgentRowsFrom(roster, {}, { ...quiet, attention: attention({ "s:t4": "job" }) });
+    expect(rows.working).toEqual([{ id: "t4", kind: "terminal", label: "resting one" }]);
   });
 
-  test("an archived or deleted chat in the background does not count", () => {
-    const rows = activeAgentRowsFrom([], { b: topic("b", true) }, { ...quiet, attention: attention({ "t:b": "background", "t:ghost": "background" }) });
-    expect(rows.background).toEqual([]);
+  test("an archived or deleted chat waiting on its job does not count", () => {
+    const rows = activeAgentRowsFrom([], { b: topic("b", true) }, { ...quiet, attention: attention({ "t:b": "job", "t:ghost": "job" }) });
+    expect(rows.working).toEqual([]);
     expect(activeAgentCount(rows)).toBe(0);
   });
 
-  test("a chat mid reply is ONE row, the working one, even if its last turn left work behind", () => {
+  test("a chat mid reply is ONE row even if its last turn left work behind, and one waiting on its job is the other", () => {
     const topics = { a: topic("a"), b: topic("b") };
     const rows = activeAgentRowsFrom([], topics, {
       ...quiet,
       liveStream: new Set(["a"]),
-      attention: attention({ "t:a": "background", "t:b": "background" }),
+      attention: attention({ "t:a": "job", "t:b": "job" }),
     });
-    expect(rows.working).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
-    expect(rows.background).toEqual([{ id: "b", kind: "topic", label: "chat b" }]);
+    expect(rows.working).toEqual([{ id: "a", kind: "topic", label: "chat a" }, { id: "b", kind: "topic", label: "chat b" }]);
     expect(activeAgentCount(rows)).toBe(2);
   });
 });

@@ -3330,11 +3330,6 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 .animate-orbit-breath { animation: orbit-breath 2.4s ease-in-out infinite; }
 
-/* THE BACKGROUND: same ring, grey, turning at a third of the speed. No turn is
- * open and the chat is free, so it must not read as the blue reply; the work a
- * closed turn left running goes on, so it must not stand still like the wait. */
-.animate-orbit-slow { animation: orbit-spin 3.45s linear infinite; }
-
 /* THE TIME THAT IS PASSING RIGHT NOW, told by MOTION and not by colour.
  *
  * Two durations sit on these surfaces and they answer opposite questions: "it
@@ -3376,7 +3371,6 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
      travel becomes a shape instead of a time. */
   .animate-orbit-spin { animation: none; transform: rotate(112deg); }
   .animate-orbit-breath { animation: none; opacity: 0.9; }
-  .animate-orbit-slow { animation: none; transform: rotate(112deg); }
   /* Without motion the only thing left to separate a running number from a
      receipt is weight, so the live one settles on the FULL text ink while the
      receipt stays in its own quiet tone. Not the primary: the colour left this

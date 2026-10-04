@@ -60,7 +60,7 @@ export interface InboxQuietItem {
 export interface InboxModel {
   waiting: InboxItem[];
   finished: InboxItem[];
-  background: InboxQuietItem[];
+  /** At work: a turn open, or a job a closed turn left running. */
   working: InboxQuietItem[];
 }
 
@@ -134,11 +134,10 @@ export function inboxModel(
   waiting.sort((x, y) => x.since - y.since);
   finished.sort((x, y) => y.since - x.since);
 
-  const background: InboxQuietItem[] = [];
   const working: InboxQuietItem[] = [];
   for (const subject of rows.keys()) {
     const a = attentionOf(rows, subject);
-    if (a.tier !== 'background' && a.tier !== 'working') continue;
+    if (a.tier !== 'working') continue;
     const k = kindOf(subject);
     if (!k) continue;
     const named = nameOf(k.kind, k.id, topics, terminals, cardById);
@@ -148,9 +147,9 @@ export function inboxModel(
       firstTask: a.background.find((t) => !t.recurring) ?? a.background[0] ?? null,
       url: urlOf(k.kind, k.id),
     };
-    (a.tier === 'background' ? background : working).push(item);
+    working.push(item);
   }
-  return { waiting, finished, background, working };
+  return { waiting, finished, working };
 }
 
 /** The seen items of «Mark all seen»: exactly the finished rows listed. */

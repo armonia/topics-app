@@ -64,14 +64,14 @@ describe("migration subject-attention", () => {
     db.run(MIGRATION_SQL);
     db.run(
       "INSERT INTO subject_attention (subject, state, since, last_turn, background, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ["topic:t1", "background", "2026-10-03T21:40:00.000Z", JSON.stringify({ id: "m1", outcome: "done", at: "2026-10-03T21:40:00.000Z" }),
+      ["topic:t1", "working", "2026-10-03T21:40:00.000Z", JSON.stringify({ id: "m1", outcome: "done", at: "2026-10-03T21:40:00.000Z" }),
         JSON.stringify({ b1: { kind: "bash", label: "sleep 40", startedAt: "2026-10-03T21:39:00.000Z" } }), "2026-10-03T21:40:00.000Z"],
     );
     const row = db.query("SELECT * FROM subject_attention WHERE subject = 'topic:t1'").get() as Record<string, unknown>;
     expect(row.epoch).toBe(0);
     expect(row.seen_epoch).toBe(0);
     expect(JSON.parse(row.background as string).b1.kind).toBe("bash");
-    expect((db.query("SELECT COUNT(*) AS c FROM subject_attention WHERE state = 'background'").get() as { c: number }).c).toBe(1);
+    expect((db.query("SELECT COUNT(*) AS c FROM subject_attention WHERE state = 'working'").get() as { c: number }).c).toBe(1);
     db.close();
   });
 });

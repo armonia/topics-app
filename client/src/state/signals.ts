@@ -32,7 +32,7 @@ import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork';
 import type { AttentionTask } from '../../../shared/attention';
 import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
-import { projectAttention, projectBackgroundCount } from './attentionRollups';
+import { projectAttention, projectWorkingCount } from './attentionRollups';
 
 /** Phases that mean "Claude STOPPED and is waiting for YOU" — the subset of
  *  NOTABLE that warrants a blue "awaiting feedback" tab/row highlight.
@@ -496,10 +496,10 @@ export function terminalLoadingFrom(
 }
 
 /**
- * A terminal AT WORK, as every rollup reads it (ATTN-12): loading, and not in
- * `background` on the attention state. The phase partition counts `watching`
- * (a closed turn waiting on its tasks) as active; the tier says it is the grey
- * glyph, so the project, the menu of agents and the terminal's own tab agree.
+ * A terminal AT WORK, as every rollup reads it (ATTN-12): loading, or `working`
+ * on the attention state. A closed turn waiting on its tasks is work in
+ * progress like a turn that answers, so the project, the menu of agents and
+ * the terminal's own tab agree on one ring.
  */
 export function terminalWorkingFrom(
   sid: string,
@@ -508,7 +508,7 @@ export function terminalWorkingFrom(
   phaseResting: Set<string> | undefined,
   attention: AttentionRows,
 ): boolean {
-  return terminalLoadingFrom(sid, phaseActive, ptyBusy, phaseResting) && attentionOf(attention, `terminal:${sid}`).tier !== 'background';
+  return terminalLoadingFrom(sid, phaseActive, ptyBusy, phaseResting) || attentionOf(attention, `terminal:${sid}`).tier === 'working';
 }
 
 /** Minimal phase view the terminal-loading derivation needs. */
@@ -677,6 +677,8 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
     for (const t of Object.values(topics)) {
       if (t.projectPath === projectPath && (live.has(t.id) || hydrated.has(t.id))) return true;
     }
+    // A child waiting on the job it launched is at work too (ATTN-12).
+    if (projectWorkingCount(attention, projectPath, topics, terminalSessions) > 0) return true;
     for (const ts of terminalSessions) {
       // Plain shells are the user's own background processes (dev servers,
       // watchers, ad-hoc commands). Their intermittent pty output must NOT make
@@ -782,13 +784,15 @@ export function useTopicBackgroundDetail(topicId: string | undefined): TopicBack
 const NO_TASKS: readonly AttentionTask[] = [];
 
 /**
- * Is the chat waiting on its own background work, with nothing to ask (tier
- * `background`)? The grey glyph on the tab, the row and the indicator: read
- * from the same frame as the fill, so a row cannot be grey and blue at once
- * (BG-1, ATTN-12).
+ * Is the chat IN PROGRESS: a turn open, or a closed turn whose tasks still run
+ * (attention `working`)? The ring on the tab, the row and the indicator. Not
+ * `useTopicLoading`, which the composer reads: a chat waiting on its job is
+ * free to take a message, and must not queue it (BGVIS-02).
  */
-export function useTopicInBackground(topicId: string | undefined): boolean {
-  return useAttentionStore((s) => !!topicId && s.rows.get(`topic:${topicId}`)?.state === 'background');
+export function useTopicInProgress(topicId: string | undefined): boolean {
+  const loading = useTopicLoading(topicId);
+  const working = useAttentionStore((s) => !!topicId && s.rows.get(`topic:${topicId}`)?.state === 'working');
+  return loading || working;
 }
 
 /**
@@ -800,29 +804,8 @@ export function useTopicBackgroundTasks(topicId: string | undefined): readonly A
   return useAttentionStore((s) => (topicId ? s.rows.get(`topic:${topicId}`)?.background : undefined)) ?? NO_TASKS;
 }
 
-/**
- * A terminal waiting on background work (attention tier `background`) and the
- * tasks it waits on: the same grey glyph a chat gets (ATTN-12). The phase
- * partition counts `watching` as active, so without this a terminal whose
- * turn left a job running kept the blue working ring (tasks.md 5.1).
- */
-export function useTerminalInBackground(sessionId: string | undefined): boolean {
-  return useAttentionStore((s) => !!sessionId && s.rows.get(`terminal:${sessionId}`)?.state === 'background');
-}
-
 export function useTerminalBackgroundTasks(sessionId: string | undefined): readonly AttentionTask[] {
   return useAttentionStore((s) => (sessionId ? s.rows.get(`terminal:${sessionId}`)?.background : undefined)) ?? NO_TASKS;
-}
-
-/** How many children of this project wait on background work: the closed folder's grey glyph. */
-export function useProjectBackgroundWork(projectPath: string | undefined): number {
-  const topics = useTopics();
-  const terminalSessions = useTerminalSessions();
-  const rows = useAttentionRows();
-  return useMemo(
-    () => (projectPath ? projectBackgroundCount(rows, projectPath, topics, terminalSessions) : 0),
-    [projectPath, topics, terminalSessions, rows],
-  );
 }
 
 /** A topic is loading if it has a live stream or a hydrated mid-reply. */
@@ -889,11 +872,15 @@ export function useSubjectLastActivity(subjectId: string | undefined): number | 
 
 /** A terminal session is loading when its claude phase is active, or (for
  *  shells / not-yet-known phases) its pty is busy. A claude-code session at a
- *  resting phase never shows loading from pty alone — see terminalLoadingFrom. */
+ *  resting phase never shows loading from pty alone — see terminalLoadingFrom.
+ *  A closed turn whose tasks still run (attention `working`) is at work too,
+ *  as `terminalWorkingFrom` says for every rollup. */
 export function useTerminalLoading(sessionId: string | undefined): boolean {
-  return useSignalsStore((s) =>
+  const loading = useSignalsStore((s) =>
     !!sessionId && terminalLoadingFrom(sessionId, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
   );
+  const working = useAttentionStore((s) => !!sessionId && s.rows.get(`terminal:${sessionId}`)?.state === 'working');
+  return loading || working;
 }
 
 /** A terminal session is restarting via "Ricarica", until it reconnects. */
@@ -953,7 +940,6 @@ export interface ActiveAgentRow {
 /** The agent lists of the menu, as `activeAgentRowsFrom` builds them. */
 export interface ActiveAgentRows {
   working: ActiveAgentRow[];
-  background: ActiveAgentRow[];
   awaitingInput: ActiveAgentRow[];
   finished: ActiveAgentRow[];
 }
@@ -988,21 +974,22 @@ function useAgentActivitySlice(): AgentActivitySlice {
 }
 
 /**
- * Pure: the agents WORKING, IN BACKGROUND, WAITING FOR AN ANSWER and FINISHED,
- * as rows.
+ * Pure: the agents WORKING, WAITING FOR AN ANSWER and FINISHED, as rows.
  *
  * This is the one place that decides who counts as an active agent. The
  * profile menu lists these rows, the card badges their number, and the status
  * counts are their `.length`: a session cannot be in the number and missing
  * from the list, because there is no second predicate to drift.
  *
- *   - working: a non-shell terminal that `terminalLoadingFrom` calls loading
- *     (phase-active OR pty-busy-and-not-resting), plus every chat topic mid
- *     stream (live or hydrated) that is on screen (not archived, not deleted).
- *   - background, awaitingInput, finished: the attention tier of the subject
- *     (`background`, `needs-you`, a lit `done`/`error`), the same frame the
- *     tab and the row paint from. One session is in one of the three: a chat
- *     with an Agent in background is never also "turn finished" (ATTN-01).
+ *   - working: a non-shell terminal that `terminalWorkingFrom` calls at work
+ *     (phase-active, pty-busy-and-not-resting, or attention `working`), plus
+ *     every chat topic mid stream (live or hydrated) or `working` on the
+ *     attention state (a job it waits for) that is on screen (not archived,
+ *     not deleted).
+ *   - awaitingInput, finished: the attention tier of the subject
+ *     (`needs-you`, a lit `done`/`error`), the same frame the tab and the row
+ *     paint from. A chat with an Agent in background is never also "turn
+ *     finished" (ATTN-01).
  *     Terminals are read through the roster so each row has a name: an id
  *     whose session is gone has no row and no tab, and its "1" would be
  *     unanswerable from anywhere.
@@ -1015,14 +1002,14 @@ export function activeAgentRowsFrom(
   sig: AgentActivitySlice,
 ): ActiveAgentRows {
   const working: ActiveAgentRow[] = [];
-  const background: ActiveAgentRow[] = [];
   const awaitingInput: ActiveAgentRow[] = [];
   const finished: ActiveAgentRow[] = [];
-  const place = (subject: string, row: ActiveAgentRow, streaming: boolean) => {
+  const place = (subject: string, row: ActiveAgentRow, counted: boolean) => {
     const a = attentionOf(sig.attention, subject);
     if (a.tier === 'needs-you') awaitingInput.push(row);
     else if (a.lit) finished.push(row);
-    else if (a.tier === 'background' && !streaming) background.push(row);
+    // A chat waiting on its job, no turn open: at work like one that answers.
+    else if (a.tier === 'working' && !counted) working.push(row);
   };
   for (const t of roster) {
     // The exclusion is THE SHELL, not "everything but the three I remember":
@@ -1044,12 +1031,12 @@ export function activeAgentRowsFrom(
   for (const id of visibleTopicSignalIds(chatSubjects, topics)) {
     place(`topic:${id}`, { id, kind: 'topic', label: topics[id].name }, streamingTopics.has(id));
   }
-  return { working, background, awaitingInput, finished };
+  return { working, awaitingInput, finished };
 }
 
 /** The agents at work: the number on the card's badge, counted from the same rows the menu lists. */
-export function activeAgentCount(rows: Pick<ActiveAgentRows, 'working' | 'background'>): number {
-  return rows.working.length + rows.background.length;
+export function activeAgentCount(rows: Pick<ActiveAgentRows, 'working'>): number {
+  return rows.working.length;
 }
 
 /** The rows behind the "Active agents" submenu and the card badge. See

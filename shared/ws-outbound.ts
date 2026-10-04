@@ -1363,7 +1363,7 @@ const attentionTaskSchema = z.looseObject({
 /** One subject's attention state (`shared/attention.ts`, `AttentionSnapshot`). */
 const attentionSnapshotSchema = z.looseObject({
   subject: z.string(),
-  state: z.enum(['idle', 'working', 'background', 'needs-you', 'finished']),
+  state: z.enum(['idle', 'working', 'needs-you', 'finished']),
   reason: z.nullable(z.string()),
   outcome: z.nullable(z.string()),
   detail: z.nullable(z.string()),

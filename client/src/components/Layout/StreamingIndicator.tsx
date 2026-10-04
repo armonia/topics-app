@@ -35,7 +35,7 @@
  */
 
 import { LoaderCircle } from 'lucide-react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicInBackground, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useTerminalInBackground, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useT } from '../../hooks/useT';
 import { loaderArcClass, loaderStateFor, type LoaderState } from './loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
@@ -122,8 +122,7 @@ interface LoaderSlotProps {
   className?: string;
   /** Box size in px (square). Default 16, the shared slot on every surface. */
   size?: number;
-  /** `waiting`: the turn is open but parked on an answer. `background`: no
-   *  turn open, work left running. See `loaderState.ts`. */
+  /** `waiting`: the turn is open but parked on an answer. See `loaderState.ts`. */
   state?: LoaderState;
   /** The slot sits on an attention fill (see `loaderArcClass`). */
   onFill?: boolean;
@@ -194,7 +193,7 @@ interface TopicSpinnerProps {
    * che una subline non ce l'hanno, non passano `quiet` e restano com'erano.
    */
   quiet?: boolean;
-  /** The row or tab carries an attention fill: the grey glyph takes its ink. */
+  /** The row or tab carries an attention fill: the arc takes its ink. */
   onFill?: boolean;
 }
 
@@ -213,18 +212,17 @@ export function TopicStreamingSpinner({
   // non lavora: cambia il glifo, non l'esistenza dell'indicatore. Prima fuori
   // dalla chat una domanda a schermo si leggeva identica a un turno che macina.
   const waiting = useTopicAwaitingInput(topicId);
-  // The grey glyph: the attention tier `background`, the frame the fill reads
-  // too, so the glyph and a fill never show together (ATTN-12).
-  const background = useTopicInBackground(topicId);
+  // In progress: a turn open, or the job a closed turn left running (attention
+  // `working`, the frame the fill reads too, so the ring and a fill agree).
+  const inProgress = useTopicInProgress(topicId);
   const tasks = useTopicBackgroundTasks(topicId);
   const tr = useT();
-  const state = loaderStateFor({ loading: streaming, waiting, background });
+  const state = loaderStateFor({ inProgress, waiting });
   if (!state) return null;
-  // No turn open: the grey glyph of the work left running (or the amber over
-  // it), never the labeled clock, which times a turn.
+  // No turn open: the ring of the job left running, never the labeled clock,
+  // which times a turn. The tooltip says what runs, and that the chat is free.
   if (!streaming) {
-    const tip = state === 'background' ? backgroundTip(tr, workCount(tasks)) : undefined;
-    return <LoaderSlot title={title ?? tip} className={className} size={size} state={state} onFill={onFill} />;
+    return <LoaderSlot title={title ?? backgroundTip(tr, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
   // LabeledLoader, which mounts only here (while streaming) so the shared clock
@@ -245,12 +243,12 @@ export function TopicStreamingSpinner({
   return <LoaderSlot title={tip} className={className} size={size} state={waiting ? 'waiting' : 'working'} />;
 }
 
-/** How much runs, and that the chat is free: the one thing the grey glyph cannot say on its own. */
 /** The tasks that are work: a queued wake is the CLI about to answer, said as «resuming». */
 function workCount(tasks: readonly { kind: string }[]): number {
   return tasks.filter((t) => t.kind !== 'wake').length;
 }
 
+/** How much runs, and that the chat is free: what the ring of a closed turn cannot say on its own. */
 function backgroundTip(tr: ReturnType<typeof useT>, n: number): string {
   if (n === 0) return tr('topic.backgroundResuming');
   return n === 1 ? tr('topic.backgroundOne') : tr('topic.backgroundMany', { n });
@@ -327,7 +325,7 @@ interface ProjectSpinnerProps {
   projectPath: string | undefined;
   className?: string;
   title?: string;
-  /** The folder row or tab carries an attention fill: the grey glyph takes its ink. */
+  /** The folder row or tab carries an attention fill: the arc takes its ink. */
   onFill?: boolean;
 }
 
@@ -348,14 +346,10 @@ export function ProjectStreamingSpinner({
   // quello di una chat: sulla stessa riga il fill era già ambra e l'onda blu lo
   // contraddiceva — un segno diceva «tocca a te», l'altro «lascialo lavorare».
   const waiting = useProjectAwaitingInput(projectPath);
-  // Chats of this project whose closed turn left work running: the grey glyph,
-  // below any turn that answers or waits (`loaderStateFor`).
-  const background = useProjectBackgroundWork(projectPath);
-  const state = loaderStateFor({ loading, waiting, background: background > 0 });
+  // `loading` counts the children waiting on the job they launched too.
+  const state = loaderStateFor({ inProgress: loading, waiting });
   if (!state) return null;
-  const tip = state === 'waiting' ? tr('project.chatWaits')
-    : state === 'working' ? tr('project.chatAnswers')
-      : tr('project.chatBackground', { n: background });
+  const tip = state === 'waiting' ? tr('project.chatWaits') : tr('project.chatAnswers');
   return <LoaderSlot title={title ?? tip} className={className} state={state} onFill={onFill} />;
 }
 
@@ -376,15 +370,13 @@ export function TerminalStreamingSpinner({
   className = '',
 }: TerminalSpinnerProps) {
   const active = useTerminalLoading(sessionId);
-  // A closed turn that left work running: the grey glyph, as for a chat
-  // (ATTN-12). The phase partition reads `watching` as active, so the
-  // attention tier decides between the two rings.
-  const background = useTerminalInBackground(sessionId);
+  // A closed turn that left work running is at work too, as for a chat
+  // (ATTN-12): one ring, and the tooltip names the tasks.
   const tasks = useTerminalBackgroundTasks(sessionId);
   const tr = useT();
-  const state = loaderStateFor({ loading: active && !background, waiting: false, background });
+  const state = loaderStateFor({ inProgress: active, waiting: false });
   if (!state) return null;
-  const tip = state === 'background' ? backgroundTip(tr, workCount(tasks)) : 'Terminal is producing output';
+  const tip = tasks.length > 0 ? backgroundTip(tr, workCount(tasks)) : 'Terminal is producing output';
   return <LoaderSlot title={title ?? tip} className={className} state={state} />;
 }
 

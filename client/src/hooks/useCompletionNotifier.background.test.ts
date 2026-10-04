@@ -3,7 +3,7 @@
  *
  * The main window hidden in the tray, a chat waiting on three background
  * tasks: the first two come back, each with a woken turn that writes a
- * message, and the server keeps the subject in `background` with no announce.
+ * message, and the server keeps the subject `working` with no announce.
  * The banner logic of `useCompletionNotifier` (`announceBannerOf`, the claim
  * on `subject#epoch`) must stay silent through all of it, whatever the
  * `message:new`, `stream:end` and `session:state` frames say, and then speak
@@ -20,7 +20,7 @@ const ON: AnnounceSettings = { notificationsEnabled: true, notifyEvenWhenFocused
 
 function row(over: Partial<AttentionSnapshot>): AttentionSnapshot {
   return {
-    subject: 'topic:T', state: 'background', reason: null, outcome: null, detail: null, since: '2026-10-03T10:00:00.000Z',
+    subject: 'topic:T', state: 'working', reason: null, outcome: null, detail: null, since: '2026-10-03T10:00:00.000Z',
     epoch: 6, seenEpoch: 6, lit: false, unread: 0, turnUnseen: true, lastTurnAt: '2026-10-03T10:00:00.000Z', background: [], ...over,
   };
 }

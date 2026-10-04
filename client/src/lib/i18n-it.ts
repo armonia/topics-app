@@ -155,7 +155,6 @@ const IT: Dict = {
   'project.chatWaits': 'Una chat di questo progetto aspetta una tua risposta',
   'project.chatAnswers': 'Una chat di questo progetto sta rispondendo',
   // The grey glyph: no turn open, work a closed turn left running. The chat is free.
-  'project.chatBackground': 'Chat di questo progetto con lavoro in background: {n}. Sono libere, puoi scrivere',
   'topic.backgroundOne': 'Un lavoro in background. La chat è libera, puoi scrivere',
   'topic.backgroundMany': '{n} lavori in background. La chat è libera, puoi scrivere',
   'topic.backgroundResuming': 'Il lavoro in background ha risposto e la chat sta per riprendere. Intanto è libera, puoi scrivere',
@@ -2707,9 +2706,6 @@ const IT: Dict = {
   'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
   'statusBar.agents.finishedHeading': 'Turno finito, da guardare',
   'statusBar.agents.none': 'Nessun agente al lavoro adesso',
-  'statusBar.agents.backgroundHeading': 'In background',
-  'statusBar.signals.withBackgroundOne': '1 agente attivo adesso, in background',
-  'statusBar.signals.withBackgroundMany': '{n} agenti attivi adesso, di cui {b} in background',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.
@@ -2788,6 +2784,7 @@ const IT: Dict = {
   'sidebar.noTabs': 'Nessuna tab',
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',
+  'topic.serverOn': 'Server acceso: {where}. Resta su da solo, la chat è libera',
   'topic.openElsewhere': "Aperto in un'altra finestra",
   // ── Condivisione. Il pannello era scritto a mano in inglese dentro un'app
   //    che parla italiano: qui le sue parole entrano nel dizionario come tutte

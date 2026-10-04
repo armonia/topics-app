@@ -155,7 +155,7 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     const { tracker, sid, subject } = terminalTracker([]);
     let t = T0;
     turn([CRON_ONCE]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
-    expect(getAttention(subject).state).toBe('background');
+    expect(getAttention(subject).state).toBe('working');
     // The cron fires: Claude Code submits its prompt as a turn, which ends.
     tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', prompt: 'check CI', session_id: sid } as never, (t += 200));
     tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));

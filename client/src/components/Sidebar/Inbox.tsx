@@ -289,7 +289,7 @@ function InboxPanel({ model, onWSMessage, onClose }: {
                 </button>
               </Section>
             )}
-            <QuietLine background={model.background} working={model.working} />
+            <QuietLine working={model.working} />
           </>
         ) : (
           <History rows={history.rows} loading={history.loading} hasMore={history.hasMore} loadingMore={history.loadingMore} loadMore={history.loadMore} onClose={onClose} />
@@ -397,21 +397,21 @@ function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: bool
 /** The task kinds the catalogue names; an unknown kind shows its label alone. */
 const KNOWN_TASK_KINDS = new Set(['bash', 'agent', 'workflow', 'monitor', 'cron', 'command', 'wake']);
 
-/** «2 in background · 1 at work»: grey, no number on the button, opens in place. */
-function QuietLine({ background, working }: { background: InboxQuietItem[]; working: InboxQuietItem[] }) {
+/**
+ * «3 at work»: grey, no number on the button, opens in place. A chat waiting
+ * on the job it launched is at work like one that answers: one count, and its
+ * row names the job.
+ */
+function QuietLine({ working }: { working: InboxQuietItem[] }) {
   const tr = useT();
   const { isTouch } = useMobile();
   const [open, setOpen] = useState(false);
-  if (background.length === 0 && working.length === 0) return null;
-  const parts = [
-    background.length > 0 ? tr('inbox.quiet.background', { n: background.length }) : null,
-    working.length > 0 ? tr('inbox.quiet.working', { n: working.length }) : null,
-  ].filter(Boolean).join(' · ');
-  const all = [...background.map((q) => ({ q, background: true })), ...working.map((q) => ({ q, background: false }))];
+  if (working.length === 0) return null;
+  const parts = tr('inbox.quiet.working', { n: working.length });
   return (
-    // The two numbers as attributes too: what the line says is copy, and a
-    // test that reads copy freezes it (tests/e2e/CONVENTIONS.md).
-    <div className="border-t border-app-border" data-testid="inbox-quiet" data-background={background.length} data-working={working.length}>
+    // The number as an attribute too: what the line says is copy, and a test
+    // that reads copy freezes it (tests/e2e/CONVENTIONS.md).
+    <div className="border-t border-app-border" data-testid="inbox-quiet" data-working={working.length}>
       <button
         type="button"
         data-inbox-row=""
@@ -425,7 +425,7 @@ function QuietLine({ background, working }: { background: InboxQuietItem[]; work
       </button>
       {open && (
         <ul className="pb-1.5">
-          {all.map(({ q, background: bg }) => {
+          {working.map((q) => {
             const Icon = KIND_ICON[q.kind];
             return (
               <li key={q.subject}>
@@ -440,9 +440,9 @@ function QuietLine({ background, working }: { background: InboxQuietItem[]; work
                   <Icon size={13} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
                   <span className="text-mini text-app-text truncate">{q.title}</span>
                   <span className="text-mini text-app-text-muted truncate ml-auto flex-shrink min-w-0">
-                    {bg && q.firstTask
+                    {q.firstTask
                       ? KNOWN_TASK_KINDS.has(q.firstTask.kind) ? `${tr(`inbox.task.${q.firstTask.kind}`)}: ${q.firstTask.label}` : q.firstTask.label
-                      : tr(bg ? 'inbox.quiet.inBackground' : 'inbox.quiet.atWork')}
+                      : tr('inbox.quiet.atWork')}
                   </span>
                 </button>
               </li>

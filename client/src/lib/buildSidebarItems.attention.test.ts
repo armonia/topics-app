@@ -42,9 +42,9 @@ describe('presence: a chat with no tab', () => {
     expect(ids(buildSidebarItems({ ...base, topics, attention: seen }))).toEqual([]);
   });
 
-  test('a chat in background with unread has no number and no row of its own', () => {
+  test('a chat waiting on its job with unread has no number and no row of its own', () => {
     const topics = { A: topic('A', '2026-10-03T09:00:00.000Z') };
-    const bg = rowsOf(snap('topic:A', { state: 'background', unread: 2, background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] }));
+    const bg = rowsOf(snap('topic:A', { state: 'working', unread: 2, background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] }));
     expect(buildSidebarItems({ ...base, topics, attention: bg, openPanels: ['A'] })[0].notificationCount).toBe(0);
   });
 
@@ -82,7 +82,7 @@ describe('order: lit first by entry, then activity (F5)', () => {
 });
 
 describe('the state view reads the tier (ATTN-12)', () => {
-  test('four sections: waits for you, finished, in background, at work', () => {
+  test('three sections: waits for you, finished, at work (a job a closed turn left running included)', () => {
     const topics = {
       N: topic('N', '2026-10-03T08:00:00.000Z'), D: topic('D', '2026-10-03T08:00:00.000Z'), E: topic('E', '2026-10-03T08:00:00.000Z'),
       G: topic('G', '2026-10-03T08:00:00.000Z'), W: topic('W', '2026-10-03T08:00:00.000Z'), I: topic('I', '2026-10-03T08:00:00.000Z'),
@@ -91,13 +91,13 @@ describe('the state view reads the tier (ATTN-12)', () => {
       snap('topic:N', { state: 'needs-you', reason: 'question', epoch: 1, lit: true }),
       snap('topic:D', { state: 'finished', outcome: 'done', epoch: 1, lit: true }),
       snap('topic:E', { state: 'finished', outcome: 'error', epoch: 1, lit: true }),
-      snap('topic:G', { state: 'background', background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] }),
+      snap('topic:G', { state: 'working', background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] }),
       snap('topic:W', { state: 'working' }),
     );
     const items = buildSidebarItems({ ...base, topics, attention: rows, openPanels: Object.keys(topics) });
     const g = groupSidebarItemsByState(items, rows);
     expect({
-      needsYou: ids(g['needs-you']), finished: ids(g.finished).sort(), background: ids(g.background), working: ids(g.working), rest: ids(g.rest),
-    }).toEqual({ needsYou: ['N'], finished: ['D', 'E'], background: ['G'], working: ['W'], rest: ['I'] });
+      needsYou: ids(g['needs-you']), finished: ids(g.finished).sort(), working: ids(g.working).sort(), rest: ids(g.rest),
+    }).toEqual({ needsYou: ['N'], finished: ['D', 'E'], working: ['G', 'W'], rest: ['I'] });
   });
 });

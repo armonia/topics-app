@@ -182,16 +182,11 @@ function UserCard({ identity, commands, alarm }: {
   const topics = useTopics();
   const agentCounts = useAgentActivityCounts(roster, topics);
   // The badge and the working digit in the tail of the menu's system row count
-  // the SAME rows the menu lists, through one function: the working ones and
-  // the chats waiting on background work (active-agent-row + background-agent-row).
+  // the SAME rows the menu lists, through one function (active-agent-row): a
+  // chat waiting on its job is one of them.
   const agentRows = useActiveAgentRows(roster, topics);
   const activeAgents = activeAgentCount(agentRows);
-  // With any background row, n >= b >= 1, so one agent is that one row.
-  const agentsTitle = agentRows.background.length === 0
-    ? tr('statusBar.signals.working', { n: activeAgents })
-    : activeAgents === 1
-      ? tr('statusBar.signals.withBackgroundOne')
-      : tr('statusBar.signals.withBackgroundMany', { n: activeAgents, b: agentRows.background.length });
+  const agentsTitle = tr('statusBar.signals.working', { n: activeAgents });
   const load = useLoad();
 
   useEffect(() => {

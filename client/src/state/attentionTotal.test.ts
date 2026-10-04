@@ -52,7 +52,7 @@ const fixture = () => {
     done("topic:a", { unread: 5 }),
     ask("topic:b", "permission"),
     done("topic:c", { outcome: "error" }),
-    snap("topic:bg", { state: "background", unread: 2, background: [{ id: "x", kind: "bash", label: "sleep", startedAt: "" }] }),
+    snap("topic:bg", { state: "working", unread: 2, background: [{ id: "x", kind: "bash", label: "sleep", startedAt: "" }] }),
     snap("topic:seen", { state: "finished", outcome: "done", lit: false, epoch: 3, seenEpoch: 3, unread: 4 }),
     done("topic:old"),
     done("terminal:s1"),

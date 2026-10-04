@@ -43,9 +43,9 @@ describe("attentionOf: one subject", () => {
   test("a finished subject already seen draws nothing and has no number, whatever its unread", () => {
     expect(attentionOfRow(snap("topic:a", { state: "finished", outcome: "done", lit: false, unread: 3 }))).toMatchObject({ tier: null, lit: false, count: 0 });
   });
-  test("background and working are tiers that never carry a number", () => {
-    const bg = attentionOfRow(snap("topic:a", { state: "background", unread: 2, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] }));
-    expect(bg).toMatchObject({ tier: "background", lit: false, count: 0 });
+  test("working, a turn or a job left running, is a tier that never carries a number", () => {
+    const bg = attentionOfRow(snap("topic:a", { state: "working", unread: 2, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] }));
+    expect(bg).toMatchObject({ tier: "working", lit: false, count: 0 });
     expect(bg.background.length).toBe(1);
     expect(attentionOfRow(snap("topic:a", { state: "working" }))).toMatchObject({ tier: "working", count: 0 });
   });
@@ -60,7 +60,7 @@ describe("rollupAttention: a set of subjects", () => {
     const done = v({ state: "finished", outcome: "done", lit: true });
     const error = v({ state: "finished", outcome: "error", lit: true });
     const ask = v({ state: "needs-you", reason: "permission", lit: true });
-    const bg = v({ state: "background" });
+    const bg = v({ state: "working", background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] });
     expect(rollupAttention([done, bg])).toEqual({ tier: "done", count: 1 });
     expect(rollupAttention([done, error])).toEqual({ tier: "error", count: 2 });
     expect(rollupAttention([error, ask, done, bg])).toEqual({ tier: "needs-you", count: 3 });
@@ -160,10 +160,10 @@ describe("a seen the server never got (ATTN-07: the snapshot replaces the store)
 });
 
 describe("needsSeen: when the focused pane has something to tell the server", () => {
-  test("a lit epoch not seen, unread messages, or a closed turn not seen (background, T7)", () => {
+  test("a lit epoch not seen, unread messages, or a closed turn not seen (a job left running, T7)", () => {
     expect(needsSeen(attentionOfRow(snap("topic:a", { state: "finished", outcome: "done", lit: true, epoch: 1 })))).toBe(true);
     expect(needsSeen(attentionOfRow(snap("topic:a", { unread: 1 })))).toBe(true);
-    expect(needsSeen(attentionOfRow(snap("topic:a", { state: "background", turnUnseen: true, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] })))).toBe(true);
+    expect(needsSeen(attentionOfRow(snap("topic:a", { state: "working", turnUnseen: true, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }] })))).toBe(true);
     expect(needsSeen(attentionOfRow(snap("topic:a", { state: "working" })))).toBe(false);
   });
 });

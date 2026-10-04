@@ -126,7 +126,7 @@ test.describe("a server the chat started", () => {
       await expect(row.getByTestId("running-service-name")).toHaveText("SRVCARD-SERVER");
       // No ring on its tab, no composer Stop.
       const tab = win.locator(`[role="tab"][data-pane-id="chat:${topic.id}"]`);
-      await expect(tab.locator('[data-loader-state="background"]')).toHaveCount(0);
+      await expect(tab.locator("[data-loader-state]")).toHaveCount(0);
       await expect(page.locator(STOP)).toHaveCount(0);
 
       // The chat's processes list what the chat shows.

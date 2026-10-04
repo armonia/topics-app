@@ -34,7 +34,7 @@ import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
-import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS } from "../lib/command-services";
+import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
 import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
 
 interface ScriptProcess {
@@ -111,6 +111,12 @@ interface ScriptProcess {
   };
   /** Only for `source: 'command'` (`run_command`). Persisted. */
   cmd?: CommandMeta;
+  /**
+   * A `run_script` an agent started from its session: the chat it belongs to.
+   * A dev server run this way is that chat's server, shown as one and never
+   * as work the chat waits for (BGVIS-08). Not persisted.
+   */
+  agentRun?: { sessionKey: string; topicId: string | null };
   /** Its wake was refused for good in this life of the server: owed to the next boot, not waited on now. Not persisted. */
   wakeFailed?: boolean;
   /** Set while the log is a FILE somebody else writes (a command, a shell of
@@ -698,8 +704,18 @@ function settlePersonRun(sp: ScriptProcess): void {
   if (_broadcastCtx && sp.status !== "running" && sp.cmd) closeRegistryRun(_broadcastCtx, { ...sp, stopped: !!sp.cmd.stopped });
 }
 /** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
+/**
+ * The rows that can be a chat's server: every `run_command`, and a `run_script`
+ * an agent started, read as a command that wakes nobody (it never does).
+ */
+function* serviceRows(rows: Iterable<ScriptProcess>): Generator<ServiceRowLike> {
+  for (const sp of rows) {
+    if (sp.cmd) yield sp;
+    else if (sp.agentRun) yield { ...sp, cmd: { ...sp.agentRun, wake: false } };
+  }
+}
 const commandServiceWatch = serviceWatch({
-  rows: () => runningScripts.values(),
+  rows: () => serviceRows(runningScripts.values()),
   listenersOf: async (pids) => listenersOf(pids, await getListeningPorts(SERVICE_WATCH_MIN_MS / 2), getDescendantPids),
   alive: isPidAlive,
   onChange: (row) => { if (_broadcastCtx && row.cmd) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, row.cmd); } },
@@ -707,7 +723,7 @@ const commandServiceWatch = serviceWatch({
 });
 export const commandBackgroundWork = commandWorkOver(() => (loadProcessRegistry(), runningScripts.values()), commandServiceWatch.listenOf); // the chat's background line (BGVIS-07)
 /** Every chat's servers, running or just ended: the `services` of `GET /api/topics/streaming`. */
-export const commandServices = () => (loadProcessRegistry(), servicesOver(runningScripts.values(), recentScripts, commandServiceWatch.listenOf, Date.now()));
+export const commandServices = () => (loadProcessRegistry(), servicesOver(serviceRows(runningScripts.values()), serviceRows(recentScripts), commandServiceWatch.listenOf, Date.now()));
 /** A chat's `run_command` processes, for `GET /api/processes`. */
 export const topicCommandProcesses = (topicId: string) => (loadProcessRegistry(), commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf));
 
@@ -1840,6 +1856,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       addToRecent(sp);
       saveState();
       broadcastScriptsUpdate(ctx);
+      // An agent's server ended: its chat says so now, not at the next poll.
+      if (sp.agentRun) pushBackgroundChanged(ctx, sp.agentRun);
     });
 
     return { processId, scriptName: rilevato.name, pid: proc.pid, startedAt: sp.startedAt };
@@ -2074,7 +2092,14 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
         const useTty = body?.tty !== false;
         try {
-          return json(startScriptProcess(projectPath, scriptName, useTty));
+          const started = startScriptProcess(projectPath, scriptName, useTty);
+          // The agent's chat owns it: a dev server shows there as a server.
+          const sp = runningScripts.get(started.processId);
+          if (sp) {
+            sp.agentRun = { sessionKey, topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null };
+            commandServiceWatch.kick();
+          }
+          return json(started);
         } catch (err: any) {
           return json({ error: `Failed to spawn: ${err.message}` }, 500);
         }
