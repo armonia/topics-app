@@ -9,7 +9,7 @@
  * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04, RGATE-07
  */
 import { test, expect, describe } from "bun:test";
-import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, turnSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
 
 describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)", () => {
   test("a chat holds: open, whatever the cards - refusing card turns buys the restart nothing", () => {
@@ -723,5 +723,28 @@ describe("cardTurnsHoldingReload: a delivery that is only WAITING holds nothing 
 
   test("a predicate that throws holds the restart: the doubt protects work in flight", () => {
     expect(verdict({ turns: [card], onlyWaiting: () => { throw new Error("gate rebuilt"); } })).toBe("rinvia");
+  });
+});
+
+// 03/10, topic:d740f8ae: a native chat turn held `restart-when-idle` for over
+// five hours. The boot resumes a chat (`lib/ripresa-boot.ts`), so its stream
+// is recoverable and the gate cuts it at the chat cap; a card is not.
+describe("turnSurvivesRestart", () => {
+  test("a native chat survives: the boot resumes it", () => {
+    expect(turnSurvivesRestart({ providerReattaches: false, boardCard: false })).toBe(true);
+  });
+  test("a native card does not: its fallback is the dispatcher", () => {
+    expect(turnSurvivesRestart({ providerReattaches: false, boardCard: true })).toBe(false);
+  });
+  test("a provider that reattaches survives either way", () => {
+    expect(turnSurvivesRestart({ providerReattaches: true, boardCard: true })).toBe(true);
+    expect(turnSurvivesRestart({ providerReattaches: true, boardCard: false })).toBe(true);
+  });
+  test("so the gate stops deferring for a native chat, and still does for a card", () => {
+    const streams = [
+      { sessionKey: "topic:chat", survivesRestart: turnSurvivesRestart({ providerReattaches: false, boardCard: false }) },
+      { sessionKey: "topic:card", survivesRestart: turnSurvivesRestart({ providerReattaches: false, boardCard: true }) },
+    ];
+    expect(unadoptableStreams(streams)).toEqual(["topic:card"]);
   });
 });

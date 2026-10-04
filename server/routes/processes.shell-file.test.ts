@@ -5,12 +5,18 @@
  *
  * @covers BGSHELL-05
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
 import { closeBackgroundShell, createProcessesRouter, listBackgroundShells, noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
+import { setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+
+// The registry writes its logs and `scripts.json` under the state folder: a
+// temporary one, or it falls on the working directory, the live one in the repo.
+const ROOT = testTmpDir("processes-shell-file");
+beforeAll(() => setupTestDataDir(join(ROOT, "data")));
 
 const DIR = realpathSync(mkdtempSync(join(tmpdir(), "topics-shell-file-")));
 afterAll(() => rmSync(DIR, { recursive: true, force: true }));

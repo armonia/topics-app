@@ -551,6 +551,35 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
   });
 });
 
+describe('ClaudeSessionTracker — transcript dichiarato inesistente (cwd spostata)', () => {
+  const line = JSON.stringify({ type: 'user', timestamp: new Date(T0).toISOString(), message: { role: 'user', content: 'hi' } }) + '\n';
+  it('SessionStart con un path che non esiste segue il file vero della sessione', () => {
+    // topic:d740f8ae: born in ~ (-Users-zorahrel), reopened from the project folder;
+    // the CLI declares the new folder and keeps appending to the old one.
+    const home = mkdtempSync(join(tmpdir(), 'tracker-moved-'));
+    const born = join(home, '.claude', 'projects', '-Users-x');
+    mkdirSync(born, { recursive: true });
+    const real = join(born, 'cli-9.jsonl');
+    writeFileSync(real, line);
+    const declared = join(home, '.claude', 'projects', '-Users-x-proj', 'cli-9.jsonl');
+    const db = freshDb();
+    seedSession(db, 'topic-moved', 'cli-9');
+    const trk = makeTracker(db, makeRecorder(), { homeDir: home });
+    trk.ingestHook({ hook_event_name: 'SessionStart', session_id: 'cli-9', transcript_path: declared }, T0 + 10);
+    expect(trk.getSession('cli-9')!.jsonlPath).toBe(real);
+    expect(trk.getSession('cli-9')!.jsonlOffset).toBe(line.length);
+  });
+  it('una sessione appena nata (file non ancora scritto, nessun altro) tiene il path dichiarato', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-new-'));
+    const declared = join(home, '.claude', 'projects', '-Users-x-proj', 'cli-10.jsonl');
+    const db = freshDb();
+    seedSession(db, 'topic-new', 'cli-10');
+    const trk = makeTracker(db, makeRecorder(), { homeDir: home });
+    trk.ingestHook({ hook_event_name: 'SessionStart', session_id: 'cli-10', transcript_path: declared }, T0 + 10);
+    expect(trk.getSession('cli-10')!.jsonlPath).toBe(declared);
+  });
+});
+
 describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   let db: Database;
   let rec: Recorder;

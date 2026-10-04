@@ -255,8 +255,8 @@ export interface StreamHandler {
    * `attempt` is the one that just failed, 1-based; `delayMs` how long it will
    * wait before the next. The turn is ALIVE during that wait: consumers reset
    * their silence watchdog and, ideally, tell the person why nothing moves.
-   * Only the native runtime emits this; the CLIs retry internally and stay
-   * silent about it.
+   * The native runtime emits it from its own loop, claude-code from the CLI's
+   * `system/api_retry` lines.
    */
   onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number; reason: string }) => void;
   /**

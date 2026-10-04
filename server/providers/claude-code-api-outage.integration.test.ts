@@ -90,7 +90,7 @@ beforeAll(async () => {
   const insert = getDatabase().prepare(
     `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
   );
-  for (const k of ["outage", "expired", "retrying", "answer"]) insert.run(`t-api-${k}`, `api-${k}`, `api-${k}`, `topic:api-${k}`, now, now);
+  for (const k of ["outage", "expired", "retrying", "answer", "retry-shown"]) insert.run(`t-api-${k}`, `api-${k}`, `api-${k}`, `topic:api-${k}`, now, now);
 });
 
 afterEach(async () => {
@@ -170,6 +170,24 @@ describe("a turn cut while the CLI was retrying the API", () => {
       expect(await waitFor(() => log.length > 0, slackMs(8_000))).toBe(true);
       expect(log).toEqual(["aborted:api-unavailable"]);
       expect(providerHold()?.window).toBe("api-down");
+    } finally {
+      provider.stop();
+    }
+  }, 30_000);
+
+  // 03/10, topic:d740f8ae: six minutes of CLI retries and only the hourglass
+  // in the chat; the second «are you there?» cancelled the silent turn.
+  test("the CLI's api_retry reaches the turn as onRetry, so the chat can say why it is still", async () => {
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    (provider as any).turnWatchdogMs = WINDOW_MS;
+    const { handler } = ends();
+    const retries: Array<{ attempt: number; maxAttempts: number; delayMs: number; reason: string }> = [];
+    (handler as any).onRetry = (info: (typeof retries)[number]) => retries.push(info);
+    try {
+      void provider.sendChat("topic:api-retry-shown", "outage", handler as never);
+      expect(await waitFor(() => retries.length > 0, slackMs(8_000))).toBe(true);
+      expect(retries[0]).toEqual({ attempt: 1, maxAttempts: 10, delayMs: 500, reason: "API unknown" });
     } finally {
       provider.stop();
     }

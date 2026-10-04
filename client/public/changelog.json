@@ -1,5 +1,86 @@
 [
   {
+    "version": "2.2.444",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Proponi changeset-chat-strip: il pannello unico nella striscia della chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi il test di CHGSET-01 a T4 e correggi i riferimenti revs nel design",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai seguire alla lingua auto la persona, non gli avvisi di Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri come finestra vera i popup con dimensioni, così il login Google arriva alla pagina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra in chat i retry dell'API che fa la CLI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accetta il dialogo di fiducia della cartella prima di seminare un sottoagente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segui il transcript vero quando SessionStart dichiara un path che non esiste",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai sopravvivere ai riavvii le chat sul motore interno, invece di rinviare il riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Carica il registro dei processi quando serve, non all'import del modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta in inglese i commenti nuovi dei sei fix e dichiara la copertura della ripresa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Parcheggia il piano dei nodi cloud: VPS come nodi di Topics per il lavoro pesante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Isola DATA_DIR in topics.streaming.test.ts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allinea shutdown-wiring al contratto nuovo: una chat senza reattach sopravvive al riavvio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.442",
     "date": "2026-10-04",
     "sections": {
