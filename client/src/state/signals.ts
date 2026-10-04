@@ -495,6 +495,22 @@ export function terminalLoadingFrom(
   return ptyBusy.has(sid);
 }
 
+/**
+ * A terminal AT WORK, as every rollup reads it (ATTN-12): loading, and not in
+ * `background` on the attention state. The phase partition counts `watching`
+ * (a closed turn waiting on its tasks) as active; the tier says it is the grey
+ * glyph, so the project, the menu of agents and the terminal's own tab agree.
+ */
+export function terminalWorkingFrom(
+  sid: string,
+  phaseActive: Set<string>,
+  ptyBusy: Set<string>,
+  phaseResting: Set<string> | undefined,
+  attention: AttentionRows,
+): boolean {
+  return terminalLoadingFrom(sid, phaseActive, ptyBusy, phaseResting) && attentionOf(attention, `terminal:${sid}`).tier !== 'background';
+}
+
 /** Minimal phase view the terminal-loading derivation needs. */
 export interface TerminalPhaseLite {
   phase: ClaudeSessionPhase;
@@ -646,6 +662,7 @@ function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
 export function useProjectLoading(projectPath: string | undefined): boolean {
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
+  const attention = useAttentionRows();
   const { live, hydrated, term, phaseActive, phaseResting } = useSignalsStore(
     useShallow((s) => ({
       live: s.liveStreamTopics,
@@ -669,10 +686,10 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
       // roll up.) Only claude-code / claude-code-team sessions count here.
       if (ts.type === 'shell') continue;
       if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-      if (terminalLoadingFrom(ts.id, phaseActive, term, phaseResting)) return true;
+      if (terminalWorkingFrom(ts.id, phaseActive, term, phaseResting, attention)) return true;
     }
     return false;
-  }, [projectPath, topics, terminalSessions, live, hydrated, term, phaseActive, phaseResting]);
+  }, [projectPath, topics, terminalSessions, live, hydrated, term, phaseActive, phaseResting, attention]);
 }
 
 /**
@@ -1013,7 +1030,7 @@ export function activeAgentRowsFrom(
     // worked without ever showing among the active agents.
     if (t.type === 'shell') continue;
     const row: ActiveAgentRow = { id: t.id, kind: 'terminal', label: t.name };
-    const loading = terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting);
+    const loading = terminalWorkingFrom(t.id, sig.active, sig.busy, sig.resting, sig.attention);
     if (loading) working.push(row);
     place(`terminal:${t.id}`, row, loading);
   }
