@@ -11,7 +11,7 @@
  *
  * Real spawns, short commands. The restart is a second process on the same
  * state folder (`tests/integration/helpers/process-registry-life.ts`): the
- * registry is module state and its boot is its import.
+ * registry is module state, loaded once per process.
  *
  * @covers BGVIS-07
  */

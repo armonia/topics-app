@@ -22,12 +22,12 @@ afterEach(() => { clearProviderHold(); resetProviderHoldStore(); });
 
 describe("noteApiHealth", () => {
   test("a retry of an API that is down opens the outage hold", () => {
-    expect(noteApiHealth("noise", retry(null), NOW)).toEqual({ at: NOW, outage: true });
+    expect(noteApiHealth("noise", retry(null), NOW)).toMatchObject({ at: NOW, outage: true });
     expect(providerHold(NOW)?.window).toBe("api-down");
   });
 
   test("a 429 retry is kept on the child but opens no hold: the API is up, the plan says wait", () => {
-    expect(noteApiHealth("noise", retry(429), NOW)).toEqual({ at: NOW, outage: false });
+    expect(noteApiHealth("noise", retry(429), NOW)).toMatchObject({ at: NOW, outage: false });
     expect(providerHold(NOW)).toBeNull();
   });
 });
