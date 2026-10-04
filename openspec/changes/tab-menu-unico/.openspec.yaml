@@ -1,5 +1,8 @@
 schema: spec-driven
 created: 2026-10-04
 name: tab-menu-unico
-status: draft
+status: approved
 richiesta: "dovremmo uniformare il tasto destro delle tab dei browser all'apertura, invece del dropdown, facendo un'unica cosa. Magari, in questo caso, che sia più utilizzabile anche in termini di dropdown, utilizzando multilivello. Questo argomento è poco utilizzabile, ma soprattutto facendo una cosa speciale per la tab, ovvero praticamente espandere direttamente la tab dalla tab bar e non creare un nuovo dropdown"
+approvato: 2026-10-04 19:05
+risposta: "ok"
+nota: "preceduto da «km», lo stesso ok battuto una riga piu' in basso; vale per le 5 scelte consigliate del blocco Da decidere"
