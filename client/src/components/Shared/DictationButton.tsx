@@ -66,7 +66,7 @@ export function DictationButton({
       aria-label={tr(dictation.isListening ? 'board.composer.dictationStop' : 'board.composer.dictate')}
       // `touch-none` toglie il gesto al browser: senza, tenere premuto su un
       // telefono fa partire lo scroll e il gesto muore a metà.
-      className={`shrink-0 touch-none select-none rounded-lg p-1.5 transition-colors disabled:opacity-40 ${
+      className={`shrink-0 touch-none select-none rounded-lg p-1.5 transition-colors disabled:opacity-40 coarse:p-3.5 ${
         dictation.isListening
           ? 'bg-red-500 text-white animate-pulse'
           : talk.pressing

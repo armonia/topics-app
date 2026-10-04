@@ -246,7 +246,7 @@ export function TopicsMenuItems({
               ? <Globe2 size={glyph} className="flex-shrink-0" />
               : <RotateCcw size={glyph} className="flex-shrink-0" />}
             <span className="min-w-0 flex-1 truncate text-left">{entry.label || entry.detail || entry.url}</span>
-            <span className="flex-shrink-0 text-micro text-app-text-tertiary tabular-nums">{formatRowAge(entry.at)}</span>
+            <span className="flex-shrink-0 text-mini text-app-text-tertiary tabular-nums">{formatRowAge(entry.at)}</span>
           </button>
         ))}
         <div className="border-t border-app-border" />

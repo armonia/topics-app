@@ -87,7 +87,7 @@ export function GlobalCapControl() {
 
   return (
     <div className="space-y-1" data-testid="global-cap-control">
-      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.dispatch.parallel')}
       </p>
 
@@ -155,11 +155,11 @@ function ChecksFloorField() {
   // is set once, rarely, by whoever knows what a check costs.
   return (
     <details className="group space-y-1 pt-1.5" data-testid="checks-floor-control">
-      <summary className="flex cursor-pointer list-none items-center gap-1 text-micro font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary">
+      <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary coarse:min-h-11">
         <ChevronRight size={10} className="transition-transform group-open:rotate-90" aria-hidden="true" />
         {tr('board.checksFloor.fold')}
       </summary>
-      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.checksFloor.title')}
       </p>
       <label className="flex items-center justify-between gap-3">
@@ -231,7 +231,7 @@ function HowItWorks({ children }: { children: ReactNode }) {
   const tr = useT();
   return (
     <details className="group" data-testid="global-cap-details">
-      <summary className="flex cursor-pointer list-none items-center gap-1 text-mini text-app-text-muted hover:text-app-text-secondary">
+      <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1 text-mini text-app-text-muted hover:text-app-text-secondary coarse:min-h-11">
         <ChevronRight size={10} className="transition-transform group-open:rotate-90" aria-hidden="true" />
         {tr('board.dispatch.howItWorks')}
       </summary>

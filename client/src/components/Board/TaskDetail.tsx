@@ -63,7 +63,7 @@ import { taskSessionSegments } from './taskSessionPresentation';
 import { taskSessionRuns, type TaskSessionRunItem } from './taskSessionRuns';
 import { TaskWorkAccordion } from '../Chat/TaskWorkAccordion';
 import { TaskWorkFoldContext } from '../Chat/taskWorkFoldContext';
-import { COMPOSER_CARD, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
+import { COMPOSER_CARD, COMPOSER_ICON_BUTTON, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
 import type { ChatMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 
@@ -344,7 +344,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
                     : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
-                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-micro leading-snug text-app-text-heading">
+                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-mini leading-snug text-app-text-heading">
                   {r.spawnError ?? r.tail}
                 </pre>
               )}
@@ -538,10 +538,10 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
         </span>
         {from && (
-          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-nano text-app-text-faint">{from}</span>
+          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-mini text-app-text-faint">{from}</span>
         )}
         {notes.length > 0 && (
-          <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-nano text-indigo-300">
+          <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-mini text-indigo-300">
             {tr('board.task.changes.pending', { n: notes.length })}
           </span>
         )}
@@ -648,7 +648,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
       <div className="flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.task.attempts')} <span className="normal-case tracking-normal text-app-text-faint">· {tr('board.task.attempts.parallel', { n: attempts.length })}</span>
         {running > 0 && (
-          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-nano normal-case tracking-normal text-amber-300">
+          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-mini normal-case tracking-normal text-amber-300">
             <Spinner size="xs" tone="current" /> {tr('board.task.attempts.running', { n: running })}
           </span>
         )}
@@ -674,10 +674,10 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
             >
               <div className="flex items-center gap-1.5 text-mini">
                 <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
-                {won && <span className="rounded bg-emerald-500/25 px-1 text-nano text-emerald-200">{tr('board.task.attempt.selected')}</span>}
-                {dead && <span className="rounded bg-white/10 px-1 text-nano text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                {won && <span className="rounded bg-emerald-500/25 px-1 text-mini text-emerald-200">{tr('board.task.attempt.selected')}</span>}
+                {dead && <span className="rounded bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
                 <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
-                {a.branch && <span className="truncate font-mono text-micro text-app-text-faint">{a.branch}</span>}
+                {a.branch && <span className="truncate font-mono text-mini text-app-text-faint">{a.branch}</span>}
               </div>
               {a.summary && (
                 <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-mini leading-snug text-app-text-heading">{a.summary}</p>
@@ -1891,7 +1891,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               <p
                 data-testid={commentChipTestId(chip)}
                 role={receipt ? 'status' : undefined}
-                className="pr-1 text-right text-micro text-app-text-faint"
+                className="pr-1 text-right text-mini text-app-text-faint"
               >{tr(chip === 'note' ? 'board.task.noteSaved' : chip === 'saved' ? 'board.task.commentSaved'
                 : chip === 'delivered' || chip === 'answered' ? 'board.task.delivered' : 'board.task.queuedForTurn')}</p>
             )}
@@ -1939,7 +1939,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
         {details}
         {task.previewImage && !previewInThread && (
           <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact leading-4 text-app-text-secondary hover:bg-white/5">
+            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact leading-4 text-app-text-secondary hover:bg-white/5 coarse:min-h-11">
             <Paperclip className="h-3.5 w-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{task.previewImage.split('/').pop()}</span>
             <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
@@ -1965,7 +1965,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             excluded from the list below, so it is painted once. */}
         {task.status === 'done' && deliveryWord && (
           <div data-testid="task-delivery-band" className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 pb-1 pt-1.5">
-            <div className="mb-1 text-micro font-medium uppercase tracking-wide text-emerald-300">{tr('board.task.deliveryBand')}</div>
+            <div className="mb-1 text-mini font-medium uppercase tracking-wide text-emerald-300">{tr('board.task.deliveryBand')}</div>
             <CommentBubble
               comment={deliveryWord}
               ownerName={ownerName}
@@ -2072,7 +2072,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               onClick={openProjMenu}
               data-testid="task-project-chip"
               title={tr('board.task.projectChipTitle', { label: projectLabel })}
-              className="flex min-w-0 flex-1 items-center gap-1 text-mini text-app-text-secondary hover:text-app-text"
+              className="tap-expand-y flex min-w-0 flex-1 items-center gap-1 text-mini text-app-text-secondary hover:text-app-text"
             >
               <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
               <span className="min-w-0 truncate font-medium">{projectLabel}</span>
@@ -2113,7 +2113,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             onCreate={doCreateProject}
             busy={projBusy}
             listLabel={tr('board.task.moveProjectTo')}
-            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-micro leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
           />
           <div className={POPOVER_DIVIDER} />
           <button
@@ -2165,7 +2165,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               </div>
             )}
             <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
               <button
                 role="option" aria-selected={!task.blockedByTaskId}
                 onClick={() => pickBlocker(null)}
@@ -2222,7 +2222,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
             </button>
             <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
               {PRIORITY_ORDER.map((p) => (
                 <button
                   key={p} role="option" aria-selected={p === task?.priority}
@@ -2258,7 +2258,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
               {CLOSER_LABELS.map((l) => (
                 <button
                   key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
@@ -2269,7 +2269,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                   {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               ))}
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
               {KIND_LABELS.map((l) => (
                 <button
                   key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
@@ -2334,7 +2334,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={nodeMenuOpen} anchorRef={nodeBtnRef} onClose={() => setNodeMenuOpen(false)} minWidth={220} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.node.heading')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.node.heading')}</p>
               <button
                 role="option" aria-selected={!task.machineId} disabled={busy}
                 onClick={() => changeNode(null)}
@@ -2355,7 +2355,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                     aria-hidden="true"
                   />
                   <span className="min-w-0 flex-1 truncate">{m.name}</span>
-                  <span className="shrink-0 text-micro text-app-text-muted">
+                  <span className="shrink-0 text-mini text-app-text-muted">
                     {m.status === 'online' ? tr('board.task.node.online') : tr('board.task.node.offline')}
                   </span>
                   {m.id === task.machineId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
@@ -2658,7 +2658,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                     >
                       <Globe className="h-3 w-3 shrink-0" />
                       <span className="max-w-[10rem] truncate">{label}</span>
-                      <span className="text-nano uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
+                      <span className="text-mini uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
                     </button>
                     {/* The ONLY call site of `removeTab`, and it was hover-only:
                         with a finger the tray of closed tabs could only get
@@ -2724,7 +2724,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
           onClick={() => task && setStatusMenuOpen(true)}
           data-testid="task-status-chip"
           title={tr('board.task.changeStatusTitle')}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact leading-4 text-app-text-heading hover:bg-white/10"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact leading-4 text-app-text-heading hover:bg-white/10 coarse:min-h-11"
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
@@ -2740,7 +2740,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             la copia vive dentro il pannello di condivisione. */}
         {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={() => buildTaskLink(task.id, task.text)} />}
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
-          <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
+          <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
             <button
               key={s} role="option" aria-selected={s === task?.status}
@@ -2762,12 +2762,12 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               onClick={() => setOptionsMenuOpen((o) => !o)}
               data-testid="task-options-menu"
               title={tr('board.task.optionsTitle')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"
             ><MoreHorizontal className="h-4 w-4" /></button>
           )}
           {task && (
             <Menu open={optionsMenuOpen} anchorRef={optionsBtnRef} onClose={() => setOptionsMenuOpen(false)} align="right" minWidth={240}>
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.options')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.options')}</p>
               <button
                 role="menuitem" disabled={busy} onClick={togglePlanFirst}
                 title={tr('task.planFirst')}
@@ -2847,7 +2847,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                 >
                   <Globe className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
                   <span className="min-w-0 flex-1">{tr('board.task.openInProject')}</span>
-                  <span className="shrink-0 text-micro text-app-text-faint">{workspaceManifest.length}</span>
+                  <span className="shrink-0 text-mini text-app-text-faint">{workspaceManifest.length}</span>
                 </button>
               )}
             </Menu>
@@ -2863,7 +2863,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               data-testid="task-open-session-tab"
               title={tr('board.task.openSessionTitle')}
               aria-label={tr('board.task.openSession')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"
             ><MessageSquare className="h-4 w-4" /></button>
           )}
           {shouldExplainMissingSession(sessionState) && (
@@ -2883,7 +2883,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             title={wide ? tr('task.drawer.narrow') : tr('task.drawer.widen')}
             className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
+          <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"><X className="h-4 w-4" /></button>
         </div>
       </div>
       {/* L'errore NON sta qui: vive in fondo, nella zona di decisione, appiccicato
@@ -2985,7 +2985,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-app-border px-3 py-1.5">
         <button type="button" data-testid="task-conversation-toggle" aria-pressed={(!workspaceOpen || twoCol) && !detailsOpen && !deliveryOpen}
           onClick={() => { setWorkspaceOpen(false); setDetailsOpen(false); setDeliveryOpen(false); }}
-          className={`rounded px-2 py-1 text-compact leading-4 ${!workspaceOpen && !detailsOpen && !deliveryOpen ? 'bg-app-hover text-app-text' : 'text-app-text-secondary hover:text-app-text'}`}>
+          className={`rounded px-2 py-1 text-compact leading-4 coarse:min-h-11 ${!workspaceOpen && !detailsOpen && !deliveryOpen ? 'bg-app-hover text-app-text' : 'text-app-text-secondary hover:text-app-text'}`}>
           {tr('board.task.threadLabel')}
         </button>
         <button type="button" data-testid="task-details-toggle" aria-expanded={detailsOpen}
@@ -2996,7 +2996,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             setWorkspaceOpen(false);
             stickRef.current = false;
           }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-white/5 hover:text-app-text">
+          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-white/5 hover:text-app-text coarse:min-h-11">
           {detailsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {tr('board.task.detailsLabel')}
         </button>
@@ -3008,19 +3008,19 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
             setWorkspaceOpen(false);
             stickRef.current = false;
           }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-secondary hover:bg-app-hover hover:text-app-text">
+          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-secondary hover:bg-app-hover hover:text-app-text coarse:min-h-11">
           {deliveryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {tr('board.task.deliveryBand')}
         </button>
         <button type="button" data-testid="task-workspace-toggle" data-open={workspaceOpen ? '1' : '0'} aria-expanded={workspaceOpen}
           onClick={toggleWorkspaceOpen}
-          className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-white/5 hover:text-app-text">
+          className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-white/5 hover:text-app-text coarse:min-h-11">
           <span className="truncate">{tr('board.task.workspaceLabel')}</span>
           {hasWorkspacePanes && <span>{workspacePaneCount}</span>}
         </button>
         <button type="button" onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
           data-testid="task-workspace-add-tab" title={tr('board.task.openTab')} aria-label={tr('board.task.openTab')}
-          className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10"><Plus className="h-3.5 w-3.5" /></button>
+          className="tap-expand shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10"><Plus className="h-3.5 w-3.5" /></button>
       </div>
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
         <div className={`relative flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>
@@ -3131,7 +3131,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                 onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }} />
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
                 title={tr('board.task.attachFileTitle')} aria-label={tr('board.task.attachFileTitle')}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-app-text-secondary hover:bg-app-hover disabled:opacity-40">
+                className={`flex ${COMPOSER_ICON_BUTTON} shrink-0 items-center justify-center rounded-lg text-app-text-secondary hover:bg-app-hover disabled:opacity-40`}>
                 {uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}
               </button>
               <textarea
@@ -3167,7 +3167,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
                 disabled={busy || sending || uploading || (!agentBusy && !draft.trim() && !attachments.length)}
                 title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
                 aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
+                className={`flex ${COMPOSER_ICON_BUTTON} shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
                   draft.trim() || attachments.length ? 'bg-primary text-white hover:bg-primary-hover'
                     : agentBusy ? 'bg-app-text/15 text-app-text hover:bg-app-text/25'
                       : 'bg-transparent text-app-placeholder'
@@ -3292,7 +3292,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             data-testid={`subtask-work-${node.id}`}
             data-kind="unattended"
             title={work.title}
-            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-micro text-rose-300"
+            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
           ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
         ) : (
           <span
@@ -3302,7 +3302,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             className="flex shrink-0 text-app-text-muted"
           ><UserRound className="h-2.5 w-2.5" /></span>
         ))}
-        {hasKids && <span className="shrink-0 text-micro text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+        {hasKids && <span className="shrink-0 text-mini text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
@@ -3584,7 +3584,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   if (comment.kind === 'review-note') {
     return (
       <div className="pr-8">
-        <p className="flex items-center gap-1 text-micro font-medium uppercase tracking-wide text-emerald-400/80">
+        <p className="flex items-center gap-1 text-mini font-medium uppercase tracking-wide text-emerald-400/80">
           <Camera size={11} /> {tr('board.task.reviewPreview')}
           {origin && <span className="normal-case tracking-normal text-app-text-faint">{origin}</span>}
           <span className="ml-auto normal-case tracking-normal text-app-text-faint">{commentTime(comment.createdAt)}</span>
@@ -3635,7 +3635,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
     // su un thread che mescola quattro voci è la differenza che serve per prima.
     return (
       <div className="pr-8">
-        {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-micro" title={who.detail}>
+        {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-mini" title={who.detail}>
           <span className={`font-medium uppercase tracking-wide ${app ? 'text-app-text-faint' : 'text-app-text-secondary'}`}>{who.name}</span>
           {origin && <span className="text-app-text-faint">{origin}</span>}
           <span className="ml-auto text-app-text-faint">{commentTime(comment.createdAt)}</span>
@@ -3657,7 +3657,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-body-lg leading-5 text-app-text">
         <CommentBody content={comment.content} />
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-right text-nano text-app-text-muted" title={who.detail}>
+        <p className="mt-0.5 text-right text-mini text-app-text-muted" title={who.detail}>
           {who.name}{origin ? ` · ${origin}` : ''} · {commentTime(comment.createdAt)}
         </p>
       </div>

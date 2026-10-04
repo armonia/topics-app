@@ -83,12 +83,12 @@ export function AskUserCard({ questions, result }: {
     <div className="space-y-1.5">
       {questions.map((q, i) => (
         <div key={i} className="space-y-1">
-          {q.header && <div className="text-micro uppercase tracking-wide text-app-text-muted">{q.header}</div>}
+          {q.header && <div className="text-mini uppercase tracking-wide text-app-text-muted">{q.header}</div>}
           <div className="text-mini text-app-text">{q.question}</div>
           {q.options && q.options.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {q.options.map((o, j) => (
-                <span key={j} className="rounded border border-app-border px-1.5 py-0.5 text-micro text-app-text-secondary">{o}</span>
+                <span key={j} className="rounded border border-app-border px-1.5 py-0.5 text-mini text-app-text-secondary">{o}</span>
               ))}
             </div>
           )}

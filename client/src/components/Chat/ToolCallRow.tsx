@@ -61,7 +61,7 @@ export function ElapsedTimer({ since, tone, title }: { since: number; tone?: str
   if (ms < 900) return null;
   return (
     <span
-      className={`text-micro tabular-nums ${tone ?? 'text-app-text-muted'}`}
+      className={`text-mini tabular-nums ${tone ?? 'text-app-text-muted'}`}
       data-testid="tool-elapsed"
       title={title}
     >
@@ -460,7 +460,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <ElapsedTimer since={toolCall.startedAt} />
           )}
           {!isRunning && !isHumanTurn && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
-            <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
+            <span className={`text-mini tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
             </span>
           )}
@@ -468,7 +468,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               decisa, non il totale del turno. Prezzo se il modello è noto,
               altrimenti i token. Assente sui messaggi vecchi. */}
           {costLabel && (
-            <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
+            <span className={`text-mini tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
               {costLabel}
             </span>
           )}
@@ -529,7 +529,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           onPointerDown={onPointerDown}
           aria-expanded={effectiveOpen}
           aria-busy={revealing || undefined}
-          className="group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+          className="group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors coarse:min-h-11"
         >
           {headerInner}
         </button>

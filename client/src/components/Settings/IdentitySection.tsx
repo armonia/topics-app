@@ -484,7 +484,7 @@ export function IdentitySection({ onOrgChange }: {
                     onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                   />
                 ) : (
-                  <div className="flex size-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-nano font-bold text-indigo-400">
+                  <div className="flex size-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-mini font-bold text-indigo-400">
                     {gruppo.name.slice(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -754,7 +754,7 @@ export function IdentitySection({ onOrgChange }: {
         </p>
       )}
 
-      <p className="text-micro leading-snug text-app-text-muted">
+      <p className="text-mini leading-snug text-app-text-muted">
         {t('identity.footnote')}
       </p>
     </div>

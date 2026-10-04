@@ -80,7 +80,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           partire niente — e il `title` lo dice, perche' una leva che a volte
           non fa niente deve spiegare quando. */}
       <label
-        className="flex cursor-pointer items-center justify-between gap-3"
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
         title={tr('board.settings.pausedTitle')}
       >
         <span className="flex items-center gap-1.5">
@@ -168,14 +168,14 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         />
       </div>
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
+      <label className="flex min-h-6 cursor-pointer items-center justify-between coarse:min-h-11" title={tr('board.settings.fullMcpTitle')}>
         <span>{tr('board.settings.fullMcp')}</span>
         <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
       </SettingsSection>
 
       <SettingsSection label={tr('board.settings.sec.where')}>
-      <label className="flex cursor-pointer items-center justify-between">
+      <label className="flex min-h-6 cursor-pointer items-center justify-between coarse:min-h-11">
         <span>{tr('board.settings.isolateWorktree')}</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
@@ -241,7 +241,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           l'altro cosa deve passare prima che entri in review. Erano separati da
           una riga sulla MCP, che è di un altro discorso. */}
       <SettingsSection label={tr('board.settings.sec.delivery')}>
-        <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
+        <label className="flex min-h-6 cursor-pointer items-center justify-between coarse:min-h-11" title={tr('board.settings.autoMergeTitle')}>
           <span>{tr('board.settings.autoMerge')}</span>
           <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
         </label>
@@ -294,7 +294,7 @@ function DeployCommandField({ value, suggestion, onSave }: {
         className="w-full rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
       {!value && suggestion && (
-        <p className="text-micro text-app-text-muted">
+        <p className="text-mini text-app-text-muted">
           {tr('board.settings.deployCommandSuggestion', { cmd: suggestion })}{' '}
           <button
             type="button"
@@ -326,7 +326,7 @@ function DeployCommandField({ value, suggestion, onSave }: {
 function SettingsSection({ label, first, children }: { label: string; first?: boolean; children: React.ReactNode }) {
   return (
     <div className={first ? 'space-y-2' : 'space-y-2 border-t border-app-border-subtle pt-2'}>
-      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
+      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
       {children}
     </div>
   );
@@ -370,7 +370,7 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         <span>{tr('board.settings.checks')} <span className="text-app-text-muted">{tr('board.settings.oneCmdPerLine')}</span></span>
         {/* The cap comes from `shared/board.ts`: written here by hand it said 5
             while the server enforced 6, so a board with six checks showed 6/5. */}
-        {checks.length > 0 && <span className="text-micro text-app-text-muted">{checks.length}/{MAX_CHECKS}</span>}
+        {checks.length > 0 && <span className="text-mini text-app-text-muted">{checks.length}/{MAX_CHECKS}</span>}
       </label>
       <textarea
         value={text}
@@ -382,7 +382,7 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         placeholder={'bun run typecheck\nbun test'}
         className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
-      {dirty && <p className="text-micro text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
+      {dirty && <p className="text-mini text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
     </div>
   );
 }

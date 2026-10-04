@@ -71,6 +71,9 @@ export function Segmented<T extends string>({
       {options.map((o, i) => {
         const checked = i === index;
         const Icon = o.icon;
+        // `min-h-6`: a segment is at least 24 tall with the mouse (WCAG
+        // 2.5.8). Text segments were 21, icon segments 17 (usability audit,
+        // 04/10); under a finger `coarse:min-h-11` already took them to 44.
         return (
           <button
             key={o.value}
@@ -84,7 +87,7 @@ export function Segmented<T extends string>({
             disabled={disabled}
             data-testid={testId ? `${testId}-${o.value}` : undefined}
             onClick={() => { if (!checked) onChange(o.value); }}
-            className={`relative z-10 flex min-w-0 items-center justify-center gap-1 rounded px-2 py-0.5 text-mini coarse:min-h-11 coarse:text-compact focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+            className={`relative z-10 flex min-h-6 min-w-0 items-center justify-center gap-1 rounded px-2 py-0.5 text-mini coarse:min-h-11 coarse:min-w-11 coarse:text-compact focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
               checked ? 'text-app-text' : 'text-app-text-secondary hover:text-app-text'
             }`}
           >

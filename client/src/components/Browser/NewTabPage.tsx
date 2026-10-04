@@ -92,7 +92,7 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
 
           {sites.length > 0 ? (
             <div className="mt-8" data-testid="browser-new-tab-sites">
-              <p className="text-micro font-semibold uppercase tracking-wider text-app-text-faint mb-2 px-1">
+              <p className="text-mini font-semibold uppercase tracking-wider text-app-text-faint mb-2 px-1">
                 {tr('browser.newTab.topSites')}
               </p>
               <div className="grid grid-cols-4 gap-1.5">

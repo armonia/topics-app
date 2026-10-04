@@ -12,7 +12,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseScale, badSteps, findOffScale, type Step, collidingSteps } from "./check-typography";
+import { parseScale, badSteps, findOffScale, type Step, collidingSteps, RESERVED_UNDER_FLOOR } from "./check-typography";
 
 const SCALE: Step[] = [
   { name: "nano", value: "9px" },
@@ -54,6 +54,25 @@ describe("check:typography", () => {
     const bad = badSteps([{ name: "half", value: "10.5px" }, { name: "tiny", value: "7px" }, { name: "ok", value: "11px" }]);
     expect(bad).toHaveLength(2);
     expect(bad[0]!.why).toContain("half a pixel");
+  });
+
+  test("a step under the 11px floor is red, unless it is reserved", () => {
+    expect(badSteps([{ name: "small", value: "10px" }])).toHaveLength(1);
+    expect(badSteps([{ name: "nano", value: "9px" }])).toHaveLength(0);
+  });
+
+  test("the retired micro step is a dead class", () => {
+    const hits = findOffScale('<p className="text-micro">x</p>', "f.tsx", SCALE);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.why).toContain("generates nothing");
+  });
+
+  test("the reserved nano step is red outside the files that own a fixed box", () => {
+    const outside = findOffScale('<span className="text-nano">3</span>', "client/src/components/Board/Card.tsx", SCALE);
+    expect(outside).toHaveLength(1);
+    expect(outside[0]!.why).toContain("RESERVED_UNDER_FLOOR");
+    const owner = RESERVED_UNDER_FLOOR.nano![0]!;
+    expect(findOffScale('<span className="text-nano">99+</span>', owner, SCALE)).toHaveLength(0);
   });
 
   test("a step that is not a length at all is red", () => {

@@ -88,7 +88,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
         onClick={(e) => { disclose(e.currentTarget); setOpen((v) => !v); }}
         title={tr('chat.taskWork.summaryTitle')}
         data-testid="task-work-summary"
-        className="min-w-0 flex-1 px-2 py-1 text-left text-app-text-secondary transition-colors hover:text-app-text"
+        className="min-w-0 flex-1 px-2 py-1 text-left text-app-text-secondary transition-colors hover:text-app-text coarse:min-h-11"
       >
         <span className="flex items-center gap-2">
           <span className="flex-shrink-0 inline-flex">
@@ -134,7 +134,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
           {!label && summary.durationMs !== undefined && (
             <span
               data-testid="task-work-duration"
-              className="flex-shrink-0 tabular-nums text-micro text-app-text-muted"
+              className="flex-shrink-0 tabular-nums text-mini text-app-text-muted"
             >
               {formatDurationMs(summary.durationMs)}
             </span>

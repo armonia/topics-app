@@ -149,7 +149,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
         <span className="text-mini font-medium text-app-text-tertiary uppercase tracking-wider">
           {hunks.length} blocchi
         </span>
-        <span className="text-micro text-app-text-muted">
+        <span className="text-mini text-app-text-muted">
           {side === 'unstaged' ? 'fuori dall’indice' : 'nell’indice'}
         </span>
         {inCorso !== null && <Spinner size="xs" />}
@@ -164,13 +164,13 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
             data-testid="hunk-row"
             className="flex items-center gap-1.5 px-3 py-[3px] group/hunk hover:bg-app-hover transition-colors"
           >
-            <span className="text-micro font-mono text-app-text-muted flex-shrink-0 tabular-nums">
+            <span className="text-mini font-mono text-app-text-muted flex-shrink-0 tabular-nums">
               :{h.oldStart}
             </span>
             <span className="truncate text-mini text-app-text-body min-w-0" title={h.context}>
               {h.context || '-'}
             </span>
-            <span className="ml-auto text-micro tabular-nums flex-shrink-0 leading-none">
+            <span className="ml-auto text-mini tabular-nums flex-shrink-0 leading-none">
               {h.added > 0 && <span className="text-green-500">+{h.added}</span>}
               {h.added > 0 && h.removed > 0 && ' '}
               {h.removed > 0 && <span className="text-red-500">-{h.removed}</span>}
