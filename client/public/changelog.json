@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.441",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Tieni dentro la finestra i pannelli di Menu che non stanno da nessuna parte, e misura AC-08 sul pannello vero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.440",
     "date": "2026-10-04",
     "sections": {
@@ -29,6 +45,16 @@
         },
         {
           "it": "Spunta 5.5 e scrivi in design.md gli scostamenti trovati dalla CI della PR",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Correggi i quattro difetti della verifica del selettore del modello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prendi ProviderStatus dai tipi condivisi invece di ridichiararlo nel modello dei provider",
           "en": "",
           "scope": null
         }
@@ -89,6 +115,11 @@
           "scope": null
         },
         {
+          "it": "Rivedi il design dei pannelli del modello: un asse solo, l'azienda, a ogni livello",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fai dire «sta per riprendere» al risveglio in coda, sulla riga del background e sul glifo",
           "en": "",
           "scope": null
@@ -110,6 +141,11 @@
         },
         {
           "it": "Annota i rossi del PC che esistono già sul merge-base",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Raggruppa il selettore del modello per azienda, senza «Altri»",
           "en": "",
           "scope": null
         },
@@ -239,6 +275,11 @@
           "scope": null
         },
         {
+          "it": "Apri «Provider e chiavi» dentro il selettore del modello, una scheda per provider",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Rileggi al riavvio il comando ancora dovuto e il piano da approvare, invece di chiuderli",
           "en": "",
           "scope": null
@@ -285,6 +326,16 @@
         },
         {
           "it": "Rigenera il manifest delle migration dopo l'unione di main, in ordine di versione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Copri con le e2e i criteri della revisione del selettore e correggi ciò che hanno trovato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni fermo il selettore mentre si cerca e tornando da «Provider e chiavi»",
           "en": "",
           "scope": null
         }

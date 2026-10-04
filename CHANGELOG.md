@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.441 — 2026-10-04
+
+### Sotto il cofano
+- Tieni dentro la finestra i pannelli di Menu che non stanno da nessuna parte, e misura AC-08 sul pannello vero
+
 ## 2.2.440 — 2026-10-04
 
 ### Sotto il cofano
@@ -10,6 +15,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Riscrivi seen-on-any-focus sul server vero: turni dalla rotta della chat e dagli hook, visto dal frame focus
 - Adatta alle righe per stato acceso le spec che contavano sulle chat seminate con non-letti, e metti in scena il tier background della cartella
 - Spunta 5.5 e scrivi in design.md gli scostamenti trovati dalla CI della PR
+- Correggi i quattro difetti della verifica del selettore del modello
+- Prendi ProviderStatus dai tipi condivisi invece di ridichiararlo nel modello dei provider
 
 ## 2.2.439 — 2026-10-04
 
@@ -23,11 +30,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Correggi quattro difetti visti dagli e2e delle notifiche: glifo grigio del terminale in attesa, fuoco della inbox, colonna dei tempi, «Attende: other»
 - Scrivi gli e2e dello stato di attenzione sul server di test vero (5.1-5.4, 5.6)
 - Riscrivi sul contratto nuovo gli e2e che iniettavano i segni delle notifiche (5.5, prima parte)
+- Rivedi il design dei pannelli del modello: un asse solo, l'azienda, a ogni livello
 - Fai dire «sta per riprendere» al risveglio in coda, sulla riga del background e sul glifo
 - Riscrivi sul contratto nuovo il resto degli e2e delle notifiche (5.5, seconda parte) e aggiungi le schermate alle spec nuove
 - Spunta la sezione 5 di notifications-redesign, scrivi gli scostamenti degli e2e e aggiungi le prove visive
 - Porta in inglese nomi e commenti nuovi delle spec di attenzione e fissa il debito sceso
 - Annota i rossi del PC che esistono già sul merge-base
+- Raggruppa il selettore del modello per azienda, senza «Altri»
 - Chiudi le tornate 2, 3 e 5 di mac-usabile-sotto-carico coi dati del 04/10
 - Fai mordere i test del browser nativo: generici annidati, B che risponde prima, adozione e chiusura in volo
 - Spunta in openspec il lavoro gia' su main: finestra del browser della topic, arbitro del viewport, profili dei sottoagenti, quota delle opzioni consigliate
@@ -53,6 +62,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Rendi browser_linux::raise un no-op e dichiara il buco webkitgtk con la misura
 - Fai scadere il wake in coda quando un turno finisce senza aprirlo, e rileggi lo stato a quell'istante
 - Tieni spento il topic di un agente di board anche nei turni che la board non ha mandato
+- Apri «Provider e chiavi» dentro il selettore del modello, una scheda per provider
 - Rileggi al riavvio il comando ancora dovuto e il piano da approvare, invece di chiuderli
 - Conta nel Dock, nella tray e nella inbox solo i terminali che stanno nel roster
 - Di' al server che la finestra è davanti alla persona solo quando ha davvero il fuoco
@@ -63,6 +73,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Archivia la change single-changeset-diff-panel
 - Tieni l'hook Topics nel matcher jolly e non toccare i matcher altrui
 - Rigenera il manifest delle migration dopo l'unione di main, in ordine di versione
+- Copri con le e2e i criteri della revisione del selettore e correggi ciò che hanno trovato
+- Tieni fermo il selettore mentre si cerca e tornando da «Provider e chiavi»
 
 ## 2.2.438 — 2026-10-03
 
