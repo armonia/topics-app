@@ -137,11 +137,18 @@ export function postTerminalResize(sessionId: string, cols: number, rows: number
  * the caller has already removed the tab locally and has nothing to say about
  * a failure, which is why this returns nothing like the resize does.
  *
- * NOT used by the pane-unload path (`usePaneLifecycle`), which needs
- * `keepalive: true` because the document is going away: there is no later tick
- * to retry on there, so that one stays a single fire-and-forget DELETE.
+ * Every attempt carries `keepalive`, because this DELETE can be the last thing
+ * the page sends: the sidebar's `close-terminal` countdown is committed by the
+ * exit handler (`lib/pageExitFlush`) when the page goes away inside it, and a
+ * plain fetch issued during the unload may be cancelled with the document,
+ * leaving the PTY up. A DELETE has no body, so the keepalive quota costs
+ * nothing, and outside an unload the flag changes nothing.
+ *
+ * The cleanup of a closed project tab still sends its own single keepalive
+ * DELETE when the page goes away (`closedTerminalCleanup`): there is no later
+ * tick to retry on, and it keeps the tombstone in case that request is lost.
  */
 export function deleteTerminalSession(sessionId: string): void {
-  void fetchWhileRosterWarms(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+  void fetchWhileRosterWarms(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true })
     .catch(() => { /* unreachable: the 1h dormant sweep is the backstop */ });
 }
