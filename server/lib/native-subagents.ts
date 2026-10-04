@@ -161,6 +161,9 @@ export function spawnNativeChild(s: NativeSpawn): { sessionKey: string; topic: T
     pinnedMessages: [],
     // Il motore, dichiarato: un figlio non deve cadere sulla CLI per un default.
     provider: "topics",
+    // Projected from `subagents` on every later read; set here too because the
+    // row is written after this save, and the broadcast carries this object.
+    subagentOf: s.parentSessionKey,
     model: s.model,
     effort: s.effort,
     ...(parent?.autonomyLevel ? { autonomyLevel: parent.autonomyLevel } : {}),

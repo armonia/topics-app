@@ -1223,6 +1223,13 @@ export interface Topic {
    */
   isGlobalOrchestrator?: boolean;
   /**
+   * Transport-only: the session key of the chat that spawned this topic as a
+   * native sub-agent (`subagents.session_key`, runtime `topics`). Projected by
+   * the server from `subagents`, never stored on the `topics` row. The sidebar
+   * nests the topic under that chat instead of listing it on its own.
+   */
+  subagentOf?: string;
+  /**
    * ABSENT IN THE LIST. `GET /api/topics` omits it (255 KB across the topics of
    * this machine, for text no list draws) and `GET /api/topics/:id` carries it:
    * whoever EDITS or reads a prompt is looking at one topic. Use

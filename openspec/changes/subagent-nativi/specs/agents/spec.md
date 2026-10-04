@@ -116,8 +116,21 @@ engine's tool names (`Read` → `read_file`, `mcp__topics__x` → `x`, `Agent`/
 `Task` → the sub-agent tools); a tool the engine does not have SHALL be
 dropped. A profile without `tools:` SHALL restrict nothing.
 
+The child chat SHALL NOT be listed as a chat of its own, and SHALL NOT open a
+tab by itself. The server SHALL project `subagentOf` (the parent's session key,
+from `subagents`) on the child's topic, and the sidebar SHALL nest the child
+under its parent's row, chat or terminal, the way a CLI child's terminal is
+nested; a grandchild SHALL nest under the child. A nested child SHALL keep its
+parent row listed only while it is open or lit; once archived (`stop_agent`) it
+SHALL leave the nest unless archived rows are shown. A child whose parent is
+not loaded SHALL fall back to a normal chat row. Opening a child from the
+result card or the strip SHALL open its chat, never a terminal tab. Changed on
+04/10 at Attilio's request: «non dovrei vedere i sub-agent come tab, cioè, se
+proprio potrebbero uscire come sotto tab nella sidebar» (before: a flat chat in
+the project's sidebar).
+
 Dove cambiarla: scelta 1 (chat a sé, non turno annidato) e scelta 2 (default
-nativo per tutti) di `subagent-nativi`.
+nativo per tutti) di `subagent-nativi`; dove si vede, questo requisito.
 
 #### Scenario: no runtime asked, no CLI started
 - **GIVEN** a chat in a project
@@ -125,6 +138,13 @@ nativo per tutti) di `subagent-nativi`.
 - **THEN** a topic pinned to the engine SHALL exist with that project
 - **AND** the chat route SHALL have received the prompt on its session key
 - **AND** no create frame SHALL reach the PTY bridge
+
+#### Scenario: the child nests under its parent in the sidebar
+- **GIVEN** a chat `topic:orch` that spawned a native child, which spawned a grandchild
+- **WHEN** the sidebar is built with the parent's tab open
+- **THEN** the project SHALL list only the parent's row
+- **AND** the child SHALL be nested under it, and the grandchild under the child
+- **AND** no tab SHALL have been opened for either
 
 #### Scenario: the CLI on request
 - **WHEN** `spawn_agent` is called with `runtime: "claude-code"`

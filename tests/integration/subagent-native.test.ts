@@ -179,6 +179,8 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(creates().length).toBe(before);
     const child = ctx.getTopicBySessionKey(body.sessionKey as string);
     expect(child).toMatchObject({ provider: "topics", model: "claude-sonnet-5-5[1m]", projectPath: PROJECT, name: "finder" });
+    // The sidebar nests it under the parent from this projection (read back from the DB).
+    expect(child?.subagentOf).toBe(PARENT);
     expect(rowOf(body.agentId as string)).toMatchObject({ runtime: "topics", session_key: body.sessionKey });
     // The prompt went to the child's chat, through the chat route.
     expect(turns.at(-1)).toEqual({ sessionKey: body.sessionKey as string, text: "Find the call sites of deliverExit." });

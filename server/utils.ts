@@ -502,6 +502,12 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicBySessionKey: db.prepare(`SELECT * FROM topics WHERE session_key = ? LIMIT 1`),
   };
 
+  // `subagents` arrives with a later migration than `topics`: a DB that has not
+  // run it yet (or a test schema without it) just has no native sub-agents.
+  function attemptSubagentParents(sql: string, ...params: unknown[]): unknown[] {
+    try { return db.query(sql).all(...(params as [])); } catch { return []; }
+  }
+
   type ChatForkSql = { session_key: string; parent_name: string; fork_point_message_id: string; parent_id: string | null };
   // Pre-grouped topic relations, built once per loadTopics() call by
   // buildTopicRelations() and threaded into rowToTopic to avoid the N+1.
@@ -513,6 +519,8 @@ export function createAppContext(baseDir: string): AppContext {
     forks: Map<string, ChatForkSql>;
     /** One batched role lookup for the client-facing full Topic snapshot. */
     globalOrchestratorTopicIds: ReadonlySet<string>;
+    /** Native sub-agent chat session key → the session key of its parent. */
+    subagentParents: ReadonlyMap<string, string>;
   };
   function buildTopicRelations(): TopicRelations {
     const push = <T>(m: Map<string, T[]>, k: string, v: T) => {
@@ -533,6 +541,10 @@ export function createAppContext(baseDir: string): AppContext {
       disabledSources,
       forks: new Map((stmts.getAllChatForks.all() as ChatForkSql[]).map((r) => [r.session_key, r])),
       globalOrchestratorTopicIds: listGlobalOrchestratorTopicIds(db),
+      subagentParents: new Map(
+        (attemptSubagentParents(`SELECT session_key, parent_session_key FROM subagents WHERE runtime = 'topics' AND session_key IS NOT NULL`) as Array<{ session_key: string; parent_session_key: string }>)
+          .map((r) => [r.session_key, r.parent_session_key]),
+      ),
     };
   }
 
@@ -557,6 +569,11 @@ export function createAppContext(baseDir: string): AppContext {
     // `loadTopics()` supplies the complete registry set in one query, avoiding
     // a role lookup for every one of the hundreds of hydrated rows.
     if (rels?.globalOrchestratorTopicIds.has(row.id)) topic.isGlobalOrchestrator = true;
+    // Same kind of projection: who spawned this chat, from `subagents`.
+    const subagentOf = rels
+      ? rels.subagentParents.get(row.session_key)
+      : (attemptSubagentParents(`SELECT parent_session_key FROM subagents WHERE runtime = 'topics' AND session_key = ? LIMIT 1`, row.session_key)[0] as { parent_session_key?: string } | undefined)?.parent_session_key;
+    if (subagentOf) topic.subagentOf = subagentOf;
     if (row.system_prompt) topic.systemPrompt = row.system_prompt;
     if (row.project_path) topic.projectPath = row.project_path;
     if (row.sort_order !== undefined) topic.sortOrder = row.sort_order;

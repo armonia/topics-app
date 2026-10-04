@@ -937,7 +937,14 @@ function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { sessionId?: string; name?: string } | undefined;
-      if (detail?.sessionId) handleTerminalClick(detail.sessionId, detail.name || '');
+      if (!detail?.sessionId) return;
+      // A native sub-agent has no terminal: its agentId is its chat's topic id.
+      // Opening it as a terminal made a dead terminal tab; it opens as the chat.
+      if (topicsRef.current[detail.sessionId]?.subagentOf) {
+        window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: detail.sessionId, mode: 'permanent', reveal: true } }));
+        return;
+      }
+      handleTerminalClick(detail.sessionId, detail.name || '');
     };
     window.addEventListener('topics:open-terminal-pane', handler as EventListener);
     return () => window.removeEventListener('topics:open-terminal-pane', handler as EventListener);

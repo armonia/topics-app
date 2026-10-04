@@ -65,7 +65,8 @@ riporta, uno che non torna si riporta `lost`.
 ## Non coperto
 
 - La card «sotto-agenti al lavoro» del client (`SubAgentsStrip`) legge il
-  roster dei terminali: i figli nativi non ci compaiono. Li si vede come chat
-  nella sidebar del progetto e come card dell'esito nella chat del padre.
+  roster dei terminali: i figli nativi non ci compaiono. Li si vede annidati
+  sotto la chat padre nella sidebar (04/10, SUBAGENT-18: mai come chat a sé né
+  come scheda) e come card dell'esito nella chat del padre.
 - L'uso del figlio finisce nel registro sotto la SUA chat, non sommato a
   quello del padre.

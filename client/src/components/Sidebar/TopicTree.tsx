@@ -1025,10 +1025,14 @@ export function TopicTree({
     return (
       <div key={item.id}>
         {row}
-        {subAgents.map(child => renderTerminalItem(child, depth + 1))}
+        {subAgents.map(child => renderSubAgentItem(child, depth + 1))}
       </div>
     );
   };
+
+  // A nested sub-agent row: a native child is a chat, a CLI child a terminal.
+  const renderSubAgentItem = (item: SidebarItem, depth: number) =>
+    item.type === 'chat' ? renderChatItem(item, depth) : renderTerminalItem(item, depth);
 
   // ── Terminal item ────────────────────────────────────────────────────────
 
@@ -1070,7 +1074,7 @@ export function TopicTree({
     return (
       <div key={item.id}>
         {row}
-        {subAgents.map(child => renderTerminalItem(child, depth + 1))}
+        {subAgents.map(child => renderSubAgentItem(child, depth + 1))}
       </div>
     );
   };
