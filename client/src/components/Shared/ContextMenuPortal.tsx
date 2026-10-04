@@ -88,7 +88,19 @@ export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 16
   const place = useCallback(() => {
     const el = menuRef.current;
     if (!el) return;
-    const size = { width: el.offsetWidth || minWidth, height: el.offsetHeight };
+    // Measured at the left edge of the window, then put back. Where it stands,
+    // a fixed menu with an auto width is only as wide as the room to its right:
+    // opened 30px from the right edge, its first pass is squeezed to
+    // `minWidth`, it is placed for that width, and it then grows past the
+    // pointer, a step per frame until the ResizeObserver catches up (1.89px
+    // past the pointer on CI, where Linux fonts make the menu 161.89px wide).
+    // `getBoundingClientRect` and `Math.ceil` instead of `offsetWidth`, which
+    // rounds 161.4 down and places the menu 0.4px over the pointer.
+    const standing = el.style.left;
+    el.style.left = '0px';
+    const rect = el.getBoundingClientRect();
+    el.style.left = standing;
+    const size = { width: Math.ceil(rect.width) || minWidth, height: Math.ceil(rect.height) };
     const next = aTop !== undefined && aRight !== undefined && aBottom !== undefined && aLeft !== undefined
       ? computeMenuPosition({ top: aTop, right: aRight, bottom: aBottom, left: aLeft }, size, { margin: MARGIN })
       : placeAtPoint({ x, y }, size, { margin: MARGIN });
