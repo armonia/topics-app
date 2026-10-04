@@ -26,7 +26,7 @@ creato.
   0 nodi, 0 card con `machine_id` (verificato sul DB in sola lettura).
 - **Oggi la scelta del nodo è solo umana.** Si fa dal picker della card
   (`client/src/components/Board/TaskDetail.tsx:1440-1444`), e KANBAN-76 vieta un nodo
-  `auto`. Questa change apre un'eccezione stretta (KANBAN-95), lasciando a
+  `auto`. Questa change apre un'eccezione stretta (KANBAN-96), lasciando a
   `machine_id` il significato che ha oggi.
 - **Il peso esiste già.** C'è la colonna `tasks.dispatch_weight` (migration 090).
   Una card scoperta pesante al lancio torna in coda col tentativo rimborsato
@@ -92,7 +92,7 @@ difesa contro un guasto non osservato.
 
 ### D2. Chi va al nodo
 
-Una card va al nodo da sola (KANBAN-95) solo se valgono tutte queste condizioni:
+Una card va al nodo da sola (KANBAN-96) solo se valgono tutte queste condizioni:
 - non ha `machine_id`;
 - i nodi sono accesi;
 - è pesante, oppure il Mac la terrebbe ferma per memoria (`admissionVerdictNow`,
@@ -113,8 +113,8 @@ Altre regole:
   `remoteLaunch` lo tratta già come «qui» (`:465`); manca solo la voce nel picker,
   che oggi elenca le sole righe con `base_url` (`client/src/state/machinesStore.ts:127-128`).
 - **Chat, turni e `spawn_agent`** non passano dal dispatcher della board, quindi
-  restano qui per costruzione. Lo scenario di KANBAN-95 lo fissa.
-- **Il peso conta dove gira il lavoro** (KANBAN-96). Se la Fase 0 mostra che
+  restano qui per costruzione. Lo scenario di KANBAN-96 lo fissa.
+- **Il peso conta dove gira il lavoro** (KANBAN-97). Se la Fase 0 mostra che
   `heavyInFlight` e `dispatchedTaskCount` contano le card remote, entrambi
   escludono le righe la cui macchina del tentativo non è locale.
 
@@ -128,7 +128,7 @@ tetto di spesa, tipo esaurito, repository sconosciuto al nodo). Una card con
 
 Questo ripiego non tocca nessun divieto di oggi. KANBAN-76
 (`openspec/specs/kanban/spec.md:3999-4001`) vieta il nodo `auto`, ed è per questo
-che serve il MODIFIED: KANBAN-95 è l'eccezione. Il divieto di ripiego sul Mac
+che serve il MODIFIED: KANBAN-96 è l'eccezione. Il divieto di ripiego sul Mac
 (`spec.md:4027-4029`, scenario «nodo muto, nessun ripiego locale») vale solo per
 una card il cui `machine_id` nomina un nodo irraggiungibile. Per una card senza
 `machine_id`, KANBAN-76 dice già «assente vuol dire qui»: rimandarla alla coda del
@@ -408,7 +408,7 @@ Va in una card a parte.
 
 - Dalla Fase 1 la migration è additiva: colonne nullable e una tabella. Il
   rollback consiste nello spegnere i nodi nelle impostazioni, e tutto torna al Mac
-  per KANBAN-95. Le colonne restano.
+  per KANBAN-96. Le colonne restano.
 - Per tornare indietro dalla Fase 2: pool spento, poi il raccoglitore cancella tutti
   i nodi con la label, e lo snapshot si cancella a mano.
 

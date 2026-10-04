@@ -2,7 +2,7 @@
 
 ## ADDED Requirements
 
-### Requirement: KANBAN-95 — Una card pesante senza macchina scelta va a un nodo libero, e senza nodo resta al Mac
+### Requirement: KANBAN-96 — Una card pesante senza macchina scelta va a un nodo libero, e senza nodo resta al Mac
 
 Una card senza `machine_id`, con i nodi accesi nelle impostazioni, SHALL essere
 instradata a un nodo quando è PESANTE (`dispatch_weight = heavy`) oppure quando
@@ -51,7 +51,7 @@ NON SHALL diventare il `machine_id` della card.
 - **WHEN** la card torna in `todo` e il dispatcher la riprende
 - **THEN** il nodo SHALL essere scelto da capo, e la corsa vecchia SHALL essere cancellata sul suo nodo prima di crearne una nuova
 
-### Requirement: KANBAN-96 — Il peso conta dove gira il lavoro
+### Requirement: KANBAN-97 — Il peso conta dove gira il lavoro
 
 Una card in volo su un nodo NON SHALL contare fra gli agenti vivi di questa
 macchina, né fra i task pesanti in volo che fermano i claim locali. Una card pesante
@@ -74,9 +74,9 @@ discorso e turno, e SHALL invece creare sul nodo un task ordinario (`POST
 /api/nodes/runs`) con un commento di servizio che nomina la board di origine.
 
 Il `machine_id` di una card SHALL essere una scelta UMANA, e NESSUNA regola SHALL
-scriverlo: `machine_id` assente vuol dire «qui o dove la manda KANBAN-95». Una card
+scriverlo: `machine_id` assente vuol dire «qui o dove la manda KANBAN-96». Una card
 senza `machine_id` SHALL poter girare su un nodo SOLO per l'instradamento di
-KANBAN-95, che sceglie il nodo per un tentativo e non lo scrive sulla card; per
+KANBAN-96, che sceglie il nodo per un tentativo e non lo scrive sulla card; per
 quella corsa valgono la creazione, lo specchio, il bundle e la consegna di questo
 requisito, uguali. Un `machine_id` uguale a questa macchina vuol dire «solo qui».
 
@@ -108,7 +108,7 @@ Per una card il cui `machine_id` nomina un nodo, un nodo IRRAGGIUNGIBILE al
 momento del dispatch SHALL far ASPETTARE la card con un motivo dichiarato
 (`node_unreachable`) e un `dispatch_deferred_until`: quella card NON SHALL mai
 partire su questa macchina perché il nodo non ha risposto. Il ripiego di una card
-instradata senza `machine_id` è quello di KANBAN-95.
+instradata senza `machine_id` è quello di KANBAN-96.
 
 MISURA: `bun test server/services/task-dispatcher-remote-node.test.ts
 tests/integration/nodes-routes.test.ts server/services/node-client.test.ts` verde,
@@ -144,7 +144,7 @@ git vero, e il chip del nodo sopravvive al reload.
 - **AND** nessun turno SHALL partire su questa macchina
 
 #### Scenario: l'instradamento non scrive la macchina
-- **GIVEN** una card senza `machine_id` mandata a un nodo da KANBAN-95
+- **GIVEN** una card senza `machine_id` mandata a un nodo da KANBAN-96
 - **WHEN** la sua corsa arriva in `review`
 - **THEN** il `machine_id` della card SHALL essere ancora vuoto
 - **AND** il nodo di quella corsa SHALL restare leggibile nella storia del tentativo

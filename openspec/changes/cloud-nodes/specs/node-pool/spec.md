@@ -11,7 +11,7 @@ fuori da questo Mac.
 
 ### Requirement: POOL-01 — Un nodo a richiesta esiste solo finché serve, e si cancella invece di spegnersi
 
-Il pool SHALL creare un nodo quando una card instradata (KANBAN-95) non trova un
+Il pool SHALL creare un nodo quando una card instradata (KANBAN-96) non trova un
 posto libero sui nodi pronti, e SHALL cancellarlo quando resta senza corse e l'ora
 già pagata sta per finire. Il pool NON SHALL mai spegnere un nodo per risparmiare:
 il fornitore fattura un server finché esiste, acceso o spento. Un nodo fisso NON
@@ -41,7 +41,7 @@ Il pool SHALL tenere la spesa del mese dei nodi a richiesta come la conta il
 fornitore: ore arrotondate per eccesso per il prezzo orario, ferme al tetto mensile
 del tipo. NON SHALL creare un nodo se la sua prima ora porterebbe la spesa oltre il
 tetto, né oltre il numero massimo di nodi. Sopra il tetto la card SHALL seguire il
-ripiego di KANBAN-95, con una nota che nomina spesa e tetto.
+ripiego di KANBAN-96, con una nota che nomina spesa e tetto.
 
 #### Scenario: il tetto raggiunto
 - **GIVEN** il tetto a 10 €, la spesa del mese a 9,95 € e un tipo da 0,1114 €/h
@@ -137,7 +137,7 @@ Una creazione rifiutata dal fornitore SHALL avere il suo motivo: tipo esaurito
 (`resource_unavailable`), limite del conto (`resource_limit_exceeded`), collocazione
 (`placement_error`), troppe richieste (`rate_limit_exceeded`). Il pool SHALL provare
 gli altri luoghi e i tipi ammessi in ordine, entro il tetto, poi SHALL ripiegare
-(KANBAN-95). Un nodo che non è pronto entro il tempo massimo SHALL essere cancellato.
+(KANBAN-96). Un nodo che non è pronto entro il tempo massimo SHALL essere cancellato.
 
 #### Scenario: il tipo preferito esaurito
 - **GIVEN** cx43 esaurito in tutti i luoghi, cpx42 fra i tipi ammessi e la sua prima ora dentro il tetto
@@ -153,4 +153,4 @@ gli altri luoghi e i tipi ammessi in ordine, entro il tetto, poi SHALL ripiegare
 #### Scenario: un nodo che non arriva
 - **GIVEN** un nodo creato che non è entrato nella tailnet entro il tempo massimo
 - **THEN** il pool SHALL cancellarlo e scrivere il motivo
-- **AND** la card SHALL tornare alla scelta di KANBAN-95
+- **AND** la card SHALL tornare alla scelta di KANBAN-96

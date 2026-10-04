@@ -14,9 +14,9 @@ Col sì: Fase 0 su un server a ore poi cancellato (meno di 1 €); progetto Hetz
 
 | # | Scelta | Requisito |
 |---|--------|-----------|
-| 1 | da sole le card pesanti o ferme per memoria; chat, sessioni e `spawn_agent` mai | `KANBAN-95` (primo paragrafo e scenari «pesante», «ferma per memoria», «una chat»); `KANBAN-76` modificato (paragrafo sulla scelta umana); design §D2 |
+| 1 | da sole le card pesanti o ferme per memoria; chat, sessioni e `spawn_agent` mai | `KANBAN-96` (primo paragrafo e scenari «pesante», «ferma per memoria», «una chat»); `KANBAN-76` modificato (paragrafo sulla scelta umana); design §D2 |
 | 2 | Fase 1 su un cx43 fisso, solo quando Hetzner lo vende | design §D4 (tipo del fisso) e §Fasi; tasks §1.1 |
-| 3 | nessun nodo libero → coda del Mac | `KANBAN-95` (scenario «nessun nodo libero»); `POOL-02` e `POOL-07` (ripiego); design §D3 |
+| 3 | nessun nodo libero → coda del Mac | `KANBAN-96` (scenario «nessun nodo libero»); `POOL-02` e `POOL-07` (ripiego); design §D3 |
 | 4 | pool on demand: 3 nodi col fisso, 10 €/mese oltre il fisso, cancellazione a fine ora pagata | `POOL-01`, `POOL-02`; design §D5 |
 
 ---
@@ -111,7 +111,7 @@ snapshot. Nel repo entra solo la ricetta (`cloud-init`, unit systemd) e l'esito
 scritto nel design.
 
 **Fase 1: un nodo fisso.**
-1. **Instradamento** (KANBAN-95, KANBAN-96, KANBAN-76 modificato). Una card senza
+1. **Instradamento** (KANBAN-96, KANBAN-97, KANBAN-76 modificato). Una card senza
    `machine_id` va da sola al nodo se è pesante (`dispatch_weight = heavy`, che
    esiste già) o se il Mac la terrebbe ferma per memoria, purché il nodo sia pronto,
    abbia un posto libero e conosca il suo repository. Il nodo scelto vale per quel
@@ -154,7 +154,7 @@ scritto nel design.
 - `node-pool`: nodi Linux affittati a ore, creati da un'immagine preparata e cancellati quando non servono, con la spesa sotto un tetto e nessun segreto durevole fuori dal Mac.
 
 ### Modified Capabilities
-- `kanban`: KANBAN-76 lascia instradare una card senza `machine_id` a un nodo (KANBAN-95); KANBAN-96 conta il peso dove gira.
+- `kanban`: KANBAN-76 lascia instradare una card senza `machine_id` a un nodo (KANBAN-96); KANBAN-97 conta il peso dove gira.
 - `machines`: un nodo porta capacità, uso, costo e quota (MACHINE-05), e il suo stato viene dai poll (MACHINE-06).
 
 ## Fuori
@@ -242,7 +242,7 @@ punto non è chiuso.
    e `dispatchedTaskCount` (`server/services/agent-census.ts:116-127`) non
    filtrano `machine_id`, e una card remota è `in_progress`/`working`
    (`task-dispatcher-remote-node.ts:426`). Se la contano, una pesante sul nodo
-   ferma ogni claim del Mac, cioè il contrario di KANBAN-96.
+   ferma ogni claim del Mac, cioè il contrario di KANBAN-97.
 9. **Su Linux non c'è il pavimento di memoria** (`server/services/dispatch-capacity.ts:460-475`).
    Resta solo il tetto `max_agents`. Quanti agenti e quanti shard reggono 16 GB non
    è misurato.
