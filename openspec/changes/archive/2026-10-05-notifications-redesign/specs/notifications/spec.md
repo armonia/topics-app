@@ -272,8 +272,9 @@ turno riparte. Solo uno stop della PERSONA o un turno dispatchato SHALL portarlo
 senza avvisi.
 
 Il numero sulla tab e sulla riga SHALL venire dal frame di attenzione, che SHALL partire
-anche quando cambia solo il non-letto di un soggetto acceso; `unread:updated` NON SHALL
-essere una seconda fonte del numero.
+anche quando cambia solo il non-letto di un soggetto acceso; nessun altro frame SHALL
+essere una seconda fonte del numero (quello dei soli non-letti, `unread:updated`, è
+stato tolto con il client che lo leggeva).
 
 Un turno risvegliato scartato perché vuoto NON SHALL alzare il non-letto né creare
 un'epoca. Il non-letto SHALL salire solo per un turno che lascia un messaggio visibile.

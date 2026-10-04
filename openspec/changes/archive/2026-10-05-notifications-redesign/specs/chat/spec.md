@@ -1,5 +1,12 @@
 # Chat: delta di notifications-redesign
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: BGVIS-01 — Una chat in background ha un glifo suo, diverso da «risponde» e da «aspetta te»`
+- TO: `### Requirement: BGVIS-01 — Una chat che aspetta il suo lavoro in background è in corso, con l'anello di lavoro`
+- FROM: `### Requirement: BGVIS-03 — Le chat in background contano fra gli agenti attivi`
+- TO: `### Requirement: BGVIS-03 — Le chat in background contano fra gli agenti al lavoro`
+
 ## MODIFIED Requirements
 
 ### Requirement: CHAT-WAIT-03 — ⌘J porta alla prossima chat che ti aspetta

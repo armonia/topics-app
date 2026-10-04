@@ -1,6 +1,10 @@
 # Claude Sessions
 
+## Purpose
+
 Canonical tracking of Claude Code CLI session state (phase machine fed by hooks, with reaper and boot-time JSONL recovery).
+
+## Requirements
 
 ### Requirement: CCS-01 — Canonical Claude Code session state
 
@@ -208,50 +212,75 @@ The system SHALL provide a script that installs Topics App hook wrappers into `~
 
 ### Requirement: MONITOR-04 — While a Monitor is armed the chat reads as watching, not as finished
 
-A chat that armed a `Monitor` is not waiting for the user: something is under watch and the answer will arrive by itself (`MONITOR-02`, `MONITOR-03` in `chat`). The system SHALL remember that a background watch is open across the end-of-turn `Stop`, park the session in a `watching` phase instead of `awaiting-user`, and clear it when the watch delivers or the session restarts.
+A session that ends its turn with background work still in flight is not waiting for the
+user: the answer will arrive by itself. The system SHALL track that work per task id,
+for every tool that leaves it behind (`Monitor`, `Bash` or `Agent` with
+`run_in_background`, `Workflow`, a non-recurring `CronCreate`), and SHALL park the
+session in `watching` at `Stop` whenever at least one task is in flight, and in
+`awaiting-user` when none is. A task SHALL leave the set when its own completion arrives
+(the transcript's `<task-notification>` for that id, the Monitor's delivery or end
+including expiry, the cron's first fire or `CronDelete`), not on any wake of the session.
+`SessionEnd` and process exit SHALL empty the set. The set SHALL survive a server reload
+while the process holding it is alive.
 
-> The flag is deliberately not persisted: it only means anything for a live process.
+The set SHALL have one holder, the attention store (`subject_attention.background`): the
+phase machine SHALL read from it how many tasks count at `Stop` rather than keep a set of
+its own. A recurring `CronCreate` SHALL sit in the set marked recurring, so the chat can
+show it, but SHALL NOT count toward `watching`.
 
 #### Scenario: Starting a Monitor arms the watch without changing the phase
 - **GIVEN** a session with `phase = 'running'`
 - **WHEN** a `PreToolUse` hook arrives with `tool_name = 'Monitor'`
 - **THEN** `phase = 'tool-running'` as for any other tool
-- **AND** `monitorArmed = true`, because this tool leaves something behind when it ends
+- **AND** the Monitor's task is in the in-flight set
 
 #### Scenario: The end of the turn parks the chat in watching
 - **GIVEN** a session that armed a Monitor during the turn
 - **WHEN** the tool's `PostToolUse` and then the turn's `Stop` arrive
 - **THEN** `phase = 'watching'` rather than `awaiting-user`
-- **AND** `monitorArmed` is still true
 
-#### Scenario: Only a watch-arming tool arms the watch, and later work does not disarm it
+#### Scenario: Background Bash, Agent and Workflow park it in watching too
 - **GIVEN** a session with `phase = 'running'`
-- **WHEN** a `PreToolUse` for `Bash` arrives
-- **THEN** `monitorArmed` SHALL stay unset — an indicator that is always on says nothing, exactly like one that never lights
-- **AND** a second tool in the same turn after a Monitor SHALL NOT disarm it: the following `Stop` still parks in `watching`
+- **WHEN** a `Bash` or an `Agent` with `run_in_background: true`, or a `Workflow`, runs and then `Stop` arrives
+- **THEN** `phase = 'watching'`
+- **AND** a foreground `Bash` SHALL NOT enter the set, and its `Stop` SHALL give `awaiting-user`
 
-#### Scenario: The delivery closes the watch
-- **GIVEN** a session parked in `watching` because a Monitor is armed
-- **WHEN** the server sees the CLI open a turn on its own and notes the watch as delivered
-- **THEN** `monitorArmed` SHALL be cleared
-- **AND** the `Stop` of that woken turn SHALL return the chat to `awaiting-user` instead of relighting a watch that is over
+#### Scenario: A recurring cron does not park it in watching
+- **GIVEN** a session with `phase = 'running'`
+- **WHEN** a recurring `CronCreate` runs and then `Stop` arrives
+- **THEN** `phase = 'awaiting-user'`, with the cron in the set marked recurring
+
+#### Scenario: One of two tasks returns
+- **GIVEN** a session in `watching` with two tasks in flight
+- **WHEN** the completion of one arrives and the woken turn ends
+- **THEN** `phase = 'watching'`, with one task left
+
+#### Scenario: The last task returns
+- **GIVEN** a session in `watching` with one task in flight
+- **WHEN** its completion arrives and the woken turn ends
+- **THEN** `phase = 'awaiting-user'`
+
+#### Scenario: An expired Monitor on a terminal
+- **GIVEN** a terminal session in `watching` for one Monitor
+- **WHEN** the transcript reports the Monitor expired and the next `Stop` arrives
+- **THEN** `phase = 'awaiting-user'`, not `watching`
 
 #### Scenario: A new session does not inherit an old watch
-- **GIVEN** a session in `watching` with the flag set
+- **GIVEN** a session in `watching`
 - **WHEN** a `SessionStart` hook arrives
-- **THEN** `phase = 'starting'` and `monitorArmed` SHALL be cleared
+- **THEN** `phase = 'starting'` and the in-flight set SHALL be empty
 
 #### Scenario: The legacy Monitor hooks keep working
-- **GIVEN** a CLI old enough to emit `MonitorArmed` and `MonitorClosed`, which the current one does not
+- **GIVEN** a CLI old enough to emit `MonitorArmed` and `MonitorClosed`
 - **WHEN** `MonitorArmed` arrives
-- **THEN** the phase SHALL move to `watching` with the flag set and the last tool cleared
-- **AND** `MonitorArmed` SHALL NOT override `awaiting-approval` — a pending permission outranks a background watch — while still arming the flag
-- **AND** `MonitorClosed` from `watching` SHALL return to `awaiting-user` clearing the flag, while from a live phase it SHALL only clear the flag and leave the phase alone
+- **THEN** the phase SHALL move to `watching` with the Monitor in the set
+- **AND** `MonitorArmed` SHALL NOT override `awaiting-approval`
+- **AND** `MonitorClosed` SHALL remove the Monitor, and from `watching` with an empty set SHALL return to `awaiting-user`
 
 #### Scenario: Watching counts as an active phase, not a resting one
 - **GIVEN** the client's phase classification
 - **WHEN** `watching` is classified
-- **THEN** it SHALL be one of the active phases, beside `running` and `tool-running`, so a chat under watch does not read as one that stopped answering
+- **THEN** it SHALL be one of the active phases, beside `running` and `tool-running`
 
 ### Requirement: TITLE-01 — Il titolo di una sessione esterna si deriva, e la marcatura dell'ospite non lo diventa MAI
 
