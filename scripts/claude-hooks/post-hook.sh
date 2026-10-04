@@ -23,6 +23,18 @@
 
 set -e
 
+# When the hook FIRED, in epoch ms, taken before anything else. The hooks are
+# async (the CLI does not wait for them), so two of them race to the server and
+# arrive in any order; this stamp is what lets the server put them back in the
+# order they fired (server/lib/hook-order.ts). `%N` is nanoseconds on macOS 26
+# and GNU date; a `date` without it prints a literal `N`, and then no stamp is
+# sent and the server falls back on the arrival time.
+FIRED_AT="$(date +%s%N 2>/dev/null || true)"
+case "${FIRED_AT}" in
+  ''|*[!0-9]*) FIRED_AT="" ;;
+  *) FIRED_AT="${FIRED_AT%??????}" ;;
+esac
+
 EVENT_NAME="${1:-Unknown}"
 URL_BASE="${TOPICS_APP_URL:-https://127.0.0.1:3333}"
 TOKEN_FILE="${TOPICS_HOME:-$HOME/.topics}/claude-hooks/hook-token"
@@ -43,6 +55,7 @@ post() {
     --request POST \
     --header "Authorization: Bearer ${TOKEN}" \
     --header "Content-Type: application/json" \
+    --header "X-Topics-Hook-Fired-At: ${FIRED_AT}" \
     --data "${PAYLOAD}" \
     "$1/api/claude-hooks/${EVENT_NAME}" \
     >/dev/null 2>&1
@@ -51,6 +64,7 @@ post() {
 # Primary attempt (HTTPS by default). If it fails, retry with the other scheme
 # so the hook works whether the server is TLS or plain-HTTP. Worst case is two
 # 2s timeouts (4s), under Claude's 5s hook budget; the happy path is <50ms.
+# Every event but SessionEnd is async, so none of this holds a tool or a turn.
 if ! post "${URL_BASE}"; then
   case "${URL_BASE}" in
     https://*) post "http://${URL_BASE#https://}" || true ;;

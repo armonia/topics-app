@@ -12,8 +12,8 @@
  *  2. reinstallare RIPARA una entry nostra scritta da una versione precedente,
  *     invece di riconoscerla e lasciarla difettosa per sempre;
  *  3. le entry di altri non si toccano, né in install né in uninstall;
- *  4. async only on UserPromptSubmit, Stop and Notification, and no event the
- *     CLI no longer emits;
+ *  4. async on every event but SessionEnd, and no event the CLI no longer
+ *     emits;
  *  5. the legacy unmarked entries (the live shape before `topics_app`) are
  *     repaired in place by install and removed by uninstall, one Topics hook
  *     per event;
@@ -178,7 +178,7 @@ describe("install-claude-hooks", () => {
   }
 
   const TOPICS_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
-  const ASYNC_EVENTS = ["UserPromptSubmit", "Stop", "Notification"];
+  const ASYNC_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
 
   /** Every Topics wrapper entry of an event, marked or not. */
   function wrapperEntries(s: any, event: string): any[] {
@@ -186,16 +186,16 @@ describe("install-claude-hooks", () => {
     return matchers.flatMap((m: any) => m.hooks.filter((h: any) => /(topics|claude)-hooks\/post-hook\.sh/.test(String(h.command))));
   }
 
-  test("async only on UserPromptSubmit, Stop and Notification, timeout 5 everywhere", () => {
+  test("async on every event but SessionEnd, timeout 5 everywhere", () => {
     run("install");
     const s = readSettings();
     for (const event of TOPICS_EVENTS) {
       const entries = ourEntries(s, event);
       expect(entries.length).toBe(1);
       expect(entries[0].timeout).toBe(5);
-      // The three fire-and-forget events must not hold the turn: a starved
-      // server made every prompt wait up to 5 s. The other four stay blocking
-      // on purpose (tool ordering for the swap freezer, transcript path).
+      // No event may hold a tool or a turn: a starved server made every tool
+      // wait for the script (PreToolUse cancelled after 37.4 s on 04/10).
+      // SessionEnd stays blocking: an async hook running at the exit is cut.
       if (ASYNC_EVENTS.includes(event)) expect(entries[0].async).toBe(true);
       else expect("async" in entries[0]).toBe(false);
     }

@@ -13,6 +13,7 @@
  * command was a freeze target at all, and nothing computed a guard set.
  *
  * @covers KANBAN-85
+ * @covers CCS-03
  */
 import { describe, expect, test } from "bun:test";
 import {
@@ -23,6 +24,8 @@ import {
   guardSet,
   parseCpuTime,
   parseProcessTable,
+  recordClaimsProcess,
+  STALE_RECORD_SLACK_MS,
   toolRoots,
   type AgentSessionRef,
   type NativeCommandRef,
@@ -288,5 +291,43 @@ describe("the table itself", () => {
 
   test("the descendant walk keeps the XPC services out: they hang off launchd", () => {
     expect(descendantPids(rows, 51000).has(51101)).toBe(false);
+  });
+});
+
+/**
+ * The `PreToolUse` hook is async, so a genuine background process starts before
+ * its record is made (or a few seconds after, with a sync hook). A process
+ * started long after the record is a later command with the same text.
+ */
+describe("a background record speaks only for a process started around it", () => {
+  const recordedAt = new Date(2026, 9, 4, 22, 3, 12).getTime();
+
+  test("reads `ps -o lstart=` as macOS prints it, day padded with a space, local time", () => {
+    expect(recordClaimsProcess(recordedAt, "Sun Oct  4 22:03:10 2026    \n")).toBe(true);
+    expect(recordClaimsProcess(recordedAt, "Sun Oct  4 22:13:12 2026")).toBe(false);
+  });
+
+  test("the slack covers a sync hook whose command starts a few seconds after the record", () => {
+    const at = new Date(recordedAt + STALE_RECORD_SLACK_MS);
+    const two = (n: number) => String(n).padStart(2, "0");
+    expect(recordClaimsProcess(recordedAt, `Sun Oct  4 ${two(at.getHours())}:${two(at.getMinutes())}:${two(at.getSeconds())} 2026`)).toBe(true);
+  });
+
+  test("a start time that is not one, or no record time, keeps the record's word", () => {
+    // `Date.parse` in Bun reads `start-51000` as the year 51000.
+    for (const text of ["start-51000", "", "4 ottobre 2026"]) expect(recordClaimsProcess(recordedAt, text)).toBe(true);
+    expect(recordClaimsProcess(undefined, "Sun Oct  4 23:00:00 2026")).toBe(true);
+  });
+
+  test("a background root carries the time of the record that claims it", () => {
+    const rows = parseProcessTable([
+      "100 1 100 0:00.10 /Applications/claude.app/Contents/MacOS/claude",
+      `200 100 200 0:01.00 /bin/zsh -c eval '${encodeAsPsWould("bun batteria.ts")}' < /dev/null`,
+    ].join("\n"));
+    const s: AgentSessionRef = {
+      sessionKey: "topic:a", cliPid: 100, topicId: "a", terminalId: null, taskId: null,
+      backgroundBash: [{ command: "bun batteria.ts", startedAt: recordedAt }], foregroundBash: [],
+    };
+    expect(toolRoots({ rows, sessions: [s], natives: [] }).roots.map((r) => r.recordedAt)).toEqual([recordedAt]);
   });
 });

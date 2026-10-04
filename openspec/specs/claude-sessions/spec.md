@@ -111,6 +111,13 @@ The system SHALL translate Claude Code hook events into `ClaudeSession` phase tr
 - **WHEN** a `SessionEnd` hook is received
 - **THEN** `phase = 'completed'`, `lastTool = null`, `pendingApproval = null`
 
+#### Scenario: Hooks are applied in the order they fired, not the order they arrived
+- **GIVEN** the hooks are async and each carries the time it fired (`X-Topics-Hook-Fired-At`, set by the hook script)
+- **WHEN** a hook arrives that fired before a hook already applied to the same session (a `PreToolUse` after the `Stop` of its turn, a `SessionStart` after the first prompt)
+- **THEN** its phase change is not applied and the result is `{kind: 'stale'}`
+- **AND** a late `SessionStart` still sets the transcript path, and a late task (a `Monitor`) still turns a finished turn into `watching`
+- **AND** a `PreToolUse` whose `PostToolUse` (same `tool_use_id`) already arrived changes nothing
+
 ### Requirement: CCS-04 — Stale-phase reaper
 
 The system SHALL run a periodic sweep that demotes sessions stuck in transient phases beyond fixed timeouts, ensuring the state never gets pinned by a missed hook.
@@ -180,9 +187,9 @@ The system SHALL provide a script that installs Topics App hook wrappers into `~
 - **AND** the Topics App `Stop` hook entry is added as an additional matcher
 
 #### Scenario: Fire-and-forget events do not hold the turn
-- **WHEN** the installer runs
-- **THEN** the `UserPromptSubmit`, `Stop` and `Notification` entries carry `async: true`
-- **AND** `SessionStart`, `SessionEnd`, `PreToolUse` and `PostToolUse` stay blocking, every entry with `timeout: 5`
+- **WHEN** the installer runs, or a Topics spawn passes the hooks through `--settings`
+- **THEN** the `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification` and `Stop` entries carry `async: true`
+- **AND** only `SessionEnd` stays blocking (an async hook running when the CLI exits is cut), every entry with `timeout: 5`
 - **AND** no entry is written for an event Claude Code does not emit (`MonitorArmed`, `MonitorClosed`)
 
 #### Scenario: Installer repairs entries written before the marker

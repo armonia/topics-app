@@ -13,6 +13,7 @@
  * substring of its `ps` line.
  *
  * @covers KANBAN-85
+ * @covers CCS-03
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -106,5 +107,30 @@ describe("the foreground marker outlives everything that is not its own PostTool
     const live = foregroundBashFor(SID);
     expect(live).toHaveLength(20);
     expect(live.at(-1), "the newest call is the one still worth protecting").toBe("bun test 39.test.ts");
+  });
+});
+
+/**
+ * The hooks are async: the `PreToolUse` of a short command can reach the server
+ * after its own `PostToolUse`. Applied in arrival order, it named as in flight
+ * a command that had already finished, for the life of the session.
+ */
+describe("a PreToolUse that arrives after its own PostToolUse", () => {
+  test("does not put a finished foreground command back in flight", () => {
+    endBashToolCall(SID, "Bash", { command: "bun test a.test.ts" }, "toolu_01");
+    fg("bun test a.test.ts", "toolu_01");
+    expect(foregroundBashFor(SID)).toEqual([]);
+  });
+
+  test("another call with the same text is still in flight", () => {
+    endBashToolCall(SID, "Bash", { command: "bun test a.test.ts" }, "toolu_01");
+    fg("bun test a.test.ts", "toolu_02");
+    expect(foregroundBashFor(SID)).toEqual(["bun test a.test.ts"]);
+  });
+
+  test("a background shell outlives its PostToolUse, so its late record still counts", () => {
+    endBashToolCall(SID, "Bash", { command: "bun run dev", run_in_background: true }, "toolu_03");
+    bg("bun run dev", "toolu_03");
+    expect(backgroundBashFor(SID).map((b) => b.command)).toEqual(["bun run dev"]);
   });
 });

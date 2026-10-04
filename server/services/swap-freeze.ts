@@ -51,6 +51,7 @@ import {
   containsAgentCli,
   descendantPids,
   guardSet,
+  recordClaimsProcess,
   toolRoots,
   type AgentSessionRef,
   type GuardRoles,
@@ -211,7 +212,7 @@ export function oneLine(command: string, max = LOG_COMMAND_MAX): string {
   return `${flat.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
 }
 
-type OncePerPidKind = "foreground" | "unrecognised" | "agentCli" | "guarded" | "peers";
+type OncePerPidKind = "foreground" | "unrecognised" | "agentCli" | "guarded" | "peers" | "staleRecord";
 
 export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   const now = deps.now ?? Date.now;
@@ -378,6 +379,13 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     for (const root of roots) {
       if (frozenRoots.has(root.pid)) continue;
       if (noEffectThisEpisode.has(root.pid)) continue;
+      // A process started well after the record that names it is a later
+      // command with the same text, most likely the same line run again in the
+      // foreground before its own (async) `PreToolUse` arrived.
+      if (root.kind === "claude-background" && !recordClaimsProcess(root.recordedAt, rootRefs.get(root.pid))) {
+        logOncePerPid(root.pid, "staleRecord", `[freeze] skipped "${oneLine(root.command)}": started after its background record, a later command with the same text, never frozen`);
+        continue;
+      }
       const tree = descendantPids(table, root.pid);
       const cli = containsAgentCli(table, tree);
       if (cli !== null) {

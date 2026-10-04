@@ -95,6 +95,12 @@ export interface HookPayload {
   transcript_path?: string;
   cwd?: string;
   timestamp?: number;
+  /**
+   * When the hook FIRED, epoch ms, stamped by our hook script and set by the
+   * route from its header (never from the CLI's body). Absent from an older
+   * script: the arrival time stands in.
+   */
+  fired_at?: number;
   // PreToolUse / PostToolUse:
   tool_name?: string;
   tool_input?: unknown;
@@ -412,6 +418,45 @@ export function applyHook(
       // Unknown event — keep advancing last_hook_at without changing phase.
       return base;
   }
+}
+
+/**
+ * A hook that FIRED before one already applied, arriving late (the hooks are
+ * async and race to the server, see `hook-order.ts`). The phase it would set
+ * is old news and is not applied; what it still carries is kept:
+ *  - `SessionStart`: the transcript path, which no later hook declares;
+ *  - any other: a turn already over (`awaiting-user`) that now has a task of
+ *    its own in flight is `watching`, as the `Stop` would have said had the
+ *    late `PreToolUse(Monitor)` reached the server before it.
+ * Returns `prev` itself when nothing moves.
+ */
+export function applyStaleHook(
+  prev: ClaudeSessionState,
+  hook: HookPayload,
+  now: number,
+  opts: { countingTasks?: number } = {},
+): ClaudeSessionState {
+  if (hook.hook_event_name === 'SessionStart') {
+    if (typeof hook.transcript_path !== 'string' || hook.transcript_path === prev.jsonlPath) return prev;
+    return transition(prev, { jsonlPath: hook.transcript_path }, now);
+  }
+  if (prev.phase === 'awaiting-user' && (opts.countingTasks ?? 0) > 0) {
+    return transition(prev, { phase: 'watching' }, now);
+  }
+  return prev;
+}
+
+/**
+ * A `SessionStart` of a session just born (`source: "startup"`) declares a
+ * transcript that holds only this session: it is followed from byte 0, not
+ * from its size when the hook arrives. The hook is async, and on a loaded Mac
+ * it reaches us after the first lines are written; snapping to the size then
+ * would skip them. A `resume` keeps the snap: its history is not replayed.
+ */
+export function newSessionFromByteZero(prev: ClaudeSessionState, next: ClaudeSessionState, hook: HookPayload): ClaudeSessionState {
+  if (hook.hook_event_name !== 'SessionStart' || hook.source !== 'startup') return next;
+  if (!next.jsonlPath || next.jsonlPath === prev.jsonlPath) return next;
+  return { ...next, jsonlOffset: 0 };
 }
 
 /**
