@@ -408,8 +408,8 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   const userRules = enabled.find((b) => b.id === "user:CLAUDE.md");
   if (userRules) {
     push("user-rules",
-      // La fonte la dice il blocco: e' l'hub `~/.agents/AGENTS.md`, o CLAUDE.md
-      // dove l'hub non c'e'. Scritta fissa, mentiva al modello sulla provenienza.
+      // The block names the source: the hub `~/.agents/AGENTS.md`, or CLAUDE.md
+      // where there is no hub. Hard-coded, it lied to the model about the origin.
       `The user's global instructions, from ${userRules.label || "~/.claude/CLAUDE.md"}. They apply to every task and override defaults:\n\n${userRules.content}`);
   }
   const skills = enabled.find((b) => b.id === "synthetic:skills");

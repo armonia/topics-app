@@ -53,7 +53,7 @@ describe("le regole vengono dall'hub ~/.agents quando c'e'", () => {
     expect(rules.path).toBe(join(home, ".agents", "AGENTS.md"));
     expect(rules.content).toContain("regola dall'hub");
     expect(rules.content).toContain("attention-span:start");
-    // Niente doppione: CLAUDE.md non viene aggiunto sopra l'hub.
+    // No duplicate: CLAUDE.md is not added on top of the hub.
     expect(rules.content).not.toContain("regola vecchia");
   });
 

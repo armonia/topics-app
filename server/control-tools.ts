@@ -140,10 +140,10 @@ export interface ControlDispatchDeps extends SessionControlDeps {
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   workspaceDir: string;
-  /** Le cartelle-progetto già note: `create_project` ne deduce dove nascere,
-   *  invece di finire nel workspace. Assente ⇒ ricade sul workspace. */
+  /** The project folders already known: `create_project` infers from them where
+   *  to be born, instead of ending up in the workspace. Absent ⇒ the workspace. */
   listProjectDirs?: () => string[];
-  /** Per registrare il progetto nuovo, che fuori dal workspace nessuno ripesca. */
+  /** To register the new project, which outside the workspace no scan picks up. */
   projectStore?: Pick<ProjectStore, "getByPath" | "slugify" | "create"> | null;
   /**
    * Risolve un permalink a una tab. INIETTATA e non importata: il resolver vuole

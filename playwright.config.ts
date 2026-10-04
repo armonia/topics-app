@@ -676,6 +676,9 @@ export default defineConfig({
         // Phone push enrolment: the service worker on a non-localhost origin
         // and the Settings toggle, on the engine iOS ships (stubbed PushManager).
         "**/push-phone-enroll.spec.ts",
+        // The ‹ of a browser tab moves the page shown in the hosted frame, not
+        // only the tab's label (reported 04/10), read on the engine that ships.
+        "**/browser-back.spec.ts",
         // Target size, text size and contrast on every main surface, measured
         // in the engine that ships (WebKit), two viewports, two themes.
         "**/usability-audit.spec.ts",

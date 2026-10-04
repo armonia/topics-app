@@ -2641,3 +2641,56 @@ avviata (rrweb ViewportResize), non solo quello iniziale.
 - **WHEN** l'utente del telefono fa scorrere la pagina
 - **THEN** il viewport passa alle dimensioni del telefono
 - **AND** il Mac vede la pagina in scala e centrata, e non su bianco in alto a sinistra
+
+### Requirement: BROWSER-BACK-01 — A framed page SHALL follow the pane's address, so ‹ and › move the page
+
+On the web, a browser pane whose site can be framed shows the page in a hosted
+`<iframe>` that is never moved in the DOM. Every address the pane reaches after
+the first one (an address typed in the tab's sheet, the sheet's ‹ and ›) SHALL
+reach that frame as a navigation of the frame itself, and SHALL NOT add an entry
+to the app's session history (the browser's Back and the app's /task/ permalinks
+live there). A remount that hands back the address the frame already shows (a
+cross-group move) SHALL NOT reload it.
+
+A link clicked inside the framed page is history the server-side browser never
+sees. The tab's ‹ SHALL first undo those in-page steps, showing the page the link
+left, and › SHALL redo them; only past them SHALL ‹ and › move the server's
+history.
+
+Until 04/10/2026 the frame's address was written only when the frame was
+created: the tab's label followed every navigation and the frame kept showing
+the first page, so ‹ looked dead.
+
+#### Scenario: back and forward on a framed page
+- **GIVEN** a web browser pane on a framable site, showing page one, then page two typed in the tab's sheet
+- **THEN** the frame SHALL show page two
+- **WHEN** ‹ is pressed in the tab's sheet
+- **THEN** the frame SHALL show page one, and › SHALL bring page two back, in the same frame
+- **AND** the app's `history.length` SHALL be the same as before page two was typed
+
+#### Scenario: back after a link inside the framed page
+- **GIVEN** a framed page two, reached by an address typed in the tab's sheet
+- **WHEN** a link inside the page takes the frame to page three, and ‹ is pressed in the tab's sheet
+- **THEN** the frame SHALL show page two and the server's history SHALL NOT be asked to move
+- **AND** › SHALL show page three again, and ‹ pressed past page two SHALL move the server's history
+
+### Requirement: BROWSER-BACK-02 — The ‹ of a native pane SHALL be enabled whenever there is history behind the page
+
+On the desktop app the ‹ and › of a browser pane (tab sheet and context menu)
+SHALL be enabled exactly when the view's history has an entry behind, and ahead
+of, the current one. Their state SHALL be refreshed when a load settles AND
+whenever the pane's address changes: a link that loads within one drain of the
+shell's coalesced state, or a same-document navigation, makes no loading edge.
+
+On Windows, where WebView2 exposes no history list, the shell SHALL send
+WebView2's own `CanGoBack` / `CanGoForward` with the empty list, and the client
+SHALL read the arrows from them.
+
+#### Scenario: a link that loads at once
+- **GIVEN** a native pane on page A with nothing behind it, ‹ disabled
+- **WHEN** a link inside the page takes it to page B and the shell reports B already loaded
+- **THEN** ‹ SHALL be enabled
+
+#### Scenario: Windows
+- **GIVEN** a native pane on Windows with history behind the page
+- **THEN** the shell SHALL report `canGoBack: true` and ‹ SHALL be enabled

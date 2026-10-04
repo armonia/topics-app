@@ -25,9 +25,9 @@ import { afterAll, beforeAll, describe, expect, jest, test } from "bun:test";
 import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { AiBridgeClient, BridgeAckStalled, isRetryableBridgeError } from "./ai-bridge-client";
 
-// Lo stato del modulo si risolve dalla cartella di lavoro: senza DATA_DIR, lanciato
-// dal checkout di produzione, scriveva nello stato vivo. Ora il cancello di
-// `resolveStateDir` lo rifiuta, e qui si isola come ogni altro file.
+// The module resolves its state from the working directory: without DATA_DIR,
+// run from the production checkout, it wrote into the live state. The gate in
+// `resolveStateDir` now refuses that, and this file isolates like every other.
 const STATE_ROOT = testTmpDir("ai-bridge-ack-order");
 beforeAll(() => setupTestDataDir(`${STATE_ROOT}/data`));
 afterAll(() => cleanupTestDataDir(STATE_ROOT));

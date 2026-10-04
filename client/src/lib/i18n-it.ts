@@ -243,6 +243,7 @@ const IT: Dict = {
   'ctxInspector.section.openclaw': 'Base OpenClaw',
   'ctxInspector.section.memory': 'Memoria',
   'ctxInspector.section.prompt': 'Prompt di sistema',
+  'ctxInspector.section.rules': 'Regole globali',
   'ctxInspector.section.template': 'Template del progetto',
   'ctxInspector.section.files': 'File allegati',
   'ctxInspector.section.pinned': 'Messaggi appuntati',

@@ -41,8 +41,8 @@ describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   });
 
   test("IL DIFETTO, chiuso: senza NESSUNA delle due un test non apre il REPO, esplode", () => {
-    // Prima cadeva in silenzio sullo stato vivo; ora `resolveStateDir` stesso
-    // riconosce `bun test` (anche con NODE_ENV vuoto) e rifiuta.
+    // It used to fall silently onto the live state; now `resolveStateDir` itself
+    // recognises `bun test` (even with NODE_ENV empty) and refuses.
     expect(() => resolveStateDir(ROOT, {} as NodeJS.ProcessEnv)).toThrow(/live state dir/);
   });
 

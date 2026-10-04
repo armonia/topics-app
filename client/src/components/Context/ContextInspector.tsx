@@ -149,7 +149,11 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   const openclawSources = sources.filter(s => s.category === 'openclaw');
   const memorySources = sources.filter(s => s.category === 'memory');
   const promptSources = sources.filter(s => s.category === 'prompt');
-  const templateSources = sources.filter(s => s.category === 'template');
+  // The user's global rules (hub `~/.agents/AGENTS.md`) ride in the `template`
+  // category but hold for every topic: they get their own section, shown with or
+  // without a project, while project templates still need a project.
+  const rulesSources = sources.filter(s => s.id === 'user:CLAUDE.md');
+  const templateSources = sources.filter(s => s.category === 'template' && s.id !== 'user:CLAUDE.md');
   const fileSources = sources.filter(s => s.category === 'file');
   const pinnedSources = sources.filter(s => s.category === 'pinned');
 
@@ -323,6 +327,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             {renderSection(tr('ctxInspector.section.openclaw'), openclawSources)}
             {renderSection(tr('ctxInspector.section.memory'), memorySources)}
             {renderSection(tr('ctxInspector.section.prompt'), promptSources)}
+            {renderSection(tr('ctxInspector.section.rules'), rulesSources)}
             {topic.projectPath && renderSection(tr('ctxInspector.section.template'), templateSources)}
 
             {/* Context Files — sempre presente: l'intestazione è un'azione. */}

@@ -3429,10 +3429,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const body = (await readJSON(req)) as any;
         const safeName = (typeof body?.name === "string" ? body.name.trim() : "").replace(/[^a-zA-Z0-9_-]/g, "");
         if (!safeName) return json({ error: "name (alphanumeric) is required", code: "invalid_input" }, 400);
-        // Nella cartella dei progetti, non nel workspace: il workspace è
-        // plumbing dell'agente, e un progetto battuto a mano che finisce lì
-        // dispaccia ma non lo ritrovi più. Creazione e registrazione stanno in
-        // `scaffoldNewProject`, la stessa usata da chat e sessioni.
+        // In the projects folder, not the workspace: the workspace is the
+        // agent's plumbing, and a hand-typed project that lands there
+        // dispatches but can no longer be found. Creation and registration live
+        // in `scaffoldNewProject`, the same one chat and sessions use.
         let dir: string;
         try {
           const r = scaffoldNewProject(safeName, {

@@ -1,10 +1,10 @@
 /**
- * Un processo di test non apre lo stato vivo (change `contesto-dall-hub`).
+ * A test process does not open the live state (change `contesto-dall-hub`).
  *
- * Due volte qualcosa e' passato: i tre topic «bench progetto» del 16/08 e una
- * memoria globale con una stringa di test dal 25/08 al 02/10. Il cancello sta in
- * `resolveStateDir`, la porta da cui passano tutti i moduli che scrivono stato,
- * non solo `createAppContext`.
+ * Twice something got through: the three test-bench project topics on 16/08 and a
+ * global memory holding a test string from 25/08 to 02/10. The gate sits in
+ * `resolveStateDir`, the door every state-writing module goes through, not
+ * only `createAppContext`.
  *
  * @covers CTX-HUB-03
  */
@@ -20,7 +20,7 @@ import { browserStateBaseDir } from "../browser-state-store";
 const REPO = resolve(import.meta.dir, "..", "..");
 const SERVER_MAIN = join(REPO, "server.ts");
 
-/** Toglie le variabili che isolano lo stato per tutta la durata di `fn`. */
+/** Removes the variables that isolate the state for the whole of `fn`. */
 function withoutIsolation(fn: () => void): void {
   const saved = { DATA_DIR: process.env.DATA_DIR, TOPICS_DATA_DIR: process.env.TOPICS_DATA_DIR };
   delete process.env.DATA_DIR;

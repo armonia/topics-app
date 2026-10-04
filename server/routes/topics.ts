@@ -753,8 +753,8 @@ export function createTopicsRouter(
     return isExistingDir(wsDir) ? wsDir : null;
   }
 
-  /** Ogni cartella-progetto che il server già conosce (store, topic, workspace):
-   *  da qui `scaffoldNewProject` deduce DOVE l'utente tiene i suoi progetti. */
+  /** Every project folder the server already knows (store, topics, workspace):
+   *  from these `scaffoldNewProject` infers WHERE the user keeps their projects. */
   function knownProjectPaths(): string[] {
     const out: string[] = [];
     try { for (const p of projectStore.list()) out.push(p.path); } catch { /* store best-effort */ }

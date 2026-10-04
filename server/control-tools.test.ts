@@ -208,9 +208,9 @@ describe("dispatchControlToolCall — create_project", () => {
   });
 
   test("a new project is born next to the user's projects, not in the agent workspace", async () => {
-    // Il caso del 02/10: una sessione ha creato `pop-demo` dentro
-    // ~/.openclaw/workspace mentre i progetti veri stanno in ~/Projects. Due
-    // progetti noti nella stessa cartella bastano a farne la consuetudine.
+    // The 02/10 case: a session created `pop-demo` inside ~/.openclaw/workspace
+    // while the real projects live in ~/Projects. Two known projects in the
+    // same folder are enough to make it the convention.
     const h = makeDeps();
     const projectsRoot = mkdtempSync(join(tmpdir(), "ctrl-projects-"));
     try {

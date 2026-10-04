@@ -1,7 +1,9 @@
 /**
  * A chat that waits on its own `spawn_agent` child is not idle: the child's
- * result wakes it. Il 04/10 topic:d740f8ae prendeva un «Objective still open»
- * ogni ~2 minuti mentre `anim-fix` lavorava: 12 turni su 16 a vuoto, 37 $.
+ * result wakes it. On 04/10 topic:d740f8ae got an «Objective still open» every
+ * ~2 minutes while `anim-fix` worked: 12 turns out of 16 wasted, $37.
+ *
+ * @covers SUBAGENT-12
  */
 import { describe, expect, test } from "bun:test";
 import { backgroundOfTurn } from "./goal-continuation";

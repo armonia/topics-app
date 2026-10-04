@@ -89,10 +89,10 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
 
   return async function memoryRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
-    // La memoria globale di Topics e' ritirata (change `contesto-dall-hub`):
-    // le regole comuni a tutti gli agenti stanno nell'hub `~/.agents`, e il
-    // pannello del contesto le mostra in sola lettura. 410 e non 404: la route
-    // e' esistita, e un client vecchio deve capire che non tornera'.
+    // Topics' global memory is retired (change `contesto-dall-hub`): the rules
+    // shared by every agent live in the hub `~/.agents`, and the context panel
+    // shows them read-only. 410 and not 404: the route existed, and an old
+    // client has to understand it will not come back.
     if ((pathname === "/api/memory" && (method === "GET" || method === "PUT"))
       || (pathname === "/api/memory/global" && method === "DELETE")) {
       return json({

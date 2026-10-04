@@ -7,3 +7,6 @@ modifiche:
     scelte: [3]
     cambia: "B3 ridefinita su soglie assolute O1-O4 misurate sui log dal 27/09, al posto del confronto col «prima» del 15/09 perso"
     risposta: "peril resto mi sembrano tutte cose top e pulite?"
+  - data: "2026-10-04"
+    cambia: "tornata 5 punto 3: il browser remoto delle pane resta su Chromium, con l'ok registrato in nochrome limitato al server Topics"
+    risposta: "ok"
