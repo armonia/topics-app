@@ -1,12 +1,11 @@
 /**
- * ONE TERMINAL IN BACKGROUND, EVERY SURFACE SAYS SO (ATTN-12, design 2.3).
+ * ONE TERMINAL WAITING ON ITS JOB, EVERY SURFACE SAYS «AT WORK» (ATTN-12).
  *
  * A hooked claude-code terminal whose turn left a Bash running is, on the
- * server, in the phase `watching` and in the attention tier `background` at
- * once. The phase partition counts `watching` as active; the tier is what the
- * surfaces must read. Before, the terminal's own tab said `background` while
- * its project tab and row said `working` («a chat of this project is
- * answering») and the menu of agents listed it as working.
+ * server, in the phase `watching` and in the attention state `working` (a job
+ * the subject waits for is work in progress, since 2026-10-04). Its tab, its
+ * project and the menu of agents say the same: the working ring and the
+ * working list. Before, the tab said a grey `background` of its own.
  *
  * @covers ATTN-12
  */
@@ -28,7 +27,7 @@ const term = { id: 'S', type: 'claude-code', name: 'bgwait', cwd: '/p', claudeSe
 beforeEach(() => {
   attentionActions.reset();
   attentionActions.applyInit([{
-    subject: 'terminal:S', state: 'background', reason: null, outcome: null, detail: null,
+    subject: 'terminal:S', state: 'working', reason: null, outcome: null, detail: null,
     since: '2026-10-03T10:00:00.000Z', epoch: 0, seenEpoch: 0, lit: false, unread: 0, turnUnseen: false,
     lastTurnAt: '2026-10-03T10:00:00.000Z',
     background: [{ id: 'bash_1', kind: 'bash', label: 'sleep 600', startedAt: '2026-10-03T10:00:00.000Z' }],
@@ -46,17 +45,22 @@ function loaderOf(el: ReactElement): string | null {
 }
 
 describe('a terminal waiting on its background task', () => {
-  test('its tab and its project tab draw the grey glyph, not the working ring', () => {
-    expect(loaderOf(<TerminalStreamingSpinner sessionId="S" />)).toBe('background');
-    expect(loaderOf(<ProjectStreamingSpinner projectPath="/p" />)).toBe('background');
+  test('its tab and its project tab draw the working ring', () => {
+    expect(loaderOf(<TerminalStreamingSpinner sessionId="S" />)).toBe('working');
+    expect(loaderOf(<ProjectStreamingSpinner projectPath="/p" />)).toBe('working');
   });
 
-  test('the menu of agents lists it under background, not working', () => {
+  test('without the phase (hooks silent) the attention state alone keeps it at work', () => {
+    signalsActions.setClaudePhaseTerminals(new Set(), new Set(['S']));
+    expect(loaderOf(<TerminalStreamingSpinner sessionId="S" />)).toBe('working');
+  });
+
+  test('the menu of agents lists it among the working ones', () => {
     const sig = useSignalsStore.getState();
     const menu = activeAgentRowsFrom([term], {}, {
       active: sig.claudePhaseActiveTermIds, resting: sig.claudePhaseRestingTermIds, busy: sig.terminalBusyIds,
       liveStream: sig.liveStreamTopics, hydratedStream: sig.hydratedStreamTopics, attention: useAttentionStore.getState().rows,
     });
-    expect({ working: menu.working.map((r) => r.id), background: menu.background.map((r) => r.id) }).toEqual({ working: [], background: ['S'] });
+    expect({ working: menu.working.map((r) => r.id), finished: menu.finished.map((r) => r.id) }).toEqual({ working: ['S'], finished: [] });
   });
 });

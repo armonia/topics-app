@@ -4,3 +4,8 @@ creato: 2026-10-03
 richiesta: "inoltre ti segnalo che mi da portando le notifiche sulle pane, anche se in realtà è in attesa di lavori in bg, dovremmmo volutare al meglio tutto il sistema di notifiche e rifarlo al meglio perchè al momento non sono sincronizzare e reali neanche le notifiche dal tasto sidebar"
 approvato: 2026-10-03 23:22
 risposta: "mi sembra top! vai pure"
+modifiche:
+  - data: "2026-10-04"
+    scelte: [2]
+    cambia: "ATTN-01/02/03/09/12, CHROME-COUNT-01, TAB-BADGE-01, BGVIS-01/03/08: lo stato `background` sparisce, un soggetto che aspetta il suo lavoro è `working` (in corso) su riga, tab, progetto, inbox, menu agenti; l'unico stato a parte è il server acceso (run_script, o run_command senza sveglia, che ascolta su una porta), col segno `row-server-sign` sulla riga della sidebar, che non conta come lavoro né accende attenzione"
+    risposta: "Comunque, forse dovremmo uniformare lo stato in cui sta attendendo un job da finire, un topic, perché dovrebbe risultare anche quello in progress. Secondo me, al massimo dovremmo tenere uno stato se c'è, ad esempio, un server acceso."

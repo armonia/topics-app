@@ -119,9 +119,9 @@ test.describe("Tab Notification Badges", () => {
     const badge = tabA.locator("span").filter({ hasText: /^3$/ });
     await expect(badge).toBeVisible({ timeout: 5000 });
 
-    // Unread on a subject that is not lit paints nothing: a chat in
-    // background with two unread (a woken turn) has no number.
-    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "background", unread: 2 }));
+    // Unread on a subject that is not lit paints nothing: a chat waiting on
+    // its job with two unread (a woken turn) has no number.
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "working", unread: 2 }));
     await expect(tabA.locator("[data-notification-count]")).toHaveCount(0, { timeout: 5000 });
     // A lit subject with no unread still shows one.
     await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "needs-you", reason: "question", unread: 0 }));

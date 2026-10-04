@@ -141,7 +141,13 @@ export function baselinePath(env: NodeJS.ProcessEnv = process.env): string {
   return join(envDataDir(env) || "/tmp/topics-test-data", "e2e-baseline.json");
 }
 
-export function createE2eRouter(ctx: AppContext): RouteHandler {
+/** What the bench reaches of the server's singletons. */
+export interface E2eRouterHooks {
+  /** One pass of the Claude session reaper at the given clock (`reapOnce`). */
+  reapClaudeSessions?: (now: number) => number;
+}
+
+export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): RouteHandler {
   const { db, json } = ctx;
   /** Hot copy: avoids re-reading and re-parsing the JSON for every spec file. */
   let cached: DbSnapshot | null = null;
@@ -380,6 +386,17 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const views = Array.isArray(body?.views) ? body!.views! : [];
       setInjectedSwapFreezeViews(views);
       return json({ ok: true, views: views.length });
+    }
+
+    // POST /api/test/claude-sessions/reap {aheadMs} - one pass of the session
+    // reaper with its clock `aheadMs` in the future: the silence after which it
+    // demotes a turn is ten minutes to an hour in production. The pass is the
+    // real `reapOnce`, rules and attention sync included.
+    if (method === "POST" && pathname === "/api/test/claude-sessions/reap") {
+      if (!hooks.reapClaudeSessions) return json({ error: "no reaper wired" }, 501);
+      const body = (await req.json().catch(() => null)) as { aheadMs?: number } | null;
+      const ahead = typeof body?.aheadMs === "number" && body.aheadMs >= 0 ? body.aheadMs : 0;
+      return json({ ok: true, changed: hooks.reapClaudeSessions(Date.now() + ahead) });
     }
 
     // POST /api/test/stale-stream-clock {timeoutMs} - the silence after which the

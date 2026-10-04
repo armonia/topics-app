@@ -22,7 +22,7 @@ function snap(subject: string, state: AttentionState, over: Partial<AttentionSna
   return {
     subject, state, reason: state === 'needs-you' ? 'question' : null, outcome: state === 'finished' ? 'done' : null, detail: null,
     since: '2026-10-03T10:00:00.000Z', epoch: 1, seenEpoch: 0, lit: state === 'needs-you' || state === 'finished', unread: 0,
-    turnUnseen: false, lastTurnAt: null, background: state === 'background' ? [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] : [], ...over,
+    turnUnseen: false, lastTurnAt: null, background: [], ...over,
   };
 }
 /** `t:<id>` is a chat, `s:<id>` a terminal. */
@@ -93,10 +93,9 @@ describe('sidebarItemState — in quale sezione sta un item', () => {
     expect(sidebarItemState(project('/p'), none)).toBe('rest');
   });
 
-  test('il tier decide: needs-you, finished, background, working', () => {
+  test('il tier decide: needs-you, finished, working', () => {
     expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'needs-you' }))).toBe('needs-you');
     expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'finished' }))).toBe('finished');
-    expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'background' }))).toBe('background');
     expect(sidebarItemState(chat('t1'), rows({ 't:t1': 'working' }))).toBe('working');
   });
 
@@ -134,7 +133,7 @@ describe('groupSidebarItemsByState', () => {
 
   test('le sezioni esistono sempre, anche vuote', () => {
     const g = groupSidebarItemsByState([], none);
-    expect(g).toEqual({ 'needs-you': [], finished: [], background: [], working: [], rest: [] });
+    expect(g).toEqual({ 'needs-you': [], finished: [], working: [], rest: [] });
   });
 
   test('i FIGLI di un progetto entrano nelle sezioni per conto proprio', () => {
@@ -155,8 +154,8 @@ describe('groupSidebarItemsByState', () => {
 
   test('nessun item si perde né si duplica', () => {
     const items = [chat('a'), terminal('s1'), project('/p'), chat('b'), terminal('s2')];
-    const g = groupSidebarItemsByState(items, rows({ 't:a': 'needs-you', 's:s2': 'finished', 't:b': 'background', 's:s1': 'working' }));
-    const all = [...g['needs-you'], ...g.finished, ...g.background, ...g.working, ...g.rest];
+    const g = groupSidebarItemsByState(items, rows({ 't:a': 'needs-you', 's:s2': 'finished', 't:b': 'working', 's:s1': 'working' }));
+    const all = [...g['needs-you'], ...g.finished, ...g.working, ...g.rest];
     expect(all.length).toBe(items.length);
     expect(all.map(i => i.id).sort()).toEqual(items.map(i => i.id).sort());
   });
@@ -167,7 +166,8 @@ describe('groupSidebarItemsByState', () => {
     expect(g.working.map(i => i.name)).toEqual(['busy']);
   });
 
-  test('a chat waiting on its background work sits in «In background», never in «Ti aspetta» (BG-4)', () => {
-    expect(sidebarItemState(chat('bg'), rows({ 't:bg': 'background' }))).toBe('background');
+  test('a chat waiting on its background work sits in «Al lavoro», never in «Ti aspetta» (BG-4)', () => {
+    const waitsOnJob: AttentionRows = new Map([['topic:bg', snap('topic:bg', 'working', { background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] })]]);
+    expect(sidebarItemState(chat('bg'), waitsOnJob)).toBe('working');
   });
 });

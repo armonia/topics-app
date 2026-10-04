@@ -31,8 +31,12 @@ export { topicSubject, terminalSubject };
 
 export type { AttentionTier };
 
-/** Every tier a surface can draw: the lit ones, plus the two that only show work. */
-export type AttentionLevel = AttentionTier | 'background' | 'working';
+/**
+ * Every tier a surface can draw: the lit ones, plus `working`, which only
+ * shows work. A closed turn whose tasks still run is `working` too: the server
+ * composes it so (rule 7 of `server/attention/compose.ts`).
+ */
+export type AttentionLevel = AttentionTier | 'working';
 
 /** What a surface reads about one subject. */
 export interface SubjectAttention {
@@ -79,7 +83,6 @@ function ms(iso: string | null | undefined): number {
 function tierOfRow(row: AttentionSnapshot): AttentionLevel | null {
   if (row.state === 'needs-you') return 'needs-you';
   if (row.state === 'finished') return row.lit ? (row.outcome === 'error' ? 'error' : 'done') : null;
-  if (row.state === 'background') return 'background';
   if (row.state === 'working') return 'working';
   return null;
 }
@@ -321,7 +324,7 @@ export const attentionActions = {
 /**
  * Does the person looking at this subject have something to tell the server?
  * A lit epoch not yet seen, unread messages, or a closed turn not yet seen
- * (a chat in `background` whose turn the person read: T7 must know). A
+ * (a chat waiting on its job whose turn the person read: T7 must know). A
  * `needs-you` already seen stays lit and asks for nothing more.
  */
 export function needsSeen(a: SubjectAttention): boolean {

@@ -54,7 +54,7 @@ describe("an empty woken turn", () => {
     const subject = topicSubject("t-empty-wake");
     setBackgroundTasks(subject, { bmon01: { kind: "monitor", label: "tail -f build.log", startedAt: new Date().toISOString() } });
     const before = getAttention(subject);
-    expect(before.state).toBe("background");
+    expect(before.state).toBe("working");
 
     const url = new URL("http://topics.test/api/chat");
     const resp = await chatRouter(new Request(url.toString(), { method: "POST", headers: { "content-type": "application/json" },

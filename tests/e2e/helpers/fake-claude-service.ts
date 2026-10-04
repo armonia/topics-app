@@ -9,11 +9,14 @@
  * `$SRVCARD_PORT` with `wake: false`, as an agent starts a dev server, and
  * ends the turn with "SRV-STARTED". "srvcard-wake" starts the same server on
  * `$SRVCARD_WAKE_PORT` with the default wake, and ends with "WAKE-STARTED".
+ * "srvcard-script" starts the project's dev server script with `run_script`, as
+ * an agent starts a declared dev server, and ends with "SCRIPT-STARTED".
  * The server stops by itself once `$SRVCARD_DIR` is gone.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { callRunCommand } from "../../../server/mcp/command-tools";
+import { callRunScript } from "../../../server/mcp/topics-mcp-server";
 
 const SESSION_ID = "00000000-0000-4000-8000-0000000000c9";
 const DIR = process.env.SRVCARD_DIR ?? "";
@@ -71,6 +74,21 @@ async function startServer(port: string, wake: boolean, description: string, don
   finish(result.startsWith("started") ? done : result);
 }
 
+/** The project's dev server script, through the bridge's own `run_script` code. */
+async function startScript(): Promise<void> {
+  const tool = "toolu_srvcard_script";
+  out({ type: "assistant", session_id: SESSION_ID, message: { role: "assistant", content: [{ type: "tool_use", id: tool, name: "mcp__topics__run_script", input: { script: "serve" } }], model: "claude-finto" } });
+  const args = bridgeArgs();
+  let result: string;
+  try {
+    result = args ? await callRunScript(args, { script: "serve" }) : "NO-MCP-CONFIG";
+  } catch (err) {
+    result = `RUN-FAILED ${err instanceof Error ? err.message : String(err)}`;
+  }
+  out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: tool, content: result }] } });
+  finish(result.startsWith("started") ? "SCRIPT-STARTED" : result);
+}
+
 function textOf(line: string): string | null {
   try {
     const c = (JSON.parse(line) as { message?: { content?: unknown } })?.message?.content;
@@ -96,6 +114,7 @@ process.stdin.on("data", (chunk: Buffer) => {
     if (text === null) continue;
     init();
     if (text.includes("srvcard-start")) void startServer(process.env.SRVCARD_PORT ?? "0", false, "SRVCARD-SERVER", "SRV-STARTED");
+    else if (text.includes("srvcard-script")) void startScript();
     else if (text.includes("srvcard-wake")) void startServer(process.env.SRVCARD_WAKE_PORT ?? "0", true, "SRVCARD-WAKE", "WAKE-STARTED");
     else finish(`got: ${text.slice(0, 200)}`);
   }

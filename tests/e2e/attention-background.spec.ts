@@ -82,17 +82,17 @@ test.describe("background work: no alert while it runs, one when it returns", ()
       });
       await postHook(request, "Stop", { session_id: sid, cwd: term.cwd });
 
-      // In background: no fill, no number, nothing in the inbox, the grey glyph.
-      await expectAttention(frames, subject, { state: "background", lit: false }, "the turn that left a job running did not go to background");
+      // At work: no fill, no number, nothing lit in the inbox, the working ring.
+      await expectAttention(frames, subject, { state: "working", lit: false }, "the turn that left a job running is not at work");
       await expect(tabT).not.toHaveAttribute("data-attention", /.+/);
       await expect(tabT.locator("[data-notification-count]")).toHaveCount(0);
-      await expect(tabT.locator('[data-loader-state="background"]'), "the terminal tab has no grey glyph").toBeVisible({ timeout: 10_000 });
+      await expect(tabT.locator('[data-loader-state="working"]'), "the terminal tab has no working ring").toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("inbox-count")).toHaveCount(0);
       await page.getByTestId("inbox-button").click();
       const panel = page.getByTestId("inbox-panel");
       await expect(panel).toBeVisible();
       await expect(panel.getByTestId("inbox-row")).toHaveCount(0);
-      await expect(panel.getByTestId("inbox-quiet"), "the quiet line does not count the terminal in background").toHaveAttribute("data-background", "1");
+      await expect(panel.getByTestId("inbox-quiet"), "the quiet line does not count the terminal at work").toHaveAttribute("data-working", "1");
       await page.keyboard.press("Escape");
       await expect(panel).toBeHidden();
       expect(await bannerLog(page), "a banner rang while the job was still running").toEqual([]);
@@ -121,7 +121,7 @@ test.describe("background work: no alert while it runs, one when it returns", ()
     }
   });
 
-  test("a chat whose turn leaves a background job shows the grey glyph and the line, and alerts once when the job returns", async ({ page, request, browser }) => {
+  test("a chat whose turn leaves a background job shows the working ring and the line, and alerts once when the job returns", async ({ page, request, browser }) => {
     test.info().annotations.push({ type: "spec", description: "ATTN-02" });
     const dir = mkdtempSync(join(tmpdir(), "bgwait-chat-"));
     const removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-background-job.ts"), { BGKEEP_DIR: dir });
@@ -137,12 +137,12 @@ test.describe("background work: no alert while it runs, one when it returns", ()
       await expect(tab).toBeVisible({ timeout: 15_000 });
       await tab.click();
 
-      // The turn launches a background Bash and ends: background, not finished.
+      // The turn launches a background Bash and ends: at work, not finished.
       await runChatTurn(request, chat.id, "bgkeep-start");
-      await expectAttention(frames, subject, { state: "background", lit: false }, "the turn that left the job running did not go to background");
+      await expectAttention(frames, subject, { state: "working", lit: false }, "the turn that left the job running is not at work");
       const line = page.getByTestId("background-work-line");
       await expect(line).toContainText("BGKEEP-JOB", { timeout: 20_000 });
-      await expect(tab.locator('[data-loader-state="background"]'), "the chat tab has no grey glyph").toBeVisible({ timeout: 10_000 });
+      await expect(tab.locator('[data-loader-state="working"]'), "the chat tab has no working ring").toBeVisible({ timeout: 10_000 });
       await expect(tab).not.toHaveAttribute("data-attention", /.+/);
       await expect(page.getByTestId("inbox-count")).toHaveCount(0);
       expect(await bannerLog(page), "a banner rang while the job was running").toEqual([]);

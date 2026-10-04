@@ -78,7 +78,7 @@ async function buildScene(request: APIRequestContext, page: Page, stamp: number)
   await expect
     .poll(() => [...frames.rows().values()].filter((r) => r.lit).length, { timeout: 20_000, message: "the subjects did not all light" })
     .toBe(FINISHED.length + 1);
-  await expect.poll(() => frames.rows().get(terminalSubject(background.id))?.state, { timeout: 15_000 }).toBe("background");
+  await expect.poll(() => frames.rows().get(terminalSubject(background.id))?.state, { timeout: 15_000 }).toBe("working");
   return { question, finished, background, front };
 }
 
@@ -115,7 +115,8 @@ test.describe("the inbox: opening marks nothing, the keyboard does the rest", ()
       await expect(waiting).toHaveCount(1);
       await expect(waiting.first()).toHaveAttribute("data-subject", terminalSubject(scene.question.id));
       await expect(finished).toHaveCount(FINISHED.length);
-      await expect(panel(page).getByTestId("inbox-quiet")).toHaveAttribute("data-background", "1");
+      // The terminal waiting on its job is at work: one count, no row of its own.
+      await expect(panel(page).getByTestId("inbox-quiet")).toHaveAttribute("data-working", "1");
       // The focus is on the first row: the oldest wait.
       await expect.poll(() => focusedSubject(page)).toBe(terminalSubject(scene.question.id));
       for (const scheme of ["light", "dark"] as const) {

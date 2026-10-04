@@ -434,7 +434,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
     });
   });
 
-  test("una chat in attesa del suo lavoro in background è un agente attivo, sotto un'intestazione sua", async ({ page, request }) => {
+  test("una chat in attesa del suo lavoro in background è un agente al lavoro, fra gli altri", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-03" });
     // No turn open, but the last one left an agent running: the route says
     // `background`, and that work holds a CLI in RAM right now.
@@ -458,14 +458,15 @@ test.describe("il menu utente apre i livelli di lato", () => {
           }),
         }));
 
-      // The tier `background` and its task come from the attention state now
-      // (notifications-redesign): staged as the server writes it, after the
-      // snapshot of the socket, which replaces whatever came before.
+      // The state `working` with its task comes from the attention state
+      // (notifications-redesign, one state since 2026-10-04): staged as the
+      // server writes it, after the snapshot of the socket, which replaces
+      // whatever came before.
       const ws = await interceptWebSocket(page, /\/ws(?:\?|$)/);
       await goToApp(page);
       await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15_000 }).toBeGreaterThan(0);
       ws.send(attentionUpdated(`topic:${chat.id}`, {
-        state: "background",
+        state: "working",
         background: [{ id: "agent-1", kind: "agent", label: "Verifica build", startedAt: new Date().toISOString() }],
       }));
       const badge = page.getByTestId("identity-agents-badge").locator("[data-notification-count]");
@@ -482,7 +483,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
       const menu = await openProfileMenu(page);
       // The working digit in the tail of the system row is the badge's number,
       // from the same rows (BGVIS-03), and it says it with the badge's own
-      // sentence: the one agent is background work, the chat is not answering.
+      // sentence.
       const tailWorking = menu.getByTestId("presence-summary").locator('[data-signal="working"]');
       await expect(tailWorking).toHaveText("1", { timeout: 10_000 });
       const badgeTitle = await badge.getAttribute("title");
@@ -495,11 +496,10 @@ test.describe("il menu utente apre i livelli di lato", () => {
       const level = page.getByTestId("menu-system-performance-menu");
       await expect(level).toBeVisible({ timeout: 10_000 });
 
-      // One row per chat, in its own list and never among the working ones.
-      const rows = level.getByTestId("background-agent-row");
+      // One row per chat, among the working ones: a job it waits for is work.
+      const rows = level.getByTestId("active-agent-row");
       await expect(rows).toHaveCount(1);
       await expect(rows.first()).toContainText("E2E Background Agent");
-      await expect(level.getByTestId("active-agent-row")).toHaveCount(0);
       // The number on the card and the digit in the tail are the rows they summarise.
       const listed = String(await rows.count());
       await expect(badge).toHaveAttribute("data-notification-count", listed);

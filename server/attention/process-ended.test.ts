@@ -66,7 +66,7 @@ describe("the end of a process", () => {
   it("the lifetime cap closing a chat that waits on an Agent is finished(error), with a new epoch", () => {
     turnStarted("topic:capped");
     turnEnded("topic:capped", { turnId: "m1", outcome: "done", background: { a1: { kind: "agent", label: "verify render", startedAt: new Date().toISOString() } } });
-    expect(getAttention("topic:capped").state).toBe("background");
+    expect(getAttention("topic:capped").state).toBe("working");
     processEnded("topic:capped", { cause: "lifetime-cap" });
     const a = getAttention("topic:capped");
     expect(a).toMatchObject({ state: "finished", outcome: "error", epoch: 1, lit: true });
@@ -78,11 +78,11 @@ describe("the end of a process", () => {
   it("the reaper closing a chat that waits on its run_command lights nothing: the command runs on and its wake will come", () => {
     turnStarted("topic:cmd");
     turnEnded("topic:cmd", { turnId: "m1", outcome: "done", background: { command: { kind: "command", label: "run_command", startedAt: new Date().toISOString() } } });
-    expect(getAttention("topic:cmd").state).toBe("background");
+    expect(getAttention("topic:cmd").state).toBe("working");
     rows.length = 0; pushes.length = 0;
     processEnded("topic:cmd", { cause: "reaper", turnClosedByRoute: true });
     const a = getAttention("topic:cmd");
-    expect(a.state).toBe("background");
+    expect(a.state).toBe("working");
     expect(a.background.map((t) => t.kind)).toEqual(["command"]);
     expect(rows).toHaveLength(0);
     expect(pushes).toHaveLength(0);
