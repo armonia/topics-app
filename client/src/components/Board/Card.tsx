@@ -1195,14 +1195,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-worked-in-place"
               title={tr('board.card.inPlaceTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
           )}
           {spostataAMano && (
             <span
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
                   «la vedo sgranata», e misurata lo e' davvero. A 12px il
                   viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'

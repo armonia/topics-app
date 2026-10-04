@@ -2072,7 +2072,11 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               onClick={openProjMenu}
               data-testid="task-project-chip"
               title={tr('board.task.projectChipTitle', { label: projectLabel })}
-              className="tap-expand-y flex min-w-0 flex-1 items-center gap-1 text-mini text-app-text-secondary hover:text-app-text"
+              // 24 tall with the mouse (`tap-expand-y`, 3.5px over a 4px gap),
+              // a REAL 44 box under a finger: projected, the 44 covered the top
+              // 10px of the title below, and a tap there opened «Move to»
+              // instead of editing the title (usability audit, steal check).
+              className="tap-expand-y flex min-w-0 flex-1 items-center gap-1 text-mini text-app-text-secondary hover:text-app-text coarse:min-h-11"
             >
               <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
               <span className="min-w-0 truncate font-medium">{projectLabel}</span>
@@ -3020,7 +3024,10 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
         </button>
         <button type="button" onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
           data-testid="task-workspace-add-tab" title={tr('board.task.openTab')} aria-label={tr('board.task.openTab')}
-          className="tap-expand shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10"><Plus className="h-3.5 w-3.5" /></button>
+          // 24 with the mouse (`tap-expand`), a real 44 box under a finger: a
+          // projected 44 around the 22px box covered the right 7px of the
+          // workspace button beside it, and a tap there opened a new tab.
+          className="tap-expand shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"><Plus className="h-3.5 w-3.5" /></button>
       </div>
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
         <div className={`relative flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>

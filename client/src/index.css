@@ -750,9 +750,13 @@
  * Portata sul token giusto, si porta dietro la stessa ritaratura: stesso fondo,
  * stessi numeri, o il terziario e i capelli tornano sotto soglia esattamente
  * come erano tornati qui. */
+/* 42% held on the chrome at rest and fell on a HOVERED row (#e0e1e2): 4.13
+ * for the last-message preview and the board's «+N», both 11px (usability
+ * audit with the pointer on a row, 04/10). 37.7% is the phone's value below:
+ * 4.87 on the hovered row, 5.44 on the chrome. */
 [role="navigation"][aria-label="Topics sidebar"],
 [data-testid="project-sidebar"] {
-  --text-tertiary: hsl(220 2.8% 42%);
+  --text-tertiary: hsl(220 2.8% 37.7%);
   --border: hsl(220 4.9% 84%);
   --border-subtle: hsl(220 4.9% 88%);
 }
@@ -2259,7 +2263,12 @@ input[type="range"]::-webkit-slider-thumb {
 @media (min-width: 768px) { .tab-slot-command { --tab-command-box: 28px; } }
 /* The browser's extra commands (the dots) cover the label's tail, left of the
  * slot, instead of taking its width. 34px = the slot's 6px from the edge + its
- * 20px + the 8px gap. The label fades under them rather than showing through. */
+ * 20px + the 8px gap. The label fades under them rather than showing through.
+ *
+ * The gap is 8, not 2: each command is a 16px glyph whose answering area is a
+ * 24 square (`.tap-expand`, WCAG 2.5.8), so two of them 16 + 8 apart meet edge
+ * to edge instead of one taking the other's pixels. On the right the dots'
+ * square ends 4px further, at 30px from the tab's edge, where Close begins. */
 .tab-extras {
   position: absolute;
   top: 50%;
@@ -2268,7 +2277,7 @@ input[type="range"]::-webkit-slider-thumb {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 100ms ease;
@@ -2293,11 +2302,11 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
-  /* Two extras (take back control + the dots, 16 + 2 + 16): the fade moves
-   * left by one command, or the label shows through the first. */
+  /* Two extras (take back control + the dots, 16 + 8 + 16): the fade moves
+   * left by one command and its gap, or the label shows through the first. */
   [role='tab'][data-tab-extras]:has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
-    -webkit-mask-image: linear-gradient(to left, transparent 38px, #000 50px);
-    mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+    -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
+    mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
 }
 @media not (hover: hover) {
@@ -2312,8 +2321,8 @@ input[type="range"]::-webkit-slider-thumb {
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
   [role='tab'][data-active='true'][data-tab-extras]:has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
-    -webkit-mask-image: linear-gradient(to left, transparent 38px, #000 50px);
-    mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+    -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
+    mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
 }
 
