@@ -47,7 +47,7 @@ import {
   TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner,
   OrbitLoader, LoaderSlot,
 } from './StreamingIndicator';
-import { useBoardTabCounts } from './BoardTabCounts';
+import { useBoardAttention, useBoardTabCounts } from './BoardTabCounts';
 
 /** The slot's width, in px. Fixed and always reserved (TABSLOT-02). */
 const SLOT_PX = 20;
@@ -127,19 +127,21 @@ function BrowserSlot(props: TabSlotProps) {
 }
 
 /**
- * A board says what asks for you (cards in review) as the number and what is
- * being worked on (cards in progress) as the ring. Both exact counts are in the
- * tooltip: the slot has room for one number.
+ * A board says what asks for you (its lit cards: review, parked, a wait
+ * mid-turn, ATTN-16) as the number and what is being worked on (cards in
+ * progress) as the ring. The exact counts are in the tooltip: the slot has
+ * room for one number.
  */
 function BoardSlot(props: TabSlotProps) {
-  const counts = useBoardTabCounts(props.type === 'kanban' ? props.boardProjectPath : undefined);
-  const review = counts.find((c) => c.status === 'review')?.n ?? 0;
+  const projectPath = props.type === 'kanban' ? props.boardProjectPath : undefined;
+  const counts = useBoardTabCounts(projectPath);
+  const lit = useBoardAttention(projectPath);
   const inProgress = counts.find((c) => c.status === 'in_progress')?.n ?? 0;
   const summary = counts.map((c) => `${STATUS_LABEL[c.status]}: ${c.n}`).join(' · ');
   return (
     <SlotView
       {...props}
-      attention={review}
+      attention={lit.count}
       attentionTitle={summary || undefined}
       attentionTestId="tab-board-count-review"
       working={inProgress > 0}

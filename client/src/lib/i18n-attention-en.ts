@@ -15,6 +15,7 @@ const ATTENTION_EN: Dict = {
   'attention.state.done': 'finished',
   'attention.project.lookAt': '{n} to look at',
   'attention.project.more': '+{n} more',
+  'attention.board.waiting': 'Waiting on you: {n}',
   'space.tier.error': 'finished with an error',
   'sidebar.state.needsYou': 'Waiting for you',
   'sidebar.state.finished': 'Finished',

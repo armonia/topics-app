@@ -127,13 +127,14 @@ test.describe("a wait in the middle of a turn, a card in review, a chat read els
     }
   });
 
-  test("a card in review counts on the board tab and in the inbox, and the decision switches it off", async ({ page, request }) => {
+  test("a card in review and a parked one count 2 on the board tab, as in the inbox; the requeue and the decision switch them off", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "ATTN-16" });
     const projectPath = canonicalTmpDir("e2e-attention-board");
     mkdirSync(projectPath, { recursive: true });
     const projectId = projectIdForPath(projectPath);
     const anchor = await createTopic(request, `Review Board ${Date.now()}`, { projectPath, provider: "topics" });
     let taskId = "";
+    let parkedId = "";
     try {
       expect((await request.patch(`${E2E_BASE}/api/all-boards/settings`, { data: { autoDispatch: false } })).ok()).toBe(true);
       await resetPaneStore(request, ["__board__"]);
@@ -156,6 +157,20 @@ test.describe("a wait in the middle of a turn, a card in review, a chat read els
       await expect(waiting.first()).toHaveAttribute("data-subject", taskSubject(taskId));
       await page.keyboard.press("Escape");
 
+      // A parked card in the same project: the tab says 2, as the inbox (ATTN-16), not the review column's 1.
+      const second = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks`, { data: { text: "Migrate the photo bucket", status: "backlog" } });
+      expect(second.ok(), await second.text()).toBe(true);
+      parkedId = ((await second.json()) as { id: string }).id;
+      const parked = await request.post(`${E2E_BASE}/api/test/tasks/${parkedId}/dispatch-state`, { data: { state: "failed", error: "The worktree could not be created" } });
+      expect(parked.ok(), await parked.text()).toBe(true);
+      await expect.poll(() => frames.rows().get(taskSubject(parkedId))?.reason ?? null, { timeout: 15_000 }).toBe("parked");
+      await expect(boardTab.getByTestId("tab-board-count-review"), "the board tab does not count the parked card").toHaveAttribute("data-notification-count", "2", { timeout: 10_000 });
+      await expect(count(page)).toHaveAttribute("data-notification-count", "2");
+      // Put back in the queue: one left.
+      const backInQueue = await request.patch(`${E2E_BASE}/api/boards/${projectId}/tasks/${parkedId}`, { data: { status: "todo" } });
+      expect(backInQueue.ok(), await backInQueue.text()).toBe(true);
+      await expect(boardTab.getByTestId("tab-board-count-review")).toHaveAttribute("data-notification-count", "1", { timeout: 10_000 });
+
       const decided = await request.post(`${E2E_BASE}/api/boards/${projectId}/tasks/${taskId}/review`, { data: { decision: "approve" } });
       expect(decided.ok(), await decided.text()).toBe(true);
       await expect.poll(() => frames.rows().get(taskSubject(taskId))?.lit ?? false, { timeout: 15_000, message: "the decision did not switch the card off" }).toBe(false);
@@ -163,6 +178,7 @@ test.describe("a wait in the middle of a turn, a card in review, a chat read els
       await expect(count(page)).toHaveCount(0);
     } finally {
       if (taskId) await deleteTask(request, projectId, taskId);
+      if (parkedId) await deleteTask(request, projectId, parkedId).catch(() => {});
       await deleteTopic(request, anchor.id);
       removeTmpDir(projectPath);
     }
