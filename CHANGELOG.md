@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.442 — 2026-10-04
+
+### Sotto il cofano
+- Archivia browser-della-topic, senza lo scenario della toolbar dei download
+- Archivia sidebar-menu-settings
+- Ridefinisci B3 di mac-usabile-sotto-carico su soglie assolute misurate dal 27/09
+- Spunta la barra del selettore del modello: le quattro e2e passano in CI
+- Passa gli hook di Topics solo alle sessioni Claude che lancia Topics
+- Fissa la finestra di riferimento di B3 e riapri la barra rossa
+- Lascia stare gli hook dell'utente in una cartella claude-hooks/ e tieni i test fuori dalla home vera
+- Destruttura l'import del db nel test dello spawn: knip lo vedeva opaco
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-04 [skip ci]
+
 ## 2.2.441 — 2026-10-04
 
 ### Sotto il cofano

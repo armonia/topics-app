@@ -1,5 +1,62 @@
 [
   {
+    "version": "2.2.442",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Archivia browser-della-topic, senza lo scenario della toolbar dei download",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia sidebar-menu-settings",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ridefinisci B3 di mac-usabile-sotto-carico su soglie assolute misurate dal 27/09",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spunta la barra del selettore del modello: le quattro e2e passano in CI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Passa gli hook di Topics solo alle sessioni Claude che lancia Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fissa la finestra di riferimento di B3 e riapri la barra rossa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lascia stare gli hook dell'utente in una cartella claude-hooks/ e tieni i test fuori dalla home vera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Destruttura l'import del db nel test dello spawn: knip lo vedeva opaco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-04 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.441",
     "date": "2026-10-04",
     "sections": {

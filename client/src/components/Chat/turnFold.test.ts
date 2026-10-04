@@ -72,6 +72,20 @@ describe('the finished turn folds its work and shows its answer', () => {
     expect(fold.shown).toEqual([text(4, 'Fatto dopo la compattazione.')]);
   });
 
+  // 04/10: the agent asks mid-turn, works on and closes with a text. Folded,
+  // the answered question went back into «3 actions» after a reload, and the
+  // choice the person made was out of sight again.
+  test('an answered question stays in sight; the work around it still folds', () => {
+    const ask = { ...tool('q'), name: 'AskUserQuestion', userResponse: { kind: 'questions', answers: { 'Quale database?': 'SQLite' }, submittedAt: '' } } as ToolCall;
+    const groups = [tools(0, tool('r'), ask, tool('b')), text(3, 'Fatto: ho configurato SQLite.')];
+    const fold = foldFinishedTurn(groups, false)!;
+    expect(fold.work).toEqual([tools(0, tool('r')), tools(2, tool('b'))]);
+    expect(fold.shown).toEqual([tools(1, ask), text(3, 'Fatto: ho configurato SQLite.')]);
+    expect(fold.tools.map((t) => t.id)).toEqual(['r', 'b']);
+    // What is left to fold is counted without it: one call is not worth a row.
+    expect(foldFinishedTurn([tools(0, tool('r'), ask), text(2, 'Fatto.')], false)).toBeNull();
+  });
+
   test('a recap that is the last text never becomes the folded answer', () => {
     const recap = text(2, 'This session is being continued from a previous conversation that ran out of context. Summary: ...');
     expect(foldFinishedTurn([tools(0, tool('a'), tool('b')), text(1, 'x'), recap], false)).toBeNull();

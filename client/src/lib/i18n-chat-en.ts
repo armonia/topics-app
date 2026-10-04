@@ -162,6 +162,12 @@ const CHAT_EN: Dict = {
   'chat.question.ended.other': 'This question was closed without an answer.',
   'chat.question.askerGone': 'The turn that asked this has stopped. Your answer will reach it as a new message.',
   'chat.question.answerQueued': 'Answer saved. It reaches the agent as a new message as soon as the chat is free, before anything you write next.',
+  // The answer given to a question, as it stays in the thread (QuestionAnswer.tsx).
+  'chat.question.answer.freeText': '“{text}”',
+  'chat.question.answer.srLabel': 'answer:',
+  'chat.question.answer.chosen': 'chosen',
+  'chat.question.answer.yes': 'Yes',
+  'chat.question.answer.no': 'No',
   'chat.tool.detailLoading': 'Loading the full output…',
   'chat.tool.detailFailed': 'Could not load the full output.',
   'toolgroup.jumpToFailure': 'Open the group on the first failed action',

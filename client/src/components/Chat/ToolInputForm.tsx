@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
+import { readRecommendation } from './questionAnswers';
 import { HelpCircle, Send, Loader2, ChevronRight, ArrowRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 import { isPlanApprovalSchema, PLAN_EDIT_KEY } from '../../../../shared/plan-decision';
@@ -128,25 +129,8 @@ const OTHER = 'Other';
 /** What it is called for whoever reads it: a key, so it follows the choice. */
 const OTHER_LABEL_KEY = 'ask.other';
 
-/**
- * L'opzione consigliata, e da dove si sa che lo è.
- *
- * Il campo `recommended` è la via pulita, ma il consiglio arriva anche scritto
- * nel testo — la CLI lo mette in coda al titolo come «(Recommended)», e un
- * modello che non conosce il campo fa lo stesso a parole. Riconoscere entrambe
- * le forme vuol dire che il segno si vede SUBITO, senza aspettare che tutti si
- * adeguino allo schema; e la parola in coda al titolo si toglie, o si
- * leggerebbe due volte.
- */
-const RECOMMENDED_RE = /\s*[（([]?\s*(consigliat[oa]|recommended)\s*[）)\]]?\s*$/i;
-function readRecommendation(opt: { label: string; description?: string; recommended?: boolean }) {
-  const inLabel = RECOMMENDED_RE.test(opt.label);
-  return {
-    isRecommended: opt.recommended === true || inLabel || RECOMMENDED_RE.test(opt.description ?? ''),
-    // Il titolo senza la parola: il chip la dice già.
-    label: inLabel ? opt.label.replace(RECOMMENDED_RE, '') : opt.label,
-  };
-}
+// Recognising the recommended option lives in `questionAnswers.ts`: the answer
+// already given needs the same clean label.
 
 function QuestionsForm({
   questions, toolCallId, submitting, error, onSubmit, planText,

@@ -52,6 +52,11 @@ describe('isMachineWork', () => {
     expect(isMachineWork(msg({ toolCalls: [tc({ name: 'AskUserQuestion', status: 'waiting_for_input' })] }))).toBe(false);
   });
 
+  test('an answered question is never folded: the choice is a fact of the conversation', () => {
+    const answered = tc({ name: 'AskUserQuestion', userResponse: { kind: 'questions', answers: { 'Which db?': 'SQLite' }, submittedAt: '' } });
+    expect(isMachineWork(msg({ toolCalls: [tc({ name: 'Read' }), answered, tc({ name: 'Bash' })] }))).toBe(false);
+  });
+
   test('work still running is never folded: it is watched', () => {
     expect(isMachineWork(msg({ toolCalls: [tc({ name: 'Bash', status: 'running' })] }))).toBe(false);
     expect(isMachineWork(msg({ partial: true, toolCalls: [tc({ name: 'Bash' })] }))).toBe(false);

@@ -91,7 +91,7 @@ export function withPartialResult(tc: ToolCall, partialResult: string): ToolCall
 }
 
 /**
- * The row with a status announcement applied, or the row untouched when the
+ * The row with a status announcement applied, or the row kept settled when the
  * announcement would reopen a tool that has already returned.
  *
  * The answer route broadcasts `running` for every submission, including a
@@ -99,8 +99,21 @@ export function withPartialResult(tc: ToolCall, partialResult: string): ToolCall
  * its form still open) after the tool's result is in. The server's own writer
  * refuses that patch (`patchOpenTool`); the window you sent from must refuse it
  * too, or it shows a spinner on a finished tool until a reload.
+ *
+ * BUT THE ANSWER IN IT IS NOT STALE when the row has none yet. The bridge hands
+ * the answer to the model before the route broadcasts it, and the model's tool
+ * result travels on the SSE while this announcement travels on WS, with no
+ * order between them: when the result won, the whole patch was dropped, answer
+ * included, and the row showed the question with nothing under it until a
+ * reload (reported 04/10, reproduced in `ask-user-question.spec.ts`). So the
+ * status is refused and the answer is kept; a row that already has one keeps
+ * its own, because a second submission is the stale one.
  */
 export function withToolUpdate(tc: ToolCall, patch: ToolUpdatePatch): ToolCall {
-  if (patch.status === 'running' && (tc.status === 'success' || tc.status === 'error')) return tc;
+  if (patch.status === 'running' && (tc.status === 'success' || tc.status === 'error')) {
+    const { status: _refused, userResponse, ...rest } = patch;
+    const late = userResponse && !tc.userResponse ? { userResponse } : {};
+    return Object.keys(rest).length > 0 || late.userResponse ? { ...tc, ...rest, ...late } : tc;
+  }
   return { ...tc, ...patch };
 }
