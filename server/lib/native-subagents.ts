@@ -43,6 +43,8 @@ export interface NativeSubagentDeps {
   loadMessages(sessionKey: string): StoredMessage[];
   /** The engine can take a turn now: false sends the spawn down the CLI road. */
   engineReady(): boolean;
+  /** A person opened this child's chat: it stays open when its turn ends. */
+  engaged?(topicId: string): boolean;
   log?(msg: string): void;
 }
 
@@ -337,8 +339,16 @@ async function reportTurn(id: string, sentAt: number, routeError: string | null,
   );
   // No process to park: the turn is over, the slot is free. A stop already
   // wrote `stopped`, and that is what it stays.
-  if (getSubagent(db, id)?.state === "running") setSubagentState(db, id, "retired");
+  const retiredNow = getSubagent(db, id)?.state === "running";
+  if (retiredNow) setSubagentState(db, id, "retired");
   runtimeOf(id).phase = "finished";
+  // Like the Agent tool's children: a turn that ended on its own, its result delivered, leaves the view.
+  // `send_to_agent` brings it back (it unarchives). A stopped child stays to be read, and so does
+  // one the person opened.
+  const topic = retiredNow && outcome.status === "completed" ? deps?.getTopicBySessionKey(row.sessionKey) : null;
+  if (deps && topic && !topic.archived && !deps.engaged?.(topic.id)) {
+    deps.saveTopic({ ...topic, archived: true, updatedAt: new Date().toISOString() }, false);
+  }
 }
 
 /**

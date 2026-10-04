@@ -192,6 +192,8 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     const report = await until("the report", () => reportsFor(id)[0]);
     expect(report).toMatchObject({ parentSessionKey: PARENT, name: "reporter", turn: 1, outcome: { status: "completed", partial: false, text: "done: Find the call sites of deliverExit." } });
     expect(rowOf(id)).toMatchObject({ state: "retired", turns_reported: 1 });
+    // Its result reached the parent: the child leaves the view, as the Agent tool's children do.
+    expect(ctx.getTopicBySessionKey(body.sessionKey as string)?.archived).toBe(true);
   });
 
   test("send_to_agent is the chat's next turn, reported as turn 2", async () => {

@@ -267,3 +267,17 @@ memory: after a restart the child is quiet again until reopened.
 - **GIVEN** the accordion opened and a child clicked
 - **WHEN** that child ends its next turn
 - **THEN** it lights like any chat
+
+### Requirement: SUBAGENT-22 — Un figlio finito esce dalla vista da solo
+
+Attilio, 05/10: «pulisci anche quelli che non servono più, dovrebbero chiudersi». Un figlio nativo
+il cui turno finisce da solo (esito `completed`, già consegnato al padre) SHALL archiviare la sua
+chat, e con lei i suoi segnali di attenzione, come i figli del tool Agent di Claude Code. NON SHALL
+archiviarsi un figlio fermato (si legge cosa ha fatto) né uno che la persona ha aperto.
+`send_to_agent` lo riporta in vista.
+
+#### Scenario: Turno finito, figlio fuori dalla vista
+- **GIVEN** un figlio nativo mai aperto dalla persona
+- **WHEN** il suo turno finisce con esito `completed`
+- **THEN** la sua chat è archiviata e non ha badge
+- **AND** un `send_to_agent` successivo la riapre e ci manda il turno

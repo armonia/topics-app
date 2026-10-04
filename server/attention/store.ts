@@ -897,6 +897,11 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
 }
 
 /** Everything about this subject seen now: the aliases of the old doors. */
+/** True once a person opened this subject (`markAttentionSeen`): a sub-agent they engaged is theirs to close. */
+export function isAttentionEngaged(subject: string): boolean {
+  return entries.get(subject)?.engaged === true;
+}
+
 export function seenItemNow(subject: string): AttentionSeenItem {
   const s = getAttention(subject);
   return { subject, epoch: s.epoch, turnAt: s.lastTurnAt };
