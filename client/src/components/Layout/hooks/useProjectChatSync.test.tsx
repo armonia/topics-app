@@ -29,6 +29,46 @@ function topic(id: string, sortOrder: number): Topic {
   } as Topic;
 }
 
+// 04/10, pop-demo: every native sub-agent the chat spawned opened as a tab.
+describe('useProjectChatSync, sub-agent chats', () => {
+  test('a sub-agent arriving later opens no tab, and one saved as open is not restored', () => {
+    const applied: ChatReconciliation[] = [];
+    const child = (id: string): Topic => ({ ...topic(id, 9), subagentOf: 'A' } as Topic);
+    let topics: Record<string, Topic> = { A: topic('A', 0), S1: child('S1') };
+    const gateRefs = { initialChatsSyncedRef: { current: false } };
+
+    function Probe() {
+      useProjectChatSync({
+        projectPath: PROJECT,
+        topics,
+        initial: { nonChatPanes: [], openChatTopicIds: ['A', 'S1'], activeChatTopicId: 'A' },
+        panes: [],
+        groups: [],
+        focusedGroupId: null,
+        applyChatReconciliation: (r) => { applied.push(r); },
+        reopenChatPane: () => {},
+        gateRefs,
+        markChatSyncDone: () => {},
+      });
+      return null;
+    }
+
+    const h = mount(createElement(Probe));
+    try {
+      h.rerender();
+      topics = { ...topics, S2: child('S2'), C: topic('C', 2) };
+      h.rerender();
+      const added = applied.flatMap(r => r.add.map(p => p.topicId));
+      expect(added).toContain('A');
+      expect(added).toContain('C');
+      expect(added).not.toContain('S1');
+      expect(added).not.toContain('S2');
+    } finally {
+      h.unmount();
+    }
+  });
+});
+
 describe('useProjectChatSync, topics that arrive after the layout', () => {
   test('restores the saved chats and opens none of the closed ones', () => {
     const chatA: Pane = { id: 'chat:A', type: 'chat', topicId: 'A', title: 'A', preview: false };
