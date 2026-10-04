@@ -504,11 +504,50 @@ il gate `verify:all` di dancerooms e per le board future (risposta 2 del proprie
 - **B1, meccanismo** (CI della PR): `mem-signal`, `dispatch-capacity`,
   `task-dispatcher-admission`, `task-dispatcher-held-resume-quiet`, `review-checks-brakes`,
   `checks-gate`, `tasks.checks-interrupted`, `ci-evidence`, `tasks.checks-ci`, job `check` verde.
-- **B3, esito sul server vivo, 72 ore dopo il land** (script in sola lettura nello scratchpad,
-  non committato): giorni UTC interi con verdetti di consegna, 72 h prima contro 72 h dopo,
-  10 minuti attorno al land esclusi. O1 secondi di stallo [LAG] al giorno dopo <= 0,5 x prima;
-  O2 p95 di swap-in/s e di load1 dopo <= prima; O3 verdetti di consegna e turni partiti al giorno
-  dopo >= 0,7 x prima; O4 swap sostenuto con un albero >= 1 GB per al massimo 190 s di fila.
+- **B3, esito sul server vivo, su soglie assolute** (ridefinita il 04/10, risposta del proprietario
+  in `.openspec.yaml`). La forma di prima confrontava 72 h prima e 72 h dopo il land (O1 <= 0,5 x
+  prima, O2 non peggiore, O3 >= 0,7 x prima), e quel «prima» non esiste più: il log stdout del
+  server parte dal 27/09 06:48 UTC e `[memsig]` è nato col codice di questa tornata. Le soglie
+  vengono quindi dalla finestra 28/09-03/10. Sono sei giorni UTC interi, tutti dopo il land
+  (`mem-signal.ts` 15/09, `swap-freeze.ts` 16/09), e la macchina non ha mai dormito: `pmset -g log`
+  ha due soli Sleep, il 27/09 dalle 13:23 alle 13:39 UTC, che spiegano lo stallo da 902 s di quel
+  giorno.
+  Regola: ogni metrica si calcola per giorno intero. La soglia è la mediana alta dei sei giorni
+  (il 4° valore su 6 in ordine), e una finestra passa se la mediana alta dei suoi giorni interi non
+  la supera. È un tetto di non regressione: dice se la macchina peggiora rispetto a questa
+  settimana, non se la change l'ha migliorata.
+  Rimisura: `bun openspec/changes/mac-usabile-sotto-carico/measurements/b3-measure.ts [log] [--since AAAA-MM-GG]`.
+  Legge solo `~/.claude/jarvis/logs/topics-server.log` e `pmset -g log`, toglie gli stalli che
+  toccano un sonno ed esce 1 se una soglia non regge.
+
+  | giorno UTC | O1 stallo [LAG] s (n, max s) | O2 p95 swap-in/s | O2 p95 load1 | minuti in swap sostenuto |
+  |---|---|---|---|---|
+  | 28/09 | 4324 (843, 99,6) | 1092,0 | 81,1 | 641 / 1369 |
+  | 29/09 | 174 (91, 5,9) | 396,6 | 45,6 | 697 / 1401 |
+  | 30/09 | 48 (33, 3,1) | 259,2 | 27,5 | 276 / 1413 |
+  | 01/10 | 109,5 (68, 6,5) | 3573,9 | 91,2 | 859 / 1400 |
+  | 02/10 | 61 (39, 4,8) | 1241,3 | 108,0 | 893 / 1387 |
+  | 03/10 | 38 (18, 6,7) | 238,2 | 69,4 | 405 / 1401 |
+
+  - **O1** secondi di stallo [LAG] al giorno <= **110** (mediana alta 109,5). Il 28/09 da solo fa
+    4324 s, il 91% dei 4755 s della finestra.
+  - **O2** p95 di swap-in/s <= **1092** e p95 di load1 <= **81,1**. Non sono soglie di calma: la
+    macchina ha 12 core, e con la definizione di D16 (swap-in >= 10/s E debito) lo swap è sostenuto
+    in 3771 minuti su 8371, il 45%.
+  - **O3 non si misura come soglia assoluta.** Verdetti e turni al giorno contano quanto lavoro
+    chiede il proprietario, e diventavano una misura del freno solo accanto al «prima». In più, nella
+    finestra la board non ha lavorato. Nel DB di produzione, letto con `mode=ro`, l'ultimo
+    `task_attempts.created_at` e l'ultimo `tasks.checks_at` sono del 27/09, e anche le 8 righe
+    `[dispatcher] coda ferma` sulla memoria e le 6 deroghe del pavimento sono tutte del 27/09.
+  - **O4** resta quella di prima, che era già assoluta: swap sostenuto con un albero di check
+    >= 1 GB per al massimo **190 s** di fila. Il valore misurato è 0 s, ma a vuoto: l'albero di check
+    più pesante della finestra pesa 0,8 GB, e solo 7 righe `[memsig]` su 9868 hanno un giro in volo.
+    Un albero di agente >= 1 GB che non si congela (il comando in primo piano, D20) non compare
+    nella riga `[memsig]`, quindi su quegli alberi O4 non si misura dai log esistenti.
+
+  Esito: la finestra di riferimento passa per costruzione, perché le soglie vengono da lei. Le
+  ultime 72 ore intere (`--since 2026-10-01`, 01-03/10) escono 1. O1 vale 61 s e regge, mentre O2
+  supera la soglia: il p95 di swap-in/s è 1241,3 e quello di load1 è 91,2.
 
 ### Rischi
 
