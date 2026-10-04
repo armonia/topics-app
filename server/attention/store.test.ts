@@ -12,6 +12,7 @@ import {
   configureAttentionStore,
   getAttention,
   litSubjectCount,
+  markAttentionSeen,
   noteUnreadChanged,
   openHold,
   recomposeAttentionOnBoot,
@@ -149,5 +150,32 @@ describe("a row saved before the job left running became `working`", () => {
       resetAttentionStore();
       db.close();
     }
+  });
+});
+
+// Attilio, 05/10: «vedo notifiche sulle tab dei sotto agenti [...] non essere
+// "attiva" fino a che non interagisci». The parent gets the result; the child
+// stays dark until the person opens it, then it is a chat like any other.
+describe("a sub-agent is quiet until the person opens it", () => {
+  it("its finished turn lights nothing, rows nothing, pushes nothing; its work still shows", () => {
+    configureAttentionStore({ isSubagent: (s) => s === "topic:child" || s === "terminal:child" });
+    turnStarted("topic:child");
+    expect(getAttention("topic:child").state).toBe("working");
+    turnEnded("topic:child", { turnId: "m1", outcome: "done" });
+    expect(getAttention("topic:child")).toMatchObject({ state: "idle", lit: false, epoch: 0 });
+    turnStarted("terminal:child");
+    turnEnded("terminal:child", { turnId: "t1", outcome: "error", detail: "x" });
+    expect(getAttention("terminal:child").lit).toBe(false);
+    expect(rows).toEqual([]);
+    expect(pushes).toEqual([]);
+    // A wait it opens still needs the person: nobody else can answer it.
+    openHold("topic:child", "ask", { kind: "question", id: "q1", text: "Procedo?" });
+    expect(getAttention("topic:child").state).toBe("needs-you");
+
+    // Opened by the person: from now on its turns light like any chat's.
+    markAttentionSeen([{ subject: "terminal:child", epoch: 0, turnAt: null }]);
+    turnStarted("terminal:child");
+    turnEnded("terminal:child", { turnId: "t2", outcome: "done" });
+    expect(getAttention("terminal:child")).toMatchObject({ state: "finished", lit: true });
   });
 });

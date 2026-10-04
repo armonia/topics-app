@@ -132,6 +132,9 @@ const IT: Dict = {
   'ai.providers.program.none': 'Percorso non noto',
   'ai.providers.saveError': 'Non è stato possibile salvare.',
 
+  'sidebar.subagents.one': '1 sotto-agente',
+  'sidebar.subagents.many': '{n} sotto-agenti',
+  'sidebar.subagents.working': 'Un sotto-agente sta lavorando',
   'app.unsent.title.one': '1 messaggio non inviato',
   'app.unsent.title.many': '{n} messaggi non inviati',
   'app.unsent.chatLine.one': '{name} · 1 messaggio',

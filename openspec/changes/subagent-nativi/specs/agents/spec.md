@@ -233,3 +233,37 @@ ended row) or the result card (it only opens the child).
 - **GIVEN** a sub-agent in phase `finished`, or a terminal with no `parentSessionKey`
 - **WHEN** the person closes its tab
 - **THEN** it closes as before, with no question
+
+### Requirement: SUBAGENT-21 — Sub-agents stay folded and quiet until the person opens them
+
+Owner, 05/10: «sta succedendo un casino, vedo notifiche sulle tab dei sotto
+agenti ma praticamente dovrebbe esserci una accordion sulla tab principale da
+essere chiusa di default e diciamo non essere "attiva" fino a che non
+interagisci?».
+
+Under the parent's sidebar row the sub-agents (native `subagentOf` and CLI
+`parentSessionKey`) SHALL sit in an accordion CLOSED by default: a header with
+the count and a dot while one of them works. It SHALL open on a click and stay
+as the person left it (remembered per parent on this device), and SHALL open by
+itself only while one of its children is the row in front.
+
+A sub-agent the person has not opened SHALL NOT light: its finished turn (done
+or error) makes no badge, no history row, no push, no lit sort. The attention
+store decides it at the source (`quiet` input of `composeAttention`, the
+`subagents` table as the one source of who is a sub-agent): its result already
+reaches the parent (wake and card), and the parent is what notifies. Its work
+SHALL still show as `working`, and a wait it opens (a question, a permission)
+SHALL still need the person, since nobody else can answer it. Once the person
+opens it (its seen door), it lights like any chat. That engagement is held in
+memory: after a restart the child is quiet again until reopened.
+
+#### Scenario: a child finishes while the person looks elsewhere
+- **GIVEN** a chat with three sub-agents, the accordion closed
+- **WHEN** one of them ends its turn
+- **THEN** the child row has no badge and nothing is pushed
+- **AND** the parent chat receives the result and is the one that lights
+
+#### Scenario: the person opens a child
+- **GIVEN** the accordion opened and a child clicked
+- **WHEN** that child ends its next turn
+- **THEN** it lights like any chat

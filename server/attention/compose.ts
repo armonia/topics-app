@@ -53,6 +53,12 @@ export interface AttentionInputs {
    * report announces once instead of the turn before it (T6 against T7).
    */
   backgroundGrace?: boolean;
+  /**
+   * A sub-agent the person has not opened yet: its result reaches the parent
+   * chat (wake + card), so it never lights on its own. A wait it opens still
+   * needs the person, and its work still shows as `working`.
+   */
+  quiet?: boolean;
 }
 
 export interface AttentionComposition {
@@ -116,6 +122,10 @@ export function composeAttention(i: AttentionInputs): AttentionComposition {
     return { state: "needs-you", reason: i.card.status, outcome: null, detail: i.card.detail ?? null, cause: `card:${i.card.status}:${i.card.since}` };
   }
   if (i.turnOpen) return { state: "working", reason: null, outcome: null, detail: null, cause: null };
+  if (i.quiet) {
+    const working = countingTaskCount(i.background) > 0 || !!i.backgroundGrace;
+    return working ? { state: "working", reason: null, outcome: null, detail: null, cause: null } : IDLE;
+  }
   const unseen = isTurnUnseen(i.lastTurn, i.seenAt);
   if (i.lastTurn && unseen && i.lastTurn.outcome === "error") {
     return { state: "finished", reason: null, outcome: "error", detail: i.lastTurn.detail ?? null, cause: `turn:error:${i.lastTurn.id}` };

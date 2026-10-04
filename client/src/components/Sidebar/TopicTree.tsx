@@ -36,6 +36,7 @@ import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpin
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { sendAttentionSeen, useAttentionRows } from '@/state/attention';
+import { isAccordionOpen, readOpenedAccordions, summarizeSubagents, toggledAccordions, writeOpenedAccordions } from '@/lib/subagentAccordion';
 import { projectAttention } from '@/state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../../shared/attention';
 import { useProjectFocusStore } from '@/state/projectFocus';
@@ -500,6 +501,15 @@ export function TopicTree({
   // renderProjectItem closure can derive a project's rollup synchronously: the
   // same rows the tab bar and every row read.
   const attention = useAttentionRows();
+  // Sub-agents sit in a per-parent accordion, closed until the person opens it (SUBAGENT-21).
+  const [openedSubagents, setOpenedSubagents] = useState<Set<string>>(readOpenedAccordions);
+  const toggleSubagents = useCallback((parentId: string) => {
+    setOpenedSubagents((prev) => {
+      const next = toggledAccordions(prev, parentId);
+      writeOpenedAccordions(next);
+      return next;
+    });
+  }, []);
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -1044,8 +1054,41 @@ export function TopicTree({
     return (
       <div key={item.id}>
         {row}
-        {subAgents.map(child => renderSubAgentItem(child, depth + 1))}
+        {renderSubagentNest(item.id, subAgents, depth + 1)}
       </div>
+    );
+  };
+
+  // The accordion that holds a parent's sub-agents: a header with the count and
+  // a dot while one works, the rows only once opened (SUBAGENT-21).
+  const subagentIsWorking = (child: SidebarItem) => {
+    const subject = child.type === 'chat' ? topicSubject(child.topic!.id) : terminalSubject(child.terminal!.id);
+    return attention.get(subject)?.state === 'working';
+  };
+  const subagentIsFocused = (child: SidebarItem) => {
+    const paneId = child.type === 'chat' ? child.topic!.id : `terminal:${child.terminal!.id}`;
+    return focusedTopicId === paneId
+      || isActiveInnerChild(child.projectPath, child.type === 'chat' ? createPaneId('chat', child.topic!.id) : paneId);
+  };
+  const renderSubagentNest = (parentId: string, subAgents: SidebarItem[], depth: number) => {
+    const summary = summarizeSubagents(subAgents, subagentIsWorking, subagentIsFocused);
+    const open = isAccordionOpen(parentId, openedSubagents, summary);
+    const label = summary.count === 1 ? tr('sidebar.subagents.one') : tr('sidebar.subagents.many', { n: summary.count });
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => toggleSubagents(parentId)}
+          aria-expanded={open}
+          className={`flex items-center h-6 text-[11px] text-app-text-secondary hover:text-app-text transition-colors`}
+          style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
+        >
+          <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />
+          <span>{label}</span>
+          {summary.working && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.subagents.working')} />}
+        </button>
+        {open && subAgents.map(child => renderSubAgentItem(child, depth))}
+      </>
     );
   };
 
@@ -1089,11 +1132,11 @@ export function TopicTree({
       />
     );
     if (subAgents.length === 0) return row;
-    // Sub-agents (orchestrator-spawned) render nested one level deeper.
+    // Sub-agents (orchestrator-spawned) render nested one level deeper, in their accordion.
     return (
       <div key={item.id}>
         {row}
-        {subAgents.map(child => renderSubAgentItem(child, depth + 1))}
+        {renderSubagentNest(item.id, subAgents, depth + 1)}
       </div>
     );
   };

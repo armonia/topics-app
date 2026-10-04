@@ -30,7 +30,7 @@ import { isTopicSilenced } from "./push-triggers";
 import { configureAttentionStore } from "./attention/store";
 import { configureAttentionWire } from "./attention/wire";
 import { recordSystemNotice } from "./attention/system-notices";
-import { topicIdOfSubject, topicSubject } from "../shared/attention";
+import { terminalIdOfSubject, topicIdOfSubject, topicSubject } from "../shared/attention";
 import { configureNotificationRegistry } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
@@ -1328,6 +1328,12 @@ export function createAppContext(baseDir: string): AppContext {
       }
       // A card's words travel with its state (`setCard`, from the task service).
       return null;
+    },
+    // A sub-agent's subject carries its agent id: `topic:<id>` (native child)
+    // or `terminal:<id>` (CLI child). Its result already reaches the parent.
+    isSubagent: (subject) => {
+      const id = topicIdOfSubject(subject) ?? terminalIdOfSubject(subject);
+      return !!id && attemptSubagentParents(`SELECT 1 FROM subagents WHERE id = ? LIMIT 1`, id).length > 0;
     },
   }, { fresh: true });
   // The chat behind a session key, for the waits and the background work that

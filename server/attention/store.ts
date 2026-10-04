@@ -98,6 +98,8 @@ export interface AttentionStoreDeps {
   describe: (subject: string) => SubjectDescription | null;
   /** How long a background that just emptied waits for the wake's turn (T7). */
   graceMs: number;
+  /** Is this subject a sub-agent (a row in `subagents`)? Its attention stays quiet until the person opens it. */
+  isSubagent: (subject: string) => boolean;
 }
 
 function defaultDb(): Database | null {
@@ -119,6 +121,7 @@ const DEFAULT_DEPS: AttentionStoreDeps = {
   sendPush: (payload) => { sendPushToAll(payload).catch((err) => console.warn("[attention] push failed:", err?.message || err)); },
   describe: () => null,
   graceMs: 5_000,
+  isSubagent: () => false,
 };
 
 let deps: AttentionStoreDeps = { ...DEFAULT_DEPS };
@@ -180,6 +183,11 @@ interface Entry {
   carriedHolds?: Partial<Record<AttentionHold["kind"], string>>;
   /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
   sameEpochCauses?: Set<string>;
+  /**
+   * The person opened this sub-agent (its seen door): from then on it is a chat
+   * like any other. Memory only: after a restart it is quiet again until reopened.
+   */
+  engaged?: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -316,7 +324,12 @@ function peek(subject: string): Entry | undefined {
 }
 
 function inputsOf(e: Entry): AttentionInputs {
-  return { ...e.live, lastTurn: e.row.lastTurn, seenAt: e.row.seenAt, background: e.row.background };
+  const quiet = !e.engaged && isSubagentSubject(e.row.subject);
+  return { ...e.live, lastTurn: e.row.lastTurn, seenAt: e.row.seenAt, background: e.row.background, ...(quiet ? { quiet } : {}) };
+}
+
+function isSubagentSubject(subject: string): boolean {
+  try { return deps.isSubagent(subject); } catch { return false; }
 }
 
 /**
@@ -862,6 +875,7 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
   for (const item of items) {
     if (!item || typeof item.subject !== "string" || !item.subject) continue;
     const e = entryOf(item.subject);
+    e.engaged = true;
     const row = e.row;
     const epoch = Number.isFinite(item.epoch) ? Math.max(0, Math.floor(item.epoch)) : 0;
     const covered = Math.min(epoch, row.epoch);

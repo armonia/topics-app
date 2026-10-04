@@ -132,6 +132,9 @@ const EN = {
   'ai.providers.program.none': 'Path not known',
   'ai.providers.saveError': 'Could not save.',
 
+  'sidebar.subagents.one': '1 sub-agent',
+  'sidebar.subagents.many': '{n} sub-agents',
+  'sidebar.subagents.working': 'A sub-agent is working',
   'app.unsent.title.one': '1 message not sent',
   'app.unsent.title.many': '{n} messages not sent',
   'app.unsent.chatLine.one': '{name} · 1 message',
