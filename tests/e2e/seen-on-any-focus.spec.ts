@@ -5,34 +5,26 @@
  * keeps its blue when you click INSIDE it; clicking its TAB clears it. The tab
  * click carried a private clear for the terminal mark, the terminal body
  * cleared its own mark as soon as it was merely VISIBLE (focused or not), and a
- * chat already in front whose Claude phase came back to `awaiting-user` was
- * never seen again (the dwell had already fired once for that focus).
+ * chat already in front whose turn ended was never seen again.
  *
  * The rule proved here: a pane is seen when it is THE focused pane of the
  * window (tab click, click inside, keyboard, sidebar row: any input), with the
- * window awake, for the seen dwell. That one event clears every mark of the
- * pane on every surface at once: tab, sidebar row, the bell (whose number is
- * the Dock's, NOTIF-ONE-02). A mark on a pane that is visible in a split but
- * not focused stays.
+ * window awake, for the seen dwell. That one event goes through the seen door
+ * and clears the subject on every surface at once: tab, sidebar row, the inbox
+ * (whose number is the Dock's). A mark on a pane that is visible in a split
+ * but not focused stays. A subject that is in front of the person when its
+ * epoch is born is born seen: never lit, never counted.
  *
- * What is faked: the server's frames for the marks are injected on the real
- * socket (an external boundary) with the shape the server broadcasts; the
- * shell's own `terminal:activity` frames are filtered out so a prompt repaint
- * cannot clear the injected mark behind the test's back. The window is pinned
- * awake (visible + focused) so the dwell does not depend on the headless
- * browser's focus. Everything in between is the real code.
+ * Since notifications-redesign (tasks.md 5.5) every mark is the server's: the
+ * chats finish REAL turns on the chat route (a fake CLI answers), the Claude
+ * Code terminal is driven by the hooks route (the POSTs the CLI makes), the
+ * permission is the bridge's own route. Nothing is injected. What is faked is
+ * the boundary a headless browser cannot have: the window being in front of
+ * the person or behind another app (`hasFocus()`), the OS banner, the Badging
+ * API (recorded).
  *
- * No sleep: "a dwell has passed" is read off a witness, the focused chat's own
- * blue fill, which a new `awaiting-user` lights and the dwell switches off.
- * Where no witness can exist (a permission wait is never switched off by a
- * look; the unread door has no mark of its own), `page.clock` is moved past the
- * dwell instead.
- *
- * Also proved: a pane is in front with no focus to name it (nothing clicked
- * yet, the group draws its active tab as focused), the board's coordinator in
- * its drawer is in front when the board is, a permission wait stays amber on
- * every surface after a look, and the unread of the chat in front is read
- * once the window comes back.
+ * No sleep: "a dwell has passed" is read off a witness, a lit subject in front
+ * that the dwell switches off, or off the seen door's own request.
  *
  * @covers SEEN-ANY-FOCUS-01
  * @covers SEEN-ANY-FOCUS-02
@@ -40,119 +32,102 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { splitViaContextMenu } from "./helpers/layout";
+import { createTopic, deleteTerminalSession, deleteTopic, resetPaneStore, seedPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
+import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { seedMessage } from "./helpers/seed-messages";
 import {
-  createTerminalSession,
-  createTopic,
-  deleteTerminalSession,
-  deleteTopic,
-  resetPaneStore,
-  seedPaneStore,
-  unarchiveTopic,
-} from "./helpers/api-fixtures";
+  createClaudeTerminal, postHook, recordAttentionFrames, runChatTurn, sessionKeyOf, setAwake, stubBannersAndWindow,
+  type AttentionFrames, type ClaudeTerminal,
+} from "./helpers/attention";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { terminalSubject, topicSubject } from "../../shared/attention";
 
 hermetic(test);
 test.use({ video: "on" });
 
 const BASE = E2E_BASE;
 
-async function sessionKeyOf(request: APIRequestContext, id: string): Promise<string> {
-  const res = await request.get(`${BASE}/api/topics/${id}`, { ignoreHTTPSErrors: true });
-  const { topic } = (await res.json()) as { topic: { sessionKey: string } };
-  return topic.sessionKey;
-}
-
-/** The window is in front of the person: visible and focused, pinned. */
-async function pinAwake(page: Page): Promise<void> {
+/** The Badging API records every number the Dock is given. */
+async function recordDock(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
-    Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
-    document.hasFocus = () => true;
-  });
-}
-
-/** The window starts awake and the test can send it behind and back
- *  (`setAwake`); the Badging API records every number the Dock is given. */
-async function awakeWithDock(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const w = window as unknown as { __awake: boolean; __dock: number[] };
-    w.__awake = true;
+    const w = window as unknown as { __dock: number[] };
     w.__dock = [];
-    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (w.__awake ? "visible" : "hidden") });
-    Object.defineProperty(document, "hidden", { configurable: true, get: () => !w.__awake });
-    document.hasFocus = () => w.__awake;
     const nav = navigator as unknown as { setAppBadge: (n?: number) => Promise<void>; clearAppBadge: () => Promise<void> };
     nav.setAppBadge = (n?: number) => { w.__dock.push(n ?? 0); return Promise.resolve(); };
     nav.clearAppBadge = () => { w.__dock.push(0); return Promise.resolve(); };
   });
 }
 
-async function setAwake(page: Page, awake: boolean): Promise<void> {
-  await page.evaluate((a) => {
-    (window as unknown as { __awake: boolean }).__awake = a;
-    document.dispatchEvent(new Event("visibilitychange"));
-    window.dispatchEvent(new Event(a ? "focus" : "blur"));
-  }, awake);
-}
-
 const dockHistory = (page: Page) => page.evaluate(() => (window as unknown as { __dock: number[] }).__dock.slice());
 
-/** SEEN_DWELL_MS (client/src/state/signals.ts) three times over: the clock is
- *  moved past the dwell, not waited for (`page.clock`, as in mute-and-badge). */
-const PAST_THE_DWELL_MS = 3 * 1200;
+interface FocusFrames {
+  /** Waits until the app's socket told the server this subject is in front, with this wake. */
+  reported: (subject: string, awake: boolean) => Promise<void>;
+}
 
-/** Relay the page's socket, drop the server's own `terminal:activity` frames for
- *  `quietTerminals`, and return a way to inject a frame. */
-async function relay(page: Page, quietTerminals: () => string[]): Promise<(frame: Record<string, unknown>) => void> {
-  let inject: ((data: string) => void) | null = null;
-  // The app's socket only (`/ws`): a terminal pane opens its own socket under
-  // `/ws/...`, and a frame injected there would be typed into the shell.
-  await page.routeWebSocket(/\/ws$/, (ws) => {
-    const server = ws.connectToServer();
-    ws.onMessage((m) => server.send(m));
-    server.onMessage((m) => {
-      if (typeof m === "string" && m.includes('"terminal:activity"')) {
-        const id = (JSON.parse(m) as { id?: string }).id;
-        if (id && quietTerminals().includes(id)) return;
-      }
-      ws.send(m);
+/**
+ * The `focus` frames the page sends on the app's socket (`/ws`, not a
+ * terminal's `/ws/...`): what the server knows is in front of the person. A
+ * turn that ends before the server knows is not born seen, so the specs wait
+ * for this before ending one.
+ */
+function recordFocusFrames(page: Page): FocusFrames {
+  const sent: Array<{ subject: string | null; awake: boolean }> = [];
+  page.on("websocket", (ws) => {
+    if (!/\/ws(\?|$)/.test(ws.url())) return;
+    ws.on("framesent", ({ payload }) => {
+      if (typeof payload !== "string" || !payload.includes('"focus"')) return;
+      try {
+        const msg = JSON.parse(payload) as { type?: string; subject?: string | null; awake?: boolean };
+        if (msg.type === "focus") sent.push({ subject: msg.subject ?? null, awake: msg.awake !== false });
+      } catch { /* not a frame of ours */ }
     });
-    inject = (data: string) => ws.send(data);
   });
-  return (frame) => {
-    if (!inject) throw new Error("the page has not opened its socket yet");
-    inject(JSON.stringify(frame));
+  return {
+    reported: async (subject, awake) => {
+      await expect
+        .poll(() => { const last = sent.at(-1); return last ? `${last.subject}|${last.awake}` : null; }, { timeout: 15_000, message: `the window never told the server ${subject} is in front (awake: ${awake})` })
+        .toBe(`${subject}|${awake}`);
+    },
   };
 }
 
-const bellCount = (page: Page) => page.getByTestId("notification-history-button").locator("[data-notification-count]");
-const bellNumber = async (page: Page): Promise<number> =>
-  (await bellCount(page).count()) ? Number(await bellCount(page).getAttribute("data-notification-count")) : 0;
+const inboxCount = (page: Page) => page.getByTestId("inbox-count");
+const inboxNumber = async (page: Page): Promise<number> =>
+  (await inboxCount(page).count()) ? Number(await inboxCount(page).getAttribute("data-notification-count")) : 0;
+
+/**
+ * The inbox shows what the server says is lit, no more and no less. The specs
+ * name which subjects are lit; this proves the number agrees. Not a count
+ * relative to a baseline: a hookless Claude Code terminal closes a turn of its
+ * own when its PTY goes quiet after the CLI's first output (T2,
+ * `server/attention/terminal-turns.ts`), at a moment no spec chooses.
+ */
+async function expectInboxIsServer(page: Page, frames: AttentionFrames, message: string): Promise<void> {
+  await expect
+    .poll(async () => {
+      const shown = await inboxNumber(page);
+      const lit = [...frames.rows().values()].filter((r) => r.lit).map((r) => r.subject);
+      return shown === lit.length ? "agree" : `inbox ${shown}, server lit ${JSON.stringify(lit)}`;
+    }, { timeout: 15_000, message })
+    .toBe("agree");
+}
 
 const tab = (page: Page, paneId: string) => page.locator(`[role="tab"][data-pane-id="${paneId}"]`);
 const chatRow = (page: Page, name: string) => page.getByRole("treeitem", { name, exact: true });
 const terminalRow = (page: Page, sid: string) => page.locator(`[data-terminal-row="${sid}"]`);
 const badgeOf = (surface: Locator) => surface.locator("[data-notification-count]");
 
-/** The registry's state of the newest row grouped under the terminal. */
-async function terminalRowState(request: APIRequestContext, sid: string): Promise<"none" | "seen" | "unseen"> {
-  const res = await request.get(`${BASE}/api/notifications?limit=50`, { ignoreHTTPSErrors: true });
-  const { rows } = (await res.json()) as { rows?: Array<{ groupKey: string | null; seenAt: string | null }> };
-  const row = (rows ?? []).find((x) => x.groupKey === `terminal:${sid}`);
-  return row ? (row.seenAt ? "seen" : "unseen") : "none";
+/** One whole turn of the Claude Code terminal, as its hooks post it. */
+async function terminalTurn(request: APIRequestContext, term: ClaudeTerminal, prompt: string): Promise<void> {
+  await postHook(request, "UserPromptSubmit", { session_id: term.claudeSessionId, cwd: term.cwd, prompt });
+  await postHook(request, "Stop", { session_id: term.claudeSessionId, cwd: term.cwd });
 }
 
-/** The row a hook-driven claude-code terminal's banner writes: grouped under
- *  the session, no target, and no finished mark beside it (its phase drives
- *  attention, so `terminal:activity` never marks it). Same shape as
- *  `recordNotificationSent` from `useCompletionNotifier`. */
-async function recordTerminalBannerRow(request: APIRequestContext, sid: string): Promise<void> {
-  const res = await request.post(`${BASE}/api/notifications`, {
-    data: { kind: "session", title: "Claude Code", body: "Turn finished", dedupeKey: `terminal:seen-${sid}-${Date.now()}`, groupKey: `terminal:${sid}`, source: "banner" },
-    ignoreHTTPSErrors: true,
-  });
-  expect(res.ok(), `POST /api/notifications ${res.status()}`).toBe(true);
+/** Polls the last row the server sent for a subject until it is lit, or not. */
+async function expectLit(frames: AttentionFrames, subject: string, lit: boolean, message: string): Promise<void> {
+  await expect.poll(() => frames.rows().get(subject)?.lit ?? null, { timeout: 15_000, message }).toBe(lit);
 }
 
 /** Click inside the pane's BODY (not its tab): the middle of its split card,
@@ -166,28 +141,42 @@ async function clickInside(page: Page, paneId: string): Promise<void> {
   await expect(tab(page, paneId), `a click inside ${paneId} did not focus it`).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
 }
 
+const TOOL = "mcp__gateway__kiwi__search-flight";
+const TOOL_INPUT = { flyFrom: "NAP", flyTo: "RAK" };
+
+/** The bridge's legs, as the CLI's permission tool makes them, until somebody decides. */
+function askPermission(request: APIRequestContext, sessionKey: string, toolUseId: string): Promise<{ decision?: string; cancelled?: boolean }> {
+  return (async () => {
+    for (let legs = 0; legs < 120; legs++) {
+      const r = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission`, {
+        data: { toolName: TOOL, input: TOOL_INPUT, toolUseId, legMs: 1000 }, timeout: 30_000,
+      });
+      const body = (await r.json()) as { decision?: string; cancelled?: boolean; pending?: boolean };
+      if (!body.pending) return body;
+    }
+    throw new Error("nobody decided the permission");
+  })();
+}
+
 test.describe("Seen on any focus: one event clears a pane's marks everywhere", () => {
+  // One worker for the file: the fake CLI is one entry on disk, installed once.
+  test.describe.configure({ mode: "default", timeout: 120_000 });
+  let removeCli: (() => void) | null = null;
+  test.beforeAll(() => { removeCli = installSlowTurnCli(); });
+  test.afterAll(() => { removeCli?.(); removeCli = null; });
+
   let focusChat: { id: string; name: string };
   let doneChat: { id: string; name: string };
-  let term: { id: string; name: string };
+  let term: ClaudeTerminal & { name: string };
   let termPane: string;
-  let focusKey: string;
-  let doneKey: string;
 
   test.beforeEach(async ({ request }) => {
     const stamp = Date.now();
-    focusChat = await createTopic(request, `Seen-Focus-${stamp}`, { provider: "topics" });
-    // Muted, both: a finished turn writes no banner row, so the marks under
-    // test are the only things the two chats can put on the bell.
-    expect((await request.patch(`${BASE}/api/topics/${focusChat.id}`, { data: { muted: true } })).ok()).toBe(true);
-    doneChat = await createTopic(request, `Seen-Done-${stamp}`, { provider: "topics" });
-    expect((await request.patch(`${BASE}/api/topics/${doneChat.id}`, { data: { muted: true } })).ok()).toBe(true);
-    focusKey = await sessionKeyOf(request, focusChat.id);
-    doneKey = await sessionKeyOf(request, doneChat.id);
-    // A plain shell: no CLI is spawned. Its "finished" mark is injected.
-    term = await createTerminalSession(request, { name: `Seen-Term-${stamp}`, cols: 80, rows: 24 });
+    focusChat = await createTopic(request, `Seen-Focus-${stamp}`, { provider: "claude-code" });
+    doneChat = await createTopic(request, `Seen-Done-${stamp}`, { provider: "claude-code" });
+    const name = `Seen-Term-${stamp}`;
+    term = { ...(await createClaudeTerminal(request, name)), name };
     termPane = `terminal:${term.id}`;
-    await request.post(`${BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
   });
 
   test.afterEach(async ({ request }) => {
@@ -197,7 +186,7 @@ test.describe("Seen on any focus: one event clears a pane's marks everywhere", (
 
   /** Three cells side by side, the focus on the first: the chat and the
    *  terminal are VISIBLE and not focused. */
-  async function threeCells(page: Page): Promise<void> {
+  async function threeCells(page: Page, focus: FocusFrames): Promise<void> {
     await resetPaneStore(page.request, [focusChat.id, doneChat.id, termPane]);
     await goToApp(page);
     await expect(tab(page, termPane)).toBeVisible({ timeout: 20_000 });
@@ -205,137 +194,136 @@ test.describe("Seen on any focus: one event clears a pane's marks everywhere", (
     await splitViaContextMenu(page, "Dividi a destra", 1);
     await expect(page.locator("[data-split-card]")).toHaveCount(3, { timeout: 10_000 });
     await tab(page, focusChat.id).click();
-    await expect(tab(page, focusChat.id)).toHaveAttribute("data-active", "true");
+    await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true");
     await expect(tab(page, doneChat.id)).toBeVisible();
     await expect(tab(page, termPane)).toBeVisible();
     await expect(chatRow(page, doneChat.name)).toBeVisible({ timeout: 15_000 });
     await expect(terminalRow(page, term.id)).toBeVisible({ timeout: 15_000 });
+    await focus.reported(topicSubject(focusChat.id), true);
   }
 
-  /** A new "your turn" on a chat: its Claude phase leaves and re-enters
-   *  `awaiting-user`, as two frames the store applies apart, so the rising
-   *  edge exists. Waits for the state on the tab: the edge has been applied. */
-  async function newTurnParks(page: Page, inject: (f: Record<string, unknown>) => void, topicId: string, key: string, rev: number): Promise<void> {
-    inject({ type: "session:state", sessionKey: key, state: { phase: "running", rev, claudeSessionId: key } });
-    await expect(tab(page, topicId)).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
-    inject({ type: "session:state", sessionKey: key, state: { phase: "awaiting-user", rev: rev + 1, claudeSessionId: key } });
-    await expect(tab(page, topicId)).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-  }
+  test("SEEN-ANY-FOCUS-01: a visible but unfocused pane keeps its mark; a click inside it clears tab, row and inbox", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
+    await threeCells(page, focus);
 
-  test("SEEN-ANY-FOCUS-01: a visible but unfocused pane keeps its mark; a click inside it clears tab, row and bell", async ({ page }) => {
-    test.setTimeout(90_000);
-    await pinAwake(page);
-    const inject = await relay(page, () => [term.id]);
-    await threeCells(page);
-    const base = await bellNumber(page);
-
-    // Both turns end while the person looks at the first cell...
-    inject({ type: "stream:end", sessionKey: doneKey, topicId: doneChat.id, messageId: `seen-${Date.now()}`, completed: true, stopReason: "end_turn" });
-    inject({ type: "terminal:activity", id: term.id, busy: false, finished: true, kind: "claude-code" });
+    // Three turns end while the window is behind another app: none is born seen.
+    await setAwake(page, false);
+    await focus.reported(topicSubject(focusChat.id), false);
+    await runChatTurn(request, doneChat.id, "done over there");
+    await terminalTurn(request, term, "finish over there");
+    await runChatTurn(request, focusChat.id, "done in front");
+    await expectLit(frames, topicSubject(focusChat.id), true, "the chat in front of a window behind another app is not lit");
     await expect(tab(page, doneChat.id), "the finished chat's tab is not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
     await expect(chatRow(page, doneChat.name)).toHaveAttribute("data-attention", "done");
-    await expect(badgeOf(tab(page, termPane)), "the finished terminal's tab carries no badge").toHaveAttribute("data-notification-count", "1", { timeout: 10_000 });
-    await expect(badgeOf(terminalRow(page, term.id))).toHaveAttribute("data-notification-count", "1");
-    await expect.poll(() => bellNumber(page), { timeout: 10_000 }).toBe(base + 2);
+    await expect(tab(page, termPane), "the finished terminal's tab is not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+    await expect(terminalRow(page, term.id)).toHaveAttribute("data-attention", "done");
+    await expectLit(frames, topicSubject(doneChat.id), true, "the finished chat is not lit");
+    await expectLit(frames, terminalSubject(term.id), true, "the finished terminal is not lit");
+    await expectInboxIsServer(page, frames, "the inbox does not count the three finished panes");
 
-    // ...and the witness: the chat in front parks on a new turn after them.
-    // Its fill goes once a dwell has passed (the pane is seen), so by then
-    // the dwell had every chance to clear the two visible panes too.
-    await newTurnParks(page, inject, focusChat.id, focusKey, 1);
-    await expect(tab(page, focusChat.id), "the witness: the focused chat was never seen").not.toHaveAttribute("data-attention-fill", /done|input/, { timeout: 10_000 });
-    // The focused chat's phase is a state the bell counts (out of this test).
-    await expect.poll(() => bellNumber(page), { timeout: 10_000 }).toBe(base + 3);
+    // Back in front of the person. The witness: the focused chat is seen once
+    // a dwell has passed, so by then the dwell had every chance to clear the
+    // two visible panes too.
+    await setAwake(page, true);
+    await expectLit(frames, topicSubject(focusChat.id), false, "the witness: the focused chat was never seen");
+    await expect(tab(page, focusChat.id)).not.toHaveAttribute("data-attention-fill", /.+/, { timeout: 10_000 });
+    await expectInboxIsServer(page, frames, "the inbox still counts the focused chat");
 
     // Visible is not seen: both marks are still on every surface.
     await expect(tab(page, doneChat.id), "a visible, unfocused chat lost its mark").toHaveAttribute("data-attention", "done");
     await expect(chatRow(page, doneChat.name)).toHaveAttribute("data-attention", "done");
-    await expect(badgeOf(tab(page, termPane)), "a visible, unfocused terminal lost its mark").toHaveAttribute("data-notification-count", "1");
-    await expect(badgeOf(terminalRow(page, term.id))).toHaveAttribute("data-notification-count", "1");
+    await expect(tab(page, termPane), "a visible, unfocused terminal lost its mark").toHaveAttribute("data-attention", "done");
+    await expect(terminalRow(page, term.id)).toHaveAttribute("data-attention", "done");
 
     // A click INSIDE the chat, not on its tab: the chat's marks go everywhere.
     await clickInside(page, doneChat.id);
-    await expect(tab(page, doneChat.id), "a click inside the chat left its tab marked").not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
-    await expect(chatRow(page, doneChat.name), "a click inside the chat left its row marked").not.toHaveAttribute("data-attention", /done|input/);
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the bell still counts the seen chat" }).toBe(base + 2);
+    await expect(tab(page, doneChat.id), "a click inside the chat left its tab marked").not.toHaveAttribute("data-attention", /.+/, { timeout: 10_000 });
+    await expect(chatRow(page, doneChat.name), "a click inside the chat left its row marked").not.toHaveAttribute("data-attention", /.+/);
+    await expectInboxIsServer(page, frames, "the inbox still counts the seen chat");
     // The terminal was not looked at: it keeps its mark.
-    await expect(badgeOf(tab(page, termPane))).toHaveAttribute("data-notification-count", "1");
-    await expect(badgeOf(terminalRow(page, term.id))).toHaveAttribute("data-notification-count", "1");
+    await expect(tab(page, termPane)).toHaveAttribute("data-attention", "done");
+    await expect(terminalRow(page, term.id)).toHaveAttribute("data-attention", "done");
 
     // A click INSIDE the terminal: its marks go everywhere too.
     await clickInside(page, termPane);
-    await expect(badgeOf(terminalRow(page, term.id)), "a click inside the terminal left its row badge").toHaveCount(0, { timeout: 10_000 });
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the bell still counts the seen terminal" }).toBe(base + 1);
+    await expect(terminalRow(page, term.id), "a click inside the terminal left its row marked").not.toHaveAttribute("data-attention", /.+/, { timeout: 10_000 });
+    await expectInboxIsServer(page, frames, "the inbox still counts the seen terminal");
     // Leave it: the tab of a pane you no longer look at shows what is left.
     await tab(page, focusChat.id).click();
-    await expect(tab(page, focusChat.id)).toHaveAttribute("data-active", "true");
-    await expect(badgeOf(tab(page, termPane)), "a click inside the terminal left its tab badge").toHaveCount(0);
+    await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true");
+    await expect(tab(page, termPane), "a click inside the terminal left its tab marked").not.toHaveAttribute("data-attention", /.+/);
+    await expect(badgeOf(tab(page, termPane))).toHaveCount(0);
   });
 
-  test("SEEN-ANY-FOCUS-02: a pane already focused when its turn ends is never left marked, on any surface", async ({ page }) => {
-    test.setTimeout(90_000);
-    await pinAwake(page);
-    const inject = await relay(page, () => [term.id]);
-    await threeCells(page);
+  test("SEEN-ANY-FOCUS-02: a pane already focused when its turn ends is never left marked, on any surface", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
+    await threeCells(page, focus);
 
-    // The chat parks while unfocused: blue on its tab and its row.
-    await newTurnParks(page, inject, doneChat.id, doneKey, 1);
-    await expect(tab(page, doneChat.id)).toHaveAttribute("data-attention-fill", "done");
+    // The chat finishes while unfocused: blue on its tab and its row.
+    await runChatTurn(request, doneChat.id, "first");
+    await expect(tab(page, doneChat.id)).toHaveAttribute("data-attention-fill", "done", { timeout: 10_000 });
     await expect(chatRow(page, doneChat.name)).toHaveAttribute("data-attention-fill", "done");
     // Focused from inside: seen after the dwell, on both surfaces.
     await clickInside(page, doneChat.id);
-    await expect(tab(page, doneChat.id)).not.toHaveAttribute("data-attention-fill", /done|input/, { timeout: 10_000 });
-    await expect(chatRow(page, doneChat.name)).not.toHaveAttribute("data-attention-fill", /done|input/);
+    await expect(tab(page, doneChat.id)).not.toHaveAttribute("data-attention-fill", /.+/, { timeout: 10_000 });
+    await expect(chatRow(page, doneChat.name)).not.toHaveAttribute("data-attention-fill", /.+/);
 
-    // Still in front of the person, the chat parks on a NEW turn. The blue
-    // may show for the dwell; it must not stay on the pane you look at.
-    await newTurnParks(page, inject, doneChat.id, doneKey, 3);
-    await expect(tab(page, doneChat.id), "the focused chat's tab stays blue").not.toHaveAttribute("data-attention-fill", /done|input/, { timeout: 10_000 });
-    await expect(chatRow(page, doneChat.name), "the focused chat's row stays blue").not.toHaveAttribute("data-attention-fill", /done|input/);
+    // Still in front of the person, the chat ends a NEW turn: born seen.
+    await focus.reported(topicSubject(doneChat.id), true);
+    const turnsBefore = frames.rows().get(topicSubject(doneChat.id))?.lastTurnAt ?? null;
+    await runChatTurn(request, doneChat.id, "second");
+    await expect
+      .poll(() => frames.rows().get(topicSubject(doneChat.id))?.lastTurnAt ?? null, { timeout: 15_000, message: "the second turn never closed" })
+      .not.toBe(turnsBefore);
+    await expectLit(frames, topicSubject(doneChat.id), false, "the focused chat's new turn lit it");
+    await expect(tab(page, doneChat.id), "the focused chat's tab stays blue").not.toHaveAttribute("data-attention-fill", /.+/);
+    await expect(chatRow(page, doneChat.name), "the focused chat's row stays blue").not.toHaveAttribute("data-attention-fill", /.+/);
 
     // The terminal, focused from inside, finishes a turn in front of you.
     await clickInside(page, termPane);
-    const base = await bellNumber(page);
-    inject({ type: "terminal:activity", id: term.id, busy: false, finished: true, kind: "claude-code" });
-    // The sentinel: a chat that is NOT in front finishes after it. Frames are
-    // applied in order, so once its mark is on, the terminal's was handled.
-    inject({ type: "stream:end", sessionKey: focusKey, topicId: focusChat.id, messageId: `sentinel-${Date.now()}`, completed: true, stopReason: "end_turn" });
+    await focus.reported(terminalSubject(term.id), true);
+    await terminalTurn(request, term, "finish in front");
+    // The sentinel: a chat that is NOT in front finishes after it.
+    await runChatTurn(request, focusChat.id, "sentinel");
     await expect(tab(page, focusChat.id), "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-    await expect(badgeOf(terminalRow(page, term.id)), "the focused terminal's row kept a badge").toHaveCount(0, { timeout: 10_000 });
-    // Its banner still goes out ("notify even when focused" is on by default)
-    // and leaves a history row: about the pane in front, so never unseen on
-    // the bell and the Dock. Only the sentinel counts.
-    await expect.poll(() => terminalRowState(page.request, term.id), { timeout: 10_000, message: "the focused terminal's banner left no row" }).not.toBe("none");
-    await expect.poll(() => terminalRowState(page.request, term.id), { timeout: 10_000, message: "the focused terminal's row stays unseen" }).toBe("seen");
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the bell counts the terminal you are looking at" }).toBe(base + 1);
+    await expectLit(frames, terminalSubject(term.id), false, "the focused terminal's turn lit it");
+    await expect(terminalRow(page, term.id), "the focused terminal's row kept a mark").not.toHaveAttribute("data-attention", /.+/);
+    await expectInboxIsServer(page, frames, "the inbox counts the terminal you are looking at");
     await tab(page, focusChat.id).click();
-    await expect(tab(page, focusChat.id)).toHaveAttribute("data-active", "true");
-    await expect(badgeOf(tab(page, termPane)), "the focused terminal's tab kept a badge").toHaveCount(0);
+    await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true");
+    await expect(tab(page, termPane), "the focused terminal's tab kept a mark").not.toHaveAttribute("data-attention", /.+/);
   });
-  test("SEEN-ANY-FOCUS-01b: a terminal's banner row with no finished mark goes from the bell when its tab or its row focuses it", async ({ page }) => {
-    test.setTimeout(90_000);
-    await pinAwake(page);
-    await relay(page, () => [term.id]);
-    await threeCells(page);
-    const base = await bellNumber(page);
 
-    // Its banner row lands while another cell is focused: one more on the bell.
-    await recordTerminalBannerRow(page.request, term.id);
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the terminal's row is not on the bell" }).toBe(base + 1);
-    // The TAB focuses it: the seen event clears the row.
+  test("SEEN-ANY-FOCUS-01b: a finished terminal goes from the inbox when its tab or its sidebar row focuses it", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
+    await threeCells(page, focus);
+
+    // Its turn ends while another cell is focused: one more in the inbox.
+    await terminalTurn(request, term, "first");
+    await expectLit(frames, terminalSubject(term.id), true, "the terminal's turn did not light it");
+    await expectInboxIsServer(page, frames, "the terminal is not in the inbox");
+    // The TAB focuses it: the seen clears it.
     await tab(page, termPane).click();
     await expect(tab(page, termPane)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the tab click left the terminal's row on the bell" }).toBe(base);
-    await expect.poll(() => terminalRowState(page.request, term.id), { timeout: 10_000 }).toBe("seen");
+    await expectInboxIsServer(page, frames, "the tab click left the terminal in the inbox");
+    await expectLit(frames, terminalSubject(term.id), false, "the tab click did not see the terminal");
 
-    // Away from it, a new row for the same terminal (already seen once).
+    // Away from it, a new turn of the same terminal (already seen once).
     await tab(page, focusChat.id).click();
     await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
-    await recordTerminalBannerRow(page.request, term.id);
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the second row is not on the bell" }).toBe(base + 1);
+    await focus.reported(topicSubject(focusChat.id), true);
+    await terminalTurn(request, term, "second");
+    await expectInboxIsServer(page, frames, "the second turn is not in the inbox");
     // The sidebar ROW focuses it: the same event clears it.
     await terminalRow(page, term.id).click();
     await expect(tab(page, termPane)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the row click left the terminal's row on the bell" }).toBe(base);
+    await expectInboxIsServer(page, frames, "the row click left the terminal in the inbox");
   });
 
   /** One group seeded with `paneIds`, nothing clicked: `focusedPanelId` stays
@@ -349,48 +337,55 @@ test.describe("Seen on any focus: one event clears a pane's marks everywhere", (
     await expect(tab(page, paneIds[1])).toBeVisible();
   }
 
-  test("SEEN-ANY-FOCUS-02b: with no pane focused yet, the terminal its group draws in front finishes a turn and is left with no mark", async ({ page }) => {
-    test.setTimeout(90_000);
-    await pinAwake(page);
-    const inject = await relay(page, () => [term.id]);
+  test("SEEN-ANY-FOCUS-02b: with no pane focused yet, the terminal its group draws in front finishes a turn and is left with no mark", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
     await noFocusYet(page, [termPane, doneChat.id]);
     await expect(terminalRow(page, term.id)).toBeVisible({ timeout: 15_000 });
-    const base = await bellNumber(page);
+    await focus.reported(terminalSubject(term.id), true);
 
     // The terminal drawn in front finishes; then the sentinel, the chat in the
-    // tab behind it, ends a turn. Frames are applied in order.
-    inject({ type: "terminal:activity", id: term.id, busy: false, finished: true, kind: "claude-code" });
-    inject({ type: "stream:end", sessionKey: doneKey, topicId: doneChat.id, messageId: `sentinel-${Date.now()}`, completed: true, stopReason: "end_turn" });
+    // tab behind it, ends a turn.
+    await terminalTurn(request, term, "finish in front");
+    await runChatTurn(request, doneChat.id, "sentinel");
     await expect(tab(page, doneChat.id), "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-    await expect(badgeOf(terminalRow(page, term.id)), "the terminal drawn in front kept a row badge").toHaveCount(0);
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the bell counts the terminal drawn in front" }).toBe(base + 1);
+    await expectLit(frames, terminalSubject(term.id), false, "the terminal drawn in front was lit");
+    await expect(terminalRow(page, term.id), "the terminal drawn in front kept a row mark").not.toHaveAttribute("data-attention", /.+/);
+    await expectInboxIsServer(page, frames, "the inbox counts the terminal drawn in front");
     await tab(page, doneChat.id).click();
     await expect(tab(page, doneChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
-    await expect(badgeOf(tab(page, termPane)), "the terminal drawn in front kept a tab badge").toHaveCount(0);
+    await expect(tab(page, termPane), "the terminal drawn in front kept a tab mark").not.toHaveAttribute("data-attention", /.+/);
   });
 
-  test("SEEN-ANY-FOCUS-02c: with no pane focused yet, the chat its group draws in front ends a turn and is left with no mark", async ({ page }) => {
-    test.setTimeout(90_000);
-    await pinAwake(page);
-    const inject = await relay(page, () => [term.id]);
+  test("SEEN-ANY-FOCUS-02c: with no pane focused yet, the chat its group draws in front ends a turn and is left with no mark", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
     await noFocusYet(page, [focusChat.id, doneChat.id]);
     await expect(chatRow(page, focusChat.name)).toBeVisible({ timeout: 15_000 });
-    const base = await bellNumber(page);
+    await focus.reported(topicSubject(focusChat.id), true);
 
-    inject({ type: "stream:end", sessionKey: focusKey, topicId: focusChat.id, messageId: `front-${Date.now()}`, completed: true, stopReason: "end_turn" });
-    inject({ type: "stream:end", sessionKey: doneKey, topicId: doneChat.id, messageId: `sentinel-${Date.now()}`, completed: true, stopReason: "end_turn" });
+    await runChatTurn(request, focusChat.id, "front");
+    await runChatTurn(request, doneChat.id, "sentinel");
     await expect(tab(page, doneChat.id), "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-    await expect(tab(page, focusChat.id), "the chat drawn in front kept its done mark").not.toHaveAttribute("data-attention", /done|input/);
-    await expect(chatRow(page, focusChat.name), "the row of the chat drawn in front kept its done mark").not.toHaveAttribute("data-attention", /done|input/);
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "the bell counts the chat drawn in front" }).toBe(base + 1);
+    await expectLit(frames, topicSubject(focusChat.id), false, "the chat drawn in front was lit");
+    await expect(tab(page, focusChat.id), "the chat drawn in front kept its done mark").not.toHaveAttribute("data-attention", /.+/);
+    await expect(chatRow(page, focusChat.name), "the row of the chat drawn in front kept its done mark").not.toHaveAttribute("data-attention", /.+/);
+    await expectInboxIsServer(page, frames, "the inbox counts the chat drawn in front");
   });
 
-  test("SEEN-ANY-FOCUS-02d: the board's coordinator, open in its drawer, ends a turn with no mark on the bell and no blink on the Dock", async ({ page }) => {
-    test.setTimeout(90_000);
-    await awakeWithDock(page);
-    const inject = await relay(page, () => [term.id]);
+  test("SEEN-ANY-FOCUS-02d: the board's coordinator, open in its drawer, is the subject in front: the window tells the server, and leaving the board takes it back", async ({ page, request }) => {
+    // The coordinator is Codex-only and the test server has no Codex
+    // (`codex_unavailable`), so no turn of it can end here. What the client
+    // owns is proved instead: with the board in front and the drawer open, the
+    // window names the coordinator as the subject in front, awake, and an
+    // epoch born there is born seen on the server (`server/attention/store.ts`
+    // `inFrontOfThePerson`, unit-proved in `server/attention/born-seen.test.ts`).
+    await stubBannersAndWindow(page, { awake: true });
+    const focus = recordFocusFrames(page);
     const board = "__board__";
-    await resetPaneStore(page.request, [focusChat.id, doneChat.id, board]);
+    await resetPaneStore(request, [focusChat.id, board]);
     await goToApp(page);
     await tab(page, board).click();
     await expect(tab(page, board)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
@@ -398,40 +393,42 @@ test.describe("Seen on any focus: one event clears a pane's marks everywhere", (
     await page.getByTestId("board-open-orchestrator").click();
     const drawer = page.getByTestId("board-orchestrator-drawer");
     await expect(drawer.getByTestId("chat-panel")).toBeVisible({ timeout: 15_000 });
-    const res = await page.request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
-    const all = ((await res.json()) as { topics: Record<string, { id: string; sessionKey: string; isGlobalOrchestrator?: boolean; muted?: boolean }> }).topics;
+    const res = await request.get(`${BASE}/api/topics`);
+    const all = ((await res.json()) as { topics: Record<string, { id: string; isGlobalOrchestrator?: boolean }> }).topics;
     const coordinator = Object.values(all).find((t) => t.isGlobalOrchestrator);
     expect(coordinator, "no coordinator topic").toBeTruthy();
-    const wasMuted = coordinator!.muted === true;
-    try {
-      // Loud and muted: a loud end lit the Dock and took it back (a blink), a
-      // muted one stayed on the bell. A sentinel chat behind the board ends a
-      // turn after it each time: frames are applied in order.
-      for (const [muted, sentinel] of [[false, focusChat], [true, doneChat]] as const) {
-        expect((await page.request.patch(`${BASE}/api/topics/${coordinator!.id}`, { data: { muted } })).ok()).toBe(true);
-        const base = await bellNumber(page);
-        const dockFrom = (await dockHistory(page)).length;
-        inject({ type: "stream:end", sessionKey: coordinator!.sessionKey, topicId: coordinator!.id, messageId: `coord-${muted}-${Date.now()}`, completed: true, stopReason: "end_turn" });
-        inject({ type: "stream:end", sessionKey: sentinel === focusChat ? focusKey : doneKey, topicId: sentinel.id, messageId: `sentinel-${muted}-${Date.now()}`, completed: true, stopReason: "end_turn" });
-        await expect(tab(page, sentinel.id), "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-        await expect.poll(() => bellNumber(page), { timeout: 10_000, message: `the bell counts the coordinator you are looking at (muted: ${muted})` }).toBe(base + 1);
-        const dock = (await dockHistory(page)).slice(dockFrom);
-        expect(Math.max(base + 1, ...dock), `the Dock counted the coordinator you are looking at (muted: ${muted}): ${JSON.stringify(dock)}`).toBe(base + 1);
-      }
-    } finally {
-      await page.request.patch(`${BASE}/api/topics/${coordinator!.id}`, { data: { muted: wasMuted } });
-    }
+    await focus.reported(topicSubject(coordinator!.id), true);
+    // Behind another app, the coordinator is still in front of the window but not of the person.
+    await setAwake(page, false);
+    await focus.reported(topicSubject(coordinator!.id), false);
+    await setAwake(page, true);
+    await focus.reported(topicSubject(coordinator!.id), true);
+    // Another tab in front: the coordinator is no longer the subject in front.
+    await tab(page, focusChat.id).click();
+    await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
+    await focus.reported(topicSubject(focusChat.id), true);
   });
 
-  test("SEEN-ANY-FOCUS-01c: a permission wait on the focused chat stays amber on its tab, its row and its group card past the dwell", async ({ page }) => {
-    test.setTimeout(90_000);
-    await pinAwake(page);
-    await page.clock.install();
-    const inject = await relay(page, () => [term.id]);
+  test("SEEN-ANY-FOCUS-01c: a permission wait on the focused chat stays amber on its tab, its row and its group card after it is seen", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
+    const subject = topicSubject(focusChat.id);
+    const sessionKey = await sessionKeyOf(request, focusChat.id);
+    const toolCallId = `toolu_seen_perm_${Date.now()}`;
+    await request.delete(`${BASE}/api/tool-grants/${encodeURIComponent(TOOL)}`);
+    await request.patch(`${BASE}/api/topics/${focusChat.id}`, { data: { autonomyLevel: "auto-apply" } });
+    // The turn as the route paints it: the tool on the row, waiting on the person.
+    const tc = {
+      id: toolCallId, name: TOOL, args: TOOL_INPUT, status: "awaiting_permission" as const, startedAt: Date.now(),
+      permissionRequest: { toolName: TOOL, input: TOOL_INPUT, requestedAt: Date.now() },
+    };
+    await seedMessage(request, { sessionKey, role: "user", content: "find a flight" });
+    await seedMessage(request, { sessionKey, role: "assistant", content: "Searching:", toolCalls: [tc], blocks: [{ kind: "text", text: "Searching:" }, { kind: "tool", toolCall: tc }] });
     // A second group, so the group cards are drawn.
     const SPACE_ID = "space:seen-any-focus";
-    await Promise.all([focusChat.id, doneChat.id].map((id) => unarchiveTopic(page.request, id)));
-    await seedPaneStore(page.request, () => {
+    await Promise.all([focusChat.id, doneChat.id].map((id) => unarchiveTopic(request, id)));
+    await seedPaneStore(request, () => {
       const openedAt = Date.now();
       const pane = (id: string, spaceId?: string) => ({ id, type: "chat", title: "", topicId: id, openedAt, ...(spaceId ? { spaceId } : {}) });
       return {
@@ -446,48 +443,58 @@ test.describe("Seen on any focus: one event clears a pane's marks everywhere", (
     await expect(mainCard).toBeVisible({ timeout: 20_000 });
     await tab(page, focusChat.id).click();
     await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
+    await focus.reported(subject, true);
 
-    inject({ type: "session:state", sessionKey: focusKey, state: { phase: "running", rev: 1, claudeSessionId: focusKey } });
-    await expect(tab(page, focusChat.id)).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
-    inject({ type: "session:state", sessionKey: focusKey, state: { phase: "awaiting-approval", rev: 2, claudeSessionId: focusKey } });
-    await expect(tab(page, focusChat.id)).toHaveAttribute("data-attention", "input", { timeout: 10_000 });
-    // In front of the person, awake, for three dwells: the chat is SEEN.
-    await page.clock.runFor(PAST_THE_DWELL_MS);
-    // A look does not answer a permission: every surface still asks for it.
-    await expect(mainCard, "the group card dropped the permission wait").toHaveAttribute("data-attention", "input");
-    await expect(tab(page, focusChat.id), "the focused chat's tab dropped the amber of a pending permission").toHaveAttribute("data-attention-fill", "input");
-    await expect(chatRow(page, focusChat.name), "the focused chat's row dropped the amber of a pending permission").toHaveAttribute("data-attention-fill", "input");
+    // The permission is asked while the person looks at the chat: born seen,
+    // and a look does not answer it. Every surface still asks for it.
+    const decided = askPermission(request, sessionKey, toolCallId);
+    await expect.poll(() => frames.rows().get(subject)?.reason ?? null, { timeout: 15_000, message: "the permission is not needs-you(permission)" }).toBe("permission");
+    await expect
+      .poll(() => { const r = frames.rows().get(subject); return r ? r.seenEpoch >= r.epoch : false; }, { timeout: 15_000, message: "the permission in front was never seen" })
+      .toBe(true);
+    await expectLit(frames, subject, true, "a seen permission stopped asking");
+    await expect(mainCard, "the group card dropped the permission wait").toHaveAttribute("data-attention", "needs-you", { timeout: 10_000 });
+    await expect(tab(page, focusChat.id), "the focused chat's tab dropped the amber of a pending permission").toHaveAttribute("data-attention-fill", "needs-you");
+    await expect(chatRow(page, focusChat.name), "the focused chat's row dropped the amber of a pending permission").toHaveAttribute("data-attention-fill", "needs-you");
+
+    // The answer switches it off.
+    const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await panel.locator(`[data-testid="tool-permission-allow-${toolCallId}"]`).click();
+    expect((await decided).decision).toBe("allow");
+    await expectLit(frames, subject, false, "the answer did not switch the wait off");
   });
 
-  test("SEEN-ANY-FOCUS-01d: the focused chat read while the window was behind is seen on the bell and the Dock once the window comes back", async ({ page }) => {
-    test.setTimeout(90_000);
-    await awakeWithDock(page);
-    await page.clock.install();
-    const inject = await relay(page, () => [term.id]);
-    await page.request.post(`${BASE}/api/topics/${focusChat.id}/read`, { ignoreHTTPSErrors: true });
-    await resetPaneStore(page.request, [focusChat.id, doneChat.id]);
+  test("SEEN-ANY-FOCUS-01d: the focused chat that finished while the window was behind is seen in the inbox and on the Dock once the window comes back", async ({ page, request }) => {
+    await stubBannersAndWindow(page, { awake: true });
+    await recordDock(page);
+    const frames = recordAttentionFrames(page);
+    const focus = recordFocusFrames(page);
+    await resetPaneStore(request, [focusChat.id, doneChat.id]);
     await goToApp(page);
     await tab(page, focusChat.id).click();
     await expect(tab(page, focusChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
-    await page.clock.runFor(PAST_THE_DWELL_MS);
-    const base = await bellNumber(page);
+    await focus.reported(topicSubject(focusChat.id), true);
 
-    // The window goes behind; a reply lands on the chat in front and its turn ends.
+    // The window goes behind; the chat in front ends a turn.
     await setAwake(page, false);
-    const reply = await page.request.post(`${BASE}/api/topics/${focusChat.id}/system-message`, { data: { content: "a reply while away" }, ignoreHTTPSErrors: true });
-    expect(reply.ok(), `system-message ${reply.status()}`).toBe(true);
-    inject({ type: "stream:end", sessionKey: focusKey, topicId: focusChat.id, messageId: `away-${Date.now()}`, completed: true, stopReason: "end_turn" });
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "nothing counted while the window was behind" }).toBeGreaterThan(base);
+    await focus.reported(topicSubject(focusChat.id), false);
+    await runChatTurn(request, focusChat.id, "a reply while away");
+    await expectLit(frames, topicSubject(focusChat.id), true, "the chat that finished behind another app is not lit");
+    await expectInboxIsServer(page, frames, "nothing counted while the window was behind");
 
-    // Back, looking at the same chat for three dwells.
+    // Back, looking at the same chat for a dwell.
     await setAwake(page, true);
-    await page.clock.runFor(PAST_THE_DWELL_MS);
-    await expect.poll(() => bellNumber(page), { timeout: 10_000, message: "back in front of the chat, the bell still counts it" }).toBe(base);
-    await expect.poll(async () => (await dockHistory(page)).at(-1) ?? 0, { timeout: 10_000, message: "back in front of the chat, the Dock still counts it" }).toBe(base);
+    await expectLit(frames, topicSubject(focusChat.id), false, "back in front of the chat, it was never seen");
+    await expectInboxIsServer(page, frames, "back in front of the chat, the inbox still counts it");
+    await expect
+      .poll(async () => ((await dockHistory(page)).at(-1) ?? 0) === (await inboxNumber(page)), { timeout: 10_000, message: "back in front of the chat, the Dock still counts it" })
+      .toBe(true);
     // Leave it: nothing is left on its row or its tab.
     await tab(page, doneChat.id).click();
     await expect(tab(page, doneChat.id)).toHaveAttribute("data-focused", "true", { timeout: 10_000 });
-    await expect(badgeOf(chatRow(page, focusChat.name)), "the chat read on return kept a row badge").toHaveCount(0);
-    await expect(badgeOf(tab(page, focusChat.id)), "the chat read on return kept a tab badge").toHaveCount(0);
+    await expect(chatRow(page, focusChat.name), "the chat seen on return kept a row mark").not.toHaveAttribute("data-attention", /.+/);
+    await expect(badgeOf(chatRow(page, focusChat.name)), "the chat seen on return kept a row badge").toHaveCount(0);
+    await expect(badgeOf(tab(page, focusChat.id)), "the chat seen on return kept a tab badge").toHaveCount(0);
   });
 });
