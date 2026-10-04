@@ -33,7 +33,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTerminalSession, createTopic, deleteTerminalSession, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTerminalSession, createTopic, deleteTerminalSession, deleteTopic, openBaselineChats, resetPaneStore } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -183,6 +183,11 @@ test.describe("The label of a tab", () => {
   test("LABEL-2: in the column the name is born on a whole pixel, and not where the line below decides", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHROME-04" });
     await resetPaneStore(request, topics.map((t) => t.id));
+    // The baseline chats, whose last message fills their subline: the rows
+    // with something to say. They used to show with no tab because of their
+    // unread messages; since notifications-redesign (ATTN-14) a chat with no
+    // tab is in the sidebar only while it is lit.
+    await openBaselineChats(request);
     const ws = await interceptWebSocket(page);
     await openApp(page);
     // At least ours. The count is not exact on purpose: the hermetic baseline

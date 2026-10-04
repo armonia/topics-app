@@ -179,6 +179,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       // 'j' never enters the generated table, and with the focus in a browser
       // pane the NSEvent monitor never forwards the chord.
       { keys: [MOD, 'J'], description: 'Next chat waiting for you', native: { chars: ['j'] } },
+      // ATTN-09, notifications-redesign task 4.6: the inbox from the keyboard.
+      // ⇧⌘I was free in this registry. `native` so the chord reaches the page
+      // with the focus in a browser pane, as ⌘J does.
+      { keys: [MOD, SHIFT, 'I'], description: 'Open «To look at»', native: { chars: ['i'], requireShift: true } },
     ],
   },
   {

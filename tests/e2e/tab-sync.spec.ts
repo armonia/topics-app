@@ -373,7 +373,16 @@ test.describe("Tab Sync & Persistence", () => {
           resp.request().method() === "PUT",
         { timeout: 10000 }
       );
-      await openTopic(pageA, /Web Search Test/);
+      // Opened from the command palette, the way a person opens a chat with
+      // no row: since notifications-redesign (ATTN-14) a chat with no tab is in
+      // the sidebar only while it is lit, and `openTopic` would seed the tab
+      // from the test instead of letting context A open it.
+      await pageA.keyboard.press("Meta+k");
+      const palette = pageA.getByTestId("command-palette");
+      await expect(palette).toBeVisible({ timeout: 10000 });
+      await pageA.keyboard.type("Web Search Test");
+      await expect(palette.getByText("Web Search Test").first()).toBeVisible({ timeout: 10000 });
+      await pageA.keyboard.press("Enter");
       await putA;
 
       // Context B reads the shared server pane-store that A's live-persist wrote.

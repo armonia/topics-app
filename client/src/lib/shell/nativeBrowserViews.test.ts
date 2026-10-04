@@ -143,6 +143,21 @@ describe('nativeBrowserViews: a close wins over an open it overtakes', () => {
     expect(settleNativeViewOpen(lost, invoke)).toBe(false);
     expect(sent, 'a failed open shielded a view nobody owns').toEqual(['browser_close o4']);
   });
+
+  test('B answers first: the lost open A closes nothing, B keeps the label', async () => {
+    // Open A leaves, a close overtakes it, open B leaves and answers BEFORE A.
+    // When A answers nothing of the id is in flight any more, and only the
+    // record says that B owns the label now: closing it would kill B's view.
+    const a = beginNativeViewOpen('o5');
+    await closeNativeView('o5', invoke);
+    const b = beginNativeViewOpen('o5');
+    expect(settleNativeViewOpen(b, invoke)).toBe(true);
+    sent = [];
+    expect(settleNativeViewOpen(a, invoke)).toBe(false);
+    expect(sent, 'the lost open closed the view the newer open had already recorded').toEqual([]);
+    expect(isNativeViewOpened('o5')).toBe(true);
+    forgetNativeView('o5');
+  });
 });
 
 describe('nativeBrowserViews: every browser_close passes through here', () => {
@@ -154,13 +169,24 @@ describe('nativeBrowserViews: every browser_close passes through here', () => {
   const SRC = join(import.meta.dir, '..', '..');
   // The type argument is optional in the pattern: `tauriInvoke<void>('browser_close', …)`
   // is the same call, and a pattern that wanted `(` right after `invoke` let it through.
-  const DIRECT_CLOSE = /[iI]nvoke(?:<[^>]*>)?\(\s*['"]browser_close['"]/;
+  // It is matched lazily up to the `>` that is followed by `(`, not up to the first
+  // `>`: `<Record<string, unknown>>` and `<() => void>` hold one of their own.
+  // Bounded, so an `invoke<` far from any call cannot swallow a whole file.
+  const DIRECT_CLOSE = /[iI]nvoke(?:<[\s\S]{0,200}?>)?\(\s*['"]browser_close['"]/;
 
   test('the pattern sees the call with and without a type argument', () => {
     expect(DIRECT_CLOSE.test(`tauriInvoke('browser_close', { id })`)).toBe(true);
     expect(DIRECT_CLOSE.test(`tauriInvoke<void>('browser_close', { id })`)).toBe(true);
     expect(DIRECT_CLOSE.test(`invoke<unknown>( "browser_close", { id })`)).toBe(true);
     expect(DIRECT_CLOSE.test(`tauriInvoke<void>('browser_close_all', {})`)).toBe(false);
+  });
+
+  test('the pattern sees a type argument that has its own angle brackets', () => {
+    // A `>` inside the type argument (a nested generic, an arrow type) is not
+    // the end of it: a pattern that stopped at the first `>` let these through.
+    expect(DIRECT_CLOSE.test(`tauriInvoke<Record<string, unknown>>('browser_close', { id })`)).toBe(true);
+    expect(DIRECT_CLOSE.test(`tauriInvoke<() => void>('browser_close', { id })`)).toBe(true);
+    expect(DIRECT_CLOSE.test(`tauriInvoke<Record<string, unknown>>('browser_close_all', {})`)).toBe(false);
   });
 
   test('no source file sends browser_close around closeNativeView', () => {

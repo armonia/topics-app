@@ -10,7 +10,8 @@ import { ResumePicker } from './ResumePicker';
 import { SuggestionMenu } from '../Shared/SuggestionMenu';
 import { rememberSlashNames } from '../../state/knownSlashNames';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
-import { useServerTurnAsked, useSessionBackgroundWork, useTopicLoading } from '../../state/signals';
+import { useServerTurnAsked, useTopicBackgroundTasks, useTopicLoading } from '../../state/signals';
+import { composerStopsTasks } from '../../state/backgroundWork';
 import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
 import { useServerResume } from '../../hooks/useServerResume';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -468,7 +469,10 @@ export function ChatInput({
    * agente al lavoro. Vedi `turnLooksUnanswered`.
    */
   const serverTurnOpen = useTopicLoading(topic?.id);
-  const backgroundWork = useSessionBackgroundWork(topic?.sessionKey);
+  // The work a closed turn left running, from the attention state: the Stop
+  // is offered while there is any the CLI can stop, whatever the tier (even a
+  // `finished(error)` with a Bash still in flight, ATTN-12).
+  const backgroundWork = composerStopsTasks(useTopicBackgroundTasks(topic?.id));
   const serverTurnAsked = useServerTurnAsked();
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the

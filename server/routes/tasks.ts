@@ -88,6 +88,8 @@ import { gitDiffStat, type DiffStatEntry } from "../lib/git-diff-stat";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import type { StopCause } from "../lib/abort-cause";
 import { probeUrl } from "../services/url-probe-cache";
+import { setClosed } from "../attention/store";
+import { topicSubject } from "../../shared/attention";
 import {
   getEligibleGlobalOrchestratorSessionBySessionKey,
   isGlobalOrchestratorSession,
@@ -899,6 +901,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       topic.updatedAt = at;
       ctx.saveSingleTopic(topic);
       broadcastToAll({ type: "topic:archived", topic });
+      // And to the attention state, like the other archive paths: a lit attempt goes idle now, not at the next restart.
+      setClosed(topicSubject(topic.id), { archived: true });
       // Il fatto (`services/retirement.ts`) accanto al flag. Questa e' la QUARTA
       // strada che alza `archived` da sola: non la si riscrive qui — il ritiro
       // per intero e' `archiveTopicFully` — ma senza il timbro il ritiro di un

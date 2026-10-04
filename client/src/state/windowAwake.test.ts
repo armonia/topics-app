@@ -2,7 +2,7 @@
  * @covers RUNTIME-11
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { isWindowAwake } from './windowAwake';
+import { isWindowAwake, isWindowFocused } from './windowAwake';
 import { markBrowserViewDead, markBrowserViewLive } from '../lib/shell/nativeBrowserRoster';
 
 /**
@@ -96,5 +96,29 @@ describe('isWindowAwake', () => {
     // è il segnale più forte.
     stubDocument({ hidden: true, hasFocus: () => true });
     expect(isWindowAwake()).toBe(false);
+  });
+});
+
+describe('isWindowFocused: is the person looking at this window (ATTN-06)', () => {
+  test('shown and focused: looking', () => {
+    expect(isWindowFocused()).toBe(true);
+  });
+
+  test('hidden: not looking', () => {
+    stubDocument({ hidden: true, hasFocus: () => true });
+    expect(isWindowFocused()).toBe(false);
+  });
+
+  test('behind another app WITH a live native browser view: not looking, whatever the polls do', () => {
+    // Review 2 of notifications-redesign, surfaces B2: the chat in front was
+    // born seen in a window nobody looked at (no banner, no push, no Dock).
+    stubDocument({ hidden: false, hasFocus: () => false });
+    markBrowserViewLive('pane-browser-behind');
+    try {
+      expect(isWindowAwake()).toBe(true);
+      expect(isWindowFocused()).toBe(false);
+    } finally {
+      markBrowserViewDead('pane-browser-behind');
+    }
   });
 });

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change complete-spec-coverage. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: BROWSER-01 — Navigation & Page Control
 
 The system SHALL provide a remote browser panel with URL navigation, back/forward/reload controls, a URL address bar, and visual screenshot-based page rendering within a topic pane.
@@ -203,7 +205,6 @@ The system SHALL support agent-driven browser interactions including click, type
 - **WHEN** the user closes the browser pane
 - **THEN** a DELETE request SHALL be sent to /api/browsers/:id
 - **AND** the server SHALL destroy the browser context and broadcast a "browser-deleted" event
-
 
 ### Requirement: BROWSER-CHAT-01 — Per-topic browser state persists to disk and is restored on cold open
 
@@ -1806,7 +1807,6 @@ prova sarebbe verde anche su una pagina che l'idratazione non l'ha mai chiesta.
 - **GIVEN** il negozio che ha parlato e nessun indirizzo reale
 - **THEN** la barra SHALL comparire
 
-
 ### Requirement: BROWSER-CHROME-HYDRATE-01b — La pane browser di una finestra di progetto conosce il suo indirizzo
 
 Una pane browser aperta DENTRO una finestra di progetto non sta nel negozio delle
@@ -1821,7 +1821,6 @@ una navigazione supera il seme.
 - **GIVEN** un progetto con una pane browser persistita su un indirizzo reale
 - **WHEN** la finestra del progetto va a schermo e il negozio ha parlato
 - **THEN** la tab porta l'indirizzo e il campo dell'indirizzo NON SHALL comparire
-
 
 ### Requirement: BROWSER-CHROME-INLINE-01 — L'indirizzo si modifica NELLA tab, e la riga sotto non compare da sola
 
@@ -2383,3 +2382,41 @@ su nessun'altra. Se quella riga è filtrata via, il suggerimento non compare.
 - **WHEN** si apre il pannello senza filtri
 - **THEN** il suggerimento ⇧⌘T sta sulla riga di A, che non è la prima della lista
 - **AND** con `history-filter-range-yesterday` premuto la riga di B non ha il suggerimento
+
+### Requirement: BROWSER-CHAT-05 — Un'apertura dell'agente dice su quale contesto è avvenuta, e «focalizza» la trova ovunque viva
+
+`POST /api/topics/:id/browser/open-pane` e `POST /api/sessions/:sessionKey/browser/open-pane`
+SHALL restituire, oltre a `url`, `title` e `visible`, il `contextId` su cui la pagina è
+stata aperta, in tutti e tre i rami (chat, task, terminale). Il risultato testuale del
+tool MCP `open_browser_pane` SHALL terminare con `[contextId: <id>]`, lasciando
+invariato l'inizio della frase (`Opened browser pane at …` o `Browser context ready at …`).
+Il risultato di `browser_open` sul percorso SDK SHALL portare la stessa chiave
+`contextId`.
+
+Il gestore client di `browser:focus-pane` (il `browser_focus_tab` dell'agente) SHALL
+raggiungere il contesto in ogni superficie in cui vive: tab del layout, finestra di
+progetto, tab di un task e **scheda della finestra della topic** (che torna ridotta se
+era nascosta, con quella scheda attiva). Un contesto che non vive in nessuna superficie
+NON SHALL essere riaperto da questo gestore.
+
+#### Scenario: il ramo chat restituisce il suo contesto
+- **GIVEN** una topic senza `browserState`
+- **WHEN** l'agente chiama `open_browser_pane({ url: "https://example.com" })` e una pane si aggancia
+- **THEN** la risposta della rotta contiene `contextId` uguale all'id della topic
+- **AND** il risultato del tool comincia con `Opened browser pane at https://example.com` e termina con `[contextId: <id della topic>]`
+
+#### Scenario: il ramo task restituisce il contesto della sua tab
+- **GIVEN** un agente che lavora un task col browser del task attivo
+- **WHEN** chiama `open_browser_pane({ url, name: "App" })`
+- **THEN** la risposta contiene il `contextId` `task-<id8>-<seq>` della tab «App»
+
+#### Scenario: focalizzare una scheda della finestra della topic
+- **GIVEN** una pagina che vive come scheda nella finestra della topic, con la finestra nascosta
+- **WHEN** arriva `browser:focus-pane` con il suo `contextId`
+- **THEN** la finestra torna ridotta con quella scheda attiva
+- **AND** nessuna pane nuova compare nel layout
+
+#### Scenario: focalizzare un contesto chiuso non lo riapre
+- **GIVEN** un `contextId` che non vive in nessuna superficie
+- **WHEN** arriva `browser:focus-pane` con quel `contextId`
+- **THEN** nessuna finestra, scheda o pane si apre

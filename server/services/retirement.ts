@@ -31,6 +31,8 @@
  */
 import type { Database } from "bun:sqlite";
 import type { CascadeResult } from "./pane-retirement-cascade";
+import { paneTombstoned } from "../attention/wire";
+import { terminalSubject } from "../../shared/attention";
 
 export type RetirementKind = "pane" | "topic" | "terminal";
 
@@ -235,6 +237,9 @@ export function applyPaneCascade(db: Database, deps: ReconcileDeps, result: Casc
     }
     if (r.terminalSessionId) {
       recordRetirement(db, "terminal", r.terminalSessionId, at, "tab-close");
+      // The tombstone of a terminal's pane closes its attention subject (T13),
+      // even when the session is already gone and there is nothing to retire.
+      paneTombstoned(terminalSubject(r.terminalSessionId));
       try { deps.retireTerminal(r.terminalSessionId); out.terminals++; }
       catch (err) { console.error(`[retirement] cascata terminale ${r.terminalSessionId}`, err); }
     }

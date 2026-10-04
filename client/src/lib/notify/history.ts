@@ -6,11 +6,8 @@
 // dal telefono), e un contatore per-finestra sarebbe un numero diverso per ogni
 // scheda aperta. Qui dentro non c'è stato: lo tiene `useNotificationHistory`.
 
-import type {
-  NotificationRecordInput,
-  NotificationRow,
-} from '../../../../shared/notification-log';
-import { NOTIFICATION_MAX_ROWS, terminalSessionOfGroupKey } from '../../../../shared/notification-log';
+import type { NotificationRow } from '../../../../shared/notification-log';
+import { NOTIFICATION_MAX_ROWS } from '../../../../shared/notification-log';
 import { apiFetch } from '../shell/net';
 
 export interface NotificationHistoryPage {
@@ -36,78 +33,7 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
   };
 }
 
-/**
- * Registra una notifica APPENA MANDATA.
- *
- * Fire-and-forget, e senza `await` nel chiamante: la notifica è già partita: il
- * registro è la sua traccia, non la sua consegna. Un server irraggiungibile
- * deve costare una riga di cronologia mancante, mai un banner in meno.
- */
-export function recordNotificationSent(input: NotificationRecordInput): void {
-  try {
-    void apiFetch('/api/notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-      keepalive: true,
-    }).catch(() => {});
-  } catch {
-    /* mai propagare: il registro non può rompere la notifica */
-  }
-}
-
-/**
- * Mark seen BY TARGET: "I looked at this thing", not "I looked at the list".
- * Fire-and-forget like `recordNotificationSent` - the real gesture is opening
- * the terminal, and it must not be able to fail because the registry did not
- * answer.
- */
-export function markTargetSeen(targetKind: string, targetId: string): void {
-  try {
-    void apiFetch('/api/notifications/seen', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetKind, targetId }),
-      keepalive: true,
-    }).catch(() => {});
-  } catch {
-    /* never propagate: the registry must not break opening a tab */
-  }
-}
-
-/** Segna viste: tutte fino a un istante, e/o alcune righe puntuali. */
-export async function markNotificationsSeen(
-  body: { ids?: string[]; upTo?: string; subjects?: string[] },
-): Promise<{ unseen: number; unseenKeys?: string[] }> {
-  const r = await apiFetch('/api/notifications/seen', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`POST /api/notifications/seen ${r.status}`);
-  const data = (await r.json()) as { unseen?: number; unseenKeys?: string[] };
-  return { unseen: data.unseen ?? 0, ...(Array.isArray(data.unseenKeys) ? { unseenKeys: data.unseenKeys } : {}) };
-}
-
 // ── Decisioni pure ──────────────────────────────────────────────────────────
-
-/**
- * Is a row about the pane the person is looking at, so it is recorded already
- * seen? Its subject is the chat it leads to, or the terminal it is grouped
- * under (a terminal is never a target, its row carries the session only in
- * the group key). Born unseen, a turn that ended on the focused terminal put
- * +1 on the bell and the Dock that no gesture took back: the terminal raises
- * no finished mark in front of you, so the seen event had nothing to clear.
- */
-export function notificationBornSeen(
-  target: { kind: string; id: string } | null | undefined,
-  groupKey: string | null | undefined,
-  isInFront: (subjectId: string) => boolean,
-): boolean {
-  if (target?.kind === 'topic' && isInFront(target.id)) return true;
-  const terminal = terminalSessionOfGroupKey(groupKey);
-  return terminal !== null && isInFront(terminal);
-}
 
 /**
  * Inserisci in testa la riga arrivata dal fronte `notification:new`, senza
@@ -144,22 +70,4 @@ export function mergeNotificationPage(
   return [...byId.values()]
     .sort((a, b) => (a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt < b.createdAt ? 1 : -1))
     .slice(0, cap);
-}
-
-/**
- * «2 min», «3 h», «ieri». Il tempo relativo di una lista di notifiche: quello
- * che serve è QUANTO FA, non il timestamp — e a colpo d'occhio, perché queste
- * righe si scorrono, non si leggono.
- */
-export function formatNotificationAge(iso: string, now = Date.now()): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return '';
-  const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 60) return 'adesso';
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m} min`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} h`;
-  const d = Math.round(h / 24);
-  return d === 1 ? 'ieri' : `${d} g`;
 }

@@ -242,7 +242,7 @@ export function GroupLayout({
   // strip and show one pane at a time (see the mobile branch in the return).
   const isMobile = useLayoutMobile();
 
-  const { getBadgeCount, clearPane } = useTabNotifications();
+  const { getBadgeCount } = useTabNotifications();
   const tr = useT();
 
   const paneMap = useMemo(() => {
@@ -1323,7 +1323,7 @@ export function GroupLayout({
             activePaneId={group.activePaneId}
             groupIsFocused={isFocusedGroup}
             groupIsAppFocused={isFullyFocused}
-            onActivate={(paneId) => { clearPane(paneId); onActivatePane(gid, paneId); }}
+            onActivate={(paneId) => onActivatePane(gid, paneId)}
             onClose={(paneId) => onClosePane(gid, paneId)}
             onCloseImmediate={onClosePaneImmediate ? (paneId) => onClosePaneImmediate(gid, paneId) : undefined}
             onAddPane={(type, subType) => onAddPaneToGroup(gid, type, subType)}
@@ -1666,7 +1666,7 @@ export function GroupLayout({
               activePaneId={activePaneId}
               groupIsFocused
               groupIsAppFocused={isAppFocused}
-              onActivate={(paneId) => { clearPane(paneId); const gid = groupIdOfPane(paneId); if (gid) onActivatePane(gid, paneId); }}
+              onActivate={(paneId) => { const gid = groupIdOfPane(paneId); if (gid) onActivatePane(gid, paneId); }}
               onClose={(paneId) => { const gid = groupIdOfPane(paneId); if (gid) onClosePane(gid, paneId); }}
               onCloseImmediate={onClosePaneImmediate ? (paneId) => { const gid = groupIdOfPane(paneId); if (gid) onClosePaneImmediate(gid, paneId); } : undefined}
               onAddPane={(type, subType) => onAddPaneToGroup(fgid, type, subType)}

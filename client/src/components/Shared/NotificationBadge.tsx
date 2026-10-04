@@ -25,7 +25,7 @@ interface NotificationBadgeProps {
   /** `onFill` = the badge sits ON an attention fill (amber/blue). Use a
    *  translucent-white pill so it stays legible instead of the default
    *  primary-blue, which rendered blue-on-blue (invisible) on the awaiting fill. */
-  variant?: 'default' | 'onFill';
+  variant?: 'default' | 'onFill' | 'needsYou';
   testId?: string;
   /** The badge lives in a fixed 20px box (the tab slot, TABSLOT-02): it trims
    *  its padding, and "99+" drops to the nano step with none, so no count
@@ -48,9 +48,14 @@ export function NotificationBadge({ count, className = '', ariaLabel, title, var
   // `onFill`: a translucent-black pill + white text reads on BOTH attention
   // fills (dark-text amber AND white-text blue), where the default primary-blue
   // pill went blue-on-blue (invisible) on the awaiting surface.
+  // `needsYou`: the amber of the 'needs-you' tier with dark text, the same
+  // pair as the amber fill (white on amber is ~2:1): the inbox's button when
+  // one of the lit subjects waits for an answer.
   const tone = variant === 'onFill'
     ? 'bg-black/35 text-white'
-    : 'bg-primary text-white';
+    : variant === 'needsYou'
+      ? 'bg-amber-500 text-black'
+      : 'bg-primary text-white';
   return (
     <span
       // Il conteggio come DATO, accanto al conteggio come testo. `aria-label` è

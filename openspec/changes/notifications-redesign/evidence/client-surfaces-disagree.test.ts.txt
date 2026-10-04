@@ -1,0 +1,323 @@
+/**
+ * EVIDENCE, not a test to land: the client surfaces that say "this chat needs
+ * you" disagree about the same chat at the same moment, with the REAL signals
+ * store and the REAL helpers every surface calls.
+ *
+ * Hooks cannot be called outside React, and `renderToStaticMarkup` reads the
+ * zustand INITIAL state (getServerSnapshot), so each surface is read through
+ * the exact pure function or the exact selector body it renders from:
+ *   - tab/row fill      : useTopicAttentionTier (signals.ts:1127) + attentionFillFor
+ *   - tab/row number    : topicAttentionCount (TopicItem notificationCount, getBadgeCount)
+ *   - background glyph  : backgroundWorkTopics (useTopicBackgroundWork, TabSlot ChatSlot)
+ *   - bell + dock + tray: chromeAttentionSubjects (useTabNotifications)
+ *   - bell "Aspettano te": waitingSubjects
+ *   - agents menu       : activeAgentRowsFrom
+ *   - project tab/row   : projectAttentionTier + rollupProjectAttention
+ *   - OS banner         : decideChatFinishedBanner (stream:end path)
+ * The store is fed the way useSignalsSync.ts:56-91/144-178 feeds it.
+ */
+import { describe, test, expect, beforeEach } from 'bun:test';
+import {
+  useSignalsStore, signalsActions, NOTABLE_CLAUDE_PHASES,
+  deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, derivePhaseTerminals,
+  attentionFillFor, topicAttentionCount, terminalAttentionCount,
+  activeAgentRowsFrom, projectAttentionTier, rollupProjectAttention,
+} from './signals';
+import { readStreamingSnapshot } from './backgroundWork';
+import { chromeAttentionSubjects, waitingSubjects } from './attentionTotal';
+import { chatFinishedEdge, decideChatFinishedBanner } from '../lib/notify/chatFinished';
+import { seeSubject } from './paneSeen';
+import { marksClearedBy, topicSubject } from '../lib/notify/seenFrame';
+import { spaceAttentionTier } from '../components/Sidebar/useSpaceCards';
+import { DEFAULT_SPACE_ID, type Pane } from './pane/types';
+import { sidebarItemState, sidebarStateSignals, type SidebarItem } from '../lib/buildSidebarItems';
+import type { Topic, ClaudeSessionState, ClaudeSessionPhase, TerminalSessionInfo } from '../types';
+
+const st = () => useSignalsStore.getState();
+
+function resetStore() {
+  useSignalsStore.setState({
+    liveStreamTopics: new Set(), hydratedStreamTopics: new Set(),
+    backgroundWorkSessions: new Set(), backgroundWorkTopics: new Map(),
+    terminalBusyIds: new Set(), claudePhaseActiveTermIds: new Set(),
+    claudePhaseRestingTermIds: new Set(), claudePhaseAwaitingTermIds: new Set(),
+    claudePhaseAwaitingInputTermIds: new Set(), claudeAttentionTopics: new Set(),
+    awaitingFeedbackTopics: new Set(), awaitingInputTopics: new Set(),
+    attentionEdgeTopics: new Set(), seenSubjects: new Set(),
+    terminalFinishedIds: new Set(), chatFinishedTopics: new Set(),
+  });
+}
+
+const topic = (id: string, over: Partial<Topic> = {}): Topic =>
+  ({ id, name: `chat ${id}`, sessionKey: `topic:${id}`, projectPath: '/p', ...over } as Topic);
+
+const session = (sessionKey: string | null, claudeSessionId: string, phase: ClaudeSessionPhase): ClaudeSessionState =>
+  ({ sessionKey, claudeSessionId, phase, phaseUpdatedAt: 1, jsonlOffset: 0, rev: 2 } as ClaudeSessionState);
+
+/** One pass of useSignalsSync's two attention effects (useSignalsSync.ts:56-91). */
+function sync(topics: Record<string, Topic>, sessions: Map<string, ClaudeSessionState>) {
+  const attention = new Set<string>();
+  for (const t of Object.values(topics)) {
+    const s = t.sessionKey ? sessions.get(t.sessionKey) : undefined;
+    if (s && NOTABLE_CLAUDE_PHASES.has(s.phase)) attention.add(t.id);
+  }
+  signalsActions.setClaudeAttentionTopics(attention);
+  const awaiting = deriveAwaitingFeedbackTopics(topics, sessions);
+  for (const id of st().chatFinishedTopics) awaiting.add(id);
+  const input = deriveAwaitingInputTopics(topics, sessions);
+  signalsActions.applyNewAttention(new Set([...awaiting, ...input]));
+  signalsActions.setAwaitingFeedbackTopics(awaiting);
+  signalsActions.setAwaitingInputTopics(input);
+}
+
+/** useSignalsSync.ts:176-178, the stream:start/stream:end handler, with nobody looking. */
+function onStreamFrame(frame: Record<string, unknown>, inFront = false) {
+  const edge = chatFinishedEdge(frame as never, () => inFront);
+  if (edge?.op === 'mark') signalsActions.markChatFinished(edge.topicId);
+  else if (edge?.op === 'clear') signalsActions.clearChatFinished(edge.topicId);
+}
+
+/** The selector body of useTopicAttentionTier (signals.ts:1127-1134). */
+function tierOf(id: string) {
+  const s = st();
+  if (s.awaitingInputTopics.has(id)) return 'input';
+  if (s.awaitingFeedbackTopics.has(id)) return 'done';
+  return null;
+}
+
+type Unread = Record<string, { unreadCount: number }>;
+
+/** What each surface shows for chat `id`, read from the store as it is now. */
+function surfaces(topics: Record<string, Topic>, unread: Unread, id: string, unseenKeys: ReadonlySet<string> = new Set()) {
+  const s = st();
+  const subjects = chromeAttentionSubjects({
+    topics, unread, claudeAttentionTopics: s.claudeAttentionTopics, terminalFinishedIds: s.terminalFinishedIds,
+    chatFinishedTopics: s.chatFinishedTopics, boardGroups: [], paneCounts: new Map(), unseenNotificationKeys: unseenKeys,
+  });
+  const rows = activeAgentRowsFrom([], topics, {
+    active: s.claudePhaseActiveTermIds, resting: s.claudePhaseRestingTermIds, busy: s.terminalBusyIds,
+    awaitingTerm: s.claudePhaseAwaitingTermIds, awaitingInputTerm: s.claudePhaseAwaitingInputTermIds,
+    finishedTerms: s.terminalFinishedIds, liveStream: s.liveStreamTopics, hydratedStream: s.hydratedStreamTopics,
+    awaitingTopics: s.awaitingFeedbackTopics, awaitingInputTopics: s.awaitingInputTopics, backgroundTopics: s.backgroundWorkTopics,
+  });
+  return {
+    backgroundGlyph: s.backgroundWorkTopics.has(id),
+    tabRowFill: attentionFillFor(tierOf(id), s.seenSubjects.has(id)),
+    tabRowNumber: topicAttentionCount(id, unread, s.claudeAttentionTopics),
+    bellAndDock: subjects.length,
+    bellWaitingList: waitingSubjects(subjects, unseenKeys).map((x) => x.id),
+    agentsMenuBackground: rows.background.map((r) => r.id),
+    agentsMenuFinished: rows.finished.map((r) => r.id),
+    projectFill: projectAttentionTier('/p', topics, [], s.awaitingFeedbackTopics, s.claudePhaseAwaitingTermIds, s.awaitingInputTopics, s.claudePhaseAwaitingInputTermIds, s.seenSubjects),
+    projectNumber: rollupProjectAttention('/p', topics, [], unread, s.claudeAttentionTopics, s.terminalFinishedIds),
+  };
+}
+
+/** A clean end of a human chat turn, as server/routes/chat.ts:2496 broadcasts it. */
+const cleanEnd = (id: string) => ({ type: 'stream:end', topicId: id, sessionKey: `topic:${id}`, messageId: `m-${id}`, completed: true });
+
+/** The /api/topics/streaming row of a chat whose closed turn left a Bash running (background-probes.ts:166). */
+const backgroundRow = (id: string, type = 'local_bash') => ({
+  topicId: id, sessionKey: `topic:${id}`, state: 'background',
+  tasks: [{ type, description: 'bun test --watch', startedAt: 1 }], lastSignalAt: 1,
+});
+
+beforeEach(resetStore);
+
+describe('CONTROL (green): without background work the surfaces agree', () => {
+  test('a hook chat that finished, nobody looking, no background row: blue, numbered, on the bell, in "finished"', () => {
+    const topics = { T: topic('T') };
+    const sessions = new Map([['topic:T', session('topic:T', 'c1', 'awaiting-user')]]);
+    onStreamFrame(cleanEnd('T'));
+    sync(topics, sessions);
+    const seen = surfaces(topics, { T: { unreadCount: 1 } }, 'T');
+    expect(seen).toEqual({
+      backgroundGlyph: false, tabRowFill: 'done', tabRowNumber: 1, bellAndDock: 1, bellWaitingList: ['T'],
+      agentsMenuBackground: [], agentsMenuFinished: ['T'], projectFill: 'done', projectNumber: 1,
+    });
+  });
+});
+
+describe('A. a chat waiting on its own background work is painted "your turn"', () => {
+  test('A1 hook chat, Stop with a background Bash (no Monitor): glyph says "working in background", every attention surface says "needs you"', () => {
+    const topics = { T: topic('T') };
+    // Server: Stop with monitorArmed=false → awaiting-user (claude-session-state.ts:343-346).
+    const sessions = new Map([['topic:T', session('topic:T', 'c1', 'awaiting-user')]]);
+    onStreamFrame(cleanEnd('T'));
+    sync(topics, sessions);
+    // The poll 400 ms after stream:end (useSignalsSync.ts:144-146).
+    const snap = readStreamingSnapshot([backgroundRow('T')]);
+    signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+    const unread: Unread = { T: { unreadCount: 1 } };
+
+    const seen = surfaces(topics, unread, 'T');
+    // BGVIS-01: "la chat è libera e il lavoro gira da sé" — neither "answering" nor "your turn".
+    // CHROME-COUNT-01: "Il lavoro che gira da solo non entra".
+    expect(seen).toEqual({
+      backgroundGlyph: true,
+      tabRowFill: null,
+      tabRowNumber: 1,            // the unread reply is fine
+      bellAndDock: 1,             // the unread reply, once
+      bellWaitingList: ['T'],
+      agentsMenuBackground: ['T'],
+      agentsMenuFinished: [],     // must not be "turn finished" AND "in background" at once
+      projectFill: null,
+      projectNumber: 1,
+    });
+  });
+
+  test('A2 the stream:end banner fires "your turn" though the store already knows the chat is waiting on background work', () => {
+    const snap = readStreamingSnapshot([backgroundRow('T')]);
+    signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+    expect(st().backgroundWorkTopics.has('T')).toBe(true);
+    // Exactly the inputs useCompletionNotifier.tsx:562-576 passes: there is no background field.
+    const decision = decideChatFinishedBanner({
+      topicId: 'T', notificationsEnabled: true, topicName: 'chat T', archived: false, muted: false,
+      agentWorking: false, isFocusedAndVisible: false, notifyEvenWhenFocused: true, lastFiredAt: undefined, now: 1_000_000,
+    });
+    expect(decision).toBeNull();
+  });
+
+  test('A3 Monitor armed: the server keeps the session `watching` (not idle), the client still paints it "done" from stream:end', () => {
+    const topics = { T: topic('T') };
+    // Server: Stop with monitorArmed=true → watching (ACTIVE_CLAUDE_PHASES).
+    const sessions = new Map([['topic:T', session('topic:T', 'c1', 'watching')]]);
+    onStreamFrame(cleanEnd('T'));
+    sync(topics, sessions);
+    const snap = readStreamingSnapshot([backgroundRow('T', 'monitor')]);
+    signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+    const seen = surfaces(topics, {}, 'T');
+    expect({ fill: seen.tabRowFill, bell: seen.bellAndDock, finished: seen.agentsMenuFinished, project: seen.projectFill })
+      .toEqual({ fill: null, bell: 0, finished: [], project: null });
+  });
+});
+
+describe('A4. the sidebar state view', () => {
+  test('A4 a chat waiting on its own background Bash is sorted under «Attende te», not with the work', () => {
+    const topics = { T: topic('T') };
+    const sessions = new Map([['topic:T', session('topic:T', 'c1', 'awaiting-user')]]);
+    onStreamFrame(cleanEnd('T'));
+    sync(topics, sessions);
+    const snap = readStreamingSnapshot([backgroundRow('T')]);
+    signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+    const s = st();
+    const sig = sidebarStateSignals({
+      awaitingFeedbackTopics: s.awaitingFeedbackTopics, awaitingInputTopics: s.awaitingInputTopics,
+      claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds, claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds,
+      liveStreamTopics: s.liveStreamTopics, hydratedStreamTopics: s.hydratedStreamTopics, claudePhaseActiveTermIds: s.claudePhaseActiveTermIds,
+    });
+    const row = { id: 'T', type: 'chat', name: 'chat T', topic: topics.T } as unknown as SidebarItem;
+    expect({ glyph: s.backgroundWorkTopics.has('T'), bucket: sidebarItemState(row, sig) }).toEqual({ glyph: true, bucket: 'rest' });
+  });
+});
+
+describe('B. the bell counts a chat that has been read, and opening the bell does not clear it', () => {
+  test('B1 hook chat in awaiting-user, read for the dwell, then the bell opened: fill gone, number and bell stay at 1', () => {
+    const topics = { T: topic('T') };
+    const sessions = new Map([['topic:T', session('topic:T', 'c1', 'awaiting-user')]]);
+    sync(topics, sessions);
+    let unread: Unread = { T: { unreadCount: 1 } };
+    expect(surfaces(topics, unread, 'T').tabRowFill).toBe('done');
+
+    // The person opens the chat: the pane dwell (paneSeen.ts:104) and the focus door (useWebSocket.ts:530-536).
+    seeSubject('T');
+    unread = { T: { unreadCount: 0 } };
+    const afterRead = surfaces(topics, unread, 'T');
+
+    // The person opens the bell: the mark all sends the chats listed under "Aspettano te"
+    // (NotificationHistoryButton.tsx:112); the server answers notification:seen{subjects} + unread 0.
+    const listed = afterRead.bellWaitingList.map((id) => topicSubject(id));
+    for (const id of marksClearedBy({ subjects: listed }, topicSubject, st().chatFinishedTopics)) st().clearChatFinished(id);
+    const afterBell = surfaces(topics, unread, 'T');
+
+    // SEEN-ANY-FOCUS-01 «la finestra torna davanti alla chat a fuoco»: the bell and the Dock SHALL
+    // no longer count it, and leaving the chat neither its row nor its tab SHALL have a badge.
+    // NOTIF-ONE-01: opening the panel SHALL switch off exactly what it listed under "Aspettano te".
+    expect({
+      afterRead: { fill: afterRead.tabRowFill, number: afterRead.tabRowNumber, bell: afterRead.bellAndDock },
+      afterBell: { number: afterBell.tabRowNumber, bell: afterBell.bellAndDock, waiting: afterBell.bellWaitingList },
+    }).toEqual({
+      afterRead: { fill: null, number: 0, bell: 0 },
+      afterBell: { number: 0, bell: 0, waiting: [] },
+    });
+  });
+});
+
+describe('C. the same fact ("turn finished, your turn") counts on the bell for a chat and not for a terminal', () => {
+  test('C1 chat and claude-code terminal both in awaiting-user: both blue, only the chat is on the bell', () => {
+    const topics = { T: topic('T') };
+    const sessions = new Map([
+      ['topic:T', session('topic:T', 'c1', 'awaiting-user')],
+      ['term', session(null, 'c2', 'awaiting-user')],
+    ]);
+    sync(topics, sessions);
+    const roster = [{ id: 'S', type: 'claude-code', claudeSessionId: 'c2', cwd: '/p', name: 'build' }] as TerminalSessionInfo[];
+    const byCsid = new Map([...sessions.values()].map((s) => [s.claudeSessionId, { phase: s.phase }]));
+    const p = derivePhaseTerminals(roster, byCsid);
+    signalsActions.setClaudePhaseTerminals(p.active, p.resting, p.awaiting, p.awaitingInput);
+
+    const s = st();
+    const termTier = s.claudePhaseAwaitingInputTermIds.has('S') ? 'input' : s.claudePhaseAwaitingTermIds.has('S') ? 'done' : null;
+    const bell = chromeAttentionSubjects({
+      topics, unread: {}, claudeAttentionTopics: s.claudeAttentionTopics, terminalFinishedIds: s.terminalFinishedIds,
+      chatFinishedTopics: s.chatFinishedTopics, boardGroups: [], paneCounts: new Map(), unseenNotificationKeys: new Set(),
+    }).map((x) => x.key);
+    const menu = activeAgentRowsFrom(roster, topics, {
+      active: s.claudePhaseActiveTermIds, resting: s.claudePhaseRestingTermIds, busy: s.terminalBusyIds,
+      awaitingTerm: s.claudePhaseAwaitingTermIds, awaitingInputTerm: s.claudePhaseAwaitingInputTermIds,
+      finishedTerms: s.terminalFinishedIds, liveStream: s.liveStreamTopics, hydratedStream: s.hydratedStreamTopics,
+      awaitingTopics: s.awaitingFeedbackTopics, awaitingInputTopics: s.awaitingInputTopics, backgroundTopics: s.backgroundWorkTopics,
+    });
+
+    expect({
+      chat: { fill: tierOf('T'), number: topicAttentionCount('T', {}, s.claudeAttentionTopics) },
+      terminal: { fill: termTier, number: terminalAttentionCount('S', s.terminalFinishedIds) },
+      agentsMenuFinished: menu.finished.map((r) => r.id).sort(),
+      bell: bell.sort(),
+    }).toEqual({
+      chat: { fill: 'done', number: 1 },
+      terminal: { fill: 'done', number: 1 },
+      agentsMenuFinished: ['S', 'T'],
+      bell: ['terminal:S', 'topic:T'],   // the agents menu says 2 to look at; the bell must too
+    });
+  });
+});
+
+describe('D. a hook-less claude-code terminal that finished: the group card is blue, its own tab, row and project are not', () => {
+  test('D1 terminal:activity{finished} on a phase-less terminal: card "done", tab/row/project fill null, numbers 1', () => {
+    const topics = {};
+    const roster = [{ id: 'S', type: 'claude-code', claudeSessionId: null, cwd: '/p', name: 'build' }] as unknown as TerminalSessionInfo[];
+    // useSignalsSync.ts:241-254: no phase known → the pty fallback marks it.
+    signalsActions.markTerminalFinished('S');
+    const s = st();
+    // PaneTabBar.tsx:1063-1066 and TerminalSidebarItem (useTerminalAttentionFill): phase sets only.
+    const tabRowTier = s.claudePhaseAwaitingInputTermIds.has('S') ? 'input' : s.claudePhaseAwaitingTermIds.has('S') ? 'done' : null;
+    const panes = { 'terminal:S': { id: 'terminal:S', type: 'terminal', terminalSessionId: 'S' } } as unknown as Record<string, Pane>;
+    const card = spaceAttentionTier(DEFAULT_SPACE_ID, panes, {}, {
+      awaitingInputTopics: s.awaitingInputTopics, awaitingFeedbackTopics: s.awaitingFeedbackTopics,
+      claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds, claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds,
+      terminalFinishedIds: s.terminalFinishedIds, seenSubjects: s.seenSubjects,
+    }, topics, roster);
+    const project = projectAttentionTier('/p', topics, roster, s.awaitingFeedbackTopics, s.claudePhaseAwaitingTermIds, s.awaitingInputTopics, s.claudePhaseAwaitingInputTermIds, s.seenSubjects);
+    expect({
+      card, tabRowTier, project,
+      tabRowNumber: terminalAttentionCount('S', s.terminalFinishedIds),
+      projectNumber: rollupProjectAttention('/p', topics, roster, {}, s.claudeAttentionTopics, s.terminalFinishedIds),
+    }).toEqual({ card: 'done', tabRowTier: 'done', project: 'done', tabRowNumber: 1, projectNumber: 1 });
+  });
+});
+
+describe('E. an archived chat leaves the sidebar but keeps the bell and the Dock lit through its unseen row', () => {
+  test('E1 chat archived (tab closed) after its banner, row never seen: sidebar 0, bell/dock/tray 1', () => {
+    const topics = { T: topic('T', { archived: true }) };
+    const unseenKeys = new Set(['topic:T']);
+    const s = st();
+    const subjects = chromeAttentionSubjects({
+      topics, unread: {}, claudeAttentionTopics: s.claudeAttentionTopics, terminalFinishedIds: s.terminalFinishedIds,
+      chatFinishedTopics: s.chatFinishedTopics, boardGroups: [], paneCounts: new Map(), unseenNotificationKeys: unseenKeys,
+    });
+    // CHROME-COUNT-01 «un topic archiviato con non letti → SHALL contare zero: nessuna superficie lo mostra».
+    expect({ sidebarRow: topicAttentionCount('T', {}, s.claudeAttentionTopics), bellAndDock: subjects.length })
+      .toEqual({ sidebarRow: 0, bellAndDock: 0 });
+  });
+});

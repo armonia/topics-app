@@ -1,17 +1,30 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
-import { topicsApi } from '../lib/api';
 import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
-import { applyUnreadUpdate, clearUnreadFor } from '../state/unread';
+import { applyUnreadUpdate } from '../state/unread';
 import { setWsClientId } from '../state/wsIdentity';
-import { SEEN_DWELL_MS } from '../state/signals';
-import { takeChatDoneSeen } from '../state/chatInView';
-import { isWindowAwake, onWindowAwakeChange } from '../state/windowAwake';
-import { openingChatClearsSomething, useUnseenNotificationsStore } from '../state/notificationUnseen';
-import { defaultNotificationGroupKey } from '../../../shared/notification-log';
+import { onSubjectInFrontChange, subjectInFront } from '../state/chatInView';
+import { isWindowFocused, onWindowAwakeChange } from '../state/windowAwake';
+
+/**
+ * The `focus` frame: the chat in front (stream routing) and the attention
+ * subject in front with the window's wake (born seen, ATTN-06). `subject` is
+ * sent even when null: a browser pane in front is no chat in front, whatever
+ * chat was focused before it.
+ */
+function focusFrame(topicId: string | null): { type: 'focus'; topicId: string | null; subject: string | null; awake: boolean } {
+  return { type: 'focus', topicId, subject: subjectInFront(), awake: isWindowFocused() };
+}
+
+/** What a focus frame tells the server. Nothing in front is one state whatever
+ *  the wake: the wake only matters for a subject the person could be reading. */
+function focusKey(frame: ReturnType<typeof focusFrame>): string {
+  return frame.topicId === null && frame.subject === null ? NOTHING_IN_FRONT : JSON.stringify(frame);
+}
+const NOTHING_IN_FRONT = 'none';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -126,24 +139,13 @@ export function useWebSocket(): UseWebSocketReturn {
   const probeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Remember the last focused topic so onopen can re-announce it to the server.
   // A `focus` frame sent while the socket wasn't OPEN is dropped by sendWS below
-  // and never retried — the server then keeps counting the focused topic as
-  // unread (phantom badge on the topic the user is actively looking at).
+  // and never retried. The topic routes the stream deltas; the attention
+  // subject and the wake ride along (`focusFrame`).
   const lastFocusTopicRef = useRef<string | null>(null);
-  // L'attesa della soglia di "visto" prima di marcare letto. Un ref e non uno
-  // stato: cambiarlo non deve ri-renderizzare nulla, e un focus nuovo deve poter
-  // annullare l'attesa del precedente in modo sincrono.
-  const seenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // La topic la cui soglia di "visto" e' GIA' scattata mentre e' davanti. Serve a
-  // ri-marcare letto i messaggi che arrivano MENTRE stai leggendo: ora che il
-  // server incrementa sempre (nessuna soppressione da focus), senza questo un
-  // messaggio in arrivo su una chat aperta ti lascerebbe un badge addosso appena
-  // cambi tab. Si annulla quando il focus si sposta su un'altra topic.
-  const seenTopicRef = useRef<string | null>(null);
-  // Nessuna attesa sopravvive allo smontaggio: marcare letto dopo che l'hook e'
-  // morto scriverebbe per conto di una finestra che non c'e' piu'.
-  useEffect(() => () => {
-    if (seenTimerRef.current !== null) clearTimeout(seenTimerRef.current);
-  }, []);
+  // What the live socket last heard about the front (`focusKey`): a new socket
+  // starts from "nothing in front", and a wake burst that changes nothing the
+  // server reads sends nothing.
+  const lastFocusKeyRef = useRef<string>(NOTHING_IN_FRONT);
 
   const clearOfflineTimer = useCallback(() => {
     if (offlineTimerRef.current) {
@@ -250,12 +252,16 @@ export function useWebSocket(): UseWebSocketReturn {
       // Re-announce the focused topic (see lastFocusTopicRef) so per-client focus
       // survives a reconnect — or an initial focus that raced ahead of OPEN and
       // got dropped by sendWS. Without this the server keeps the focused topic
-      // marked unread. Skipped when no topic is focused (ref null after blur).
-      if (lastFocusTopicRef.current) {
+      // marked unread. Skipped when nothing is in front: a new socket is that
+      // already on the server.
+      lastFocusKeyRef.current = NOTHING_IN_FRONT;
+      const frame = focusFrame(lastFocusTopicRef.current);
+      if (focusKey(frame) !== NOTHING_IN_FRONT) {
         try {
-          ws.send(JSON.stringify({ type: 'focus', topicId: lastFocusTopicRef.current }));
+          ws.send(JSON.stringify(frame));
+          lastFocusKeyRef.current = focusKey(frame);
         } catch {
-          // Best-effort; the next focus effect re-sends on the live socket.
+          // Best-effort; the next focus change re-sends on the live socket.
         }
       }
 
@@ -406,24 +412,9 @@ export function useWebSocket(): UseWebSocketReturn {
         // più grosso dello switch di tab. Restituire `prev` lo azzera.
         if (data.type === 'unread:updated') {
           applyUnread(prev => applyUnreadUpdate(prev, data.topicId, data.unreadCount));
-          // Ri-marca letto un messaggio arrivato MENTRE stai gia' leggendo questa
-          // topic (soglia gia' scattata + finestra sveglia). Il server ora
-          // incrementa sempre; senza questo, un messaggio su una chat aperta ti
-          // lascerebbe un badge appena cambi tab. Se la finestra e' dietro/nascosta
-          // (`!isWindowAwake`) NON ri-marchiamo: il badge deve restare — e' il caso
-          // "app in background" che questo intero fix serve a far funzionare.
-          if (data.unreadCount > 0 && data.topicId === seenTopicRef.current && isWindowAwake()) {
-            const tid = data.topicId;
-            applyUnread(prev => clearUnreadFor(prev, tid));
-            topicsApi.markRead(tid).catch(() => {});
-          }
-        }
-        // Same for a notification of the chat being read: it is seen already.
-        if (
-          data.type === 'notification:new' && seenTopicRef.current && isWindowAwake()
-          && data.row?.groupKey === defaultNotificationGroupKey('topic', seenTopicRef.current)
-        ) {
-          topicsApi.markRead(seenTopicRef.current).catch(() => {});
+          // A message that lands on the chat being read is seen by the dwell
+          // of the pane in front (`useSeenFocusedPane`): it re-arms on any
+          // unread of the subject, and the server's seen door zeroes it.
         }
 
         // Forward to all handlers
@@ -506,93 +497,40 @@ export function useWebSocket(): UseWebSocketReturn {
     };
   }, [connect, clearOfflineTimer]);
 
-  // The dwell on the topic in front, armed by a `focus` ping and by the window
-  // waking up (the listener below `sendWS`).
-  const armSeen = useCallback((tid: string) => {
-    seenTimerRef.current = setTimeout(() => {
-      seenTimerRef.current = null;
-      // Guardie al momento dello scatto: la topic deve essere ANCORA quella
-      // davanti (il focus può essersi spostato senza un nuovo frame) e la
-      // finestra sveglia (può essere finita dietro durante l'attesa).
-      if (lastFocusTopicRef.current !== tid) return;
-      if (!isWindowAwake()) return;
-      // Soglia raggiunta: da ora i messaggi che arrivano su questa topic vanno
-      // ri-marcati letti al volo (vedi onmessage `unread:updated`), non lasciati
-      // come badge.
-      seenTopicRef.current = tid;
-      // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
-      // sempre 0 e la POST non partirebbe mai.
-      // Unread OR an unseen notification: a chat's notification can be born
-      // after its unread was cleared (another window, a push), and reading
-      // the unread alone skipped the POST that clears it.
-      // A 'done' mark cleared here goes through the same door, so every
-      // other window drops it too (CHAT-DONE-01).
-      const doneMark = takeChatDoneSeen(tid);
-      const toReset = openingChatClearsSomething(unreadRef.current, useUnseenNotificationsStore.getState().keys, tid, doneMark);
-      applyUnread(prev => clearUnreadFor(prev, tid));
-      // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
-      // caro: la POST fa riscrivere al server l'intera tabella unread e poi
-      // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
-      if (toReset) topicsApi.markRead(tid, { doneMark }).catch(() => {});
-    }, SEEN_DWELL_MS);
-  }, [applyUnread]);
-
   const sendWS = useCallback((message: WSMessage) => {
-    // Il ping di focus è l'UNICO segnale che l'utente sta guardando una topic,
-    // quindi è qui che vive tutta la logica di "letto": azzeramento locale
-    // ottimistico + la POST che lo rende persistente. Prima ogni punto che
-    // mandava il focus chiamava anche `topicsApi.markRead` per conto suo — e
-    // siccome una ChatPane vive dentro una ChatPanel, un solo cambio di tab
-    // faceva partire la stessa POST due volte.
-    //
-    // Azzerare localmente nello STESSO tick, invece di aspettare il round-trip
-    // di `unread:updated{0}`: quella latenza era la finestra in cui la
-    // soppressione della tab attiva e il conteggio vero non erano d'accordo, e
-    // il badge spariva per poi ricomparire mentre il focus si spostava fra tab
-    // e gruppi. Il successivo `unread:updated` riconcilia con la verità, quindi
-    // lo zero ottimistico è sicuro (si auto-corregge se nel frattempo arriva un
-    // messaggio).
-    // AGGIUNTA (FASE 2): "letto" ora aspetta la SOGLIA, non l'istante del focus.
-    // Il frame `focus` parte subito — al server serve per il routing — ma
-    // l'azzeramento scatta solo se quella topic e' ancora davanti dopo
-    // SEEN_DWELL_MS, e con la finestra sveglia. E' la stessa soglia che tiene il
-    // fill blu sulla tab (`useSeenSubjectInFront` in state/paneSeen.ts): due politiche di
-    // "visto" in disaccordo darebbero un badge che sfarfalla, quindi e' UNA.
+    // The `focus` ping names the chat in front (it routes the stream deltas)
+    // and, since notifications-redesign, the attention subject in front and
+    // whether the window is awake: an epoch born there is born seen (ATTN-06).
+    // The seen itself is not here any more: it is the dwell of the pane in
+    // front (`state/paneSeen.ts`) and the server's seen door.
     const m = message as unknown as { type?: string; topicId?: string | null };
     if (m.type === 'focus') {
-      // Un focus su una topic DIVERSA azzera lo stato di "gia' vista": la nuova
-      // deve riguadagnarsi la soglia da capo.
-      if ((m.topicId ?? null) !== lastFocusTopicRef.current) seenTopicRef.current = null;
-      // Track the focused topic so onopen can re-announce it after a reconnect.
       lastFocusTopicRef.current = m.topicId ?? null;
-      // Un focus nuovo annulla l'attesa del precedente: un clic di passaggio non
-      // deve marcare letto niente.
-      if (seenTimerRef.current !== null) {
-        clearTimeout(seenTimerRef.current);
-        seenTimerRef.current = null;
-      }
-      if (m.topicId) armSeen(m.topicId);
+      const frame = focusFrame(lastFocusTopicRef.current);
+      message = frame as unknown as WSMessage;
+      if (wsRef.current?.readyState === WebSocket.OPEN) lastFocusKeyRef.current = focusKey(frame);
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
-  }, [armSeen]);
+  }, []);
 
-  // A window that comes back is a new look at the focused topic, as for the
-  // fill (`useSeenSubjectInFront` in state/paneSeen.ts): the dwell re-arms.
-  // It used to arm on the `focus` ping only, so a message that landed while
-  // the window was behind stayed unread on the bell and the Dock after the
-  // return, until the focus moved away and back. Only a continuous look
-  // counts: a window that goes behind cancels the dwell in flight.
-  useEffect(() => onWindowAwakeChange(() => {
-    const tid = lastFocusTopicRef.current;
-    if (seenTimerRef.current === null) {
-      if (tid && isWindowAwake()) armSeen(tid);
-    } else if (!isWindowAwake()) {
-      clearTimeout(seenTimerRef.current);
-      seenTimerRef.current = null;
-    }
-  }), [armSeen]);
+  // The subject in front or the wake changed: the server hears it now, so a
+  // turn that ends while the window is behind another app is NOT born seen,
+  // and one that ends under the person's eyes is.
+  useEffect(() => {
+    const resend = () => {
+      const ws = wsRef.current;
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      const frame = focusFrame(lastFocusTopicRef.current);
+      const key = focusKey(frame);
+      if (key === lastFocusKeyRef.current) return;
+      try { ws.send(JSON.stringify(frame)); lastFocusKeyRef.current = key; } catch { /* the next change re-sends */ }
+    };
+    const offFront = onSubjectInFrontChange(resend);
+    const offAwake = onWindowAwakeChange(resend);
+    return () => { offFront(); offAwake(); };
+  }, []);
 
   const onMessage = useCallback((handler: (msg: WSMessage) => void) => {
     handlersRef.current.add(handler);

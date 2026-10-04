@@ -35,7 +35,7 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
     await goToApp(page);
 
     const misura = await page.evaluate(() => {
-      const b = document.querySelector('[data-testid="notification-history-button"]') as HTMLElement | null;
+      const b = document.querySelector('[data-testid="inbox-button"]') as HTMLElement | null;
       if (!b) return null;
       const r = b.getBoundingClientRect();
       const group = b.parentElement!.getBoundingClientRect();
@@ -70,8 +70,8 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
     expect(misura!.sporge, "the bell sticks out of its group").toBeLessThanOrEqual(0);
 
     // The final proof is the gesture: if the panel opens, the click got through.
-    await page.getByTestId("notification-history-button").click({ timeout: 8_000 });
-    await expect(page.getByTestId("notification-history-panel")).toBeVisible({ timeout: 8_000 });
+    await page.getByTestId("inbox-button").click({ timeout: 8_000 });
+    await expect(page.getByTestId("inbox-panel")).toBeVisible({ timeout: 8_000 });
   });
 }
 

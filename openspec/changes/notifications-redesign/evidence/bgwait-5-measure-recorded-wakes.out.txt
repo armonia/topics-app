@@ -1,0 +1,10 @@
+# command: cd <worktree> && bun run measure-wakes.ts   (source: bgwait-5-measure-recorded-wakes.ts; fixture tests/fixtures/claude-cli-2.1.282-background-work.ndjson through the real noteBackgroundLine)
+turn end #1 result="Launched." background=running tasks=[local_agent:slow counter | local_bash:Sleep 40 seconds then print bash-done | monitor:tick counter loop]
+turn end #2 result="Tick-1 fired." background=running tasks=[local_agent:slow counter | local_bash:Sleep 40 seconds then print bash-done | monitor:tick counter loop | local_bash:Sleep 25 seconds then print step 1 | monitor:Wait for step-1 background sleep to finish]
+turn end #3 result="Slow counter agent finished (mid-work, still has a" background=running tasks=[local_bash:Sleep 40 seconds then print bash-done | monitor:tick counter loop | local_bash:Sleep 25 seconds then print step 1 | monitor:Wait for step-1 background sleep to finish]
+turn end #4 result="Tick-2 fired." background=running tasks=[local_bash:Sleep 40 seconds then print bash-done | monitor:tick counter loop | local_bash:Sleep 25 seconds then print step 1 | monitor:Wait for step-1 background sleep to finish]
+turn end #5 result="Tick-3 fired, monitor loop finished." background=running tasks=[local_bash:Sleep 40 seconds then print bash-done | local_bash:Sleep 20 seconds then print step 2 | monitor:Wait for step-2 background sleep to finish]
+turn end #6 result="Slow counter agent still going (waiting on step 2)" background=running tasks=[local_bash:Sleep 20 seconds then print step 2 | monitor:Wait for step-2 background sleep to finish]
+turn end #7 result="Bash sleep-40 task finished." background=running tasks=[local_bash:Sleep 20 seconds then print step 2 | monitor:Wait for step-2 background sleep to finish]
+turn end #8 result="Slow counter agent finished (FINISHED). All three " background=none tasks=[]
+# exit code: 0

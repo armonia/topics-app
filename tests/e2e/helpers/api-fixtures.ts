@@ -117,6 +117,26 @@ export async function createTopic(
   return topic;
 }
 
+/** The standalone chats `global-setup.ts` seeds, with their messages. */
+const BASELINE_CHAT_NAMES = ["Web Search Test", "Best Ramen"];
+
+/**
+ * Opens the hermetic baseline's chats ("Web Search Test", "Best Ramen") as
+ * top-level tabs, appended to what is open. They used to show in the sidebar
+ * with no tab because of their unread messages; since notifications-redesign
+ * (ATTN-14) a chat with no tab stays in the sidebar only while it is lit, and
+ * the specs that measure rows or open the test chat by its row need them
+ * there. Returns their ids.
+ */
+export async function openBaselineChats(request: APIRequestContext): Promise<string[]> {
+  const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const { topics } = (await res.json()) as { topics: Record<string, { id: string; name: string; archived?: boolean }> };
+  const ids = Object.values(topics).filter((t) => !t.archived && BASELINE_CHAT_NAMES.includes(t.name)).map((t) => t.id);
+  if (ids.length === 0) throw new Error("the hermetic baseline has none of its chats: global-setup did not seed them");
+  for (const id of ids) await seedTopicIntoSidebar(request, id);
+  return ids;
+}
+
 /** Make a topic visible in the unified timeline sidebar by pre-seeding both
  *  the legacy openPanels endpoint AND the Phase 30 pane-store-v2 snapshot.
  *  Exported so helpers.ts can self-heal baseline topics (e.g. "Web Search Test")

@@ -18,7 +18,6 @@
  * with a turn open the composer's Stop is the turn's.
  */
 import type { BackgroundTaskSummary, BackgroundWorkDetail } from '../../../shared/background-work';
-import type { Topic } from '../types';
 
 /** A chat waiting on background work: the session that owns it, its tasks and the last news. */
 export type TopicBackgroundWork = BackgroundWorkDetail & { sessionKey: string };
@@ -53,6 +52,16 @@ function workOf(sessionKey: string, w: { tasks?: BackgroundTaskSummary[]; lastSi
  */
 export function composerStopsWork(tasks: ReadonlyArray<BackgroundTaskSummary>): boolean {
   return tasks.length === 0 || tasks.some((t) => t.type !== 'command');
+}
+
+/**
+ * The same rule on the attention state's tasks: the composer's Stop applies
+ * when one of them is the CLI's own (not a `run_command`, whose Stop is in the
+ * Processes pane). No task, no Stop: unlike the poll's row, an empty task list
+ * here means nothing is running.
+ */
+export function composerStopsTasks(tasks: ReadonlyArray<{ kind: string }>): boolean {
+  return tasks.some((t) => t.kind !== 'command');
 }
 
 export interface StreamingSnapshot {
@@ -124,24 +133,4 @@ export function mergeBackgroundWork(
     else { out.set(id, work); changed = true; }
   }
   return changed ? out : prev;
-}
-
-/**
- * How many chats of a project wait on background work: the same child-walk as
- * `useProjectLoading`. An archived chat is left out, the gate the agent list
- * applies too (`visibleTopicSignalIds`): closing a tab archives the chat and
- * leaves its work running, and a folder lit by a chat that no row, tab or agent
- * line names is a glyph nobody can trace.
- */
-export function projectBackgroundCount(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  work: ReadonlyMap<string, TopicBackgroundWork>,
-): number {
-  let n = 0;
-  for (const id of work.keys()) {
-    const t = topics[id];
-    if (t && !t.archived && t.projectPath === projectPath) n++;
-  }
-  return n;
 }

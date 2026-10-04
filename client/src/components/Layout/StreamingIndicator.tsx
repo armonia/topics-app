@@ -35,8 +35,7 @@
  */
 
 import { LoaderCircle } from 'lucide-react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicBackgroundWork, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useBrowserLoading } from '../../state/signals';
-import type { TopicBackgroundWork } from '../../state/backgroundWork';
+import { useTopicLoading, useTopicAwaitingInput, useTopicInBackground, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useTerminalInBackground, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useT } from '../../hooks/useT';
 import { loaderArcClass, loaderStateFor, type LoaderState } from './loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
@@ -214,14 +213,17 @@ export function TopicStreamingSpinner({
   // non lavora: cambia il glifo, non l'esistenza dell'indicatore. Prima fuori
   // dalla chat una domanda a schermo si leggeva identica a un turno che macina.
   const waiting = useTopicAwaitingInput(topicId);
-  const background = useTopicBackgroundWork(topicId);
+  // The grey glyph: the attention tier `background`, the frame the fill reads
+  // too, so the glyph and a fill never show together (ATTN-12).
+  const background = useTopicInBackground(topicId);
+  const tasks = useTopicBackgroundTasks(topicId);
   const tr = useT();
-  const state = loaderStateFor({ loading: streaming, waiting, background: !!background });
+  const state = loaderStateFor({ loading: streaming, waiting, background });
   if (!state) return null;
   // No turn open: the grey glyph of the work left running (or the amber over
   // it), never the labeled clock, which times a turn.
   if (!streaming) {
-    const tip = state === 'background' && background ? backgroundTip(tr, background) : undefined;
+    const tip = state === 'background' ? backgroundTip(tr, workCount(tasks)) : undefined;
     return <LoaderSlot title={title ?? tip} className={className} size={size} state={state} onFill={onFill} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
@@ -244,8 +246,12 @@ export function TopicStreamingSpinner({
 }
 
 /** How much runs, and that the chat is free: the one thing the grey glyph cannot say on its own. */
-function backgroundTip(tr: ReturnType<typeof useT>, work: TopicBackgroundWork): string {
-  const n = work.tasks.length;
+/** The tasks that are work: a queued wake is the CLI about to answer, said as «resuming». */
+function workCount(tasks: readonly { kind: string }[]): number {
+  return tasks.filter((t) => t.kind !== 'wake').length;
+}
+
+function backgroundTip(tr: ReturnType<typeof useT>, n: number): string {
   if (n === 0) return tr('topic.backgroundResuming');
   return n === 1 ? tr('topic.backgroundOne') : tr('topic.backgroundMany', { n });
 }
@@ -370,8 +376,16 @@ export function TerminalStreamingSpinner({
   className = '',
 }: TerminalSpinnerProps) {
   const active = useTerminalLoading(sessionId);
-  if (!active) return null;
-  return <LoaderSlot title={title ?? 'Terminal is producing output'} className={className} />;
+  // A closed turn that left work running: the grey glyph, as for a chat
+  // (ATTN-12). The phase partition reads `watching` as active, so the
+  // attention tier decides between the two rings.
+  const background = useTerminalInBackground(sessionId);
+  const tasks = useTerminalBackgroundTasks(sessionId);
+  const tr = useT();
+  const state = loaderStateFor({ loading: active && !background, waiting: false, background });
+  if (!state) return null;
+  const tip = state === 'background' ? backgroundTip(tr, workCount(tasks)) : 'Terminal is producing output';
+  return <LoaderSlot title={title ?? tip} className={className} state={state} />;
 }
 
 interface BrowserSpinnerProps {

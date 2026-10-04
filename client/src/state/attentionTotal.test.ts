@@ -1,351 +1,174 @@
 /**
- * `chromeAttentionTotal`: the ONE number the OS chrome paints (dock badge, tray
- * glyph, PWA badge). The contract worth pinning is not the arithmetic, it is the
- * PARITY: for the same state, the chrome total equals the number of sidebar rows
- * that carry a badge (SUBJECTS, not the messages inside them), and the
- * expectation is computed from the very per-row helpers the sidebar calls
- * (`topicAttentionCount`, `terminalAttentionCount`, the `extraCounts` map,
- * `trayBoardAttention`), never from a number typed by hand. If one surface
- * changes its criterion and the other does not, this file goes red.
+ * `chromeAttentionTotal`: the ONE number the OS chrome paints (Dock badge, tray
+ * glyph, PWA badge) and the inbox's button. The contract worth pinning is the
+ * PARITY of CHROME-COUNT-01 (tasks.md 3.4): for the same attention state, the
+ * chrome total equals the sidebar rows that show a lit tier plus the number of
+ * the general board's tab, and the expectation is computed from the very
+ * helpers those surfaces call (`buildSidebarItems`, `boardAttention`), never
+ * from a number typed by hand.
  *
- * @covers CHROME-COUNT-01, NOTIF-ONE-02
+ * @covers CHROME-COUNT-01, NOTIF-ONE-02, ATTN-08
  */
 import { describe, test, expect } from "bun:test";
-import { TRAY_CHAT_ROWS, chromeAttentionSubjects, chromeAttentionTotal, paneAttentionTotal, trayChatItems, waitingSubjects } from "./attentionTotal";
-import { topicAttentionCount, terminalAttentionCount } from "./signals";
-import { buildSidebarItems } from "../lib/buildSidebarItems";
-import { utilityPanelId } from "./pane/adapters/utilityPanelId";
-import { trayBoardAttention, trayBoardGroups, type TrayTaskInput } from "../../../shared/tray-board";
+import { TRAY_CHAT_ROWS, chromeAttentionSubjects, chromeAttentionTotal, notificationsToWithdraw, subjectOfPushTag, trayChatItems } from "./attentionTotal";
+import { boardAttention } from "./attentionRollups";
+import { buildSidebarItems, type SidebarItem } from "../lib/buildSidebarItems";
+import type { AttentionSnapshot } from "../../../shared/attention";
 import type { Topic, TerminalSessionInfo } from "../types";
 
-const unread = (counts: Record<string, number>): Record<string, { unreadCount: number }> =>
-  Object.fromEntries(Object.entries(counts).map(([id, n]) => [id, { unreadCount: n }]));
-
-// Minimal Topic: only the fields the rollup and the sidebar builder read.
 const topic = (id: string, over: Partial<Topic> = {}): Topic =>
-  ({ id, name: id, ...over } as Topic);
+  ({ id, name: id, sessionKey: `topic:${id}`, ...over } as Topic);
 
-// A claude-code terminal with every field the sidebar builder touches.
 const term = (id: string): TerminalSessionInfo =>
-  ({
-    id,
-    name: `Claude ${id}`,
-    createdAt: new Date(0).toISOString(),
-    cwd: "/work/standalone",
-    command: "claude",
-    clients: 1,
-    type: "claude-code",
-  }) as TerminalSessionInfo;
+  ({ id, name: `term ${id}`, createdAt: new Date(0).toISOString(), cwd: "/nowhere", command: "claude", clients: 1, type: "claude-code" });
 
-const card = (id: string, status: string): TrayTaskInput => ({ id, text: `task ${id}`, status, projectId: "p" });
-
-const DASHBOARD = utilityPanelId("dashboard");
-const SCHEDULE = utilityPanelId("cron");
-
-/** One realistic state: chats in every attention shape, two finished terminals,
- *  one badged utility pane, a board with cards in every visible column. */
-function fixture() {
-  const topics = {
-    a: topic("a"),                                   // unread only
-    b: topic("b"),                                   // Claude needs-you only
-    c: topic("c"),                                   // both (max, never the sum)
-    quiet: topic("quiet"),                           // nothing pending
-    gone: topic("gone", { archived: true }),         // archived WITH unread
+function snap(subject: string, over: Partial<AttentionSnapshot> = {}): AttentionSnapshot {
+  return {
+    subject, state: "idle", reason: null, outcome: null, detail: null, since: "2026-10-03T10:00:00.000Z",
+    epoch: 1, seenEpoch: 0, lit: false, unread: 0, turnUnseen: false, lastTurnAt: null, background: [], ...over,
   };
-  const unreadData = unread({ a: 3, c: 2, gone: 7 });
-  const claudeAttentionTopics = new Set(["b", "c"]);
-  const terminalFinishedIds = new Set(["s1", "s2"]);
-  const terminalSessions = [term("s1"), term("s2"), term("idle")];
-  const paneCounts = new Map<string, number>([[DASHBOARD, 2]]);
-  const boardGroups = trayBoardGroups([
-    card("r1", "review"), card("r2", "review"),
-    card("w1", "in_progress"), card("t1", "todo"), card("d1", "done"), card("b1", "backlog"),
-  ]);
-  return { topics, unreadData, claudeAttentionTopics, terminalFinishedIds, terminalSessions, paneCounts, boardGroups };
+}
+const done = (subject: string, over: Partial<AttentionSnapshot> = {}) => snap(subject, { state: "finished", outcome: "done", lit: true, ...over });
+const ask = (subject: string, reason: AttentionSnapshot["reason"] = "question") => snap(subject, { state: "needs-you", reason, lit: true });
+const rowsOf = (...rows: AttentionSnapshot[]) => new Map(rows.map((r) => [r.subject, r]));
+
+/** Every sidebar row (children included) that shows a lit tier. */
+function litRows(items: SidebarItem[]): number {
+  let n = 0;
+  for (const i of items) {
+    if (i.type !== "project" && i.notificationCount > 0) n++;
+    if (i.children) n += litRows(i.children);
+  }
+  return n;
 }
 
-function chromeOf(f: ReturnType<typeof fixture>, over: Partial<Parameters<typeof chromeAttentionTotal>[0]> = {}): number {
-  return chromeAttentionTotal({
-    topics: f.topics,
-    unread: f.unreadData,
-    claudeAttentionTopics: f.claudeAttentionTopics,
-    terminalFinishedIds: f.terminalFinishedIds,
-    boardGroups: f.boardGroups,
-    paneCounts: f.paneCounts,
-    ...over,
-  });
-}
-
-/** The sidebar as the user sees it for that state: every subject's tab open,
- *  archived hidden unless asked. Returns how many LEAF rows carry a badge.
- *  No workspace projects, so no project rollup row can double-count a child. */
-function sidebarBadgeSum(f: ReturnType<typeof fixture>, showArchived = false): number {
-  const items = buildSidebarItems({
-    topics: f.topics,
-    unreadData: f.unreadData as never,
-    showArchived,
-    terminalSessions: f.terminalSessions,
-    openPanels: [...f.terminalSessions.map((t) => `terminal:${t.id}`), DASHBOARD],
-    claudeAttentionTopics: f.claudeAttentionTopics,
-    terminalFinishedIds: f.terminalFinishedIds,
-    extraCounts: f.paneCounts,
-  });
-  expect(items.some((i) => i.type === "project")).toBe(false);
-  return items.filter((i) => i.notificationCount > 0).length;
-}
+const fixture = () => {
+  const topics = {
+    a: topic("a"), b: topic("b"), c: topic("c"), bg: topic("bg"), seen: topic("seen"),
+    old: topic("old", { archived: true }),
+  };
+  const terminals = [term("s1"), term("s2")];
+  const rows = rowsOf(
+    done("topic:a", { unread: 5 }),
+    ask("topic:b", "permission"),
+    done("topic:c", { outcome: "error" }),
+    snap("topic:bg", { state: "background", unread: 2, background: [{ id: "x", kind: "bash", label: "sleep", startedAt: "" }] }),
+    snap("topic:seen", { state: "finished", outcome: "done", lit: false, epoch: 3, seenEpoch: 3, unread: 4 }),
+    done("topic:old"),
+    done("terminal:s1"),
+    snap("terminal:s2", { state: "working" }),
+    ask("task:r1", "review"),
+    ask("task:p1", "parked"),
+    ask("task:w1", "permission"),
+  );
+  return { topics, terminals, rows };
+};
 
 describe("chromeAttentionTotal", () => {
-  test("counts SUBJECTS: non-archived chats + finished terminals + badged panes + board cards in review", () => {
+  test("counts the lit SUBJECTS: chats, terminals and cards, an archived chat never", () => {
     const f = fixture();
-    // a (3 messages) = 1, b = 1, c (2 messages + needs-you) = 1, quiet = 0,
-    // gone = archived (0); s1 + s2 = 2; dashboard (badge 2) = 1; review = 2.
-    expect(chromeOf(f)).toBe(1 + 1 + 1 + 0 + 0 + 2 + 1 + 2);
+    expect(chromeAttentionSubjects(f.rows, f.topics, f.terminals).map((s) => s.key).sort()).toEqual(
+      ["task:p1", "task:r1", "task:w1", "terminal:s1", "topic:a", "topic:b", "topic:c"],
+    );
   });
 
   test("a chat with many unread messages is ONE, not the message sum", () => {
-    // The measured case of 2026-09-29: 132 messages on 6 chats painted 133.
-    const topics = { a: topic("a"), b: topic("b") };
-    const input = {
-      topics,
-      unread: unread({ a: 39, b: 1 }),
-      claudeAttentionTopics: new Set<string>(),
-      terminalFinishedIds: new Set<string>(),
-      boardGroups: [],
-      paneCounts: new Map<string, number>(),
-    };
-    expect(chromeAttentionTotal(input)).toBe(2);
-    // Reading the big one drops the number by ONE, like the panel's list.
-    expect(chromeAttentionTotal({ ...input, unread: unread({ a: 0, b: 1 }) })).toBe(1);
+    expect(chromeAttentionTotal(rowsOf(done("topic:a", { unread: 39 })), { a: topic("a") }, [])).toBe(1);
   });
 
-  test("an archived topic with unread contributes ZERO", () => {
+  test("work that runs on its own and a chat already seen count zero, whatever their unread", () => {
     const f = fixture();
-    const withoutGone = { ...f.topics };
-    delete (withoutGone as Record<string, Topic>).gone;
-    expect(chromeOf(f)).toBe(chromeOf(f, { topics: withoutGone }));
-    // And on its own it is a cleared badge, however large its unread.
-    expect(chromeAttentionTotal({
-      topics: { gone: topic("gone", { archived: true }) },
-      unread: unread({ gone: 7 }),
-      claudeAttentionTopics: new Set(["gone"]),
-      terminalFinishedIds: new Set(),
-      boardGroups: [],
-      paneCounts: new Map(),
-    })).toBe(0);
+    const subjects = chromeAttentionSubjects(f.rows, f.topics, f.terminals).map((s) => s.key);
+    expect(subjects).not.toContain("topic:bg");
+    expect(subjects).not.toContain("topic:seen");
+    expect(subjects).not.toContain("terminal:s2");
   });
 
-  test("PARITY: equals the number of sidebar rows that show a badge for the same subjects", () => {
-    const f = fixture();
-    // Expectation from the per-row helpers, the ones every sidebar row calls:
-    // a row counts once when its helper says it is waiting.
-    const perRow =
-      Object.values(f.topics).filter((t) => !t.archived)
-        .filter((t) => topicAttentionCount(t.id, f.unreadData, f.claudeAttentionTopics) > 0).length
-      + f.terminalSessions.filter((t) => terminalAttentionCount(t.id, f.terminalFinishedIds) > 0).length
-      + paneAttentionTotal(f.paneCounts);
-    // The board share comes from the shared tray helper, the same one the glyph
-    // uses. The sidebar "Board" row is NOT part of this count on purpose: it shows
-    // open work (every card not done), a different quantity by design.
-    const board = trayBoardAttention(f.boardGroups);
-    expect(chromeOf(f)).toBe(perRow + board);
-    // And the real builder agrees: the rows it emits sum to the same number.
-    expect(sidebarBadgeSum(f)).toBe(perRow);
-    expect(chromeOf(f) - board).toBe(sidebarBadgeSum(f));
-  });
-
-  test("PARITY holds with 'show archived' on: the archived row is listed and carries badge 0", () => {
+  test("PARITY: lit sidebar rows + the general board's tab = the chrome number", () => {
     const f = fixture();
     const items = buildSidebarItems({
-      topics: f.topics,
-      unreadData: f.unreadData as never,
-      showArchived: true,
-      terminalSessions: f.terminalSessions,
-      openPanels: [...f.terminalSessions.map((t) => `terminal:${t.id}`), DASHBOARD],
-      claudeAttentionTopics: f.claudeAttentionTopics,
-      terminalFinishedIds: f.terminalFinishedIds,
-      extraCounts: f.paneCounts,
+      topics: f.topics, terminalSessions: f.terminals, showArchived: false, attention: f.rows,
+      openPanels: ["a", "b", "c", "bg", "seen", "terminal:s1", "terminal:s2"],
     });
-    const archivedRow = items.find((i) => i.id === "gone");
-    expect(archivedRow?.archived).toBe(true);
-    // Unread 7 on the server, 0 on the row: nothing could ever switch it off.
-    expect(archivedRow?.notificationCount).toBe(0);
-    // And a NON-archived row keeps its badge untouched by the rule.
-    expect(items.find((i) => i.id === "a")?.notificationCount).toBe(topicAttentionCount("a", f.unreadData, f.claudeAttentionTopics));
-    expect(chromeOf(f) - trayBoardAttention(f.boardGroups)).toBe(sidebarBadgeSum(f, true));
+    const board = boardAttention(f.rows, [], null).count;
+    expect(litRows(items) + board).toBe(chromeAttentionTotal(f.rows, f.topics, f.terminals));
   });
 
-  test("reading a topic drops exactly that topic's ONE and nothing else", () => {
+  test("PARITY holds with 'show archived' on: the archived row is listed and carries no number", () => {
     const f = fixture();
-    const before = chromeOf(f);
-    const afterUnread = { ...f.unreadData, a: { unreadCount: 0 } };
-    expect(topicAttentionCount("a", f.unreadData, f.claudeAttentionTopics)).toBeGreaterThan(1);
-    expect(before - chromeOf(f, { unread: afterUnread })).toBe(1);
-    // A topic that is ALSO waiting on Claude stays a subject when read: unread
-    // clears on reading, attention clears when the session moves on.
-    const cRead = { ...f.unreadData, c: { unreadCount: 0 } };
-    expect(chromeOf(f, { unread: cRead })).toBe(before);
+    const items = buildSidebarItems({ topics: f.topics, terminalSessions: f.terminals, showArchived: true, attention: f.rows, openPanels: ["terminal:s1"] });
+    expect(items.find((i) => i.id === "old")?.notificationCount).toBe(0);
+    expect(litRows(items) + boardAttention(f.rows, [], null).count).toBe(chromeAttentionTotal(f.rows, f.topics, f.terminals));
   });
 
-  test("window-local pane badges (the notifyPane map) count once per badged pane, like their utility rows", () => {
+  test("PARITY when a lit terminal leaves the roster (its PTY crashed mid-turn, the reaper parked it): it counts nowhere", () => {
+    // Review 2, surfaces B1: the sidebar, the project row and the agents menu
+    // read the roster; the Dock, the tray and the inbox kept the exited one.
+    const topics = { a: topic("a") };
+    const rows = rowsOf(done("topic:a"), done("terminal:gone", { outcome: "error" }), done("terminal:s1"));
+    const roster = [term("s1")];
+    const items = buildSidebarItems({ topics, terminalSessions: roster, showArchived: false, attention: rows, openPanels: ["a", "terminal:gone", "terminal:s1"] });
+    const subjects = chromeAttentionSubjects(rows, topics, roster);
+    expect(subjects.map((s) => s.key).sort()).toEqual(["terminal:s1", "topic:a"]);
+    expect(litRows(items) + boardAttention(rows, [], null).count).toBe(chromeAttentionTotal(rows, topics, roster));
+    expect(trayChatItems(subjects, rows, topics, roster).map((i) => i.id)).not.toContain("terminal:gone");
+  });
+
+  test("seeing a chat drops exactly its ONE and nothing else", () => {
     const f = fixture();
-    const panes = new Map<string, number>([[DASHBOARD, 2], [SCHEDULE, 1]]);
-    expect(chromeOf(f, { paneCounts: panes }) - chromeOf(f, { paneCounts: new Map() })).toBe(2);
-    expect(paneAttentionTotal(panes)).toBe(2);
-    expect(paneAttentionTotal(new Map([[DASHBOARD, 0]]))).toBe(0);
-    expect(paneAttentionTotal(new Map())).toBe(0);
+    const before = chromeAttentionTotal(f.rows, f.topics, f.terminals);
+    const after = new Map(f.rows);
+    after.set("topic:a", done("topic:a", { lit: false, seenEpoch: 1 }));
+    expect(chromeAttentionTotal(after, f.topics, f.terminals)).toBe(before - 1);
   });
 
-  test("empty input is 0, the cleared badge", () => {
-    expect(chromeAttentionTotal({
-      topics: {},
-      unread: {},
-      claudeAttentionTopics: new Set(),
-      terminalFinishedIds: new Set(),
-      boardGroups: [],
-      paneCounts: new Map(),
-    })).toBe(0);
+  test("nothing lit is 0, the cleared badge", () => {
+    expect(chromeAttentionTotal(new Map(), {}, [])).toBe(0);
   });
 });
 
-/**
- * The bell and the dock count THE SAME subjects (NOTIF-ONE-02): the one number
- * is the union of what is asking for something and what has an unseen
- * notification, and the panel lists under "Waiting for you" every counted
- * subject that its history does not already show with an unseen dot.
- */
-describe("the one number unions the live signals with the unseen notifications", () => {
-  const none = {
-    topics: {} as Record<string, Topic>,
-    unread: {},
-    claudeAttentionTopics: new Set<string>(),
-    terminalFinishedIds: new Set<string>(),
-    boardGroups: [] as ReturnType<typeof trayBoardGroups>,
-    paneCounts: new Map<string, number>(),
-  };
-
-  test("a card in review with NO notification row counts 1, and the panel lists it", () => {
-    // The verifier's ATK-4: the dock at 1 over a panel saying "No notifications".
-    const input = { ...none, boardGroups: trayBoardGroups([card("r1", "review")]) };
-    expect(chromeAttentionTotal(input)).toBe(1);
-    const waiting = waitingSubjects(chromeAttentionSubjects(input), new Set());
-    expect(waiting.map((w) => [w.kind, w.id, w.key])).toEqual([["card", "r1", "task:r1"]]);
+describe("trayChatItems: the tray lists the chats and terminals its number counts", () => {
+  test("waiting for you first, then the most recent; terminals carry their prefix; cards ride the board groups", () => {
+    const topics = { a: topic("a"), b: topic("b") };
+    const rows = rowsOf(
+      done("topic:a", { since: "2026-10-03T10:05:00.000Z" }),
+      ask("topic:b"),
+      done("terminal:s1", { since: "2026-10-03T10:09:00.000Z" }),
+      ask("task:r1", "review"),
+    );
+    const items = trayChatItems(chromeAttentionSubjects(rows, topics, [term("s1")]), rows, topics, [term("s1")]);
+    expect(items).toEqual([{ id: "b", title: "b" }, { id: "terminal:s1", title: "term s1" }, { id: "a", title: "a" }]);
   });
 
-  test("a chat waiting for you with every row already seen counts 1, and the panel lists it", () => {
-    const input = { ...none, topics: { w: topic("w") }, claudeAttentionTopics: new Set(["w"]) };
-    expect(chromeAttentionTotal(input)).toBe(1);
-    expect(waitingSubjects(chromeAttentionSubjects(input), new Set()).map((w) => w.key)).toEqual(["topic:w"]);
-  });
-
-  test("a chat with unread AND an unseen notification is ONE, shown by the history and not twice", () => {
-    const keys = new Set(["topic:a"]);
-    const input = { ...none, topics: { a: topic("a") }, unread: unread({ a: 4 }), unseenNotificationKeys: keys };
-    expect(chromeAttentionTotal(input)).toBe(1);
-    expect(waitingSubjects(chromeAttentionSubjects(input), keys)).toEqual([]);
-  });
-
-  test("a card in review with its own unseen review row is ONE", () => {
-    const keys = new Set(["task:r1"]);
-    const input = { ...none, boardGroups: trayBoardGroups([card("r1", "review")]), unseenNotificationKeys: keys };
-    expect(chromeAttentionTotal(input)).toBe(1);
-  });
-
-  test("an unseen notification of a subject that asks nothing still counts: the bell and the dock say 1", () => {
-    // A row with no target (keyed by its id), and a chat notification whose
-    // chat has no unread left: both are in the panel with a dot.
-    const keys = new Set(["row-uuid-1", "topic:read"]);
-    const input = { ...none, topics: { read: topic("read") }, unseenNotificationKeys: keys };
-    expect(chromeAttentionTotal(input)).toBe(2);
-    expect(waitingSubjects(chromeAttentionSubjects(input), keys)).toEqual([]);
-  });
-
-  test("a chat that finished (its 'done' mark) counts 1 like a finished terminal, and the panel lists it", () => {
-    const input = { ...none, topics: { f: topic("f") }, chatFinishedTopics: new Set(["f"]) };
-    expect(chromeAttentionTotal(input)).toBe(1);
-    const waiting = waitingSubjects(chromeAttentionSubjects(input), new Set());
-    expect(waiting.map((w) => [w.kind, w.id, w.key])).toEqual([["chat", "f", "topic:f"]]);
-    // The terminal twin, for the same shape.
-    const term = { ...none, terminalFinishedIds: new Set(["s1"]) };
-    expect(chromeAttentionTotal(term)).toBe(1);
-  });
-
-  test("a finished chat that is also unread, or has an unseen row, is still ONE", () => {
-    const keys = new Set(["topic:f"]);
-    const input = {
-      ...none, topics: { f: topic("f") }, unread: unread({ f: 5 }), chatFinishedTopics: new Set(["f"]), unseenNotificationKeys: keys,
-    };
-    expect(chromeAttentionTotal(input)).toBe(1);
-  });
-
-  test("a finished mark on an archived or unknown chat counts nothing: no row could clear it", () => {
-    const input = { ...none, topics: { gone: topic("gone", { archived: true }) }, chatFinishedTopics: new Set(["gone", "deleted"]) };
-    expect(chromeAttentionTotal(input)).toBe(0);
-  });
-
-  test("a review group cut to its first rows still counts every card", () => {
-    const cards = Array.from({ length: 7 }, (_, i) => card(`r${i}`, "review"));
-    const cut = trayBoardGroups(cards, { rowsPerGroup: 2 });
-    expect(chromeAttentionTotal({ ...none, boardGroups: cut })).toBe(7);
-    // The anonymous rest is counted but not listed: it has nowhere to go.
-    expect(waitingSubjects(chromeAttentionSubjects({ ...none, boardGroups: cut }), new Set())).toHaveLength(2);
+  test("the menu stays short", () => {
+    const topics: Record<string, Topic> = {};
+    const all: AttentionSnapshot[] = [];
+    for (let i = 0; i < TRAY_CHAT_ROWS + 4; i++) { topics[`t${i}`] = topic(`t${i}`); all.push(done(`topic:t${i}`)); }
+    const rows = rowsOf(...all);
+    expect(trayChatItems(chromeAttentionSubjects(rows, topics, []), rows, topics, [])).toHaveLength(TRAY_CHAT_ROWS);
   });
 });
 
-/**
- * The tray menu lists what its glyph counts. The glyph reads
- * `chromeAttentionSubjects`; its chat rows used to be built from
- * `topicAttentionCount`, which does not know the 'done' mark, so a finished
- * chat made the tray say 1 and list nothing.
- */
-describe("trayChatItems: the tray menu lists the chats its number counts", () => {
-  const none = {
-    topics: {} as Record<string, Topic>,
-    unread: {} as Record<string, { unreadCount: number }>,
-    claudeAttentionTopics: new Set<string>(),
-    terminalFinishedIds: new Set<string>(),
-    boardGroups: [] as ReturnType<typeof trayBoardGroups>,
-    paneCounts: new Map<string, number>(),
-  };
-
-  test("a finished chat is a row, beside the unread and the waiting ones", () => {
-    const input = {
-      ...none,
-      topics: { f: topic("f", { name: "Finished" }), a: topic("a"), w: topic("w"), quiet: topic("quiet") },
-      unread: unread({ a: 3 }),
-      claudeAttentionTopics: new Set(["w"]),
-      chatFinishedTopics: new Set(["f"]),
-    };
-    const subjects = chromeAttentionSubjects(input);
-    const items = trayChatItems(subjects, input.topics, input.unread);
-    expect(items).toEqual([{ id: "a", title: "a" }, { id: "w", title: "w" }, { id: "f", title: "Finished" }]);
-    // Every chat the number counts has its row.
-    expect(new Set(items.map((i) => i.id))).toEqual(new Set(subjects.filter((s) => s.kind === "chat").map((s) => s.id)));
+describe("the phone's delivered notifications (tasks.md 3.8)", () => {
+  test("a push tag names its subject, the new form and the old per-kind tags", () => {
+    expect(subjectOfPushTag("topic:a")).toBe("topic:a");
+    expect(subjectOfPushTag("terminal:s1")).toBe("terminal:s1");
+    expect(subjectOfPushTag("chat-end-a")).toBe("topic:a");
+    expect(subjectOfPushTag("chat-error-a")).toBe("topic:a");
+    expect(subjectOfPushTag("chat-wait-a")).toBe("topic:a");
+    expect(subjectOfPushTag("task-review-r1")).toBe("task:r1");
+    expect(subjectOfPushTag("task-park-p1")).toBe("task:p1");
+    expect(subjectOfPushTag("task-review-new")).toBeNull();
+    expect(subjectOfPushTag("topics-notification")).toBeNull();
+    expect(subjectOfPushTag(undefined)).toBeNull();
   });
 
-  test("a chat counted only by its unseen notification is a row; a row with no chat, a terminal or a card is not", () => {
-    const input = {
-      ...none,
-      topics: { read: topic("read"), gone: topic("gone", { archived: true }) },
-      terminalFinishedIds: new Set(["s1"]),
-      boardGroups: trayBoardGroups([card("r1", "review")]),
-      unseenNotificationKeys: new Set(["topic:read", "topic:gone", "row-uuid-1", "terminal:s1"]),
-    };
-    const items = trayChatItems(chromeAttentionSubjects(input), input.topics, input.unread);
-    expect(items).toEqual([{ id: "read", title: "read" }]);
-  });
-
-  test("a chat that is unread, finished and notified is one row, and the menu stays short", () => {
-    const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`c${i}`, topic(`c${i}`)]));
-    const input = {
-      ...none,
-      topics: many,
-      unread: unread({ c0: 1, c11: 9 }),
-      chatFinishedTopics: new Set(Object.keys(many)),
-      unseenNotificationKeys: new Set(["topic:c0"]),
-    };
-    const items = trayChatItems(chromeAttentionSubjects(input), input.topics, input.unread);
-    expect(items).toHaveLength(TRAY_CHAT_ROWS);
-    expect(items[0]).toEqual({ id: "c11", title: "c11" });
-    expect(items.filter((i) => i.id === "c0")).toHaveLength(1);
+  test("on attention:init the page withdraws the notifications whose subject is no longer lit, and only those", () => {
+    const rows = rowsOf(done("topic:still"), ask("task:r1", "review"));
+    const delivered = [
+      { tag: "chat-end-read" }, { tag: "chat-end-still" }, { tag: "task-review-r1" },
+      { tag: "task-park-requeued" }, { tag: "topics-notification" }, {},
+    ];
+    expect(notificationsToWithdraw(delivered, rows).map((n) => n.tag)).toEqual(["chat-end-read", "task-park-requeued"]);
   });
 });

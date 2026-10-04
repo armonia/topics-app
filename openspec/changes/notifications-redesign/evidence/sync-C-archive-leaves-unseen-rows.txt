@@ -1,0 +1,94 @@
+# worktree: <worktree> @ f93eeb187 (origin/main, detached)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test server/services/notif-repro-archive.test.ts
+# exit code: 1
+
+## test source (server/services/notif-repro-archive.test.ts)
+/**
+ * REPRO (evidence, not a fix): archiving a chat zeroes its unread and parks its
+ * session (archiveTopicFully steps 2 and 4), but leaves its notification rows
+ * UNSEEN. `unseenSnapshot()` keeps the subject `topic:<id>`, the client unions
+ * those keys into the bell and the Dock (`chromeAttentionSubjects`), with no
+ * archived filter: a closed chat keeps a +1 nobody can switch off except by
+ * opening the bell panel. CHROME-COUNT-01: "un topic ARCHIVIATO non entra mai".
+ *
+ * Real migrations on a temp DB, as in server/subject-seen.test.ts.
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { closeDatabase, getDatabase, initDatabase } from "../db";
+import { recordNotification, unseenSnapshot } from "../db/notification-log";
+import { archiveTopicFully } from "./archive-topic";
+import type { Topic, UnreadData } from "../../shared/types";
+
+let tmpRoot: string;
+
+beforeAll(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "notif-repro-archive-"));
+  const migDir = join(tmpRoot, "server", "db", "migrations");
+  mkdirSync(migDir, { recursive: true });
+  const realMigDir = join(import.meta.dir, "..", "db", "migrations");
+  for (const f of readdirSync(realMigDir)) {
+    if (f.endsWith(".sql")) writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
+  }
+  initDatabase(tmpRoot);
+});
+
+afterAll(() => {
+  try { closeDatabase(); } catch { /* already closed */ }
+  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+beforeEach(() => {
+  getDatabase().run("DELETE FROM notification_log");
+});
+
+describe("REPRO: archiving a chat leaves its notification counting on the bell", () => {
+  it("the chat's unseen row survives archiveTopicFully", () => {
+    // The chat finished a turn while the window was behind: one banner row.
+    recordNotification({ kind: "chat-message", title: "Fix login", targetKind: "topic", targetId: "t1", dedupeKey: "chat:t1" });
+    expect(unseenSnapshot().unseenKeys).toEqual(["topic:t1"]);
+
+    const topic = { id: "t1", name: "Fix login", sessionKey: "topic:t1", archived: false } as unknown as Topic;
+    let unread: UnreadData = { t1: { lastReadAt: "2026-10-01T00:00:00.000Z", unreadCount: 1 } };
+    const res = archiveTopicFully({
+      getTopicById: () => topic,
+      saveSingleTopic: () => {},
+      loadUnread: () => unread,
+      saveUnreadEntries: (e) => { unread = { ...unread, ...e }; },
+      broadcastToAll: () => {},
+      purgeFromUiState: () => ({ ok: true }),
+      parkClaudeSession: () => {},
+    }, "t1");
+    expect(res.ok).toBe(true);
+    // Unread is zeroed (step 2) ...
+    expect(unread.t1.unreadCount).toBe(0);
+    // ... but the bell's subject is still there: it keeps the bell and the Dock at +1.
+    expect(unseenSnapshot().unseenKeys).not.toContain("topic:t1");
+  });
+});
+
+## output
+bun test v1.3.8 (b64edcb4)
+
+server/services/notif-repro-archive.test.ts:
+58 |     }, "t1");
+59 |     expect(res.ok).toBe(true);
+60 |     // Unread is zeroed (step 2) ...
+61 |     expect(unread.t1.unreadCount).toBe(0);
+62 |     // ... but the bell's subject is still there: it keeps the bell and the Dock at +1.
+63 |     expect(unseenSnapshot().unseenKeys).not.toContain("topic:t1");
+                                                 ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "topic:t1"
+Received: [ "topic:t1" ]
+
+      at <anonymous> (<worktree>/server/services/notif-repro-archive.test.ts:63:45)
+(fail) REPRO: archiving a chat leaves its notification counting on the bell > the chat's unseen row survives archiveTopicFully [1.02ms]
+
+ 0 pass
+ 1 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [546.00ms]

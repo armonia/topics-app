@@ -13,7 +13,7 @@
 pub fn is_forwarded_cmd_chord(shift: bool, chars: &str) -> bool {
     match chars {
         "?" | "/" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "b" | "e" | "f" | "g" | "j" | "k" | "n" | "p" | "t" | "w" => true,
-        "u" => shift,
+        "i" | "u" => shift,
         _ => false,
     }
 }

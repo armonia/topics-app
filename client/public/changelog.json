@@ -1,5 +1,111 @@
 [
   {
+    "version": "2.2.439",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiudi le tornate 2, 3 e 5 di mac-usabile-sotto-carico coi dati del 04/10",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai mordere i test del browser nativo: generici annidati, B che risponde prima, adozione e chiusura in volo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spunta in openspec il lavoro gia' su main: finestra del browser della topic, arbitro del viewport, profili dei sottoagenti, quota delle opzioni consigliate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai a KANBAN-90 i suoi tre scenari e chiudi il recinto che spezzava la spec della board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manda con keepalive il DELETE del terminale e misura il menu contestuale senza strizzarlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riscrivi CMDUI-09 sulla forma che main manda davvero alla CLI e legalo ai suoi due test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia board-comments-answer-first",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia chat-inline-command-run",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia db-maintenance",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia subagent-tool-standard",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia commands-ui",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi asincroni gli hook Topics di UserPromptSubmit, Stop e Notification",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allega le clip del browser della topic e del segno di apertura, e spunta le due righe di prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia chat-browser-open-marker",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lega CHAT-BROWSER-03 e TOPIC-COLOR-01 ai test che li provano gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi browser_linux::raise un no-op e dichiara il buco webkitgtk con la misura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spunta il raise di WebKitGTK (PR #208) e la card della striscia delle modifiche",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archivia la change single-changeset-diff-panel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni l'hook Topics nel matcher jolly e non toccare i matcher altrui",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.437",
     "date": "2026-10-03",
     "sections": {

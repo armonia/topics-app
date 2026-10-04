@@ -27,7 +27,7 @@ import { useRefMirror } from './useRefMirror';
 import { reconcileMessages, mergeFetchedHistory } from './reconcileMessages';
 import { adoptDurableMessageId, afterUnfinishedSend, insertBeside, namedByServer, placeOwnBubble } from './ownBubble';
 import { buildRequestMessages } from './chatRequestPayload';
-import { reconcileOrphanStreams, signalsActions } from '../state/signals';
+import { reconcileOrphanStreams } from '../state/signals';
 import { clearHistoryFromCache, markHistoryFromCache } from '../state/historyFromCache';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import { armPushAsk } from '../state/pushAsk';
@@ -2644,9 +2644,9 @@ export function useChat() {
       // vede anche le righe fuori dal ramo attivo, che qui non si vedono.
       // Assente (server vecchio, richiesta fallita) ⇒ non si butta niente.
       clearedByServer = proposeWipe && (res as { cleared?: boolean })?.cleared === true;
-      // Only background work was running, and it is stopped: the composer's
-      // Stop goes back to a dead button now, not at the next poll.
-      if (res?.reason === 'background_stopped') signalsActions.dropBackgroundWork(sessionKey);
+      // Only background work was running, and it is stopped: the provider
+      // reports the empty task list and the attention frame that follows
+      // takes the composer's Stop away (`useTopicBackgroundTasks`).
     } catch {
       clearedByServer = false;
     }

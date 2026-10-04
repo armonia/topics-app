@@ -31,6 +31,7 @@ import {
   seedProjectPane,
   seedProjectInnerChats,
 } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -106,14 +107,10 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     const tabProgetto = page.locator(`[role="tab"][data-pane-id="${PROJECT_PANE_ID}"]`);
     await expect(tabProgetto).toBeVisible({ timeout: 20000 });
     // Si parte puliti: nessun tier addosso al progetto.
-    await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(tabProgetto).not.toHaveAttribute("data-attention", /.+/);
 
     // Il turno della chat DENTRO il progetto finisce.
-    ws.send({
-      type: "session:state",
-      sessionKey: chatSessionKey,
-      state: { phase: "awaiting-user", rev: 1, claudeSessionId: chatSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${chatId}`, { state: "finished" }));
 
     // Il progetto lo dice: "qui dentro c'è qualcosa che ti aspetta".
     await expect(tabProgetto).toHaveAttribute("data-attention", "done", { timeout: 15000 });
@@ -121,7 +118,7 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     // L'utente apre il progetto e resta sulla chat oltre la soglia del "visto"
     // (SEEN_DWELL_MS = 1200 ms). Il fill deve cadere DA SÉ, senza altri click.
     await tabProgetto.click();
-    await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
+    await expect(tabProgetto).not.toHaveAttribute("data-attention", /.+/, { timeout: 15000 });
 
     // E qui il bug: sposta il fuoco altrove. Prima tornava blu — il gate era
     // «la tab è attiva adesso», non «l'ho letta».
@@ -131,9 +128,9 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
 
     // Resta spenta. La fase è ancora `awaiting-user` — è il "visto" a reggere,
     // non l'assenza dello stato.
-    await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(tabProgetto).not.toHaveAttribute("data-attention", /.+/);
     await page.waitForTimeout(2000);
-    await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(tabProgetto).not.toHaveAttribute("data-attention", /.+/);
 
     // Un turno NUOVO deve riaccenderla: spegnersi per sempre sarebbe l'altro bug.
     // Il "visto" cade sul FRONTE DI SALITA (`resetSeenOnNewAttention`), quindi
@@ -142,18 +139,10 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     // un'attesa di comodo: un turno che parte e finisce nello stesso tick non è
     // un turno, e mandati insieme React li unisce in un solo effetto dove il
     // fronte non esiste.
-    ws.send({
-      type: "session:state",
-      sessionKey: chatSessionKey,
-      state: { phase: "running", rev: 2, claudeSessionId: chatSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${chatId}`, { state: "working" }));
     await page.waitForTimeout(1000);
-    ws.send({
-      type: "session:state",
-      sessionKey: chatSessionKey,
-      state: { phase: "awaiting-approval", rev: 3, claudeSessionId: chatSessionKey },
-    });
-    await expect(tabProgetto).toHaveAttribute("data-attention", "input", { timeout: 15000 });
+    await stageAttention(ws, attentionUpdated(`topic:${chatId}`, { state: "needs-you", reason: "permission" }));
+    await expect(tabProgetto).toHaveAttribute("data-attention", "needs-you", { timeout: 15000 });
   });
 
   /**
@@ -167,7 +156,6 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
   test("una chat CHIUSA parcheggiata in attesa non accende il progetto", async ({ page, request }) => {
     const stamp = Date.now();
     const chiusa = await createTopic(request, `visto-chiusa-${stamp}`, { projectPath: PROJECT_PATH });
-    const closedKey = await sessionKeyOf(request, chiusa.id);
     // Archiviare è una DELETE con `{archived:true}` (soft delete), non una PATCH:
     // il PATCH del campo passa senza errore e non archivia niente — un test che
     // lo usasse verificherebbe una chat APERTA credendola chiusa.
@@ -187,22 +175,19 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
       const tabProgetto = page.locator(`[role="tab"][data-pane-id="${PROJECT_PANE_ID}"]`);
       await expect(tabProgetto).toBeVisible({ timeout: 20000 });
 
-      // Il turno della chat CHIUSA finisce. Non deve dire niente al progetto.
-      ws.send({
-        type: "session:state",
-        sessionKey: closedKey,
-        state: { phase: "awaiting-user", rev: 1, claudeSessionId: closedKey },
-      });
+      // The CLOSED chat's turn ends. It must say nothing to the project:
+      // `archived` is an input of the composition (ATTN-13), and the server
+      // sends a switched-off state for it, which is what is staged here. That
+      // the server really does not light it is proven by
+      // `server/services/archive-topic.attention.test.ts` and
+      // `attention-archive-park.spec.ts`.
+      await stageAttention(ws, attentionUpdated(`topic:${chiusa.id}`, { state: "idle" }));
       await page.waitForTimeout(2000);
-      await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/);
+      await expect(tabProgetto).not.toHaveAttribute("data-attention", /.+/);
 
       // Controprova sullo STESSO canale: la chat APERTA dello stesso progetto
       // accende. Senza, un verde qui direbbe solo «non è arrivato niente».
-      ws.send({
-        type: "session:state",
-        sessionKey: chatSessionKey,
-        state: { phase: "awaiting-user", rev: 1, claudeSessionId: chatSessionKey },
-      });
+      await stageAttention(ws, attentionUpdated(`topic:${chatId}`, { state: "finished" }));
       await expect(tabProgetto).toHaveAttribute("data-attention", "done", { timeout: 15000 });
     } finally {
       await deleteTopic(request, chiusa.id).catch(() => {});

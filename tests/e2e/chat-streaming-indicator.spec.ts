@@ -5,6 +5,8 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { mockHangingStream, unmockChatStream } from "./helpers/sse-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { interceptWebSocket } from "./helpers/ws-helpers";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -340,22 +342,53 @@ test.describe("Chat waiting on background work", () => {
 
   type BackgroundStatus = { background: boolean; tasks: typeof TASKS; newsAgeMs: number };
 
+  /** Publishes the status as the attention state, once the socket's snapshot is in. */
+  let publishStatus: (() => Promise<void>) | null = null;
+  /** The server's frame after it stopped the work: the tier back to idle. */
+  let publishStopped: (() => Promise<void>) | null = null;
+
   /**
-   * The status snapshot, switchable by the test between two polls: the chat in
-   * background with `tasks` and the last news `newsAgeMs` ago, or nothing at
-   * all. Before `goToApp`.
+   * The background work, switchable by the test: the chat in background with
+   * `tasks` and the last news `newsAgeMs` ago, or nothing at all. Two sources,
+   * as the client reads them since notifications-redesign: the PRESENCE of
+   * the work and its tasks are the attention state (`attention:updated` with
+   * the tier `background`, staged as the server writes it), the DETAILS
+   * (the last news, a stale job) are still the status poll. Before `goToApp`.
    */
   async function armBackgroundStatus(page: Page): Promise<BackgroundStatus> {
-    const status: BackgroundStatus = { background: true, tasks: TASKS, newsAgeMs: 0 };
+    const ws = await interceptWebSocket(page, /\/ws(?:\?|$)/);
+    let background = true;
+    let tasks: typeof TASKS = TASKS;
+    const publish = async (): Promise<void> => {
+      await stageAttention(ws, attentionUpdated(`topic:${bgTopicId}`, background
+        ? {
+            state: "background",
+            // No task listed: one reported and the CLI is about to wake, which
+            // the server writes as a task of kind `wake` (`attentionBackground`).
+            background: tasks.length
+              ? tasks.map((t, i) => ({ id: `bg-${i}`, kind: t.type === "local_agent" ? "agent" : "bash", label: t.description, startedAt: new Date().toISOString() }))
+              : [{ id: "wake", kind: "wake", label: "Verifica build", startedAt: new Date().toISOString() }],
+          }
+        : { state: "idle" }));
+    };
+    publishStatus = publish;
+    publishStopped = () => stageAttention(ws, attentionUpdated(`topic:${bgTopicId}`, { state: "idle" }));
+    const status: BackgroundStatus = {
+      get background() { return background; },
+      set background(v: boolean) { background = v; void publish(); },
+      get tasks() { return tasks; },
+      set tasks(v: typeof TASKS) { tasks = v; void publish(); },
+      newsAgeMs: 0,
+    };
     await page.route("**/api/topics/streaming", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          sessions: status.background
+          sessions: background
             ? [{
                 topicId: bgTopicId, sessionKey: bgSessionKey, state: "background",
-                tasks: status.tasks, lastSignalAt: Date.now() - status.newsAgeMs,
+                tasks, lastSignalAt: Date.now() - status.newsAgeMs,
               }]
             : [],
         }),
@@ -366,6 +399,7 @@ test.describe("Chat waiting on background work", () => {
 
   async function openBackgroundChat(page: Page, chatPage: ChatPage) {
     await goToApp(page);
+    await publishStatus?.();
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(bgTopicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
@@ -442,8 +476,10 @@ test.describe("Chat waiting on background work", () => {
     // fully on screen in the LAST frame before the line lands, so a list still
     // settling earlier is not blamed on the line; then thirty frames with the
     // line in, so a late pin would be caught too.
-    status.background = true;
-    const { drift, index } = await scroller.evaluate((el) => new Promise<{ drift: number; index: string }>((done) => {
+    // The watch starts FIRST, and the work arrives only once it has seen a
+    // frame without the line: the attention frame lands within a frame, not
+    // after a 15 s poll, and the reference must be taken before it.
+    const watching = scroller.evaluate((el) => new Promise<{ drift: number; index: string }>((done) => {
       let ref = { index: "", top: NaN };
       let worst = 0;
       let framesWithLine = 0;
@@ -457,6 +493,7 @@ test.describe("Chat waiting on background work", () => {
       const tick = () => {
         if (!document.querySelector('[data-testid="background-work-line"]')) {
           ref = firstOnScreen();
+          (window as unknown as { __bgWatchReady?: boolean }).__bgWatchReady = true;
           requestAnimationFrame(tick);
           return;
         }
@@ -467,6 +504,9 @@ test.describe("Chat waiting on background work", () => {
       };
       requestAnimationFrame(tick);
     }));
+    await page.waitForFunction(() => (window as unknown as { __bgWatchReady?: boolean }).__bgWatchReady === true, undefined, { timeout: 10_000 });
+    status.background = true;
+    const { drift, index } = await watching;
     expect(index).not.toBe("");
     expect(drift).toBeLessThanOrEqual(0.5);
   });
@@ -524,12 +564,15 @@ test.describe("Chat waiting on background work", () => {
 
   test("the composer's Stop clears the glyph and the line at once, without waiting for the poll", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-02" });
-    // The server keeps saying "background" on purpose: whatever goes away
-    // right after the Stop went away because of the Stop, not of a poll.
+    // The poll keeps saying "background" on purpose: whatever goes away right
+    // after the Stop went away because of the Stop, not of a poll. What the
+    // Stop changes is the attention state, which the server rewrites when it
+    // stops the work: the abort answers, and the server's frame follows.
     await armBackgroundStatus(page);
-    await page.route("**/api/chat/abort", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, reason: "background_stopped", cleared: false }) }),
-    );
+    await page.route("**/api/chat/abort", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, reason: "background_stopped", cleared: false }) });
+      await publishStopped?.();
+    });
     await openBackgroundChat(page, chatPage);
 
     const row = page.getByRole("treeitem", { name: new RegExp(bgTopicName) }).first();

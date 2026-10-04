@@ -179,6 +179,19 @@ The system SHALL provide a script that installs Topics App hook wrappers into `~
 - **THEN** the user's `Stop` hook entry is preserved
 - **AND** the Topics App `Stop` hook entry is added as an additional matcher
 
+#### Scenario: Fire-and-forget events do not hold the turn
+- **WHEN** the installer runs
+- **THEN** the `UserPromptSubmit`, `Stop` and `Notification` entries carry `async: true`
+- **AND** `SessionStart`, `SessionEnd`, `PreToolUse` and `PostToolUse` stay blocking, every entry with `timeout: 5`
+- **AND** no entry is written for an event Claude Code does not emit (`MonitorArmed`, `MonitorClosed`)
+
+#### Scenario: Installer repairs entries written before the marker
+- **GIVEN** `~/.claude/settings.json` holds wrapper entries without `topics_app`, with the path quoted or not, in any matcher of the event
+- **WHEN** the installer runs
+- **THEN** each one is rewritten in place to the current shape, and every event ends with exactly one Topics App entry
+- **AND** running the installer again leaves the file unchanged byte-for-byte
+- **AND** the uninstaller recognises and removes those entries too
+
 #### Scenario: Uninstaller removes only Topics App entries
 - **GIVEN** the installer has run and the user added their own hook afterward
 - **WHEN** the user runs `bun run hooks:uninstall`

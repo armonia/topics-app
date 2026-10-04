@@ -2,7 +2,7 @@
 // perché le due porte che ci scrivono stanno una per parte:
 //   · il banner nativo lo decide il CLIENT (client/src/hooks/useCompletionNotifier
 //     → `fire`, l'unica uscita di ogni segnale in-app);
-//   · la web-push la decide il SERVER (server/push-triggers.ts → maybeSendPush).
+//   · the web push is the SERVER's (server/attention/store.ts, at every new epoch).
 // Una notifica sola può uscire da entrambe (un `task:review-ready` fa banner E
 // push): il registro deve avere UNA riga per evento, e la regola che lo decide
 // sta qui, in un modulo puro, invece di essere scritta due volte a memoria.
@@ -20,6 +20,7 @@ export type NotificationKind =
   | 'session'
   | 'terminal'
   | 'approval'
+  | 'system'
   | 'other';
 
 export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
@@ -30,6 +31,7 @@ export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
   'session',
   'terminal',
   'approval',
+  'system',
   'other',
 ];
 
@@ -152,10 +154,6 @@ export function taskParkedNotificationKey(taskId: string): string {
   return `task-parked:${taskId}`;
 }
 
-export function approvalNotificationKey(approvalId: string): string {
-  return `approval:${approvalId}`;
-}
-
 /**
  * Il raggruppamento di default: il BERSAGLIO. Due notifiche che portano allo
  * stesso task (o allo stesso topic) sono la stessa cosa da guardare, e
@@ -183,14 +181,6 @@ export const TERMINAL_TARGET_KIND = 'terminal';
 
 export function terminalNotificationGroupKey(sessionId: string): string {
   return `${TERMINAL_TARGET_KIND}:${sessionId}`;
-}
-
-/** The way back: the terminal session a group key stands for, or null when the
- *  key is not a terminal's. Reads the same prefix the birth key writes. */
-export function terminalSessionOfGroupKey(groupKey: string | null | undefined): string | null {
-  const prefix = terminalNotificationGroupKey('');
-  if (!groupKey || !groupKey.startsWith(prefix)) return null;
-  return groupKey.slice(prefix.length) || null;
 }
 
 export function defaultNotificationGroupKey(

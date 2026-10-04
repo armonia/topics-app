@@ -33,7 +33,8 @@ describe("una domanda annuncia l'attesa", () => {
   test("beginAsk → held, endAsk → released", () => {
     const sk = "sess-ask-1";
     beginAsk(sk);
-    expect(seen).toEqual([{ sessionKey: sk, phase: "held", source: "ask" }]);
+    // The wait carries its id: the attention store makes one epoch per wait.
+    expect(seen).toEqual([{ sessionKey: sk, phase: "held", source: "ask", id: expect.stringMatching(/^ask:\d+$/) }]);
     expect(isHumanHold(sk)).toBe(true);
 
     endAsk(sk);

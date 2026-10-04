@@ -8,7 +8,18 @@
  *   - Non-destructive: user-defined hooks for the same event are preserved
  *     (we append, never overwrite).
  *   - Localised marker: every entry we add carries `topics_app: true` in the
- *     hook object so the uninstaller can remove only our entries.
+ *     hook object so the uninstaller can remove only our entries, under
+ *     whatever event they sit. An entry
+ *     written before the marker existed (same wrapper path, no marker, path
+ *     quoted or not) is recognised too: install repairs it in place instead of
+ *     appending a second Topics hook, and uninstall removes it.
+ *   - Topics hooks fire on every tool: our entry lives in a wildcard matcher
+ *     (no `matcher`, `""` or `"*"`). A copy found in a narrowed matcher is
+ *     removed from it, and the other hooks of that matcher stay.
+ *   - Only a matcher emptied by removing our entries is dropped; an empty
+ *     matcher that was already empty belongs to someone else and stays.
+ *   - Fire-and-forget events (`ASYNC_EVENTS`) are registered with
+ *     `async: true`, so a slow server never holds the turn.
  *   - Token: relies on Topics App having generated the token on first boot
  *     at ${TOPICS_HOME:-~/.topics}/claude-hooks/hook-token (the wrapper also
  *     falls back to a legacy ~/.claude/topics-hook-token left by an older
@@ -52,28 +63,48 @@ const HOOK_EVENTS = [
   "PostToolUse",
   "Notification",
   "Stop",
-  // Monitor/watch lifecycle — arm/close a background watch. MonitorArmed pins
-  // the session in `watching` (ring stays on while it waits for an event);
-  // MonitorClosed releases it. Harmless no-ops on a Claude Code that doesn't
-  // emit them (the endpoint just never receives the event).
-  "MonitorArmed",
-  "MonitorClosed",
 ] as const;
+
+// Events this installer used to register and no longer does. `MonitorArmed` and
+// `MonitorClosed` are not emitted by Claude Code (absent from the event list of
+// 2.1.237 and 2.1.289), and 2.1.289 drops each unknown event key from
+// settings.json with a "Settings Warning". The server keeps accepting them for
+// an older CLI; the live watch signal is the `PreToolUse` of `Monitor`
+// (`server/lib/claude-session-state.ts`). Install removes our stale entries for
+// these events and uninstall cleans them up too.
+const RETIRED_EVENTS = ["MonitorArmed", "MonitorClosed"] as const;
+
+// Registered with `async: true`, so Claude Code does not wait for them. They
+// only notify the server and their output is ignored, but a sync hook holds the
+// turn until it returns: when the server is starved every prompt waited for the
+// 5 s budget (`/doctor` on 01/10: UserPromptSubmit 22 timeouts out of 22 runs,
+// Stop 13). The other four stay blocking on purpose:
+//   - PreToolUse/PostToolUse: the swap freezer must learn that a Bash command
+//     runs in the foreground BEFORE it starts (`noteBashToolCall`), and the
+//     pair must reach the phase machine in order;
+//   - SessionStart carries the transcript path the tail follows from the first
+//     line, and SessionEnd fires as the CLI exits, when a background hook may
+//     not get to run at all.
+const ASYNC_EVENTS: ReadonlySet<string> = new Set(["UserPromptSubmit", "Stop", "Notification"]);
 
 interface HookEntry {
   type: "command";
   command: string;
   timeout?: number;
+  async?: boolean;
   topics_app?: boolean;
+  [key: string]: unknown;
 }
 
 interface HookMatcher {
   matcher?: string;
-  hooks: HookEntry[];
+  // Optional because a hand-written file can omit it (`{"matcher":"Bash"}`):
+  // such a matcher is left exactly as it is.
+  hooks?: HookEntry[];
 }
 
 interface ClaudeSettings {
-  hooks?: Partial<Record<typeof HOOK_EVENTS[number], HookMatcher[]>>;
+  hooks?: Record<string, HookMatcher[]>;
   [key: string]: unknown;
 }
 
@@ -114,17 +145,78 @@ function buildEntry(event: string): HookEntry {
     type: "command",
     command: buildCommand(event),
     timeout: 5,
+    ...(ASYNC_EVENTS.has(event) ? { async: true } : {}),
     topics_app: true,
   };
 }
 
-/** La nostra entry per questo evento, se già presente. Il match resta per
- *  SUFFISSO (non per uguaglianza) apposta: deve riconoscere anche una entry
- *  scritta da una versione precedente, con un `command` diverso da quello che
- *  genereremmo oggi. È esattamente ciò che permette a `install()` di RIPARARLA
- *  invece di lasciarla lì o di affiancarle un duplicato. */
-function findOurEntry(matcher: HookMatcher, event: string): HookEntry | undefined {
-  return matcher.hooks.find((h) => h.topics_app === true && h.command?.endsWith(` ${event}`));
+// The wrapper path followed by the event, quoted or not, whatever the home it
+// was written under. This is how an entry written before the `topics_app`
+// marker existed is recognised: the live file of the first users still has
+// seven of them, unmarked and with the path unquoted.
+const WRAPPER_TAIL = /(?:^|\/)topics-hooks\/post-hook\.sh["']?\s+(\S+)\s*$/;
+
+/** Is this hook one of ours for `event`? A marked entry is ours wherever it
+ *  sits, whatever its command says: the marker is written by this script only,
+ *  so a marked `post-hook.sh SessionEnd` under `Stop` is a stray of ours, which
+ *  install repairs and uninstall removes. An unmarked entry is ours when it is
+ *  the wrapper followed by this very event. */
+function isOurEntry(h: HookEntry, event: string): boolean {
+  if (h?.topics_app === true) return true;
+  if (typeof h?.command !== "string") return false;
+  return WRAPPER_TAIL.exec(h.command)?.[1] === event;
+}
+
+function firesOnEveryTool(m: HookMatcher): boolean {
+  return !m.matcher || m.matcher === "*";
+}
+
+function hooksOf(m: HookMatcher): HookEntry[] {
+  return Array.isArray(m?.hooks) ? m.hooks : [];
+}
+
+/** Take `drop` out of the matchers, then remove only the matchers this left
+ *  empty: one that was empty before is somebody else's and stays. */
+function dropEntries(matchers: HookMatcher[], drop: ReadonlySet<HookEntry>): HookMatcher[] {
+  const nowEmpty = new Set<HookMatcher>();
+  for (const m of matchers) {
+    const hooks = hooksOf(m);
+    if (!hooks.some((h) => drop.has(h))) continue;
+    m.hooks = hooks.filter((h) => !drop.has(h));
+    if (m.hooks.length === 0) nowEmpty.add(m);
+  }
+  return matchers.filter((m) => !nowEmpty.has(m));
+}
+
+/** Rewrite `entry` in place to the canonical shape. Only the fields this script
+ *  generates change; any other key keeps its value and position. Returns
+ *  whether something changed. */
+function repairEntry(entry: HookEntry, event: string): boolean {
+  const canonical = buildEntry(event);
+  let changed = false;
+  for (const [key, value] of Object.entries(canonical)) {
+    if (entry[key] !== value) {
+      entry[key] = value;
+      changed = true;
+    }
+  }
+  if (!ASYNC_EVENTS.has(event) && "async" in entry) {
+    delete entry.async;
+    changed = true;
+  }
+  return changed;
+}
+
+/** Drop every hook of ours for `event`, then the matchers and the event key
+ *  left empty by it. Returns how many entries went. */
+function removeOurEntries(settings: ClaudeSettings, event: string): number {
+  const matchers = settings.hooks?.[event];
+  if (!matchers) return 0;
+  const ours = new Set(matchers.flatMap((m) => hooksOf(m).filter((h) => isOurEntry(h, event))));
+  if (ours.size === 0) return 0;
+  settings.hooks![event] = dropEntries(matchers, ours);
+  if (settings.hooks![event]!.length === 0) delete settings.hooks![event];
+  return ours.size;
 }
 
 function install(): void {
@@ -136,34 +228,44 @@ function install(): void {
   let repaired = 0;
   for (const event of HOOK_EVENTS) {
     const matchers = settings.hooks[event] ?? [];
-    // Topics App hooks fire on every matcher (no filter). We append our
-    // entry to the first wildcard matcher we find, or create a new one.
-    let target = matchers.find((m) => !m.matcher || m.matcher === "*");
+    // Look in EVERY matcher, not only the first wildcard one: a legacy entry
+    // can sit anywhere, and missing it is what appended a second Topics hook
+    // next to it.
+    const found = matchers.flatMap((m) => hooksOf(m).filter((h) => isOurEntry(h, event)).map((h) => ({ m, h })));
+    // Ours, possibly written by an older version: the first copy sitting in a
+    // wildcard matcher is repaired where it stands, so a fix to the entry
+    // reaches whoever installed before it, and `matcher`, order and foreign
+    // hooks stay as they are. A copy in a narrowed matcher never wins: the hook
+    // would fire on that tool only, and `AskUserQuestion`, `ExitPlanMode` and
+    // `Monitor` would never reach the server.
+    const keep = found.find(({ m }) => firesOnEveryTool(m) && Array.isArray(m.hooks));
+    // Every other copy goes: the old installer appended one next to every
+    // unmarked entry, and a narrowed one is the case above.
+    const extra = new Set(found.filter((f) => f !== keep).map(({ h }) => h));
+    const kept = extra.size > 0 ? dropEntries(matchers, extra) : matchers;
+    if (keep) {
+      if (repairEntry(keep.h, event) || extra.size > 0) repaired += 1;
+      settings.hooks[event] = kept;
+      continue;
+    }
+    // None in a wildcard matcher: append to the first one we find, or create it.
+    let target = kept.find((m) => firesOnEveryTool(m) && Array.isArray(m.hooks));
     if (!target) {
       target = { hooks: [] };
-      matchers.push(target);
+      kept.push(target);
     }
-    const existing = findOurEntry(target, event);
-    if (!existing) {
-      target.hooks.push(buildEntry(event));
-      added += 1;
-    } else if (existing.command !== buildCommand(event)) {
-      // Una entry NOSTRA ma scritta da una versione precedente. Prima veniva
-      // riconosciuta e lasciata così com'era, quindi ogni correzione al comando
-      // valeva solo per chi installava da zero: chi l'aveva già installato
-      // restava col difetto finché non faceva uninstall+install a mano. Adesso
-      // reinstallare la ripara. Si riscrive solo il campo che generiamo noi —
-      // `matcher`, ordine ed eventuali entry altrui non si toccano.
-      existing.command = buildCommand(event);
-      repaired += 1;
-    }
-    settings.hooks[event] = matchers;
+    target.hooks!.push(buildEntry(event));
+    settings.hooks[event] = kept;
+    if (found.length === 0) added += 1;
+    else repaired += 1;
   }
+  let retired = 0;
+  for (const event of RETIRED_EVENTS) retired += removeOurEntries(settings, event);
 
   writeSettings(settings);
   console.log(`✓ Hook wrapper installed at ${WRAPPER_DEST}`);
   const unchanged = HOOK_EVENTS.length - added - repaired;
-  console.log(`✓ Settings updated at ${SETTINGS_PATH} (${added} added, ${repaired} updated, ${unchanged} already current)`);
+  console.log(`✓ Settings updated at ${SETTINGS_PATH} (${added} added, ${repaired} updated, ${unchanged} already current, ${retired} retired)`);
   console.log(`\nNext step: start Topics App so the hook token is generated.`);
   console.log(`  bun run dev:server`);
 }
@@ -175,18 +277,7 @@ function uninstall(): void {
     return;
   }
   let removed = 0;
-  for (const event of HOOK_EVENTS) {
-    const matchers = settings.hooks[event];
-    if (!matchers) continue;
-    for (const m of matchers) {
-      const before = m.hooks.length;
-      m.hooks = m.hooks.filter((h) => h.topics_app !== true);
-      removed += before - m.hooks.length;
-    }
-    // Drop matchers that no longer carry any hooks.
-    settings.hooks[event] = matchers.filter((m) => m.hooks.length > 0);
-    if (settings.hooks[event]!.length === 0) delete settings.hooks[event];
-  }
+  for (const event of [...HOOK_EVENTS, ...RETIRED_EVENTS]) removed += removeOurEntries(settings, event);
   if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   writeSettings(settings);
 

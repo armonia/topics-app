@@ -1,0 +1,57 @@
+# worktree @ f93eeb187 (origin/main)
+# command: cd <wt> && TOPICS_GATE_HELD=targeted bun test server/lib/claude-session-state.mcp-ask.notif.test.ts
+# built-in disallowed headless: server/providers/claude/args.ts:273 HEADLESS_DISALLOWED_TOOLS = ["AskUserQuestion"]; phase machine knows only AskUserQuestion/ExitPlanMode: server/lib/claude-session-state.ts:154 HUMAN_INPUT_TOOLS; human-hold events have ONE listener (task-dispatcher.ts:2045), none feeds the tracker or push-triggers
+# ---- test source ----
+/**
+ * EVIDENCE (not a fix): in a headless chat the built-in AskUserQuestion is
+ * disallowed (providers/claude/args.ts HEADLESS_DISALLOWED_TOOLS) and every
+ * question goes through `mcp__topics__ask_user_question`. The phase machine
+ * only knows the built-in name, so a chat blocked on a question reads as
+ * `tool-running` (working) and the "chat waits for you" push (PUSH-05) never
+ * fires: push-triggers only reacts to `awaiting-approval`.
+ */
+import { describe, expect, test } from "bun:test";
+import { applyHook, makeInitialState, type HookPayload } from "./claude-session-state";
+import { configurePushTriggers, maybeSendPush } from "../push-triggers";
+import type { NotificationRecordInput } from "../../shared/notification-log";
+
+describe("a chat asking through the Topics MCP bridge", () => {
+  test("is 'working' for the phase machine and sends no waiting push", () => {
+    let s = makeInitialState("csid-ask", "topic:asks", 1000);
+    const hook = (h: Partial<HookPayload>, t: number) => { s = applyHook(s, { session_id: "csid-ask", ...h } as HookPayload, t); };
+    hook({ hook_event_name: "UserPromptSubmit" }, 1001);
+    hook({ hook_event_name: "PreToolUse", tool_name: "mcp__topics__ask_user_question",
+      tool_input: { questions: [{ question: "Procedo col merge?", options: [{ label: "Si" }, { label: "No" }] }] } }, 1002);
+    const logged: NotificationRecordInput[] = [];
+    configurePushTriggers({ getTopicName: () => "Merge", isTopicSilenced: () => false, recordNotification: (i) => { logged.push(i); },
+      topicIdForSessionKey: () => "t-asks" });
+    maybeSendPush({ type: "session:state", sessionKey: "topic:asks", state: s });
+    console.log("phase =", s.phase, " pendingApproval =", JSON.stringify(s.pendingApproval), " rows =", JSON.stringify(logged));
+    expect(s.phase).toBe("awaiting-approval");
+    expect(logged.map((r) => r.kind)).toEqual(["session"]);
+  });
+});
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/lib/claude-session-state.mcp-ask.notif.test.ts:
+phase = tool-running  pendingApproval = undefined  rows = []
+21 |     const logged: NotificationRecordInput[] = [];
+22 |     configurePushTriggers({ getTopicName: () => "Merge", isTopicSilenced: () => false, recordNotification: (i) => { logged.push(i); },
+23 |       topicIdForSessionKey: () => "t-asks" });
+24 |     maybeSendPush({ type: "session:state", sessionKey: "topic:asks", state: s });
+25 |     console.log("phase =", s.phase, " pendingApproval =", JSON.stringify(s.pendingApproval), " rows =", JSON.stringify(logged));
+26 |     expect(s.phase).toBe("awaiting-approval");
+                         ^
+error: expect(received).toBe(expected)
+
+Expected: "awaiting-approval"
+Received: "tool-running"
+
+      at <anonymous> (<worktree>/server/lib/claude-session-state.mcp-ask.notif.test.ts:26:21)
+(fail) a chat asking through the Topics MCP bridge > is 'working' for the phase machine and sends no waiting push [1.02ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [242.00ms]

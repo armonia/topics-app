@@ -16,41 +16,27 @@ import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from '../../state/pane/store';
 import { resolvePaneSpace } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, type SpaceMeta, type Pane } from '../../state/pane/types';
-import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
-import { useSignalsStore, projectAttentionTier } from '../../state/signals';
+import { useAttentionRows } from '../../state/attention';
+import { spaceAttention } from '../../state/attentionRollups';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { useSpaceWindows } from '../../state/windowPresence';
 import { focusSpaceWindow, claimSpaceLocally } from '../../lib/popOutSpace';
 import { DEFAULT_SPACE_LABEL, liveSpacesOrdered } from '../Layout/spaceHelpers';
 import { repinSpaceWindow, spaceWindowId } from '../../lib/windowRole';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
-
-interface AttentionSets {
-  awaitingInputTopics: Set<string>;
-  awaitingFeedbackTopics: Set<string>;
-  claudePhaseAwaitingInputTermIds: Set<string>;
-  claudePhaseAwaitingTermIds: Set<string>;
-  terminalFinishedIds: Set<string>;
-  seenSubjects: ReadonlySet<string>;
-}
+import type { AttentionRows } from '../../state/attention';
 
 /**
- * Il tier di attenzione di un gruppo: il più forte fra i suoi pane ('input'
- * batte 'done'), o null. Costruito sugli STESSI insiemi per-soggetto che
- * leggono la barra delle tab e le righe della sidebar — parità di badge,
+ * Il tier di attenzione di un gruppo: il più forte fra i soggetti accesi dei
+ * suoi pane ('needs-you' batte 'error' batte 'done'), o null. È
+ * `rollupAttention` sullo stato di attenzione (`spaceAttention`), lo stesso che
+ * leggono la barra delle tab e le righe della sidebar: parità di badge,
  * nessuna matematica privata di questo componente. Serve soprattutto quando la
  * card è chiusa: è l'unica cosa che dice "là dentro ti aspettano".
  *
- * A read chat no longer feeds the 'done' branch: `seenSubjects` gates it, the
- * same fix the PROJECT tab already got in `projectAttentionTier`. Without it the
- * card kept its blue dot after you read the chat, because a Claude phase like
- * `awaiting-user` does not clear by itself — it stays until the next turn, so
- * the row and the tab went quiet while the group header stayed lit.
- *
- * The 'input' branch is deliberately NOT gated. `awaitingInputTopics` also
- * carries `askWaitingTopics`, which never goes through `applyNewAttention`: a
- * seen mark on a pending question would never be cleared, and the card would go
- * mute for good on a request that is still waiting for an answer.
+ * Il «visto» che spegne il gruppo è quello del server (ATTN-06, SEEN-01): una
+ * chat letta non è più accesa, in ogni finestra, e la card torna neutra
+ * insieme alla riga e alla tab.
  *
  * Exported for the unit test: the hook around it needs a React store, the rule
  * does not.
@@ -59,45 +45,11 @@ export function spaceAttentionTier(
   spaceId: string,
   panes: Record<string, Pane>,
   spaces: Record<string, SpaceMeta>,
-  sig: AttentionSets,
+  rows: AttentionRows,
   topics: Record<string, Topic>,
   terminalSessions: TerminalSessionInfo[],
 ): AttentionTier | null {
-  let hasDone = false;
-  for (const pane of Object.values(panes)) {
-    if (resolvePaneSpace(pane, spaces) !== spaceId) continue;
-    if (pane.type === 'chat') {
-      const topicId = pane.topicId ?? pane.id;
-      if (sig.awaitingInputTopics.has(topicId)) return 'input';
-      if (sig.seenSubjects.has(topicId)) continue;
-      if (sig.awaitingFeedbackTopics.has(topicId)) hasDone = true;
-    } else if (pane.type === 'terminal') {
-      const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
-      if (!sid) continue;
-      // The finished mark is not gated on "seen": the seen event CLEARS it
-      // (`seeSubject`), and a gate would mute a hook-less session's second
-      // finished turn for good. The phase IS gated, as on the tab, the row and
-      // the project rollup: a phase-parked terminal you have looked at stays
-      // `awaiting-user` until its next turn, and the card stayed blue over it.
-      if (sig.claudePhaseAwaitingInputTermIds.has(sid)) return 'input';
-      if (sig.terminalFinishedIds.has(sid)) hasDone = true;
-      else if (sig.claudePhaseAwaitingTermIds.has(sid) && !sig.seenSubjects.has(sid)) hasDone = true;
-    } else if (pane.type === 'project' && pane.projectPath) {
-      const tier = projectAttentionTier(
-        pane.projectPath,
-        topics,
-        terminalSessions,
-        sig.awaitingFeedbackTopics,
-        sig.claudePhaseAwaitingTermIds,
-        sig.awaitingInputTopics,
-        sig.claudePhaseAwaitingInputTermIds,
-        sig.seenSubjects,
-      );
-      if (tier === 'input') return 'input';
-      if (tier === 'done') hasDone = true;
-    }
-  }
-  return hasDone ? 'done' : null;
+  return spaceAttention(spaceId, panes, spaces, rows, topics, terminalSessions).tier;
 }
 
 /** Separatore dello snapshot: un carattere di controllo che nessun titolo
@@ -132,16 +84,7 @@ export function useSpaceCards(): SpaceCard[] {
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
   const spaceWindows = useSpaceWindows();
-  const sig = useSignalsStore(
-    useShallow((s) => ({
-      awaitingInputTopics: s.awaitingInputTopics,
-      awaitingFeedbackTopics: s.awaitingFeedbackTopics,
-      claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds,
-      claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds,
-      terminalFinishedIds: s.terminalFinishedIds,
-      seenSubjects: s.seenSubjects,
-    })),
-  );
+  const attention = useAttentionRows();
 
   // Quante tab tiene ciascun gruppo. Codificato come STRINGHE piatte e
   // decodificato sotto: iscriversi a `s.panes` qui ridisegnerebbe le card a
@@ -182,7 +125,7 @@ export function useSpaceCards(): SpaceCard[] {
         name: r.name,
         active: r.id === activeSpaceId,
         count: countBySpace.get(r.id) ?? 0,
-        tier: spaceAttentionTier(r.id, panes, spaces, sig, topics, terminalSessions),
+        tier: spaceAttentionTier(r.id, panes, spaces, attention, topics, terminalSessions),
         detachedLabel: spaceWindows.get(r.id),
       }))
       // UN GRUPPO SI DISEGNA FINCHÉ TIENE QUALCOSA. A zero tab la card diceva
@@ -196,7 +139,7 @@ export function useSpaceCards(): SpaceCard[] {
       // atterrare. E un gruppo che vive in una finestra sua resta anche a zero:
       // è da qui che lo si porta davanti o lo si richiama indietro.
       .filter((c) => c.id === DEFAULT_SPACE_ID || c.count > 0 || !!c.detachedLabel);
-  }, [ordered, pinnedSpace, activeSpaceId, countBySpace, panes, spaces, sig, topics, terminalSessions, spaceWindows]);
+  }, [ordered, pinnedSpace, activeSpaceId, countBySpace, panes, spaces, attention, topics, terminalSessions, spaceWindows]);
 }
 
 /** Porta la finestra sul gruppo `spaceId` — o, se quel gruppo vive in una

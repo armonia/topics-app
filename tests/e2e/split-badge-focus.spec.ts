@@ -31,6 +31,7 @@ import {
   deleteTopic,
   resetPaneStore,
 } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -75,7 +76,7 @@ test.describe("Split view: il badge sparisce solo da ciò che guardi", () => {
 
     // La chat di DESTRA — attiva nella sua cella, ma non quella che guardi —
     // riceve dei non letti.
-    ws.send({ type: "unread:updated", topicId: destra.id, unreadCount: 3 });
+    await stageAttention(ws, attentionUpdated(`topic:${destra.id}`, { state: "finished", unread: 3 }));
 
     // Deve TENERE il badge: e' attiva nel suo gruppo, non sotto i tuoi occhi.
     const badgeDestra = tabDestra.locator("span.rounded-full").filter({ hasText: /^\d+$/ });
@@ -91,7 +92,7 @@ test.describe("Split view: il badge sparisce solo da ciò che guardi", () => {
       .toBeVisible({ timeout: 10000 });
 
     // Ora la guardi: il badge cade, e cade SOLO il suo.
-    ws.send({ type: "unread:updated", topicId: sinistra.id, unreadCount: 2 });
+    await stageAttention(ws, attentionUpdated(`topic:${sinistra.id}`, { state: "finished", unread: 2 }));
     await tabDestra.click();
     await expect(badgeDestra).toHaveCount(0, { timeout: 15000 });
     const badgeSinistra = tabSinistra.locator("span.rounded-full").filter({ hasText: /^\d+$/ });

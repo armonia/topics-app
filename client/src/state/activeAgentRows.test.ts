@@ -10,21 +10,28 @@
  * too, in a list of its own: it holds a CLI in RAM right now, and that list is
  * what says which one to stop.
  *
- * @covers STATUSLINE-05, BGVIS-03
+ * @covers STATUSLINE-05, BGVIS-03, ATTN-01
  */
 import { describe, expect, test } from "bun:test";
 import { activeAgentCount, activeAgentRowsFrom, visibleTopicSignalCount, visibleTopicSignalIds } from "./signals";
+import type { AttentionSnapshot, AttentionState } from "../../../shared/attention";
 import type { Topic } from "../types";
 
 const topic = (id: string, archived = false): Topic => ({ id, name: `chat ${id}`, archived } as Topic);
 const none = new Set<string>();
-const quiet = {
-  active: none, resting: none, busy: none,
-  awaitingTerm: none, awaitingInputTerm: none, finishedTerms: none,
-  liveStream: none, hydratedStream: none, awaitingTopics: none, awaitingInputTopics: none,
-  backgroundTopics: new Map<string, unknown>(),
-};
-const inBackground = (...ids: string[]) => new Map(ids.map((id) => [id, { sessionKey: `topic:${id}`, tasks: [], lastSignalAt: 0 }]));
+const quiet = { active: none, resting: none, busy: none, liveStream: none, hydratedStream: none, attention: new Map<string, AttentionSnapshot>() };
+
+/** Attention rows: `t:<id>` a chat, `s:<id>` a terminal; `finished` is lit (not seen). */
+function attention(entries: Record<string, AttentionState>): Map<string, AttentionSnapshot> {
+  return new Map(Object.entries(entries).map(([k, state]) => {
+    const subject = k.startsWith("s:") ? `terminal:${k.slice(2)}` : `topic:${k.slice(2)}`;
+    return [subject, {
+      subject, state, reason: state === "needs-you" ? "permission" : null, outcome: state === "finished" ? "done" : null, detail: null,
+      since: "", epoch: 1, seenEpoch: 0, lit: state === "needs-you" || state === "finished", unread: 0, turnUnseen: false, lastTurnAt: null,
+      background: state === "background" ? [{ id: "b", kind: "bash", label: "x", startedAt: "" }] : [],
+    } satisfies AttentionSnapshot];
+  }));
+}
 
 describe("visibleTopicSignalIds", () => {
   test("the count is the length of the ids, one gate", () => {
@@ -67,30 +74,20 @@ describe("activeAgentRowsFrom", () => {
     expect(rows.working).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
   });
 
-  test("awaiting input reads both surfaces, and a terminal gone from the roster has no row", () => {
+  test("waiting for an answer reads the attention state of both, and a terminal gone from the roster has no row", () => {
     const topics = { a: topic("a") };
-    const rows = activeAgentRowsFrom(roster, topics, {
-      ...quiet,
-      awaitingInputTerm: new Set(["t1", "vanished"]),
-      awaitingInputTopics: new Set(["a"]),
-    });
+    const rows = activeAgentRowsFrom(roster, topics, { ...quiet, attention: attention({ "s:t1": "needs-you", "s:vanished": "needs-you", "t:a": "needs-you" }) });
     expect(rows.awaitingInput).toEqual([
       { id: "t1", kind: "terminal", label: "fix the login" },
       { id: "a", kind: "topic", label: "chat a" },
     ]);
   });
 
-  test("a turn that ENDED is its own list, not the loud one", () => {
-    // "N to look at (turn ended or paused)" was a number with no rows, in a
-    // row of the account panel that could not be opened. Now it is a list like
-    // the other two, and the number on the card is its length.
+  test("a turn that ENDED and was not seen is its own list, not the loud one", () => {
     const topics = { a: topic("a"), b: topic("b") };
     const rows = activeAgentRowsFrom(roster, topics, {
       ...quiet,
-      awaitingTerm: new Set(["t1"]),
-      finishedTerms: new Set(["t3"]),
-      awaitingTopics: new Set(["a", "b"]),
-      awaitingInputTopics: new Set(["b"]),
+      attention: attention({ "s:t1": "finished", "s:t3": "finished", "t:a": "finished", "t:b": "needs-you" }),
     });
     expect(rows.awaitingInput).toEqual([{ id: "b", kind: "topic", label: "chat b" }]);
     expect(rows.finished).toEqual([
@@ -100,47 +97,35 @@ describe("activeAgentRowsFrom", () => {
     ]);
   });
 
-  test("one session is ONE row: the tier that asks for an answer wins", () => {
-    // A terminal can have finished its turn AND sit in `awaiting-user`, and a
-    // topic can be in both sets. If it appeared in two lists the card's count,
-    // which is their sum, would say two things to look at where there is one.
+  test("one session is ONE row: its single tier decides the list", () => {
     const topics = { a: topic("a") };
-    const rows = activeAgentRowsFrom(roster, topics, {
-      ...quiet,
-      awaitingTerm: new Set(["t1"]),
-      finishedTerms: new Set(["t1"]),
-      awaitingInputTerm: new Set(["t1"]),
-      awaitingTopics: new Set(["a"]),
-      awaitingInputTopics: new Set(["a"]),
-    });
+    const rows = activeAgentRowsFrom(roster, topics, { ...quiet, attention: attention({ "s:t1": "needs-you", "t:a": "needs-you" }) });
     expect(rows.awaitingInput).toHaveLength(2);
     expect(rows.finished).toEqual([]);
+    expect(rows.background).toEqual([]);
   });
 
-  test("a terminal gone from the roster has no row among the finished either", () => {
-    // Same gate as the archived topics: an id whose session no longer exists
-    // has neither a row nor a tab, so its "1" could not be cleared from
-    // anywhere. The roster gate used to apply only to `finishedTerms`, and
-    // `awaitingTerm` entered the count without passing through it.
-    const rows = activeAgentRowsFrom(roster, {}, {
-      ...quiet,
-      awaitingTerm: new Set(["vanished"]),
-      finishedTerms: new Set(["also-gone", "t2"]),
-    });
-    // t2 is the shell: not an agent, so it enters no list.
+  test("a terminal gone from the roster, or a shell, has no row among the finished either", () => {
+    const rows = activeAgentRowsFrom(roster, {}, { ...quiet, attention: attention({ "s:vanished": "finished", "s:t2": "finished" }) });
     expect(rows.finished).toEqual([]);
   });
 
-  test("a chat in the background is an active agent, in its own list, and the badge counts it", () => {
+  test("a chat in the background is an active agent, in its own list, never also finished, and the badge counts it", () => {
     const topics = { a: topic("a") };
-    const rows = activeAgentRowsFrom([], topics, { ...quiet, backgroundTopics: inBackground("a") });
+    const rows = activeAgentRowsFrom([], topics, { ...quiet, attention: attention({ "t:a": "background" }) });
     expect(rows.background).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
+    expect(rows.finished).toEqual([]);
     expect(rows.working).toEqual([]);
     expect(activeAgentCount(rows)).toBe(1);
   });
 
+  test("a terminal in the background is a row too (its tasks are counted by id now)", () => {
+    const rows = activeAgentRowsFrom(roster, {}, { ...quiet, attention: attention({ "s:t4": "background" }) });
+    expect(rows.background).toEqual([{ id: "t4", kind: "terminal", label: "resting one" }]);
+  });
+
   test("an archived or deleted chat in the background does not count", () => {
-    const rows = activeAgentRowsFrom([], { b: topic("b", true) }, { ...quiet, backgroundTopics: inBackground("b", "ghost") });
+    const rows = activeAgentRowsFrom([], { b: topic("b", true) }, { ...quiet, attention: attention({ "t:b": "background", "t:ghost": "background" }) });
     expect(rows.background).toEqual([]);
     expect(activeAgentCount(rows)).toBe(0);
   });
@@ -150,7 +135,7 @@ describe("activeAgentRowsFrom", () => {
     const rows = activeAgentRowsFrom([], topics, {
       ...quiet,
       liveStream: new Set(["a"]),
-      backgroundTopics: inBackground("a", "b"),
+      attention: attention({ "t:a": "background", "t:b": "background" }),
     });
     expect(rows.working).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
     expect(rows.background).toEqual([{ id: "b", kind: "topic", label: "chat b" }]);

@@ -23,6 +23,7 @@
  * client marca letto sulla soglia, quel gate era ridondante E dannoso.
  */
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { noteUnreadChanged } from "../attention/store";
 
 export interface UnreadDeps {
   /** +1 on this topic's row (created at 1 when missing), returns the new count. */
@@ -68,6 +69,9 @@ export function bumpUnreadCount(deps: UnreadDeps, topicId: string): void {
       topicId,
       unreadCount,
     } as OutboundMessage);
+    // The count of a lit chat moves in its attention frame too: the client
+    // reads its number from there, not from `unread:updated` (ATTN-05).
+    noteUnreadChanged(topicId);
   } catch (err) {
     console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
   }

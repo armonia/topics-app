@@ -22,6 +22,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
+import { openBaselineChats } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -77,6 +78,11 @@ async function readRows(page: import("@playwright/test").Page): Promise<RowMetri
 }
 
 test.describe("sidebar: the accordion column", () => {
+  // The seeded chats open as tabs, so the tree has rows to measure (`openBaselineChats`).
+  test.beforeEach(async ({ request }) => {
+    await openBaselineChats(request);
+  });
+
   test("ROWALIGN-01: every row opens with the same accordion box", async ({ page }) => {
     // Two requirements, one measurement: LAYOUT-26 says every row RESERVES the
     // chevron box even with nothing to open, ROWALIGN-01 says the column then

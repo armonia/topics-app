@@ -1,10 +1,12 @@
 /**
  * Tests for reconcileTerminalSignals — the pure helper that re-derives the
- * busy/finished sets from the authoritative server session roster.
+ * busy set from the authoritative server session roster.
  *
  * This is the backbone of the "stuck in progress" fix: incremental
  * terminal:activity deltas can be lost (server hot-reload, WS reconnect,
  * dropped message), so loading state must be reconcilable from the roster.
+ * The "finished" set it used to prune is the server's attention state now
+ * (a closed terminal is composed `idle`, notifications-redesign).
  *
  * @covers TERM-01
  */
@@ -16,60 +18,31 @@ const roster = (entries: Array<[string, boolean]>): TerminalRosterEntry[] =>
 
 describe("reconcileTerminalSignals", () => {
   test("clears stale busy when the roster reports the session idle", () => {
-    const prevBusy = new Set(["a"]);
-    const prevFinished = new Set<string>();
-    const { busy } = reconcileTerminalSignals(prevBusy, prevFinished, roster([["a", false]]));
-    expect([...busy]).toEqual([]);
+    expect(reconcileTerminalSignals(new Set(["a"]), roster([["a", false]])).has("a")).toBe(false);
   });
 
   test("keeps busy when the roster still reports the session busy", () => {
-    const prevBusy = new Set(["a"]);
-    const { busy } = reconcileTerminalSignals(prevBusy, new Set(), roster([["a", true]]));
-    expect([...busy]).toEqual(["a"]);
+    expect(reconcileTerminalSignals(new Set(["a"]), roster([["a", true]])).has("a")).toBe(true);
   });
 
   test("adds busy the delta missed but the roster knows about", () => {
-    const { busy } = reconcileTerminalSignals(new Set(), new Set(), roster([["a", true]]));
-    expect([...busy]).toEqual(["a"]);
+    expect(reconcileTerminalSignals(new Set(), roster([["a", true]])).has("a")).toBe(true);
   });
 
   test("prunes busy for a session that no longer exists", () => {
-    const prevBusy = new Set(["a", "gone"]);
-    const { busy } = reconcileTerminalSignals(prevBusy, new Set(), roster([["a", true]]));
-    expect([...busy].sort()).toEqual(["a"]);
-  });
-
-  test("prunes finished only when its session is gone, keeps it otherwise", () => {
-    const prevFinished = new Set(["here", "gone"]);
-    const { finished } = reconcileTerminalSignals(new Set(), prevFinished, roster([["here", false]]));
-    expect([...finished]).toEqual(["here"]);
-  });
-
-  test("does not clear a finished badge just because busy went false", () => {
-    // A completed-turn badge must survive roster broadcasts (busy:false) until
-    // the user looks — only session removal drops it.
-    const prevFinished = new Set(["a"]);
-    const { finished } = reconcileTerminalSignals(new Set(), prevFinished, roster([["a", false]]));
-    expect([...finished]).toEqual(["a"]);
+    expect(reconcileTerminalSignals(new Set(["a", "gone"]), roster([["a", true]]))).toEqual(new Set(["a"]));
   });
 
   test("missing busy field is treated as idle", () => {
-    const prevBusy = new Set(["a"]);
-    const { busy } = reconcileTerminalSignals(prevBusy, new Set(), [{ id: "a" }]);
-    expect([...busy]).toEqual([]);
+    expect(reconcileTerminalSignals(new Set(["a"]), [{ id: "a" }]).size).toBe(0);
   });
 
-  test("returns identical set references on no-op (avoids re-render churn)", () => {
+  test("returns the identical set reference on no-op (avoids re-render churn)", () => {
     const prevBusy = new Set(["a"]);
-    const prevFinished = new Set(["a"]);
-    const out = reconcileTerminalSignals(prevBusy, prevFinished, roster([["a", true]]));
-    expect(out.busy).toBe(prevBusy);
-    expect(out.finished).toBe(prevFinished);
+    expect(reconcileTerminalSignals(prevBusy, roster([["a", true]]))).toBe(prevBusy);
   });
 
-  test("empty roster clears all busy and finished", () => {
-    const { busy, finished } = reconcileTerminalSignals(new Set(["a"]), new Set(["b"]), []);
-    expect([...busy]).toEqual([]);
-    expect([...finished]).toEqual([]);
+  test("empty roster clears all busy", () => {
+    expect(reconcileTerminalSignals(new Set(["a"]), []).size).toBe(0);
   });
 });

@@ -164,9 +164,6 @@
     "client/src/components/Board/taskActionError.test.ts": [
       "detto"
     ],
-    "client/src/components/Board/taskActionIcons.ts": [
-      "LucideIcon"
-    ],
     "client/src/components/Board/taskChoices.test.ts": [
       "chiusa",
       "consegnata",
@@ -206,9 +203,6 @@
       "coalesceRaf",
       "rafId",
       "slideRaf"
-    ],
-    "client/src/components/Browser/PaneContextMenu.tsx": [
-      "LucideIcon"
     ],
     "client/src/components/Browser/ParkedPane.tsx": [
       "hhmm"
@@ -352,9 +346,6 @@
     "client/src/components/Chat/toolGrouping.test.ts": [
       "parziale",
       "tutta"
-    ],
-    "client/src/components/Chat/toolIcons.ts": [
-      "LucideIcon"
     ],
     "client/src/components/Chat/turnError.test.ts": [
       "caso",
@@ -514,9 +505,6 @@
     "client/src/components/MessageParts.tsx": [
       "adesso",
       "origine"
-    ],
-    "client/src/components/Modals/ContextMenu.tsx": [
-      "LucideIcon"
     ],
     "client/src/components/Modals/NewTopicModal.tsx": [
       "cancelled"
@@ -773,7 +761,6 @@
       "testo"
     ],
     "client/src/components/Shared/addMenuItems.ts": [
-      "LucideIcon",
       "pres"
     ],
     "client/src/components/Shared/projectIconStore.ts": [
@@ -789,7 +776,6 @@
       "BottoneFila",
       "FormaScatola",
       "GLIFI",
-      "LucideIcon",
       "MOBILE_CHROME_H_VAR",
       "PortaProfilo",
       "SOPRA",
@@ -799,17 +785,11 @@
       "raggio",
       "scatole"
     ],
-    "client/src/components/Sidebar/NotificationHistoryButton.tsx": [
-      "clickable"
-    ],
     "client/src/components/Sidebar/PerfSection.tsx": [
       "FpsSparkline",
       "scelta",
       "vociPeso",
       "vociTrattenuteVisibili"
-    ],
-    "client/src/components/Sidebar/PinnedTile.tsx": [
-      "LucideIcon"
     ],
     "client/src/components/Sidebar/PinnedTiles.tsx": [
       "aperta",
@@ -834,7 +814,6 @@
       "formatUptime"
     ],
     "client/src/components/Sidebar/TopicTree.tsx": [
-      "LucideIcon",
       "colonna",
       "dentro",
       "ditoVersoIFissati",
@@ -1060,11 +1039,6 @@
     "client/src/hooks/useClaudeSessionState.ts": [
       "cancelled",
       "flushRafRef"
-    ],
-    "client/src/hooks/useCompletionNotifier.tsx": [
-      "cooldownKey",
-      "cooldownRef",
-      "csid"
     ],
     "client/src/hooks/useCostProbe.ts": [
       "cancelled"
@@ -1382,9 +1356,7 @@
       "soloArchiviate"
     ],
     "client/src/lib/buildSidebarItems.ts": [
-      "aNotif",
       "arr",
-      "bNotif",
       "hostname",
       "projSubAgents",
       "utilType"
@@ -1530,9 +1502,6 @@
       "righe",
       "vociPerNatura"
     ],
-    "client/src/lib/fileIcons.ts": [
-      "LucideIcon"
-    ],
     "client/src/lib/formatTokens.test.ts": [
       "LEADERBOARD"
     ],
@@ -1605,12 +1574,6 @@
     ],
     "client/src/lib/notificationStatus.test.ts": [
       "senzaConsegna"
-    ],
-    "client/src/lib/notify/messageBanner.ts": [
-      "MESSAGE_BANNER_COOLDOWN_MS"
-    ],
-    "client/src/lib/notify/muteGate.ts": [
-      "proj"
     ],
     "client/src/lib/openTaskLink.test.ts": [
       "popstateCbs"
@@ -1748,9 +1711,6 @@
     "client/src/lib/textMorph.test.ts": [
       "lunga"
     ],
-    "client/src/lib/topicIcons.tsx": [
-      "LucideIcon"
-    ],
     "client/src/lib/topicsFootprint.test.ts": [
       "dopo",
       "letture",
@@ -1772,11 +1732,9 @@
       "rms"
     ],
     "client/src/state/attention.test.ts": [
-      "PROJ",
       "byCsid"
     ],
     "client/src/state/awaitingFeedback.test.ts": [
-      "attese",
       "byCsid"
     ],
     "client/src/state/browserSiteHistory.test.ts": [
@@ -6489,10 +6447,6 @@
       "giriAllInizio",
       "giriDelPoll"
     ],
-    "tests/e2e/notification-history.spec.ts": [
-      "dopo",
-      "testo"
-    ],
     "tests/e2e/org-presence.spec.ts": [
       "membro"
     ],
@@ -7034,10 +6988,8 @@
     "tests/e2e/tab-state-view.spec.ts": [
       "attende",
       "attesa",
-      "fase",
       "finito",
       "lavora",
-      "resto",
       "tabAttende",
       "tabFinito",
       "tabLavora"

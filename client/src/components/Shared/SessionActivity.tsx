@@ -123,7 +123,9 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
     const verb = activity.tool ? toolVerb(activity.tool) : 'Sta lavorando';
     lead = elapsed ? `${verb} · ` : verb;
   } else if (activity.tier === 'input') {
-    const base = activity.approvalKind ? `Attende: ${activity.approvalKind}` : 'Attende una tua risposta';
+    // `other` is the kind of a question (AskUserQuestion, the Topics question
+    // tool): it names nothing, and the row read «Attende: other».
+    const base = activity.approvalKind && activity.approvalKind !== 'other' ? `Attende: ${activity.approvalKind}` : 'Attende una tua risposta';
     lead = elapsed ? `${base} · da ` : base;
   } else {
     // done-unseen — the turn finished and you haven't looked yet.

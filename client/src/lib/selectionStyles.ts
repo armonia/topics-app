@@ -261,15 +261,21 @@ export const SIDEBAR_ACTIVE = 'bg-black/[0.05] dark:bg-white/[0.08]';
  */
 export const TIER_DONE_BG = 'bg-[#0a84ff]';
 export const TIER_INPUT_BG = 'bg-amber-500';
+/** The turn ended badly and nobody has looked (`finished(error)`): systemRed, the
+ *  red macOS uses for the same news, at the same weight as the blue. */
+export const TIER_ERROR_BG = 'bg-[#ff3b30]';
 
 export const AWAITING_INPUT_SURFACE =
   `${TIER_INPUT_BG} text-black animate-awaiting-attention`;
 export const DONE_UNSEEN_SURFACE =
   `${TIER_DONE_BG} text-white animate-awaiting-pulse`;
+export const ERROR_UNSEEN_SURFACE =
+  `${TIER_ERROR_BG} text-white animate-awaiting-pulse`;
 
-/** The fill class for an attention tier: 'input' → loud amber, 'done' → calm blue. */
+/** The fill class for an attention tier: 'needs-you' → loud amber, 'error' → red, 'done' → calm blue. */
 export function attentionSurface(tier: AttentionTier): string {
-  return tier === 'input' ? AWAITING_INPUT_SURFACE : DONE_UNSEEN_SURFACE;
+  if (tier === 'needs-you') return AWAITING_INPUT_SURFACE;
+  return tier === 'error' ? ERROR_UNSEEN_SURFACE : DONE_UNSEEN_SURFACE;
 }
 
 /**

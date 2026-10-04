@@ -1,0 +1,132 @@
+# worktree <worktree> @ f93eeb187 (origin/main)
+# command: cd <wt> && TOPICS_GATE_HELD=targeted bun test server/routes/chat.bg-work-turn-end.notif.test.ts
+# ---- test source ----
+/**
+ * EVIDENCE (not a fix): a chat turn that ends with background work still
+ * running is announced as "finished" on every server channel.
+ *
+ * Same harness as chat.turn-end-hook.test.ts (real chat route, fake provider),
+ * but the provider answers the background probes the way ClaudeCodeProvider
+ * does after a `result` that left an Agent / Bash running.
+ */
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+import { createChatRouter } from "./chat";
+import type { AIProvider, StreamHandler } from "../providers/types";
+import type { Topic } from "../types";
+import { backgroundOfTurn } from "../services/goal-continuation";
+import { configurePushTriggers, maybeSendPush } from "../push-triggers";
+import type { NotificationRecordInput } from "../../shared/notification-log";
+
+const ROOT = testTmpDir("chat-bg-work-turn-end");
+beforeAll(() => setupTestDataDir(`${ROOT}/data`));
+afterAll(() => cleanupTestDataDir(ROOT));
+const WS = testTmpDir("chat-bg-work-turn-end-ws");
+
+describe("a turn that leaves background work running", () => {
+  test("is broadcast as a clean finish, bumps unread, and logs a 'Claude ha finito' row", async () => {
+    const ctx = await createTestAppContext();
+    const frames: Array<Record<string, unknown>> = [];
+    (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { frames.push(m as Record<string, unknown>); };
+    (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = (_id, m) => { frames.push(m as Record<string, unknown>); };
+
+    let captured: StreamHandler | undefined;
+    const provider = {
+      name: "claude-code",
+      capabilities: new Set(["streaming"]),
+      contextStrategy: "history-aware",
+      get connected() { return true; },
+      registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { captured = h; },
+      unregisterStreamHandler: () => {},
+      sendChat: () => new Promise<{ runId?: string }>(() => {}),
+      defaultModel: () => "fake-model",
+      abort: async () => {},
+      start: () => {}, stop: () => {},
+      complete: async () => ({ content: "" }),
+      // What ClaudeCodeProvider answers after a result that left an Agent running.
+      backgroundState: () => "running",
+      hasBackgroundWork: () => true,
+    } as unknown as AIProvider;
+
+    let unreadBumps = 0;
+    const chatRouter = createChatRouter(ctx, {
+      resolveProvider: () => provider,
+      detectLocalhostAutoNav: () => {},
+      bindTopicToProject: () => {},
+      resolveProjectRef: () => null,
+      getProjectIdForTopic: () => null,
+      getWorkspaceProjects: () => [],
+      autoBindProject: () => {},
+      watchSessionForSubagents: () => {},
+      updateUnreadCount: () => { unreadBumps++; },
+      browserNavigatedTopics: new Set<string>(),
+      WORKSPACE_DIR: WS,
+    } as never);
+
+    const sk = "topic:bg-wait";
+    const topic = {
+      id: `t-bg-wait`, name: "Aspetta i verifier", slug: "bg", parentId: null, links: [],
+      sessionKey: sk, color: "#5865f2", icon: "MessageSquare",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      archived: false, provider: "claude-code",
+    } as Topic;
+    ctx.saveSingleTopic(topic);
+    const url = new URL("http://topics.test/api/chat");
+    const resp = await chatRouter(new Request(url.toString(), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "lancia 3 verifier in bg" }] }),
+    }), url, "/api/chat", "POST");
+    expect(resp?.status).toBe(200);
+    resp?.body?.cancel().catch(() => {});
+    captured!.onTextDelta("Ho lanciato 3 verifier in background, aspetto i risultati.", "Ho lanciato 3 verifier in background, aspetto i risultati.");
+    captured!.onDone({ result: "ok", turnEnd: { end: "end_turn" } });
+    await Bun.sleep(80);
+
+    // The server KNOWS the chat is waiting on its own work (it hands this to the goal loop)...
+    expect(backgroundOfTurn(provider, sk)).toEqual({ backgroundWork: true, backgroundWakeOnly: false });
+
+    // ...and still tells every client the turn ended clean, with no word of it.
+    const end = frames.find((f) => f.type === "stream:end")!;
+    console.log("stream:end frame =", JSON.stringify(end));
+    const logged: NotificationRecordInput[] = [];
+    configurePushTriggers({ getTopicName: () => topic.name, isTopicSilenced: () => false, recordNotification: (i) => { logged.push(i); } });
+    maybeSendPush(end);
+    console.log("unread bumps =", unreadBumps, " rows logged by push-triggers =", JSON.stringify(logged));
+
+    // EXPECTED for a chat that is waiting on background work (what the person asked for):
+    expect(end.completed).not.toBe(true);
+    expect(logged).toEqual([]);
+  });
+});
+# ---- output (migration lines trimmed) ----
+bun test v1.3.8 (b64edcb4)
+
+server/routes/chat.bg-work-turn-end.notif.test.ts:
+[DB] Applied 175 migration(s)
+[DB] Created new database at /tmp/topics-test/chat-bg-work-turn-end-CESHWF/data/topics.db
+[HTTP] POST /api/chat received
+[Chat] useWS=true, sessionKey=topic:bg-wait
+stream:end frame = {"type":"stream:end","sessionKey":"topic:bg-wait","topicId":"t-bg-wait","messageId":"d16cb169-81c3-4ccd-a249-6f91eff93941","latencyMs":12,"stopReason":"end_turn","completed":true}
+[Push] Generated new VAPID keys
+[Push] not sent tag=chat-end-t-bg-wait: no subscribed device (push_subscriptions has no deliverable row)
+unread bumps = 1  rows logged by push-triggers = [{"kind":"chat-message","title":"💬 Aspetta i verifier","body":"Claude ha finito di rispondere","targetKind":"topic","targetId":"t-bg-wait","dedupeKey":"chat:t-bg-wait","source":"push"}]
+89 |     configurePushTriggers({ getTopicName: () => topic.name, isTopicSilenced: () => false, recordNotification: (i) => { logged.push(i); } });
+90 |     maybeSendPush(end);
+91 |     console.log("unread bumps =", unreadBumps, " rows logged by push-triggers =", JSON.stringify(logged));
+92 | 
+93 |     // EXPECTED for a chat that is waiting on background work (what the person asked for):
+94 |     expect(end.completed).not.toBe(true);
+                                   ^
+error: expect(received).not.toBe(expected)
+
+Expected: not true
+
+      at <anonymous> (<worktree>/server/routes/chat.bg-work-turn-end.notif.test.ts:94:31)
+(fail) a turn that leaves background work running > is broadcast as a clean finish, bumps unread, and logs a 'Claude ha finito' row [430.19ms]
+[DB] Database closed
+
+ 0 pass
+ 1 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [995.00ms]
+# exit=0

@@ -2996,6 +2996,25 @@ fn tray_label(title: &str) -> String {
     }
 }
 
+/// Does a `set_app_status` from the window with this label reach the Dock and
+/// the tray? Only from the main window (ATTN-08): see `set_app_status`.
+fn accepts_app_status_from(label: &str) -> bool {
+    label == "main"
+}
+
+#[cfg(test)]
+mod app_status_caller_tests {
+    use super::accepts_app_status_from;
+
+    #[test]
+    fn only_the_main_window_writes_the_dock() {
+        assert!(accepts_app_status_from("main"));
+        assert!(!accepts_app_status_from("detach-1a2b"));
+        assert!(!accepts_app_status_from("space-alpha"));
+        assert!(!accepts_app_status_from(""));
+    }
+}
+
 /// Reflect the app-wide attention total on the dock-icon badge, the macOS
 /// menu-bar tray glyph, AND the tray menu (Electron parity: its tray is dynamic —
 /// dock `setBadgeCount` + `set_title` + a click-to-navigate unread list).
@@ -3007,13 +3026,23 @@ fn tray_label(title: &str) -> String {
 /// `groups` = the board's open work per status (`shared/tray-board.ts`), rendered as
 /// one submenu per column. 0/empty clears the badge/glyph and leaves the static rows.
 /// No-op off macOS (no dock; a Win/Linux taskbar badge can follow later).
+///
+/// ONE HAND WRITES IT: only the main window (notifications-redesign, ATTN-08).
+/// Every window computes the same number from the same attention frames, but
+/// two writers made the Dock and the tray take the value of whichever wrote
+/// last (WIN-1). A call from any other window (a group window, a pop-out) is
+/// dropped here, whatever its client does.
 #[tauri::command]
 fn set_app_status(
+    window: tauri::Window,
     app: tauri::AppHandle,
     count: u32,
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
 ) {
+    if !accepts_app_status_from(window.label()) {
+        return;
+    }
     #[cfg(target_os = "macos")]
     // no_abort: run_on_main_thread + tray/menu mutations go through the
     // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort
@@ -5733,7 +5762,7 @@ fn browser_animate_bounds(
 /// (review of card e0821533); `wkzprobe z` checks it as
 /// `first-responder-survives-the-raise`.
 // ENGINES: wkwebview, webview2 - both measured with tools/wkzprobe, one backend each, same six verdicts. AppKit (card e0821533): subview order, raised in place with addSubview:positioned:above:. Win32 (card 2e7e769c): z order of the WRY_WEBVIEW container HWNDs, raised in place with SetWindowPos HWND_TOP plus SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE, and falsified, since commenting out that one call flips raise-wins to false.
-// ENGINES-GAP: webkitgtk - the arm is wired (browser_linux::raise: GdkWindow::raise), but nothing has probed whether a WebKitWebView owns its GdkWindow, and without that the call is a no-op rather than a raise.
+// ENGINES-GAP: webkitgtk - panes are pack_start-ed into one GtkBox and never overlap, so there is no z order to raise; browser_linux::raise is a no-op on purpose, since the GdkWindow::raise it used to make changed no verdict of the GTK probe (sonda-gtk.yml run 37168587456: raise-wins=false with and without it).
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {

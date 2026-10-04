@@ -9,12 +9,12 @@
  * copiata due volte diverge alla prima modifica.
  *
  * Il cablaggio (broadcast + lettura del topic) è INIETTATO al bootstrap, come
- * per `configurePushTriggers`: il modulo resta senza dipendenze sul contesto
+ * per `configureAttentionStore`: il modulo resta senza dipendenze sul contesto
  * dell'app e i test lo montano con due funzioni finte.
  */
 
 import { recordNotification } from "./db/notification-log";
-import { markTargetNotificationsSeen, unseenSnapshot, type UnseenSnapshot } from "./db/notification-log";
+import { markGroupNotificationsSeen, markTargetNotificationsSeen, unseenSnapshot, type UnseenSnapshot } from "./db/notification-log";
 import type { NotificationRecordInput, NotificationRow } from "../shared/notification-log";
 import { defaultNotificationGroupKey } from "../shared/notification-log";
 
@@ -94,6 +94,25 @@ export function markTargetSeenAndAnnounce(targetKind: string, targetId: string):
     // Same key composer as the clearing query, so the two cannot drift.
     const subject = defaultNotificationGroupKey(targetKind as NotificationRecordInput["targetKind"], targetId);
     announceSeen?.(unseenSnapshot(), subject ? [subject] : []);
+  } catch (err) {
+    console.warn("[notification-log] announce seen failed:", (err as Error)?.message || err);
+  }
+  return changed;
+}
+
+/**
+ * The rows of one attention subject seen, and the old clients told: the
+ * attention store calls this from its seen door and from the transitions that
+ * take a subject off (archive, a card leaving review or its park). The
+ * `notification:seen` frame stays for the clients older than `attention:*`,
+ * until they are gone (tasks.md 6.2). Announced only when rows changed: the
+ * attention frame is what tells every window, always.
+ */
+export function markSubjectSeenAndAnnounce(subject: string, before?: string | null): number {
+  const changed = markGroupNotificationsSeen(subject, before);
+  if (changed <= 0) return 0;
+  try {
+    announceSeen?.(unseenSnapshot(), [subject]);
   } catch (err) {
     console.warn("[notification-log] announce seen failed:", (err as Error)?.message || err);
   }

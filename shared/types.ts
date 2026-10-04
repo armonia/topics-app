@@ -1516,6 +1516,8 @@ export interface ClaudeSessionPendingApproval {
   kind: 'plan' | 'edit' | 'bash' | 'other';
   prompt: string;
   requestedAt: number;
+  /** A question to the person (AskUserQuestion, the Topics MCP ask), not a permission. */
+  question?: boolean;
 }
 
 /** Il tool attualmente in esecuzione nella sessione. */

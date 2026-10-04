@@ -35,6 +35,7 @@
 import { readBackgroundTasks, readParentToolUseId } from "./events";
 import type { BackgroundWorkDetail } from "../../../shared/background-work";
 import { readMonitorEnd } from "./wake-source";
+import type { AttentionTaskMap } from "../../../shared/attention";
 
 export type { BackgroundWorkDetail };
 
@@ -65,6 +66,15 @@ export const BACKGROUND_WORK_CAP_MS = 2 * 60 * 60_000;
  * 182 ms; Claude Code re-checks its own goal after 60 s in the same state.
  */
 export const WAKE_QUEUED_MS = 60_000;
+
+/**
+ * How long a wake still queued when a turn ends may take to open. The CLI
+ * holds a report that arrives inside a turn until that turn's `result` and
+ * starts its wake right after it (init 0.3 to 1.1 s later, recorded), unless
+ * it folded the report into the turn, which then opens no new one
+ * (`wakeAboutToStart` in `claude-code.ts`). Past this, no wake is coming.
+ */
+export const WAKE_AFTER_RESULT_MS = 2_000;
 
 /** What is known about one task between its start (or first listing) and its report. */
 interface TaskFacts {
@@ -101,6 +111,8 @@ export interface BackgroundWork {
   facts: Map<string, TaskFacts>;
   /** A background task of the model reported, or the CLI started a command of its own, and the turn answering it has not started yet. */
   wakeQueuedAt: number | null;
+  /** A turn ended with that wake still queued: it opens by then or never (`WAKE_AFTER_RESULT_MS`). */
+  wakeDueBy: number | null;
   /** Tool calls of the Monitor tool not yet matched to their task. */
   monitorCalls: Set<string>;
   /** Tool calls of CronCreate not yet answered with the cron's id. */
@@ -127,7 +139,7 @@ export interface BackgroundWork {
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set(), commandStarted: false, turnEndedAt: 0, initAt: 0, wakeReadUpTo: 0 };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, wakeDueBy: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set(), commandStarted: false, turnEndedAt: 0, initAt: 0, wakeReadUpTo: 0 };
 }
 
 /**
@@ -194,13 +206,19 @@ export function noteBackgroundLine(
   // init comes 182 ms later in the recording, and until then no turn is
   // visible: the fire has just disarmed its one-shot, and a clock ticking in
   // between kills the CLI as it starts the fire (review of 27/09).
-  if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) work.wakeQueuedAt = now;
-  if (e?.type === "result" && (e as { result?: unknown }).result !== "waiting for message") work.turnEndedAt = now;
+  if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) queueWake(work, now);
+  if (e?.type === "result" && (e as { result?: unknown }).result !== "waiting for message") {
+    work.turnEndedAt = now;
+    // A report that came inside this turn: its wake opens right after this
+    // result, or the CLI folded it into the turn and none ever comes.
+    if (work.wakeQueuedAt !== null && work.wakeDueBy === null) work.wakeDueBy = now + WAKE_AFTER_RESULT_MS;
+  }
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
       // A turn of the model starts: whatever was queued is being answered.
       work.wakeQueuedAt = null;
+      work.wakeDueBy = null;
       work.initAt = now;
       const init = e as { cwd?: unknown; session_id?: unknown };
       if (typeof init.cwd === "string" && init.cwd) work.cliCwd = init.cwd;
@@ -230,7 +248,7 @@ export function noteBackgroundLine(
       // The model's own background task reported: the CLI wakes to answer it.
       // A foreground Bash reports too, and a subagent's task wakes the subagent.
       if (f?.listed && !f.subagent) {
-        work.wakeQueuedAt = now;
+        queueWake(work, now);
         // What the wake answering it is about: a Monitor's end (expired, or
         // its stream closed) is reported here, by name, like a Bash or an Agent.
         const summary = typeof (e as { summary?: unknown }).summary === "string" ? (e as { summary: string }).summary : "";
@@ -315,9 +333,27 @@ export function datedByLastWrite(work: BackgroundWork, lastDataAt: number): void
   if (work.wakeQueuedAt !== null && lastDataAt < work.wakeQueuedAt) work.wakeQueuedAt = lastDataAt;
 }
 
-/** A reported task, or a command the CLI started, whose turn has not started yet, within `WAKE_QUEUED_MS`. */
+/** A new report or command: its turn is owed from now, and no turn has ended on it yet. */
+function queueWake(work: BackgroundWork, now: number): void {
+  work.wakeQueuedAt = now;
+  work.wakeDueBy = null;
+}
+
+/**
+ * When the queued wake stops counting, or null when none is queued: the bound
+ * `WAKE_QUEUED_MS`, or sooner `wakeDueBy`. No line says the wake is over, so
+ * whoever shows it re-reads at this instant (`ClaudeCodeProvider`).
+ */
+export function wakeQueuedUntil(work: BackgroundWork | undefined): number | null {
+  if (!work || work.wakeQueuedAt === null) return null;
+  const bound = work.wakeQueuedAt + WAKE_QUEUED_MS;
+  return work.wakeDueBy === null ? bound : Math.min(bound, work.wakeDueBy);
+}
+
+/** A reported task, or a command the CLI started, whose turn has not started yet, within `wakeQueuedUntil`. */
 export function isWakeQueued(work: BackgroundWork | undefined, now: number): boolean {
-  return !!work && work.wakeQueuedAt !== null && now - work.wakeQueuedAt < WAKE_QUEUED_MS;
+  const until = wakeQueuedUntil(work);
+  return until !== null && now < until;
 }
 
 /** Listed tasks with news within the bound. */
@@ -404,4 +440,52 @@ export function backgroundWorkKey(work: BackgroundWork | undefined): string {
 /** Is there background work alive, or a wake about to answer it, as of `now`? */
 export function isBackgroundWorkAlive(work: BackgroundWork | undefined, now: number): boolean {
   return hasTaskWork(work, now) || hasArmedCron(work, now);
+}
+
+/** The work as the attention state counts it (notifications-redesign, design section 5.2). */
+export interface AttentionBackground {
+  /** Every task in flight by id, recurring crons included, marked. */
+  tasks: AttentionTaskMap;
+  /** The tasks that keep the chat waiting: not a recurring cron. */
+  count: number;
+  /** Their kinds, once each: what `stream:end.background.kinds` says. */
+  kinds: string[];
+}
+
+function attentionKind(type: string, monitor: boolean): string {
+  if (monitor) return "monitor";
+  if (type.includes("agent")) return "agent";
+  if (type.includes("workflow")) return "workflow";
+  return "bash";
+}
+
+/**
+ * What the chat waits on, for the attention state: the listed tasks alive
+ * (`hasLiveTasks`), the wake the CLI is about to start (`isWakeQueued`: the
+ * report arrived, its turn is coming) and the session crons, a recurring one
+ * marked so it is shown and never counted. NOT `backgroundState`, which the
+ * goal loop reads and which says `running` while a recurring cron is armed,
+ * for two hours: right for a loop that must defer its verdict, wrong for a
+ * chat that would stay grey forever under a calendar.
+ */
+export function attentionBackgroundOf(work: BackgroundWork | undefined, now: number): AttentionBackground {
+  const tasks: AttentionTaskMap = {};
+  if (work && hasLiveTasks(work, now)) {
+    for (const [id, t] of work.tasks) {
+      tasks[id] = {
+        kind: attentionKind(t.type, work.facts.get(id)?.monitor === true),
+        label: t.description || t.type,
+        startedAt: new Date(t.startedAt ?? now).toISOString(),
+      };
+    }
+  }
+  for (const [id, c] of work?.crons ?? []) {
+    if (now - c.armedAt >= BACKGROUND_WORK_CAP_MS) continue;
+    tasks[id] = { kind: "cron", label: c.schedule, startedAt: new Date(c.armedAt).toISOString(), ...(c.recurring ? { recurring: true } : {}) };
+  }
+  if (work && isWakeQueued(work, now)) {
+    tasks.wake = { kind: "wake", label: work.lastReport?.description ?? "wake", startedAt: new Date(work.wakeQueuedAt ?? now).toISOString() };
+  }
+  const counting = Object.values(tasks).filter((t) => !t.recurring);
+  return { tasks, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
 }

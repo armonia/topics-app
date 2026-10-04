@@ -1,8 +1,10 @@
-import type { Topic, UnreadData, TerminalSessionInfo, PaneType } from '@/types';
+import type { Topic, TerminalSessionInfo, PaneType } from '@/types';
 import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey, createPaneId, type BrowserOrigin } from '../state/pane/adapters';
 import { isUtilityPanelId, parseUtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '../state/pane/adapters/paneConfig';
-import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from '../state/signals';
+import { attentionOf, type AttentionRows } from '../state/attention';
+import { projectAttentionChildren } from '../state/attentionRollups';
+import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { basename, tryHostname } from './path-utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -22,11 +24,14 @@ export interface SidebarItem {
   name: string;
   icon: string;              // emoji, icon name, or empty
   lastActivity: number;      // timestamp ms — used for sorting
-  /** Unified attention count — chat unread OR Claude "needs you", terminal
-   *  finished-turn, project rollup. Same number the tab bar badge shows for
-   *  the matching pane (see signals.ts helpers). Drives the sidebar badge AND
-   *  the unread-first sort. */
+  /** The attention number: `max(1, unread)` of a lit chat or terminal, the
+   *  lit children of a project (`state/attention.ts`), 0 for anything not lit.
+   *  The same number the tab bar badge shows for the matching pane. Drives the
+   *  sidebar badge AND the lit-first sort. */
   notificationCount: number;
+  /** When the subject entered its lit state (ms): the lit rows sort by it,
+   *  the most recent first (ATTN-14). Absent when not lit. */
+  litSince?: number;
   archived: boolean;
   /** Pinned ("Fissati") — the row survives tab close (visibility gates get a
    *  pinnedIds escape) and renders in the dedicated pinned block. Set when
@@ -80,22 +85,35 @@ export function getProjectLabel(projectPath: string): string {
 }
 
 /**
- * The badge of a CHAT row. Same per-subject helper as the tab and the chrome
- * total (`topicAttentionCount`), with one rule on top: an ARCHIVED topic carries
- * 0, whatever its unread. The chrome total (`rollupGlobalAttention`) already
- * skips archived topics because nothing can switch them off: no tab to open, no
- * read to send. With "show archived" on, this row used to compute the raw count
- * and show 7 while the dock showed 0, the exact drift the shared helpers exist
- * to prevent. Visibility gates below read this value only for NON-archived
- * chats, so zeroing it here hides nothing that was visible.
+ * The badge of a CHAT row: the attention number of its subject, `max(1,
+ * unread)` while lit and 0 otherwise (TAB-BADGE-01, PARITY-01). An ARCHIVED
+ * topic carries 0 whatever its row says: the chrome total skips it, and with
+ * "show archived" on the row must not show a number the Dock does not.
  */
-function chatRowAttentionCount(
-  t: Topic,
-  unreadData: UnreadData,
-  claudeAttentionTopics: Set<string>,
-): number {
-  if (t.archived) return 0;
-  return topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+function chatRowAttention(t: Topic, attention: AttentionRows): { count: number; since?: number } {
+  if (t.archived) return { count: 0 };
+  const a = attentionOf(attention, topicSubject(t.id));
+  return a.lit ? { count: a.count, since: a.since } : { count: 0 };
+}
+
+/** The badge of a TERMINAL row, from the same attention state. */
+function terminalRowAttention(sessionId: string, attention: AttentionRows): { count: number; since?: number } {
+  const a = attentionOf(attention, terminalSubject(sessionId));
+  return a.lit ? { count: a.count, since: a.since } : { count: 0 };
+}
+
+/** The two fields a row carries from its attention. */
+function attentionFields(a: { count: number; since?: number }): Pick<SidebarItem, 'notificationCount' | 'litSince'> {
+  return a.count > 0 ? { notificationCount: a.count, litSince: a.since ?? 0 } : { notificationCount: 0 };
+}
+
+/** Lit rows first, among them the most recent entry into the state; then activity. */
+function byAttentionThenActivity(a: SidebarItem, b: SidebarItem): number {
+  const aLit = a.notificationCount > 0 ? 1 : 0;
+  const bLit = b.notificationCount > 0 ? 1 : 0;
+  if (aLit !== bLit) return bLit - aLit;
+  if (aLit && bLit && (a.litSince ?? 0) !== (b.litSince ?? 0)) return (b.litSince ?? 0) - (a.litSince ?? 0);
+  return b.lastActivity - a.lastActivity;
 }
 
 function topicTimestamp(t: Topic): number {
@@ -177,30 +195,19 @@ interface BuildSidebarItemsOpts {
   workspaceProjects?: string[];
   terminalSessions?: TerminalSessionInfo[];
   browserContexts?: BrowserContextInfo[];
-  unreadData: UnreadData;
   showArchived: boolean;
   openPanels?: string[];  // currently open pane IDs — used to filter what shows in sidebar
   projectOpenPanes?: Record<string, string[]>;  // pane IDs open inside each project (from ProjectWindow)
-  lastNotifiedAt?: Map<string, number>;  // topicId → timestamp for notification sort ordering
-  /** Attention signals (signals.ts) so the sidebar badge matches the tab bar:
-   *  a chat where Claude needs you, or a terminal that finished a turn, counts
-   *  even with zero server-unread. Default empty for callers that don't wire
-   *  them (sort/render then falls back to plain unread). */
-  claudeAttentionTopics?: Set<string>;
-  terminalFinishedIds?: Set<string>;
+  /** The attention state (`state/attention.ts`): the badge, the presence of a
+   *  chat or terminal with no tab, and the lit-first order (ATTN-14). Default
+   *  empty: nothing is lit. */
+  attention?: AttentionRows;
   /** Pinned ("Fissati") item ids — chats by raw topic id, projects by
    *  `project:<rawPath>` (the sidebar-item id form, NOT the encoded pane id).
    *  Acts as an `||` escape at every tab-driven visibility gate (mirrors the
    *  orchestratorManaged precedent) so a pinned row survives with zero open
    *  tabs — and, for chats, even archived with showArchived off. */
   pinnedIds?: Set<string>;
-  /** Non-chat, non-terminal pane badge counts — the SAME `extraCounts` map the
-   *  tab bar reads through `getBadgeCount`'s last branch. Without it the sidebar
-   *  hard-coded 0 for exactly those rows, so a pane could carry a badge on its
-   *  TAB and show nothing on its sidebar row — the two surfaces disagreeing
-   *  about the same pane. Threading the map through makes both read one
-   *  source. */
-  extraCounts?: ReadonlyMap<string, number>;
   /** Topics open in ANOTHER window (pop-out presence) → {windowId, windowLabel}.
    *  Same `||` escape pattern as pinnedIds at the chat visibility gates: a topic
    *  detached elsewhere keeps its sidebar row (with an AppWindow glyph) even
@@ -233,7 +240,7 @@ interface BuildSidebarItemsOpts {
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), extraCounts = new Map<string, number>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], showArchived, openPanels = [], projectOpenPanes = {}, attention = new Map(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -275,11 +282,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: persistedTitle || bc?.title || hostname || 'Browser',
       icon: 'globe',
       lastActivity: bc?.lastActivity || 0,
-      // Same `extraCounts` source as the tab (getBadgeCount's last branch).
-      // Nothing badges a browser pane today, but a hard-coded 0 is how the row
-      // and the tab drift apart the moment something does — the exact shape of
-      // the agents-pane bug this map was threaded through to fix.
-      notificationCount: extraCounts.get(paneId) ?? 0,
+      // A browser pane has no attention subject: nothing lights it, on the
+      // row or on the tab (`getBadgeCount` answers 0 for it too).
+      notificationCount: 0,
       archived: false,
       ...(projectPath ? { projectPath } : {}),
       // Pin parity with chat/terminal/project rows: a pinned browser renders the
@@ -397,7 +402,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: ts.name,
       icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
       lastActivity: terminalLastActivity(ts, sessionLastActivityById),
-      notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
+      ...attentionFields(terminalRowAttention(ts.id, attention)),
       archived: false,
       terminal: ts,
       ...(nested.length ? { subAgents: nested } : {}),
@@ -462,7 +467,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       const chatPaneId = `chat:${t.id}`;
       const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
       const hasTopLevelTab = openPanelSet.has(t.id);
-      const notificationCount = chatRowAttentionCount(t, unreadData, claudeAttentionTopics);
+      const chatAttention = chatRowAttention(t, attention);
+      const notificationCount = chatAttention.count;
       // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) nest
       // under its row and keep it visible even with the tab closed, so a running
       // sub-agent is never orphaned from where it was launched.
@@ -484,7 +490,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         name: t.name,
         icon: t.icon || '',
         lastActivity: topicTimestamp(t),
-        notificationCount,
+        ...attentionFields(chatAttention),
         archived: t.archived,
         projectPath: pp,
         topic: t,
@@ -514,19 +520,21 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // Pinned escape (same `||` pattern as chats/projects): a pinned terminal
       // keeps its row inside the project even with the tab closed. Pin keys use
       // the pane-id form `terminal:<sessionId>`.
-      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged && !pinnedIds.has(termPaneId)) continue;
+      // A lit terminal stays with its tab closed, like a lit chat (ATTN-14).
+      const termAttention = terminalRowAttention(ts.id, attention);
+      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged && !pinnedIds.has(termPaneId) && termAttention.count === 0) continue;
       children.push({
         id: termPaneId,
         type: 'terminal',
         name: ts.name,
         icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
         lastActivity: terminalLastActivity(ts, sessionLastActivityById),
-        notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
+        ...attentionFields(termAttention),
         archived: false,
         projectPath: pp,
         terminal: ts,
         ...(pinnedIds.has(termPaneId) ? { pinned: true } : {}),
-        ...(pinnedIds.has(termPaneId) && !internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged
+        ...(pinnedIds.has(termPaneId) && !internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged && termAttention.count === 0
           ? { pinOnly: true } : {}),
         ...(projSubAgents.length ? { subAgents: projSubAgents } : {}),
       });
@@ -557,16 +565,18 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // pinned (Fissati escape; pin keys use the raw-path item id form).
     if (!hasProjectTab && children.length === 0 && !pinnedIds.has(`project:${pp}`)) continue;
 
-    children.sort((a, b) => b.lastActivity - a.lastActivity);
+    children.sort(byAttentionThenActivity);
 
     const projectActivity = children.length > 0
       ? Math.max(...children.map(c => c.lastActivity))
       : 0;
-    // Central rollup — the SAME helper getProjectBadgeCount uses, so the
-    // sidebar project row and the project tab always show one summed count.
-    // Counts every child of the project (by topic.projectPath / terminal cwd),
-    // not just the rows we chose to render, matching the tab bar.
-    const projectNotifications = rollupProjectAttention(pp, topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds);
+    // Central rollup — the SAME helper the project tab uses, so the sidebar
+    // project row and the project tab always show one count: the lit children
+    // of the project (by topic.projectPath / terminal cwd), not just the rows
+    // we chose to render.
+    const litChildren = projectAttentionChildren(attention, pp, topics, terminalSessions);
+    const projectNotifications = litChildren.length;
+    const projectLitSince = litChildren.reduce((m, c) => Math.max(m, c.attention.since), 0);
 
     items.push({
       id: `project:${pp}`,
@@ -575,6 +585,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       icon: 'folder',
       lastActivity: projectActivity,
       notificationCount: projectNotifications,
+      ...(projectNotifications > 0 ? { litSince: projectLitSince } : {}),
       // Era `false` letterale, e questa riga è l'UNICO posto che costruisce un
       // item di tipo 'project': nessun consumatore lo ricalcola. Conseguenza:
       // `item.archived` non era mai vero, quindi il ramo «Ripristina progetto»
@@ -604,7 +615,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   for (const t of standaloneChats) {
     // Pinned escape: a pinned chat shows even archived (pre-feature close).
     if (t.archived && !showArchived && !pinnedIds.has(t.id)) continue;
-    const notificationCount = chatRowAttentionCount(t, unreadData, claudeAttentionTopics);
+    const chatAttention = chatRowAttention(t, attention);
+    const notificationCount = chatAttention.count;
     // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) — nested
     // under its row, and an escape that keeps the row visible with the tab closed.
     const chatSubAgents = buildChatSubAgentItems(t.sessionKey);
@@ -626,7 +638,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: t.name,
       icon: t.icon || '',
       lastActivity: topicTimestamp(t),
-      notificationCount,
+      ...attentionFields(chatAttention),
       archived: t.archived,
       topic: t,
       ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
@@ -648,18 +660,20 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const orchestratorManaged = !!ts.parentSessionKey || subAgents.length > 0;
     // Pinned escape: a pinned standalone terminal survives its tab closing,
     // same as pinned chats. Pin key is the pane-id form `terminal:<sessionId>`.
-    if (!openPanelSet.has(paneId) && !orchestratorManaged && !pinnedIds.has(paneId)) continue;
+    // A lit terminal stays with its tab closed, like a lit chat (ATTN-14).
+    const termAttention = terminalRowAttention(ts.id, attention);
+    if (!openPanelSet.has(paneId) && !orchestratorManaged && !pinnedIds.has(paneId) && termAttention.count === 0) continue;
     items.push({
       id: paneId,
       type: 'terminal',
       name: ts.name,
       icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
       lastActivity: terminalLastActivity(ts, sessionLastActivityById),
-      notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
+      ...attentionFields(termAttention),
       archived: false,
       terminal: ts,
       ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
-      ...(pinnedIds.has(paneId) && !openPanelSet.has(paneId) && !orchestratorManaged ? { pinOnly: true } : {}),
+      ...(pinnedIds.has(paneId) && !openPanelSet.has(paneId) && !orchestratorManaged && termAttention.count === 0 ? { pinOnly: true } : {}),
       ...(subAgents.length ? { subAgents } : {}),
     });
   }
@@ -719,29 +733,18 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: config.label,
       icon: config.icon,
       lastActivity: 0,
-      // Same source as the tab. The row used to be a hard 0, so the two
-      // surfaces disagreed about the very same pane.
-      notificationCount: extraCounts.get(paneId) ?? 0,
+      // No attention subject, like the tab: 0 on both surfaces.
+      notificationCount: 0,
       archived: false,
     });
   }
 
-  // ── 6. Sort: notifications first (boost), then by lastActivity desc ───────
-
-  items.sort((a, b) => {
-    // Items with a pending notification float up
-    const aHasUnread = a.notificationCount > 0 ? 1 : 0;
-    const bHasUnread = b.notificationCount > 0 ? 1 : 0;
-    if (aHasUnread !== bHasUnread) return bHasUnread - aHasUnread;
-    // Among notified: most recently notified first
-    if (aHasUnread && bHasUnread && lastNotifiedAt) {
-      const aNotif = lastNotifiedAt.get(a.id) || 0;
-      const bNotif = lastNotifiedAt.get(b.id) || 0;
-      if (aNotif !== bNotif) return bNotif - aNotif;
-    }
-    // Then by activity
-    return b.lastActivity - a.lastActivity;
-  });
+  // ── 6. Sort: lit first, the most recent entry first, then by activity ────
+  //
+  // Neither the unread count nor the Claude phase holds a row up any more: a
+  // chat that has been read is not lit, and goes back to its place by
+  // activity on every window (F5, ATTN-14).
+  items.sort(byAttentionThenActivity);
 
   return items;
 }
@@ -830,70 +833,18 @@ export function sidebarItemSpace(
 
 // ── Raggruppamento per STATO ───────────────────────────────────────────────────
 //
-// Perché serve. La sidebar ordina con
-// un boost BINARIO sulle notifiche: chi ha `notificationCount > 0` sale, e basta.
-// Quel boost non distingue le tre cose che l'utente distingue eccome — "aspetta
-// una mia risposta", "ha finito e non l'ho ancora guardato", "sta lavorando" —
-// e le mescola nello stesso blocco insieme a tutto ciò che ha un numero addosso.
+// Perché serve. La sidebar ordina gli accesi in cima, ma non distingue le cose
+// che l'utente distingue eccome — "aspetta una mia risposta", "ha finito e non
+// l'ho ancora guardato", "sta aspettando il suo lavoro in background", "sta
+// lavorando". La vista per stato le separa, leggendo il TIER dello stato di
+// attenzione (ATTN-12): lo stesso frame che colora la riga, quindi una chat in
+// background non può stare sotto «Ti aspetta» mentre la riga è grigia (BG-4).
 //
-// La partizione a tre bucket esiste già, ma solo come CONTEGGI:
-// `useAgentActivityCounts` (state/signals.ts) la calcola per i tre chip della
-// status bar e butta via le liste. Qui la stessa partizione produce gli item.
-//
-// Pura di proposito: i Set arrivano dal chiamante, così è provabile senza store
-// né WS — come tutto il resto di questo file.
+// Pura di proposito: le righe di attenzione arrivano dal chiamante, così è
+// provabile senza store né WS — come tutto il resto di questo file.
 
-/** I tre stati in cui la sidebar raggruppa. L'ordine è la priorità di lettura. */
-export type SidebarStateBucket = 'awaiting' | 'working' | 'rest';
-
-/** I segnali per-soggetto che decidono il bucket. Nomi identici a quelli dello
- *  store, così il call site non deve tradurre. */
-export interface SidebarStateSignals {
-  /** topic la cui sessione è parcheggiata in attesa dell'umano (ambra + blu). */
-  awaitingTopics: ReadonlySet<string>;
-  /** i gemelli terminale degli awaiting. */
-  awaitingTermIds: ReadonlySet<string>;
-  /** topic con un turno in corso (stream vivo o idratato). */
-  workingTopics: ReadonlySet<string>;
-  /** terminali con un turno in corso. */
-  workingTermIds: ReadonlySet<string>;
-}
-
-/** The per-subject sets as the signals store holds them, before the view
- *  combines them. `claudePhaseAwaitingInputTermIds` is read only by the ⌘J
- *  queue (`waitingQueue`), which picks the amber rows out of «Attende te». */
-export interface SidebarSignalSources {
-  awaitingFeedbackTopics: ReadonlySet<string>;
-  awaitingInputTopics: ReadonlySet<string>;
-  claudePhaseAwaitingTermIds: ReadonlySet<string>;
-  claudePhaseAwaitingInputTermIds: ReadonlySet<string>;
-  liveStreamTopics: ReadonlySet<string>;
-  hydratedStreamTopics: ReadonlySet<string>;
-  claudePhaseActiveTermIds: ReadonlySet<string>;
-}
-
-/**
- * The state view's signals, built in one place for the view and for the ⌘J
- * queue (CHROME-07, CHAT-WAIT-03).
- *
- * «Attende te» for a chat is the UNION of the finished hook turns
- * (`awaitingFeedbackTopics`) and the chats parked on a question or a
- * permission (`awaitingInputTopics`), i.e. every chat the sidebar paints amber
- * or blue. The view used to read the first set only: a chat of the default
- * runtime parked on `ask_user_question` reaches only the second, and with its
- * stream still open it sat in the working section while painted amber.
- *
- * Working, for a chat, is a live OR a hydrated stream, as in
- * `useAgentActivityCounts`: a silent channel must not hide real work.
- */
-export function sidebarStateSignals(src: SidebarSignalSources): SidebarStateSignals {
-  return {
-    awaitingTopics: new Set([...src.awaitingFeedbackTopics, ...src.awaitingInputTopics]),
-    awaitingTermIds: src.claudePhaseAwaitingTermIds,
-    workingTopics: new Set([...src.liveStreamTopics, ...src.hydratedStreamTopics]),
-    workingTermIds: src.claudePhaseActiveTermIds,
-  };
-}
+/** Le sezioni della vista per stato. L'ordine è la priorità di lettura. */
+export type SidebarStateBucket = 'needs-you' | 'finished' | 'background' | 'working' | 'rest';
 
 /**
  * Il soggetto di un item, cioè la chiave con cui i Set dei segnali lo conoscono.
@@ -910,67 +861,55 @@ export function sidebarItemSubject(item: SidebarItem): string | null {
 }
 
 /**
- * In quale bucket sta un item.
- *
- * "Attende te" PRECEDE "al lavoro": se una sessione è in attesa, che stia anche
- * macinando qualcosa non cambia cosa devi fare tu. I due assi sono dichiarati
- * mutuamente esclusivi nel tempo in signals.ts, ma un ordine esplicito qui evita
- * che una sovrapposizione momentanea sposti una riga sotto gli occhi dell'utente.
- *
- * Un item senza soggetto (progetto, browser, utility) sta in 'rest': un progetto
- * è un contenitore, e i suoi figli finiscono nei bucket per conto proprio.
+ * In quale sezione sta un item: il tier del suo soggetto. `needs-you` sopra
+ * tutto, poi i finiti accesi (fatto o errore), poi il background, poi il
+ * lavoro. Un item senza soggetto (progetto, browser, utility) sta in 'rest':
+ * un progetto è un contenitore, e i suoi figli finiscono nelle sezioni per
+ * conto proprio.
  */
-export function sidebarItemState(item: SidebarItem, sig: SidebarStateSignals): SidebarStateBucket {
+export function sidebarItemState(item: SidebarItem, attention: AttentionRows): SidebarStateBucket {
   const subject = sidebarItemSubject(item);
   if (!subject) return 'rest';
-  if (item.type === 'chat') {
-    if (sig.awaitingTopics.has(subject)) return 'awaiting';
-    if (sig.workingTopics.has(subject)) return 'working';
-    return 'rest';
-  }
-  if (sig.awaitingTermIds.has(subject)) return 'awaiting';
-  if (sig.workingTermIds.has(subject)) return 'working';
+  const key = item.type === 'chat' ? topicSubject(subject) : terminalSubject(subject);
+  const a = attentionOf(attention, key);
+  if (item.type === 'chat' && item.topic?.archived) return 'rest';
+  if (a.tier === 'needs-you') return 'needs-you';
+  if (a.lit) return 'finished';
+  if (a.tier === 'background') return 'background';
+  if (a.tier === 'working') return 'working';
   return 'rest';
 }
 
 /**
- * Partiziona gli item nei tre bucket, PRESERVANDO l'ordine relativo che avevano.
+ * Partiziona gli item nelle sezioni, PRESERVANDO l'ordine relativo che avevano.
  *
- * Preservarlo conta: `buildSidebarItems` li ha già ordinati per notifica e
- * attività, e riordinare dentro il bucket butterebbe via quel lavoro — un utente
- * che rilegge la stessa lista non deve trovare le righe rimescolate.
+ * Preservarlo conta: `buildSidebarItems` li ha già ordinati per stato acceso e
+ * attività, e riordinare dentro la sezione butterebbe via quel lavoro — un
+ * utente che rilegge la stessa lista non deve trovare le righe rimescolate.
  *
- * I FIGLI DEI PROGETTI vengono promossi. `sidebarItemState` dice, in un commento,
- * che «un progetto è un contenitore, e i suoi figli finiscono nei bucket per
- * conto proprio»: non era vero. Questa funzione iterava solo gli item top-level,
- * mentre le chat e i terminali di un progetto vivono in `item.children` — quindi
- * la sezione «Attende te» era strutturalmente cieca a tutto ciò che sta dentro un
- * progetto, cioè alla maggior parte del lavoro. Un progetto con dentro una chat
- * che ti aspetta finiva in «Il resto» insieme a tutto il resto.
- *
- * Il figlio promosso resta contestualizzato (porta il suo `projectPath`), e il
- * progetto rimane in `rest` con i soli figli che non sono stati promossi: la
- * riga non sparisce, si svuota di ciò che ora è mostrato altrove.
+ * I FIGLI DEI PROGETTI vengono promossi: le chat e i terminali di un progetto
+ * vivono in `item.children`, e senza promuoverli la sezione «Ti aspetta»
+ * sarebbe cieca a tutto ciò che sta dentro un progetto. Il figlio promosso
+ * resta contestualizzato (porta il suo `projectPath`), e il progetto rimane in
+ * `rest` con i soli figli che non sono stati promossi.
  */
 export function groupSidebarItemsByState(
   items: SidebarItem[],
-  sig: SidebarStateSignals,
+  attention: AttentionRows,
 ): Record<SidebarStateBucket, SidebarItem[]> {
-  const groups: Record<SidebarStateBucket, SidebarItem[]> = { awaiting: [], working: [], rest: [] };
+  const groups: Record<SidebarStateBucket, SidebarItem[]> = { 'needs-you': [], finished: [], background: [], working: [], rest: [] };
   for (const item of items) {
     if (item.type === 'project' && item.children?.length) {
       const remaining: SidebarItem[] = [];
       for (const child of item.children) {
-        const bucket = sidebarItemState(child, sig);
+        const bucket = sidebarItemState(child, attention);
         if (bucket === 'rest') remaining.push(child);
         else groups[bucket].push(child);
       }
-      // Il progetto sta sempre in `rest`: non ha soggetto proprio, e il suo stato
-      // era già quello. Cambia solo cosa gli resta appeso sotto.
       groups.rest.push(remaining.length === item.children.length ? item : { ...item, children: remaining });
       continue;
     }
-    groups[sidebarItemState(item, sig)].push(item);
+    groups[sidebarItemState(item, attention)].push(item);
   }
   return groups;
 }

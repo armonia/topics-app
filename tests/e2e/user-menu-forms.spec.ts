@@ -249,8 +249,8 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
 
-    await page.getByTestId("notification-history-button").click();
-    await expect(page.getByTestId("notification-history-panel")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("inbox-button").click();
+    await expect(page.getByTestId("inbox-panel")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("notification-settings-button").click();
     await expect(page.getByTestId("topics-menu-notifications-menu")).toBeVisible({ timeout: 10_000 });
   });

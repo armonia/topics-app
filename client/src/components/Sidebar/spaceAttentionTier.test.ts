@@ -6,14 +6,13 @@
  * neutral, and the dot on the card STAYS lit until the next message. Open the
  * card and you see a lit header over rows that are all calm.
  *
- * The cause was one missing line: `spaceAttentionTier` read the raw signal sets
- * with no `seenSubjects` gate, while the very same rollup for a PROJECT pane,
- * two branches below, has had that gate for a while. A Claude phase such as
- * `awaiting-user` does not clear by itself: it stays until the next turn, so
- * nothing but the seen mark can turn that dot off.
+ * Since notifications-redesign the card is `rollupAttention` of its panes'
+ * subjects, read from the server's attention state: a chat seen in any window
+ * is not lit, so the card goes quiet with its row and its tab, and a new
+ * epoch lights it again.
  *
- * Why here and not in a browser: the rule is a pure function of the signal
- * sets. The e2e (`tests/e2e/space-card-seen.spec.ts`) proves the pixel, this
+ * Why here and not in a browser: the rule is a pure function of the attention
+ * rows. The e2e (`tests/e2e/space-card-seen.spec.ts`) proves the pixel, this
  * proves the rule, and it is the one that will still be here when the markup
  * moves.
  *
@@ -27,6 +26,7 @@ import { describe, it, expect } from 'bun:test';
 import { spaceAttentionTier } from './useSpaceCards';
 import { DEFAULT_SPACE_ID, type Pane, type SpaceMeta } from '../../state/pane/types';
 import type { Topic, TerminalSessionInfo } from '../../types';
+import type { AttentionSnapshot } from '../../../../shared/attention';
 
 const SPACE = 'space:alpha';
 
@@ -38,31 +38,26 @@ function chatPane(id: string, topicId: string, spaceId: string): Pane {
   return { id, type: 'chat', topicId, spaceId } as Pane;
 }
 
-interface Sets {
-  awaitingInputTopics: Set<string>;
-  awaitingFeedbackTopics: Set<string>;
-  claudePhaseAwaitingInputTermIds: Set<string>;
-  claudePhaseAwaitingTermIds: Set<string>;
-  terminalFinishedIds: Set<string>;
-  seenSubjects: ReadonlySet<string>;
-}
+type Lit = 'needs-you' | 'done' | 'error' | 'seen' | 'background';
 
-function sets(over: Partial<Sets> = {}): Sets {
-  return {
-    awaitingInputTopics: new Set(),
-    awaitingFeedbackTopics: new Set(),
-    claudePhaseAwaitingInputTermIds: new Set(),
-    claudePhaseAwaitingTermIds: new Set(),
-    terminalFinishedIds: new Set(),
-    seenSubjects: new Set(),
-    ...over,
-  };
+/** Attention rows: `t1` a chat, `s:s1` a terminal. 'seen' is a finished
+ *  subject whose epoch the person saw, in any window: not lit. */
+function rows(entries: Record<string, Lit> = {}): Map<string, AttentionSnapshot> {
+  return new Map(Object.entries(entries).map(([k, v]) => {
+    const subject = k.startsWith('s:') ? `terminal:${k.slice(2)}` : `topic:${k}`;
+    return [subject, {
+      subject, state: v === 'needs-you' ? 'needs-you' : v === 'background' ? 'background' : 'finished',
+      reason: v === 'needs-you' ? 'question' : null, outcome: v === 'error' ? 'error' : v === 'done' || v === 'seen' ? 'done' : null,
+      detail: null, since: '', epoch: 1, seenEpoch: v === 'seen' ? 1 : 0, lit: v === 'needs-you' || v === 'done' || v === 'error',
+      unread: 0, turnUnseen: false, lastTurnAt: null, background: [],
+    } satisfies AttentionSnapshot];
+  }));
 }
 
 const noTopics: Record<string, Topic> = {};
 const noTerminals: TerminalSessionInfo[] = [];
 
-function tierOf(panes: Pane[], sig: Sets, spaceId = SPACE) {
+function tierOf(panes: Pane[], sig: Map<string, AttentionSnapshot>, spaceId = SPACE) {
   const byId: Record<string, Pane> = {};
   for (const p of panes) byId[p.id] = p;
   return spaceAttentionTier(spaceId, byId, spaces, sig, noTopics, noTerminals);
@@ -70,102 +65,62 @@ function tierOf(panes: Pane[], sig: Sets, spaceId = SPACE) {
 
 describe('spaceAttentionTier: the chat branch', () => {
   it('lights the card when a chat in the group finished and nobody read it', () => {
-    const tier = tierOf(
-      [chatPane('p1', 't1', SPACE)],
-      sets({ awaitingFeedbackTopics: new Set(['t1']) }),
-    );
-    expect(tier).toBe('done');
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'done' }))).toBe('done');
   });
 
-  it('turns the card off once that chat has been seen', () => {
-    const tier = tierOf(
-      [chatPane('p1', 't1', SPACE)],
-      sets({ awaitingFeedbackTopics: new Set(['t1']), seenSubjects: new Set(['t1']) }),
-    );
-    expect(tier).toBeNull();
+  it('turns the card off once that chat has been seen, in any window (the server\'s seen)', () => {
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'seen' }))).toBeNull();
   });
 
   it('keeps the card lit for a SECOND chat that is still unread', () => {
-    const tier = tierOf(
-      [chatPane('p1', 't1', SPACE), chatPane('p2', 't2', SPACE)],
-      sets({ awaitingFeedbackTopics: new Set(['t1', 't2']), seenSubjects: new Set(['t1']) }),
-    );
-    expect(tier).toBe('done');
+    expect(tierOf([chatPane('p1', 't1', SPACE), chatPane('p2', 't2', SPACE)], rows({ t1: 'seen', t2: 'done' }))).toBe('done');
   });
 
-  it('lights it again on the next turn, when the seen mark is dropped', () => {
-    // `resetSeenOnNewAttention` drops the mark on the rising edge: same sets,
-    // minus the seen subject, is exactly the state of the turn after.
-    const tier = tierOf(
-      [chatPane('p1', 't1', SPACE)],
-      sets({ awaitingFeedbackTopics: new Set(['t1']) }),
-    );
-    expect(tier).toBe('done');
+  it('lights it again on the next turn: a new epoch is lit', () => {
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'done' }))).toBe('done');
   });
 
-  it('still asks for input on a seen chat: a pending question is not silenced', () => {
-    // `awaitingInputTopics` carries `askWaitingTopics`, which never passes
-    // through `applyNewAttention`: gating it on the seen mark would mute the
-    // card for good on a question still waiting for its answer.
-    const tier = tierOf(
-      [chatPane('p1', 't1', SPACE)],
-      sets({ awaitingInputTopics: new Set(['t1']), seenSubjects: new Set(['t1']) }),
-    );
-    expect(tier).toBe('input');
+  it('still asks on a chat with a question, seen or not: a pending question is not silenced', () => {
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'needs-you' }))).toBe('needs-you');
   });
 
-  it('says nothing when no chat of the group has a signal', () => {
-    const tier = tierOf(
-      [chatPane('p1', 't1', SPACE)],
-      sets({ awaitingFeedbackTopics: new Set(['other']) }),
-    );
-    expect(tier).toBeNull();
+  it('the loudest child wins: needs-you over error over done', () => {
+    const panes = [chatPane('p1', 't1', SPACE), chatPane('p2', 't2', SPACE), chatPane('p3', 't3', SPACE)];
+    expect(tierOf(panes, rows({ t1: 'done', t2: 'error' }))).toBe('error');
+    expect(tierOf(panes, rows({ t1: 'done', t2: 'error', t3: 'needs-you' }))).toBe('needs-you');
+  });
+
+  it('a chat in the background lights nothing', () => {
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'background' }))).toBeNull();
+  });
+
+  it('says nothing when no chat of the group is lit', () => {
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ other: 'done' }))).toBeNull();
   });
 
   it('ignores a finished chat that lives in ANOTHER group', () => {
-    const tier = tierOf(
-      [chatPane('p1', 't1', 'space:beta')],
-      sets({ awaitingFeedbackTopics: new Set(['t1']) }),
-    );
-    expect(tier).toBeNull();
+    expect(tierOf([chatPane('p1', 't1', 'space:beta')], rows({ t1: 'done' }))).toBeNull();
   });
 });
 
 describe('spaceAttentionTier: the terminal branch', () => {
-  it('keeps lighting a finished hook-less terminal even when marked seen', () => {
-    // The twin note in the source: `terminalFinishedIds` covers sessions with
-    // no known phase and the seen reset rides on `claudePhaseAwaitingTermIds`,
-    // so a gate here would mute the second finished turn for good.
+  it('a finished terminal lights the card, with or without hooks, until it is seen; its second turn lights it again', () => {
     const pane = { id: 'term:s1', type: 'terminal', terminalSessionId: 's1', spaceId: SPACE } as Pane;
-    const tier = tierOf(
-      [pane],
-      sets({ terminalFinishedIds: new Set(['s1']), seenSubjects: new Set(['s1']) }),
-    );
-    expect(tier).toBe('done');
+    expect(tierOf([pane], rows({ 's:s1': 'done' }))).toBe('done');
+    expect(tierOf([pane], rows({ 's:s1': 'seen' }))).toBeNull();
+    expect(tierOf([pane], rows({ 's:s1': 'done' }))).toBe('done');
   });
 
-  it('goes quiet on a SEEN claude-code terminal parked on a phase, like its tab and row', () => {
-    // The tab (`attentionFillFor`), the row (`useTerminalAttentionFill`) and
-    // the project rollup all skip a seen phase-parked terminal: the card read
-    // the raw set and stayed blue over a terminal you had already looked at.
+  it('a permission keeps the card lit even when the terminal was looked at', () => {
     const pane = { id: 'term:s2', type: 'terminal', terminalSessionId: 's2', spaceId: SPACE } as Pane;
-    expect(tierOf([pane], sets({ claudePhaseAwaitingTermIds: new Set(['s2']) }))).toBe('done');
-    expect(tierOf([pane], sets({ claudePhaseAwaitingTermIds: new Set(['s2']), seenSubjects: new Set(['s2']) }))).toBeNull();
-    // A permission gate is not silenced by a look, as for a chat.
-    expect(tierOf([pane], sets({ claudePhaseAwaitingInputTermIds: new Set(['s2']), seenSubjects: new Set(['s2']) }))).toBe('input');
+    expect(tierOf([pane], rows({ 's:s2': 'needs-you' }))).toBe('needs-you');
   });
 });
 
 describe('spaceAttentionTier: the main group is a card like the others', () => {
   it('goes quiet on a read chat that sits outside every group', () => {
     const pane = { id: 'p1', type: 'chat', topicId: 't1' } as Pane;
-    const lit = tierOf([pane], sets({ awaitingFeedbackTopics: new Set(['t1']) }), DEFAULT_SPACE_ID);
-    const read = tierOf(
-      [pane],
-      sets({ awaitingFeedbackTopics: new Set(['t1']), seenSubjects: new Set(['t1']) }),
-      DEFAULT_SPACE_ID,
-    );
-    expect(lit).toBe('done');
-    expect(read).toBeNull();
+    expect(tierOf([pane], rows({ t1: 'done' }), DEFAULT_SPACE_ID)).toBe('done');
+    expect(tierOf([pane], rows({ t1: 'seen' }), DEFAULT_SPACE_ID)).toBeNull();
   });
 });

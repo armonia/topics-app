@@ -199,7 +199,7 @@ test.describe.serial("La chrome del telefono", () => {
     }
 
     const titolo = alto!.comandi.find((c) => c.testid === "sidebar-topics-menu");
-    const campanella = alto!.comandi.find((c) => c.testid === "notification-history-button");
+    const campanella = alto!.comandi.find((c) => c.testid === "inbox-button");
     expect(titolo).toBeTruthy();
     expect(campanella).toBeTruthy();
 

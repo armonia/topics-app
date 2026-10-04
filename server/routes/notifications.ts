@@ -3,6 +3,10 @@ import { listNotifications, unseenSnapshot } from "../db/notification-log";
 import { markAllNotificationsSeen, markNotificationRowsSeen, markTopicSeen } from "../subject-seen";
 import { markTargetSeenAndAnnounce, recordAndAnnounce } from "../notification-registry";
 import { parseNotificationInput } from "../../shared/notification-log";
+import { groupKeysOfNotifications } from "../db/notification-log";
+import { createAttentionRouter } from "./attention";
+import { markAttentionSeen, seenItemNow } from "../attention/store";
+import { isAttentionSubject } from "../../shared/attention";
 
 /**
  * La CRONOLOGIA delle notifiche: leggerla, scriverci, segnarla vista.
@@ -22,8 +26,18 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
   // The seen door needs the unread store: a chat's notification seen here is
   // the chat seen, exactly as if it had been opened.
   const seenDeps = { loadUnread: ctx.loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll: ctx.broadcastToAll };
+  // The seen door of the attention state lives in its own module and is
+  // mounted here, next to the doors it replaces (`./attention.ts`).
+  const attentionRouter = createAttentionRouter(ctx);
+  /** The old doors are aliases of the new one: what they name is seen NOW. */
+  const seeNow = (subjects: readonly string[]) => {
+    const items = [...new Set(subjects)].filter(isAttentionSubject).map(seenItemNow);
+    if (items.length) markAttentionSeen(items);
+  };
 
   return async function notificationsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+    const attention = await attentionRouter(req, url, pathname, method);
+    if (attention) return attention;
     if (method === "GET" && pathname === "/api/notifications") {
       const limit = parseInt(url.searchParams.get("limit") || "0") || undefined;
       const before = url.searchParams.get("before") || undefined;
@@ -60,6 +74,7 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
         // anything else announces by itself only if it cleared something.
         if (targetKind === "topic") markTopicSeen(seenDeps, targetId);
         else markTargetSeenAndAnnounce(targetKind, targetId);
+        seeNow([`${targetKind}:${targetId}`]);
         return json({ ok: true, ...unseenSnapshot() });
       }
       // Nessuno dei due → non è "segna tutto", è una chiamata malformata. Una
@@ -69,8 +84,11 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
       // subjects they cleared: whoever looked at the list here must see it
       // switch off there too (detached groups, a phone on the same network).
       let snapshot = unseenSnapshot();
+      // The subjects behind the rows, read before the rows change.
+      const rowSubjects = ids?.length ? groupKeysOfNotifications(ids) : [];
       if (upTo || subjects?.length) snapshot = markAllNotificationsSeen(seenDeps, { upTo, subjects });
       if (ids?.length) snapshot = markNotificationRowsSeen(seenDeps, ids);
+      seeNow([...(subjects ?? []), ...rowSubjects]);
       return json({ ok: true, ...snapshot });
     }
 

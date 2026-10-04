@@ -81,6 +81,12 @@ export interface OutgoingPushPayload {
   url?: string;
   actions?: NotifyAction[];
   requests?: Record<string, NotifyActionRequest>;
+  /**
+   * How many subjects are lit right now (notifications-redesign, design
+   * section 6): the service worker writes it on the app badge, the only way a
+   * closed PWA learns the count.
+   */
+  badge?: number;
 }
 
 export async function sendPushToAll(payload: OutgoingPushPayload) {

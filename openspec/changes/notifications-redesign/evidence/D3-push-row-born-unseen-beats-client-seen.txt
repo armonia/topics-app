@@ -1,0 +1,94 @@
+# worktree @ f93eeb187 (origin/main)
+# command: cd <wt> && TOPICS_GATE_HELD=targeted bun test server/push-log-row-born-unseen.notif.test.ts
+# why E2E misses it: tests/e2e/chat-finished-banner.spec.ts:99 injects stream:end via page.routeWebSocket, so server maybeSendPush never runs
+# ---- test source ----
+/**
+ * EVIDENCE (not a fix): the server's push trigger writes the bell row for a
+ * clean chat end BEFORE any client can say "this chat is in front of me", and
+ * it writes it even when no device is subscribed. The client's banner row
+ * (same dedupe key, `seen: true` per CHAT-DONE-01) then loses the dedupe, so
+ * the chat in front counts as unseen on the bell/Dock.
+ */
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { initDatabase, closeDatabase, getDatabase } from "./db";
+import { unseenSnapshot } from "./db/notification-log";
+import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
+import { configurePushTriggers, maybeSendPush } from "./push-triggers";
+import { chatNotificationKey } from "../shared/notification-log";
+
+let tmpRoot: string;
+beforeAll(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "push-log-born-unseen-"));
+  const migDir = join(tmpRoot, "server", "db", "migrations");
+  mkdirSync(migDir, { recursive: true });
+  const real = join(import.meta.dir, "db", "migrations");
+  for (const f of readdirSync(real)) if (f.endsWith(".sql")) writeFileSync(join(migDir, f), readFileSync(join(real, f), "utf-8"));
+  initDatabase(tmpRoot);
+});
+afterAll(() => { try { closeDatabase(); } catch {} try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {} });
+
+describe("a clean chat end of the chat the person is looking at", () => {
+  test("is born UNSEEN on the server, and the client's seen:true row is dropped as a duplicate", () => {
+    const announced: string[] = [];
+    configureNotificationRegistry({
+      announce: (row) => { announced.push(`notification:new ${row.groupKey} seenAt=${row.seenAt}`); },
+      announceSeen: () => {},
+      isTopicArchived: () => false,
+    });
+    configurePushTriggers({
+      getTopicName: () => "Chat davanti",
+      isTopicSilenced: () => false,
+      recordNotification: (i) => { recordAndAnnounce(i); },
+    });
+    const devices = (getDatabase().query("SELECT COUNT(*) AS c FROM push_subscriptions").get() as { c: number }).c;
+
+    // broadcastToAll(stream:end) -> maybeSendPush, synchronously, same tick as the WS send.
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:front", topicId: "t-front", messageId: "m1", completed: true });
+    // The window that shows the chat answers later with its banner row, born seen (CHAT-DONE-01).
+    const clientRow = recordAndAnnounce({
+      kind: "chat-message", title: "Chat davanti", body: "...", targetKind: "topic", targetId: "t-front",
+      dedupeKey: chatNotificationKey("t-front"), source: "banner", seen: true,
+    });
+    const snap = unseenSnapshot();
+    const rows = getDatabase().query("SELECT source, seen_at, group_key FROM notification_log").all();
+    console.log("subscribed devices =", devices);
+    console.log("announced =", JSON.stringify(announced));
+    console.log("client row recorded =", clientRow !== null, " rows =", JSON.stringify(rows), " unseen =", JSON.stringify(snap));
+
+    // EXPECTED (CHAT-DONE-01): the chat in front never counts on the bell / Dock.
+    expect(snap.unseenKeys).not.toContain("topic:t-front");
+  });
+});
+# ---- output ----
+bun test v1.3.8 (b64edcb4)
+
+server/push-log-row-born-unseen.notif.test.ts:
+[DB] Applied 175 migration(s)
+[DB] Created new database at /var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/push-log-born-unseen-y7lb1U/data/topics.db
+[Push] not sent tag=chat-end-t-front: no subscribed device (push_subscriptions has no deliverable row)
+subscribed devices = 0
+announced = ["notification:new topic:t-front seenAt=null"]
+client row recorded = false  rows = [{"source":"push","seen_at":null,"group_key":"topic:t-front"}]  unseen = {"unseen":1,"unseenKeys":["topic:t-front"]}
+53 |     console.log("subscribed devices =", devices);
+54 |     console.log("announced =", JSON.stringify(announced));
+55 |     console.log("client row recorded =", clientRow !== null, " rows =", JSON.stringify(rows), " unseen =", JSON.stringify(snap));
+56 | 
+57 |     // EXPECTED (CHAT-DONE-01): the chat in front never counts on the bell / Dock.
+58 |     expect(snap.unseenKeys).not.toContain("topic:t-front");
+                                     ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "topic:t-front"
+Received: [ "topic:t-front" ]
+
+      at <anonymous> (<worktree>/server/push-log-row-born-unseen.notif.test.ts:58:33)
+(fail) a clean chat end of the chat the person is looking at > is born UNSEEN on the server, and the client's seen:true row is dropped as a duplicate [18.91ms]
+[DB] Database closed
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [3.14s]

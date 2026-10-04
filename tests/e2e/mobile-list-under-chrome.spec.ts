@@ -25,7 +25,12 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 const BAR = '[data-testid="mobile-chrome-bar"]';
 const SCROLLER = '[aria-label="Topics sidebar"] .sidebar-column';
 const SHOTS = process.env.LIST_SHOTS_DIR;
-const CROWD = 14;
+// Enough rows to overflow 844px on their own: the list only scrolls under the
+// bar if it is longer than the screen. 14 used to be enough because the seeded
+// chats with unread messages kept rows of their own; since notifications-redesign
+// (ATTN-14) a chat with no tab stays in the sidebar only while it is lit, and 14
+// tabs plus the board row end at 774px, inside the screen.
+const CROWD = 20;
 let ids: string[] = [];
 
 test.beforeAll(async ({ request }) => {

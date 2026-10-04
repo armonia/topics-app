@@ -68,7 +68,20 @@ export function commandWorkOver(
  * topic (a terminal's session) has no chat to tell.
  */
 export function pushBackgroundChanged(ctx: Pick<AppContext, "broadcastToAll">, cmd: { topicId: string | null; sessionKey: string }): void {
-  if (cmd.topicId) ctx.broadcastToAll({ type: "background:changed", topicId: cmd.topicId, sessionKey: cmd.sessionKey });
+  if (!cmd.topicId) return;
+  ctx.broadcastToAll({ type: "background:changed", topicId: cmd.topicId, sessionKey: cmd.sessionKey });
+  try { onCommandChanged?.(cmd.sessionKey); } catch (err) { console.warn("[command-background] observer failed:", err); }
+}
+
+let onCommandChanged: ((sessionKey: string) => void) | null = null;
+
+/**
+ * A command of a chat started or ended, for the attention state: the chat's
+ * task map must name it while it runs and drop it when it no longer owes a
+ * wake, not only at the next turn's end (`server.ts`).
+ */
+export function observeCommandChanged(fn: (sessionKey: string) => void): void {
+  onCommandChanged = fn;
 }
 
 /**

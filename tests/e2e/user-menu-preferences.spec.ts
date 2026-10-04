@@ -21,6 +21,7 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { openOrganizationPage, openOwnProfile, openUserMenuLevel } from "./helpers/user-menu";
 
@@ -118,6 +119,11 @@ test.describe("il menu utente: le preferenze come controlli diretti", () => {
 
   test("USERMENU-02: Vista dice l'ordine attivo, e la riga della board sta qui", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-02" });
+    // One chat with a tab, so the state view has a row to draw: since
+    // notifications-redesign a chat with unread and no tab is not in the
+    // sidebar unless it is lit (ATTN-14), and the baseline topics are not.
+    const chat = await createTopic(page.request, `View Mode Chat ${Date.now()}`);
+    await resetPaneStore(page.request, [chat.id]);
     await goToApp(page);
     const level = await openUserMenuLevel(page, "view");
     const timeline = level.getByTestId("topics-menu-view-mode-timeline");
@@ -142,13 +148,14 @@ test.describe("il menu utente: le preferenze come controlli diretti", () => {
     await page.keyboard.press("Escape");
     const appearance = await openUserMenuLevel(page, "appearance");
     await expect(appearance.getByTestId("topics-menu-board-row")).toHaveCount(0);
+    await deleteTopic(page.request, chat.id);
   });
 
   test("USERMENU-03: l'ingranaggio del campanello apre il livello Notifiche, e un progetto silenziato si riattiva da lì", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "USERMENU-03" });
     await goToApp(page);
-    await page.getByTestId("notification-history-button").click();
-    await expect(page.getByTestId("notification-history-panel")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("inbox-button").click();
+    await expect(page.getByTestId("inbox-panel")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("notification-settings-button").click();
 
     const level = page.getByTestId("topics-menu-notifications-menu");

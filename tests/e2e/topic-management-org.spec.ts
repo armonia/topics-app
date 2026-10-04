@@ -16,6 +16,7 @@ import {
   resetPaneStore,
   seedProjectPane,
 } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -291,7 +292,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     );
     await expect(chevron).toBeVisible({ timeout: 10000 });
 
-    ws.send({ type: "unread:updated", topicId: projectChatId, unreadCount: 2 });
+    await stageAttention(ws, attentionUpdated(`topic:${projectChatId}`, { state: "finished", unread: 2 }));
 
     // Si parte da APERTA, qualunque fosse lo stato iniziale, così le due metà
     // dell'asserzione (chiudi → sparisce, riapri → torna) partono da un punto noto.
@@ -342,11 +343,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 5000 });
 
     // Inject unread:updated event for Alpha topic via intercepted WebSocket
-    ws.send({
-      type: "unread:updated",
-      topicId: alphaId,
-      unreadCount: 3,
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${alphaId}`, { state: "finished", unread: 3 }));
 
     // Verify unread badge appears on Alpha topic (which is visible but not focused)
     const alphaTopic = page.getByRole("treeitem", { name: new RegExp(`E2E-Alpha-${TS}`) });
@@ -363,6 +360,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
+    test.info().annotations.push({ type: "spec", description: "TOPIC-COLOR-01" });
     await goToApp(page);
     const betaTopic = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
     // Open it, so its tab is there to carry the same mark as the row.

@@ -33,6 +33,8 @@ import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTopicSeen } from "../subject-seen";
+import { markAttentionSeen, seenItemNow, setClosed, turnEnded } from "../attention/store";
+import { topicSubject } from "../../shared/attention";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
 import { leaveMachineStopNotice } from "../lib/machine-stop-notice";
@@ -1892,6 +1894,9 @@ export function createTopicsRouter(
         // successivo il riconcilio richiuderebbe la chat appena riaperta —
         // con l'utente dentro.
         clearRetirement(ctx.db, "topic", params.id);
+        // Reopening relights nothing of before (T18): the turn seen at the
+        // archiving makes no epoch.
+        setClosed(topicSubject(params.id), { archived: false });
         return json(presentGlobalOrchestratorTopic(db, topic));
       }
     }
@@ -1951,10 +1956,13 @@ export function createTopicsRouter(
           // non timbra e' esattamente la strada da cui sono usciti i topic
           // «aperti» chiusi da settimane: il flag c'era, la data no.
           recordRetirement(ctx.db, "topic", topic.id, now, "bulk-archive");
+          // The same step as the single path (T13): idle, rows seen.
+          setClosed(topicSubject(topic.id), { archived: true });
         } else {
           // Bulk UNarchive — same reopen symmetry as the single-topic DELETE.
           restoreTopicInUiState(ctx.db, broadcastToAll, topic.id);
           clearRetirement(ctx.db, "topic", topic.id);
+          setClosed(topicSubject(topic.id), { archived: false });
         }
       }
       // Bug #12: surface any purge failure in the response body (partial-fail
@@ -2061,6 +2069,9 @@ export function createTopicsRouter(
         // bell and the badges cannot tell two different stories.
         const body = (await readJSON(req)) as { doneMark?: unknown } | null;
         markTopicSeen({ loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll }, params.id, { doneMark: body?.doneMark === true });
+        // An alias of the seen door (`POST /api/attention/seen`) while the old
+        // client exists (design section 6, tasks.md 6.2): everything seen now.
+        markAttentionSeen([seenItemNow(topicSubject(params.id))]);
         return json({ ok: true });
       }
     }
@@ -2680,6 +2691,8 @@ export function createTopicsRouter(
         ...(cause === "user" ? { reason: "user_abort" } : { reason: "aborted", stopReason: "cancelled" }),
         ...(discardedMessageId ? { discardedMessageId } : {}),
       });
+      // A stop closes the turn with nothing to announce (T12).
+      if (topicId) turnEnded(topicSubject(topicId), {});
 
       return json({ ok: true, cleared: clearedForReal });
     }
