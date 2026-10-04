@@ -350,7 +350,7 @@ function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: bool
           <Check size={14} className="ml-auto" />
         </div>
       )}
-      <div className="relative flex items-center bg-transparent" style={dx ? { transform: `translateX(${dx}px)` } : undefined} {...swipe}>
+      <div className={`relative flex items-center bg-transparent${swipe ? ' touch-pan-y' : ''}`} style={dx ? { transform: `translateX(${dx}px)` } : undefined} {...swipe}>
         <button
           type="button"
           data-inbox-row=""

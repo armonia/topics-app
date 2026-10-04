@@ -82,20 +82,22 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   // hidden in the tray keeps computing and writing: its store receives the
   // same frames. The shell refuses the call from any other window too.
   const writesTheDock = useMemo(() => isTauri && isMainWindow(), []);
+  // Not before `attention:init`: the empty store of a reload wrote 0, then N, and the Dock flashed.
+  const attentionReady = useAttentionStore((s) => s.ready);
   useEffect(() => {
-    if (!writesTheDock) return;
+    if (!writesTheDock || !attentionReady) return;
     void tauriInvoke('set_app_status', {
       count: chromeCount,
       items: attentionItems,
       groups: boardGroups,
     }).catch(() => {});
-  }, [writesTheDock, chromeCount, attentionItems, boardGroups]);
+  }, [writesTheDock, attentionReady, chromeCount, attentionItems, boardGroups]);
 
   // PWA / browser app badge (the Badging API, navigator.setAppBadge): the same
   // number. Not under Tauri, where the shell's dock badge is the one writer.
   // Feature-detected: no-op where the API is absent.
   useEffect(() => {
-    if (isTauri) return;
+    if (isTauri || !attentionReady) return;
     const nav = typeof navigator !== 'undefined'
       ? (navigator as Navigator & {
           setAppBadge?: (n?: number) => Promise<void>;
@@ -107,7 +109,7 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
       if (chromeCount > 0) void nav.setAppBadge(chromeCount).catch(() => {});
       else void nav.clearAppBadge?.().catch(() => {});
     } catch { /* Badging API can throw synchronously in locked-down webviews */ }
-  }, [chromeCount]);
+  }, [attentionReady, chromeCount]);
 
   // THE PHONE ALIGNS WHEN IT OPENS (ATTN-06, design section 6): a seen made on
   // the Mac while the PWA was closed left its delivered notifications on the
