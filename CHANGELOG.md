@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.444 — 2026-10-04
+
+### Sotto il cofano
+- Parcheggia il piano dei nodi cloud: VPS come nodi di Topics per il lavoro pesante
+- Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219
+
 ## 2.2.442 — 2026-10-04
 
 ### Sotto il cofano
