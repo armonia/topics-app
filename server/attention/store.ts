@@ -559,9 +559,13 @@ function clearGrace(e: Entry): void {
  * The last counting task left with no turn open: hold `background` for
  * `graceMs`, so the wake that carries the report is the one turn that
  * announces (T6); if no turn opens, the end of the wait decides (T7).
+ * Not when all that left was the queued `wake` itself: it leaves by the
+ * clock once its turn can no longer come, and there is nothing to wait for.
  */
-function armGraceOnLastTask(subject: string, e: Entry, countedBefore: number): void {
-  if (countedBefore === 0 || countingTaskCount(e.row.background) > 0 || e.live.turnOpen) return;
+function armGraceOnLastTask(subject: string, e: Entry, before: AttentionTaskMap): void {
+  const counted = Object.values(before).filter((t) => !t.recurring);
+  if (counted.length === 0 || countingTaskCount(e.row.background) > 0 || e.live.turnOpen) return;
+  if (counted.every((t) => t.kind === "wake")) return;
   if (deps.graceMs <= 0) return;
   clearGrace(e);
   e.live.backgroundGrace = true;
@@ -627,7 +631,7 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
 /** The whole task map of a subject, as its source knows it now (the CLI's snapshot). */
 export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): AttentionSnapshot {
   const e = entryOf(subject);
-  const before = countingTaskCount(e.row.background);
+  const before = e.row.background;
   e.row.background = { ...tasks };
   armGraceOnLastTask(subject, e, before);
   return recompose(subject, { live: true });
@@ -637,7 +641,7 @@ export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): At
 export function removeBackgroundTask(subject: string, id: string): boolean {
   const e = peek(subject);
   if (!e || !(id in e.row.background)) return false;
-  const before = countingTaskCount(e.row.background);
+  const before = e.row.background;
   const next = { ...e.row.background };
   delete next[id];
   e.row.background = next;
@@ -653,7 +657,7 @@ export function removeBackgroundTask(subject: string, id: string): boolean {
 export function applyTaskChanges(subject: string, changes: readonly TaskChange[]): boolean {
   if (changes.length === 0) return false;
   const e = entryOf(subject);
-  const before = countingTaskCount(e.row.background);
+  const before = e.row.background;
   const next: AttentionTaskMap = { ...e.row.background };
   for (const c of changes) {
     if (c.op === "clear") for (const k of Object.keys(next)) delete next[k];

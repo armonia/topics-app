@@ -61,7 +61,7 @@ import {
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
-import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
@@ -940,6 +940,9 @@ function wakeAboutToStart(pp: PersistentProcess, now: number): boolean {
 /** The longest recorded gap between a queued wake and its `system/init` (1.1 s), with margin. */
 const WAKE_START_GRACE_MS = 2_000;
 
+/** Past the instant a queued wake stops counting, so the re-read finds it gone. */
+const WAKE_EXPIRY_SLACK_MS = 5;
+
 /** How often a send parked behind the CLI's own turn looks again, besides the wake at the turn's `result`. */
 const CLI_TURN_RECHECK_MS = 250;
 
@@ -1187,6 +1190,9 @@ interface PersistentProcess {
   notificationTurnPending?: boolean;
   /** What the CLI last said about the work a closed turn left running (see `claude/background-work.ts`). */
   background?: BackgroundWork;
+  /** The re-read at the instant a queued wake stops counting (`armWakeExpiry`), and that instant. */
+  wakeExpiryTimer?: ReturnType<typeof setTimeout> | null;
+  wakeExpiryAt?: number | null;
   /** A config change this child was too busy to take: the next send that finds it idle, its background work over, respawns it. */
   configStale?: boolean;
   /** The chat was already told this child's background work is closed. */
@@ -1434,6 +1440,29 @@ export class ClaudeCodeProvider implements AIProvider {
   private static onBackgroundChanged: ((sessionKey: string) => void) | null = null;
   private sayBackgroundChanged(sessionKey: string): void {
     try { ClaudeCodeProvider.onBackgroundChanged?.(sessionKey); } catch (err) { console.warn(`[claude-code] background observer failed for ${sessionKey}:`, err); }
+  }
+
+  /**
+   * A queued wake is a task of the attention state (`attentionBackgroundOf`)
+   * that leaves by the clock alone: no line says the CLI folded the report
+   * into the turn that just ended, or that the wake never opened. Without a
+   * re-read at that instant the chat stayed `background` on a wake gone for
+   * good, and the idle reaper later counted it as work that died (review 2 of
+   * notifications-redesign, B1). Not cleared when the wake opens: the re-read
+   * then finds the map unchanged, or the turn's own end already wrote it.
+   */
+  private armWakeExpiry(pp: PersistentProcess): void {
+    const until = wakeQueuedUntil(pp.background);
+    if (until === null || until === pp.wakeExpiryAt) return;
+    if (pp.wakeExpiryTimer) clearTimeout(pp.wakeExpiryTimer);
+    pp.wakeExpiryAt = until;
+    pp.wakeExpiryTimer = setTimeout(() => {
+      pp.wakeExpiryTimer = null;
+      pp.wakeExpiryAt = null;
+      if (this.processes.get(pp.sessionKey) !== pp || !pp.alive) return;
+      if (!isWakeQueued(pp.background, Date.now())) this.sayBackgroundChanged(pp.sessionKey);
+    }, Math.max(0, until - Date.now()) + WAKE_EXPIRY_SLACK_MS);
+    (pp.wakeExpiryTimer as { unref?: () => void }).unref?.();
   }
 
   /** Who says in the chat that a change owed by a turn in flight now waits for the work that turn started (second review of 25/09, R1). */
@@ -3754,6 +3783,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const workBefore = backgroundWorkKey(pp.background);
     noteBackgroundLine(pp.background ??= newBackgroundWork(), event, Date.now(), { unattended: !pp.streamHandler });
     if (!pp.replayMute && !pp.replaySilent && backgroundWorkKey(pp.background) !== workBefore) this.sayBackgroundChanged(pp.sessionKey);
+    this.armWakeExpiry(pp);
     this.sayConfigOwed(pp);
 
     // THE CLI ENTERS AND LEAVES A TURN, whoever started it. Read before anything
