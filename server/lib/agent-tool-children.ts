@@ -78,6 +78,50 @@ export interface ToolRoot {
   topicId: string | null;
   terminalId: string | null;
   taskId: string | null;
+  /** For a `claude-background` root: when the record that claims it was made. */
+  recordedAt?: number;
+}
+
+/**
+ * How much later than its background record a process may have started and
+ * still be the command that record announced.
+ *
+ * The `PreToolUse` hook is async: the CLI starts the command as the hook
+ * fires, and the record is made when the POST arrives, so a genuine background
+ * process starts BEFORE its record (or a few seconds after, with a hook still
+ * registered sync in a global settings file). A process that started long
+ * after the record is a later command with the same text: typically the same
+ * line run again in the FOREGROUND, whose own `PreToolUse` has not arrived yet.
+ * The record is stale news for it, and a stale record is the one way a
+ * foreground command could become a candidate.
+ */
+export const STALE_RECORD_SLACK_MS = 30_000;
+
+/**
+ * Does the background record made at `recordedAt` speak for a process started
+ * at `lstart` (`ps -o lstart=`, second resolution)? An unreadable start time is
+ * not evidence either way and keeps the record's word, as before this check.
+ */
+export function recordClaimsProcess(recordedAt: number | undefined, lstart: string | undefined): boolean {
+  if (recordedAt === undefined || lstart === undefined) return true;
+  const startedAt = parseLstart(lstart);
+  if (startedAt === null) return true;
+  return startedAt <= recordedAt + STALE_RECORD_SLACK_MS;
+}
+
+const LSTART_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * `Sun Oct  4 22:03:12 2026` (local time) to epoch ms, or null for any other
+ * text. Strict on purpose: `Date.parse` in Bun reads a year out of almost
+ * anything (`"start-51000"` is the year 51000).
+ */
+function parseLstart(text: string): number | null {
+  const m = /^[A-Z][a-z]{2} ([A-Z][a-z]{2}) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/.exec(text.trim());
+  if (!m) return null;
+  const month = LSTART_MONTHS.indexOf(m[1]!);
+  if (month < 0) return null;
+  return new Date(+m[6]!, month, +m[2]!, +m[3]!, +m[4]!, +m[5]!).getTime();
 }
 
 export interface ToolRootsResult {
@@ -319,13 +363,13 @@ export function toolRoots(i: {
 }): ToolRootsResult {
   const result: ToolRootsResult = { roots: [], foreground: [], unrecognised: [] };
   const byPpid = childIndex(i.rows);
-  type Match = { raw: string; needle: string };
+  type Match = { raw: string; needle: string; recordedAt?: number };
   const longerOf = (best: Match | null, c: Match): Match => (best && best.needle.length >= c.needle.length ? best : c);
   for (const s of i.sessions) {
     // Both sides of the comparison are put in the alphabet of `ps`: the record is
     // encoded the way `ps` would print it, the row has its shell quoting undone.
     const background = s.backgroundBash
-      .map((b) => ({ raw: normalizeCommandLine(b.command), needle: psNeedle(b.command) }))
+      .map((b) => ({ raw: normalizeCommandLine(b.command), needle: psNeedle(b.command), recordedAt: b.startedAt }))
       .filter((c) => c.needle.length >= 3);
     const foregrounds = s.foregroundBash.map((c) => ({ raw: c, needle: psNeedle(c) })).filter((f) => f.needle.length >= 3);
     for (const child of byPpid.get(s.cliPid) ?? []) {
@@ -351,6 +395,7 @@ export function toolRoots(i: {
       result.roots.push({
         kind: "claude-background", pid: child.pid, pgid: child.pgid, sessionKey: s.sessionKey,
         command: hit.raw, topicId: s.topicId, terminalId: s.terminalId, taskId: s.taskId,
+        recordedAt: hit.recordedAt,
       });
     }
   }

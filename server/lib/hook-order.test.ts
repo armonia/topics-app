@@ -1,0 +1,58 @@
+/**
+ * Putting async hooks back in the order they fired.
+ *
+ * @covers CCS-03
+ */
+import { describe, expect, test } from "bun:test";
+import { createHookOrder, hookEventTime } from "./hook-order";
+
+const T = 1_791_144_000_000;
+
+describe("hookEventTime", () => {
+  test("the script's stamp, header text or number, is the event time", () => {
+    expect(hookEventTime(String(T - 3_000), T)).toBe(T - 3_000);
+    expect(hookEventTime(T - 3_000, T)).toBe(T - 3_000);
+  });
+
+  test("no stamp, an empty one or a non-number is the arrival time", () => {
+    for (const raw of [null, undefined, "", "1791144236N", "abc", "-5", "12.5"]) expect(hookEventTime(raw, T)).toBe(T);
+  });
+
+  test("a stamp from the future is not believed; a few ms ahead is the arrival", () => {
+    expect(hookEventTime(String(T + 60_000), T)).toBe(T);
+    expect(hookEventTime(String(T + 500), T)).toBe(T);
+  });
+});
+
+describe("createHookOrder", () => {
+  test("newer events are in order; one that fired before the newest applied is stale", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "UserPromptSubmit", undefined, T)).toBe("in-order");
+    expect(order.admit("s", "Stop", undefined, T + 2_000)).toBe("in-order");
+    expect(order.admit("s", "PreToolUse", "toolu_a", T + 1_000)).toBe("stale");
+    // The stale one did not move the clock back: the next newer one is in order.
+    expect(order.admit("s", "UserPromptSubmit", undefined, T + 1_500)).toBe("stale");
+    expect(order.admit("s", "UserPromptSubmit", undefined, T + 3_000)).toBe("in-order");
+  });
+
+  test("equal times keep the arrival order", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "PreToolUse", "toolu_a", T)).toBe("in-order");
+    expect(order.admit("s", "PreToolUse", "toolu_b", T)).toBe("in-order");
+  });
+
+  test("a PreToolUse whose PostToolUse already arrived is a finished call, whatever the clock", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "PostToolUse", "toolu_a", T + 10)).toBe("in-order");
+    // Stamped LATER than its Post (jitter of two shells starting): the id still says it is over.
+    expect(order.admit("s", "PreToolUse", "toolu_a", T + 20)).toBe("finished-call");
+    expect(order.admit("s", "PreToolUse", "toolu_b", T + 30)).toBe("in-order");
+  });
+
+  test("sessions are independent", () => {
+    const order = createHookOrder();
+    order.admit("a", "Stop", undefined, T + 5_000);
+    expect(order.admit("b", "PreToolUse", "x", T)).toBe("in-order");
+    expect(order.admit("a", "PreToolUse", "x", T)).toBe("stale");
+  });
+});

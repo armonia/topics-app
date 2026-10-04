@@ -41,18 +41,36 @@ export const TOPICS_HOOK_EVENTS = [
 // these events and uninstall cleans them up too.
 export const RETIRED_HOOK_EVENTS = ["MonitorArmed", "MonitorClosed"] as const;
 
-// Registered with `async: true`, so Claude Code does not wait for them. They
-// only notify the server and their output is ignored, but a sync hook holds the
-// turn until it returns: when the server is starved every prompt waited for the
-// 5 s budget (`/doctor` on 01/10: UserPromptSubmit 22 timeouts out of 22 runs,
-// Stop 13). The other four stay blocking on purpose:
-//   - PreToolUse/PostToolUse: the swap freezer must learn that a Bash command
-//     runs in the foreground BEFORE it starts (`noteBashToolCall`), and the
-//     pair must reach the phase machine in order;
-//   - SessionStart carries the transcript path the tail follows from the first
-//     line, and SessionEnd fires as the CLI exits, when a background hook may
-//     not get to run at all.
-export const ASYNC_HOOK_EVENTS: ReadonlySet<string> = new Set(["UserPromptSubmit", "Stop", "Notification"]);
+// Registered with `async: true`, so Claude Code does not wait for them. The
+// script only notifies the server: it always exits 0 and returns no decision,
+// so the CLI has nothing to wait FOR, and a synchronous hook holds the turn
+// until it returns. On a loaded Mac that is seconds per tool call: on 04/10, at
+// load 50-150, the CLI cancelled the `PreToolUse` of this script after 10.9,
+// 35.2, 37.4 and 6.1 s, each one a tool that waited for it; `/doctor` on 01/10
+// counted 22 timeouts out of 22 runs of `UserPromptSubmit`. Measured on the CLI
+// 2.1.289 (`claude -p`, two Bash calls, a hook that sleeps 3 s): 9.6 s with
+// every event async against 27.7 s with every event sync.
+//
+// The two reasons the tool events used to be sync are covered elsewhere:
+//   - their ORDER: async hooks race to the server, so the script stamps the
+//     firing time and the tracker puts them back in order (`hook-order.ts`);
+//   - the swap freezer learning that a Bash runs in the foreground BEFORE it
+//     starts: a sync hook never guaranteed it (cancelled at the timeout, the
+//     tool starts anyway and the server never hears of it), and a background
+//     record no longer claims a process started after it
+//     (`STALE_RECORD_SLACK_MS` in `agent-tool-children.ts`).
+// `SessionStart` declared the transcript the tail follows from its first line;
+// a new session is now followed from byte 0 whenever its hook arrives.
+//
+// `SessionEnd` stays synchronous: it fires as the CLI exits, and an async hook
+// still running then is cut (measured on 2.1.289 with the 3 s hook: the async
+// `Stop` SIGTERMed at the exit, and in the same run no `SessionEnd` at all).
+// It fires once per process, after the last tool, so it holds nothing up. The
+// real script takes tens of ms, so an async `Stop` is cut only when the CLI
+// exits during its POST, which a chat or a pane kept open does not.
+export const ASYNC_HOOK_EVENTS: ReadonlySet<string> = new Set(
+  TOPICS_HOOK_EVENTS.filter((event) => event !== "SessionEnd"),
+);
 
 /** Seconds the CLI gives one hook. The script's own worst case is 4 s (two 2 s POSTs). */
 export const TOPICS_HOOK_TIMEOUT_S = 5;

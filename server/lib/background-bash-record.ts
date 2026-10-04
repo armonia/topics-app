@@ -46,6 +46,8 @@ export type BashHookReading =
 
 /** The last commands kept per session: more than this and the oldest is not coming back anyway. */
 const MAX_PER_SESSION = 20;
+/** Finished calls remembered per session: a late `PreToolUse` is seconds late, not a hundred calls late. */
+const MAX_ENDED_PER_SESSION = 64;
 /** And this many sessions, so a long-lived server cannot grow the map without bound. */
 const MAX_SESSIONS = 200;
 
@@ -69,6 +71,13 @@ interface ForegroundCall {
 interface SessionRecord {
   background: BackgroundBashRecord[];
   foreground: ForegroundCall[];
+  /**
+   * The `tool_use_id`s whose `PostToolUse` already arrived. The hooks are
+   * async and race to the server: the `PreToolUse` of a short command can land
+   * AFTER its `PostToolUse`, and without this it would name as in flight, for
+   * the life of the session, a command that has finished.
+   */
+  ended: string[];
   touchedAt: number;
 }
 
@@ -77,7 +86,7 @@ const sessions = new Map<string, SessionRecord>();
 function recordFor(claudeSessionId: string, now: number): SessionRecord {
   let found = sessions.get(claudeSessionId);
   if (!found) {
-    found = { background: [], foreground: [], touchedAt: now };
+    found = { background: [], foreground: [], ended: [], touchedAt: now };
     sessions.set(claudeSessionId, found);
     if (sessions.size > MAX_SESSIONS) {
       const oldest = [...sessions.entries()].sort((a, b) => a[1].touchedAt - b[1].touchedAt)[0];
@@ -106,11 +115,14 @@ export function noteBashToolCall(
   if (reading.kind === "other") return;
   const entry = recordFor(claudeSessionId, now);
   if (reading.kind === "foreground") {
+    const id = toolUseIdOf(toolUseId);
+    // Its `PostToolUse` overtook it: the command is over, not in flight.
+    if (id !== null && entry.ended.includes(id)) return;
     // The cap is the only bound: a `PostToolUse` that never arrives (a CLI
     // killed mid-tool) would otherwise keep its entry for the life of the
     // session. Keeping the NEWEST is the safe end - the oldest entry is the one
     // whose command is least likely to still be running.
-    entry.foreground = [...entry.foreground, { id: toolUseIdOf(toolUseId), command: reading.command }].slice(-MAX_PER_SESSION);
+    entry.foreground = [...entry.foreground, { id, command: reading.command }].slice(-MAX_PER_SESSION);
     return;
   }
   entry.background = [...entry.background.filter((b) => b.command !== reading.command), { command: reading.command, startedAt: now }]
@@ -133,11 +145,16 @@ export function endBashToolCall(
   toolName: string | undefined,
   toolInput: unknown,
   toolUseId?: unknown,
+  now = Date.now(),
 ): void {
-  const entry = sessions.get(claudeSessionId);
-  if (!entry) return;
   const id = toolUseIdOf(toolUseId);
   const reading = readBashHook(toolName, toolInput);
+  // Only a foreground Bash is remembered as ended: it is the one call whose
+  // late `PreToolUse` would put an entry in flight.
+  const remember = id !== null && reading.kind === "foreground";
+  if (!claudeSessionId || (!remember && !sessions.has(claudeSessionId))) return;
+  const entry = recordFor(claudeSessionId, now);
+  if (remember && !entry.ended.includes(id)) entry.ended = [...entry.ended, id].slice(-MAX_ENDED_PER_SESSION);
   const index = entry.foreground.findIndex((f) => (id !== null && f.id !== null
     ? f.id === id
     // Without an id the command text is the key, and only a FOREGROUND payload
