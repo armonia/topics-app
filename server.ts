@@ -170,7 +170,7 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
@@ -5677,6 +5677,7 @@ const resumeCtx: CtxRipresa = {
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
+  backgroundCommands: (sk) => commandBackgroundWork.tasks(sk).flatMap((t) => (t.processId ? [{ description: t.description, processId: t.processId }] : [])),
 };
 
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
