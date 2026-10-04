@@ -1,7 +1,7 @@
 /**
  * AICTRL-05 + MSEL-06: lo switch lato client. Dal model-selector un bersaglio che il motore non raggiunge va diretto e la strada si dichiara: l'invio si blocca solo per la chat legacy legata al motore stesso (`provider: "topics"`) col motore giu'. allow-italian: dice quale contratto copre il file
  * Logica pura: si osserva senza montare ChatPane/ChatInput, che dipendono da store e WS. allow-italian: perche' si prova qui e non sulla superficie
- * @covers AICTRL-05, MSEL-06
+ * @covers AICTRL-04, AICTRL-05, MSEL-06
  */
 import { describe, it, expect } from "bun:test";
 import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, chatTopicsRoute } from "./topicsRoutingGate";
