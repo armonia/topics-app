@@ -79,6 +79,10 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
   // pressed command of a browser, and at 14 the target was 14. The tab is 200px
   // wide (300 when active) for a label that rarely fills it, so the two extra
   // pixels come out of slack, not out of the address.
+  //
+  // `tap-expand` on the button: 16 is still under the 24 of WCAG 2.5.8, so the
+  // area that answers is a 24 square on the favicon (44 under a finger). Its
+  // overhang lands on the tab's own padding, i.e. on the tab that holds it.
   return (
     <span
       className="relative flex items-center justify-center w-4 h-4 flex-shrink-0"
@@ -96,7 +100,7 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
           onClick={act}
           onPointerDown={swallow}
           onDoubleClick={swallow}
-          className="absolute inset-0 flex items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none text-app-text-secondary hover:text-app-text"
+          className="tap-expand absolute inset-0 flex items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none text-app-text-secondary hover:text-app-text"
           title={t('browser.tab.reload')}
           aria-label={t('browser.tab.reload')}
           data-testid="browser-tab-reload"
@@ -262,7 +266,7 @@ export function BrowserTabTakeControl({ paneId }: { paneId: string }) {
       onClick={(e) => { swallow(e); takeControl(); }}
       onPointerDown={swallow}
       onDoubleClick={swallow}
-      className="w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-primary hover:bg-app-hover"
+      className="tap-expand w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-primary hover:bg-app-hover"
       title={`${doing} - ${t('browser.agent.takeControl')}`}
       aria-label={t('browser.agent.takeControl')}
       data-testid="browser-tab-take-control"
@@ -338,7 +342,7 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
       onClick={openSheet}
       onPointerDown={swallow}
       onDoubleClick={swallow}
-      className="relative w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-app-text-secondary hover:text-app-text hover:bg-app-hover"
+      className="tap-expand relative w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-app-text-secondary hover:text-app-text hover:bg-app-hover"
       title={downloads > 0 ? `${t('browser.tab.menu')}\n${t('browser.tab.downloadsCue', { n: String(downloads) })}` : t('browser.tab.menu')}
       aria-label={downloads > 0 ? `${t('browser.tab.menu')}, ${t('browser.tab.downloadsCue', { n: String(downloads) })}` : t('browser.tab.menu')}
       aria-haspopup="dialog"

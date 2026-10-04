@@ -314,14 +314,18 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     }
   });
 
-  test("IDCHIP-02: col mouse l'area sensibile resta quella del glifo", async ({ page }) => {
-    // Il rovescio del patto: su puntatore fine `tap-expand` non proietta
-    // niente, quindi il segno non ruba i clic al nome del progetto accanto né
-    // al titolo sotto (che aprono la card). Senza questa metà, allargare il
-    // bersaglio sarebbe un peggioramento travestito da accessibilità.
+  test("IDCHIP-02: col mouse l'area sensibile è 24, il minimo WCAG, non i 44 del dito", async ({ page }) => {
+    // The other half of the deal: with a fine pointer `tap-expand` projects
+    // only the WCAG 2.5.8 minimum (24x24 since 04/10: the 18px mark was under
+    // it, UI-READ-01), so the mark does not take clicks from the project name
+    // beside it or the title under it (which open the card): 21px from the
+    // centre the card answers already. Without this half, a bigger target
+    // would be a regression dressed up as accessibility.
+    test.info().annotations.push({ type: "spec", description: "UI-READ-01" });
     const g = await measureChip(page, createdTasks[0]);
     expect(g.coarse, "il contesto desktop deve avere puntatore fine").toBe(false);
-    expect(g.pseudo.w, "col mouse nessuna area proiettata").toBe(0);
+    expect(g.pseudo.w, "col mouse l'area proiettata è il minimo WCAG").toBe(24);
+    expect(g.pseudo.h, "col mouse l'area proiettata è il minimo WCAG").toBe(24);
     expect(g.reach, "a 21px dal centro il bottone non deve più rispondere")
       .toEqual({ left: false, right: false, up: false, down: false });
   });

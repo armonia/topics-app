@@ -39,7 +39,7 @@ export default function RunningServiceList({ services, projectPath }: { services
   return <>{services.map((s) => <ServiceRow key={s.processId} service={s} projectPath={projectPath} />)}</>;
 }
 
-const BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-micro text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-50';
+const BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-50';
 
 function ServiceRow({ service, projectPath }: { service: RunningServiceSummary; projectPath?: string }) {
   const tr = useT();
@@ -83,7 +83,7 @@ function ServiceRow({ service, projectPath }: { service: RunningServiceSummary; 
           {' · '}<span data-testid="running-service-name" className="text-app-text-secondary">{service.description}</span>
         </span>
         {ended ? (
-          <span key="ended" data-testid="running-service-ended" className="reveal-in flex-shrink-0 text-micro text-app-text-secondary">{endedText}</span>
+          <span key="ended" data-testid="running-service-ended" className="reveal-in flex-shrink-0 text-mini text-app-text-secondary">{endedText}</span>
         ) : (
           <span className="flex flex-shrink-0 items-center gap-0.5">
             {url && (

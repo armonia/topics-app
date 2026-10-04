@@ -37,10 +37,19 @@ export function isSoloTool(tc: ToolCall): boolean {
   return resolveToolDetail(tc).type === 'sub_agent';
 }
 
-/** A call the agent is still on (spinner territory). */
+/** A call the agent is still on: running, or queued to run. Not settled. */
 export function isActiveTool(tc: ToolCall): boolean {
   const status = tc.status ?? 'pending';
   return status === 'pending' || status === 'running';
+}
+
+/**
+ * A call announced but not started: the native runtime runs the calls of a
+ * round one after the other, and the ones behind wait as `pending`. Still
+ * active (the turn is not done with it), but not running: no spinner, no clock.
+ */
+export function isQueuedTool(tc: ToolCall): boolean {
+  return tc.status === 'pending';
 }
 
 /** Split a consecutive run into aggregatable stretches and solo rows, in order. */
@@ -72,8 +81,10 @@ export interface ToolGroupSummary {
    *  sorted by count desc then name. */
   counts: Array<{ name: string; count: number }>;
   errors: number;
-  /** pending + running */
+  /** Started and not settled (`running`, or no status on an old row). */
   running: number;
+  /** Announced and not started yet (`pending`): see `isQueuedTool`. */
+  queued: number;
   /** Wall-clock span of the run — first startedAt → last endedAt — when both
    *  bounds exist. Absent for legacy rows without timestamps. */
   durationMs?: number;
@@ -93,6 +104,7 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
   const byName = new Map<string, number>();
   let errors = 0;
   let running = 0;
+  let queued = 0;
   let firstStart: number | undefined;
   let lastEnd: number | undefined;
   let costCents: number | undefined;
@@ -101,6 +113,7 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     const name = buildToolDisplayLabel(resolveToolDetail(tc), tc.name).name;
     byName.set(name, (byName.get(name) ?? 0) + 1);
     if (tc.status === 'error') errors++;
+    else if (isQueuedTool(tc)) queued++;
     else if (isActiveTool(tc)) running++;
     if (typeof tc.startedAt === 'number') {
       firstStart = firstStart === undefined ? tc.startedAt : Math.min(firstStart, tc.startedAt);
@@ -125,6 +138,7 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     counts,
     errors,
     running,
+    queued,
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(firstStart !== undefined ? { startedAt: firstStart } : {}),
     ...(costCents !== undefined ? { costCents } : {}),

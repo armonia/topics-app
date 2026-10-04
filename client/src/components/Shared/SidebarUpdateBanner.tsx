@@ -39,6 +39,7 @@
  * Il `kind` sceglie l'occhiello, che è UNA parola sopra il titolo.
  */
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { ROW_INSET } from '@/lib/selectionStyles';
 import { useT } from '../../hooks/useT';
 
@@ -97,13 +98,19 @@ export function SidebarUpdateBanner({
         tone === 'ready'
           ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
           : tone === 'error'
-            ? 'bg-red-500/10 text-red-700 dark:text-red-300'
+            // red-200 in dark, not 300: over its own 10% veil red-300 gave
+            // 4.22 (usability audit, 04/10), under the 4.5 of a 12px title.
+            ? 'bg-red-500/10 text-red-700 dark:text-red-200'
             : 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text'
       }`}
     >
       {icon && <span className="mt-0.5 flex-shrink-0">{icon}</span>}
       <div className="min-w-0 flex-1">
-        <div className="text-micro uppercase tracking-wide text-app-text-tertiary">{tr(EYEBROW_KEY[kind])}</div>
+        {/* Secondary, not tertiary: the eyebrow sits on the card's own veil
+            (5% black over the chrome), which is darker than the ground the
+            tertiary grey is tuned on. Measured 04/10: tertiary 4.13 there,
+            secondary 5.12. And 11px, the floor: it was 10. */}
+        <div className="text-mini uppercase tracking-wide text-app-text-secondary">{tr(EYEBROW_KEY[kind])}</div>
         {/* IT WRAPS, IT DOES NOT TRUNCATE. The column gives this card about
             244px: "Aggiornamento v2.2.277 disponibile" came out cut after
             "disp", and a version announcement that hides the end of itself is
@@ -113,12 +120,22 @@ export function SidebarUpdateBanner({
         {children}
       </div>
       {onDismiss && (
+        // THE CLOSE BUTTON IS A BUTTON, NOT A CHARACTER (04/10: the X of the
+        // update notice looked too small, and it was). It was
+        // the `×` glyph at 12px: a box of 8x12, and 8x16 under the pointer
+        // against the 24x24 of WCAG 2.5.8. Now a 24px box drawn around a
+        // small mark (a 14px lucide X), pulled back by `-m-1` into the card's
+        // padding so the card does not grow, and `tap-expand` takes it to
+        // 44x44 under a finger.
         <button
+          type="button"
           onClick={onDismiss}
-          className="tap-expand-y flex-shrink-0 leading-none text-app-text-muted hover:text-app-text"
-          aria-label="Ignora"
+          className="tap-expand -m-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-app-text-muted hover:bg-app-hover hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          aria-label={tr('banner.dismiss')}
+          title={tr('banner.dismiss')}
+          data-testid="update-banner-dismiss"
         >
-          ×
+          <X size={14} aria-hidden="true" />
         </button>
       )}
     </div>

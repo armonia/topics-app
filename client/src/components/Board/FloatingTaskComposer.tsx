@@ -674,7 +674,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
               <button
                 role="option" aria-selected={prio === null}
                 onClick={() => { setPrio(null); setPrioOpen(false); }}
@@ -714,7 +714,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={startOpen} anchorRef={startBtnRef} onClose={() => setStartOpen(false)} minWidth={240} role="menu">
-              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.start')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.start')}</p>
               {START_CHOICES.map(([s, hintKey]) => (
                 <button
                   key={s} role="menuitemradio" aria-checked={birthStatus === s}

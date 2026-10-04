@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.2.446",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "NH-01 controlla che la riga non faccia salire il numero, non che il server sia vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Domanda in coda dietro un'altra chiamata: il form resta nella finestra da cui si è scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.445",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Togli i furti delle aree proiettate e porta i comandi della tab a 24",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi i tre buchi della guardia di usabilità",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.444",
     "date": "2026-10-04",
     "sections": {
@@ -48,7 +100,17 @@
           "scope": null
         },
         {
+          "it": "Scatta la foto dell'anteprima con WebKit, non con Chromium (tornata 5)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Carica il registro dei processi quando serve, non all'import del modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Libera la pane di progetto quando un altro dispositivo riporta la pagina nella finestra",
           "en": "",
           "scope": null
         },
@@ -68,12 +130,42 @@
           "scope": null
         },
         {
+          "it": "Libera la pane anche sul dispositivo che torna dopo il ritorno, e scrivi la finestra prima del progetto",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219",
           "en": "",
           "scope": null
         },
         {
+          "it": "Rendi la X del banner di aggiornamento un bersaglio vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta bersagli, testo e contrasto alla soglia nelle radici condivise",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi la guardia di usabilità: bersagli, testo e contrasto misurati",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Allinea shutdown-wiring al contratto nuovo: una chat senza reattach sopravvive al riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Banco e2e: API Anthropic finta per il motore nativo, senza Keychain né proxy ereditato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Motore nativo: mostra in coda la chiamata non partita, il comando mentre si scrive, rispetta il timeout della shell",
           "en": "",
           "scope": null
         }

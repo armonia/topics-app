@@ -49,7 +49,7 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
         disabled={disabled}
         onClick={(e) => { e.stopPropagation(); onRetryNow(); }}
         title={tr('board.card.retryNowTitle')}
-        className="shrink-0 rounded bg-amber-500/25 px-1.5 py-px text-micro font-medium text-amber-100 hover:bg-amber-500/40 disabled:opacity-50"
+        className="shrink-0 rounded bg-amber-500/25 px-1.5 py-px text-mini font-medium text-amber-100 hover:bg-amber-500/40 disabled:opacity-50"
       >{tr('board.card.retryNow')}</button>
     </span>
   );

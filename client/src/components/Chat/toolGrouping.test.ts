@@ -1,6 +1,7 @@
 /**
  * @covers CHAT-TOOL-02
  * @covers CHAT-BROWSER-01
+ * @covers CHAT-NTOOL-05
  *
  * Partial: aggregation of tool-call groups, as pure grouping. The rendered
  * strip is elsewhere.
@@ -14,6 +15,7 @@ import {
   formatTokensCompact,
   formatToolCounts,
   isActiveTool,
+  isQueuedTool,
   isSoloTool,
   isWhollyFailed,
   partitionToolGroup,
@@ -135,7 +137,7 @@ describe('summarizeToolGroup', () => {
     expect(s.running).toBe(0);
   });
 
-  test('errors and running are counted', () => {
+  test('errors, running and queued are counted apart', () => {
     const tools = [
       tc({ name: 'Read', status: 'error' }),
       tc({ name: 'Read', status: 'running' }),
@@ -144,7 +146,21 @@ describe('summarizeToolGroup', () => {
     ];
     const s = summarizeToolGroup(tools);
     expect(s.errors).toBe(1);
-    expect(s.running).toBe(2);
+    expect(s.running).toBe(1);
+    expect(s.queued).toBe(1);
+  });
+
+  test('a queued call is active but not running, and does not start the stopwatch', () => {
+    const queued = tc({ name: 'Read', status: 'pending' });
+    expect(isActiveTool(queued)).toBe(true);
+    expect(isQueuedTool(queued)).toBe(true);
+    expect(isQueuedTool(tc({ name: 'Read', status: 'running' }))).toBe(false);
+    const s = summarizeToolGroup([
+      tc({ name: 'Bash', status: 'running', startedAt: 5000 }),
+      tc({ name: 'Read', status: 'pending' }),
+    ]);
+    expect(s.startedAt).toBe(5000);
+    expect(s.queued).toBe(1);
   });
 
   test('duration is the wall-clock span of the run', () => {

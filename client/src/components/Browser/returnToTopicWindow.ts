@@ -14,35 +14,18 @@
  * panels fighting over `set_bounds` of one native view.
  */
 import { useMemo, useSyncExternalStore } from 'react';
-import { usePaneStore } from '../../state/pane/store';
-import { createPaneId } from '../../state/pane/adapters/paneConfig';
-import { reclaimProjectBrowserPane } from '../../state/pane/adapters/projectBrowserPanes';
 import {
   topicBrowserWindow,
-  getTopicWindow,
   findTopicOwningPromoted,
   subscribeTopicWindows,
 } from '../../state/topicBrowserWindow';
 import { beginNativeViewMove } from '../../lib/shell/nativeBrowserViews';
+import { reclaimPaneFromLayout } from './reclaimFromLayout';
 
 export interface ReturningSheet {
   contextId: string;
   url?: string;
   title?: string;
-}
-
-/**
- * Take the pane out of the layout without destroying its context.
- *
- * Two layouts can hold it, and they do not share a store: the workspace panes
- * live in `usePaneStore`, a project window keeps its own. Ask the projects
- * first, because a page open there is NOT in the pane store and dispatching
- * `RECLAIM_PANE` for it would be a no-op that leaves the page drawn twice.
- */
-export function reclaimPaneFromLayout(contextId: string): void {
-  if (reclaimProjectBrowserPane(contextId)) return;
-  const paneId = createPaneId('browser', contextId);
-  usePaneStore.getState().dispatch({ type: 'RECLAIM_PANE', payload: { id: paneId } });
 }
 
 /**
@@ -57,11 +40,7 @@ export function returnSheetToWindow(sheet: ReturningSheet, topicId?: string): st
   // the window's sheet adopts the view.
   beginNativeViewMove(sheet.contextId);
   reclaimPaneFromLayout(sheet.contextId);
-  if (getTopicWindow(owner).promoted.includes(sheet.contextId)) {
-    topicBrowserWindow.returnFromTab(owner, sheet);
-  } else {
-    topicBrowserWindow.open(owner, sheet);
-  }
+  topicBrowserWindow.takeFromLayout(owner, sheet);
   return owner;
 }
 

@@ -107,7 +107,7 @@ function NativeBannerStatus() {
         <div className={tone}>{verdict.headline}</div>
         {verdict.hint && <div className="mt-0.5 text-app-text-muted">{verdict.hint}</div>}
         {status?.logPath && verdict.health !== 'ok' && (
-          <div className="mt-0.5 break-all font-mono text-micro text-app-text-muted">{status.logPath}</div>
+          <div className="mt-0.5 break-all font-mono text-mini text-app-text-muted">{status.logPath}</div>
         )}
         {action.kind !== 'none' && (
           <button

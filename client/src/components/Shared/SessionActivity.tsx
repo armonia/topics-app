@@ -265,7 +265,7 @@ function ProjectElapsedTicking({ startedAt, onFill, className = '' }: {
   const tone = timeToneClass('live', onFill);
   return (
     <span
-      className={`ml-0.5 flex-shrink-0 text-micro leading-none tabular-nums ${
+      className={`ml-0.5 flex-shrink-0 text-mini leading-none tabular-nums ${
         tone ?? (onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70')
       } ${className}`}
       data-time-voice="live"

@@ -29,6 +29,7 @@ import { saturationHold, releaseHoldIfFreed } from "./usage-window";
 import { liftApiDownHold, providerHold } from "../../lib/provider-hold";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
+import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
@@ -328,6 +329,8 @@ async function streamOnce(
 
   const blocks: Block[] = [];
   const partialJson = new Map<number, string>();
+  /** Per streaming tool block: when its primary argument was last looked at, and what went out. */
+  const partialArgs = new Map<number, { at: number; value?: string }>();
   let stopReason: string | null = null;
   let stopDetails: StopDetails | null = null;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
@@ -413,6 +416,24 @@ async function streamOnce(
               // stream the moment it stops suspending itself on a tool that has
               // only been ANNOUNCED. The turn is alive; the call has not started.
               if (block?.id) handler.onToolActivity?.(block.id);
+              // THE COMMAND SHOWS WHILE IT IS WRITTEN, the way the CLI path
+              // does it (`claude-code.ts`): every 500 ms at most, the primary
+              // argument so far goes out as a PARTIAL update. Without it the
+              // row read `Shell` and an empty `$ ` until `content_block_stop`:
+              // 22 calls out of 62 in twenty minutes of live sampling
+              // (2026-10-04), up to 36.9 s. Open values count here: a heredoc
+              // is ONE value, and its closing quote is the end of the call.
+              if (block?.id) {
+                const now = Date.now();
+                const seen = partialArgs.get(ev.index);
+                if (!seen || now - seen.at >= PARTIAL_ARGS_EMIT_MS) {
+                  const primary = extractPrimaryToolArg(partialJson.get(ev.index)!, { open: true });
+                  partialArgs.set(ev.index, { at: now, value: primary?.value ?? seen?.value });
+                  if (primary && primary.value !== seen?.value) {
+                    handler.onToolArgsUpdate?.(block.id, { [primary.key]: primary.value }, { partial: true });
+                  }
+                }
+              }
             }
             break;
           }
@@ -440,6 +461,7 @@ async function streamOnce(
                 blocks[ev.index]!.inputTruncated = true;
               }
               partialJson.delete(ev.index);
+              partialArgs.delete(ev.index);
               const b = blocks[ev.index]!;
               handler.onToolArgsUpdate?.(b.id!, b.input as any);
             }

@@ -25,7 +25,7 @@ export function DraftCard({ draft }: { draft: DraftPreview }) {
       aria-label={tr('board.draft.label')}
       className="rounded-lg border border-dashed border-app-border-light bg-white/[0.03] p-3 opacity-80"
     >
-      <p className="mb-1.5 text-micro font-medium uppercase tracking-wide text-app-text-muted">{tr('board.draft.label')}</p>
+      <p className="mb-1.5 text-mini font-medium uppercase tracking-wide text-app-text-muted">{tr('board.draft.label')}</p>
       {draft.images.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {draft.images.slice(0, 3).map((p) => (

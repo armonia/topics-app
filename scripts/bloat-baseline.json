@@ -241,7 +241,10 @@
     "of resending the question, without spending a resume attempt, capped at ten in a row). main was already over",
     "the 982 recorded on 28/09, inside the ceiling. server/lib/claude-session-tracker.test.ts 1131 on main -> 1160:",
     "+29 the two tests of a SessionStart that declares a transcript path that does not exist. Recorded by hand,",
-    "these two rows only."
+    "these two rows only.",
+    "04/10, preview screenshots on WebKit (PR #219). tests/e2e/global-setup.ts 800 -> 821: +21 hand the isolated",
+    "test server PLAYWRIGHT_BROWSERS_PATH, because its HOME is isolated and Playwright looked for WebKit in an",
+    "empty cache. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -479,6 +482,7 @@
 
     "tests/e2e/chat.spec.ts": 989,
 
+    "tests/e2e/global-setup.ts": 821,
     "tests/e2e/grid-split.spec.ts": 952,
 
     "tests/e2e/helpers/api-fixtures.ts": 966,

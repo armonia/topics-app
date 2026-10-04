@@ -102,6 +102,10 @@ test.describe("Cronologia notifiche", () => {
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
     await openHistory(page);
     const before = await historyRows(page).count();
+    // The badge counts what is lit on the whole test server, and a spec that ran
+    // earlier in the shard can leave something lit (a question, a review): the
+    // contract is that THIS row does not raise it, not that the server is empty.
+    const litBefore = (await count(page).count()) ? (await count(page).textContent())?.trim() ?? "" : "";
 
     // La riga arriva mentre la cronologia è aperta. Nessun reload.
     await postNotification(page.request, {
@@ -113,8 +117,9 @@ test.describe("Cronologia notifiche", () => {
       dedupeKey: `task-review:${taskId}:${Date.now()}`,
     });
     await expect(historyRows(page)).toHaveCount(before + 1, { timeout: 10_000 });
-    // Una riga non è una cosa accesa: il tasto non conta niente.
-    await expect(count(page)).toHaveCount(0);
+    // Una riga non è una cosa accesa: il numero del tasto non sale.
+    if (litBefore) await expect(count(page)).toHaveText(litBefore);
+    else await expect(count(page)).toHaveCount(0);
 
     // Il click porta ALLA COSA: il cassetto del task che ha generato la riga.
     await historyRows(page).first().click();
@@ -142,6 +147,10 @@ test.describe("Cronologia notifiche", () => {
     await expect(button(page)).toBeVisible({ timeout: 15_000 });
     await openHistory(page);
     const before = await historyRows(page).count();
+    // The badge counts what is lit on the whole test server, and a spec that ran
+    // earlier in the shard can leave something lit (a question, a review): the
+    // contract is that THIS row does not raise it, not that the server is empty.
+    const litBefore = (await count(page).count()) ? (await count(page).textContent())?.trim() ?? "" : "";
     const key = `task-review:${taskId}:${Date.now()}`;
     const first = await postNotification(page.request, { kind: "task-review", title: "Consegna", targetKind: "task", targetId: taskId, dedupeKey: key });
     expect(first.recorded).toBe(true);

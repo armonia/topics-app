@@ -3,7 +3,7 @@ import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download, RotateCw, SquareSlash } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
-import { COMPOSER_CARD, COMPOSER_TEXTAREA } from './composerStyles';
+import { COMPOSER_CARD, COMPOSER_ICON_BUTTON, COMPOSER_TEXTAREA } from './composerStyles';
 import { offeredSlashCommands } from './slashCommands';
 import { engineRow } from './commandMap';
 import { ResumePicker } from './ResumePicker';
@@ -139,7 +139,8 @@ function AddMenu({
   }, [openToolsRef, allowSlashCommands]);
 
   const anyActive = isCallActive || isListening || isSpeaking || autoTTS;
-  const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
+  // `coarse:min-h-11`: a menu row is 44 tall under a finger (it was 30, usability audit 04/10).
+  const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none coarse:min-h-11';
 
   return (
     <>
@@ -152,7 +153,7 @@ function AddMenu({
           [HOME_ANCHOR_ATTR]: allowSlashCommands ? 'tools' : undefined,
           [HOME_ANCHOR_FOCUSED_ATTR]: allowSlashCommands && paneFocused ? '' : undefined,
         }}
-        className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
+        className={`${COMPOSER_ICON_BUTTON} flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
           open || anyActive
             ? 'text-primary bg-primary/10'
             : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
@@ -196,7 +197,7 @@ function AddMenu({
           <button
             type="button"
             onClick={() => { toggleCall(); setOpen(false); }}
-            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover ${
+            className={`${rowClass} ${
               isCallActive ? 'text-red-500' : 'text-app-text'
             }`}
             disabled={uploading}
@@ -210,7 +211,7 @@ function AddMenu({
           <button
             type="button"
             onClick={() => { toggleListening(); setOpen(false); }}
-            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover ${
+            className={`${rowClass} ${
               isListening ? 'text-green-500' : 'text-app-text'
             }`}
             // La dettatura scrive nel composer, non parla con l'agente: uno
@@ -232,7 +233,7 @@ function AddMenu({
             if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
             setOpen(false);
           }}
-          className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover ${
+          className={`${rowClass} ${
             isSpeaking || autoTTS ? 'text-blue-500' : 'text-app-text'
           }`}
         >
@@ -1689,7 +1690,7 @@ export function ChatInput({
                 {!isGlobalOrchestrator && <button
                   type="button"
                   onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
-                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
+                  className={`${COMPOSER_ICON_BUTTON} flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
                     isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
                   }`}
                   title={`${isRecording ? tr('chat.recording.stopVoice') : tr('chat.recording.startVoice')} (${shortcut('R', { shift: true })})`}
@@ -1735,7 +1736,7 @@ export function ChatInput({
                       <button
                         type="button"
                         onClick={onStop}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-app-text/15 text-app-text hover:bg-app-text/25 transition-all"
+                        className={`${COMPOSER_ICON_BUTTON} flex items-center justify-center rounded-lg bg-app-text/15 text-app-text hover:bg-app-text/25 transition-all`}
                         data-composer-action="stop"
                         title={stopTitle}
                         aria-label={stopTitle}
@@ -1755,7 +1756,7 @@ export function ChatInput({
                       type="submit"
                       data-composer-action={action.kind}
                       disabled={isDisabled && !uploading}
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
+                      className={`${COMPOSER_ICON_BUTTON} flex items-center justify-center rounded-lg transition-all ${
                         uploading
                           ? 'bg-primary text-white'
                           : isAnswer
@@ -1826,7 +1827,7 @@ export function ChatInput({
                   ref={fastButtonRef}
                   type="button"
                   onClick={onToggleFastMode}
-                  className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
+                  className={`${COMPOSER_ICON_BUTTON} flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
                     fastUi.pressed
                       ? 'text-amber-500 bg-amber-500/10'
                       : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
@@ -1857,7 +1858,7 @@ export function ChatInput({
                       il primo. */}
                   {fastUi.costMultiplier && (
                     <span
-                      className="pointer-events-none text-nano font-medium leading-none tabular-nums"
+                      className="pointer-events-none text-mini font-medium leading-none tabular-nums"
                       data-testid="fast-mode-cost"
                     >{fastUi.costMultiplier}×</span>
                   )}
@@ -1868,7 +1869,7 @@ export function ChatInput({
                   ref={contextBtnRef}
                   type="button"
                   onClick={handleContextRingClick}
-                  className={`h-8 flex-shrink-0 flex items-center justify-center gap-1 rounded-lg transition-colors ${
+                  className={`h-8 coarse:h-11 coarse:min-w-11 flex-shrink-0 flex items-center justify-center gap-1 rounded-lg transition-colors ${
                     // La pastiglia allarga il bottone da quadrato a pillola:
                     // senza padding orizzontale la percentuale toccherebbe i
                     // bordi. Senza avviso resta il quadrato di sempre.
@@ -1905,7 +1906,7 @@ export function ChatInput({
                       data-testid="context-notice"
                       data-context-level={contextNotice.level}
                       data-context-reason={contextNotice.reason}
-                      className="pointer-events-none text-micro font-semibold leading-none tabular-nums"
+                      className="pointer-events-none text-mini font-semibold leading-none tabular-nums"
                     >
                       {contextNotice.reason === 'cost'
                         ? formatTokens(contextNotice.used)
@@ -1986,7 +1987,7 @@ export function ChatInput({
                   <span className={`text-compact font-mono whitespace-nowrap ${item.turn ? 'text-app-text' : 'text-primary'}`}>{item.cmd}</span>
                   <span className="text-mini text-app-text-muted truncate flex-1 min-w-0">{item.description}</span>
                   {!isMobile && (item.opens || item.turn) && (
-                    <span data-testid="slash-menu-mark" className="text-micro text-app-text-tertiary whitespace-nowrap shrink-0">
+                    <span data-testid="slash-menu-mark" className="text-mini text-app-text-tertiary whitespace-nowrap shrink-0">
                       {item.opens ? tr('chat.slash.opens', { what: item.opens }) : tr('chat.slash.turn')}
                     </span>
                   )}

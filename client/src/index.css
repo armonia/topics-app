@@ -311,9 +311,15 @@
 @theme {
   --text-*: initial;
 
-  /* Under 9px is not small text, it is unreadable text. */
-  --text-nano: 9px;      /* counters, corner badges, the smallest chips */
-  --text-micro: 10px;    /* dense metadata: timestamps, path fragments, hints */
+  /* 11px is the floor for anything a person READS (04/10, measured by
+   * `tests/e2e/usability-audit.spec.ts`: 49 texts at 9-10px on the daily
+   * surfaces, eyebrows, timestamps, the labels of the phone's bottom row).
+   * The old `micro` step (10px) is gone: its 207 uses are `mini` now.
+   * `nano` survives for ONE kind of text, the glyph that has to fit a box
+   * that does not grow: a three-figure count in the 20px tab badge, a
+   * monogram in a 14px avatar. Nothing else may use it, and
+   * `check:typography` holds the list of the files that do. */
+  --text-nano: 9px;      /* ONLY a count or monogram inside a fixed box */
   --text-mini: 11px;     /* THE default of this UI: rows, labels, menus, chips */
   --text-compact: 12px;  /* buttons, inputs, secondary body */
   /* `prose` and not `body`: this file already owns a COLOUR token called
@@ -505,7 +511,12 @@
   --bg-user-bubble: hsl(220 4.9% 88.5%);
   --text: hsl(220 3.5% 10.6%);
   --text-secondary: hsl(220 2.8% 36.4%);
-  --text-tertiary: hsl(220 2.8% 45.3%);
+  /* 45.3% gave 4.30 on the popover (#f2f2f3): the «tail» that says the
+   * current value of a menu row (plan, notifications, view, devices) sat under
+   * 4.5 on the very surface it lives on. 42.3% holds on all four (popover
+   * 4.78, chrome 4.56, page 4.90, white 5.35). Measured by axe in
+   * `tests/e2e/usability-audit.spec.ts`, 04/10. */
+  --text-tertiary: hsl(220 2.8% 42.3%);
   /* 43.2% gave 4.42 against the chrome (#ecedee) — under the 4.5 normal text
    * needs, and axe-core flagged it on three real elements: "No active items",
    * "Persone", the version number. Not tool pedantry: those are all small, 11-12px,
@@ -660,7 +671,11 @@
   --text: #e6e8ec;
   --text-secondary: #aab0ba;
   --text-tertiary: #969ca6;
-  --text-muted: #8a9099;
+  /* #8a9099 gave 4.41 on the dark popover (#292b2d): ~40 findings of the
+   * usability audit (04/10) were this one token, on menu hints, shortcut
+   * captions, timestamps and the settings' explanations. #8d939b is the
+   * dimmest step of the same tint holding 4.5 there (4.57). */
+  --text-muted: #8d939b;
   /* #6b7079 was 3.25 on --bg-input and 2.87 on the popover: same defect as the
    * light theme, same tokens. #919397 is the dimmest grey holding 4.5 on the
    * four surfaces a placeholder lands on (input 5.24, inset 5.72, surface 5.55,
@@ -672,7 +687,11 @@
    * --bg-elevated, which is where the board cards and the panels put it.
    * #898b8f holds on all five (elevated 4.61 is the tight one) and stays a step
    * under --text-muted, so in dark the faint tier is still a real tier. */
-  --text-faint: #898b8f;
+  /* ...and the popover (#292b2d) took it to 4.16 (the spend cap's «off»
+   * line, 04/10). #909296 holds 4.57 there: the faint tier and the muted one
+   * now meet at the same contrast, the floor, so in dark too the tier
+   * survives as intent rather than as a gap nobody can read. */
+  --text-faint: #909296;
   --text-hover: #ccced4;
   --border: hsl(220 3.8% 18%);
   --border-light: hsl(220 3.5% 24%);
@@ -731,9 +750,13 @@
  * Portata sul token giusto, si porta dietro la stessa ritaratura: stesso fondo,
  * stessi numeri, o il terziario e i capelli tornano sotto soglia esattamente
  * come erano tornati qui. */
+/* 42% held on the chrome at rest and fell on a HOVERED row (#e0e1e2): 4.13
+ * for the last-message preview and the board's «+N», both 11px (usability
+ * audit with the pointer on a row, 04/10). 37.7% is the phone's value below:
+ * 4.87 on the hovered row, 5.44 on the chrome. */
 [role="navigation"][aria-label="Topics sidebar"],
 [data-testid="project-sidebar"] {
-  --text-tertiary: hsl(220 2.8% 42%);
+  --text-tertiary: hsl(220 2.8% 37.7%);
   --border: hsl(220 4.9% 84%);
   --border-subtle: hsl(220 4.9% 88%);
 }
@@ -825,10 +848,27 @@
      * 3.98 there. 38.9% is the lightest lightness holding 4.5 on all four
      * (input 5.85, inset 5.76, chrome 5.21, popover 4.63). */
     --text-placeholder: hsl(220 2.8% 38.9%);
-    --text-tertiary: hsl(220 2.8% 42%);
+    /* THE POPOVER IS THE DARKEST GROUND HERE (#dfe0e2, `--popover-bg` above),
+     * and the quiet greys were tuned on lighter ones: muted 4.04, tertiary
+     * 4.10, the key caption 4.10 on it (usability audit, 04/10). The values
+     * below are the lightest holding 4.5 on the popover and on the sidebar's
+     * resting card (#d9dadb): muted/faint 4.55, tertiary 4.82/4.55, kbd 4.62. */
+    --text-muted: hsl(220 2.8% 39.2%);
+    --text-faint: hsl(220 2.8% 39.2%);
+    --kbd-text: #5e626c;
+    --text-tertiary: hsl(220 2.8% 37.7%);
     --border: hsl(220 4.9% 84%);
     --border-light: hsl(220 4.9% 80%);
     --border-subtle: hsl(220 4.9% 88%);
+  }
+  /* The sidebar re-declares `--text-tertiary` on its own element (top of the
+   * file), and a custom property declared on an element beats the inherited
+   * one whatever the selector weighs: without this line the phone sidebar kept
+   * the desktop 42%, 3.87 on its resting card (#d9dadb, «+N» of the board
+   * counts). Same value as the block above. */
+  html:not(.dark):not(.native-frost) [role="navigation"][aria-label="Topics sidebar"],
+  html:not(.dark):not(.native-frost) [data-testid="project-sidebar"] {
+    --text-tertiary: hsl(220 2.8% 37.7%);
   }
 
   /* IL PIANO CHE FLOTTA. Popover, menu, modali e composer stanno SOPRA la
@@ -1905,17 +1945,31 @@ input[type="range"]::-webkit-slider-thumb {
  * -right-1.5` (the x on a pasted image) was computed `relative` and wrapped
  * under the thumbnail instead of sitting on its corner. Same for `.tap-expand-y`
  * below. */
+/* WITH THE MOUSE THE AREA GROWS TOO, TO 24 (04/10).
+ *
+ * The paragraph above kept the mouse out on purpose, and the reason holds for
+ * 44: an invisible 44px square around a 24px icon steals clicks from the
+ * neighbours. It does not hold for 24, which is the WCAG 2.2 AA minimum
+ * (2.5.8) and the size of the row commands already: the usability audit
+ * (`tests/e2e/usability-audit.spec.ts`) found the task id chip at 18x18 and
+ * a dozen glyph buttons under 24 that carried this very class, and grew only
+ * under a finger. Now every `tap-expand` is at least 24x24 with any pointer
+ * and 44x44 with a coarse one; a box already larger is left as it is. */
 @layer components {
   .tap-expand { position: relative; }
+  .tap-expand::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 24px);
+    height: max(100%, 24px);
+    transform: translate(-50%, -50%);
+  }
   @media (pointer: coarse) {
     .tap-expand::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
       width: max(100%, 44px);
       height: max(100%, 44px);
-      transform: translate(-50%, -50%);
     }
   }
 }
@@ -1967,17 +2021,22 @@ input[type="range"]::-webkit-slider-thumb {
  * rientrata di 6px e arrotondata, quindi si legge come una tab. Stessi valori,
  * un contenitore in meno. */
 
+/* Same two floors as `.tap-expand`: 24 tall with the mouse (WCAG 2.5.8),
+ * 44 under a finger. Still only in height: the width is the box's own. */
 @layer components {
   .tap-expand-y { position: relative; }
+  .tap-expand-y::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: max(100%, 24px);
+    transform: translateY(-50%);
+  }
   @media (pointer: coarse) {
     .tap-expand-y::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 0;
-      right: 0;
       height: max(100%, 44px);
-      transform: translateY(-50%);
     }
   }
 }
@@ -2205,7 +2264,12 @@ input[type="range"]::-webkit-slider-thumb {
 @media (min-width: 768px) { .tab-slot-command { --tab-command-box: 28px; } }
 /* The browser's extra commands (the dots) cover the label's tail, left of the
  * slot, instead of taking its width. 34px = the slot's 6px from the edge + its
- * 20px + the 8px gap. The label fades under them rather than showing through. */
+ * 20px + the 8px gap. The label fades under them rather than showing through.
+ *
+ * The gap is 8, not 2: each command is a 16px glyph whose answering area is a
+ * 24 square (`.tap-expand`, WCAG 2.5.8), so two of them 16 + 8 apart meet edge
+ * to edge instead of one taking the other's pixels. On the right the dots'
+ * square ends 4px further, at 30px from the tab's edge, where Close begins. */
 .tab-extras {
   position: absolute;
   top: 50%;
@@ -2214,7 +2278,7 @@ input[type="range"]::-webkit-slider-thumb {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 100ms ease;
@@ -2239,11 +2303,11 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
-  /* Two extras (take back control + the dots, 16 + 2 + 16): the fade moves
-   * left by one command, or the label shows through the first. */
+  /* Two extras (take back control + the dots, 16 + 8 + 16): the fade moves
+   * left by one command and its gap, or the label shows through the first. */
   [role='tab'][data-tab-extras]:has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
-    -webkit-mask-image: linear-gradient(to left, transparent 38px, #000 50px);
-    mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+    -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
+    mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
 }
 @media not (hover: hover) {
@@ -2258,8 +2322,8 @@ input[type="range"]::-webkit-slider-thumb {
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
   [role='tab'][data-active='true'][data-tab-extras]:has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
-    -webkit-mask-image: linear-gradient(to left, transparent 38px, #000 50px);
-    mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+    -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
+    mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
 }
 
