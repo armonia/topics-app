@@ -1,5 +1,92 @@
 [
   {
+    "version": "2.2.448",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Pannello chiuso prima della sua riga: la riga nasce chiusa, non sul pannello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci in inglese i commenti nuovi dei commit locali e traccia il goal che aspetta un sottoagente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Isola lo stato di browser-close-keeps-session, ora che resolveStateDir rifiuta il repo sotto test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cancella la card che git-rows-one-shape e chat-changed-files-task-range lasciano in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra le regole globali dell'hub nell'ispettore anche senza progetto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.447",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Domanda arrivata prima della sua riga: il form si apre lo stesso nella finestra mittente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la scelta del proprietario: il browser remoto delle pane resta su Chromium",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A project created by name is born next to the user's projects, not in the agent workspace",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archive the contesto-dall-hub change: shipped",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A test process can no longer write the live state through any module, not only createAppContext",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non spingere il goal mentre un sottoagente lavora per la chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TILE-15 misura cio' che aggiungono le sue card, non il totale del server",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.446",
     "date": "2026-10-04",
     "sections": {
@@ -19,6 +106,16 @@
         },
         {
           "it": "Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai funzionare l'indietro delle tab browser: frame che segue l'indirizzo e frecce native accese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fai tornare l'indietro della tab sulla pagina lasciata da un link nel frame, senza voci nella cronologia dell'app",
           "en": "",
           "scope": null
         },
