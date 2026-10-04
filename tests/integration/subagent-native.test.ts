@@ -231,6 +231,27 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(rowOf(body.agentId as string)?.runtime).toBe("claude-code");
   });
 
+  // 04/10: pop-demo riscriveva a «arte-tappa-1», nato sulla CLI, e ogni
+  // ripresa riapriva un Claude Code. Ora riparte nativo, stesso id.
+  test("a stopped CLI child, written to again, comes back on the engine with its task, not with --resume", async () => {
+    const { body } = await spawn(PARENT, { runtime: "claude-code", name: "arte-tappa-1" });
+    const id = body.agentId as string;
+    await call(`${agents(PARENT)}/${id}/stop`, "POST");
+    ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000aa", id]);
+    const before = creates().length;
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "now the bastion" });
+    expect(res.status).toBe(200);
+    const sent = await res.json() as Record<string, unknown>;
+    expect(sent).toMatchObject({ ok: true, resumed: true, runtime: "topics" });
+    expect(creates().length).toBe(before);
+    expect(rowOf(id)).toMatchObject({ runtime: "topics", session_key: sent.sessionKey });
+    const turn = await until("the migrated turn", () => turns.find((t) => t.sessionKey === sent.sessionKey));
+    expect(turn.text).toContain("«arte-tappa-1»");
+    expect(turn.text.toLowerCase()).toContain("find the call sites of deliverexit.");
+    expect(turn.text.endsWith("now the bastion")).toBe(true);
+    expect(await until("its result", () => reportsFor(id).find((r) => r.outcome.status === "completed"))).toBeTruthy();
+  });
+
   test("an unknown runtime is refused", async () => {
     const { status } = await spawn(PARENT, { runtime: "codex" });
     expect(status).toBe(400);

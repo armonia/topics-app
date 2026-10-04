@@ -51,6 +51,7 @@ import {
   engineModelOf, engineToolsOfProfile, nativeChildPlace, nativeSubagentsAvailable, readNativeChildOutput, sendToNativeChild,
   spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
+import { migratedChildPromptFor } from "../lib/subagent-migration";
 import {
   FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
@@ -3658,6 +3659,34 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
           const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
           if (refusal) return errorResponse(429, refusal);
+          // subagent-nativi: un figlio nato sulla CLI non si riaccende come
+          // Claude Code. Se il motore lo puo' prendere, riparte nativo con lo
+          // stesso id (la riga si riscrive) e il suo lavoro come contesto.
+          if (nativeSubagentsAvailable()) {
+            const parentTopic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
+            const place = nativeChildPlace({
+              explicitCwd: row.cwd || null,
+              parentTopic,
+              parentCwd: sessions.get(parentKey)?.cwd ?? null,
+              knownProject: (p) => !!ctx.projectStore.getByPath(p),
+            });
+            if (place.ok) {
+              try {
+                const child = spawnNativeChild({
+                  id: row.id, parentSessionKey: parentKey, name: row.name,
+                  prompt: migratedChildPromptFor(row, input),
+                  cwd: row.cwd, parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
+                  model: engineModelOf(row.model), effort: row.effort, agentType: row.agentType,
+                  instructions: null, tools: null,
+                  promptSnippet: row.promptSnippet,
+                });
+                console.log(`[subagent] ${row.id} (${row.name}) migrato dalla CLI al motore di Topics: ${child.sessionKey}`);
+                return json({ ok: true, sent: input.length, resumed: true, runtime: "topics", sessionKey: child.sessionKey });
+              } catch (err) {
+                console.warn(`[subagent] migrazione di ${row.id} fallita, riprende sulla CLI:`, err);
+              }
+            }
+          }
           try {
             await ensureBridge();
             const session = await createSession(row.id, row.name, row.cwd, undefined, 120, 30, undefined, "claude-code", true, row.claudeSessionId!, parentKey, "user");
