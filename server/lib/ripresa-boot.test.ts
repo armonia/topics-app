@@ -9,10 +9,11 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
-  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
+  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESTART_CONTINUATIONS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER,
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
+import { ORPHAN_ERRORS } from "./orphan-tool-sweep";
 import { Database } from "bun:sqlite";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
 import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
@@ -441,7 +442,10 @@ describe("la catena dei riavvii ha un tetto", () => {
    *  carrying the same banner `chat.ts` pushes, then returns a stream that
    *  closes. The answer will be "cut" by the test calling
    *  `serverDiedUnderTheTurn` afterwards. */
-  function chatRoute(db: Database, calls: Array<Record<string, unknown>>): Parameters<typeof riprendiTurniInterrotti>[1] {
+  /** A resend's answer: a tool that got done (`success`), or one the next cut left orphan. */
+  const doneTool: ContentBlock = { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } } as ContentBlock;
+  const orphanTool: ContentBlock = { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "error", error: ORPHAN_ERRORS.running } } as ContentBlock;
+  function chatRoute(db: Database, calls: Array<Record<string, unknown>>, answerTool: ContentBlock = doneTool): Parameters<typeof riprendiTurniInterrotti>[1] {
     return async (req) => {
       const body = await req.json() as Record<string, unknown>;
       calls.push(body);
@@ -450,7 +454,7 @@ describe("la catena dei riavvii ha un tetto", () => {
       const order = (db.query("SELECT COALESCE(MAX(sort_order), -1) AS mo FROM messages").get() as { mo: number }).mo;
       db.run(
         "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,'user',?,0,?,?,?,0)",
-        [`u${n}`, "topic:x", MESSAGE, new Date().toISOString(), order + 1, parent.id],
+        [`u${n}`, "topic:x", (body.messages as Array<{ content: string }> | undefined)?.[0]?.content ?? MESSAGE, new Date().toISOString(), order + 1, parent.id],
       );
       if (typeof body.resendOf === "string") noteResendCopy(db, "topic:x", body.resendOf, `u${n}`);
       const banner: ContentBlock = typeof body.ripresa === "number"
@@ -458,7 +462,7 @@ describe("la catena dei riavvii ha un tetto", () => {
         : { kind: "ripreso" };
       db.run(
         "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,'assistant','',?,0,?,?,?,0)",
-        [`a${n}`, "topic:x", JSON.stringify([banner, { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }]), new Date().toISOString(), order + 2, `u${n}`],
+        [`a${n}`, "topic:x", JSON.stringify([banner, answerTool]), new Date().toISOString(), order + 2, `u${n}`],
       );
       return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
     };
@@ -535,6 +539,30 @@ describe("la catena dei riavvii ha un tetto", () => {
    * at 0 (review of eb1971a84: "fai il deploy", ripresa 1). The row carries no
    * verdict, as on main: nothing to resume, and one notice for the person.
    */
+  test("boot di fila con lavoro fatto: continuato senza spendere tentativi, ma non per sempre", async () => {
+    const db = freshDb();
+    const calls: Array<Record<string, unknown>> = [];
+    const route = chatRoute(db, calls, doneTool);
+    // Boot 1 resends the person's message (nothing had run yet); every boot
+    // after it finds a resend that got a tool done, and continues it.
+    const boots = 1 + MAX_RESTART_CONTINUATIONS + MAX_RESUME_ATTEMPTS + 2;
+    for (let boot = 1; boot <= boots; boot++) {
+      serverDiedUnderTheTurn(db);
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+    }
+    const isNote = (c: Record<string, unknown>) => String((c.messages as Array<{ content: string }>)[0].content).startsWith("[Topics] The server restarted");
+    // Boot 1: the person's message. Then MAX_RESTART_CONTINUATIONS notes, each a
+    // fresh chain (attempt 1). Past them the attempts count again on the last
+    // note, up to MAX_RESUME_ATTEMPTS, and the chain stops with its notice.
+    expect(isNote(calls[0])).toBe(false);
+    const continued = calls.slice(1, 1 + MAX_RESTART_CONTINUATIONS);
+    expect(continued.every((c) => isNote(c) && c.ripresa === 1)).toBe(true);
+    const counted = Array.from({ length: MAX_RESUME_ATTEMPTS - 1 }, (_, i) => i + 2);
+    expect(calls.slice(1 + MAX_RESTART_CONTINUATIONS).map((c) => c.ripresa)).toEqual(counted);
+    expect(calls.length).toBe(1 + MAX_RESTART_CONTINUATIONS + counted.length);
+    expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "error")).toBe(true);
+  });
+
   test("the person deletes the restart notice: the row the boot closed, last again, is not resent", async () => {
     const db = freshDb();
     for (const col of ["streamed_at", "thinking", "tool_calls"]) db.run(`ALTER TABLE messages ADD COLUMN ${col} TEXT`);
@@ -568,10 +596,13 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(calls).toHaveLength(0);
   });
 
+  // Each resend is cut before a tool finishes (its call left orphan): no work
+  // done, so every cut spends an attempt. A resend that DID work is continued
+  // without spending one, up to MAX_RESTART_CONTINUATIONS (test below).
   test("boot di fila: ripreso fino al tetto, poi fermo e detto in chat", async () => {
     const db = freshDb();
     const calls: Array<Record<string, unknown>> = [];
-    const route = chatRoute(db, calls);
+    const route = chatRoute(db, calls, orphanTool);
 
     // Boot 1..N: the turn (or its resume) died with the server each time; the
     // notice is written and the resume fires, attempt numbered along the chain.
@@ -735,7 +766,9 @@ describe("la catena dei riavvii ha un tetto", () => {
    * the table's: a message nothing resent starts from zero under any of them.
    */
   test("a chain in flight before the count existed goes on from the number its rows carry", async () => {
-    const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
+    // Calls left orphan by each cut: the chain did no work, so this reads the
+    // count alone (a chain at work is continued: ripresa-boot-restart-continuation.test.ts).
+    const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "error", error: ORPHAN_ERRORS.running } }) as ContentBlock;
     const apiCut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at: new Date(Date.now() - 30_000).toISOString() } as ContentBlock;
     const shapes = ["graceful", "hard kill", "copy left unanswered", "reattached without the banner", "api still down", "new message, chat the count has seen"] as const;
     const resent: Record<string, unknown[]> = {};
@@ -768,7 +801,7 @@ describe("la catena dei riavvii ha un tetto", () => {
         insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut], "u4");
       }
       const calls: Array<Record<string, unknown>> = [];
-      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls, orphanTool)));
       resent[shape] = calls.map((c) => c.ripresa);
     }
     resetProviderHoldStore();

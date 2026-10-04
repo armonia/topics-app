@@ -15,12 +15,11 @@
  */
 import { holdForApiDown, liftApiDownHold } from "../../lib/provider-hold";
 import { cancelled, type TurnEndInfo } from "../stop-reason";
-import { readApiRetry, type StreamLineKind } from "./events";
+import { readApiRetry, type ApiRetryLine, type StreamLineKind } from "./events";
 
 /** The CLI's last retry of the API: when, and whether the API itself was down. */
-export interface ApiRetryMark {
+export interface ApiRetryMark extends ApiRetryLine {
   at: number;
-  outage: boolean;
 }
 
 /**
@@ -35,7 +34,7 @@ export function noteApiHealth(kind: StreamLineKind, event: unknown, nowMs: numbe
   const retry = kind === "noise" ? readApiRetry(event) : null;
   if (!retry) return null;
   if (retry.outage) holdForApiDown(nowMs);
-  return { at: nowMs, outage: retry.outage };
+  return { ...retry, at: nowMs };
 }
 
 /**
@@ -48,7 +47,7 @@ export function noteApiHealth(kind: StreamLineKind, event: unknown, nowMs: numbe
  * comes thirty minutes after that retry, whose own hold ran out after ten:
  * without it the next sweep would resend into the API the cut calls down.
  */
-export function silentTurnEnd(retry: ApiRetryMark | undefined, lastEventAt: number, detail: string, nowMs: number = Date.now()): TurnEndInfo {
+export function silentTurnEnd(retry: Pick<ApiRetryMark, "at" | "outage"> | undefined, lastEventAt: number, detail: string, nowMs: number = Date.now()): TurnEndInfo {
   if (!retry?.outage || retry.at < lastEventAt) return cancelled("watchdog", detail);
   holdForApiDown(nowMs);
   return { end: "error", cause: "api-unavailable", detail };

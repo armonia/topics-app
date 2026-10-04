@@ -114,10 +114,28 @@ function readUnifiedWindow(raw: unknown): PlanUsageWindow | null {
  * API itself is down (`isApiDownStatus`); a 429 or a 4xx is retried too, but
  * the API is up. Null for any other line.
  */
-export function readApiRetry(event: unknown): { outage: boolean } | null {
+export function readApiRetry(event: unknown): ApiRetryLine | null {
   const e = asRecord(event);
   if (!e || e.type !== "system" || e.subtype !== "api_retry") return null;
-  return { outage: isApiDownStatus(e.error_status) };
+  const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  const status = typeof e.error_status === "number" ? String(e.error_status) : typeof e.error === "string" ? e.error : "error";
+  return {
+    outage: isApiDownStatus(e.error_status),
+    attempt: num(e.attempt, 1),
+    maxAttempts: num(e.max_retries, 10),
+    delayMs: num(e.retry_delay_ms, 0),
+    status,
+  };
+}
+
+/** What a `system/api_retry` line says, enough to tell the person why the turn is still. */
+export interface ApiRetryLine {
+  outage: boolean;
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  /** HTTP status as text, or the CLI's error word when there is none («unknown» on a timeout). */
+  status: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
