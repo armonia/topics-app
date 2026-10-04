@@ -247,7 +247,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // Holding a sheet's tab opens its sheet on the commands, as a right click does.
   const { isTouch } = useMobile();
   const sheetLongPress = useLongPress(({ element }) => {
-    const key = element.dataset.paneId;
+    const key = element.dataset.sheetKey;
     if (key) openTabSheet(key, 'commands');
   }, { enabled: isTouch });
   const [addOpen, setAddOpen] = useState(false);
@@ -562,7 +562,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
                 data-testid="topic-browser-tab"
                 data-context-id={t.contextId}
                 data-active={isActive}
-                data-pane-id={sheetKey}
+                // The sheet's key, NOT `data-pane-id`: that attribute names a
+                // pane of the LAYOUT (drop targets, geometry, the native view's
+                // rectangle all look it up), and this tab is a page held by the
+                // window, not a pane. Carrying it made the window's tab count as
+                // a second copy of a page that was only in the window.
+                data-sheet-key={sheetKey}
                 // THE SAME SHEET AS A TAB OF THE STRIP (TABSHEET-04): the
                 // active one opens it on the address, a right click, a long
                 // press or Shift+F10 open it on its commands.
