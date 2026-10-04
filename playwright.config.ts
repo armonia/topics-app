@@ -625,6 +625,11 @@ export default defineConfig({
         // The card's changed-files chip end to end: count, show-all, filter,
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",
+        // The chat's strip draws its changeset with the same diff panel: a
+        // row opens its lines in place, a picture its Before/After, and a
+        // card's topic links to the drawer. Filmed on the shipping engine.
+        "**/chat-changed-files.spec.ts",
+        "**/chat-changed-files-task-range.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
         // A native-runtime call queued behind another, or still being written
         // by the model, is not shown running: real server turns on the native

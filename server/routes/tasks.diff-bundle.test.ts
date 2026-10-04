@@ -1,12 +1,11 @@
 /**
- * @covers KANBAN-49, DIFFPV-01
+ * @covers KANBAN-49, DIFFPV-01, CHGSET-02
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitDiffBundle } from "./tasks";
-import { gitDiffStat } from "../lib/git-diff-stat";
+import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
 import { splitPatch } from "../../client/src/components/Board/diffFileRows";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
@@ -199,5 +198,24 @@ describe("gitDiffBundle untracked inclusion", () => {
     writeFileSync(join(dir, "tracked.txt"), "base\nmore\n");
     const bundle = await gitDiffBundle(dir, base);
     expect(bundle.stat).toEqual([{ path: "tracked.txt", additions: 1, deletions: 0, status: "M" }]);
+  });
+
+  test("with `paths`, a dirty file outside them is in neither the stat nor the patch", async () => {
+    // A chat's changeset reads the shared checkout: what another session left
+    // dirty there, tracked or not, is not this conversation's.
+    writeFileSync(join(dir, "tracked.txt"), "base\nmine\n");
+    writeFileSync(join(dir, "mine.txt"), "new\n");
+    writeFileSync(join(dir, "c.ts"), "theirs\n");
+    await git(dir, ["add", "c.ts"]);
+    writeFileSync(join(dir, "stranger.md"), "theirs\n");
+
+    const bundle = await gitDiffBundle(dir, "HEAD", { includeUntracked: true, paths: ["tracked.txt", "mine.txt"] });
+    expect(bundle.stat.map((s) => s.path).sort()).toEqual(["mine.txt", "tracked.txt"]);
+    expect(splitPatch(bundle.patch).map((c) => c.path).sort()).toEqual(["mine.txt", "tracked.txt"]);
+    expect(bundle.patch).not.toContain("c.ts");
+    expect(bundle.patch).not.toContain("stranger.md");
+
+    // No path at all is no file at all, not the whole tree.
+    expect(await gitDiffBundle(dir, "HEAD", { includeUntracked: true, paths: [] })).toEqual({ stat: [], patch: "", truncated: false });
   });
 });

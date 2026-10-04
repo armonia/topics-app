@@ -29,10 +29,12 @@ import { existsSync, realpathSync } from "fs";
 import { parsePorcelainZ } from "./git-porcelain";
 import { parseNumstatZ, type Numstat } from "./git-numstat";
 import { gitDiffStat, runGitRead as git, type DiffStatEntry } from "./git-diff-stat";
-import { resolveTaskDiffRange } from "../services/task-diff-range";
+import { resolveTaskDiffRange, revsOfRange, type TaskDiffRange } from "../services/task-diff-range";
+import { defaultRunGit } from "../services/own-commits";
 import { deriveToolDetail } from "../../shared/tool-detail";
 import type { ToolCall } from "../../shared/types";
 import type { TopicChangeKind, TopicChangedFile, TopicChanges } from "../../shared/topic-changes";
+import type { DiffRevs } from "../../shared/diff-revs";
 
 /** The slice of a stored message this module reads. */
 export interface TouchedMessage {
@@ -303,18 +305,35 @@ export interface TopicRangeAnchors {
 }
 
 /**
- * A task topic's changes, read from the task's own diff range: the one the
- * drawer draws (`resolveTaskDiffRange`: the live worktree, then the land
- * merge, then the delivery commit).
+ * WHERE a topic's changes are read, decided once for the list
+ * (`/topics/:id/changes`) and the changeset (`/topics/:id/changes/diff`), so
+ * the two can never describe two different diffs.
  *
- * Git owns the file set here because the tool calls got it wrong twice (review
- * of 23/09): once the worktree is pruned every tool call path points into a
- * folder that is gone (d6158ec6: 42 paths, 0 resolved), and a file a shell
- * command or a sub-agent wrote has no write tool call at all (e8e3b8bf: strip
- * 5, git 9). The tool calls the range does not hold keep a row of their own.
- * `null` = no range to read, and the tool calls answer as before.
+ *  - `range`: the task's own diff range, the drawer's (`resolveTaskDiffRange`:
+ *    the live worktree, then the land merge, then the delivery commit). The
+ *    whole range, no path filter: shell and sub-agent writes are in it.
+ *  - `head`: `HEAD` of the repository the topic sits in against its working
+ *    tree, LIMITED to the repository-relative paths the write tool calls name
+ *    (at most `MAX_GIT_PATHS`). `hasHead` false = a repository with no commit,
+ *    whose only changes are untracked files.
+ *  - `null`: no file, no folder, or a folder outside any repository.
  */
-async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]): Promise<TopicChanges | null> {
+export type TopicChangeTarget =
+  | { kind: "range"; cwd: string; range: string; live: boolean; taskRange: TaskDiffRange; stat?: DiffStatEntry[] }
+  | { kind: "head"; cwd: string; range: "HEAD"; live: true; paths: string[]; hasHead: boolean }
+  | null;
+
+/**
+ * The task's range for a topic a task was dispatched to, or `null` when there
+ * is none to read, or the one read is not the card's.
+ *
+ * Git owns the file set there because the tool calls got it wrong twice
+ * (review of 23/09): once the worktree is pruned every tool call path points
+ * into a folder that is gone (d6158ec6: 42 paths, 0 resolved), and a file a
+ * shell command or a sub-agent wrote has no write tool call at all (e8e3b8bf:
+ * strip 5, git 9).
+ */
+async function taskRangeTarget(anchors: TopicRangeAnchors): Promise<TopicChangeTarget> {
   const { task, worktree: wt } = anchors;
   // The drawer's anchors (`routes/tasks.ts`): only a branch worktree still on disk is live.
   const live = wt && wt.mode === "branch" && wt.absPath && existsSync(wt.absPath)
@@ -327,11 +346,8 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
     delivery: { branch: task.deliveryBranch, commit: task.deliveryCommit },
   });
   if (!range) return null;
-  const root = canonicalPath(range.cwd);
-  const { stat } = await gitDiffStat(range.cwd, range.range, {
-    includeUntracked: range.live,
-    untrackedCap: MAX_UNTRACKED_COUNTS,
-  });
+  const target = { kind: "range" as const, cwd: range.cwd, range: range.range, live: range.live, taskRange: range };
+  if (range.source !== "delivery-commit" || task.deliveryFiles === null) return target;
   // Read back after the branches around it are gone, a delivery commit counts
   // as the card's every commit no local branch holds any more: another
   // session's commit its branch carried (cf665621: 17 files where the review
@@ -340,8 +356,71 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
   // the delivery while those branches still said whose each commit was, so a
   // range holding more files than that is not the card's. The drawer still
   // draws it; the strip keeps the tool calls. A land merge is exactly what
-  // the land brought, and stays.
-  if (range.source === "delivery-commit" && task.deliveryFiles !== null && stat.length > task.deliveryFiles) return null;
+  // the land brought, and stays. A commit range has no untracked side.
+  const { stat } = await gitDiffStat(range.cwd, range.range);
+  return stat.length > task.deliveryFiles ? null : { ...target, stat };
+}
+
+/** The tool calls' paths inside `root`, repository-relative, and the rest. */
+function splitByRepo(root: string, touched: TouchedFile[]): { inside: Array<{ touched: TouchedFile; rel: string }>; outside: TouchedFile[] } {
+  const inside: Array<{ touched: TouchedFile; rel: string }> = [];
+  const outside: TouchedFile[] = [];
+  for (const file of touched) {
+    const rel = pathInTree(root, canonicalPath(isAbsolute(file.path) ? file.path : resolve(root, file.path)));
+    if (rel === null) outside.push(file);
+    else inside.push({ touched: file, rel });
+  }
+  return { inside, outside };
+}
+
+/**
+ * The target of a topic (see `TopicChangeTarget`). `cwd` is the topic's
+ * worktree if it has one, its project folder otherwise; `anchors` is set on a
+ * topic a task was dispatched to, and the task's range goes first.
+ */
+export async function resolveTopicChangeTarget(
+  cwd: string | null | undefined,
+  messages: TouchedMessage[],
+  anchors?: TopicRangeAnchors | null,
+  touched: TouchedFile[] = aggregateTouchedFiles(messages),
+): Promise<TopicChangeTarget> {
+  // The range runs at the end of every turn; a conversation that ran no tool
+  // (no write, no shell, no sub-agent) changed nothing, and asks git nothing.
+  if (anchors && messages.some((m) => m.toolCalls?.length)) {
+    const fromRange = await taskRangeTarget(anchors);
+    if (fromRange) return fromRange;
+  }
+  if (!touched.length || !cwd) return null;
+  const root = await repoRoot(cwd);
+  if (!root) return null;
+  const paths = splitByRepo(root, touched).inside.slice(0, MAX_GIT_PATHS).map((f) => f.rel);
+  return { kind: "head", cwd: root, range: "HEAD", live: true, paths, hasHead: paths.length ? await hasHead(root) : false };
+}
+
+/** The two SHAs of a target: what the panel may ask the bytes of. */
+export async function revsOfTarget(target: TopicChangeTarget): Promise<DiffRevs | null> {
+  if (!target || (target.kind === "head" && !target.hasHead)) return null;
+  return revsOfRange(defaultRunGit, target.cwd, target.range, target.live);
+}
+
+/**
+ * A task topic's changes, read from the task's range: one row per file of the
+ * range, with the turns of the tool calls that wrote it in the task's tree.
+ * The tool calls the range does not hold keep a row of their own.
+ */
+async function rangeChanges(
+  target: Extract<TopicChangeTarget, { kind: "range" }>,
+  anchors: TopicRangeAnchors,
+  touched: TouchedFile[],
+): Promise<Omit<TopicChanges, "revs">> {
+  const { task, worktree: wt } = anchors;
+  const range = target.taskRange;
+  const live = wt && wt.mode === "branch" && wt.absPath && existsSync(wt.absPath) ? { branch: wt.branchName } : null;
+  const root = canonicalPath(range.cwd);
+  const stat = target.stat ?? (await gitDiffStat(range.cwd, range.range, {
+    includeUntracked: range.live,
+    untrackedCap: MAX_UNTRACKED_COUNTS,
+  })).stat;
   // No recorded delivery (89 of the cards landed by `merge task <id>` on main
   // have none): the attempt still names the worktree the topic wrote in.
   const taskBranch = task.deliveryBranch ?? task.attemptBranch;
@@ -377,13 +456,7 @@ function uncounted({ path, kind, turns, lastAt }: TouchedFile): TopicChangedFile
  * `dirty` counts the ones git still reports as changed.
  */
 async function toolCallFiles(root: string, touched: TouchedFile[]): Promise<{ files: TopicChangedFile[]; dirty: number }> {
-  const inside: Array<{ touched: TouchedFile; rel: string }> = [];
-  const outside: TouchedFile[] = [];
-  for (const file of touched) {
-    const rel = pathInTree(root, canonicalPath(isAbsolute(file.path) ? file.path : resolve(root, file.path)));
-    if (rel === null) outside.push(file);
-    else inside.push({ touched: file, rel });
-  }
+  const { inside, outside } = splitByRepo(root, touched);
   const scoped = inside.slice(0, MAX_GIT_PATHS);
   const pathspec = scoped.map((f) => f.rel);
 
@@ -425,12 +498,11 @@ async function toolCallFiles(root: string, touched: TouchedFile[]): Promise<{ fi
 
 /**
  * The changes of one topic: its write tool calls, crossed with git when the
- * topic has a folder inside a repository.
+ * topic has a folder inside a repository, and the revisions of the target they
+ * were read on (`revs`, the same the changeset route answers).
  *
- * `cwd` is the topic's worktree if it has one, its project folder otherwise.
  * Outside a repository (or without git at all) the answer is still useful: the
- * paths, the kinds the tool calls imply, and `git: null`. `anchors` is set on a
- * topic a task was dispatched to, and the task's range goes first.
+ * paths, the kinds the tool calls imply, and `git: null`.
  */
 export async function computeTopicChanges(
   cwd: string | null | undefined,
@@ -438,20 +510,15 @@ export async function computeTopicChanges(
   anchors?: TopicRangeAnchors | null,
 ): Promise<TopicChanges> {
   const touched = aggregateTouchedFiles(messages);
-  // The range runs at the end of every turn; a conversation that ran no tool
-  // (no write, no shell, no sub-agent) changed nothing, and asks git nothing.
-  if (anchors && messages.some((m) => m.toolCalls?.length)) {
-    const fromRange = await rangeChanges(anchors, touched);
-    if (fromRange) return fromRange;
+  const target = await resolveTopicChangeTarget(cwd, messages, anchors, touched);
+  if (!target) return { files: touched.map(uncounted), git: null, revs: null };
+  if (target.kind === "range") {
+    const [listed, revs] = await Promise.all([rangeChanges(target, anchors!, touched), revsOfTarget(target)]);
+    return { ...listed, revs };
   }
-  const plain = (): TopicChanges => ({ files: touched.map(uncounted), git: null });
-  if (!touched.length || !cwd) return plain();
-
-  const root = await repoRoot(cwd);
-  if (!root) return plain();
-
-  const [branch, { files, dirty }] = await Promise.all([currentBranch(root), toolCallFiles(root, touched)]);
+  const root = target.cwd;
+  const [branch, { files, dirty }, revs] = await Promise.all([currentBranch(root), toolCallFiles(root, touched), revsOfTarget(target)]);
   // `dirty` counts the topic's OWN files that git still reports as changed,
   // not the dirt of the whole repository: the panel is about this topic.
-  return { files, git: { root, branch, dirty } };
+  return { files, git: { root, branch, dirty }, revs };
 }

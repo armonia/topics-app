@@ -9,6 +9,7 @@
  * task's own diff range (the drawer's) gives the files instead: shell and
  * sub-agent writes show up too.
  */
+import type { DiffRevs } from './diff-revs';
 
 /** What happened to the file, after git had its say. */
 export type TopicChangeKind = 'created' | 'modified' | 'deleted';
@@ -51,4 +52,11 @@ export interface TopicChanges {
   git: TopicChangesGit | null;
   /** The task whose diff range gave the rows marked `inRange`. */
   taskId?: string;
+  /**
+   * The two revisions the rows were counted on, the same the changeset route
+   * (`/topics/:id/changes/diff`) answers: the task's range, or `HEAD` against
+   * the working tree (`head: null`). `null` outside a repository, without a
+   * file, or in a repository with no commit yet.
+   */
+  revs: DiffRevs | null;
 }

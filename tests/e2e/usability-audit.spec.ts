@@ -23,7 +23,9 @@
  * Surfaces: the sidebar with the two update banners (bundle rebuilt, and the
  * shell updater in `update-available` and `error`), the user menu with its
  * system and settings levels, the chat with tool runs closed and open and an
- * answered question, the composer and the model selector, the board (columns,
+ * answered question, the composer and the model selector, the changed-files
+ * strip of a card's topic opened on its diff (the link to the card, the diff's
+ * file header), the board (columns,
  * cards, card menu, settings popover, task drawer), the browser pane with its
  * tab strip, the add-pane menu and the topic row's context menu.
  *
@@ -54,6 +56,7 @@
  * and its Tab level (TABSHEET-01), on both viewports.
  */
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { execFileSync } from "child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { hermetic } from "./fixtures/hermetic";
@@ -90,7 +93,8 @@ interface Exception {
 const EXCEPTIONS: Exception[] = [
   { kind: "text-size", selector: /identity-glyph/, why: "a monogram inside the fixed 14px avatar (IDENTITY_GLYPH_BOX): a picture of a name that is written out in the title, `text-nano` reserved by check:typography" },
   { kind: "target-size", selector: /group\/proj\.row-card\.flex > but/, floor: { w: 12, h: 34 }, why: "the accordion chevron of a project row, 12px column shared by every sidebar row (ROW_CHEVRON_SLOT); WCAG 2.5.8 «equivalent»: the project name beside it toggles the same accordion on a second click" },
-  { kind: "axe:target-size", selector: /group\\\/proj > \.w-3/, why: "same chevron as above, seen by axe on its box" },
+  // `[^>]*`: with more than one project in the sidebar axe names the row by its classes too (`.group\/proj.mx-1\.5...`).
+  { kind: "axe:target-size", selector: /group\\\/proj[^>]* > \.w-3/, why: "same chevron as above, seen by axe on its box" },
   { kind: "axe:target-size", selector: /testid=task-id-chip$/, why: "the task id chip (atoms.tsx): axe reads the 18px BOX, the area that answers is the 24x24 `.tap-expand` projection, which the hit probe above measures and holds to the threshold" },
   { kind: "target-size", selector: /topic-row-archive|span\.row-actions/, viewport: "phone", floor: { w: 36, h: 44 }, why: "the command rail at the end of a row: two 36px commands side by side, a 44px area each would overlap and the last in the DOM would take the other's taps (index.css, `.tap-expand-y`)" },
   { kind: "target-size", selector: /topic-row-archive/, viewport: "desktop", floor: { w: 22, h: 28 }, why: "the sidebar resize handle (App.tsx, `left: sidebarWidth - 8`) covers the last 6px of the row's archive: its band sits INSIDE the sidebar because a native WKWebView pane flush on the content side eats every pixel past the edge, so moving it out would leave nothing to grab next to a browser pane (pre-existing on main, seen once rows were measured hovered)" },
@@ -129,6 +133,12 @@ const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 const topicIds: string[] = [];
 const taskIds: string[] = [];
 let drawerTaskId = "";
+// A card's topic in a git repository, whose strip draws the card's range.
+const STRIP_PATH = canonicalTmpDir("e2e-usability-strip");
+const STRIP_PROJECT_ID = projectIdForPath(STRIP_PATH);
+const STRIP_FILE = "src/a.ts";
+let stripTopicId = "";
+let stripTaskId = "";
 
 async function seedChat(request: APIRequestContext): Promise<void> {
   const topic = await createTopic(request, CHAT_NAME);
@@ -196,16 +206,55 @@ async function seedBoard(request: APIRequestContext): Promise<void> {
   }
 }
 
+/**
+ * The strip of a card's topic, as `chat-changed-files-task-range.spec.ts`
+ * builds it: the card's work landed by merge with its id in the subject, its
+ * branch pruned, a Write in the chat. The strip then carries the link to the
+ * card and draws the card's range with the board's diff panel.
+ */
+async function seedStrip(request: APIRequestContext): Promise<void> {
+  const git = (...args: string[]) => execFileSync("git", ["-C", STRIP_PATH, "-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" }).trim();
+  mkdirSync(`${STRIP_PATH}/src`, { recursive: true });
+  writeFileSync(`${STRIP_PATH}/package.json`, JSON.stringify({ name: "e2e-usability-strip" }));
+  git("init", "-q", "-b", "main");
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  const topic = await createTopic(request, `usability-strip-${STAMP}`, { projectPath: STRIP_PATH });
+  stripTopicId = topic.id;
+  topicIds.push(topic.id);
+  const created = await request.post(`/api/boards/${STRIP_PROJECT_ID}/tasks`, { data: { text: "Measure the strip", status: "review" } });
+  expect(created.ok(), `create task: ${created.status()}`).toBe(true);
+  stripTaskId = ((await created.json()) as { id: string }).id;
+  const branch = `topics/usability-strip-${STAMP}`;
+  git("checkout", "-q", "-b", branch);
+  writeFileSync(`${STRIP_PATH}/${STRIP_FILE}`, "export const a = 1;\nexport const b = 2;\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "the delivery");
+  git("checkout", "-q", "main");
+  const delivered = git("rev-parse", branch);
+  git("merge", "--no-ff", "-q", "-m", `merge task ${stripTaskId}: measure the strip`, branch);
+  git("branch", "-q", "-D", branch);
+  expect((await request.post(`/api/test/tasks/${stripTaskId}/bind-topic`, { data: { topicId: stripTopicId } })).ok()).toBe(true);
+  expect((await request.post(`/api/test/tasks/${stripTaskId}/landing`, { data: { branch, commit: delivered } })).ok()).toBe(true);
+  await seedMessage(request, {
+    sessionKey: `topic:${stripTopicId.slice(0, 8)}`, role: "assistant", content: "Done.",
+    toolCalls: [{ id: "ux-strip-write", name: "Write", args: { file_path: `${STRIP_PATH}/${STRIP_FILE}` }, status: "success" }],
+  });
+}
+
 test.beforeAll(async ({ request }) => {
   mkdirSync(OUT_DIR, { recursive: true });
   await seedChat(request);
   await seedBoard(request);
+  await seedStrip(request);
 });
 
 test.afterAll(async ({ request }) => {
   for (const id of taskIds) await deleteTask(request, PROJECT_ID, id).catch(() => {});
+  if (stripTaskId) await deleteTask(request, STRIP_PROJECT_ID, stripTaskId).catch(() => {});
   for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
   removeTmpDir(PROJECT_PATH);
+  removeTmpDir(STRIP_PATH);
   // One file with every group, for whoever reads the numbers next.
   const groups = readdirSync(OUT_DIR)
     .filter((f) => f.startsWith("group-") && f.endsWith(".json"))
@@ -593,6 +642,27 @@ function groups(vp: Viewport) {
       await page.getByTestId("composer-add-menu").first().click();
       await recorder.measure("composer add menu", await lastMenuScope(page, "composer-menu"));
       await page.keyboard.press("Escape");
+    });
+    recorder.assertClean();
+  });
+
+  test("chat changes strip: a card's topic with its diff open", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "UI-READ-01" }, { type: "spec", description: "CHGSET-03" });
+    const recorder = new Recorder(page, "changes-strip", vp);
+    // By permalink: a topic bound to a project has no top-level sidebar row.
+    await resetPaneStore(page.request, [stripTopicId]);
+    await recorder.step("changes strip (diff open)", async () => {
+      await page.goto(`/tab/chat/${stripTopicId}`);
+      await freezeMotion(page);
+      const chip = page.getByTestId("chat-changes-chip");
+      await expect(chip).toBeVisible({ timeout: 20_000 });
+      await chip.click();
+      const file = page.getByTestId("chat-changes-diff").locator(`[data-testid="diff-file"][data-path="${STRIP_FILE}"]`);
+      await expect(file).toBeVisible({ timeout: 15_000 });
+      await file.getByRole("button", { name: /a\.ts/ }).click();
+      await expect(file).toContainText("+export const b = 2;", { timeout: 15_000 });
+      await expect(page.getByTestId("chat-changes-open-card")).toBeVisible();
+      await recorder.measure("changes strip (diff open)", '[data-testid="chat-changes-strip"]');
     });
     recorder.assertClean();
   });

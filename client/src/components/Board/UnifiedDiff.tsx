@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, FileCode, ImageOff, MessageSquarePlus, Trash2 } from 'lucide-react';
-import { boardApi, diffBlobUrl, type DiffBundle, type DiffFileStat, type DiffPanelSource } from '../../lib/board';
+import { boardApi, diffBlobUrl, type DiffPanelBundle, type DiffFileStat, type DiffPanelSource } from '../../lib/board';
 import type { DiffRevs } from '../../../../shared/diff-revs';
 import { previewTypeOf } from '../../../../shared/preview-kind';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, hasNoteWithoutRow, type DiffRow, type DiffNote } from './reviewNotes';
@@ -14,7 +14,7 @@ import { SpinnerFallback } from '../Shared/Spinner';
 
 /**
  * GitHub-style unified diff for a raw `git diff` patch (a card's delivery, one
- * attempt of its fan-out, or a publish range). Reuses the chat DiffBlock visual
+ * attempt of its fan-out, a publish range, or what a chat changed). Reuses the chat DiffBlock visual
  * vocabulary (red/green line backgrounds, mono, muted meta) so a diff looks the
  * same everywhere. Files start collapsed and their bodies render only on
  * expand, so a big multi-file patch stays cheap until you open a file.
@@ -39,8 +39,8 @@ const MarkdownPreview = lazy(() => import('../Editor/MarkdownPreview'));
 
 function rowClass(row: DiffRow): string {
   switch (row.kind) {
-    case 'hunk': return 'bg-sky-500/10 text-sky-600 dark:text-sky-300';
-    case 'add': return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+    case 'hunk': return 'bg-sky-500/10 text-sky-800 dark:text-sky-300';
+    case 'add': return 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300';
     case 'del': return 'bg-red-500/10 text-red-700 dark:text-red-300'; // allow-italian: 'del' is a patch row kind
     case 'nonewline': return 'text-app-text-muted italic';
     default: return 'text-app-text-faint dark:text-app-text-secondary';
@@ -241,7 +241,7 @@ function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: File
           data-testid={`diff-view-${v}`}
           aria-pressed={value === v}
           onClick={() => onChange(v)}
-          className={`rounded px-1.5 py-0.5 text-mini ${value === v ? 'bg-indigo-500/20 text-indigo-200' : 'text-app-text-muted hover:text-app-text'}`}
+          className={`min-h-6 rounded px-1.5 py-0.5 text-mini coarse:min-h-11 coarse:min-w-11 ${value === v ? 'bg-indigo-500/20 text-indigo-800 dark:text-indigo-200' : 'text-app-text-secondary hover:text-app-text'}`}
         >
           {tr(VIEW_LABEL[v])}
         </button>
@@ -369,7 +369,7 @@ function MarkdownAtRevision({ path, rev, version, source, onStale }: {
   );
 }
 
-const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, defaultOpen, focused, review, source, revs, onStale }: {
+const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, defaultOpen, focused, review, source, revs, onStale, onOpened }: {
   path: string;
   /** Absent = this file's patch did not arrive (payload cut). */
   chunk?: DiffFileChunk;
@@ -383,6 +383,8 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   /** The two revisions the bundle compares; `null` = no byte can be asked for. */
   revs: DiffRevs | null;
   onStale: () => void;
+  /** The reader opened this file by hand. */
+  onOpened: (path: string) => void;
 }) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -541,9 +543,12 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
     >
       <div className="flex items-center bg-elevated">
         <button
-          onClick={() => setUserOpen(!open)}
+          onClick={() => {
+            setUserOpen(!open);
+            if (!open) onOpened(path);
+          }}
           title={row.origPath ? `${row.origPath} -> ${path}` : path}
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-mini hover:bg-app-hover"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-mini hover:bg-app-hover coarse:min-h-11"
         >
           {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
           <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -563,35 +568,43 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   );
 });
 
-export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPath, source, onStale }: {
-  bundle: DiffBundle;
+export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPath, source, onStale, onFileOpened }: {
+  bundle: DiffPanelBundle;
   /** Expand the first file automatically (handy when there's just one). */
   defaultOpenFirst?: boolean;
   /** Present = a diff that can be commented line by line. */
   review?: DiffReview;
   /** The file to expand and scroll to (opened from a row of the card chip). */
   focusPath?: string | null;
-  /** Where the diff is read: a card, one attempt of its fan-out, or a publish. Every file is read from ITS range. */
+  /** Where the diff is read: a card, one attempt of its fan-out, a publish, or a topic. Every file is read from ITS range. */
   source: DiffPanelSource;
   /** A byte read found the bundle's revisions gone (`409`): the owner re-reads the bundle. */
   onStale?: () => void;
+  /** The reader opened a file by hand: the chat's strip sends its link to the card there. */
+  onFileOpened?: (path: string) => void;
 }) {
   const tr = useT();
   const files = useMemo(() => buildFileRows(bundle), [bundle]);
   const missing = files.filter((f) => !f.chunk).length;
   // Held by value: a mount point that writes `source` inline must not re-fetch
-  // every open file (and break every row's memo) on each of its renders.
-  const projectId = source.projectId;
-  const taskId = source.kind === 'task' ? source.taskId : null;
+  // every open file (and break every row's memo) on each of its renders. Every
+  // kind is rebuilt as itself: a kind left out here would read another route.
+  const { kind } = source;
+  const owner = source.kind === 'topic' ? source.topicId : source.projectId;
+  const taskId = source.kind === 'task' ? source.taskId : '';
   const attemptId = source.kind === 'task' ? source.attemptId : undefined;
-  const stableSource = useMemo<DiffPanelSource>(
-    () => (taskId !== null ? { kind: 'task', projectId, taskId, attemptId } : { kind: 'publish', projectId }),
-    [projectId, taskId, attemptId],
-  );
+  const stableSource = useMemo<DiffPanelSource>(() => {
+    if (kind === 'topic') return { kind, topicId: owner };
+    if (kind === 'task') return { kind, projectId: owner, taskId, attemptId };
+    return { kind, projectId: owner };
+  }, [kind, owner, taskId, attemptId]);
   // Same for the callback: read from a ref, so its identity is not a dependency.
   const staleRef = useRef(onStale);
   useEffect(() => { staleRef.current = onStale; }, [onStale]);
   const reportStale = useCallback(() => staleRef.current?.(), []);
+  const openedRef = useRef(onFileOpened);
+  useEffect(() => { openedRef.current = onFileOpened; }, [onFileOpened]);
+  const reportOpened = useCallback((path: string) => openedRef.current?.(path), []);
   const revs = bundle.revs ?? null;
 
   if (files.length === 0) {
@@ -613,6 +626,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPat
           source={stableSource}
           revs={revs}
           onStale={reportStale}
+          onOpened={reportOpened}
         />
       ))}
       {bundle.truncated && (

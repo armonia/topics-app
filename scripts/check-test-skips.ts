@@ -151,8 +151,14 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * where a new skip can land and still be green. The gain had already been
  * measured by the gate itself, which prints the "lower BASELINE" line for
  * exactly this case.
+ *
+ * 24 (2026-10-04): `chat-changed-files.spec.ts` joined the `webkit` project
+ * (change changeset-chat-strip: the strip's diff is filmed on the engine that
+ * ships), and its clip test films through `clipDiConsegna`, which launches its
+ * own Chromium. It skips on `webkit` exactly as `drag-preview.spec.ts` does:
+ * the `chromium` project still runs it, and on this Mac Chromium is refused.
  */
-const BASELINE = 23;
+const BASELINE = 24;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;

@@ -7,18 +7,22 @@ uno suo: il test di CHGSET-01 legge la rotta del topic, quindi sta in T4);
 
 ## Contratto
 
-- [ ] T1 `shared/change-set.ts`; `DiffStatEntry`, `gitDiffBundle`, `DiffFileStat`,
+- [x] T1 `shared/change-set.ts`; `DiffStatEntry`, `gitDiffBundle`, `DiffFileStat`,
       `DiffBundle` ne derivano (CHGSET-01). `bun run typecheck` verde; il test dello
       scenario «tre rotte, una forma» e' in T4, perche' una delle tre rotte nasce li'.
+      Prova: `bun run typecheck` exit 0 (server type errors: 0). `gitDiffBundle` vive ora in
+      `server/lib/git-diff-stat.ts`, accanto a `gitDiffStat`, perche' lo leggono due router.
 
 ## Server
 
-- [ ] T2 `paths` in `gitDiffStat` e `gitDiffBundle`, con un caso in `server/routes/tasks.diff-bundle.test.ts`:
+- [x] T2 `paths` in `gitDiffStat` e `gitDiffBundle`, con un caso in `server/routes/tasks.diff-bundle.test.ts`:
       un file sporco fuori da `paths` non compare ne' nello stat ne' nel patch.
-- [ ] T3 `resolveTopicChangeTarget` in `topic-changes.ts`; `computeTopicChanges` lo usa e
+      Prova: rosso con `paths` ignorato (`c.ts` e `stranger.md` nello stat), verde dopo: 11 pass.
+- [x] T3 `resolveTopicChangeTarget` in `topic-changes.ts`; `computeTopicChanges` lo usa e
       aggiunge `revs` (CHGSET-02). Casi in `topic-changes.test.ts`: topic senza task, topic
       di card, fuori da un repository, repository senza commit.
-- [ ] T4 `GET /api/topics/:id/changes/diff` con `?file=`, `context=full`, `orig=` e
+      Prova: `bun test server/lib/topic-changes.test.ts` 21 pass, 0 fail.
+- [x] T4 `GET /api/topics/:id/changes/diff` con `?file=`, `context=full`, `orig=` e
       `blob=`, piu' il cancello `not_in_changeset` (CHGSET-02, CHGSET-04), in
       `tests/integration/topic-changes-route.test.ts` su un repository vero: `c.ts` sporco
       assente, `revs` uguali fra `/changes` e `/changes/diff`, stesso `stat` del drawer per
@@ -30,22 +34,33 @@ uno suo: il test di CHGSET-01 legge la rotta del topic, quindi sta in T4);
       (`client/src/components/Board/diffFileRows.ts:63`) e danno una riga per quel file, con
       lo stesso `path` e gli stessi `additions`/`deletions`. ROSSO oggi: la rotta del topic
       non esiste.
+      Prova: senza la rotta 4 casi rossi su 4 («no route handled GET /api/topics/…/changes/diff»),
+      contratto compreso; con la rotta `topic-changes-route` + `change-set-contract` 19 pass, 0 fail.
 
 ## Client
 
-- [ ] T5 `DiffPanelSource` `topic`, `diffRoute`, sorgente stabile a tre rami in
+- [x] T5 `DiffPanelSource` `topic`, `diffRoute`, sorgente stabile a tre rami in
       `UnifiedDiff`; caso in `diffPreview.test.ts` per l'URL dei byte di un topic.
-- [ ] T6 `useTopicChangeSet` e `ChangedFilesStrip` con `UnifiedDiff`, righe fuori dal
+      Prova: rosso senza il ramo `topic` di `diffRoute`, verde dopo (12 pass).
+- [x] T6 `useTopicChangeSet` e `ChangedFilesStrip` con `UnifiedDiff`, righe fuori dal
       changeset, collegamento alla card, altezza, stringhe it/en (CHGSET-03).
-- [ ] T7 `ChangedFilesStrip.test.tsx`: una riga fuori dal changeset resta riga semplice;
+      `UnifiedDiff` si carica pigro nella striscia: statico portava l'entry a 1.686 kB, oltre
+      il budget; pigro 1.670 kB, `check:bundle` verde.
+- [x] T7 `ChangedFilesStrip.test.tsx`: una riga fuori dal changeset resta riga semplice;
       il collegamento compare solo con `taskId`.
+      Prova: sulla striscia di prima 4 rossi su 5, dopo 5 pass.
 
 ## Prova
 
-- [ ] T8 `tests/e2e/chat-changed-files.spec.ts` (@covers CHGSET-03), su :13334, WebKit: una
+- [x] T8 `tests/e2e/chat-changed-files.spec.ts` (@covers CHGSET-03), su :13334, WebKit: una
       chat che modifica `a.txt` e crea `b.txt` mostra 2 righe; il clic su `a.txt` apre le
       sue righe `-`/`+` nella striscia, nessuna pane editor; un PNG riscritto mostra la
       coppia Prima/Dopo.
-- [ ] T9 `tests/e2e/chat-changed-files-task-range.spec.ts`: la riga della gamma apre il diff
+      Prova: `--project=webkit` su :13777, 5 pass e 1 skip (la clip di consegna lancia
+      Chromium, la gira il progetto chromium); con la striscia di prima i due casi nuovi rossi.
+- [x] T9 `tests/e2e/chat-changed-files-task-range.spec.ts`: la riga della gamma apre il diff
       nella striscia con le righe del drawer, e «Apri nella card» apre il drawer su quel file.
-- [ ] T10 Video `.webm` del giro di T8 allegato alla consegna.
+      Prova: verde su WebKit; rosso con la striscia di prima (`chat-changes-diff` assente).
+- [x] T10 Video `.webm` del giro di T8 allegato alla consegna.
+      Prova: `T8-due-file-diff-nella-striscia.webm` (8,0 s), `T8-png-prima-dopo.webm` (8,2 s),
+      `T9-card-striscia-e-drawer.webm` (5,5 s), registrati su WebKit con `E2E_VIDEO=1`.

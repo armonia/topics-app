@@ -1132,6 +1132,8 @@ const EN = {
   'chat.empty.project': 'in project {name}',
   'chat.changes.chip': '{n} files',
   'chat.changes.chipTitle': 'The files this conversation wrote or changed',
+  'chat.changes.openInCard': 'Open in the card',
+  'chat.changes.outside': 'Outside the diff',
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Open the card',
   'chat.session.openTaskCardTitle': 'Back to the task card: description, checklist, delivery, thread',

@@ -83,8 +83,8 @@ import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
-import { gitDiffFilePatch, serveDiffBlob, UNQUOTED_PATHS } from "../services/task-diff-file";
-import { gitDiffStat, type DiffStatEntry } from "../lib/git-diff-stat";
+import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
+import { gitDiffBundle } from "../lib/git-diff-stat";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import type { StopCause } from "../lib/abort-cause";
 import { probeUrl } from "../services/url-probe-cache";
@@ -526,45 +526,9 @@ const gitRunner = async (cwd: string, args: string[]) => {
   return { code: r.code, stdout: r.out, stderr: r.err };
 };
 
-/** Payload cap for a diff patch (~200 KB): a huge range renders the first slice
- *  and flags `truncated` so the UI shows a "…troncato" note rather than shipping
- *  megabytes into the client. */
-const DIFF_PATCH_CAP = 200_000;
 /** `/api/all-boards/publish-status` answers from here for a short while; a publish empties it. */
 const PUBLISH_STATUS_TTL_MS = 30_000;
 let publishStatusCache: { key: string; until: number; body: { projects: unknown[] } } | null = null;
-
-/**
- * Build a unified-diff bundle for `range` (any `git diff` selector: a `a..b`
- * range for a publish, or a base sha for a worktree). Returns the per-file stat
- * (`gitDiffStat`, shared with the chat's changed-files strip) and the raw
- * unified patch, capped. Never throws.
- *
- * `includeUntracked` folds in files git isn't tracking yet (new deliverables an
- * agent wrote but never committed), diffed against /dev/null. Off for publish
- * diffs, which compare two commits and have no working-tree notion.
- */
-async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntracked?: boolean }): Promise<{
-  stat: DiffStatEntry[];
-  patch: string;
-  truncated: boolean;
-}> {
-  const { stat, untracked } = await gitDiffStat(cwd, range, gopts);
-  let full = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", range])).out;
-  for (const f of untracked) {
-    // Past the cap no more patch text is fetched: the stat is still complete,
-    // the patch just gets flagged truncated below.
-    if (full.length > DIFF_PATCH_CAP) break;
-    // `git diff --no-index /dev/null <f>` is a pure file compare (no index
-    // touched); exit code 1 just means "differs", runGitCap returns .out anyway.
-    const p = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", "--no-index", "--", "/dev/null", f])).out;
-    if (p) full += (full && !full.endsWith("\n") ? "\n" : "") + p;
-  }
-  const truncated = full.length > DIFF_PATCH_CAP;
-  return { stat, patch: truncated ? full.slice(0, DIFF_PATCH_CAP) : full, truncated };
-}
-
-export { gitDiffBundle };
 
 /** Is this repository the one this server runs from (and serves `public/` of)? */
 function isServerRepo(repoPath: string): boolean {

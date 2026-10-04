@@ -11,18 +11,11 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitRead } from "./git-porcelain";
 import { parseNumstatZ } from "./git-numstat";
+import { UNQUOTED_PATHS } from "../services/task-diff-file";
+import type { ChangeSet, ChangeSetFile } from "../../shared/change-set";
 
-export interface DiffStatEntry {
-  path: string;
-  /** Lines added; `-1` for a binary file, where git prints `-` and counts nothing. */
-  additions: number;
-  /** Lines removed; `-1` for a binary file. */
-  deletions: number;
-  /** The `--name-status` letter (A, M, D, R, C, T). Untracked files are `A`. */
-  status: string;
-  /** Only on a rename or copy (`R`, `C`): the OLD path, where the diff panel reads a picture's Before. */
-  origPath?: string;
-}
+/** One file of a diff's stat: the shared contract (`shared/change-set.ts`), under the name this module's callers already use. */
+export type DiffStatEntry = ChangeSetFile;
 
 /**
  * Cap on how many untracked files get folded in. A runaway worktree
@@ -93,6 +86,11 @@ async function untrackedCounts(path: string, diffAttr: string | undefined): Prom
   }
 }
 
+/** The global flag and the trailing pathspec of a read limited to `paths`; both empty without. */
+function scopeArgs(paths: string[] | undefined): [string[], string[]] {
+  return paths ? [["--literal-pathspecs"], ["--", ...paths]] : [[], []];
+}
+
 /** Run a read-only git in `cwd`. Never throws: a missing git or a vanished directory is code 1. */
 export async function runGitRead(cwd: string, args: string[]): Promise<{ code: number; text: string }> {
   try {
@@ -134,18 +132,26 @@ function parseNameStatusZ(text: string): Map<string, { letter: string; origPath?
  * against /dev/null (`untrackedCounts`), and are also returned in `untracked`
  * for a caller that wants their patch. Only meaningful when the range ends on
  * the working tree.
+ *
+ * `paths` limits every read to those repository-relative paths, matched
+ * literally: a chat's changeset is the files its tool calls named, and the
+ * dirt around them in a shared checkout is somebody else's. An empty list is
+ * an empty stat, never the whole tree. Absent = the whole range, which is what
+ * a card and a publish read.
  */
 export async function gitDiffStat(
   cwd: string,
   range: string,
-  opts: { includeUntracked?: boolean; untrackedCap?: number } = {},
+  opts: { includeUntracked?: boolean; untrackedCap?: number; paths?: string[] } = {},
 ): Promise<{ stat: DiffStatEntry[]; untracked: string[] }> {
+  if (opts.paths && !opts.paths.length) return { stat: [], untracked: [] };
+  const [literal, pathspec] = scopeArgs(opts.paths);
   // -z: without it git quotes a path with a non-ASCII letter in octal
   // (`"docs/citt\303\240.md"`) and prints a rename as `a/{x => y}/f`, and
   // neither matches the path a tool call names.
   const [numstat, nameStatus] = await Promise.all([
-    runGitRead(cwd, ["diff", "--numstat", "-z", range]).then((r) => parseNumstatZ(r.text)),
-    runGitRead(cwd, ["diff", "--name-status", "-z", range]).then((r) => parseNameStatusZ(r.text)),
+    runGitRead(cwd, [...literal, "diff", "--numstat", "-z", range, ...pathspec]).then((r) => parseNumstatZ(r.text)),
+    runGitRead(cwd, [...literal, "diff", "--name-status", "-z", range, ...pathspec]).then((r) => parseNameStatusZ(r.text)),
   ]);
   const stat: DiffStatEntry[] = [...numstat].map(([path, n]) => {
     const named = nameStatus.get(path);
@@ -161,7 +167,7 @@ export async function gitDiffStat(
   const untracked: string[] = [];
   if (opts.includeUntracked) {
     // -z: NUL-separated, so paths with spaces/newlines survive intact.
-    const others = (await runGitRead(cwd, ["ls-files", "--others", "--exclude-standard", "-z"])).text;
+    const others = (await runGitRead(cwd, [...literal, "ls-files", "--others", "--exclude-standard", "-z", ...pathspec])).text;
     const files = others.split("\0").filter(Boolean).slice(0, opts.untrackedCap ?? UNTRACKED_FILE_CAP);
     const attrs = await diffAttributes(cwd, files);
     // A few at a time: 500 open files at once would compete with the server's own descriptors.
@@ -173,4 +179,40 @@ export async function gitDiffStat(
     }
   }
   return { stat, untracked };
+}
+
+/** Payload cap for a diff patch (~200 KB): a huge range renders the first slice
+ *  and flags `truncated` so the UI shows a note rather than shipping megabytes
+ *  into the client. A file past it is read on its own (`?file=`). */
+const DIFF_PATCH_CAP = 200_000;
+
+/**
+ * The changeset of `range` without its revisions: the per-file stat
+ * (`gitDiffStat`) and the raw unified patch, capped. Never throws.
+ *
+ * `includeUntracked` folds in files git isn't tracking yet (new deliverables an
+ * agent wrote but never committed), diffed against /dev/null. Off for publish
+ * diffs, which compare two commits and have no working-tree notion. `paths`
+ * limits stat and patch alike (see `gitDiffStat`).
+ */
+export async function gitDiffBundle(
+  cwd: string,
+  range: string,
+  gopts?: { includeUntracked?: boolean; paths?: string[] },
+): Promise<Omit<ChangeSet, "revs">> {
+  const { stat, untracked } = await gitDiffStat(cwd, range, gopts);
+  if (gopts?.paths && !gopts.paths.length) return { stat, patch: "", truncated: false };
+  const [literal, pathspec] = scopeArgs(gopts?.paths);
+  let full = (await runGitRead(cwd, [...literal, ...UNQUOTED_PATHS, "diff", range, ...pathspec])).text;
+  for (const f of untracked) {
+    // Past the cap no more patch text is fetched: the stat is still complete,
+    // the patch just gets flagged truncated below.
+    if (full.length > DIFF_PATCH_CAP) break;
+    // `git diff --no-index /dev/null <f>` is a pure file compare (no index
+    // touched); exit code 1 just means "differs", the text comes back anyway.
+    const p = (await runGitRead(cwd, [...UNQUOTED_PATHS, "diff", "--no-index", "--", "/dev/null", f])).text;
+    if (p) full += (full && !full.endsWith("\n") ? "\n" : "") + p;
+  }
+  const truncated = full.length > DIFF_PATCH_CAP;
+  return { stat, patch: truncated ? full.slice(0, DIFF_PATCH_CAP) : full, truncated };
 }
