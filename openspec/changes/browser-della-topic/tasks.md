@@ -32,15 +32,15 @@ video `.webm` degli spec, non resoconti.
       §Trascinare).
 
 ## Tornata 1: lo stato della finestra (puro)
-- [ ] `client/src/state/topicBrowserWindow.ts`: reducer `open`, `activate`,
+- [x] `client/src/state/topicBrowserWindow.ts`: reducer `open`, `activate`,
       `close`, `setMode`, `move`, `setWidth`, `promoteToTab`, `returnFromTab`;
       invariante «una scheda in un posto solo».
-- [ ] Persistenza ui-state `topic-browser:<topicId>` con LWW, debounce e
+- [x] Persistenza ui-state `topic-browser:<topicId>` con LWW, debounce e
       `X-Client-Id`, copiando `taskBrowserTabs` (compresa l'applicazione di
       `ui-state:updated` e `ui-state:init`).
-- [ ] Test co-locati: ordine delle schede, promozione e ritorno, eco del proprio
+- [x] Test co-locati: ordine delle schede, promozione e ritorno, eco del proprio
       client scartata, sanitize al round-trip, posizione ancorata all'angolo
-      dopo un resize dell'app.
+      dopo un resize dell'app. — Atterrata con e74198a61 (`topicBrowserWindow.ts` e il suo test); 04/10: `bun test src/state/topicBrowserWindow` 65 pass su due file.
 
 ## Tornata 2: la finestra, minimizzata ed espansa
 - [x] `TopicBrowserWindow`: barra con le schede della topic, «+», espandi,
@@ -63,7 +63,7 @@ video `.webm` degli spec, non resoconti.
       `page-survives-the-raise` tutti veri. Collegato in `TopicBrowserWindow`:
       un `browser_raise` sulla vista attiva a ogni cambio di rettangolo o di
       scheda, che e' anche il momento in cui puo' essere nata una vista dopo.
-- [ ] **`browser_raise` fuori da WKWebView: WebView2 chiuso, WebKitGTK aperto.**
+- [x] **`browser_raise` fuori da WKWebView: WebView2 chiuso, WebKitGTK aperto.**
       WebView2 (`browser_win::raise`): `SetWindowPos` sull'HWND contenitore che
       restituisce il controller, `HWND_TOP` più
       `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`. È lo stesso handle di
@@ -89,6 +89,14 @@ video `.webm` degli spec, non resoconti.
       innalzamento va scritto qui come buco aperto con la sua conseguenza a
       schermo: limitare la finestra a macOS è una scelta di scope che la change
       approvata non contiene, e passa da un sì.
+      **Chiuso il 04/10 (PR #208).** WebKitGTK: buco dichiarato, chiamata tolta.
+      Le pane sono impacchettate con `pack_start` in un GtkBox e non si
+      sovrappongono, quindi non c'è uno z order da alzare: `browser_linux::raise`
+      è un no-op. Misurato con `sonda-gtk.yml`: nella run 37168587456 il
+      falsificato rimette `GdkWindow::raise` dietro `has_window` e i sei verdetti
+      restano identici, `raise-wins=false` compreso; nella run 37168332624
+      `reorder_child` toglie la tastiera, e la sonda lo vede. La riga resta in
+      `PINNED_GAPS`, con il suo `ENGINES-GAP` in `lib.rs` che cita la run.
 - [x] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [x] Sotto 768 px la finestra non monta.
 - [x] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
@@ -232,17 +240,17 @@ video `.webm` degli spec, non resoconti.
       e lo scenario `TOPIC-BROWSER-04d`.
 
 ## Tornata 6: un viewport, un arbitro
-- [ ] Server: `driverClientId` per contesto aggiornato dall'input; `resize`
+- [x] Server: `driverClientId` per contesto aggiornato dall'input; `resize`
       applicato solo dal driver, o dal primo client se nessuno ha dato input.
-- [ ] Client streaming: pagina in scala e centrata su fondo del tema quando il
+- [x] Client streaming: pagina in scala e centrata su fondo del tema quando il
       contenitore non coincide col viewport.
-- [ ] `DomCoBrowse`: applicare rrweb ViewportResize (incrementale, source 4).
-- [ ] Test unit del server sull'arbitro; E2E (`TOPIC-BROWSER-05`) con due
+- [x] `DomCoBrowse`: applicare rrweb ViewportResize (incrementale, source 4).
+- [x] Test unit del server sull'arbitro; E2E (`TOPIC-BROWSER-05`) con due
       contesti browser di Playwright sullo stesso contesto, uno a 1280×800 e uno
-      a 390×700.
+      a 390×700. — Su main: l'arbitro in `server/browser-service.ts` (`driverClientId`), `client/src/lib/browserFit.ts` col suo test, ViewportResize in `DomCoBrowse.tsx`, `tests/e2e/browser-viewport-arbiter.spec.ts` (`@covers TOPIC-BROWSER-05`). CI di main verde 37160001728, nightly completa verde 37112243590.
 
 ## Chiusura
-- [ ] Archiviare `tab-is-the-chrome` come assorbita, senza implementarla.
-- [ ] In `agent-inline-browser/tasks.md` segnare le fasi 4 e 6 come sostituite
-      da questa change.
-- [ ] Video `.webm` dei tre stati e del foglio, allegati alla card.
+- [x] Archiviare `tab-is-the-chrome` come assorbita, senza implementarla. — Fatto in 6639a0b7a (`archive/2026-09-13-tab-is-the-chrome`).
+- [x] In `agent-inline-browser/tasks.md` segnare le fasi 4 e 6 come sostituite
+      da questa change. — Gia' segnate: `agent-inline-browser/tasks.md:42` e `:58`.
+- [x] Video `.webm` dei tre stati e del foglio, allegati alla card. — Girati il 04/10 con `clip-consegna.yml` (slowmo spento): `topic-browser-window.spec.ts` run 37168463481, 24 pass; `browser-tab-chrome.spec.ts` run 37168465146, 12 pass. Versionati in `screenshots/`: `clip-01-minimized.webm` (TOPIC-BROWSER-01), `clip-01b-expanded.webm` (01b), `clip-01d-tab-and-back.webm` (01d), `clip-02-sheet.webm` (TOPIC-BROWSER-02, il foglio). Tutti i 34 video delle due run copiati in `~/.topics/media/e0821533-clip-*.webm`; l'allegato alla card e0821533 (gia' done) resta da fare a mano.

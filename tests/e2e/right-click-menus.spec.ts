@@ -139,9 +139,14 @@ async function exerciseMenu(page: Page, target: Locator, opts: Exercise = {}): P
       el.dispatchEvent(new MouseEvent("contextmenu", { clientX: p.x, clientY: p.y, bubbles: true, cancelable: true }));
     }, at);
     await expect(menu).toHaveCount(1);
-    const box = await expectInsideViewport(page, menu);
-    expect(box.x + box.width).toBeLessThanOrEqual(at.x + 1);
-    expect(box.y + box.height).toBeLessThanOrEqual(at.y + 1);
+    // Polled: the menu is placed again whenever it changes size (a font that
+    // lands late, a ResizeObserver pass), so one read can catch it between two
+    // placements. Where it lands on its FIRST frame is RC-10's question.
+    await expect.poll(async () => {
+      const b = (await menu.boundingBox())!;
+      return Math.max(b.x + b.width - at.x, b.y + b.height - at.y);
+    }, { message: "px past the pointer" }).toBeLessThanOrEqual(1);
+    await expectInsideViewport(page, menu);
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
   }
@@ -195,10 +200,18 @@ test.describe("Right-click across the app (CTXMENU-01)", () => {
     await expect(row).toBeVisible();
     await exerciseMenu(page, row);
 
-    // One at a time: a second row's menu replaces the first.
+    // One at a time: a second row's menu replaces the first. A's menu opens at
+    // the pointer on A's row and can cover B's row, and a real right-click
+    // there lands on the menu, which is the contract above (red 3/3 on CI,
+    // where B's centre fell under it). So the event goes to B's row, at B's
+    // centre: what is under test is the replacement, not the hit test.
     const other = page.getByLabel("Topics sidebar").getByRole("treeitem", { name: nameB, exact: true }).first();
     await row.click({ button: "right" });
-    await other.click({ button: "right" });
+    await expect(page.getByRole("menu")).toHaveCount(1);
+    const ob = (await other.boundingBox())!;
+    await other.evaluate((el, p) => {
+      el.dispatchEvent(new MouseEvent("contextmenu", { clientX: p.x, clientY: p.y, bubbles: true, cancelable: true }));
+    }, { x: ob.x + ob.width / 2, y: ob.y + ob.height / 2 });
     await expect(page.getByRole("menu")).toHaveCount(1);
     await expect(page.getByRole("menu")).toHaveAttribute("aria-label", new RegExp(nameB));
     await page.keyboard.press("Escape");
@@ -224,6 +237,40 @@ test.describe("Right-click across the app (CTXMENU-01)", () => {
   test("RC-02 sidebar project row", async ({ page }) => {
     const row = await openProject(page);
     await exerciseMenu(page, row);
+  });
+
+  // A menu wider than its `minWidth` opened near the right edge: where it
+  // stands a fixed menu is only as wide as the room to its right, so measured
+  // there it came out squeezed to the floor, was placed for that width, and
+  // then grew past the pointer for a frame or more (1.89px on CI, whose Linux
+  // fonts make the project menu 161.89px wide). The label is widened here so
+  // the case exists on every engine, and the FIRST visible frame is read.
+  test("RC-10 a menu wider than its floor opens at the corner already in place", async ({ page }) => {
+    const row = await openProject(page);
+    await page.addStyleTag({ content: '[role="menu"]::before { content: "aaaa bbbb cccc dddd eeee ffff"; display: block; }' });
+    const vp = page.viewportSize()!;
+    const at = { x: vp.width - 30, y: vp.height - 30 };
+    const first = await row.evaluate(async (el, p) => {
+      el.dispatchEvent(new MouseEvent("contextmenu", { clientX: p.x, clientY: p.y, bubbles: true, cancelable: true }));
+      for (let frame = 0; frame < 30; frame++) {
+        const menu = document.querySelector<HTMLElement>('[role="menu"]');
+        if (menu && getComputedStyle(menu).visibility === "visible") {
+          const r = menu.getBoundingClientRect();
+          return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width };
+        }
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      return null;
+    }, at);
+    expect(first, "the menu became visible").not.toBeNull();
+    expect(first!.right).toBeLessThanOrEqual(at.x + 1);
+    expect(first!.bottom).toBeLessThanOrEqual(at.y + 1);
+    expect(first!.left).toBeGreaterThanOrEqual(0);
+    expect(first!.top).toBeGreaterThanOrEqual(0);
+    // Wider than the 160px floor, or the case under test did not happen.
+    expect(first!.width).toBeGreaterThan(200);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
   });
 
   test("RC-03 sidebar board row", async ({ page }) => {

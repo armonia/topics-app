@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.437 — 2026-10-03
+
+### Sotto il cofano
+- Non adottare alla cieca una vista lasciata durante un pop-out
+- Non chiedere l'indirizzo a WebKitGTK quando una vista viva viene ripresa
+
 ## 2.2.436 — 2026-10-03
 
 ### Sotto il cofano
@@ -11,6 +17,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Riconosci la propria bolla e il messaggio in coda per chiave nella storia, non per le parole
 - Rinomina una variabile del test della migration che il controllo dei nomi non riconosce
 - Rendi costante la lista dei gestori nel test della chiave d'invio
+- Non ricaricare una vista browser viva quando qualcuno la riapre
 - Prova che il rinvio a turno ancora aperto riceve duplicate_message e non stream_in_flight
 
 ## 2.2.434 — 2026-10-03
