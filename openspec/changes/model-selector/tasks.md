@@ -122,7 +122,7 @@ Quello che è verde resta verde. Le suite intere le fa la CI.
 
 ## 5. Prova
 
-- [ ] 5.1 La barra, verde. *03/10: verdi typecheck, unit e `model-selector.spec.ts` (5/5). Sul PC Windows `provider-picker`, `picker-keyboard-nav` e `composer-model-memory` non trovano righe `claude-code` pronte: lì Claude Code non è collegato («claude login»), la stessa precondizione della versione di prima; `task-model-labels` si ferma su `openProjectBoard` (percorso Windows), dopo le asserzioni del selettore. Restano da vedere in CI (Linux).*
+- [x] 5.1 La barra, verde. *03/10: verdi typecheck, unit e `model-selector.spec.ts` (5/5). Sul PC Windows `provider-picker`, `picker-keyboard-nav` e `composer-model-memory` non trovano righe `claude-code` pronte: lì Claude Code non è collegato («claude login»), la stessa precondizione della versione di prima; `task-model-labels` si ferma su `openProjectBoard` (percorso Windows), dopo le asserzioni del selettore. Restano da vedere in CI (Linux).* *04/10: visti in CI. Run `37178516138` su `e85a6958a`, gli 8 shard e2e sono verdi, e le quattro spec girano senza skip: `provider-picker` 1/1, `picker-keyboard-nav` 3/3, `composer-model-memory` 1/1, `task-model-labels` 2/2 (desktop e telefono), `model-selector.spec.ts` 5/5.*
 - [x] 5.2 In `screenshots/`:
   - i video `.webm` di 1.9, desktop e 390 px;
   - uno screenshot chiaro e uno scuro del pannello aperto, accanto a `mockup.html`.
