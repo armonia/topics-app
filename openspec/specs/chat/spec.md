@@ -1419,45 +1419,65 @@ Each sub-agent action used to trigger a deep copy, a database write and a broadc
 
 ### Requirement: SUBAGENT-04 — A sub-agent that exits reports its real result to the chat that delegated
 
-A sub-agent spawned from a topic chat reports its end into that conversation, so the chat that promised an update reaches an end instead of hanging on a promise nobody can keep. The end is classified from the child's own transcript into a status: `completed` (its turn closed with `end_turn`), `failed` (an API error record, or a PTY that died mid-turn), `stopped` (stopped by its parent, its tab closed, or swept), `undelivered` (its transcript holds no prompt) or `lost` (its terminal did not survive a restart). Only a `completed` body is the child's own words; every other status SHALL be named with its reason, and SHALL NOT read as a clean but silent finish. Every way a child ends SHALL be reported: the bridge's exit frame, `stop_agent`, a closed tab, the orphan sweep, and a restart that found no PTY; a Reload of the child's tab is not an end.
+A sub-agent spawned from a topic chat reports the end of each of its turns into
+that conversation (SUBAGENT-11), so the chat that promised an update reaches an
+end instead of hanging on a promise nobody can keep.
+
+The report SHALL be persisted with a structured `subagent-result` block, which
+the client draws as a card with i18n labels. It SHALL also carry a plain-text
+content: the provider reads that text when the parent is woken (SUBAGENT-12).
+
+The body SHALL prefer the child's own final text only when the turn
+`completed`. For every other status it SHALL name the status and its reason. A
+partial text SHALL be labelled as the last line seen, never presented as the
+outcome.
+
+The header SHALL name the sub-agent by the name its parent chose, and SHALL NOT
+contain an emoji.
 
 #### Scenario: The child's own words are the body
-- **GIVEN** a `completed` outcome carrying the child's final assistant text
+- **GIVEN** a result `completed` carrying the child's final assistant text
 - **WHEN** the body is formatted
 - **THEN** it SHALL be that text, trimmed
 
+#### Scenario: No output, and the exit code says why
+- **GIVEN** a result `failed` with no text, no reason and a non-zero exit code
+- **WHEN** the body is formatted
+- **THEN** it SHALL be an italic note naming that exit code and saying no output was recovered
+
 #### Scenario: A failure names its reason
-- **GIVEN** a `failed` outcome with a non-zero exit code, or an API error line such as a spend limit
+- **GIVEN** a result `failed` with a reason, for example an expired login or a spend limit
 - **WHEN** the body is formatted
 - **THEN** it SHALL be an italic note naming the failure and that reason
 
 #### Scenario: A prompt that never arrived is not called a silent finish
-- **GIVEN** a child whose transcript holds only its start-up records
-- **WHEN** it ends and the body is formatted
-- **THEN** it SHALL say that the task never reached the sub-agent
+- **GIVEN** a result `undelivered`
+- **WHEN** the body is formatted
+- **THEN** it SHALL say that the prompt never reached the sub-agent
+- **AND** it SHALL NOT read "finished with no output"
 
 #### Scenario: A stop mid-turn is marked partial
-- **GIVEN** a child stopped while its turn was open, its last text a working sentence
+- **GIVEN** a result `stopped` or `lost` with `partial: true` and a last line of text
 - **WHEN** the body is formatted
-- **THEN** it SHALL say it was stopped before its turn ended, and why
-- **AND** it SHALL quote that text as the last line seen, not as the outcome
+- **THEN** it SHALL say that the sub-agent was stopped, or lost, before finishing
+- **AND** it SHALL quote the last line as the last line seen, not as the outcome
 
 #### Scenario: A clean but silent finish gets the neutral note
-- **GIVEN** a `completed` outcome whose final message holds no text
+- **GIVEN** a result `completed` whose final message holds no text
 - **WHEN** the body is formatted
 - **THEN** it SHALL be the neutral "finished with no output" note, not a failure
 
 #### Scenario: The report names the sub-agent above its body
-- **GIVEN** a formatted exit for a sub-agent whose parent named it
+- **GIVEN** a formatted result for a sub-agent spawned with the name "dnd-audit" and later auto-renamed
 - **WHEN** the chat message is composed
-- **THEN** it SHALL open with a bold header naming that sub-agent by that name, with the body below it and no emoji
-- **AND** with no result the status note SHALL be embedded in the same shape
+- **THEN** it SHALL open with a bold header naming "dnd-audit", with the body below it
+- **AND** the header SHALL contain no emoji
 
 #### Scenario: The report names the branch when the child had one
-- **GIVEN** an exit for a sub-agent that ran in a worktree of its own (WORKTREE-14)
+- **GIVEN** a result for a sub-agent that ran in a worktree of its own (WORKTREE-14)
 - **WHEN** the chat message is composed
 - **THEN** a closing line SHALL name that branch and how to read its commits
-- **AND** an exit with no branch SHALL produce exactly the message it produces today
+- **AND** a result with no branch SHALL have no branch line
 
 ### Requirement: SUBAGENT-05 — The child's real transcript is found, not the one it was assigned
 
@@ -1541,7 +1561,23 @@ Gateway-side sub-agents announce their completion inside the PARENT session's tr
 
 ### Requirement: SUBAGENT-07 — A sub-agent's exit report is its own row and does not swallow the live turn
 
-The exit report is persisted and broadcast as an ordinary new message at once, while the PARENT's turn is still open: the parent usually stops its child from inside a turn, and a report held in memory until that turn closes is lost for good by a restart. The open turn writes its own row by id, so the report's row keeps its content when the turn ends. The client SHALL place it by identity — the id announced when the turn started — and never by position, so the report does not take over the live bubble and the rest of the answer keeps landing in its own.
+The report SHALL be durable the moment it exists: it is written at once on the
+child's `subagents` row (`pending_results`), so a restart while the parent's
+turn is still open re-sends it instead of losing it. It reaches the parent chat
+when that turn has ended, as the row of the wake (SUBAGENT-12), and the copy on
+the child's row is dropped only once the chat holds it. A report that cannot
+wake the parent is written as an ordinary assistant row at once, as before.
+
+Whatever its role, the report's row is a NEW row: the open turn writes its own
+row by id, so the report never takes over the live bubble. The client SHALL
+place it by identity — the id announced when the turn started — and never by
+position, so the rest of the answer keeps landing in its own bubble.
+
+> Changed by the implementation: the requirement used to say the report row
+> is in the database BEFORE the turn closes. With choice 3 the row is the
+> wake's `user` row, which must not cut into an open turn (SUBAGENT-12), so
+> what is persisted at once is the result on the child's row, and the chat
+> row follows the turn's end.
 
 #### Scenario: The report lands beside the live turn, which keeps filling
 - **GIVEN** a turn that announced its id and has already streamed part of its text
@@ -1563,8 +1599,9 @@ The exit report is persisted and broadcast as an ordinary new message at once, w
 #### Scenario: A report delivered under the parent's open turn is written at once and outlives that turn
 - **GIVEN** a parent turn still streaming, from which the parent stops its child
 - **WHEN** the child's end is reported
-- **THEN** the report's row SHALL be in the database before the turn closes
-- **AND** when the turn ends, the report's row SHALL keep its content and the turn's row SHALL hold the turn's text
+- **THEN** the result SHALL be on the child's `subagents` row before the turn closes
+- **AND** no chat row SHALL be written while the turn is open
+- **AND** when the turn ends, the wake's row SHALL carry the result, and the turn's row SHALL hold the turn's text
 
 ### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
 
