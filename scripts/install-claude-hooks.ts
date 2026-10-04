@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
 /**
- * Install Topics App's Claude Code hook wrappers into the user's
+ * Install Topics App's Claude Code hook wrappers into the user's GLOBAL
  * ~/.claude/settings.json.
+ *
+ * OPTIONAL since the hooks became dynamic: every Claude session Topics launches
+ * (chat, board, `claude` terminal panes) already carries them through
+ * `--settings` (`server/lib/topics-hooks.ts`, the one definition this script
+ * shares). Installing them globally makes them fire in EVERY Claude session of
+ * the machine, Topics or not — useful only to whoever wants those tracked too.
+ * `uninstall` is the way back to a clean local Claude.
  *
  * Behaviours:
  *   - Idempotent: re-running this script produces no diff.
@@ -18,7 +25,7 @@
  *     removed from it, and the other hooks of that matcher stay.
  *   - Only a matcher emptied by removing our entries is dropped; an empty
  *     matcher that was already empty belongs to someone else and stays.
- *   - Fire-and-forget events (`ASYNC_EVENTS`) are registered with
+ *   - Fire-and-forget events (`ASYNC_HOOK_EVENTS`) are registered with
  *     `async: true`, so a slow server never holds the turn.
  *   - Token: relies on Topics App having generated the token on first boot
  *     at ${TOPICS_HOME:-~/.topics}/claude-hooks/hook-token (the wrapper also
@@ -26,82 +33,35 @@
  *     version). If the server has never been started, this script still
  *     writes the settings; the wrapper will no-op silently until the token
  *     exists.
+ *   - Script: the entries point at ${TOPICS_HOME:-~/.topics}/claude-hooks/post-hook.sh,
+ *     the copy the server writes at boot next to the token; this script writes
+ *     it too, so it works before the first boot. The old copy under
+ *     ~/.claude/topics-hooks/ is removed by both install and uninstall.
  *   - This script is the ONE place Topics writes under ~/.claude, and only
  *     because the user runs it by hand (`bun run hooks:install`): the server
  *     itself never touches that directory.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, chmodSync, rmSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import {
+  ASYNC_HOOK_EVENTS,
+  RETIRED_HOOK_EVENTS,
+  TOPICS_HOOK_EVENTS,
+  topicsHookEntry,
+  type HookEntry,
+  type HookMatcher,
+} from "../server/lib/topics-hooks";
+import { hookScriptPath, writeHookScript } from "../server/lib/topics-hook-script";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
 const SETTINGS_PATH = join(CLAUDE_DIR, "settings.json");
-const HOOKS_DEST_DIR = join(CLAUDE_DIR, "topics-hooks");
-const WRAPPER_NAME = "post-hook.sh";
-const WRAPPER_SRC = join(__dirname, "claude-hooks", WRAPPER_NAME);
-const WRAPPER_DEST = join(HOOKS_DEST_DIR, WRAPPER_NAME);
-
-// The load-bearing set for the phase machine + the live "what it's doing" feed.
-// PreToolUse/PostToolUse ARE now registered: they are the highest-frequency
-// events (one POST per tool call), but they carry `tool_name`, which the app now
-// SURFACES — the SessionActivity label shows the current tool ("Scrive codice",
-// "Esegue un comando", …) on sidebar rows and the mobile status strip. Without
-// them a working session only reads as a generic spinner; with them the user can
-// see WHAT it's doing. `starting`→`tool-running` also advances near-instantly,
-// which kills the "false finished badge while pinned at starting" residual.
-// SubagentStop is still dropped (a no-op in applyHook — returns state unchanged).
-const HOOK_EVENTS = [
-  "SessionStart",
-  "SessionEnd",
-  "UserPromptSubmit",
-  "PreToolUse",
-  "PostToolUse",
-  "Notification",
-  "Stop",
-] as const;
-
-// Events this installer used to register and no longer does. `MonitorArmed` and
-// `MonitorClosed` are not emitted by Claude Code (absent from the event list of
-// 2.1.237 and 2.1.289), and 2.1.289 drops each unknown event key from
-// settings.json with a "Settings Warning". The server keeps accepting them for
-// an older CLI; the live watch signal is the `PreToolUse` of `Monitor`
-// (`server/lib/claude-session-state.ts`). Install removes our stale entries for
-// these events and uninstall cleans them up too.
-const RETIRED_EVENTS = ["MonitorArmed", "MonitorClosed"] as const;
-
-// Registered with `async: true`, so Claude Code does not wait for them. They
-// only notify the server and their output is ignored, but a sync hook holds the
-// turn until it returns: when the server is starved every prompt waited for the
-// 5 s budget (`/doctor` on 01/10: UserPromptSubmit 22 timeouts out of 22 runs,
-// Stop 13). The other four stay blocking on purpose:
-//   - PreToolUse/PostToolUse: the swap freezer must learn that a Bash command
-//     runs in the foreground BEFORE it starts (`noteBashToolCall`), and the
-//     pair must reach the phase machine in order;
-//   - SessionStart carries the transcript path the tail follows from the first
-//     line, and SessionEnd fires as the CLI exits, when a background hook may
-//     not get to run at all.
-const ASYNC_EVENTS: ReadonlySet<string> = new Set(["UserPromptSubmit", "Stop", "Notification"]);
-
-interface HookEntry {
-  type: "command";
-  command: string;
-  timeout?: number;
-  async?: boolean;
-  topics_app?: boolean;
-  [key: string]: unknown;
-}
-
-interface HookMatcher {
-  matcher?: string;
-  // Optional because a hand-written file can omit it (`{"matcher":"Bash"}`):
-  // such a matcher is left exactly as it is.
-  hooks?: HookEntry[];
-}
+// Where an older version copied the script. Nothing reads it any more: install
+// and uninstall both remove it.
+const LEGACY_HOOKS_DIR = join(CLAUDE_DIR, "topics-hooks");
+// The same file the server writes at boot and names in its spawns' `--settings`.
+const WRAPPER_DEST = hookScriptPath();
 
 interface ClaudeSettings {
   hooks?: Record<string, HookMatcher[]>;
@@ -124,37 +84,16 @@ function writeSettings(s: ClaudeSettings): void {
   writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2) + "\n", "utf-8");
 }
 
-function ensureWrapperInstalled(): void {
-  mkdirSync(HOOKS_DEST_DIR, { recursive: true });
-  copyFileSync(WRAPPER_SRC, WRAPPER_DEST);
-  chmodSync(WRAPPER_DEST, 0o755);
-}
-
-function buildCommand(event: string): string {
-  // Il path VA tra apici. Claude Code esegue i command hook via `/bin/sh -c`:
-  // senza virgolette una home che contiene uno spazio viene word-splittata e
-  // l'hook non parte proprio — nessun errore, semplicemente niente segnale, e la
-  // fase resta appesa a `starting`. WRAPPER_DEST nasce da homedir(), quindi non è
-  // input esterno, ma costa una riga e toglie di mezzo un'intera classe di guasto
-  // muto. L'evento resta fuori dagli apici: è una costante nostra, senza spazi.
-  return `"${WRAPPER_DEST}" ${event}`;
-}
-
 function buildEntry(event: string): HookEntry {
-  return {
-    type: "command",
-    command: buildCommand(event),
-    timeout: 5,
-    ...(ASYNC_EVENTS.has(event) ? { async: true } : {}),
-    topics_app: true,
-  };
+  return topicsHookEntry(WRAPPER_DEST, event);
 }
 
 // The wrapper path followed by the event, quoted or not, whatever the home it
 // was written under. This is how an entry written before the `topics_app`
 // marker existed is recognised: the live file of the first users still has
-// seven of them, unmarked and with the path unquoted.
-const WRAPPER_TAIL = /(?:^|\/)topics-hooks\/post-hook\.sh["']?\s+(\S+)\s*$/;
+// seven of them, unmarked and with the path unquoted. Both homes of the script
+// count: `~/.claude/topics-hooks/` (before) and `${TOPICS_HOME}/claude-hooks/`.
+const WRAPPER_TAIL = /(?:^|\/)(?:topics|claude)-hooks\/post-hook\.sh["']?\s+(\S+)\s*$/;
 
 /** Is this hook one of ours for `event`? A marked entry is ours wherever it
  *  sits, whatever its command says: the marker is written by this script only,
@@ -200,7 +139,7 @@ function repairEntry(entry: HookEntry, event: string): boolean {
       changed = true;
     }
   }
-  if (!ASYNC_EVENTS.has(event) && "async" in entry) {
+  if (!ASYNC_HOOK_EVENTS.has(event) && "async" in entry) {
     delete entry.async;
     changed = true;
   }
@@ -220,13 +159,13 @@ function removeOurEntries(settings: ClaudeSettings, event: string): number {
 }
 
 function install(): void {
-  ensureWrapperInstalled();
+  writeHookScript(WRAPPER_DEST);
   const settings = readSettings();
   settings.hooks = settings.hooks ?? {};
 
   let added = 0;
   let repaired = 0;
-  for (const event of HOOK_EVENTS) {
+  for (const event of TOPICS_HOOK_EVENTS) {
     const matchers = settings.hooks[event] ?? [];
     // Look in EVERY matcher, not only the first wildcard one: a legacy entry
     // can sit anywhere, and missing it is what appended a second Topics hook
@@ -260,11 +199,12 @@ function install(): void {
     else repaired += 1;
   }
   let retired = 0;
-  for (const event of RETIRED_EVENTS) retired += removeOurEntries(settings, event);
+  for (const event of RETIRED_HOOK_EVENTS) retired += removeOurEntries(settings, event);
 
   writeSettings(settings);
+  rmSync(LEGACY_HOOKS_DIR, { recursive: true, force: true });
   console.log(`✓ Hook wrapper installed at ${WRAPPER_DEST}`);
-  const unchanged = HOOK_EVENTS.length - added - repaired;
+  const unchanged = TOPICS_HOOK_EVENTS.length - added - repaired;
   console.log(`✓ Settings updated at ${SETTINGS_PATH} (${added} added, ${repaired} updated, ${unchanged} already current, ${retired} retired)`);
   console.log(`\nNext step: start Topics App so the hook token is generated.`);
   console.log(`  bun run dev:server`);
@@ -277,17 +217,18 @@ function uninstall(): void {
     return;
   }
   let removed = 0;
-  for (const event of [...HOOK_EVENTS, ...RETIRED_EVENTS]) removed += removeOurEntries(settings, event);
+  for (const event of [...TOPICS_HOOK_EVENTS, ...RETIRED_HOOK_EVENTS]) removed += removeOurEntries(settings, event);
   if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   writeSettings(settings);
 
-  // Remove the wrapper directory (keep token file — server may still use it).
+  // The legacy copy goes. The script under TOPICS_HOME stays, with the token:
+  // the server's own spawns still use it.
   try {
-    rmSync(HOOKS_DEST_DIR, { recursive: true, force: true });
+    rmSync(LEGACY_HOOKS_DIR, { recursive: true, force: true });
   } catch {}
 
   console.log(`✓ Removed ${removed} Topics App hook entries from ${SETTINGS_PATH}`);
-  console.log(`✓ Removed ${HOOKS_DEST_DIR}`);
+  console.log(`✓ Removed ${LEGACY_HOOKS_DIR}`);
 }
 
 const cmd = process.argv[2] ?? "install";

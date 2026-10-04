@@ -104,21 +104,29 @@ git switch electron-archive   # then work in electron-app/ on that branch
 
 ## Claude Code hook integration
 
-Topics tracks Claude Code session state via Claude's hook system. Install or
-remove the hooks with:
+Topics tracks Claude Code session state via Claude's hook system. The hooks
+are DYNAMIC: every Claude session Topics launches (chat, board agents, `claude`
+terminal panes) gets them through `--settings`, and no other session does. At
+boot the server writes ONE shared wrapper script
+(`scripts/claude-hooks/post-hook.sh` → `${TOPICS_HOME:-~/.topics}/claude-hooks/post-hook.sh`,
+next to the token) and the spawns register it for 7 hook events
+(`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`,
+`PostToolUse`, `Notification`, `Stop`). The definition lives in
+`server/lib/topics-hooks.ts`. A `claude` typed by hand in a shell pane, or
+launched outside Topics, is not tracked.
+
+To track every Claude session of the machine anyway, install the same hooks
+globally (or remove a global install from an older version):
 
 ```bash
 bun run hooks:install     # scripts/install-claude-hooks.ts
 bun run hooks:uninstall
 ```
 
-The installer copies ONE shared wrapper script
-(`scripts/claude-hooks/post-hook.sh` → `~/.claude/topics-hooks/post-hook.sh`)
-and registers it in `~/.claude/settings.json` for 7 hook events
-(`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`,
-`PostToolUse`, `Notification`, `Stop`). It is idempotent and non-destructive:
-entries are marked `topics_app: true`, so uninstall removes only ours and your
-own hooks are preserved.
+The installer registers that same script in `~/.claude/settings.json`. It is
+idempotent and non-destructive: entries are marked `topics_app: true`, so
+uninstall removes only ours and your own hooks are preserved. Both commands
+remove the copy older versions left in `~/.claude/topics-hooks/`.
 
 The wrapper POSTs each hook payload to the server's
 `/api/claude-hooks/:event` endpoint and is strictly fire-and-forget: it always
