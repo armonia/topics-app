@@ -2,6 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.444 — 2026-10-04
+
+### Sotto il cofano
+- Proponi changeset-chat-strip: il pannello unico nella striscia della chat
+- Aggiungi il test di CHGSET-01 a T4 e correggi i riferimenti revs nel design
+- Fai seguire alla lingua auto la persona, non gli avvisi di Topics
+- Apri come finestra vera i popup con dimensioni, così il login Google arriva alla pagina
+- Mostra in chat i retry dell'API che fa la CLI
+- Accetta il dialogo di fiducia della cartella prima di seminare un sottoagente
+- Segui il transcript vero quando SessionStart dichiara un path che non esiste
+- Fai sopravvivere ai riavvii le chat sul motore interno, invece di rinviare il riavvio
+- Carica il registro dei processi quando serve, non all'import del modulo
+- Porta in inglese i commenti nuovi dei sei fix e dichiara la copertura della ripresa
+- Parcheggia il piano dei nodi cloud: VPS come nodi di Topics per il lavoro pesante
+- Isola DATA_DIR in topics.streaming.test.ts
+- Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219
+- Allinea shutdown-wiring al contratto nuovo: una chat senza reattach sopravvive al riavvio
+
 ## 2.2.442 — 2026-10-04
 
 ### Sotto il cofano
