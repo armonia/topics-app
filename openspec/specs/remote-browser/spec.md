@@ -2647,8 +2647,15 @@ avviata (rrweb ViewportResize), non solo quello iniziale.
 On the web, a browser pane whose site can be framed shows the page in a hosted
 `<iframe>` that is never moved in the DOM. Every address the pane reaches after
 the first one (an address typed in the tab's sheet, the sheet's ‹ and ›) SHALL
-reach that frame as a navigation of the frame itself. A remount that hands back
-the address the frame already shows (a cross-group move) SHALL NOT reload it.
+reach that frame as a navigation of the frame itself, and SHALL NOT add an entry
+to the app's session history (the browser's Back and the app's /task/ permalinks
+live there). A remount that hands back the address the frame already shows (a
+cross-group move) SHALL NOT reload it.
+
+A link clicked inside the framed page is history the server-side browser never
+sees. The tab's ‹ SHALL first undo those in-page steps, showing the page the link
+left, and › SHALL redo them; only past them SHALL ‹ and › move the server's
+history.
 
 Until 04/10/2026 the frame's address was written only when the frame was
 created: the tab's label followed every navigation and the frame kept showing
@@ -2659,6 +2666,13 @@ the first page, so ‹ looked dead.
 - **THEN** the frame SHALL show page two
 - **WHEN** ‹ is pressed in the tab's sheet
 - **THEN** the frame SHALL show page one, and › SHALL bring page two back, in the same frame
+- **AND** the app's `history.length` SHALL be the same as before page two was typed
+
+#### Scenario: back after a link inside the framed page
+- **GIVEN** a framed page two, reached by an address typed in the tab's sheet
+- **WHEN** a link inside the page takes the frame to page three, and ‹ is pressed in the tab's sheet
+- **THEN** the frame SHALL show page two and the server's history SHALL NOT be asked to move
+- **AND** › SHALL show page three again, and ‹ pressed past page two SHALL move the server's history
 
 ### Requirement: BROWSER-BACK-02 — The ‹ of a native pane SHALL be enabled whenever there is history behind the page
 

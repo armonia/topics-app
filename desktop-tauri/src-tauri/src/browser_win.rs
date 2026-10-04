@@ -683,25 +683,15 @@ pub fn reload(wv: &tauri::Webview) -> Result<(), String> {
     with_core(wv, |c| unsafe { c.Reload() }.map_err(|e| e.to_string()))
 }
 
-/// WebView2 **non espone la lista** della history: ha `CanGoBack`/`CanGoForward`
-/// e basta, nessun equivalente di `WKBackForwardList`. Quindi qui non c'e niente
-/// da restituire, e inventare voci finte sarebbe peggio del vuoto: il menu di
-/// navigazione le mostrerebbe e cliccarle non porterebbe da nessuna parte.
+/// WebView2 has no history LIST, only `CanGoBack` / `CanGoForward`: nothing
+/// like `WKBackForwardList`. Fake entries would be worse than none (the history
+/// menu would show them and clicking one would go nowhere), so the list is
+/// empty, which the client reads as "no entry to jump to".
 ///
-/// Si restituisce una lista vuota, che e la forma che il client legge gia come
-/// «nessuna cronologia disponibile». Back e forward continuano a funzionare: e
-/// solo il salto diretto a una voce che non c'e.
-///
-/// La chiave e `activeIndex` come sul ramo macOS, anche se qui la lista e vuota
-/// e il valore non lo guarda nessuno. Vale la pena scriverla giusta lo stesso:
-/// il giorno che WebView2 esponesse la cronologia, un `index` rimasto li si
-/// leggerebbe come 0 invece che come l'indice vero.
-///
-/// The two flags WebView2 DOES have travel with the empty list, as
-/// `canGoBack` / `canGoForward`. The client used to derive the arrows from the
-/// list alone (`activeIndex > 0`), so on Windows ‹ and › were disabled for good
-/// even with history behind the page; it now reads these flags when present
-/// (`parseNavHistory` in `useTauriBrowser.ts`).
+/// The two flags travel with it as `canGoBack` / `canGoForward`, and the client
+/// reads the arrows from them (`parseNavHistory`): derived from the empty list,
+/// ‹ and › were disabled for good on Windows. `activeIndex` keeps the macOS key,
+/// so a list WebView2 might expose one day reads with its real index.
 pub fn nav_entries(wv: &tauri::Webview) -> Result<String, String> {
     let (tx, rx) = mpsc::channel::<(bool, bool)>();
     wv.with_webview(move |platform| {

@@ -4,6 +4,7 @@ import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useHostedFrame } from './useHostedFrame';
+import { stepHostedFrame } from './hostedIframe';
 import { isUrlFramable } from '../../hooks/useRemoteBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
@@ -856,8 +857,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const sharedCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
     navigate: (u: string) => { void browser.navigate(u); },
-    back: () => { void browser.goBack(); },
-    forward: () => { void browser.goForward(); },
+    // On the iframe branch a link clicked inside the page is history only the
+    // frame knows: ‹/› undo those steps first, then move the server's history.
+    back: () => { if (!(useIframe && stepHostedFrame(contextId, 'back'))) void browser.goBack(); },
+    forward: () => { if (!(useIframe && stepHostedFrame(contextId, 'forward'))) void browser.goForward(); },
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
     backToSpawner: backToSpawner?.onBackToSpawner,
     returnToTopicWindow,
@@ -882,7 +885,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // Offered only while one is driving: a command that ends a state nobody is
     // in is a dead door, and the tab hides the glyph that would open it anyway.
     takeControl: browser.agentActive ? takeControlFromAgent : undefined,
-  }), [browser, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent]);
+  }), [browser, contextId, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while

@@ -1,7 +1,8 @@
 /**
  * THE ‹ OF A NATIVE PANE LIGHTS UP WHEN THERE IS HISTORY BEHIND THE PAGE.
  *
- * Reported on 2026-10-04: «l'indietro sembra non funzionale». The arrows'
+ * Reported on 2026-10-04 that back seemed not to work:
+ * «l'indietro sembra non funzionale» (allow-italian: the report, verbatim). The arrows'
  * state was refreshed on the `loading` edge alone, and the most common
  * navigation never makes one: the shell coalesces its KVO state to the latest
  * per pane, so a link that loads inside one 250 ms drain arrives as
@@ -33,7 +34,8 @@ mock.module('@/components/Browser/browserDevTypes', () => devTypes);
 mock.module('@/components/Browser/paneContextModel', () => paneContextModel);
 mock.module('@/lib/browserNavUrl', () => browserNavUrl);
 
-const { useTauriBrowser, parseNavHistory } = await import('./useTauriBrowser');
+const { useTauriBrowser } = await import('./useTauriBrowser');
+const { parseNavHistory } = await import('./parseNavHistory');
 
 /** What the shell answers right now. */
 let navState: Array<{ url: string; title: string; loading: boolean }> = [];

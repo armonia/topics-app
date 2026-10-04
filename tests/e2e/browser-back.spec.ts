@@ -1,7 +1,8 @@
 /**
  * browser-back.spec.ts: the ‹ of a browser tab takes the PAGE back.
  *
- * Reported on 2026-10-04: «l'indietro sembra non funzionale». On the web pane
+ * Reported on 2026-10-04 that back seemed not to work:
+ * «l'indietro sembra non funzionale» (allow-italian: the report, verbatim). On the web pane
  * whose site can be framed, the page lives in a hosted `<iframe>` that is built
  * once and never moved (`hostedIframe`). The frame's `src` was written only at
  * creation, so every later address the pane reached - a new address typed in
@@ -32,12 +33,14 @@ hermetic(test);
 
 const HOST = "127.0.0.1";
 
-/** A page that says which one it is, big enough to read in the clip. */
+/** A page that says which one it is, big enough to read in the clip, with a
+ *  link to «tre»: a navigation that happens INSIDE the page, which the
+ *  server-side browser never hears about. */
 function pageNamed(name: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${name}</title>
-<style>html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;
-background:#0f1720;color:#e8eef5;font:600 48px system-ui,sans-serif}</style></head>
-<body><h1 data-page="${name}">${name}</h1></body></html>`;
+<style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;align-items:center;justify-content:center;
+background:#0f1720;color:#e8eef5;font:600 48px system-ui,sans-serif}a{color:#7cc4ff;font-size:24px}</style></head>
+<body><h1 data-page="${name}">${name}</h1><a data-testid="in-page-link" href="/tre">to tre</a></body></html>`;
 }
 
 async function startSite(): Promise<{ server: Server; origin: string }> {
@@ -167,6 +170,11 @@ test.describe("BROWSER-BACK-01: the ‹ of a browser tab takes the page back", (
     await expect(shown, "the first page is in the frame").toHaveText("uno", { timeout: 30_000 });
     await expect.poll(() => server.at()).toBe(0);
     const first = server.at();
+    // The app's own history, which the frame must not write into: ‹ of the tab
+    // that ADDS an entry leaves the browser's Back pointing at the page the tab
+    // just left, and buries the app's real entries (the /task/ permalinks).
+    const appHistory = () => page.evaluate(() => window.history.length);
+    const historyBefore = await appHistory();
 
     // A SECOND ADDRESS REACHES THE FRAME. Before the fix the tab said «due»
     // and the frame still showed «uno».
@@ -186,6 +194,55 @@ test.describe("BROWSER-BACK-01: the ‹ of a browser tab takes the page back", (
 
     // AND THE FRAME IS STILL THE SAME ONE: following the address is a
     // navigation of the frame, never a second frame stacked over the first.
+    await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(1);
+    // NOT ONE ENTRY IN THE APP'S HISTORY for an address typed, a ‹ and a ›.
+    expect(await appHistory(), "the frame's navigations add nothing to the app's history").toBe(historyBefore);
+  });
+
+  test("BROWSER-BACK-01c: after a link clicked inside the framed page, ‹ shows the page before it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-BACK-01" });
+    const origin = site!.origin;
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-BROWSER-BACK-LINK-${Date.now()}`);
+    topicId = topic.id;
+    const server = await mockServerBrowser(page);
+
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await mountPane(page, topic.id, `${origin}/uno`);
+
+    const { go, press } = sheetOf(page);
+    const frame = page.frameLocator('[data-testid="browser-iframe"]');
+    const shown = frame.locator("h1");
+
+    await go(`${origin}/uno`);
+    await expect(shown).toHaveText("uno", { timeout: 30_000 });
+    await go(`${origin}/due`);
+    await expect(shown).toHaveText("due", { timeout: 15_000 });
+    await expect.poll(() => server.at()).toBe(1);
+
+    // A LINK INSIDE THE PAGE: the frame is cross-origin, the server-side
+    // browser never sees it, and its history is still at «due».
+    await frame.getByTestId("in-page-link").click();
+    await expect(shown, "the link took the frame to tre").toHaveText("tre", { timeout: 15_000 });
+
+    // ‹ GOES BACK TO THE PAGE THE LINK LEFT, «due», the way any browser does.
+    // Before the fix it moved the server's history instead and showed «uno».
+    await press("browser-tab-back");
+    await expect(shown, "‹ after an in-page link shows the page before the link").toHaveText("due", { timeout: 15_000 });
+    expect(server.asked, "the server's history was not the one that moved").not.toContain("back");
+
+    // › RETURNS TO THE LINK'S PAGE.
+    await press("browser-tab-forward");
+    await expect(shown, "› shows the link's page again").toHaveText("tre", { timeout: 15_000 });
+    expect(server.asked).not.toContain("forward");
+
+    // ONCE THE FRAME'S OWN STEPS ARE USED UP, ‹ IS THE SERVER'S AGAIN.
+    await press("browser-tab-back");
+    await expect(shown).toHaveText("due", { timeout: 15_000 });
+    await press("browser-tab-back");
+    await expect.poll(() => server.asked, { message: "the server was asked to go back" }).toContain("back");
+    await expect(shown, "‹ past the frame's own steps follows the server's history").toHaveText("uno", { timeout: 15_000 });
     await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(1);
   });
   test("BROWSER-BACK-01b: on a streamed page ‹ asks the shared browser to go back, and the tab follows", async ({ page, request }) => {
