@@ -1,13 +1,15 @@
 # Tasks: changeset-chat-strip
 
-Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
+Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo (T1 non ne ha
+uno suo: il test di CHGSET-01 legge la rotta del topic, quindi sta in T4);
 `chat-changed-files.spec.ts`, `chat-changed-files-task-range.spec.ts` e
 `board-task-changes-panel.spec.ts` restano verdi (la seconda dopo il cambio della scelta 4).
 
 ## Contratto
 
 - [ ] T1 `shared/change-set.ts`; `DiffStatEntry`, `gitDiffBundle`, `DiffFileStat`,
-      `DiffBundle` ne derivano (CHGSET-01). `bun run typecheck` verde.
+      `DiffBundle` ne derivano (CHGSET-01). `bun run typecheck` verde; il test dello
+      scenario «tre rotte, una forma» e' in T4, perche' una delle tre rotte nasce li'.
 
 ## Server
 
@@ -21,6 +23,13 @@ Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
       `tests/integration/topic-changes-route.test.ts` su un repository vero: `c.ts` sporco
       assente, `revs` uguali fra `/changes` e `/changes/diff`, stesso `stat` del drawer per
       un topic di card, `404` per un PNG non toccato, PNG identico byte per byte.
+      In `tests/integration/change-set-contract.test.ts` (@covers CHGSET-01), sullo stesso
+      repository con un file modificato sul ramo di una card: le risposte di
+      `GET /api/boards/:p/tasks/:t/diff`, `GET /api/boards/:p/publish-diff` e
+      `GET /api/topics/:id/changes/diff` passano ognuna da `buildFileRows`
+      (`client/src/components/Board/diffFileRows.ts:63`) e danno una riga per quel file, con
+      lo stesso `path` e gli stessi `additions`/`deletions`. ROSSO oggi: la rotta del topic
+      non esiste.
 
 ## Client
 

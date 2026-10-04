@@ -14,13 +14,13 @@ export interface ChangeSet { stat: ChangeSetFile[]; patch: string; truncated: bo
 - `server/lib/git-diff-stat.ts`: `export type DiffStatEntry = ChangeSetFile` (alias, per non
   toccare i suoi chiamanti in questa change).
 - `gitDiffBundle` (`server/routes/tasks.ts:547`) ritorna `Omit<ChangeSet, 'revs'>`; le rotte
-  `/diff` e `/publish-diff` gia' aggiungono `revs` accanto (`:3099`, `:3189`).
+  `/publish-diff` e `/diff` gia' aggiungono `revs` accanto (`:3099`, `:3186`).
 - `client/src/lib/board.ts`: `DiffFileStat = ChangeSetFile`; `DiffBundle extends
   Omit<ChangeSet, 'revs'>` con `revs?: DiffRevs | null` (la risposta di una card mancata,
   `miss()` in `tasks.ts:3119`, porta `revs: null`, ma i test costruiscono pacchetti senza).
 - La prova del contratto e' il typecheck: le due parti importano lo stesso tipo. Il test di
-  `CHGSET-01` passa le tre risposte vere da `buildFileRows`, cioe' da quello che il pannello
-  disegna davvero.
+  `CHGSET-01` (T4, `tests/integration/change-set-contract.test.ts`) passa le tre risposte
+  vere da `buildFileRows`, cioe' da quello che il pannello disegna davvero.
 
 ## 2. Il bersaglio di un topic, risolto una volta
 
