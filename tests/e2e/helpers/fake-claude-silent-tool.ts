@@ -11,7 +11,9 @@
  *
  * "pulse A B" is the same turn in two silences: a Bash quiet for A seconds,
  * then one line ("PULSE-TEXT"), B more seconds of nothing, a second Bash
- * ("echo relit"), and "PULSE-DONE". Any other message gets a plain answer.
+ * ("echo relit"), and "PULSE-DONE". "die N" starts a silent Bash and, N
+ * seconds later, exits with code 3 while it is still open: a turn cut under a
+ * running tool. Any other message gets a plain answer.
  */
 
 // A module, not a global script: the other fake CLIs in this folder declare
@@ -66,6 +68,12 @@ function startPulse(a: number, b: number): void {
   }, a * 1000);
 }
 
+function startDyingTool(seconds: number): void {
+  out({ type: "system", subtype: "init", session_id: SESSION_ID, model: "claude-finto", tools: [], fast_mode_state: "off" });
+  assistant([{ type: "tool_use", id: "toolu_dying", name: "Bash", input: { command: "sleep 60" } }]);
+  working = setTimeout(() => process.exit(3), seconds * 1000);
+}
+
 process.on("SIGINT", () => {
   if (working) clearTimeout(working);
   setTimeout(() => process.exit(0), 400);
@@ -96,8 +104,10 @@ process.stdin.on("data", (chunk: Buffer) => {
     if (text === null) continue;
     const silent = /silent (\d+)(?: after (\d+))?/.exec(text);
     const pulse = /pulse (\d+) (\d+)/.exec(text);
+    const die = /die (\d+)/.exec(text);
     if (silent) startSilentTool(Number(silent[1]), Number(silent[2] ?? 0));
     else if (pulse) startPulse(Number(pulse[1]), Number(pulse[2]));
+    else if (die) startDyingTool(Number(die[1]));
     else {
       out({ type: "system", subtype: "init", session_id: SESSION_ID, model: "claude-finto", tools: [], fast_mode_state: "off" });
       finish(`got: ${text.slice(0, 200)}`);
