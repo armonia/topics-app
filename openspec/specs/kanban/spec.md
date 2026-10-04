@@ -3329,8 +3329,8 @@ shared surface, not one copy per place an image can be shown.
 ### Requirement: PLANTAB-01 — La tab Piano disegna il piano, non il recinto
 
 La tab «Piano» della scheda di un task SHALL rendere il commento del piano come
-le altre due superfici che lo mostrano (il thread e la card): il recinto
-```` ```question ```` SHALL essere interpretato e non stampato, e il corpo SHALL
+le altre due superfici che lo mostrano (il thread e la card): il recinto ```` ```question ````
+SHALL essere interpretato e non stampato, e il corpo SHALL
 passare dal renderer markdown. Il contenitore SHALL spezzare le parole lunghe
 invece di scorrere di lato: il piano si legge, non si scorre.
 
@@ -4711,6 +4711,24 @@ contro cosa lo sta mettendo.
 **`0` SHALL essere leggibile come «spento», non come «zero gigabyte».** Un campo
 numerico che a zero cambia natura deve dirlo: il testo accanto SHALL cambiare, e
 non SHALL servire aprire il codice per sapere che cosa fa quel valore.
+
+#### Scenario: il pavimento si cambia dalla sezione globale e arriva agli altri client
+- **GIVEN** il pannello impostazioni di una board aperto, con il pavimento a 3 GB
+- **WHEN** scrivo 4 nel campo «Memoria libera richiesta (GB)» della sezione globale
+- **THEN** parte un PATCH sulla rotta globale con `checksMemFloorGB: 4`
+- **AND** il campo mostra 4 subito, con lo stesso clamp del server (0-16, arrotondato al GB)
+- **AND** gli altri client aperti ricevono `board:global-cap` con `checksMemFloorGB: 4`
+
+#### Scenario: la riga di aiuto nomina il check più caro e il suo costo
+- **GIVEN** il pavimento acceso a 3 GB
+- **WHEN** guardo la riga sotto il campo
+- **THEN** la riga nomina il comando di check più caro misurato e il suo costo («lint a freddo: 1,9 GB»)
+
+#### Scenario: 0 si legge «spento»
+- **GIVEN** il pannello impostazioni aperto
+- **WHEN** il pavimento vale 0
+- **THEN** il campo mostra 0 e non una casella vuota
+- **AND** la riga sotto dice che il freno è spento, al posto della riga di aiuto
 
 ### Requirement: KANBAN-94 — La vista lista è un'alternativa al kanban, non un secondo pannello
 
