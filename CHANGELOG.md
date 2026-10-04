@@ -2,9 +2,32 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.440 — 2026-10-04
+
+### Sotto il cofano
+- Manda il frame di attenzione quando un compito cambia tipo o nome, così la riga dice Monitor appena la CLI lo riconosce
+- Riscrivi la mappa dei compiti di una chat a ogni avvio e fine di un run_command, e nomina sulla riga anche i comandi che non svegliano nessuno
+- Riscrivi seen-on-any-focus sul server vero: turni dalla rotta della chat e dagli hook, visto dal frame focus
+- Adatta alle righe per stato acceso le spec che contavano sulle chat seminate con non-letti, e metti in scena il tier background della cartella
+- Spunta 5.5 e scrivi in design.md gli scostamenti trovati dalla CI della PR
+
 ## 2.2.439 — 2026-10-04
 
 ### Sotto il cofano
+- Leggi lo stato di attenzione dal server in ogni superficie del client e apri «Da guardare» (3.1-3.8, 4.1-4.4)
+- Togli dal server le esportazioni rimaste senza lettore e il predicato del turno pulito ora a una voce sola
+- Fai scrivere il Dock solo alla finestra principale e aggiungi ⇧⌘I per «Da guardare» (4.5, 4.6)
+- Porta i cancelli statici a verde per la meta' client delle notifiche
+- Spunta i task client di notifications-redesign e scrivi dove il codice si scosta
+- Correggi due righe dello scostamento client in design.md
+- Correggi quattro difetti visti dagli e2e delle notifiche: glifo grigio del terminale in attesa, fuoco della inbox, colonna dei tempi, «Attende: other»
+- Scrivi gli e2e dello stato di attenzione sul server di test vero (5.1-5.4, 5.6)
+- Riscrivi sul contratto nuovo gli e2e che iniettavano i segni delle notifiche (5.5, prima parte)
+- Fai dire «sta per riprendere» al risveglio in coda, sulla riga del background e sul glifo
+- Riscrivi sul contratto nuovo il resto degli e2e delle notifiche (5.5, seconda parte) e aggiungi le schermate alle spec nuove
+- Spunta la sezione 5 di notifications-redesign, scrivi gli scostamenti degli e2e e aggiungi le prove visive
+- Porta in inglese nomi e commenti nuovi delle spec di attenzione e fissa il debito sceso
+- Annota i rossi del PC che esistono già sul merge-base
 - Chiudi le tornate 2, 3 e 5 di mac-usabile-sotto-carico coi dati del 04/10
 - Fai mordere i test del browser nativo: generici annidati, B che risponde prima, adozione e chiusura in volo
 - Spunta in openspec il lavoro gia' su main: finestra del browser della topic, arbitro del viewport, profili dei sottoagenti, quota delle opzioni consigliate
@@ -17,19 +40,50 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Archivia subagent-tool-standard
 - Archivia commands-ui
 - Rendi asincroni gli hook Topics di UserPromptSubmit, Stop e Notification
+- Riconosci dopo un riavvio la domanda ancora aperta e chiudi le attese che non tornano
+- Lascia al lavoro senza epoca ogni turno il cui avviso promette la ripresa
+- Spegni lo step che bindTopic tira fuori da review o dal parcheggio
 - Allega le clip del browser della topic e del segno di apertura, e spunta le due righe di prova
+- Fai contare alla tab board e alla riga Board le card accese, non la colonna review
+- Fai leggere il tier al progetto e al menu degli agenti per un terminale in background
+- Sostituisci per intero lo store all'attention:init e ritira il visto che il server non ha preso
+- Scrivi in design.md gli scostamenti delle correzioni del giro 1 di review
 - Archivia chat-browser-open-marker
 - Lega CHAT-BROWSER-03 e TOPIC-COLOR-01 ai test che li provano gia'
 - Rendi browser_linux::raise un no-op e dichiara il buco webkitgtk con la misura
+- Fai scadere il wake in coda quando un turno finisce senza aprirlo, e rileggi lo stato a quell'istante
+- Tieni spento il topic di un agente di board anche nei turni che la board non ha mandato
+- Rileggi al riavvio il comando ancora dovuto e il piano da approvare, invece di chiuderli
+- Conta nel Dock, nella tray e nella inbox solo i terminali che stanno nel roster
+- Di' al server che la finestra è davanti alla persona solo quando ha davvero il fuoco
+- Spegni nello stato di attenzione la chat del tentativo potato, e non scrivere il Dock prima di attention:init
+- Scrivi in design.md e tasks.md gli scostamenti delle correzioni del giro 2 di review
+- Accendi touch-action pan-y solo sulle righe con lo swipe, e porta in inglese nomi e commenti dei test nuovi
 - Spunta il raise di WebKitGTK (PR #208) e la card della striscia delle modifiche
 - Archivia la change single-changeset-diff-panel
 - Tieni l'hook Topics nel matcher jolly e non toccare i matcher altrui
+- Rigenera il manifest delle migration dopo l'unione di main, in ordine di versione
+
+## 2.2.438 — 2026-10-03
+
+### Sotto il cofano
+- Scrivi i test rossi del client per notifications-redesign (1.6, 1.10, 1.13)
 
 ## 2.2.437 — 2026-10-03
 
 ### Sotto il cofano
+- Proponi uno stato di attenzione solo, sul server, per le notifiche (notifications-redesign)
+- Chiudi i 18 buchi della proposta notifiche (notifications-redesign)
+- Accorcia il Da decidere della proposta notifiche a una riga leggibile per scelta
+- Riporta la richiesta delle notifiche con le parole esatte
+- Registra il si' alla change notifications-redesign
 - Non adottare alla cieca una vista lasciata durante un pop-out
+- Scrivi i test rossi del server per notifications-redesign (1.1-1.5, 1.7-1.9, 1.11, 1.12)
 - Non chiedere l'indirizzo a WebKitGTK quando una vista viva viene ripresa
+- Aggiungi la tabella subject_attention con il suo test sul DB sintetico (2.1)
+- Componi lo stato di attenzione sul server: compose, store, porta del visto, avvisi di sistema (2.2, 2.3, 2.6-2.9)
+- Collega lo store di attenzione a chat, sessioni, card, terminali e avvio (2.4, 2.5, 2.10-2.12)
+- Spunta i task server di notifications-redesign e scrivi dove il codice si scosta
 
 ## 2.2.436 — 2026-10-03
 
