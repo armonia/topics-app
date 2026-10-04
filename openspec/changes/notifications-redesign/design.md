@@ -747,3 +747,8 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   (PUSH-04, con le loro emoji: «💬 nome», «❓ Claude ti sta aspettando»). Non toccate:
   sono il testo delle spinte di sempre, ora usato anche dal Mac. Il titolo della domanda
   di un terminale non porta il suo nome (la descrizione del soggetto non lo dà).
+- **Rossi del PC che non sono di questa change** (Chromium, Windows): `chat-next-waiting`
+  (due Ctrl+J e la tessera fissata nell'altro gruppo), `pane-zoom` (cassetto del task),
+  `tab-one-slot` a) (il progetto non si crea dal path di Windows) e `tab-widget-geometry`
+  GEO-3 (a 11px nessuna famiglia di Windows sposta la cifra, la guardia cade): stessi
+  rossi sul merge-base `f75d6d16e`, GEO-3 rimisurato lì con le stesse metriche (A=12, D=3).
