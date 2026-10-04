@@ -1,0 +1,10 @@
+# D5: infrastructure notices filed on the chat's subject (traced + prod log counts, read-only)
+# server.ts:5148-5166 swap-freeze announce -> recordAndAnnounce kind=session, targetKind=topic (it.topicId of a ToolRoot kind 'claude-background', server/lib/agent-tool-children.ts:70-81), dedupe swap-freeze:<id>:frozen|thawed, source 'push' although no push is sent
+# server.ts:6560-6577 quiescence reload-held notice -> kind=session targeted at the holder chat
+# effect: group topic:<chatId> enters unseenKeys -> client counts the chat in bell/Dock/tray (client/src/hooks/useTabNotifications.tsx:175-193 chromeAttentionSubjects(... unseenNotificationKeys))
+# prod log counts:
+froze lines in topics-server-error.log: 30
+[Push] not sent tag=chat-end- in topics-server.log: 382
+[Push] delivered lines (both logs): 0
+# sample froze lines:
+# (le righe d'esempio del log, comandi di altri progetti, sono state tolte: il repo è pubblico)

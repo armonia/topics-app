@@ -1,0 +1,81 @@
+Notification / seen SYNC map — topics-app origin/main f93eeb187 (2026-10-03)
+All paths relative to the repo root. "WT" = detached worktree used for the repro tests.
+
+== WHERE EACH PIECE OF STATE LIVES ==
+SERVER, persisted (SQLite):
+  unread (per topic)            writers: message append (+1), markTopicSeen/markAll/markRows (subject-seen.ts:54-71),
+                                archiveTopicFully step 2 (services/archive-topic.ts:125-130)
+                                travels: unread:init on EVERY socket open (server.ts:4185-4193), unread:updated live
+  notification_log rows         writers: POST /api/notifications (client banner, useCompletionNotifier.tsx:303) and
+                                push-triggers logSent (push-triggers.ts:306); seen by subject-seen.ts doors,
+                                markTargetSeenAndAnnounce (task review exit only: services/tasks.ts:4203, 4567; terminals
+                                via POST seen {targetKind:'terminal'})
+                                travels: GET /api/notifications (mount + panel open only), notification:new / notification:seen live
+  claude session phase          writer: hooks + transcript tail (lib/claude-session-state.ts applyHook/applyJsonlEvent),
+                                reaper (awaiting-user is NEVER reaped)
+                                travels: GET /api/claude-sessions (mount + every reconnect, useClaudeSessionState.ts:195-200),
+                                session:state live
+SERVER, in memory:
+  background work per chat      claude-code provider pp.background (providers/claude-code.ts:963, 2986)
+                                travels: GET /api/topics/streaming poll 15 s + background:changed (useSignalsSync.ts:133-170)
+CLIENT, in memory per WINDOW (zustand, no persist, signals.ts:492):
+  chatFinishedTopics ('done')   raised by stream:end clean (useSignalsSync.ts:176), cleared by seen dwell / notification:seen
+  terminalFinishedIds           raised by terminal:activity finished (useSignalsSync.ts:241-254)
+  seenSubjects                  set by the seen dwell (paneSeen.ts:104-152); NEVER set by a frame from another window
+  claudeAttentionTopics         derived from phase (useSignalsSync.ts:56-63): awaiting-user/-approval/paused/error
+  awaitingFeedbackTopics        phase awaiting-* UNION chatFinishedTopics (useSignalsSync.ts:70-91)
+  unseen notification keys      useNotificationHistory -> useUnseenNotificationsStore (notificationUnseen.ts)
+  banner guards                 prevPhaseRef / ledger / cooldown (useCompletionNotifier.tsx), refs only
+CLIENT, per window, written to the OS:
+  dock/tray/PWA number          chromeAttentionSubjects (state/attentionTotal.ts:77-104) -> set_app_status per window
+                                (useTabNotifications.tsx:203-210), the SAME number as the bell (NotificationHistoryButton.tsx:63)
+
+== THE BELL NUMBER = union of ==
+  non-archived chats with unread>0 OR phase in NOTABLE (no seen gate, signals.ts:1461-1474)
+  + chatFinishedTopics (window memory) + terminalFinishedIds (window memory) + pane badges
+  + board cards in review + unseen notification keys (NO archived filter, attentionTotal.ts:102)
+
+== REPRODUCED (failing tests, see sync-A..E) ==
+  A  Stop after Bash/Agent run_in_background -> awaiting-user (only Monitor arms 'watching')      sync-A
+  B1 bg chat: stream:end still raises 'done', banner, blue fill, +1 bell/dock                      sync-B (D1)
+  B2 panel "mark all" cannot clear an awaiting-user chat it lists under "Aspettano te"            sync-B (D2)
+  B3 archived chat with an unseen row counts 1 while the tray lists 0                              sync-B (D3)
+  B4 seen in window A does not clear B's fill; a reload relights every read chat                   sync-B (D4)
+  C  archiveTopicFully leaves the chat's rows unseen                                               sync-C
+  D  session:state chat branch never recognises the focused chat (bare id / project window)        sync-D
+  E  seeing a terminal with no registry row announces nothing to other windows                     sync-E
+
+== TRACED, not unit-testable without a DOM renderer (client has no happy-dom/testing-library) ==
+F1 Bell does not re-read on WS reconnect.
+   useNotificationHistory.ts:151 loads once on mount; afterwards only the live frames (:157, :169) and the
+   panel open (openAndMarkSeen) touch it. unread:init IS resent on reconnect (server.ts:4192) and claude
+   sessions ARE refetched (useClaudeSessionState.ts:195-200), so after a phone/laptop sleep the unread is
+   right and the unseen keys are not. A notification:seen missed while asleep (desktop opened the chat)
+   leaves topic:<id> in the phone's keys -> bell and PWA badge +1 until the panel is opened. The code says it
+   knows (NotificationHistoryButton.tsx:100 "il fronte può essersi perso una riconnessione") and only fixes it
+   on open. Same for the window-local 'done'/'finished' marks: a seen frame lost while disconnected is never
+   replayed, the mark stays until that subject's next turn.
+F2 Archived chats banner on the session:state path but not on stream:end.
+   useCompletionNotifier.tsx:757-765 loads the ARCHIVE to name a parked session's chat and then fires with no
+   archived check (the only `archived` in the file is :566, the stream:end path). recordAndAnnounce refuses the
+   row for an archived topic (notification-registry.ts:66), and the server push skips it (push-triggers.ts:122):
+   OS banner + sound with no row in the bell. Reachable: closing a tab archives the chat and leaves its
+   background work running (state/backgroundWork.ts:132-133); when that work wakes the CLI the woken turn's Stop
+   moves dormant -> running -> awaiting-user.
+F3 Parked-task rows are only cleared on a review exit.
+   markTargetSeenAndAnnounce('task') has two callers, both on leaving 'review' (services/tasks.ts:4203, 4567);
+   opening the task drawer marks nothing (client markTargetSeen is called only for terminals, paneSeen.ts:109,
+   signals.ts:704). A task-parked row (push-triggers.ts:306) of a task requeued, cancelled or archived without
+   passing through review counts on the bell/dock until the panel is opened. NOTIF-SEEN-01 asks the opposite;
+   the 29/08 migration did it once, nothing does it at runtime.
+F4 Several windows write ONE dock number from different memories (suspected).
+   Every window, detached ones included (same App + TabNotificationProvider, App.tsx:361, :1399), calls
+   set_app_status with its own chromeCount (useTabNotifications.tsx:203-210); lib.rs:3005 applies the last
+   call. Inputs differ per window by design (done/finished marks are not raised in the window that has the
+   subject in front, chatInView.ts:70). With E above, the window that had the terminal behind keeps its
+   'finished' mark forever, so the dock flips between the two windows' counts on every re-render.
+F5 Hook chats and terminals count differently for the same fact.
+   A hook chat at awaiting-user counts on its row, its tab, the bell and the dock until its next turn or
+   SessionEnd (topicAttentionCount, no seen gate by design, signals.ts:1466-1473); a hook claude-code terminal
+   at awaiting-user counts nowhere (chromeAttentionSubjects reads only terminalFinishedIds, attentionTotal.ts:91;
+   buildSidebarItems.ts:400). A read chat also keeps floating to the top of the sidebar (buildSidebarItems.ts:474, 733).

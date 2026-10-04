@@ -2996,6 +2996,25 @@ fn tray_label(title: &str) -> String {
     }
 }
 
+/// Does a `set_app_status` from the window with this label reach the Dock and
+/// the tray? Only from the main window (ATTN-08): see `set_app_status`.
+fn accepts_app_status_from(label: &str) -> bool {
+    label == "main"
+}
+
+#[cfg(test)]
+mod app_status_caller_tests {
+    use super::accepts_app_status_from;
+
+    #[test]
+    fn only_the_main_window_writes_the_dock() {
+        assert!(accepts_app_status_from("main"));
+        assert!(!accepts_app_status_from("detach-1a2b"));
+        assert!(!accepts_app_status_from("space-alpha"));
+        assert!(!accepts_app_status_from(""));
+    }
+}
+
 /// Reflect the app-wide attention total on the dock-icon badge, the macOS
 /// menu-bar tray glyph, AND the tray menu (Electron parity: its tray is dynamic —
 /// dock `setBadgeCount` + `set_title` + a click-to-navigate unread list).
@@ -3007,13 +3026,23 @@ fn tray_label(title: &str) -> String {
 /// `groups` = the board's open work per status (`shared/tray-board.ts`), rendered as
 /// one submenu per column. 0/empty clears the badge/glyph and leaves the static rows.
 /// No-op off macOS (no dock; a Win/Linux taskbar badge can follow later).
+///
+/// ONE HAND WRITES IT: only the main window (notifications-redesign, ATTN-08).
+/// Every window computes the same number from the same attention frames, but
+/// two writers made the Dock and the tray take the value of whichever wrote
+/// last (WIN-1). A call from any other window (a group window, a pop-out) is
+/// dropped here, whatever its client does.
 #[tauri::command]
 fn set_app_status(
+    window: tauri::Window,
     app: tauri::AppHandle,
     count: u32,
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
 ) {
+    if !accepts_app_status_from(window.label()) {
+        return;
+    }
     #[cfg(target_os = "macos")]
     // no_abort: run_on_main_thread + tray/menu mutations go through the
     // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort

@@ -1,0 +1,13 @@
+# command: python3 bgwait-4-measure-parent-session.py ~/.claude/projects/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1.jsonl
+launches mapped to a task id: 289 unmapped: 1
+{
+ "turn_ends": 353,
+ "no_bg": 11,
+ "bg_non_monitor": 317,
+ "bg_monitor_only": 25,
+ "share_with_non_monitor_bg": 0.898
+}
+example turn end with live bg: ('2026-09-26T23:13:36.443Z', ['Agent', 'Monitor', 'Workflow'], 4)
+example turn end with live bg: ('2026-09-26T23:16:30.950Z', ['Monitor', 'Workflow'], 3)
+example turn end with live bg: ('2026-09-26T23:28:16.454Z', ['Monitor', 'Workflow'], 3)
+example turn end with live bg: ('2026-09-26T23:29:05.910Z', ['Monitor', 'Workflow'], 3)

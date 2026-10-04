@@ -60,6 +60,7 @@ import { projectRow } from "./helpers/project-row";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
 import { canonicalTmpRoot } from "./helpers/file-project";
 import { openTwoDevices } from "./helpers/multi-client";
+import { attentionUpdated } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -417,7 +418,9 @@ test.describe("Ingrandire una conversazione", () => {
     // Focus lives in the pool cell; t2 sits in a cell of its own and carries an
     // unread badge, which only shows while its group does NOT have the focus.
     await tab(page, t1).click();
-    ws.send({ type: "unread:updated", topicId: t2, unreadCount: 3 });
+    // The mark as the server writes it now (notifications-redesign): a chat
+    // finished and not seen, with three unread, on `attention:updated`.
+    ws.send(attentionUpdated(`topic:${t2}`, { state: "finished", unread: 3 }));
     const badge = tab(page, t2).locator("[data-notification-count]");
     await expect(badge).toBeVisible({ timeout: 8_000 });
 

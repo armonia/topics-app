@@ -547,6 +547,14 @@ export interface DispatcherDeps {
 }
 
 export interface TaskDispatcher {
+  /**
+   * The card a session works for while its turn is in flight, or null: the
+   * attention store puts a mid-turn wait of a board agent on its card, not
+   * on its topic (notifications-redesign, `server/attention/wire.ts`).
+   */
+  taskForSession(sessionKey: string): string | null;
+  /** The sessions of the cards in flight: their topics are board agents' (rule 2 of the attention state). */
+  sessionsInFlight(): string[];
   /** Try to fill free slots on one board: claim + launch the oldest eligible todo(s). */
   tick(projectId: string): Promise<void>;
   /** Human moved a task INTO todo → schedule a debounced tick (shows `queued`). */
@@ -6225,6 +6233,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   return {
+    taskForSession: taskWaitingOnSession,
+    sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
     revokeDelegatedCapability, shutdown, nightStatus, admissionPreview,
     // The episode IN FLIGHT is added at read time, not on every tick: a

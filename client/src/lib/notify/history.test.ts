@@ -3,7 +3,7 @@
  * @covers SEEN-ANY-FOCUS-02
  */
 import { describe, expect, test } from 'bun:test';
-import { formatNotificationAge, mergeNotificationPage, mergeNotificationRow, notificationBornSeen } from './history';
+import { mergeNotificationPage, mergeNotificationRow } from './history';
 import type { NotificationRow } from '../../../../shared/notification-log';
 
 function row(id: string, createdAt = '2026-08-12T10:00:00.000Z'): NotificationRow {
@@ -64,41 +64,5 @@ describe('mergeNotificationPage', () => {
   test("l'elenco fuso ha un tetto", () => {
     const many = Array.from({ length: 6 }, (_, i) => row(`r${i}`, `2026-08-12T10:00:0${i}.000Z`));
     expect(mergeNotificationPage(many, [], 3).length).toBe(3);
-  });
-});
-
-describe('formatNotificationAge', () => {
-  const now = Date.parse('2026-08-12T12:00:00.000Z');
-  test('scala da «adesso» ai giorni', () => {
-    expect(formatNotificationAge('2026-08-12T11:59:30.000Z', now)).toBe('adesso');
-    expect(formatNotificationAge('2026-08-12T11:50:00.000Z', now)).toBe('10 min');
-    expect(formatNotificationAge('2026-08-12T09:00:00.000Z', now)).toBe('3 h');
-    expect(formatNotificationAge('2026-08-11T12:00:00.000Z', now)).toBe('ieri');
-    expect(formatNotificationAge('2026-08-09T12:00:00.000Z', now)).toBe('3 g');
-  });
-
-  test('una data illeggibile non stampa NaN', () => {
-    expect(formatNotificationAge('non-una-data', now)).toBe('');
-  });
-});
-
-describe('notificationBornSeen', () => {
-  const inFront = (id: string) => id === 'front';
-
-  test('a row about the chat in front is born seen, one about another chat is not', () => {
-    expect(notificationBornSeen({ kind: 'topic', id: 'front' }, null, inFront)).toBe(true);
-    expect(notificationBornSeen({ kind: 'topic', id: 'behind' }, null, inFront)).toBe(false);
-  });
-
-  test('a terminal row is born seen when the TERMINAL is in front, whatever topic hosts it', () => {
-    expect(notificationBornSeen({ kind: 'topic', id: 'behind' }, 'terminal:front', inFront)).toBe(true);
-    expect(notificationBornSeen(null, 'terminal:front', inFront)).toBe(true);
-    expect(notificationBornSeen(null, 'terminal:behind', inFront)).toBe(false);
-  });
-
-  test('a task row, or a group that is not a terminal, is never born seen by the pane in front', () => {
-    expect(notificationBornSeen({ kind: 'task', id: 'front' }, null, inFront)).toBe(false);
-    expect(notificationBornSeen(null, 'chat:front', inFront)).toBe(false);
-    expect(notificationBornSeen(null, null, inFront)).toBe(false);
   });
 });

@@ -56,3 +56,18 @@ export function boardTabCounts(
   }
   return out;
 }
+
+/**
+ * The Board row's counts in the sidebar: the lit cards of every board (ATTN-16:
+ * review, parked, a wait mid-turn, from the attention state) on the review
+ * glyph, which is the slot that says «waits for you», and the cards in progress
+ * as they are. Same order and same rule on the zeros as `boardTabCounts`.
+ */
+export function boardRowCounts(
+  byStatus: Partial<Record<TaskStatus, readonly BoardTask[]>> | undefined,
+  lit: number,
+): StatusCount[] {
+  return SUMMARY_STATUSES
+    .map((status) => ({ status, n: status === 'review' ? lit : byStatus?.[status]?.length ?? 0 }))
+    .filter((c) => c.n > 0);
+}

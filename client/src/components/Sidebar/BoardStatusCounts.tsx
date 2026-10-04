@@ -2,7 +2,9 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
 import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
-import { SUMMARY_STATUSES } from '../../lib/boardTabCounts';
+import { boardRowCounts } from '../../lib/boardTabCounts';
+import { useAttentionRows } from '../../state/attention';
+import { boardAttention } from '../../state/attentionRollups';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { useT } from '../../hooks/useT';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -206,12 +208,13 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
   /** Quelli tolti dal filtro: il «+N» li deve contare, o la riga direbbe che i
    *  progetti con lavoro aperto sono meno di quanti sono. */
   const senzaIcona = tutti.length - chips.length;
-  const counts = useMemo(
-    () => SUMMARY_STATUSES
-      .map((status) => ({ status, n: byStatus?.[status]?.length ?? 0 }))
-      .filter((c) => c.n > 0),
-    [byStatus],
-  );
+  // The first count is the lit cards (ATTN-16), from the same rows the inbox
+  // and the Dock count, not the cards whose column is review.
+  const rows = useAttentionRows();
+  const lit = useMemo(() => boardAttention(rows, null, null).count, [rows]);
+  const counts = useMemo(() => boardRowCounts(byStatus, lit), [byStatus, lit]);
+  const countTitle = (status: TaskStatus, n: number): string =>
+    status === 'review' ? tr('attention.board.waiting', { n }) : `${STATUS_LABEL[status]}: ${n}`;
 
   // `null` = non ancora misurato, ed è un valore DIVERSO da 0. Zero è una
   // misura vera («qui non c'è spazio») e va annunciata col «+N»; null è
@@ -355,7 +358,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
             <span
               key={status}
               data-testid={`board-count-${status}`}
-              title={`${STATUS_LABEL[status]}: ${n}`}
+              title={countTitle(status, n)}
               className="flex items-center gap-1 tabular-nums text-mini text-app-text-secondary"
             >
               <StatusIcon status={status} />
@@ -365,7 +368,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
           {rolled && (
             <span
               data-testid="board-count-rest"
-              title={rolled.statuses.map((s) => `${STATUS_LABEL[s]}: ${counts.find((c) => c.status === s)?.n ?? 0}`).join(' · ')}
+              title={rolled.statuses.map((s) => countTitle(s, counts.find((c) => c.status === s)?.n ?? 0)).join(' · ')}
               className="flex items-center gap-1 tabular-nums text-mini text-app-text-tertiary"
             >
               <MoreHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />

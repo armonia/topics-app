@@ -61,7 +61,7 @@ import {
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
-import { backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
@@ -940,6 +940,9 @@ function wakeAboutToStart(pp: PersistentProcess, now: number): boolean {
 /** The longest recorded gap between a queued wake and its `system/init` (1.1 s), with margin. */
 const WAKE_START_GRACE_MS = 2_000;
 
+/** Past the instant a queued wake stops counting, so the re-read finds it gone. */
+const WAKE_EXPIRY_SLACK_MS = 5;
+
 /** How often a send parked behind the CLI's own turn looks again, besides the wake at the turn's `result`. */
 const CLI_TURN_RECHECK_MS = 250;
 
@@ -1187,6 +1190,9 @@ interface PersistentProcess {
   notificationTurnPending?: boolean;
   /** What the CLI last said about the work a closed turn left running (see `claude/background-work.ts`). */
   background?: BackgroundWork;
+  /** The re-read at the instant a queued wake stops counting (`armWakeExpiry`), and that instant. */
+  wakeExpiryTimer?: ReturnType<typeof setTimeout> | null;
+  wakeExpiryAt?: number | null;
   /** A config change this child was too busy to take: the next send that finds it idle, its background work over, respawns it. */
   configStale?: boolean;
   /** The chat was already told this child's background work is closed. */
@@ -1416,11 +1422,47 @@ export class ClaudeCodeProvider implements AIProvider {
   }
   private static onBackgroundClosed: BackgroundClosedObserver | null = null;
 
+  /**
+   * Who hears that a session's CLI is gone, and why: the attention store ends
+   * the work it was waiting on (notifications-redesign, ATTN-15). `byPerson`:
+   * the person asked for it (a stop, `/clear`).
+   */
+  static observeProcessEnded(fn: (sessionKey: string, cause: "reaper" | "lifetime-cap" | "cli-exit", byPerson: boolean) => void): void {
+    ClaudeCodeProvider.onProcessEnded = fn;
+  }
+  private static onProcessEnded: ((sessionKey: string, cause: "reaper" | "lifetime-cap" | "cli-exit", byPerson: boolean) => void) | null = null;
+  private sayProcessEnded(sessionKey: string, cause: "reaper" | "lifetime-cap" | "cli-exit", byPerson: boolean): void {
+    try { ClaudeCodeProvider.onProcessEnded?.(sessionKey, cause, byPerson); } catch (err) { console.warn(`[claude-code] process-ended observer failed for ${sessionKey}:`, err); }
+  }
+
   /** Who tells the chats that a session's named background work changed: the status poll is 15 s apart. */
   static observeBackgroundChanged(fn: (sessionKey: string) => void): void { ClaudeCodeProvider.onBackgroundChanged = fn; }
   private static onBackgroundChanged: ((sessionKey: string) => void) | null = null;
   private sayBackgroundChanged(sessionKey: string): void {
     try { ClaudeCodeProvider.onBackgroundChanged?.(sessionKey); } catch (err) { console.warn(`[claude-code] background observer failed for ${sessionKey}:`, err); }
+  }
+
+  /**
+   * A queued wake is a task of the attention state (`attentionBackgroundOf`)
+   * that leaves by the clock alone: no line says the CLI folded the report
+   * into the turn that just ended, or that the wake never opened. Without a
+   * re-read at that instant the chat stayed `background` on a wake gone for
+   * good, and the idle reaper later counted it as work that died (review 2 of
+   * notifications-redesign, B1). Not cleared when the wake opens: the re-read
+   * then finds the map unchanged, or the turn's own end already wrote it.
+   */
+  private armWakeExpiry(pp: PersistentProcess): void {
+    const until = wakeQueuedUntil(pp.background);
+    if (until === null || until === pp.wakeExpiryAt) return;
+    if (pp.wakeExpiryTimer) clearTimeout(pp.wakeExpiryTimer);
+    pp.wakeExpiryAt = until;
+    pp.wakeExpiryTimer = setTimeout(() => {
+      pp.wakeExpiryTimer = null;
+      pp.wakeExpiryAt = null;
+      if (this.processes.get(pp.sessionKey) !== pp || !pp.alive) return;
+      if (!isWakeQueued(pp.background, Date.now())) this.sayBackgroundChanged(pp.sessionKey);
+    }, Math.max(0, until - Date.now()) + WAKE_EXPIRY_SLACK_MS);
+    (pp.wakeExpiryTimer as { unref?: () => void }).unref?.();
   }
 
   /** Who says in the chat that a change owed by a turn in flight now waits for the work that turn started (second review of 25/09, R1). */
@@ -3006,6 +3048,17 @@ export class ClaudeCodeProvider implements AIProvider {
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
   }
 
+  /**
+   * What the chat waits on, for the attention state (`attentionBackgroundOf`):
+   * the live tasks, the wake on its way, the session crons with a recurring
+   * one marked. A child gone or told to stop waits on nothing.
+   */
+  attentionBackground(sessionKey: string): AttentionBackground {
+    const pp = this.processes.get(sessionKey);
+    if (!pp?.alive || pp.stoppedExit) return { tasks: {}, count: 0, kinds: [] };
+    return attentionBackgroundOf(pp.background, Date.now());
+  }
+
   /** What the chat names while `backgroundState` is not `none`: the live tasks (none once only the wake is left) and the last news. */
   backgroundWorkDetail(sessionKey: string): BackgroundWorkDetail | null {
     return this.backgroundState(sessionKey) === "none" ? null : describeBackgroundWork(this.processes.get(sessionKey)?.background, Date.now());
@@ -3590,6 +3643,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // Child exited (direct: proc 'close'; broker: daemon `exit` frame). Rejects a
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
+    if (pp.alive) this.sayProcessEnded(pp.sessionKey, "cli-exit", pp.aborting === true || code === 0);
     pp.alive = false;
     this.noteCliTurn(pp, false);
     if (pp.background?.tasks.size) this.sayBackgroundChanged(pp.sessionKey);
@@ -3729,6 +3783,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const workBefore = backgroundWorkKey(pp.background);
     noteBackgroundLine(pp.background ??= newBackgroundWork(), event, Date.now(), { unattended: !pp.streamHandler });
     if (!pp.replayMute && !pp.replaySilent && backgroundWorkKey(pp.background) !== workBefore) this.sayBackgroundChanged(pp.sessionKey);
+    this.armWakeExpiry(pp);
     this.sayConfigOwed(pp);
 
     // THE CLI ENTERS AND LEAVES A TURN, whoever started it. Read before anything
@@ -4645,6 +4700,10 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private killProcess(pp: PersistentProcess, cause: KillCause): void {
     if (cause === "idle" || cause === "lifetime" || cause === "config") this.sayBackgroundClosed(pp, "silent", KILL_CAUSE_TEXT[cause]);
+    // The work in flight dies with the child: the attention store says so once
+    // (T16), or nothing when nothing was in flight. A server shutdown is the
+    // next boot's business (`processEnded` with `restart`).
+    if (cause !== "shutdown" && pp.alive) this.sayProcessEnded(pp.sessionKey, cause === "idle" ? "reaper" : cause === "lifetime" ? "lifetime-cap" : "cli-exit", cause === "clear" || cause === "stopped-child");
     if (cause === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", KILL_CAUSE_TEXT[cause]);
     const wasAlive = pp.alive;
     pp.alive = false;

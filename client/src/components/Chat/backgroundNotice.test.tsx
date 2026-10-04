@@ -12,7 +12,7 @@ import { BackgroundNoticeLine } from './BackgroundNoticeLine';
 import { MachineStopLine } from './MachineStopLine';
 import { machineStopOf } from './machineRow';
 import { taskSessionSegments } from '../Board/taskSessionPresentation';
-import { decideMessageBanner } from '../../lib/notify/messageBanner';
+import { announceBannerOf, createAnnounceLedger } from '../../lib/notify/announceBanner';
 import type { ChatMessage } from '../../types';
 
 const text = 'Background work closed with a turn that was stuck: sleep 600.';
@@ -42,13 +42,12 @@ describe('the background notice as a service line', () => {
     expect(html).toContain('sleep 600');
   });
 
-  test('it raises no OS banner', () => {
-    const base = {
-      topicId: 't', role: 'assistant' as const, visibilityState: 'hidden' as const, notificationsEnabled: true, isOwnStream: false,
-      body: text, topicName: 'chat', muted: false, agentWorking: false, lastFiredAt: undefined, now: Date.now(),
-    };
-    expect(decideMessageBanner(base)).not.toBeNull();
-    expect(decideMessageBanner({ ...base, backgroundNotice: !!backgroundNoticeOf(notice.blocks) })).toBeNull();
+  test('it raises no OS banner: a message is never an announce (ATTN-11)', () => {
+    // The banners come from the server's announces only (notifications-redesign):
+    // a message that carries the notice, with the window hidden, rings nothing.
+    const frame = { type: 'message:new', topicId: 't', role: 'assistant', content: '', blocks: notice.blocks };
+    const on = { notificationsEnabled: true, notifyEvenWhenFocused: true, pushSubscribed: false };
+    expect(announceBannerOf(frame, on, createAnnounceLedger())).toBeNull();
   });
 
   test('a card\'s session keeps it in view, not folded into an empty details row', () => {

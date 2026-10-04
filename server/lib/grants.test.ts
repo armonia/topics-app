@@ -182,6 +182,15 @@ describe("grants · i frame che un ospite può ricevere", () => {
   it("un tipo sconosciuto non passa", () => {
     expect(isGuestSafeFrameType("qualcosa:di:nuovo")).toBe(false);
   });
+
+  // The attention state is the person's: what she has to look at, what she
+  // has seen (notifications-redesign, ATTN-06). A guest neither receives it
+  // nor writes its seen: the seen door is not on the guest's HTTP surface.
+  it("attention:* stays the owner's, and so does the seen door", () => {
+    expect(isGuestSafeFrameType("attention:init")).toBe(false);
+    expect(isGuestSafeFrameType("attention:updated")).toBe(false);
+    expect(isGuestAllowedPath("/api/attention/seen")).toBe(false);
+  });
 });
 
 describe("grants · la stretta di mano, che scavalca il confinamento", () => {

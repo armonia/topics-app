@@ -170,6 +170,8 @@ describe('outbound registry contract', () => {
     // niente. Non si poteva allargare `stream:context` senza far dire a un
     // evento due cose che si muovono in verso opposto.
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
+      'attention:init',
+      'attention:updated',
       'auth:device-revoked',
       'auth:pair-requested',
       'auth:pair-resolved',
@@ -400,8 +402,13 @@ describe('outbound registry contract', () => {
   // command (`/compact` failed, `/output-style`), shown as the chat's command
   // card and never saved (CMDUI-04). Sender `server/routes/chat.ts`, listener
   // `client/src/hooks/useChat.ts`.
-  test('all 106 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(106);
+  // 106 -> 108: `attention:init` and `attention:updated`, the attention state
+  // of every chat, terminal and card, composed and written by ONE module on
+  // the server (notifications-redesign). Owner-only (not in the guest
+  // allowlist of `lib/grants.ts`). Sender `server/attention/store.ts`,
+  // listener the client's attention store (tasks.md 3.1).
+  test('all 108 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
   });
 });
 

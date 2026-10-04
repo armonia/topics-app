@@ -1,0 +1,9 @@
+# baseline: the existing tests of the same modules are green on the same checkout, so the reds above are the code, not the environment
+# cd <worktree> && TOPICS_GATE_HELD=targeted bun test server/subject-seen.test.ts server/lib/claude-session-state.test.ts  -> exit 0
+ 113 pass
+ 0 fail
+Ran 113 tests across 2 files. [765.00ms]
+# cd <worktree>/client && TOPICS_GATE_HELD=targeted bun test src/state/attentionTotal.test.ts src/lib/notify/chatFinished.test.ts src/state/paneSeen.test.ts src/lib/notify/seenFrame.test.ts -> exit 0
+ 58 pass
+ 0 fail
+Ran 58 tests across 4 files. [138.00ms]

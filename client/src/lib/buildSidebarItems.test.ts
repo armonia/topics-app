@@ -40,7 +40,6 @@ const base = {
   topics: {},
   workspaceProjects: [PP],
   browserContexts: [],
-  unreadData: {},
   showArchived: false,
 };
 
@@ -761,49 +760,22 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
   });
 
   /**
-   * Parity with the tab bar. `extraCounts` is the badge source `getBadgeCount`
-   * falls back to for every pane that is neither a chat nor a terminal — agents
-   * panes on agent:nudge / agent:escalation / a session finishing, and
-   * `extraCounts`. Il conto della riga è lo STESSO della sua tab: la riga
-   * tornava 0 fisso, quindi la stessa pane poteva mostrare un badge su una
-   * superficie e niente sull'altra.
+   * Parity with the tab bar. A utility or browser pane has no attention
+   * subject (notifications-redesign): nothing lights it, and its row carries
+   * 0 like its tab (`getBadgeCount` answers 0 for it). The window-local
+   * `extraCounts` that used to feed both had no writer and is gone.
    */
-  test("a utility row carries the SAME count its tab does (extraCounts)", () => {
-    const items = buildSidebarItems({
-      ...base,
-      workspaceProjects: [],
-      terminalSessions: [],
-      openPanels: ["__dashboard__", "__cron__"],
-      projectOpenPanes: {},
-      extraCounts: new Map([["__dashboard__", 3]]),
-    });
-    expect(items.find((i) => i.id === "__dashboard__")!.notificationCount).toBe(3);
-    // …and a pane nobody badged stays at zero rather than inheriting a count.
-    expect(items.find((i) => i.id === "__cron__")!.notificationCount).toBe(0);
-  });
-
-  test("no extraCounts at all leaves every utility row at zero", () => {
-    const items = buildSidebarItems({
-      ...base,
-      workspaceProjects: [],
-      terminalSessions: [],
-      openPanels: ["__dashboard__"],
-      projectOpenPanes: {},
-    });
-    expect(items.find((i) => i.id === "__dashboard__")!.notificationCount).toBe(0);
-  });
-
-  test("a browser row reads extraCounts too, instead of a hard-coded zero", () => {
+  test("a utility row and a browser row carry no number, like their tabs", () => {
     const paneId = "browser:ctx-1";
     const items = buildSidebarItems({
       ...base,
       workspaceProjects: [],
       terminalSessions: [],
-      openPanels: [paneId],
+      openPanels: ["__dashboard__", paneId],
       projectOpenPanes: {},
-      extraCounts: new Map([[paneId, 2]]),
     });
-    expect(items.find((i) => i.id === paneId)!.notificationCount).toBe(2);
+    expect(items.find((i) => i.id === "__dashboard__")!.notificationCount).toBe(0);
+    expect(items.find((i) => i.id === paneId)!.notificationCount).toBe(0);
   });
 });
 

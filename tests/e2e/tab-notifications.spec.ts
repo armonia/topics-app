@@ -5,6 +5,7 @@
  * Uses WebSocket interception to inject events and verify badge rendering.
  */
 import { test, expect } from "@playwright/test";
+import { attentionUpdated } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
@@ -55,6 +56,16 @@ const LEGACY_DOT_TITLES = [
   "Finished a turn — click to open",
 ];
 
+/**
+ * The mark as the server writes it now (notifications-redesign, TAB-BADGE-01
+ * and PARITY-01 modified): `attention:updated`, staged after the socket's own
+ * `attention:init`, which replaces the store and would wipe an earlier frame.
+ */
+async function stage(ws: Awaited<ReturnType<typeof interceptWebSocket>>, frame: ReturnType<typeof attentionUpdated>): Promise<void> {
+  await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15_000 }).toBeGreaterThan(0);
+  ws.send(frame);
+}
+
 /** Navigate with both topics pre-opened as panels, B focused */
 async function goWithTwoTabs(page: import("@playwright/test").Page) {
   await page.request.put(`${BASE}/api/ui-state/panels`, {
@@ -101,16 +112,20 @@ test.describe("Tab Notification Badges", () => {
     await goWithTwoTabs(page);
 
     // Inject unread for topic A (the inactive one)
-    ws.send({
-      type: "unread:updated",
-      topicId: topicA.id,
-      unreadCount: 3,
-    });
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 3 }));
 
     // Badge should appear on topic A's tab
     const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
     const badge = tabA.locator("span").filter({ hasText: /^3$/ });
     await expect(badge).toBeVisible({ timeout: 5000 });
+
+    // Unread on a subject that is not lit paints nothing: a chat in
+    // background with two unread (a woken turn) has no number.
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "background", unread: 2 }));
+    await expect(tabA.locator("[data-notification-count]")).toHaveCount(0, { timeout: 5000 });
+    // A lit subject with no unread still shows one.
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "needs-you", reason: "question", unread: 0 }));
+    await expect(tabA.locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "1", { timeout: 5000 });
   });
 
   test("TAB-BADGE-02: badge clears when tab is activated", async ({
@@ -122,11 +137,7 @@ test.describe("Tab Notification Badges", () => {
     await goWithTwoTabs(page);
 
     // Inject unread for topic A
-    ws.send({
-      type: "unread:updated",
-      topicId: topicA.id,
-      unreadCount: 5,
-    });
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 5 }));
 
     const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
     const badge = tabA.locator("span").filter({ hasText: /^5$/ });
@@ -135,12 +146,8 @@ test.describe("Tab Notification Badges", () => {
     // Click tab A to activate it
     await tabA.click();
 
-    // Server clears unread on focus
-    ws.send({
-      type: "unread:updated",
-      topicId: topicA.id,
-      unreadCount: 0,
-    });
+    // Opening it is seeing it: the active tab shows no number, and the seen
+    // door answers with the server's row.
 
     // Badge should disappear
     await expect(badge).not.toBeVisible({ timeout: 5000 });
@@ -156,11 +163,7 @@ test.describe("Tab Notification Badges", () => {
     await goWithOneTab(page);
 
     // Inject unread for the ACTIVE tab
-    ws.send({
-      type: "unread:updated",
-      topicId: topicA.id,
-      unreadCount: 2,
-    });
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 2 }));
 
     // Wait briefly for potential render
     await page.waitForTimeout(1000);
@@ -180,11 +183,7 @@ test.describe("Tab Notification Badges", () => {
     await goWithTwoTabs(page);
 
     // Inject unread for topic A
-    ws.send({
-      type: "unread:updated",
-      topicId: topicA.id,
-      unreadCount: 42,
-    });
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 42 }));
 
     const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
     const badge = tabA.locator("span").filter({ hasText: /^42$/ });
@@ -213,7 +212,7 @@ test.describe("Tab Notification Badges", () => {
     await goWithTwoTabs(page);
 
     // B is active, inject unread for A (inactive)
-    ws.send({ type: "unread:updated", topicId: topicA.id, unreadCount: 2 });
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 2 }));
 
     const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
     const badgeA = tabA.locator("span").filter({ hasText: /^2$/ });
@@ -221,8 +220,7 @@ test.describe("Tab Notification Badges", () => {
 
     // Switch to A (makes B inactive), then inject unread for B
     await tabA.click();
-    ws.send({ type: "unread:updated", topicId: topicA.id, unreadCount: 0 });
-    ws.send({ type: "unread:updated", topicId: topicB.id, unreadCount: 7 });
+    await stage(ws, attentionUpdated(`topic:${topicB.id}`, { state: "finished", unread: 7 }));
 
     // B should show badge
     const tabB = page.locator(`[data-pane-id="${topicB.id}"]`);
@@ -277,7 +275,7 @@ test.describe("Tab Notification Badges", () => {
     await page.locator(`[data-pane-id="${topicB.id}"]`).click();
 
     // Seed an unread notification on the inactive topic A.
-    ws.send({ type: "unread:updated", topicId: topicA.id, unreadCount: 2 });
+    await stage(ws, attentionUpdated(`topic:${topicA.id}`, { state: "finished", unread: 2 }));
 
     // (1) Tab bar tab A shows badge "2".
     const tabBadge = page

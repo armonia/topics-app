@@ -29,6 +29,7 @@ import {
   seedPaneStore,
   unarchiveTopic,
 } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -151,14 +152,10 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
     await expect(groupCard).toBeVisible({ timeout: 20000 });
 
     // Clean start: no tier on the group.
-    await expect(groupCard).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(groupCard).not.toHaveAttribute("data-attention", /.+/);
 
     // The turn of the chat INSIDE the group ends.
-    ws.send({
-      type: "session:state",
-      sessionKey: insideSessionKey,
-      state: { phase: "awaiting-user", rev: 1, claudeSessionId: insideSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${insideId}`, { state: "finished" }));
 
     // The card says it: "there is something in here waiting for you". This is
     // the only thing that says so while the group is closed.
@@ -169,7 +166,7 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
     // active pane, which is what arms the threshold. The fill must fall BY
     // ITSELF, with no further click. This is the assertion that was red.
     await groupCard.getByRole("button", { name: SPACE_NAME, exact: true }).click();
-    await expect(groupCard).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
+    await expect(groupCard).not.toHaveAttribute("data-attention", /.+/, { timeout: 15000 });
 
     // And here is the bug: move the focus elsewhere. The old rollup lit up
     // again, because the only thing hiding it was "this card is the active one
@@ -187,17 +184,13 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
     // `awaiting-approval` and not `awaiting-user`, because the 'input' tier is
     // NOT gated by "seen": the outside chat is the active pane now, so a 'done'
     // tier would be put out by its own threshold halfway through the assertion.
-    ws.send({
-      type: "session:state",
-      sessionKey: outsideSessionKey,
-      state: { phase: "awaiting-approval", rev: 1, claudeSessionId: outsideSessionKey },
-    });
-    await expect(mainCard).toHaveAttribute("data-attention", "input", { timeout: 15000 });
+    await stageAttention(ws, attentionUpdated(`topic:${outsideId}`, { state: "needs-you", reason: "permission" }));
+    await expect(mainCard).toHaveAttribute("data-attention", "needs-you", { timeout: 15000 });
 
     // Still dark, with the app awake and busy around it. The phase inside is
     // still `awaiting-user`, so it is the "seen" mark holding, not the absence
     // of state.
-    await expect(groupCard).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(groupCard).not.toHaveAttribute("data-attention", /.+/);
 
     // A NEW turn has to light it again: going dark forever is the opposite bug,
     // and a gate with no reset is exactly how you get there. The "seen" mark
@@ -205,27 +198,15 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
     // distinct derivations: the session must first LEAVE the awaiting sets and
     // then come back into them. Sent in one breath they collapse into a single
     // pass over the store, where the edge does not exist at all.
-    ws.send({
-      type: "session:state",
-      sessionKey: insideSessionKey,
-      state: { phase: "running", rev: 2, claudeSessionId: insideSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${insideId}`, { state: "working" }));
     // The same clock separates the two halves of the edge. The outside chat
     // leaves the awaiting sets on the frame right AFTER the inside one, so when
     // the default card goes dark the falling half has already been applied.
     // This is the ordering doing the work, not an interval anybody guessed.
-    ws.send({
-      type: "session:state",
-      sessionKey: outsideSessionKey,
-      state: { phase: "running", rev: 2, claudeSessionId: outsideSessionKey },
-    });
-    await expect(mainCard).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
+    await stageAttention(ws, attentionUpdated(`topic:${outsideId}`, { state: "working" }));
+    await expect(mainCard).not.toHaveAttribute("data-attention", /.+/, { timeout: 15000 });
 
-    ws.send({
-      type: "session:state",
-      sessionKey: insideSessionKey,
-      state: { phase: "awaiting-user", rev: 3, claudeSessionId: insideSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${insideId}`, { state: "finished" }));
     await expect(groupCard).toHaveAttribute("data-attention", "done", { timeout: 15000 });
   });
 });

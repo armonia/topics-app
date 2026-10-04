@@ -1,90 +1,61 @@
 /**
- * The chat 'done' mark is decided where it is set: a turn that ends on the
- * chat the person is looking at raises no mark at all. Raising it and clearing
- * it one commit later was enough for the provider's effects to paint +1 on the
- * Dock and the PWA badge and take it back, at every turn end (the verifier's
- * setAppBadge history: 0,1,0,1,0,...).
+ * The subject a window has in front, as the server hears it in the `focus`
+ * frame (notifications-redesign, ATTN-06): an epoch born on a subject in front
+ * of an awake window is born seen. The holders stack (a remount overlaps the
+ * release), the last one is the subject in front, and a change is announced
+ * so `useWebSocket` sends the frame again.
  *
- * Under bun there is no document, so `isWindowAwake()` answers true: these
- * tests pin the "shown as a focused chat" half. The awake half is the e2e's
- * (`chat-finished-banner.spec.ts`), where the window can be put behind
- * another app.
+ * Under bun there is no document, so `isWindowFocused()` answers true: the
+ * awake half is the e2e's.
  *
- * @covers CHAT-DONE-01
+ * @covers ATTN-06, CHAT-DONE-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { holdSubjectInFront, isSubjectInFront, seeChatFinished, takeChatDoneSeen } from "./chatInView";
-import { chatFinishedEdge } from "../lib/notify/chatFinished";
-import { signalsActions, useSignalsStore } from "./signals";
-
-const end = (topicId: string) => ({ type: "stream:end", topicId, completed: true, stopReason: "end_turn" });
+import { holdSubjectInFront, isSubjectInFront, onSubjectInFrontChange, subjectInFront } from "./chatInView";
 
 const releases: Array<() => void> = [];
 afterEach(() => {
   while (releases.length) releases.pop()!();
 });
 
-describe("the chat 'done' mark and the chat in front", () => {
-  test("five turns that end on the chat in front raise no mark", () => {
-    releases.push(holdSubjectInFront("front"));
-    const edges = Array.from({ length: 5 }, () => chatFinishedEdge(end("front"), isSubjectInFront));
-    expect(edges).toEqual([null, null, null, null, null]);
-  });
-
-  test("a chat that is not in front is marked as before, and a new turn still clears", () => {
-    releases.push(holdSubjectInFront("front"));
-    expect(chatFinishedEdge(end("behind"), isSubjectInFront)).toEqual({ op: "mark", topicId: "behind" });
-    expect(chatFinishedEdge({ type: "stream:start", topicId: "front" }, isSubjectInFront)).toEqual({ op: "clear", topicId: "front" });
-  });
-
-  test("once the pane lets go, the next turn end marks the chat", () => {
-    const release = holdSubjectInFront("front");
-    expect(chatFinishedEdge(end("front"), isSubjectInFront)).toBeNull();
+describe("the subject in front", () => {
+  test("a held subject is in front until its release", () => {
+    const release = holdSubjectInFront("topic:front");
+    expect(subjectInFront()).toBe("topic:front");
+    expect(isSubjectInFront("topic:front")).toBe(true);
+    expect(isSubjectInFront("topic:behind")).toBe(false);
     release();
-    release(); // a second release is a no-op, not a negative count
-    expect(isSubjectInFront("front")).toBe(false);
-    expect(chatFinishedEdge(end("front"), isSubjectInFront)).toEqual({ op: "mark", topicId: "front" });
+    expect(subjectInFront()).toBeNull();
+    expect(isSubjectInFront("topic:front")).toBe(false);
   });
 
-  test("two panes on one chat: it stays in front until both let go", () => {
-    const a = holdSubjectInFront("twice");
-    const b = holdSubjectInFront("twice");
+  test("two holders of the same subject: in front until both are released", () => {
+    const a = holdSubjectInFront("topic:twice");
+    const b = holdSubjectInFront("topic:twice");
     a();
-    expect(isSubjectInFront("twice")).toBe(true);
+    expect(isSubjectInFront("topic:twice")).toBe(true);
     b();
-    expect(isSubjectInFront("twice")).toBe(false);
-  });
-});
-
-/**
- * The mark lives per window, and the seen dwell (`useWebSocket`) fires after
- * the pane has already cleared it here: `takeChatDoneSeen` is how the dwell
- * still knows the chat carried one, so the server's seen frame reaches the
- * other windows (CHAT-DONE-01, cross-window).
- */
-describe("a 'done' mark seen here, for the seen door", () => {
-  test("a look clears the mark and is remembered once", () => {
-    signalsActions.markChatFinished("seen-once");
-    seeChatFinished("seen-once");
-    expect(useSignalsStore.getState().chatFinishedTopics.has("seen-once")).toBe(false);
-    expect(takeChatDoneSeen("seen-once")).toBe(true);
-    expect(takeChatDoneSeen("seen-once")).toBe(false);
+    expect(isSubjectInFront("topic:twice")).toBe(false);
   });
 
-  test("a new turn is not a look: the dwell has nothing to tell", () => {
-    signalsActions.markChatFinished("restarted");
-    signalsActions.clearChatFinished("restarted");
-    expect(takeChatDoneSeen("restarted")).toBe(false);
+  test("the last holder is the subject in front; releasing it gives the front back to the one before", () => {
+    releases.push(holdSubjectInFront("topic:chat"));
+    const drawer = holdSubjectInFront("terminal:t1");
+    expect(subjectInFront()).toBe("terminal:t1");
+    drawer();
+    expect(subjectInFront()).toBe("topic:chat");
   });
 
-  test("a look at a chat with no mark tells nothing", () => {
-    seeChatFinished("never-marked");
-    expect(takeChatDoneSeen("never-marked")).toBe(false);
-  });
-
-  test("a mark still on the chat when the dwell fires counts too", () => {
-    signalsActions.markChatFinished("still-on");
-    expect(takeChatDoneSeen("still-on")).toBe(true);
-    signalsActions.clearChatFinished("still-on");
+  test("a change of the subject in front is announced, a release of a covered holder is not", () => {
+    let changes = 0;
+    const off = onSubjectInFrontChange(() => { changes++; });
+    const a = holdSubjectInFront("topic:a");
+    const b = holdSubjectInFront("topic:b");
+    expect(changes).toBe(2);
+    a(); // `b` is still in front
+    expect(changes).toBe(2);
+    b();
+    expect(changes).toBe(3);
+    off();
   });
 });

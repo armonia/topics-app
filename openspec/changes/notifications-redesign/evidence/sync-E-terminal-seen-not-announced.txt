@@ -1,0 +1,97 @@
+# worktree: <worktree> @ f93eeb187 (origin/main, detached)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test server/notif-repro-terminal-seen.test.ts
+# exit code: 1
+
+## test source (server/notif-repro-terminal-seen.test.ts)
+/**
+ * REPRO (evidence, not a fix): a terminal's "finished" mark lives in each
+ * window's memory (signals.ts terminalFinishedIds) and the other windows drop it
+ * only on a `notification:seen` frame naming `terminal:<id>`
+ * (useSignalsSync.ts:223-229). Seeing the terminal sends
+ * `POST /api/notifications/seen {targetKind:'terminal'}` (paneSeen.ts:104-110,
+ * signals.ts:701-705), which lands in `markTargetSeenAndAnnounce`, and that
+ * announces ONLY when it cleared a registry row (notification-registry.ts:90).
+ *
+ * A finished turn leaves no row whenever its banner did not go out: muted
+ * topic/project, Focus/Do Not Disturb, notifications switched off, a device
+ * subscribed to push (the in-page banner yields), or the 10 s cooldown. Then
+ * the look in window A tells nobody, and window B / the phone keep the
+ * terminal lit and counted on the bell and the Dock until its next turn.
+ * The chat twin solved exactly this with `doneMark` (subject-seen.ts:95).
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { closeDatabase, getDatabase, initDatabase } from "./db";
+import { configureNotificationRegistry, markTargetSeenAndAnnounce, __resetNotificationRegistry } from "./notification-registry";
+
+let tmpRoot: string;
+const announced: string[][] = [];
+
+beforeAll(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "notif-repro-term-"));
+  const migDir = join(tmpRoot, "server", "db", "migrations");
+  mkdirSync(migDir, { recursive: true });
+  const realMigDir = join(import.meta.dir, "db", "migrations");
+  for (const f of readdirSync(realMigDir)) {
+    if (f.endsWith(".sql")) writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
+  }
+  initDatabase(tmpRoot);
+  configureNotificationRegistry({
+    announce: () => {},
+    announceSeen: (_snap, subjects) => { announced.push(subjects); },
+    isTopicArchived: () => false,
+  });
+});
+
+afterAll(() => {
+  __resetNotificationRegistry();
+  try { closeDatabase(); } catch { /* already closed */ }
+  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+beforeEach(() => {
+  getDatabase().run("DELETE FROM notification_log");
+  announced.length = 0;
+});
+
+describe("REPRO: seeing a terminal with no registry row tells no other window", () => {
+  it("the seen door SHALL name terminal:<id> so every window drops its finished mark", () => {
+    // Muted project: the turn finished, every window raised its in-memory mark,
+    // no banner went out, so no row exists.
+    markTargetSeenAndAnnounce("terminal", "sess-1");
+    expect(announced).toEqual([["terminal:sess-1"]]);
+  });
+});
+
+## output
+bun test v1.3.8 (b64edcb4)
+
+server/notif-repro-terminal-seen.test.ts:
+54 | describe("REPRO: seeing a terminal with no registry row tells no other window", () => {
+55 |   it("the seen door SHALL name terminal:<id> so every window drops its finished mark", () => {
+56 |     // Muted project: the turn finished, every window raised its in-memory mark,
+57 |     // no banner went out, so no row exists.
+58 |     markTargetSeenAndAnnounce("terminal", "sess-1");
+59 |     expect(announced).toEqual([["terminal:sess-1"]]);
+                           ^
+error: expect(received).toEqual(expected)
+
+- [
+-   [
+-     "terminal:sess-1",
+-   ],
+- ]
++ []
+
+- Expected  - 5
++ Received  + 1
+
+      at <anonymous> (<worktree>/server/notif-repro-terminal-seen.test.ts:59:23)
+(fail) REPRO: seeing a terminal with no registry row tells no other window > the seen door SHALL name terminal:<id> so every window drops its finished mark [0.74ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [580.00ms]

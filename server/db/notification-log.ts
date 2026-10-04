@@ -4,7 +4,7 @@
  *
  * Le due porte che ci scrivono stanno una per parte: il banner nativo lo decide
  * il client (`useCompletionNotifier` → `fire` → POST /api/notifications), la
- * push la decide il server (`maybeSendPush`). Entrambe passano di qui, e di qui
+ * push la decide il server (`server/attention/store.ts`, a ogni epoca nuova). Entrambe passano di qui, e di qui
  * passa anche la regola che le tiene distinte da un DOPPIONE — vedi
  * `NOTIFICATION_DEDUPE_MS` in shared/notification-log.ts.
  *
@@ -239,6 +239,46 @@ export function markTargetNotificationsSeen(
     // e' un fastidio, una lettura che fallisce per colpa sua sarebbe un guasto.
     console.warn("[notification-log] mark target seen failed:", (err as Error)?.message || err);
     return 0;
+  }
+}
+
+/**
+ * The rows of ONE SUBJECT seen, optionally only those written before `before`.
+ *
+ * The attention store's seen door (`server/attention/store.ts`) sees a subject
+ * up to an epoch: a row written for a newer epoch, while the list the person
+ * marked was on screen, has not been seen and stays unseen. `before` is the
+ * start of that newer epoch.
+ */
+export function markGroupNotificationsSeen(groupKey: string, before?: string | null, now = Date.now()): number {
+  if (!groupKey) return 0;
+  try {
+    const db = getDatabase();
+    const at = new Date(now).toISOString();
+    const r = before
+      ? db.run("UPDATE notification_log SET seen_at = ? WHERE seen_at IS NULL AND group_key = ? AND created_at < ?", [at, groupKey, before])
+      : db.run("UPDATE notification_log SET seen_at = ? WHERE seen_at IS NULL AND group_key = ?", [at, groupKey]);
+    return Number(r?.changes ?? 0);
+  } catch (err) {
+    console.warn("[notification-log] mark group seen failed:", (err as Error)?.message || err);
+    return 0;
+  }
+}
+
+/**
+ * Rewrite the title and body of a row already written, found by its dedupe
+ * key: a system notice is one row per cycle, and the thaw updates the row of
+ * its freeze instead of adding a second one (design section 10.4). Returns
+ * whether a row was found.
+ */
+export function updateNotificationByDedupeKey(dedupeKey: string, patch: { title: string; body?: string }): boolean {
+  try {
+    const db = getDatabase();
+    const r = db.run("UPDATE notification_log SET title = ?, body = ? WHERE dedupe_key = ?", [patch.title, patch.body ?? "", dedupeKey]);
+    return Number(r?.changes ?? 0) > 0;
+  } catch (err) {
+    console.warn("[notification-log] update failed:", (err as Error)?.message || err);
+    return false;
   }
 }
 

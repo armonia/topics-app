@@ -21,6 +21,7 @@
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -267,6 +268,10 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     await history;
 
     ws.send({ type: "stream:start", sessionKey, topicId, messageId: "msg_awaiting_signal_e2e" });
+    // The tier is the server's attention state (notifications-redesign): the
+    // turn's start is `working`, the question it asks `needs-you(question)`.
+    // Staged as the chat route and the ask bridge write them.
+    await stageAttention(ws, attentionUpdated(`topic:${topicId}`, { state: "working" }));
 
     // Il turno lavora: c'è almeno un indicatore, e nessuno di essi è in attesa.
     const working = page.locator('[data-loader-state="working"]');
@@ -294,6 +299,8 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
       },
     });
 
+    await stageAttention(ws, attentionUpdated(`topic:${topicId}`, { state: "needs-you", reason: "question", detail: "Quale strada?" }));
+
     // Il glifo si ferma e il tooltip lo dice a parole. Nessun indicatore deve
     // restare sull'onda: se ne sopravvivesse uno, una superficie mentirebbe
     // mentre l'altra dice il vero — che è peggio di mentire e basta.
@@ -310,6 +317,7 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
       status: "success",
       result: "ok",
     });
+    await stageAttention(ws, attentionUpdated(`topic:${topicId}`, { state: "working" }));
     await expect(waiting).toHaveCount(0, { timeout: 10_000 });
     await expect(working.first()).toBeVisible();
   });

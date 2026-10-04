@@ -5,9 +5,10 @@
  * but its last turn left an agent, a Bash or a Monitor running. If such a chat
  * entered the streaming sets, `reconcileServerStreams` and the composer would
  * treat it as a reply in progress: the message queued instead of sent, and a
- * ghost turn reopened. So the poll's reading rule keeps it apart, per session
- * for the composer's Stop and per topic for the glyphs, the chat line and the
- * agent list, and the Stop that ends it clears both at once.
+ * ghost turn reopened. So the poll's reading rule keeps it apart. Whether a
+ * chat waits on background work is the attention state's now (the glyphs, the
+ * Stop, the agent list, notifications-redesign); the poll keeps only the
+ * detail the line under the transcript names.
  *
  * A later turn does not end that work: the turn row names it, and the chat
  * keeps it on the per-topic map while the composer's Stop stays the turn's.
@@ -15,7 +16,8 @@
  * @covers BGVIS-01, BGVIS-02, BGVIS-05
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { composerStopsWork, mergeBackgroundWork, projectBackgroundCount, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
+import { composerStopsTasks, composerStopsWork, mergeBackgroundWork, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
+import { projectBackgroundCount } from "./attentionRollups";
 import { signalsActions, useSignalsStore } from "./signals";
 import type { Topic } from "../types";
 
@@ -88,60 +90,58 @@ describe("mergeBackgroundWork", () => {
   });
 });
 
-describe("projectBackgroundCount", () => {
-  test("counts the chats of that project only", () => {
+describe("projectBackgroundCount: the closed folder's grey glyph, from the attention state", () => {
+  const bgRow = (subject: string) => ({
+    subject, state: "background" as const, reason: null, outcome: null, detail: null, since: "", epoch: 0, seenEpoch: 0,
+    lit: false, unread: 0, turnUnseen: false, lastTurnAt: null, background: [{ id: "b", kind: "bash", label: "x", startedAt: "" }],
+  });
+
+  test("counts the children of the project waiting on background work", () => {
     const topics = {
       a: { id: "a", projectPath: "/p" },
       b: { id: "b", projectPath: "/p" },
       c: { id: "c", projectPath: "/q" },
     } as unknown as Record<string, Topic>;
-    const work = new Map(["a", "c", "gone"].map((id) => [id, { sessionKey: `topic:${id}`, tasks: [], lastSignalAt: 0 }]));
-    expect(projectBackgroundCount("/p", topics, work)).toBe(1);
-    expect(projectBackgroundCount("/q", topics, work)).toBe(1);
-    expect(projectBackgroundCount("/none", topics, work)).toBe(0);
+    const rows = new Map(["topic:a", "topic:c", "topic:gone"].map((s) => [s, bgRow(s)]));
+    expect(projectBackgroundCount(rows, "/p", topics, [])).toBe(1);
+    expect(projectBackgroundCount(rows, "/q", topics, [])).toBe(1);
+    expect(projectBackgroundCount(rows, "/none", topics, [])).toBe(0);
   });
 
   test("an archived chat does not light the folder: no row, no tab and no agent row would name it", () => {
-    // Closing a chat's tab archives it and leaves its background work running,
-    // and the status route still reports it. The folder follows the same gate
-    // as the agent list (`visibleTopicSignalIds`).
     const topics = {
       a: { id: "a", projectPath: "/p", archived: true },
       b: { id: "b", projectPath: "/p" },
     } as unknown as Record<string, Topic>;
-    const work = new Map(["a", "b"].map((id) => [id, { sessionKey: `topic:${id}`, tasks: [], lastSignalAt: 0 }]));
-    expect(projectBackgroundCount("/p", topics, work)).toBe(1);
-    work.delete("b");
-    expect(projectBackgroundCount("/p", topics, work)).toBe(0);
+    const rows = new Map(["topic:a", "topic:b"].map((s) => [s, bgRow(s)]));
+    expect(projectBackgroundCount(rows, "/p", topics, [])).toBe(1);
+    rows.delete("topic:b");
+    expect(projectBackgroundCount(rows, "/p", topics, [])).toBe(0);
   });
 });
 
-describe("the signals store", () => {
+describe("the signals store keeps only the poll's DETAIL", () => {
   afterEach(() => {
-    signalsActions.setBackgroundWork(new Set(), new Map());
+    signalsActions.setBackgroundDetail(new Map());
     signalsActions.setHydratedStreamTopics(new Set());
   });
 
-  test("the poll writes the session and the topic in one pass, and the streaming sets stay untouched", () => {
+  test("the poll writes the line's detail per topic, and the streaming sets stay untouched", () => {
     const snap = readStreamingSnapshot([{ topicId: "T", sessionKey: "topic:T", state: "background", tasks: twoTasks, lastSignalAt: 1 }]);
     signalsActions.setHydratedStreamTopics(snap.streamingTopics);
-    signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
+    signalsActions.setBackgroundDetail(snap.backgroundTopics);
     const st = useSignalsStore.getState();
-    expect(st.backgroundWorkSessions.has("topic:T")).toBe(true);
     expect(st.backgroundWorkTopics.get("T")?.tasks).toEqual(twoTasks);
     expect(st.hydratedStreamTopics.has("T")).toBe(false);
     expect(st.liveStreamTopics.has("T")).toBe(false);
   });
+});
 
-  test("the Stop that ended the work clears the session and the topic at once, without the next poll", () => {
-    const snap = readStreamingSnapshot([
-      { topicId: "T", sessionKey: "topic:T", state: "background", tasks: twoTasks, lastSignalAt: 1 },
-      { topicId: "V", sessionKey: "topic:V", state: "background", tasks: [], lastSignalAt: 1 },
-    ]);
-    signalsActions.setBackgroundWork(snap.backgroundSessions, snap.backgroundTopics);
-    signalsActions.dropBackgroundWork("topic:T");
-    const st = useSignalsStore.getState();
-    expect([...st.backgroundWorkSessions]).toEqual(["topic:V"]);
-    expect([...st.backgroundWorkTopics.keys()]).toEqual(["V"]);
+describe("composerStopsTasks: the Stop on the attention state's tasks", () => {
+  test("offered while one task is the CLI's own; a run_command alone or no task offers none", () => {
+    expect(composerStopsTasks([{ kind: "agent" }])).toBe(true);
+    expect(composerStopsTasks([{ kind: "command" }, { kind: "bash" }])).toBe(true);
+    expect(composerStopsTasks([{ kind: "command" }])).toBe(false);
+    expect(composerStopsTasks([])).toBe(false);
   });
 });

@@ -49,6 +49,7 @@ import {
   closeAllBrowserContexts, createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, waitForTopicVisible,
 } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
@@ -223,8 +224,9 @@ test.describe.serial("Una tab, tre zone", () => {
     test.info().annotations.push({ type: "spec", description: "TABSLOT-03" });
     const { projectTab, ws } = await projectTabAtRest(page, request);
 
-    // Attention: 13 things inside ask for you.
-    ws.send({ type: "unread:updated", topicId: childId, unreadCount: 13 });
+    // Attention: a chat inside finished and nobody looked. The project's
+    // number is its LIT CHILDREN (ATTN-12), not their unread: one.
+    await stageAttention(ws, attentionUpdated(`topic:${childId}`, { state: "finished", unread: 13 }));
     // Pinned, through the tab's own menu.
     await projectTab.click({ button: "right" });
     await page.getByTestId("tab-menu-pin-tab").click();
@@ -236,7 +238,7 @@ test.describe.serial("Una tab, tre zone", () => {
     await expect(projectTab.getByTestId("tab-project-marker"), "the project marker").toBeVisible();
     const slot = projectTab.getByTestId("pane-tab-slot");
     await expect(slot, "working AND asking for you: the ring around the number").toHaveAttribute("data-signal", "working", { timeout: 15_000 });
-    await expect(slot.locator("[data-notification-count]")).toHaveText("13", { timeout: 10_000 });
+    await expect(slot.locator("[data-notification-count]")).toHaveText("1", { timeout: 10_000 });
     // …and what left the tab's face is not drawn on it.
     for (const gone of ["tab-pinned", "tab-elapsed", "project-elapsed", "tab-spawned-browser", "tab-cloud"]) {
       await expect(projectTab.getByTestId(gone), `${gone} is no longer on the tab`).toHaveCount(0);
@@ -252,7 +254,7 @@ test.describe.serial("Una tab, tre zone", () => {
 
     // THE RING IS A CIRCLE AROUND THE NUMBER, measured, not inferred from
     // `data-signal`: an orbit left in flow became a 6.6px sliver beside the
-    // "13", with the attribute and the text still right.
+    // number, with the attribute and the text still right.
     const ring = await slot.locator('[data-loader-state="working"]').evaluate((el) => {
       const r = (e: Element) => e.getBoundingClientRect();
       const orbit = el.querySelector('span[aria-hidden="true"]')!;
@@ -268,13 +270,8 @@ test.describe.serial("Una tab, tre zone", () => {
     expect(Math.abs(mid(ring.number) - mid(ring.orbit)), "the number sits on the orbit's centre (x)").toBeLessThanOrEqual(SAME_PX);
     expect(Math.abs(midY(ring.number) - midY(ring.orbit)), "the number sits on the orbit's centre (y)").toBeLessThanOrEqual(SAME_PX);
     await projectTab.screenshot({ path: test.info().outputPath("project-tab-all-signals.png") });
-
-    // THREE FIGURES STILL FIT THE RING: "99+" around the orbit, inside its 20px.
-    ws.send({ type: "unread:updated", topicId: childId, unreadCount: 150 });
-    const ringNumber = slot.locator('[data-loader-state="working"] [data-notification-count]');
-    await expect(ringNumber).toHaveText("99+", { timeout: 10_000 });
-    await forceWideUiFont(page);
-    await expectInside(ringNumber, slot, "99+ in the ring");
+    // "99+" in the slot is measured on a chat tab, whose number is its unread
+    // (test b): a project counts lit children, and a hundred of them is not a scene.
   });
 
   test("d) CHROME-12: a project tab with a working child offers Close, never Stop", async ({ page, request }) => {
@@ -314,7 +311,7 @@ test.describe.serial("Una tab, tre zone", () => {
     // the tab you are looking at (TAB-BADGE-07).
     await page.locator(`[role="tab"][data-pane-id="${chatB.id}"]`).click();
     await expect(tab).toHaveAttribute("data-active", "false");
-    ws.send({ type: "unread:updated", topicId: chatA.id, unreadCount: 3 });
+    await stageAttention(ws, attentionUpdated(`topic:${chatA.id}`, { state: "finished", unread: 3 }));
     await pointerAway(page);
     await expect(slot.locator("[data-notification-count]")).toHaveText("3", { timeout: 10_000 });
     seen.attention = await zones(tab);
@@ -338,6 +335,13 @@ test.describe.serial("Una tab, tre zone", () => {
       expect(Math.abs(z.slot.x - seen.rest.slot.x), `slot x in ${state}`).toBeLessThanOrEqual(SAME_PX);
       expect(Math.abs(z.slot.width - seen.rest.slot.width), `slot width in ${state}`).toBeLessThanOrEqual(SAME_PX);
     }
+
+    // THREE FIGURES STILL FIT THE SLOT: "99+", inside its 20px, in the widest UI font.
+    await stageAttention(ws, attentionUpdated(`topic:${chatA.id}`, { state: "finished", unread: 150 }));
+    const number = slot.locator("[data-notification-count]");
+    await expect(number).toHaveText("99+", { timeout: 10_000 });
+    await forceWideUiFont(page);
+    await expectInside(number, slot, "99+ in the slot");
   });
 
   test("c) CHROME-12: Stop in the slot and no Close beside it; after Stop the same slot closes", async ({ page, request, chatPage }) => {
@@ -636,7 +640,7 @@ test.describe.serial("Una tab, tre zone", () => {
     await forceWideUiFont(page);
 
     for (const [count, shown] of [[13, "13"], [150, "99+"]] as const) {
-      ws.send({ type: "unread:updated", topicId: chatA.id, unreadCount: count });
+      await stageAttention(ws, attentionUpdated(`topic:${chatA.id}`, { state: count > 0 ? "finished" : "idle", unread: count }));
       await pointerAway(page);
       await expect(figure).toHaveText(shown, { timeout: 10_000 });
       await expectInside(figure, slot, `badge ${shown}`);

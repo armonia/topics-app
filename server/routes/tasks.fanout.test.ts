@@ -10,10 +10,11 @@
  *
  * @covers KANBAN-13
  */
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
+import { configureAttentionStore, getAttention, resetAttentionStore, turnEnded, turnStarted } from "../attention/store";
 import { createTaskAttemptStore } from "../services/task-attempts";
 import { createTaskService } from "../services/tasks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
@@ -190,6 +191,18 @@ describe("route del fan-out", () => {
     expect(broadcasts.some((b) => b.type === "task:updated")).toBe(true);
   });
 
+  test("the reaped loser's chat goes idle in the attention state at once, not at the next restart", async () => {
+    // The fourth archive path told only the topics table: a lit attempt stayed lit (review 2 of notifications-redesign).
+    resetAttentionStore();
+    configureAttentionStore({ db: () => null, recordRow: () => null, sendPush: () => {} });
+    turnStarted("topic:topic-1");
+    turnEnded("topic:topic-1", { turnId: "m1", outcome: "done" });
+    expect(getAttention("topic:topic-1").lit).toBe(true);
+    const { a2 } = seedFanOut();
+    expect((await call(router, "POST", `/api/boards/${PID}/tasks/T/attempts/${a2}/select`))!.status).toBe(200);
+    expect(getAttention("topic:topic-1")).toMatchObject({ state: "idle", lit: false });
+  });
+
   test("scegliere mentre un tentativo lavora ancora → 409, niente potature", async () => {
     const { a1 } = seedFanOut({ closed: false });
     const r = (await call(router, "POST", `/api/boards/${PID}/tasks/T/attempts/${a1}/select`))!;
@@ -332,3 +345,5 @@ describe("route del fan-out", () => {
     });
   });
 });
+
+afterAll(() => resetAttentionStore());

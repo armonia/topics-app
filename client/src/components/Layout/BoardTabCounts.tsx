@@ -9,14 +9,18 @@
  * split group, so a fetch per reader would mean N fetches.
  *
  * They are no longer drawn as a row of glyphs and numbers in the tab: that row
- * took the label's width (TABSLOT-01). The tab's one slot carries them instead,
- * review as the number and in progress as the ring (TABSLOT-02); the exact
- * counts are in its tooltip.
+ * took the label's width (TABSLOT-01). The tab's one slot carries them instead:
+ * in progress as the ring (TABSLOT-02), the exact counts in its tooltip. The
+ * NUMBER is not one of these counts: it is the lit cards of the attention state
+ * (`useBoardAttention`, ATTN-16), never read from a local cache.
  */
 import { useEffect, useMemo } from 'react';
 import { boardTabCounts, type StatusCount } from '../../lib/boardTabCounts';
 import { useBoardTasks, useBoardTasksLoaded } from '../../lib/boardTasksStore';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
+import { useAttentionRows } from '../../state/attention';
+import { boardAttention } from '../../state/attentionRollups';
+import type { AttentionTier } from '../../types';
 
 /** Un percorso confrontabile: la stessa cartella non deve diventare due
  *  progetti diversi per via di uno slash finale. */
@@ -50,15 +54,39 @@ function rememberCounts(key: string, counts: StatusCount[]): void {
  * The counts behind a board tab, for its slot (TABSLOT-02): the cards in
  * review are the number that asks for you, the cards in progress are the ring.
  */
-export function useBoardTabCounts(projectPath?: string): StatusCount[] {
-  const tasks = useBoardTasks();
+/** The board id of a project tab's path, or null (also for the general board). */
+function useBoardProjectId(projectPath?: string): string | null {
   // L'indice serve SOLO alla tab di progetto (per tradurre il percorso in
   // board id): sulla board generale non si sottoscrive nemmeno.
   const index = useBoardProjects(!!projectPath);
-  const projectId = useMemo(
+  return useMemo(
     () => (projectPath ? index?.find((p) => p.path && norm(p.path) === norm(projectPath))?.projectId ?? null : null),
     [index, projectPath],
   );
+}
+
+const NOTHING_LIT: { tier: AttentionTier | null; count: number } = { tier: null, count: 0 };
+
+/**
+ * THE NUMBER of a board tab (ATTN-16): the lit `task:` subjects of the
+ * project's board, every board for the general one. Review, parked, and a card
+ * whose agent asks something mid-turn, from the same rows the inbox and the
+ * Dock count. A project tab whose path is not resolved yet says nothing rather
+ * than every board's total.
+ */
+export function useBoardAttention(projectPath?: string): { tier: AttentionTier | null; count: number } {
+  const rows = useAttentionRows();
+  const tasks = useBoardTasks();
+  const projectId = useBoardProjectId(projectPath);
+  return useMemo(
+    () => (projectPath && !projectId ? NOTHING_LIT : boardAttention(rows, tasks, projectId)),
+    [rows, tasks, projectId, projectPath],
+  );
+}
+
+export function useBoardTabCounts(projectPath?: string): StatusCount[] {
+  const tasks = useBoardTasks();
+  const projectId = useBoardProjectId(projectPath);
   const live = useMemo(
     // Finché il percorso non è risolto in un board id NON si conta: mostrare
     // intanto il totale di TUTTI i progetti sarebbe un numero sbagliato che si

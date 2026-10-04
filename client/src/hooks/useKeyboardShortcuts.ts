@@ -30,6 +30,7 @@ import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 import type { ZoomScope } from '../components/Layout/zoomScope';
 import { paneZoomActions } from '../state/paneZoom';
 import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
+import { OPEN_INBOX_EVENT } from '../lib/inboxEvents';
 import { closeFind, isFindOpen, openFind, resolveFindPane, runFindFallback, stepFind } from '../state/findRegistry';
 import { usesCtrl } from '../lib/shortcutLabel';
 
@@ -466,6 +467,16 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       if (isMod && !e.shiftKey && !e.altKey && (e.key === 'j' || e.key === 'J') && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent(NEXT_WAITING_EVENT));
+        return;
+      }
+
+      // ⇧⌘I — OPEN «TO LOOK AT», the inbox (ATTN-09). Same shape as ⌘J: the
+      // chord announces, the inbox's button answers (it owns the panel and
+      // gives the focus back to itself on Esc). Ctrl+Shift+I steps aside for a
+      // terminal or an editor, where it is a real key.
+      if (isMod && e.shiftKey && !e.altKey && (e.key === 'i' || e.key === 'I') && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent(OPEN_INBOX_EVENT));
         return;
       }
 

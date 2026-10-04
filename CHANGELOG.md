@@ -2,6 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.439 — 2026-10-04
+
+### Sotto il cofano
+- Chiudi le tornate 2, 3 e 5 di mac-usabile-sotto-carico coi dati del 04/10
+- Fai mordere i test del browser nativo: generici annidati, B che risponde prima, adozione e chiusura in volo
+- Spunta in openspec il lavoro gia' su main: finestra del browser della topic, arbitro del viewport, profili dei sottoagenti, quota delle opzioni consigliate
+- Dai a KANBAN-90 i suoi tre scenari e chiudi il recinto che spezzava la spec della board
+- Manda con keepalive il DELETE del terminale e misura il menu contestuale senza strizzarlo
+- Riscrivi CMDUI-09 sulla forma che main manda davvero alla CLI e legalo ai suoi due test
+- Archivia board-comments-answer-first
+- Archivia chat-inline-command-run
+- Archivia db-maintenance
+- Archivia subagent-tool-standard
+- Archivia commands-ui
+- Rendi asincroni gli hook Topics di UserPromptSubmit, Stop e Notification
+- Allega le clip del browser della topic e del segno di apertura, e spunta le due righe di prova
+- Archivia chat-browser-open-marker
+- Lega CHAT-BROWSER-03 e TOPIC-COLOR-01 ai test che li provano gia'
+- Rendi browser_linux::raise un no-op e dichiara il buco webkitgtk con la misura
+- Spunta il raise di WebKitGTK (PR #208) e la card della striscia delle modifiche
+- Archivia la change single-changeset-diff-panel
+- Tieni l'hook Topics nel matcher jolly e non toccare i matcher altrui
+
 ## 2.2.437 — 2026-10-03
 
 ### Sotto il cofano

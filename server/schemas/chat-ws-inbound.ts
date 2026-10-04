@@ -26,6 +26,14 @@ import { z } from 'zod';
 const focusSchema = z.object({
   type: z.literal('focus'),
   topicId: z.string().nullable(),
+  /**
+   * The attention subject in front (`topic:<id>`, `terminal:<id>`) and whether
+   * the window is awake (visible and focused): an epoch born there is born
+   * seen (notifications-redesign, ATTN-06). Absent from an older client, which
+   * names only the chat and is taken as awake, as the server read it before.
+   */
+  subject: z.string().nullable().optional(),
+  awake: z.boolean().optional(),
 });
 
 const typingSchema = z.object({

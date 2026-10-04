@@ -19,7 +19,7 @@ import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
-import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, deleteTask, openBaselineChats, resetPaneStore, resetProjectPanes, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { projectRow } from "./helpers/project-row";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -215,6 +215,8 @@ test.describe("card 058ea722: spacing, pinned names, attachments, ghost card", (
     test.info().annotations.push({ type: "spec", description: "PINTILE-04" });
     await resetProjectPanes(request, NO_ICON);
     await seedProjectPane(request, NO_ICON);
+    // The standalone chat the glyph-less project lines up with.
+    await openBaselineChats(request);
     // A chat OPEN INSIDE each favicon project, seeded after the hermetic reset
     // (which wipes the pane store): a project tile is expandable when the
     // project has open tabs, and that is what draws its accordion.

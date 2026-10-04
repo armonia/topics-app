@@ -1,0 +1,7 @@
+# baseline (green) of the existing attention tests on the same tree
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test client/src/state/seen.test.ts client/src/state/attentionTotal.test.ts client/src/lib/notify/chatFinished.test.ts
+
+ 67 pass
+ 0 fail
+ 126 expect() calls
+Ran 67 tests across 3 files. [638.00ms]

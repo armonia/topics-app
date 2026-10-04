@@ -18,11 +18,13 @@ import type { Dict } from './i18n-types';
 import SPEND_IT from './i18n-spend-it';
 import CHAT_IT from './i18n-chat-it';
 import FIND_IT from './i18n-find-it';
+import ATTENTION_IT from './i18n-attention-it';
 
 const IT: Dict = {
   ...SPEND_IT,
   ...CHAT_IT,
   ...FIND_IT,
+  ...ATTENTION_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
   'ai.selector.routingLine': 'Claude gira dentro Topics col tuo abbonamento, senza aprire un processo Claude Code per chat. GPT e Gemini restano diretti.',
@@ -2724,21 +2726,10 @@ const IT: Dict = {
   //    `notification-history.spec.ts`) ora legge `data-notification-count` sul
   //    badge. Si possono riscrivere — restano solo ciò che dice uno screen
   //    reader.
-  'notifications.historyTitle': 'Cronologia notifiche',
-  'notifications.historyUnseen': 'Cronologia notifiche. {n} da guardare',
-  'notifications.badgeUnseen': '{n} da guardare',
-  'notifications.panelTitle': 'Notifiche',
   'notifications.settings': 'Preferenze delle notifiche',
   'notifications.empty': 'Nessuna notifica',
-  'notifications.waitingTitle': 'Aspettano te',
-  'notifications.waitingChat': 'Chat che ti aspetta',
-  'notifications.waitingCard': 'Card in review',
-  'notifications.waitingTerminal': 'Terminale finito',
-  'notifications.waitingPane': 'Pannello con novità',
-  'notifications.logStartsHere': 'Da qui in poi ogni notifica mandata lascia una riga.',
   'notifications.loadMore': 'Carica altre notifiche',
   'notifications.loadingMore': 'Carico…',
-  'notifications.allLoaded': 'Sei arrivato in fondo al registro.',
   // ── Projects bar under the board.
   'board.projects.more': 'Altri {n} progetti con task aperti',
   // ── Sidebar rows.

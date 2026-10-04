@@ -1,14 +1,19 @@
 /**
  * ⌘J: THE NEXT CHAT WAITING FOR YOU, and the same step from the phone's door.
  *
- * Three chats, seeded with no fake inside the app:
- *   - A parked on a permission: a `session:state` frame with the
- *     `awaiting-approval` phase, injected on the intercepted socket;
+ * Three chats, seeded with no fake inside the app (notifications-redesign:
+ * the queue is the attention state's `needs-you`, CHAT-WAIT-03 modified):
+ *   - A parked on a permission: the permission bridge's own route
+ *     (`POST /api/sessions/:key/permission`), legged as the CLI's permission
+ *     tool does, on a row seeded with the tool waiting;
  *   - B parked on an in-app question: a turn in flight
  *     (`POST /api/test/streams/partial`) whose last row carries
- *     `mcp__topics__ask_user_question` in `waiting_for_input`, which
- *     `GET /api/topics/streaming` reports as `waiting`;
- *   - C with a turn in flight and no question: working, never a target.
+ *     `mcp__topics__ask_user_question` in `waiting_for_input`, and the ask
+ *     bridge's own route (`POST /api/sessions/:key/ask-user`) holding it;
+ *   - C with a turn in flight and no question: working, never a target. The
+ *     test turn opens no turn in the attention store (only the chat route
+ *     does), so its `working` is staged as the `attention:updated` the route
+ *     would send.
  *
  * B and C are seeded BEFORE the page loads, so the first snapshot the client
  * asks for already tells them apart (a seed after the load would race the
@@ -27,6 +32,7 @@ import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjec
 import { canonicalTmpDir, cleanupFileProject, removeTmpDir, seedFileProject } from "./helpers/file-project";
 import { projectRowSelector } from "./fixtures/file-explorer.fixture";
 import { interceptWebSocket } from "./helpers/ws-helpers";
+import { attentionUpdated } from "./helpers/attention";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -76,6 +82,9 @@ async function turnInFlight(request: APIRequestContext, s: Seeded, ask: boolean)
       userInputSchema: { kind: "questions", questions: [{ question, header: "Ramo", options, multiSelect: false }] },
     }],
   });
+  legUntilAnswered(request, `${E2E_BASE}/api/sessions/${encodeURIComponent(s.sessionKey)}/ask-user`, {
+    questions: [{ question, header: "Ramo", options, multiSelect: false }], legMs: 1000,
+  });
 }
 
 /** The state view, seeded in storage like `tab-state-view.spec.ts`: the
@@ -90,13 +99,48 @@ async function stateView(page: Page): Promise<void> {
   });
 }
 
-function permission(ws: Awaited<ReturnType<typeof interceptWebSocket>>, s: Seeded): void {
-  ws.send({ type: "session:state", sessionKey: s.sessionKey, state: { phase: "awaiting-approval", rev: 1, claudeSessionId: s.sessionKey } });
+const TOOL = "mcp__gateway__kiwi__search-flight";
+const TOOL_INPUT = { flyFrom: "NAP", flyTo: "RAK" };
+/** The bridges' legs still running, stopped after each test. */
+const openLegs: Array<() => void> = [];
+test.afterEach(() => { while (openLegs.length) openLegs.pop()!(); });
+
+/** Legs on a bridge route until somebody answers or the test ends, as the CLI's tool does. */
+function legUntilAnswered(request: APIRequestContext, url: string, data: Record<string, unknown>): void {
+  let stopped = false;
+  openLegs.push(() => { stopped = true; });
+  void (async () => {
+    while (!stopped) {
+      const r = await request.post(url, { data, timeout: 30_000 }).catch(() => null);
+      if (!r) return;
+      const body = (await r.json().catch(() => ({}))) as { pending?: boolean };
+      if (!body.pending) return;
+    }
+  })();
+}
+
+/** A parked on a permission: a row with the tool waiting, and the bridge's legs. */
+async function permission(request: APIRequestContext, s: Seeded): Promise<void> {
+  await request.delete(`${E2E_BASE}/api/tool-grants/${encodeURIComponent(TOOL)}`);
+  await request.patch(`${E2E_BASE}/api/topics/${s.id}`, { data: { autonomyLevel: "auto-apply" } });
+  const id = `perm-${s.id.slice(0, 8)}-${Date.now()}`;
+  const tc = {
+    id, name: TOOL, args: TOOL_INPUT, status: "awaiting_permission" as const, startedAt: Date.now(),
+    permissionRequest: { toolName: TOOL, input: TOOL_INPUT, requestedAt: Date.now() },
+  };
+  await seedMessage(request, { sessionKey: s.sessionKey, role: "assistant", content: "Cerco i voli:", toolCalls: [tc], blocks: [{ kind: "text", text: "Cerco i voli:" }, { kind: "tool", toolCall: tc }] });
+  legUntilAnswered(request, `${E2E_BASE}/api/sessions/${encodeURIComponent(s.sessionKey)}/permission`, { toolName: TOOL, input: TOOL_INPUT, toolUseId: id, legMs: 1000 });
+}
+
+/** C's turn as the chat route would announce it: the state `working`, after the socket's snapshot. */
+async function stageWorking(ws: Awaited<ReturnType<typeof interceptWebSocket>>, s: Seeded): Promise<void> {
+  await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15_000 }).toBeGreaterThan(0);
+  ws.send(attentionUpdated(`topic:${s.id}`, { state: "working" }));
 }
 
 /** The ids of the «Attende te» rows, top to bottom. */
 async function awaitingOrder(page: Page, seeded: Seeded[]): Promise<string[]> {
-  const names = await page.locator('[data-testid="sidebar-state-section-awaiting"] [data-row-name="chat"]').allTextContents();
+  const names = await page.locator('[data-testid="sidebar-state-section-needs-you"] [data-row-name="chat"]').allTextContents();
   return names.map((n) => seeded.find((s) => s.name === n.trim())?.id ?? `unknown:${n}`);
 }
 
@@ -130,9 +174,10 @@ test.describe("⌘J, on the desktop", () => {
       const ws = await interceptWebSocket(page);
       await goToApp(page);
       await expect(page.locator(`[role="tab"][data-pane-id="${c.id}"]`)).toBeVisible({ timeout: 15_000 });
-      permission(ws, a);
+      await stageWorking(ws, c);
+      await permission(request, a);
 
-      const awaiting = page.locator('[data-testid="sidebar-state-section-awaiting"]');
+      const awaiting = page.locator('[data-testid="sidebar-state-section-needs-you"]');
       await expect(awaiting.locator('[data-row-name="chat"]')).toHaveCount(2, { timeout: 20_000 });
       await expect(awaiting).toContainText(a.name);
       await expect(awaiting).toContainText(b.name);
@@ -157,12 +202,11 @@ test.describe("⌘J, on the desktop", () => {
     const a = await mk(request, "only");
     try {
       await resetPaneStore(request, [a.id]);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       const tab = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
       await expect(tab).toBeVisible({ timeout: 15_000 });
-      permission(ws, a);
-      await expect(tab).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await expect(tab).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
       await tab.click();
       await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
 
@@ -193,7 +237,8 @@ test.describe("the «In attesa» door, on the phone", () => {
       const ws = await interceptWebSocket(page);
       await goToApp(page);
       await expect(door(page)).toBeVisible({ timeout: 15_000 });
-      permission(ws, a);
+      await stageWorking(ws, c);
+      await permission(request, a);
 
       await expect(door(page).locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "2", { timeout: 20_000 });
       // The badge is only drawn: the number has to be in the door's name too.
@@ -222,7 +267,6 @@ test.describe("the «In attesa» door, on the phone", () => {
     const b = await mk(request, "b");
     try {
       await resetPaneStore(request, [a.id, b.id]);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       await expect(door(page)).toBeVisible({ timeout: 15_000 });
       await expect(door(page)).toBeDisabled();
@@ -237,8 +281,8 @@ test.describe("the «In attesa» door, on the phone", () => {
       const atZero = await widths();
       expect(atZero.length).toBe(5);
 
-      permission(ws, a);
-      permission(ws, b);
+      await permission(request, a);
+      await permission(request, b);
       await expect(door(page).locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "2", { timeout: 15_000 });
       await expect(door(page)).toBeEnabled();
       await expect(door(page)).toHaveAccessibleName("In attesa, 2");
@@ -261,12 +305,11 @@ test.describe("Ctrl+J, the Windows way in", () => {
     const c = await mk(request, "ctrl-composer");
     try {
       await resetPaneStore(request, [a.id, c.id]);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
       await expect(tabA).toBeVisible({ timeout: 15_000 });
-      permission(ws, a);
-      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await expect(tabA).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
 
       await page.locator(`[role="tab"][data-pane-id="${c.id}"]`).click();
       await expect(activeTab(page)).toHaveAttribute("data-pane-id", c.id);
@@ -289,14 +332,13 @@ test.describe("Ctrl+J, the Windows way in", () => {
     try {
       await resetTerminalWorkspace(request, seeded.topicId);
       await resetPaneStore(request, [seeded.topicId, a.id]);
-      const ws = await interceptWebSocket(page);
       await gotoTerminalProject(page, seeded.topicName);
       // The permission goes in BEFORE the shell: the terminal opens a socket of
       // its own that the same route also matches, and `send` talks to the last.
       const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
       await expect(tabA).toBeVisible({ timeout: 15_000 });
-      permission(ws, a);
-      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await expect(tabA).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
       await openShellViaSidebar(page, terminalPage);
 
       await terminalPage.focus();
@@ -337,12 +379,11 @@ test.describe("Ctrl+J, the Windows way in", () => {
       await resetPaneStore(request, [a.id]);
       await resetProjectPanes(request, project.tmpDir);
       await seedProjectPane(request, project.tmpDir);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
       await expect(tabA).toBeVisible({ timeout: 15_000 });
-      permission(ws, a);
-      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await expect(tabA).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
 
       const projects = page.getByRole("button", { name: /sezione Progetti/ });
       if ((await projects.count()) > 0 && (await projects.getAttribute("aria-expanded")) === "false") await projects.click();
@@ -384,7 +425,6 @@ test.describe("⌘J in a group window (`?space=`)", () => {
     const b = await mk(request, "grp-b");
     try {
       await resetPaneStore(request, [a.id, b.id]);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`)).toBeVisible({ timeout: 15_000 });
       const spaceId = await moveToNewGroup(page, a.id);
@@ -395,11 +435,11 @@ test.describe("⌘J in a group window (`?space=`)", () => {
       await expect(tabA).toBeVisible({ timeout: 15_000 });
       await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`), "B lives in the other group").toHaveCount(0);
 
-      permission(ws, a);
-      permission(ws, b);
-      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await permission(request, b);
+      await expect(tabA).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
       // B has no tab here, so its sidebar row is the only place that says it waits.
-      await expect(page.locator(`[role="treeitem"][aria-label="${b.name}"]`)).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await expect(page.locator(`[role="treeitem"][aria-label="${b.name}"]`)).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
 
       await tabA.click();
       await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
@@ -433,7 +473,6 @@ test.describe("⌘J in a group window (`?space=`)", () => {
     try {
       await resetPaneStore(request, [a.id, b.id]);
       expect((await pins([b.id])).ok()).toBe(true);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`)).toBeVisible({ timeout: 15_000 });
       const spaceId = await moveToNewGroup(page, a.id);
@@ -445,9 +484,9 @@ test.describe("⌘J in a group window (`?space=`)", () => {
       const tileB = page.getByTestId("sidebar-pinned-section").getByTestId("pinned-tile").and(page.getByRole("treeitem", { name: b.name }));
       await expect(tileB, "B is pinned: its tile is its only place in this sidebar").toBeVisible({ timeout: 15_000 });
 
-      permission(ws, a);
-      permission(ws, b);
-      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await permission(request, b);
+      await expect(tabA).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
       await tabA.click();
       await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
 
@@ -528,7 +567,6 @@ test.describe("⌘J in the normal window, with groups", () => {
     const b = await mk(request, "norm-b");
     try {
       await resetPaneStore(request, [a.id, b.id]);
-      const ws = await interceptWebSocket(page);
       await goToApp(page);
       const tabB = page.locator(`[role="tab"][data-pane-id="${b.id}"]`);
       await expect(tabB).toBeVisible({ timeout: 15_000 });
@@ -536,10 +574,10 @@ test.describe("⌘J in the normal window, with groups", () => {
       await expect(page.getByTestId("space-row-active"), "the move leaves the window where it was").toContainText("Principale");
       await expect(page.locator(`[role="tab"][data-pane-id="${a.id}"]`), "A lives in the other group").toHaveCount(0);
 
-      permission(ws, a);
-      permission(ws, b);
-      await expect(tabB).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
-      await expect(page.locator(`[role="treeitem"][aria-label="${a.name}"]`)).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await permission(request, a);
+      await permission(request, b);
+      await expect(tabB).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
+      await expect(page.locator(`[role="treeitem"][aria-label="${a.name}"]`)).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
       await tabB.click();
       await expect(activeTab(page)).toHaveAttribute("data-pane-id", b.id);
 

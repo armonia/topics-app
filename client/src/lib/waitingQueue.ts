@@ -1,16 +1,17 @@
 /**
- * ⌘J: which chats are waiting for you, in what order, and which one is next
- * (CHAT-WAIT-03). Pure, like the rest of the sidebar's builders: the sets come
- * from the caller, so the order is provable without a store or a socket.
+ * ⌘J: which rows are waiting for your answer, in what order, and which one is
+ * next (CHAT-WAIT-03, modified by notifications-redesign). Pure, like the rest
+ * of the sidebar's builders: the attention rows come from the caller, so the
+ * order is provable without a store or a socket.
  */
 import {
   groupSidebarItemsByState,
   sidebarItemSubject,
-  sidebarStateSignals,
   type SidebarItem,
-  type SidebarSignalSources,
 } from './buildSidebarItems';
 import type { WaitingStep } from '../state/waitingQueue';
+import { attentionOf, type AttentionRows } from '../state/attention';
+import { terminalSubject, topicSubject } from '../../../shared/attention';
 
 export interface WaitingTarget {
   /** Topic id for a chat, bare session id for a terminal. */
@@ -20,21 +21,25 @@ export interface WaitingTarget {
   item: SidebarItem;
 }
 
+/** The reasons that wait for an ANSWER in the row's own pane. A card in review
+ *  or parked is not a sidebar row: the inbox carries it. */
+const ANSWER_REASONS = new Set(['question', 'permission', 'plan']);
+
 /**
- * A target is an AMBER row: a chat parked on a question or a permission (or
- * on a plan Claude Code asks to approve through its hooks), a Claude Code
- * terminal parked on a permission. The same predicate that picks the colour
- * (`useTopicAttentionTier`, `useTerminalAttentionTier` in signals.ts), so the
- * target and the colour cannot diverge. A finished turn (blue) is not a
- * target: it exists only for sessions with hooks. «Seen» does not count either:
- * a question you looked at is still open.
+ * A target is a row whose attention subject is `needs-you` with a question, a
+ * permission or a plan: the AMBER rows, read from the same state that paints
+ * them, so the target and the colour cannot diverge. A finished turn (blue or
+ * red, seen or not) is not a target, and «seen» does not count either: a
+ * question you looked at is still open.
  */
-function targetOf(item: SidebarItem, src: SidebarSignalSources): WaitingTarget | null {
+function targetOf(item: SidebarItem, attention: AttentionRows): WaitingTarget | null {
   const subject = sidebarItemSubject(item);
   if (!subject) return null;
-  if (item.type === 'chat' && src.awaitingInputTopics.has(subject)) return { subject, kind: 'chat', item };
-  if (item.type === 'terminal' && src.claudePhaseAwaitingInputTermIds.has(subject)) return { subject, kind: 'terminal', item };
-  return null;
+  const kind = item.type === 'chat' ? 'chat' : item.type === 'terminal' ? 'terminal' : null;
+  if (!kind) return null;
+  const a = attentionOf(attention, kind === 'chat' ? topicSubject(subject) : terminalSubject(subject));
+  if (a.tier !== 'needs-you' || !a.reason || !ANSWER_REASONS.has(a.reason)) return null;
+  return { subject, kind, item };
 }
 
 /**
@@ -44,7 +49,7 @@ function targetOf(item: SidebarItem, src: SidebarSignalSources): WaitingTarget |
  *    view draws at the top. A pinned PROJECT contributes the targets among its
  *    tabs, in its place: its band draws them there, and the list below leaves
  *    the pinned project out, so nowhere else would reach them.
- * 2. Then the «Attende te» section of the state view, which keeps the
+ * 2. Then the "needs-you" section of the state view, which keeps the
  *    builder's order and promotes a project's children in the project's place.
  * 3. A subject appears once, at its first occurrence. The Pinned block takes a
  *    pinned child of a project while the state grouping promotes the same child
@@ -58,12 +63,12 @@ function targetOf(item: SidebarItem, src: SidebarSignalSources): WaitingTarget |
 export function waitingQueue(
   items: SidebarItem[],
   pinnedIds: readonly string[],
-  src: SidebarSignalSources,
+  attention: AttentionRows,
 ): WaitingTarget[] {
   const out: WaitingTarget[] = [];
   const seen = new Set<string>();
   const take = (item: SidebarItem) => {
-    const t = targetOf(item, src);
+    const t = targetOf(item, attention);
     if (!t || seen.has(t.subject)) return;
     seen.add(t.subject);
     out.push(t);
@@ -82,7 +87,7 @@ export function waitingQueue(
   }
 
   const unpinned = items.filter(i => !i.pinned);
-  for (const item of groupSidebarItemsByState(unpinned, sidebarStateSignals(src)).awaiting) take(item);
+  for (const item of groupSidebarItemsByState(unpinned, attention)['needs-you']) take(item);
   return out;
 }
 
@@ -93,7 +98,7 @@ export function waitingQueue(
  * - The focused row is where the previous step took you and has left the queue
  *   (you answered it): the first of the rows that followed it in that step's
  *   queue and are still waiting, else the first. Answering moves the row out
- *   of «Attende te» and, in the list, to a new place by activity: its new
+ *   of the "needs-you" section and, in the list, to a new place by activity: its new
  *   position says nothing, its position in the queue of before does.
  * - Otherwise the first.
  */

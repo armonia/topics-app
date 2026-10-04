@@ -35,6 +35,12 @@
  *     A turn started five minutes ago is what makes the aggregate clock pass its
  *     one-minute threshold, which is the only way to see it at all.
  *
+ * A chat waiting on its background work is the server's attention state since
+ * notifications-redesign (ATTN-12): its `background` tier comes on the
+ * `attention:updated` frame, not on the poll. Those two tests stage that frame
+ * on the app's socket after its `attention:init` (`stageAttention`), as the
+ * server writes it.
+ *
  * @covers LAYOUT-33
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
@@ -53,6 +59,9 @@ import { projectRow } from "./helpers/project-row";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
+import { interceptWebSocket } from "./helpers/ws-helpers";
+import { topicSubject } from "../../shared/attention";
 
 hermetic(test);
 
@@ -219,7 +228,14 @@ async function armBackgroundSibling(page: Page, request: APIRequestContext) {
     }),
   );
   await seedInnerChat(page);
-  return { siblingId: sibling.id, snapshot };
+  const ws = await interceptWebSocket(page);
+  // The sibling's tier, as the server sends it for a chat whose turn left a Monitor running.
+  const stageBackground = () =>
+    stageAttention(ws, attentionUpdated(topicSubject(sibling.id), {
+      state: "background",
+      background: [{ id: "bg-monitor", kind: "monitor", label: "Monitor deploy", startedAt: new Date().toISOString() }],
+    }));
+  return { siblingId: sibling.id, snapshot, stageBackground };
 }
 
 /** The project HEADER row: the element that owns the chevron, the name, the
@@ -363,10 +379,11 @@ test.describe("Project folder loader", () => {
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
-    const { siblingId, snapshot } = await armBackgroundSibling(page, request);
+    const { siblingId, snapshot, stageBackground } = await armBackgroundSibling(page, request);
     try {
       await resetPaneStore(request, []);
       await goToApp(page);
+      await stageBackground();
       const header = projectHeader(page);
       await expect(header).toBeVisible({ timeout: 15_000 });
       await expect(header.getByRole("button", { name: `Expand ${PROJECT_NAME}` })).toBeVisible();
@@ -391,10 +408,11 @@ test.describe("Project folder loader", () => {
 
   test("the project TAB says the same while it is not the selected pane", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
-    const { siblingId } = await armBackgroundSibling(page, request);
+    const { siblingId, stageBackground } = await armBackgroundSibling(page, request);
     try {
       await resetPaneStore(request, [projectPaneId, outsiderId]);
       await goToApp(page);
+      await stageBackground();
       const projectTab = page.locator(`[data-pane-id="${projectPaneId}"]`);
       const otherTab = page.locator(`[data-pane-id="${outsiderId}"]`);
       await expect(otherTab).toBeVisible({ timeout: 15_000 });

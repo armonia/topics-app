@@ -9,7 +9,7 @@ import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
 import { getProjectLabel } from '@/lib/buildSidebarItems';
 import { DND_TYPES } from '@/lib/dndTypes';
-import { useTopicLoading, useTopicBackgroundWork, useTopicAttentionFill, useTopicAttentionTier } from '@/state/signals';
+import { useTopicLoading, useTopicInBackground, useTopicAttentionFill } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
@@ -132,24 +132,28 @@ export const TopicItem = memo(function TopicItem({
   // upstream prop needed; deduplicates the wiring across surfaces.
   const tr = useT();
   const isStreaming = useTopicLoading(topic.id);
-  // No turn open, but work its last turn left running: the same slot shows the
-  // grey glyph, and the row gets no Stop (that one is the composer's).
-  const inBackground = !!useTopicBackgroundWork(topic.id);
+  // No turn open, but work its last turn left running and nothing to ask:
+  // the same slot shows the grey glyph, and the row gets no Stop (that one is
+  // the composer's). From the attention state, the frame the fill reads too,
+  // so the row is never grey and blue at once (BG-1).
+  const inBackground = useTopicInBackground(topic.id);
   /** Topics is holding a command of this chat stopped: the row frosts over. */
   const swapFreeze = useSwapFreeze({ topicId: topic.id });
-  // Attention TIER — amber 'input' (a permission gate, act now) vs blue 'done'
-  // (turn finished, look when ready), or null. Same signal/look the chat tab
-  // uses, so the sidebar row and the tab can't drift (tabbar ≡ sidebar
-  // invariant).
+  // Attention TIER: amber 'needs-you' (a question, a permission, a plan), red
+  // 'error', blue 'done', or null. The server's attention state, the same one
+  // the chat tab reads, so the sidebar row and the tab can't drift (tabbar ≡
+  // sidebar invariant).
   //
-  // The FILL goes when the chat has been SEEN, not when the row is selected.
-  // The row arms no dwell of its own: the one seen event is the window's
-  // focused pane (`useSeenFocusedPane`), and `useTopicAttentionFill` reads it.
+  // The FILL goes when the chat has been SEEN, in any window: the seen is the
+  // server's (ATTN-06), and a seen subject is not lit. The row arms no dwell
+  // of its own: the one seen event is the window's focused pane
+  // (`useSeenFocusedPane`).
   const attentionTier = useTopicAttentionFill(topic.id);
   const onFill = attentionTier !== null;
-  // The raw tier, for `data-attention`: the same value the chat's tab exposes
-  // (PaneTabBar `rawTier`), so a test reads one state on both surfaces.
-  const rawAttentionTier = useTopicAttentionTier(topic.id);
+  // `data-attention` and `data-attention-fill` say the same thing now: the
+  // tier is lit or it is not. Both stay, so a test reads one state on the row
+  // and on the tab (PaneTabBar exposes the pair).
+  const rawAttentionTier = attentionTier;
 
   // NO `useSortable` HERE, and its absence is the point.
   //

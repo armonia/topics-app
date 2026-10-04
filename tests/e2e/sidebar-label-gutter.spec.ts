@@ -29,6 +29,7 @@ import {
   createTopic,
   deleteTopic,
   resetProjectPanes,
+  openBaselineChats,
   seedProjectInnerChats,
   seedProjectPane,
 } from "./helpers/api-fixtures";
@@ -131,6 +132,8 @@ test.describe("sidebar: the air left of a label", () => {
     await resetProjectPanes(request, NESTED_PROJECT).catch(() => {});
     await seedProjectPane(request, NESTED_PROJECT);
     await seedProjectInnerChats(request, NESTED_PROJECT, [nestedChatId]);
+    // The top-level chats LABELGUTTER-02 compares the nested one against.
+    await openBaselineChats(request);
   });
 
   test("LABELGUTTER-01: a top-level label starts inside the budget", async ({ page }) => {

@@ -301,6 +301,28 @@ export function openQuestionsOnRows(
 }
 
 /**
+ * Is this tool call still waiting on its person, on the rows? Any tool, not
+ * only a question: the plan panel Topics puts on a finished turn's plan
+ * (`lib/plan-approval.ts`) waits the same way, and after a restart the row is
+ * the only thing that remembers it (the attention store's boot reader).
+ */
+export function toolCallWaitingOnRows(
+  rows: ReadonlyArray<AskHaystackRow>,
+  toolCallId: string,
+  decode: (value: unknown) => string | null | undefined,
+): boolean {
+  for (const row of rows) {
+    const fromBlocks = parseArray(decode(row.blocks))
+      .map((b) => (b as { kind?: unknown; toolCall?: { id?: unknown; status?: unknown } } | null))
+      .flatMap((b) => (b?.kind === "tool" && b.toolCall ? [b.toolCall] : []));
+    for (const call of [...fromBlocks, ...(parseArray(decode(row.tool_calls)) as Array<{ id?: unknown; status?: unknown }>)]) {
+      if (call?.id === toolCallId) return call.status === "waiting_for_input";
+    }
+  }
+  return false;
+}
+
+/**
  * Is a question of this session still waiting on its person, on the rows?
  *
  * The in-memory ask cannot say: a question outlives the turn that asked it,

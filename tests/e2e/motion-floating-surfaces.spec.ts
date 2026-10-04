@@ -143,12 +143,12 @@ test.describe("Floating surfaces enter and leave", () => {
 
   test("MOTION-04d: the notification panel", async ({ page }) => {
     await ready(page);
-    await watch(page, '[data-testid="notification-history-panel"]');
-    await page.getByTestId("notification-history-button").first().click();
-    await expect(page.getByTestId("notification-history-panel")).toBeVisible();
+    await watch(page, '[data-testid="inbox-panel"]');
+    await page.getByTestId("inbox-button").first().click();
+    await expect(page.getByTestId("inbox-panel")).toBeVisible();
     await expectEntrance(page, "notification panel", POPOVER_MAX_MS, COMPOSITOR_PROPS);
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("notification-history-panel")).toHaveCount(0);
+    await expect(page.getByTestId("inbox-panel")).toHaveCount(0);
     await expectExit(page, "notification panel", "popover", POPOVER_MAX_MS);
   });
 
@@ -597,10 +597,10 @@ test.describe("Reduced motion, everywhere", () => {
     await expect(page.getByRole("menu")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
-    await page.getByTestId("notification-history-button").first().click();
-    await expect(page.getByTestId("notification-history-panel")).toBeVisible();
+    await page.getByTestId("inbox-button").first().click();
+    await expect(page.getByTestId("inbox-panel")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("notification-history-panel")).toHaveCount(0);
+    await expect(page.getByTestId("inbox-panel")).toHaveCount(0);
     await page.keyboard.press("Meta+,");
     await expect(page.getByTestId("profile-menu")).toBeVisible();
     await page.keyboard.press("Escape");

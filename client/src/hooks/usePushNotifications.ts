@@ -44,7 +44,7 @@ export interface PushDevice {
  *     vedevano tutte e tre allo stesso modo: nessuna notifica;
  *   · l'iscrizione viva viene pubblicata nello store (`usePushDeviceStore`),
  *     perché è la condizione con cui la pagina decide di TACERE sugli eventi che
- *     il push già annuncia (lib/notify/pushVoice.ts).
+ *     il push già annuncia (lib/notify/announceBanner.ts).
  */
 export function usePushNotifications() {
   const [subscribed, setSubscribed] = useState(false);

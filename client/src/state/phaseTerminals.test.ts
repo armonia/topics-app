@@ -7,7 +7,7 @@
  * @covers MONITOR-04
  */
 import { describe, test, expect } from "bun:test";
-import { derivePhaseTerminals, terminalLoadingFrom, NOTABLE_CLAUDE_PHASES, ACTIVE_CLAUDE_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
+import { derivePhaseTerminals, terminalLoadingFrom, ACTIVE_CLAUDE_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
 
 const roster = (entries: Array<[string, string, string | null]>): TerminalRosterTypeEntry[] =>
   entries.map(([id, type, claudeSessionId]) => ({ id, type, claudeSessionId }));
@@ -103,22 +103,9 @@ describe("terminalLoadingFrom — phase-authoritative", () => {
 
 
 
-describe("phase classification sets — loading vs attention buckets", () => {
+describe("phase classification sets — the loading bucket (attention is the server's state now)", () => {
   test("running / tool-running / watching are the ACTIVE (loading) phases", () => {
     expect([...ACTIVE_CLAUDE_PHASES].sort()).toEqual(["running", "tool-running", "watching"]);
   });
 
-  test("awaiting-* and error are NOTABLE (attention) — and a phase is never both", () => {
-    expect(NOTABLE_CLAUDE_PHASES.has("awaiting-approval")).toBe(true);
-    expect(NOTABLE_CLAUDE_PHASES.has("awaiting-user")).toBe(true);
-    expect(NOTABLE_CLAUDE_PHASES.has("error")).toBe(true);
-    // loading phases must not also be attention phases (the badge/spinner split)
-    for (const p of ACTIVE_CLAUDE_PHASES) expect(NOTABLE_CLAUDE_PHASES.has(p)).toBe(false);
-  });
-
-  test("paused is NOTABLE — a timed-out approval keeps its badge/dot, not vanishes", () => {
-    // The reaper demotes awaiting-approval→paused but keeps pendingApproval so
-    // the UI can still show the unanswered question. paused must stay notable.
-    expect(NOTABLE_CLAUDE_PHASES.has("paused")).toBe(true);
-  });
 });

@@ -20,6 +20,7 @@ import type {
   WSGoalUpdatedMessage,
 } from '../../../shared/types';
 import type { NotificationRow } from '../../../shared/notification-log';
+import type { AttentionAnnounce, AttentionSnapshot } from '../../../shared/attention';
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
 //
@@ -1142,24 +1143,29 @@ export interface WSMachineMessage {
 export type { ClaudeSessionPhase } from '../../../shared/types';
 
 /**
- * The two visual tiers of "a session needs you", split so the UI can paint them
- * differently (the status-system redesign):
- *   - 'input' — a permission prompt mid-task (awaiting-approval): you must ACT
- *     now. Painted LOUD (amber, assertive pulse).
- *   - 'done'  — the turn finished or timed out (awaiting-user / paused): look
- *     when you're ready. Painted CALM (blue, gentle breathe).
- * Single definition shared by signals.ts (derivation) and selectionStyles.ts
- * (surface colours) so every surface agrees on the tier→colour mapping.
+ * The lit tiers of a subject's attention state (notifications-redesign,
+ * design section 8.1), the ones that paint a fill and carry a number:
+ *   - 'needs-you' - a question, a permission, a plan, a card in review or
+ *     parked: you must ACT. Painted LOUD (amber, assertive pulse), and a look
+ *     does not switch it off.
+ *   - 'error'     - the turn ended badly and you have not looked yet (red).
+ *   - 'done'      - the turn finished and you have not looked yet (calm blue).
+ * Shared by `state/attention.ts` (derivation) and `selectionStyles.ts`
+ * (surface colours) so every surface agrees on the tier to colour mapping.
  */
-export type AttentionTier = 'input' | 'done';
+export type AttentionTier = 'needs-you' | 'error' | 'done';
+
+/**
+ * The tier of a Claude phase, for the activity LABEL of a session only
+ * ("waiting for your approval", "replied"). It never decides whether a
+ * surface lights up: that is the attention state's job.
+ */
+export type PhaseTier = 'input' | 'done';
 
 // UNA dichiarazione in shared/types.ts. La copia locale era una versione
 // RIDOTTA dello stato che il server manda: senza `jsonlPath`, `jsonlOffset` e
 // `createdAt`, che arrivano a ogni broadcast `session:state`.
-export type {
-  ClaudeSessionPendingApproval,
-  ClaudeSessionState,
-} from '../../../shared/types';
+export type { ClaudeSessionState } from '../../../shared/types';
 
 export interface WSSessionStateMessage {
   type: 'session:state';
@@ -1245,7 +1251,26 @@ export interface WSNotificationSeenMessage {
   subjects?: string[];
 }
 
+/** Every subject that is not idle, at every open of the socket: the client
+ *  REPLACES its attention store with it (notifications-redesign, ATTN-07). */
+export interface WSAttentionInitMessage {
+  type: 'attention:init';
+  rows: AttentionSnapshot[];
+}
+
+/** One subject's attention changed. `announce` comes with a new live epoch:
+ *  the banner's words, decided once on the server (ATTN-11). */
+export interface WSAttentionUpdatedMessage {
+  type: 'attention:updated';
+  row: AttentionSnapshot;
+  live: boolean;
+  announce?: AttentionAnnounce;
+  bornSeen?: boolean;
+}
+
 export type WSMessage =
+  | WSAttentionInitMessage
+  | WSAttentionUpdatedMessage
   | WSNotificationNewMessage
   | WSNotificationSeenMessage
   | WSTaskDeletedMessage

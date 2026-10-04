@@ -1,0 +1,85 @@
+# worktree: <worktree> @ f93eeb187 (origin/main, detached)
+# command: cd <worktree> && TOPICS_GATE_HELD=targeted bun test server/lib/notif-repro-bg-work.test.ts
+# exit code: 1
+
+## test source (server/lib/notif-repro-bg-work.test.ts)
+/**
+ * REPRO (evidence, not a fix): a turn that ends while background work is still
+ * running is parked as `awaiting-user` ("tocca a te"), so the chat/terminal
+ * lights blue, counts on the bell/dock and banners, although nothing is being
+ * asked of the human. Only `Monitor` arms the watch (`armsBackgroundWatch`).
+ *
+ * Claude Code launches background work with `Bash {run_in_background: true}`
+ * and `Agent`/`Task {run_in_background: true}`: their PreToolUse hooks arrive
+ * like any other tool, and the following `Stop` lands on `awaiting-user`.
+ */
+import { describe, expect, it } from 'bun:test';
+import { applyHook, makeInitialState, type HookPayload, type ClaudeSessionState } from './claude-session-state';
+
+const T0 = 1_700_000_000_000;
+
+function hook(name: string, extra: Partial<HookPayload> = {}): HookPayload {
+  return { hook_event_name: name as HookPayload['hook_event_name'], session_id: 'cli-abc', ...extra };
+}
+
+function turnThatLaunches(toolName: string, toolInput: unknown): ClaudeSessionState {
+  let s = makeInitialState('cli-abc', 'topic:t1', T0);
+  s = applyHook(s, hook('UserPromptSubmit'), T0 + 1);
+  s = applyHook(s, hook('PreToolUse', { tool_name: toolName, tool_input: toolInput }), T0 + 2);
+  s = applyHook(s, hook('PostToolUse', { tool_name: toolName }), T0 + 3);
+  // The model writes "launched in background, I'll report back" and the turn closes.
+  s = applyHook(s, hook('Stop'), T0 + 4);
+  return s;
+}
+
+describe('REPRO: background work parks the session as "your turn"', () => {
+  it('control: a Monitor keeps the session watching after Stop', () => {
+    expect(turnThatLaunches('Monitor', { command: 'tail -f build.log' }).phase).toBe('watching');
+  });
+
+  it('Bash run_in_background=true: Stop SHALL NOT read as awaiting-user', () => {
+    const s = turnThatLaunches('Bash', { command: 'bun test', run_in_background: true });
+    expect(s.phase).not.toBe('awaiting-user');
+  });
+
+  it('Agent run_in_background=true: Stop SHALL NOT read as awaiting-user', () => {
+    const s = turnThatLaunches('Agent', { description: 'sweep', prompt: '...', run_in_background: true });
+    expect(s.phase).not.toBe('awaiting-user');
+  });
+});
+
+## output
+bun test v1.3.8 (b64edcb4)
+
+server/lib/notif-repro-bg-work.test.ts:
+32 |     expect(turnThatLaunches('Monitor', { command: 'tail -f build.log' }).phase).toBe('watching');
+33 |   });
+34 | 
+35 |   it('Bash run_in_background=true: Stop SHALL NOT read as awaiting-user', () => {
+36 |     const s = turnThatLaunches('Bash', { command: 'bun test', run_in_background: true });
+37 |     expect(s.phase).not.toBe('awaiting-user');
+                             ^
+error: expect(received).not.toBe(expected)
+
+Expected: not "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/notif-repro-bg-work.test.ts:37:25)
+(fail) REPRO: background work parks the session as "your turn" > Bash run_in_background=true: Stop SHALL NOT read as awaiting-user [0.19ms]
+37 |     expect(s.phase).not.toBe('awaiting-user');
+38 |   });
+39 | 
+40 |   it('Agent run_in_background=true: Stop SHALL NOT read as awaiting-user', () => {
+41 |     const s = turnThatLaunches('Agent', { description: 'sweep', prompt: '...', run_in_background: true });
+42 |     expect(s.phase).not.toBe('awaiting-user');
+                             ^
+error: expect(received).not.toBe(expected)
+
+Expected: not "awaiting-user"
+
+      at <anonymous> (<worktree>/server/lib/notif-repro-bg-work.test.ts:42:25)
+(fail) REPRO: background work parks the session as "your turn" > Agent run_in_background=true: Stop SHALL NOT read as awaiting-user [0.05ms]
+
+ 1 pass
+ 2 fail
+ 3 expect() calls
+Ran 3 tests across 1 file. [165.00ms]
