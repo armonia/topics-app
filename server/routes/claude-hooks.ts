@@ -8,6 +8,7 @@ import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
+import { hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
 
 /**
  * Where the hook auth token lives: under Topics' OWN home, never under
@@ -82,6 +83,18 @@ let cachedToken: string | null = null;
 export function getOrCreateHookToken(): string {
   if (cachedToken) return cachedToken;
   cachedToken = resolveHookToken(hookTokenPath(), legacyHookTokenPaths());
+  // The script next to the token, in the same boot step: it is the file the
+  // `--settings` of Topics' spawns name (`lib/topics-hooks.ts`). Rewritten only
+  // when different, so an app update lands on the first boot and an ordinary
+  // boot does not touch the disk.
+  try {
+    writeHookScript(hookScriptPath());
+  } catch (err) {
+    // Without the script every hook of a Topics session exits 127: no phases,
+    // no end-of-turn notifications. The turn itself goes on (only exit 2
+    // blocks), so it is said loudly here and the boot continues.
+    console.error("[claude-hooks] Failed to write the hook script", err);
+  }
   return cachedToken;
 }
 
