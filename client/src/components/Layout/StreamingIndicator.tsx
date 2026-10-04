@@ -35,7 +35,7 @@
  */
 
 import { LoaderCircle } from 'lucide-react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicInBackground, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useBrowserLoading } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicInBackground, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useTerminalInBackground, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useT } from '../../hooks/useT';
 import { loaderArcClass, loaderStateFor, type LoaderState } from './loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
@@ -371,8 +371,16 @@ export function TerminalStreamingSpinner({
   className = '',
 }: TerminalSpinnerProps) {
   const active = useTerminalLoading(sessionId);
-  if (!active) return null;
-  return <LoaderSlot title={title ?? 'Terminal is producing output'} className={className} />;
+  // A closed turn that left work running: the grey glyph, as for a chat
+  // (ATTN-12). The phase partition reads `watching` as active, so the
+  // attention tier decides between the two rings.
+  const background = useTerminalInBackground(sessionId);
+  const tasks = useTerminalBackgroundTasks(sessionId);
+  const tr = useT();
+  const state = loaderStateFor({ loading: active && !background, waiting: false, background });
+  if (!state) return null;
+  const tip = state === 'background' ? backgroundTip(tr, tasks.length) : 'Terminal is producing output';
+  return <LoaderSlot title={title ?? tip} className={className} state={state} />;
 }
 
 interface BrowserSpinnerProps {

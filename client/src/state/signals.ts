@@ -783,6 +783,20 @@ export function useTopicBackgroundTasks(topicId: string | undefined): readonly A
   return useAttentionStore((s) => (topicId ? s.rows.get(`topic:${topicId}`)?.background : undefined)) ?? NO_TASKS;
 }
 
+/**
+ * A terminal waiting on background work (attention tier `background`) and the
+ * tasks it waits on: the same grey glyph a chat gets (ATTN-12). The phase
+ * partition counts `watching` as active, so without this a terminal whose
+ * turn left a job running kept the blue working ring (tasks.md 5.1).
+ */
+export function useTerminalInBackground(sessionId: string | undefined): boolean {
+  return useAttentionStore((s) => !!sessionId && s.rows.get(`terminal:${sessionId}`)?.state === 'background');
+}
+
+export function useTerminalBackgroundTasks(sessionId: string | undefined): readonly AttentionTask[] {
+  return useAttentionStore((s) => (sessionId ? s.rows.get(`terminal:${sessionId}`)?.background : undefined)) ?? NO_TASKS;
+}
+
 /** How many children of this project wait on background work: the closed folder's grey glyph. */
 export function useProjectBackgroundWork(projectPath: string | undefined): number {
   const topics = useTopics();

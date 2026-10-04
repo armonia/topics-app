@@ -159,10 +159,27 @@ function InboxPanel({ model, onWSMessage, onClose }: {
   useEffect(() => { if (tab === 'history') reloadHistory(); }, [tab, reloadHistory]);
 
   // The focus goes to the first row on open, so ↓/Enter work at once.
+  //
+  // NOT IN ONE CALL. The `Menu` places its panel in a layout effect and shows
+  // it on the commit after (`visibility: hidden` until measured), and this
+  // effect runs before that commit: a hidden element refuses `focus()` in
+  // silence, so the focus stayed on the bell and ↓/Enter did nothing (seen by
+  // tests/e2e/attention-inbox.spec.ts). It tries again on the next frames
+  // until the focus takes.
+  // Not with a finger: the sheet opens under it, and a row painted as focused
+  // there reads as pressed.
   useEffect(() => {
-    const first = listRef.current?.querySelector<HTMLElement>('[data-inbox-row]');
-    (first ?? listRef.current)?.focus({ preventScroll: true });
-  }, [tab]);
+    if (isTouch) return;
+    let raf = 0;
+    let tries = 0;
+    const attempt = () => {
+      const target = listRef.current?.querySelector<HTMLElement>('[data-inbox-row]') ?? listRef.current;
+      target?.focus({ preventScroll: true });
+      if (target && document.activeElement !== target && tries++ < 10) raf = requestAnimationFrame(attempt);
+    };
+    attempt();
+    return () => cancelAnimationFrame(raf);
+  }, [tab, isTouch]);
 
   const openItem = useCallback((item: InboxItem) => {
     if (item.tier !== 'needs-you') sendAttentionSeenItems([item.seen]);
@@ -345,12 +362,19 @@ function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: bool
           <Icon size={15} className={`flex-shrink-0 ${tint}`} aria-hidden="true" />
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-2">
-              <span className="text-compact font-medium text-app-text truncate">{item.title}</span>
-              {item.project && <span className="text-micro text-app-text-muted truncate flex-shrink min-w-0">{item.project}</span>}
+              <span className="text-compact font-medium text-app-text truncate min-w-0">{item.title}</span>
+              {/* The project gives way to the title only past 40%: a short
+                  name stays whole instead of shrinking to one letter. */}
+              {item.project && <span className="text-micro text-app-text-muted truncate flex-shrink-0 max-w-[40%]">{item.project}</span>}
               <RelativeTime at={item.since} className="text-micro text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
             </span>
             <span className="block text-mini text-app-text-secondary truncate">{second}</span>
           </span>
+          {/* A row with no «Mark seen» keeps the room of that button INSIDE
+              itself (its box, 28 or 44, plus the 6 of margin, minus the gap),
+              so the times of «Waiting for you» and «Finished» stand in one
+              column and the highlight still spans the row. */}
+          {!onMarkSeen && <span aria-hidden="true" className={`flex-shrink-0 ${isTouch ? 'w-10' : 'w-6'}`} />}
         </button>
         {onMarkSeen && (
           <button
@@ -385,7 +409,9 @@ function QuietLine({ background, working }: { background: InboxQuietItem[]; work
   ].filter(Boolean).join(' · ');
   const all = [...background.map((q) => ({ q, background: true })), ...working.map((q) => ({ q, background: false }))];
   return (
-    <div className="border-t border-app-border" data-testid="inbox-quiet">
+    // The two numbers as attributes too: what the line says is copy, and a
+    // test that reads copy freezes it (tests/e2e/CONVENTIONS.md).
+    <div className="border-t border-app-border" data-testid="inbox-quiet" data-background={background.length} data-working={working.length}>
       <button
         type="button"
         data-inbox-row=""
@@ -496,7 +522,7 @@ function History({ rows, loading, hasMore, loadingMore, loadMore, onClose }: {
         </section>
       ))}
       {hasMore && rows.length < 100 && (
-        <button type="button" onClick={loadMore} disabled={loadingMore} className="w-full px-3 py-2 text-mini text-app-text-secondary hover:bg-app-hover transition-colors">
+        <button type="button" onClick={loadMore} disabled={loadingMore} className="w-full px-3 py-2 text-mini text-app-text-secondary hover:bg-app-hover transition-colors" data-testid="inbox-history-more">
           {loadingMore ? tr('notifications.loadingMore') : tr('notifications.loadMore')}
         </button>
       )}
