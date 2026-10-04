@@ -5,7 +5,6 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { useSheetDrag } from '../../hooks/useSheetDrag';
 import { SheetGrabber } from './SheetGrabber';
-import { MenuAnchorContext } from './menuAnchor';
 // Import RELATIVI e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no. Da
 // quando `Shared/Select` (che passa di qui) è usato dalle Impostazioni e dai
 // modali, questo file entra nel grafo che i test unitari importano davvero —
@@ -265,7 +264,7 @@ export function Menu({
         }
       >
         {isMobile && <SheetGrabber />}
-        <MenuAnchorContext.Provider value={anchorRef}>{children}</MenuAnchorContext.Provider>
+        {children}
       </div>
     </>,
     document.body,

@@ -11,13 +11,18 @@
 import type { ProviderStatus } from '../../types';
 import type { ApiProviderName } from '../../../../shared/api-provider-credentials';
 
-/** Il pallino accanto al nome del provider. */
+/** The status dot, the same colour for the same state in the selector and in
+ *  the providers level (model selector revision 2026-10-04, §4.4). */
 export const STATUS_COLORS: Record<ProviderStatus, string> = {
-  ready: 'bg-green-500',
-  loading: 'bg-yellow-500',
-  error: 'bg-red-500',
-  unavailable: 'bg-gray-400',
+  ready: 'bg-emerald-600 dark:bg-emerald-400',
+  unavailable: 'bg-zinc-400 dark:bg-zinc-500',
+  error: 'bg-red-600 dark:bg-red-400',
+  loading: 'bg-blue-600 dark:bg-blue-400 animate-pulse motion-reduce:animate-none',
 };
+
+/** The active ink of the selector and of the providers level (revision §4.4):
+ *  4.5:1 on the popover in both themes. */
+export const ACTIVE_INK = 'text-blue-800 dark:text-blue-300';
 
 /** Il valore sentinella delle tendine della scheda: «Auto» non è una scelta, è
  *  l'assenza di override — cancella il valore salvato e lascia vincere la env
@@ -60,18 +65,20 @@ export const PROVIDER_MODEL_FIELD: Record<string, ProviderModelField> = {
   codex: 'codexModel',
 };
 
-/** «2m ago» — la freschezza dello snapshot come DISTANZA, che è come la si
- *  legge: un timestamp assoluto obbligherebbe a fare la sottrazione a mente. */
-export function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
+/**
+ * «12 s fa», «3 min fa»: the freshness of a snapshot entry as a DISTANCE, in
+ * the reader's language (`Intl.RelativeTimeFormat`, §7 of the revision). An
+ * absolute timestamp would make the reader do the subtraction.
+ */
+export function relativeTime(iso: string, locale: string, now: number = Date.now()): string {
+  const ms = now - new Date(iso).getTime();
   if (Number.isNaN(ms)) return '';
-  if (ms < 1500) return 'just now';
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return `${sec}s ago`;
+  const format = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'narrow' });
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return format.format(-sec, 'second');
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return format.format(-min, 'minute');
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
+  if (hr < 24) return format.format(-hr, 'hour');
+  return format.format(-Math.floor(hr / 24), 'day');
 }

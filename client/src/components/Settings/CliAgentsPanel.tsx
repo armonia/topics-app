@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Copy, ExternalLink, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, Check, Copy, ExternalLink } from 'lucide-react';
 import { providersApi, type CliAgentPresence } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
 import { useT } from '../../hooks/useT';
@@ -21,80 +21,34 @@ import { useT } from '../../hooks/useT';
  * lives elsewhere". The second is one click away instead of visible from the
  * start, because the common case is the first one, and a text field asking for a
  * path is the kind of thing that makes a person think they have to fill it in.
+ *
+ * Since the providers level (model selector revision 2026-10-04, §5.6) there is
+ * no list of its own: a program registered as a provider shows its row in the
+ * «Programma» line of that account's detail, one installed but not registered
+ * is a card «Da collegare», and the missing ones are under «+ Programma».
+ * «Configura ›» opens the row with the path field already open and focused.
  */
-export function CliAgentsPanel() {
-  const t = useT();
-  const [agents, setAgents] = useState<CliAgentPresence[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // A promise chain rather than an awaited call inside the effect: the mounted
-  // component must not set state after it is gone, and this is the shape the
-  // rest of the pane already uses (`McpFleetPanel`).
-  const load = useCallback(() => {
-    providersApi
-      .cliAgents()
-      .then((res) => { setAgents(res.agents); setError(null); })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : t('ai.local.loadFailed'));
-      });
-  }, [t]);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    providersApi
-      .cliAgents()
-      .then((res) => { if (!ctrl.signal.aborted) { setAgents(res.agents); setError(null); } })
-      .catch((err: unknown) => {
-        if (ctrl.signal.aborted) return;
-        setError(err instanceof Error ? err.message : t('ai.local.loadFailed'));
-      });
-    return () => ctrl.abort();
-  }, [t]);
-
-  if (error && !agents) {
-    return (
-      <div className="flex items-center gap-2 text-compact text-red-500">
-        <AlertCircle size={12} className="flex-shrink-0" />
-        <span className="flex-1 break-words">{error}</span>
-        <button
-          onClick={load}
-          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
-        >
-          <RefreshCw size={11} />
-          {t('common.retry')}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div data-testid="cli-agents-panel">
-      <h3 className="text-prose font-medium text-app-text mb-1">{t('ai.local.title')}</h3>
-      <p className="text-mini text-app-text-muted mb-3">
-        {t('ai.local.hint')}
-      </p>
-      <div className="space-y-1.5">
-        {agents?.map((agent) => (
-          <CliAgentRow key={agent.id} agent={agent} onChanged={setAgents} />
-        ))}
-        {agents === null && <div className="text-compact text-app-text-muted">{t('common.loading')}</div>}
-      </div>
-    </div>
-  );
-}
-
-function CliAgentRow({
+export function CliAgentRow({
   agent,
   onChanged,
+  focusPath = false,
 }: {
   agent: CliAgentPresence;
   onChanged: (agents: CliAgentPresence[]) => void;
+  /** Open the path field and focus it: «Configura ›» asked for it. */
+  focusPath?: boolean;
 }) {
   const t = useT();
   // The field opens by itself when a manual path is already there and no longer
   // resolves: that is the one state a person has to act on, and hiding the field
   // behind a click would hide the only control that fixes it.
-  const [editing, setEditing] = useState(agent.manualPathBroken);
+  const [editing, setEditing] = useState(agent.manualPathBroken || focusPath);
+  const fieldRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!focusPath) return;
+    const frame = requestAnimationFrame(() => fieldRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [focusPath]);
   const [value, setValue] = useState(agent.manualPath ?? '');
   const [saving, setSaving] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -187,6 +141,7 @@ function CliAgentRow({
         <div className="mt-1.5 space-y-1.5">
           <div className="flex items-center gap-2">
             <input
+              ref={fieldRef}
               data-testid="cli-agent-path-input"
               value={value}
               onChange={(e) => setValue(e.target.value)}

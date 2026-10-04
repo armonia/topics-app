@@ -268,7 +268,7 @@ test.describe("Context, Memory & Settings", () => {
 
     // The form lives where it is used: no Settings window, no Settings row.
     await expect(settingsPage.panel).toBeVisible();
-    await expect(settingsPage.panel.getByTestId("ai-providers-settings")).toBeVisible();
+    await expect(settingsPage.panel.getByTestId("providers-level")).toBeVisible();
     await expect(page.getByTestId("settings-panel")).toHaveCount(0);
     await expect(page.getByTestId("topics-menu-settings")).toHaveCount(0);
 

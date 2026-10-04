@@ -701,3 +701,66 @@ arrivano con la tappa dei provider. Fino ad allora, scarti, uno per riga, col mo
   conseguenza.
 - **Esc sul `radiogroup` del motore** è ascoltato su `window` in fase di cattura. Il popover ascolta
   Escape su `document` nella stessa fase, quindi solo così Esc chiude il gruppo e non il pannello.
+
+### 9.3 Implementazione di «Provider e chiavi» (04/10): dove il codice si scosta dalla revisione
+
+Il livello Provider e il dettaglio di un account sono nel codice: `Settings/providersModel.ts`
+(ordine, schede, aziende servite, azione, conto), `Settings/ProvidersView.tsx` (la lista),
+`Settings/ProviderDetail.tsx` (il dettaglio), `Settings/AIProvidersSection.tsx` (i livelli e il loro
+stato), `ModelSelector.tsx` (il livello dentro lo stesso pannello), `HomePanelHost.tsx` e
+`HomePanel.tsx` (le porte e il foglio senza chip). Il primo scarto del §9.2 («le porte verso un
+account aprono il pannello dei provider di oggi») è chiuso: piede, «Sistema ›», «Aggiungi chiave ›» e
+«Configura ›» aprono il livello nello stesso pannello. Scarti, uno per riga, col motivo:
+
+- **Il livello copre i modelli, che restano montati sotto**, invisibili e inerti (`inert`), nella
+  stessa scatola: per questo ricerca, pieghe e `scrollTop` di ogni colonna tornano come erano senza
+  doverli salvare. Il livello prende almeno l'altezza massima del pannello: con un catalogo corto il
+  pannello cresce, dal bordo del chip, invece di stringere la lista (AC-20 chiede «altezza non
+  minore»). Col fixture «con chiavi» l'altezza non cambia.
+- **‹ ed Esc dal dettaglio tornano sempre alla lista**, anche quando una porta ha aperto direttamente
+  il dettaglio (`/usage`, l'avviso di limite): è lo schema del §1. Da `/usage` servono quindi tre Esc
+  per chiudere (dettaglio, lista, modelli), e il fuoco torna al campo in cui si scriveva.
+- **Il piede del livello ha anche «+ Programma»**, oltre a «+ Chiave API» e «+ Endpoint». Motivo:
+  CLIADD-01 vuole che ogni programma che Topics conosce abbia una riga con il comando d'installazione
+  e il campo del percorso, e un programma non installato non è un account da mettere fra le schede.
+  Uno installato ma non registrato è una scheda «Da collegare» con «Configura ›» (§5.6); uno
+  registrato ha la sua riga nel dettaglio, alla voce «Programma».
+- **«+ Chiave API» offre Claude API e OpenAI API, non Gemini**: il server sa salvare e verificare
+  solo quelle due chiavi (`configureClaude`, `configureOpenAI`), e Gemini CLI è un programma.
+- **La scheda Topics resta anche quando il motore non è registrato**, come scheda «Da collegare»
+  senza azione: tiene «Motore degli agenti» e «Checkpoint a ogni turno» per tutte le chat
+  (SETHOME-01), che altrimenti sparirebbero proprio quando il motore manca. Non entra nel conto,
+  perché non è mai pronta né in errore. È l'unica eccezione, con i programmi installati e non
+  registrati, ad AC-06 («ogni voce è un provider dello snapshot»).
+- **«Riprova» sulla scheda prova il provider sul posto** (`refresh(name)` col cane da guardia di
+  15 s) e la lista resta; nel dettaglio la stessa azione è la prima riga, e «Prova» sta
+  nell'intestazione.
+- **«Predefinito» nel dettaglio compare solo per un provider pronto o già predefinito**, e «Fissa come
+  predefinito» solo se è pronto: il server rifiuta un predefinito non pronto.
+- **Modello di default in linea: la variante 1M è una radio sua** («Opus 5.5 · 1M»), non un
+  interruttore dentro la riga, perché in un `radiogroup` un secondo controllo nella riga sarebbe
+  annidato.
+- **I nomi canonici** (Claude API, OpenAI API, Gemini CLI, jcode, Topics) sono in
+  `shared/provider-labels.ts`, l'unica modifica lato server prevista dal §9 della revisione: il
+  selettore e il livello scrivono lo stesso nome perché leggono la stessa `label` dello snapshot.
+- **Parole**: «Runtime degli agenti» diventa «Motore degli agenti», «Checkpoint automatico a ogni
+  turno» diventa «Checkpoint a ogni turno», «Reasoning effort» diventa «Ragionamento»; le tendine
+  dicono «Automatico» invece di «Auto (env/default)», e l'approvazione «Automatica» o «Accesso
+  completo» invece degli id. La freschezza è `Intl.RelativeTimeFormat` stretto («aggiornato 12 s
+  fa», «ora» sotto il secondo).
+- **AC-06 e AC-28 letti come li scrive la revisione stessa**: i titoli vietati di AC-01 si cercano
+  come titoli, quindi «Endpoint» al singolare nel fatto della scheda («Endpoint · openrouter.ai · 6
+  modelli», §5.2) e «API» dentro un nome («Claude API») passano; le parole inglesi di AC-28 si
+  cercano col maiuscolo, altrimenti «Modello di default», che AC-28 dichiara valido, non passerebbe.
+- **Il foglio senza chip non usa la cornice dei moduli** (`FormPanelFrame`): ha il titolo del livello,
+  il conto e una chiusura sua (`home-panel-providers-close`), largo 44rem e alto al massimo come il
+  selettore.
+- **Alla chiusura del selettore il fuoco va al grilletto** anche quando WebKit lo lascerebbe al
+  contenitore che lo ospita (le impostazioni della board, la finestra delle impostazioni della
+  chat): WebKit non mette il fuoco su un bottone al clic, e il menu lo restituiva al contenitore
+  (MSEL-08). Non lo riprende da un controllo su cui la persona si è spostata.
+- **Le spec e2e** che aprivano il pannello da 420 px (`settings-api-providers`, `settings-homes`,
+  `settings-cli-agents`, `settings-direct-endpoints`, `settings-mobile`, `plan-usage-meter`,
+  `provider-limit-notice`, `user-menu-forms`, `chat-slash-local-answers`, `context-settings`) sono
+  riscritte sul contratto nuovo; i criteri del livello e del dettaglio sono in
+  `model-panels-providers.spec.ts`.

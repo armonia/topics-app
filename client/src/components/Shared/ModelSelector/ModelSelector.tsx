@@ -19,12 +19,27 @@
  * sticky headings; below, one list, and under 768px the `Menu` sheet from the
  * bottom. Band, search and Automatic never scroll: only the columns do, inside
  * a height of at most `min(456, room on the roomier side - 16)` (§4.2).
+ *
+ * Providers and keys is a LEVEL of this panel (revision §5.1, Ribaltamento 2):
+ * the foot, «Sistema ›» and the connect boxes put the providers' levels over
+ * the models, in the same box (same x, y and width), while the models stay
+ * mounted underneath, so ‹ and Escape find the search, the open sections and
+ * the scroll as they were. A second Escape closes the panel, and the focus
+ * goes back to the trigger.
  */
-import { Suspense, useEffect, useLayoutEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Menu } from '../Menu';
 import { useMobile } from '../../../hooks/useMobile';
 import { ModelList, loadModelList, modelListReady } from './modelListLazy';
 import type { ModelListProps } from './ModelList';
+import type { ProvidersTarget } from '../../Settings/AIProvidersSection';
+
+// The levels load the first time somebody opens them: the foot is one row of
+// every selector, the forms behind it are not.
+const ProvidersLevels = lazy(async () => {
+  const { ProvidersLevels: Levels } = await import('../../Settings/AIProvidersSection');
+  return { default: Levels };
+});
 
 /** Columns from here up (design §4). */
 const COLUMNS_FROM_PX = 720;
@@ -35,9 +50,12 @@ const MAX_PANEL_PX = 456;
 /** The popover surface around the body: `py-1` and a 1px border. */
 const SURFACE_CHROME_PX = 10;
 
-export interface ModelSelectorProps extends Omit<ModelListProps, 'layout' | 'focusSearch' | 'onSelect'> {
+export interface ModelSelectorProps extends Omit<ModelListProps, 'layout' | 'focusSearch' | 'onSelect' | 'onOpenProviders'> {
   onSelect: (selection: ModelListProps['value']) => void;
   open: boolean;
+  /** Open on the providers level (or one account's detail) instead of the
+   *  models: a door outside the panel asked for it (`/usage`, the palette). */
+  initialLevel?: ProvidersTarget | null;
   anchorRef: React.RefObject<HTMLElement | null>;
   align?: 'left' | 'right';
   testId?: string;
@@ -56,7 +74,7 @@ function useViewportWidth(open: boolean): number {
   return width;
 }
 
-export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClose, ...list }: ModelSelectorProps) {
+export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClose, initialLevel, ...list }: ModelSelectorProps) {
   const { isMobile } = useMobile();
   const width = useViewportWidth(open);
   const columns = width >= COLUMNS_FROM_PX;
@@ -91,12 +109,28 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
     return () => window.removeEventListener('resize', measure);
   }, [open, isMobile, anchorRef]);
 
+  // On close the focus belongs to the trigger (MSEL-08). The menu gives it
+  // back to what held it when the panel opened, and inside another surface
+  // (the board settings, the chat settings dialog) WebKit leaves that to the
+  // surface's own container, since it does not focus a button on click: the
+  // focus is then moved on to the trigger, and only from such a container or
+  // from nowhere, never from a control the person moved to.
+  const close = () => {
+    onClose();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const anchor = anchorRef.current;
+      const active = document.activeElement as HTMLElement | null;
+      const container = !!active && active !== anchor && !!anchor && active.contains(anchor);
+      if (anchor?.isConnected && (!active || active === document.body || container)) anchor.focus({ preventScroll: true });
+    }));
+  };
+
   const panelWidth = isMobile ? undefined : columns ? 'min(44rem, calc(100vw - 2rem))' : 'min(22rem, calc(100vw - 1rem))';
   return (
     <Menu
       open={open && ready}
       anchorRef={anchorRef}
-      onClose={onClose}
+      onClose={close}
       align={align}
       role="dialog"
       minWidth={0}
@@ -104,14 +138,72 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
       testId={testId}
       ariaLabel={ariaLabel}
     >
-      <div
-        className="flex flex-col"
+      <SelectorBody
+        // A door that asks for another level while the panel is open starts
+        // the inside again on that level.
+        key={initialLevel ? `${initialLevel.account ?? ''}|${initialLevel.focus ?? ''}` : 'models'}
+        list={list}
+        anchorRef={anchorRef}
+        onClose={close}
+        initialLevel={initialLevel ?? null}
+        columns={columns}
+        isMobile={isMobile}
         style={{
           width: panelWidth,
           // The phone sheet keeps `Menu`'s own ceiling; inside it the sections
           // scroll, so the band and the search stay put while the list moves.
           maxHeight: isMobile ? 'calc(100dvh - 5.5rem)' : maxHeight ?? undefined,
         }}
+        levelHeight={isMobile ? 'min(32rem, calc(100dvh - 5.5rem))' : maxHeight ?? undefined}
+      />
+    </Menu>
+  );
+}
+
+/**
+ * The inside of the panel, mounted on every opening (the `Menu` drops its
+ * children when closed), so a level chosen in one opening does not survive it.
+ */
+function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobile, style, levelHeight }: {
+  list: Omit<ModelSelectorProps, 'open' | 'anchorRef' | 'align' | 'testId' | 'ariaLabel' | 'onClose' | 'initialLevel'>;
+  anchorRef: React.RefObject<HTMLElement | null>;
+  onClose: () => void;
+  initialLevel: ProvidersTarget | null;
+  columns: boolean;
+  isMobile: boolean;
+  style: React.CSSProperties;
+  /** A level takes the panel's full height when the models are shorter. */
+  levelHeight: number | string | undefined;
+}) {
+  const [level, setLevel] = useState<ProvidersTarget | null>(initialLevel);
+  const opener = useRef<HTMLElement | null>(null);
+  const modelsRef = useRef<HTMLDivElement>(null);
+
+  const openLevel = (target: ProvidersTarget) => {
+    opener.current = document.activeElement as HTMLElement | null;
+    setLevel(target);
+  };
+  // Back on the models, the focus goes to what opened the level, else the foot.
+  const backToModels = () => {
+    setLevel(null);
+    requestAnimationFrame(() => {
+      const from = opener.current;
+      const target = from?.isConnected && modelsRef.current?.contains(from)
+        ? from
+        : modelsRef.current?.querySelector<HTMLElement>('[data-testid="ai-selector-providers"]');
+      target?.focus({ preventScroll: true });
+    });
+  };
+
+  return (
+    <div className="relative flex flex-col" style={{ ...style, minHeight: level ? levelHeight : undefined }}>
+      <div
+        ref={modelsRef}
+        // Under a level the models stay laid out (the scroll of each column is
+        // kept) but cannot be seen, reached or read.
+        inert={level !== null}
+        aria-hidden={level !== null || undefined}
+        className={`flex min-h-0 flex-1 flex-col ${level ? 'invisible' : ''}`}
       >
         <Suspense fallback={null}>
           <ModelList
@@ -125,11 +217,19 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
               requestAnimationFrame(() => requestAnimationFrame(() => anchorRef.current?.focus({ preventScroll: true })));
             }}
             onClose={onClose}
+            onOpenProviders={openLevel}
             layout={columns ? 'columns' : 'list'}
             focusSearch={!isMobile}
           />
         </Suspense>
       </div>
-    </Menu>
+      {level && (
+        <div data-testid="model-selector-level" className="absolute inset-0 flex flex-col bg-[var(--popover-bg)]">
+          <Suspense fallback={null}>
+            <ProvidersLevels target={level} onBackToModels={backToModels} onClose={onClose} />
+          </Suspense>
+        </div>
+      )}
+    </div>
   );
 }

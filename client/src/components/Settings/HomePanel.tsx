@@ -10,9 +10,9 @@
  * too, hung from an invisible box in the middle of the window, with a light veil
  * of its own on the scrim plane under it.
  */
-import { lazy, useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, KeyRound, Plug } from 'lucide-react';
+import { CalendarDays, Plug } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { FormPanelFrame, type Glyph } from '../Sidebar/FormLevel';
 import { LevelCloseContext } from '../Shared/levelClose';
@@ -21,12 +21,13 @@ import { useMobile } from '@/hooks/useMobile';
 import { useExitGhost } from '@/lib/exitGhost';
 import { POPOVER_MARGIN, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import type { PanelHome } from '@/lib/openHome';
+import type { ProvidersTarget } from './AIProvidersSection';
 import { useT } from '@/hooks/useT';
 
 // Each form loads the first time its panel opens. Destructured on purpose: a
 // bare `import()` is opaque to knip (`check:deadcode-blindspots`).
-const ProvidersLevelBody = lazy(async () => {
-  const { ProvidersLevelBody: Body } = await import('../Sidebar/ProvidersLevelBody');
+const ProvidersLevels = lazy(async () => {
+  const { ProvidersLevels: Body } = await import('./AIProvidersSection');
   return { default: Body };
 });
 const ToolsSection = lazy(async () => {
@@ -38,14 +39,19 @@ const CalendarSection = lazy(async () => {
   return { default: Body };
 });
 
-/** Wide enough for an API key with its button and for the provider cards. */
+/** Wide enough for an API key with its button. */
 const PANEL_WIDTH = 420;
+
+/** Providers and keys as a sheet is as wide as the model selector it stands
+ *  in for (model selector revision 2026-10-04, §5.1). */
+const PROVIDERS_WIDTH = 704;
+/** And as tall as the selector at most, with the levels scrolling inside. */
+const PROVIDERS_HEIGHT = 'min(456px, calc(88vh - 2rem))';
 
 /** Where the centred sheet's top edge sits: the palette's own height. */
 const CENTERED_TOP = '12vh';
 
-const PANELS: Record<PanelHome, { icon: Glyph; label: string; body: () => React.ReactNode }> = {
-  providers: { icon: KeyRound, label: 'home.providers', body: () => <ProvidersLevelBody /> },
+const PANELS: Record<Exclude<PanelHome, 'providers'>, { icon: Glyph; label: string; body: () => React.ReactNode }> = {
   tools: { icon: Plug, label: 'home.tools', body: () => <ToolsSection /> },
   calendar: { icon: CalendarDays, label: 'home.calendar', body: () => <CalendarSection /> },
 };
@@ -55,26 +61,19 @@ export interface HomeRequest {
   anchor: HTMLElement | null;
   /** Where the focus goes back on close instead of the anchor (a typed command's field). */
   returnFocus?: HTMLElement | null;
+  /** Providers and keys only: the account a door asked for. */
+  providers?: ProvidersTarget;
   /** Changes on every request: the same panel asked twice opens fresh. */
   n: number;
 }
 
 export function HomePanel({ request, onClose }: { request: HomeRequest; onClose: () => void }) {
-  const tr = useT();
-  const { isMobile } = useMobile();
-  const centered = !request.anchor && !isMobile;
-  const anchorRef = useRef<HTMLElement | null>(request.anchor);
-  const panel = PANELS[request.home];
-  const label = tr(panel.label);
-  const testId = `home-panel-${request.home}`;
-  const width = Math.max(260, Math.min(PANEL_WIDTH, window.innerWidth - 2 * POPOVER_MARGIN));
-  // BESIDE THE ANCHOR, NEVER OVER IT. The menu flips above when there is no
-  // room below, but a form taller than either side was clamped to the window
-  // and covered the selector it hangs from (measured: a 570 px panel over a
-  // chip at y 496 of 900). The body scrolls anyway, so the cap is the larger
-  // of the two sides, read once on open.
-  const room = request.anchor && !isMobile ? roomBeside(request.anchor) : undefined;
+  if (request.home === 'providers') return <ProvidersSheet request={request} onClose={onClose} />;
+  return <FormPanel request={request} home={request.home} onClose={onClose} />;
+}
 
+/** Gives the focus back on close: to `returnFocus`, else to the anchor. */
+function useFocusBack(request: HomeRequest, testId: string) {
   // ON CLOSE THE FOCUS GOES BACK TO THE ANCHOR, said here rather than left to
   // `Menu`, which gives it back to what held it when the panel opened. That
   // was the menu the door sat in: the model selector inside the board
@@ -92,6 +91,66 @@ export function HomePanel({ request, onClose }: { request: HomeRequest; onClose:
       back.focus({ preventScroll: true });
     }
   }, [back, testId]);
+}
+
+/**
+ * Providers and keys with no model chip on screen: a sheet as wide as the
+ * selector, centred on the desktop, from the bottom on the phone, with the
+ * levels inside and no ‹ on the list.
+ */
+function ProvidersSheet({ request, onClose }: { request: HomeRequest; onClose: () => void }) {
+  const tr = useT();
+  const { isMobile } = useMobile();
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const testId = 'home-panel-providers';
+  const width = Math.max(260, Math.min(PROVIDERS_WIDTH, window.innerWidth - 2 * POPOVER_MARGIN));
+  useFocusBack(request, testId);
+  return (
+    <ConfirmInsidePopoverContext.Provider value={true}>
+      {!isMobile && <CenteredAnchor anchorRef={anchorRef} width={width} />}
+      <Menu
+        open
+        anchorRef={anchorRef}
+        onClose={onClose}
+        gap={0}
+        role="dialog"
+        ariaLabel={tr('home.providers')}
+        minWidth={width}
+        maxWidth={width}
+        unmanagedFocus
+        restoreFocus={false}
+        testId={testId}
+        owner={isMobile ? undefined : 'centred'}
+        className="overflow-hidden"
+      >
+        <div className="flex flex-col" style={{ height: isMobile ? 'calc(100dvh - 5.5rem)' : PROVIDERS_HEIGHT }}>
+          <LevelCloseContext.Provider value={onClose}>
+            <Suspense fallback={null}>
+              <ProvidersLevels target={request.providers} onClose={onClose} closeTestId={`${testId}-close`} />
+            </Suspense>
+          </LevelCloseContext.Provider>
+        </div>
+      </Menu>
+    </ConfirmInsidePopoverContext.Provider>
+  );
+}
+
+function FormPanel({ request, home, onClose }: { request: HomeRequest; home: Exclude<PanelHome, 'providers'>; onClose: () => void }) {
+  const tr = useT();
+  const { isMobile } = useMobile();
+  const centered = !request.anchor && !isMobile;
+  const anchorRef = useRef<HTMLElement | null>(request.anchor);
+  const panel = PANELS[home];
+  const label = tr(panel.label);
+  const testId = `home-panel-${home}`;
+  const width = Math.max(260, Math.min(PANEL_WIDTH, window.innerWidth - 2 * POPOVER_MARGIN));
+  // BESIDE THE ANCHOR, NEVER OVER IT. The menu flips above when there is no
+  // room below, but a form taller than either side was clamped to the window
+  // and covered the selector it hangs from (measured: a 570 px panel over a
+  // chip at y 496 of 900). The body scrolls anyway, so the cap is the larger
+  // of the two sides, read once on open.
+  const room = request.anchor && !isMobile ? roomBeside(request.anchor) : undefined;
+  useFocusBack(request, testId);
 
   return (
     // A question a form asks («remove this key?») is part of the panel: it

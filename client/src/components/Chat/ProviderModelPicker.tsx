@@ -9,7 +9,8 @@ import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { chatRouteTarget, chatTopicsRoute } from '../../lib/topicsRoutingGate';
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { modelTriggerText, triggerLine } from '../../lib/modelLabel';
-import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/openHome';
+import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, OPEN_MODEL_SELECTOR_EVENT, type OpenModelSelectorDetail } from '../../lib/openHome';
+import type { ProvidersTarget } from '../Settings/AIProvidersSection';
 
 export interface ProviderModelOverride {
   provider: string;
@@ -31,8 +32,9 @@ interface Props {
   onTopicsRoutingChange?: (next: boolean) => void;
   /** Filled with this menu's door, for a typed `/model` and ⌘⇧M (`toggle`). */
   openRef?: React.RefObject<((mode?: 'open' | 'toggle') => void) | null>;
-  /** Filled with the providers panel's door hung from this chip, for a typed
-   *  `/usage` or `/cost`; the focus goes back to `returnFocus` on close. */
+  /** Filled with the door to Claude Code's detail inside this chip's
+   *  selector, for a typed `/usage` or `/cost`; the focus goes back to
+   *  `returnFocus` on close. */
   openProvidersRef?: React.RefObject<((returnFocus?: HTMLElement | null) => void) | null>;
   /** This chip's pane is the focused one: a door with no anchor (the palette) opens here. */
   paneFocused?: boolean;
@@ -42,6 +44,20 @@ interface Props {
 export function ProviderModelPicker({ override, defaultProviderLabel, pinnedModel = null, onChange, onProviderOnly, topicsRouting, onTopicsRoutingChange, openRef, openProvidersRef, paneFocused = false }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  // «Provider e chiavi» is a level of this selector (revision 2026-10-04,
+  // §5.1): the doors outside it (the palette, the plan-limit notice, a typed
+  // `/usage`) open the selector on that level, and the focus goes back where
+  // the door says once it closes.
+  const [initialLevel, setInitialLevel] = useState<ProvidersTarget | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const close = () => {
+    setOpen(false);
+    setInitialLevel(null);
+    const back = returnFocusRef.current;
+    returnFocusRef.current = null;
+    // After the menu has given the focus back to the chip.
+    if (back) requestAnimationFrame(() => requestAnimationFrame(() => { if (back.isConnected) back.focus({ preventScroll: true }); }));
+  };
   const openNowRef = useRef(open);
   useEffect(() => { openNowRef.current = open; }, [open]);
   // Where the menu chunk stands, as far as this chip knows: a click that waits
@@ -79,8 +95,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
   // unanswered: the loader raises the reload prompt and the chip turns to a
   // warning. The next click tries again.
   const toggle = () => {
-    if (open || modelListReady()) {
-      setOpen((current) => !current);
+    if (open) { close(); return; }
+    setInitialLevel(null);
+    if (modelListReady()) {
+      setOpen(true);
       return;
     }
     setLoadState('loading');
@@ -95,6 +113,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     if (!openRef) return;
     openRef.current = (mode = 'open') => {
       if (mode === 'toggle' && openNowRef.current) { setOpen(false); return; }
+      setInitialLevel(null);
       if (modelListReady()) { setOpen(true); return; }
       setLoadState('loading');
       loadModelList().then(
@@ -104,11 +123,35 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     };
     return () => { openRef.current = null; };
   }, [openRef]);
+  const openOnLevel = useRef<(target: ProvidersTarget, returnFocus: HTMLElement | null) => void>(() => {});
+  useEffect(() => {
+    openOnLevel.current = (target, returnFocus) => {
+      returnFocusRef.current = returnFocus;
+      // The chip holds the focus as the panel opens, so the last Escape gives
+      // it back here (the menu returns it to what held it on opening).
+      buttonRef.current?.focus({ preventScroll: true });
+      setInitialLevel(target);
+      if (modelListReady()) { setOpen(true); return; }
+      setLoadState('loading');
+      loadModelList().then(() => { setLoadState('idle'); setOpen(true); }, onLoadError);
+    };
+  });
   useEffect(() => {
     if (!openProvidersRef) return;
-    openProvidersRef.current = (returnFocus) => openHome('providers', buttonRef.current, returnFocus);
+    openProvidersRef.current = (returnFocus) => openOnLevel.current({ account: 'claude-code' }, returnFocus ?? null);
     return () => { openProvidersRef.current = null; };
   }, [openProvidersRef]);
+  useEffect(() => {
+    const chip = buttonRef.current;
+    if (!chip) return;
+    const onDoor = (event: Event) => {
+      const detail = (event as CustomEvent<OpenModelSelectorDetail>).detail;
+      event.preventDefault();
+      openOnLevel.current(detail?.level === 'account' && detail.account ? { account: detail.account } : {}, detail?.returnFocus ?? null);
+    };
+    chip.addEventListener(OPEN_MODEL_SELECTOR_EVENT, onDoor);
+    return () => chip.removeEventListener(OPEN_MODEL_SELECTOR_EVENT, onDoor);
+  }, []);
   // MSEL-07: a mark on the chip when the current choice runs through Topics.
   const route = useMemo(
     () => chatTopicsRoute(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
@@ -139,7 +182,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         onFocus={prefetchMenu}
         data-testid="provider-model-picker"
         // The providers' home (SETHOME-01): a door with no anchor of its own
-        // (the palette) opens the providers panel beside this chip.
+        // (the palette) opens this chip's selector on the providers level.
         {...{ [HOME_ANCHOR_ATTR]: 'providers', [HOME_ANCHOR_FOCUSED_ATTR]: paneFocused ? '' : undefined }}
         data-model={activeModelId ?? undefined}
         data-load-state={loadState === 'idle' ? undefined : loadState}
@@ -170,7 +213,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
       <ModelSelector
         open={open}
         anchorRef={buttonRef}
-        onClose={() => setOpen(false)}
+        onClose={close}
+        initialLevel={initialLevel}
         testId="provider-model-popover"
         ariaLabel={tr('chat.picker.title')}
         scope="chat"

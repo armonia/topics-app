@@ -18,6 +18,7 @@ import type { McpFleetStatus } from '../../../../shared/session-environment';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
 import { giorniAllaScadenza, scadenzaVicina } from '../Settings/pianoState';
 import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
+import { cardsCount, providerCards } from '../Settings/providersModel';
 
 import type { Translate } from '../../../../shared/queue-reason-text';
 
@@ -103,12 +104,12 @@ export function claudeSubscription(snapshot: ProvidersSnapshot | null): Provider
  * heading of the providers level (model selector revision 2026-10-04, §5.3):
  * the providers that are ready, plus the errors when there are any. Every
  * provider of the snapshot counts, `topics` included: the providers level
- * shows it as a card of its own.
+ * shows it as a card of its own. Counted on the cards of that level
+ * (`providersModel`), so the foot and the heading cannot disagree.
  */
 export function providersCountTail(snapshot: ProvidersSnapshot | null, tr: Translate): Tail | null {
   if (!snapshot) return null;
-  const ready = snapshot.providers.filter((p) => p.status === 'ready').length;
-  const errors = snapshot.providers.filter((p) => p.status === 'error').length;
+  const { ready, errors } = cardsCount(providerCards(snapshot));
   const readyText = ready === 0 ? tr('home.providers.noneReady') : ready === 1 ? tr('home.providers.readyOne') : tr('home.providers.ready', { n: ready });
   const errorText = errors === 0 ? null : errors === 1 ? tr('ai.selector.providers.errorOne') : tr('ai.selector.providers.errors', { n: errors });
   return { text: errorText ? `${readyText} · ${errorText}` : readyText, warn: ready === 0 || errors > 0 };

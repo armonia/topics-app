@@ -122,14 +122,16 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     // its own in the middle of the window.
     const level = await openHomePanel(page, "providers");
 
-    // The plan and how much of it is spent, read together at the top.
+    // The plan and how much of it is spent, read together in Claude Code's
+    // detail (model selector revision 2026-10-04, §5.5).
+    await level.getByTestId("provider-card-claude-code").getByTestId("provider-card-open").click();
     const plan = level.getByTestId("providers-claude-plan");
     await expect(plan).toContainText("Abbonamento Claude Max 20x", { timeout: 15_000 });
     await expect(level.getByTestId("providers-claude-usage")).toContainText("42%");
+    await page.keyboard.press("Escape");
 
     // A field: every key lands in it, none moves the menu.
-    const setup = level.getByTestId("api-provider-setup-openai");
-    await setup.getByRole("button").first().click();
+    await level.getByTestId("providers-add-key").click();
     const field = level.getByTestId("api-key-form-openai").locator("input");
     await field.click();
     await page.keyboard.type("sk-proj AbC");
@@ -151,11 +153,12 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(level.getByTestId("api-key-form-openai").getByRole("alert")).toContainText("Chiave API rifiutata", { timeout: 10_000 });
     expect(sent).toEqual(["sk-proj AbC-9 Z"]);
     await expect(level).toBeVisible();
+    await page.keyboard.press("Escape");
 
     // A selector's list lives in a portal outside the panel: choosing in it
     // is not a press outside.
-    await level.getByTestId("ai-providers-advanced-toggle").click();
-    const runtime = level.getByRole("combobox", { name: "Runtime degli agenti", exact: true });
+    await level.getByTestId("provider-card-topics").getByTestId("provider-card-open").click();
+    const runtime = level.getByRole("combobox", { name: "Motore degli agenti", exact: true });
     await runtime.click();
     const listbox = page.getByRole("listbox").last();
     await expect(listbox).toBeVisible();
@@ -163,8 +166,10 @@ test.describe("il menu utente è la casa di ogni impostazione", () => {
     await expect(listbox).toHaveCount(0);
     await expect(level).toBeVisible();
 
-    // Escape with the list closed closes the panel, and only the panel.
-    await field.click();
+    // Escape with the list closed goes back to the list, the next closes the
+    // sheet, and only the sheet.
+    await page.keyboard.press("Escape");
+    await expect(level.getByTestId("providers-level")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(level).toHaveCount(0);
     await expect(page.getByTestId("profile-menu")).toHaveCount(0);

@@ -11,6 +11,11 @@
  *  · ANCHORED, on the desktop, when the door hands over an element or the home
  *    is on screen (`data-home-anchor`): a popover beside it, ~420 px wide, the
  *    body scrolling inside under the menu's own cap.
+ *  · Providers and keys is not a panel beside the selector any more but a
+ *    level of it (model selector revision 2026-10-04, §5.1): the request goes
+ *    to the model chip on screen (the focused pane's first), which opens its
+ *    selector on that level; with no chip, a centred sheet as wide as the
+ *    selector.
  *  · A CENTRED SHEET, on the desktop, when nothing of the home is mounted (the
  *    palette with no chat open).
  *  · A BOTTOM SHEET on the phone, either way: that is how every popover of the
@@ -26,7 +31,10 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { closeAllPopovers, closePopoversAround } from '@/lib/popoverRegistry';
-import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, OPEN_HOME_EVENT, isPanelHome, type OpenHomeDetail, type PanelHome } from '@/lib/openHome';
+import {
+  HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, OPEN_HOME_EVENT, OPEN_MODEL_SELECTOR_EVENT, isPanelHome,
+  type OpenHomeDetail, type OpenModelSelectorDetail, type PanelHome,
+} from '@/lib/openHome';
 import { openUserMenu, type UserMenuLevel } from '@/lib/openUserMenu';
 import type { HomeRequest } from './HomePanel';
 
@@ -79,6 +87,25 @@ export function HomePanelHost() {
       if (!detail) return;
       if (!isPanelHome(detail.home)) {
         openUserMenu(MENU_LEVEL[detail.home]);
+        return;
+      }
+      if (detail.home === 'providers') {
+        // To the chip, if one is on screen: the one that asked, else the
+        // focused pane's. It says it took the request by preventing it.
+        const asked = detail.anchor?.isConnected && detail.anchor.matches(`[${HOME_ANCHOR_ATTR}~="providers"]`) ? detail.anchor : null;
+        const chip = asked ?? mountedAnchor('providers');
+        const returnFocus = detail.returnFocus?.isConnected ? detail.returnFocus : detail.anchor?.isConnected && detail.anchor !== chip ? detail.anchor : null;
+        if (chip) {
+          closePopoversAround(chip);
+          const handed = new CustomEvent<OpenModelSelectorDetail>(OPEN_MODEL_SELECTOR_EVENT, {
+            cancelable: true,
+            detail: { level: detail.account ? 'account' : 'providers', account: detail.account, returnFocus },
+          });
+          chip.dispatchEvent(handed);
+          if (handed.defaultPrevented) return;
+        }
+        closeAllPopovers();
+        setRequest((r) => ({ home: 'providers', anchor: null, returnFocus, providers: detail.account ? { account: detail.account } : undefined, n: (r?.n ?? 0) + 1 }));
         return;
       }
       const anchor = detail.anchor?.isConnected ? detail.anchor : mountedAnchor(detail.home);

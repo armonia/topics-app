@@ -32,7 +32,7 @@ const FLEET = snapshotOf([CLAUDE_CODE, CODEX_ENTRY, ENGINE], 'claude-code');
 function draw(value: string | null, props: Partial<ModelListProps> = {}, snapshot: ProvidersSnapshot = FLEET, boardValue?: string | null) {
   return renderToStaticMarkup(
     <ModelList
-      scope="task" variant="compact" layout="list" focusSearch={false} onClose={() => {}} onSelect={() => {}}
+      scope="task" variant="compact" layout="list" focusSearch={false} onClose={() => {}} onSelect={() => {}} onOpenProviders={() => {}}
       automatic={{ who: 'segue la board', hint: 'Segue la scelta della board' }} snapshot={snapshot}
       value={taskMenuSelection(value, snapshot)}
       routingTarget={value === null && boardValue ? taskMenuSelection(boardValue, snapshot) : undefined}

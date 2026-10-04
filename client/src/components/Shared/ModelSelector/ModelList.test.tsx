@@ -26,7 +26,7 @@ import type { ProvidersSnapshot } from '../../../types';
 function draw(props: Partial<ModelListProps> = {}, snapshot: ProvidersSnapshot = MEASURED) {
   return renderToStaticMarkup(
     <ModelList
-      scope="chat" variant="compact" layout="list" focusSearch={false} onClose={() => {}} onSelect={() => {}}
+      scope="chat" variant="compact" layout="list" focusSearch={false} onClose={() => {}} onSelect={() => {}} onOpenProviders={() => {}}
       automatic={{ who: 'Claude Code', hint: 'Usa il predefinito: Claude Code' }} snapshot={snapshot}
       value={{ provider: null, model: null }}
       {...props}
@@ -216,13 +216,18 @@ describe('Automatic and the footer (revision §3.7, §4.1)', () => {
 
 describe('the chat surfaces open the one selector (MSEL-01)', () => {
   const read = (path: string) => readFileSync(join(import.meta.dir, path), 'utf8');
-  test('the composer, the chat settings and the provider default all use ModelSelector', () => {
+  test('the composer and the chat settings use ModelSelector', () => {
     expect(read('../../Chat/ProviderModelPicker.tsx')).toContain('variant="compact"');
     const settings = read('../../Modals/TopicSettingsModal.tsx');
     expect(settings).toContain('<ModelSelector');
     expect(settings).toContain('variant="full"');
     expect(settings).not.toContain('<Select');
-    expect(read('../../Settings/ProviderDefaultModel.tsx')).toContain('onlyProvider={provider}');
+  });
+  test('the provider default is a list in line, from the same catalog, with no second selector (revision §5.5)', () => {
+    const inline = read('../../Settings/ProviderDefaultModel.tsx');
+    expect(inline).toContain('buildModelCatalog(');
+    expect(inline).toContain('onlyProvider: provider');
+    expect(inline).not.toContain('<ModelSelector');
   });
 });
 

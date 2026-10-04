@@ -6,8 +6,12 @@
 
 Ogni superficie che sceglie provider e modello per una chat o una card SHALL usare
 `ModelSelector`. Le superfici sono: composer della chat, composer delle card,
-cassetto della card, impostazioni della board, impostazioni della chat, modello
-di default per provider, card della board.
+cassetto della card, impostazioni della board, impostazioni della chat, card della
+board. Il modello di default di un provider SHALL scegliersi nel dettaglio del suo
+account, come elenco di radio in linea costruito dallo stesso catalogo del
+selettore (stesse etichette, stesse generazioni), senza aprire un secondo
+selettore (emendamento del 04/10, revisione §5.5: una porta che riapre lo stesso
+pannello sopra se stesso).
 
 Le varianti SHALL essere solo tre:
 - `compact`: si sceglie mentre si scrive;
@@ -31,6 +35,11 @@ variante o `scope` è un difetto.
 - **WHEN** l'utente apre le impostazioni di una chat
 - **THEN** sceglie provider e modello con `ModelSelector` in variante `full`
 - **AND** non c'è più una tendina con il solo provider
+
+#### Scenario: il modello di default di un provider
+- **GIVEN** il dettaglio di Claude Code in «Provider e chiavi»
+- **WHEN** l'utente sceglie Sonnet 5.5 fra le radio del «Modello di default»
+- **THEN** `claudeModel` vale `claude-sonnet-5-5`, e nessun altro popover si è aperto
 
 ### Requirement: MSEL-02: Tutte le aziende in una vista, senza sottomenu
 

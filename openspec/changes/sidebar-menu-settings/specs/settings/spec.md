@@ -400,7 +400,11 @@ una tessera scivolata fuori con la colonna chiusa non lo è); senza nessuno dei
 due, sul desktop, un foglio al centro della finestra; sul telefono sempre un
 foglio dal basso a tutta larghezza. Sul desktop un pannello ancorato SHALL
 essere largo circa 420 px, mai più della finestra meno i margini, e scorrere
-dentro. Il menu da cui è partita la richiesta si chiude, ma un menu che
+dentro. «Provider e chiavi» fa eccezione (emendamento del 04/10, model-selector):
+l'ospite passa la richiesta al chip del modello a schermo (quello del pane a
+fuoco per primo), che apre il proprio selettore su quel livello o sul dettaglio
+chiesto; senza chip, sul desktop, il foglio al centro è largo 44rem come il
+selettore, e la lista non ha ‹. Il menu da cui è partita la richiesta si chiude, ma un menu che
 contiene l'ancora nel suo corpo (le impostazioni della board attorno al loro
 selettore) SHALL restare aperto. All'apertura il fuoco SHALL essere nel
 pannello e il primo Tab SHALL portarlo a un suo controllo. Alla chiusura il
@@ -472,6 +476,13 @@ fuoco SHALL tornare all'ancora.
 - **THEN** il pannello si apre come foglio al centro della finestra
 - **AND** «Strumenti MCP» e «Calendario» aprono i loro pannelli, «Piano», «Macchine», «Aspetto» e «Notifiche» i loro livelli del menu utente
 - **AND** la palette non ha nessuna voce «Impostazioni»
+
+#### Scenario: la palette con una chat aperta
+- **GIVEN** una chat aperta, col suo chip del modello
+- **WHEN** scelgo «Provider e chiavi» nella palette
+- **THEN** si apre il selettore del modello di quella chat sul livello «Provider e chiavi», e nessun foglio al centro
+- **WHEN** premo Escape due volte
+- **THEN** torno ai modelli e poi il selettore si chiude, col fuoco sul chip
 
 #### Scenario: niente impostazioni nel menu utente
 - **WHEN** apro il menu utente

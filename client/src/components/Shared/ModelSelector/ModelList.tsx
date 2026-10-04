@@ -16,14 +16,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, KeyRound, Route, Search, Sparkles } from 'lucide-react';
 import type { ProvidersSnapshot } from '../../../types';
+import type { ProvidersTarget } from '../../Settings/AIProvidersSection';
 import { topicsRoute, type TopicsRoute, type TopicsRouteScope } from '../../../../../shared/task-coding-models';
 import { contextWindowFor, formatContextWindow } from '../../../../../shared/context-window';
 import { POPOVER_ITEM } from '../../../lib/popoverStyles';
-import { openHome } from '../../../lib/openHome';
 import { usePlanUsage } from '../../../state/planUsage';
 import { useT } from '../../../hooks/useT';
 import { isTypingSurface } from '../../../hooks/useMenuKeyboard';
-import { useMenuAnchor } from '../menuAnchor';
 import { SEGNALE_ATTESA } from '../../Sidebar/chromeSignals';
 import { claudePlanWarning, providersCountTail } from '../../Sidebar/formLevelTails';
 import {
@@ -58,6 +57,9 @@ export interface ModelListProps {
   onlyProvider?: string;
   disabled?: boolean;
   onClose: () => void;
+  /** Providers and keys, a level of the same panel (revision §5.1): the foot
+   *  opens the list, «Sistema ›» and the connect boxes an account's detail. */
+  onOpenProviders: (target: ProvidersTarget) => void;
   /** Focus the search on open: desktop only, the phone keyboard would cover the sheet. */
   focusSearch: boolean;
   /** Deterministic catalog for render tests; live callers omit it. */
@@ -138,13 +140,12 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
 }
 
 /** The providers row, the count and the chevron: the foot of every selector (SETHOME-01). */
-function ProvidersFooterRow({ snapshot, disabled, onClose }: {
+function ProvidersFooterRow({ snapshot, disabled, onOpen }: {
   snapshot: ProvidersSnapshot | null;
   disabled?: boolean;
-  onClose: () => void;
+  onOpen: () => void;
 }) {
   const tr = useT();
-  const anchor = useMenuAnchor();
   const tail = providersCountTail(snapshot, tr);
   return (
     <div className="shrink-0 border-t border-app-border pt-0.5">
@@ -153,7 +154,7 @@ function ProvidersFooterRow({ snapshot, disabled, onClose }: {
         disabled={disabled}
         data-testid="ai-selector-providers"
         className={`${POPOVER_ITEM} !py-1 coarse:!py-3 disabled:opacity-40`}
-        onClick={() => { const el = anchor?.current ?? null; onClose(); openHome('providers', el); }}
+        onClick={onOpen}
       >
         <KeyRound className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{tr('home.providers')}</span>
@@ -191,7 +192,7 @@ interface RowProps {
   variant: 'compact' | 'full';
   disabled?: boolean;
   onPick: (selection: AiExecutionSelection) => void;
-  onClose: () => void;
+  onFix: (engine: string | undefined) => void;
 }
 
 /**
@@ -200,9 +201,8 @@ interface RowProps {
  * it. The second line is there only for «via X», a retirement, the description
  * (`full`) or why the row cannot run.
  */
-function ModelRow({ row, value, scope, variant, disabled, onPick, onClose }: RowProps) {
+function ModelRow({ row, value, scope, variant, disabled, onPick, onFix }: RowProps) {
   const tr = useT();
-  const anchor = useMenuAnchor();
   const selected = rowSelected(row, value);
   const usable = !row.stale && !!row.engine?.ready;
   const [long, setLong] = useState(() => !!row.longModel && value.model === row.longModel);
@@ -287,7 +287,7 @@ function ModelRow({ row, value, scope, variant, disabled, onPick, onClose }: Row
           type="button"
           data-testid="model-row-settings"
           disabled={disabled}
-          onClick={() => { const el = anchor?.current ?? null; onClose(); openHome('providers', el); }}
+          onClick={() => onFix(row.engine?.name)}
           className={`mx-3 mb-1 rounded px-1 text-mini coarse:min-h-11 hover:bg-app-hover ${ACTIVE_INK}`}
         >
           {tr('ai.selector.action.fix')}
@@ -300,26 +300,29 @@ function ModelRow({ row, value, scope, variant, disabled, onPick, onClose }: Row
 /** A company with no ready engine but a provider of the snapshot that is not
  *  ready (revision §4.6): what is missing, one action per provider, and the
  *  button that hides the box. Never a shell command in the text. */
-function ConnectBox({ group, disabled, onHide, onClose }: {
+function ConnectBox({ group, disabled, onHide, onClose, onOpenProviders }: {
   group: CatalogGroup;
   disabled?: boolean;
   onHide: () => void;
   onClose: () => void;
+  onOpenProviders: (target: ProvidersTarget) => void;
 }) {
   const tr = useT();
-  const anchor = useMenuAnchor();
   const first = group.connect[0]!;
   const sentence = first.status === 'error'
     ? tr('ai.selector.connect.error', { name: first.label })
     : tr(`ai.selector.connect.${first.action}`, { name: first.label });
   const act = (entry: ConnectEntry) => {
     const command = entry.action === 'signIn' ? signInCommand(entry.name) : null;
-    const el = anchor?.current ?? null;
-    onClose();
     // «Accedi» acts on the first press: a Topics terminal with the command
-    // typed, not run. The other two are navigations, and the › says so.
-    if (command) window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { command } }));
-    else openHome('providers', el);
+    // typed, not run. The other two are navigations to the account's detail,
+    // with its field focused, and the › says so.
+    if (command) {
+      onClose();
+      window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { command } }));
+    } else {
+      onOpenProviders({ account: entry.name, focus: entry.action === 'addKey' ? 'key' : 'path' });
+    }
   };
   return (
     <div data-testid="model-section-connect" className="mx-2 my-1 rounded-md bg-app-inset px-2.5 py-2 text-mini text-app-text">
@@ -475,10 +478,11 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
       {rows.map((row) => (
         <ModelRow
           key={row.key} row={row} value={props.value} scope={props.scope} variant={props.variant}
-          disabled={props.disabled} onPick={props.onSelect} onClose={props.onClose}
+          disabled={props.disabled} onPick={props.onSelect}
+          onFix={(engine) => props.onOpenProviders(engine ? { account: engine } : {})}
         />
       ))}
-      {group.connect.length > 0 && <ConnectBox group={group} disabled={props.disabled} onHide={onHide} onClose={props.onClose} />}
+      {group.connect.length > 0 && <ConnectBox group={group} disabled={props.disabled} onHide={onHide} onClose={props.onClose} onOpenProviders={props.onOpenProviders} />}
       {group.older.length > 0 && (
         <button
           type="button"
@@ -732,7 +736,7 @@ export function ModelList(props: ModelListProps) {
           )}
         </div>
       </div>
-      <ProvidersFooterRow snapshot={snapshot} disabled={props.disabled} onClose={onClose} />
+      <ProvidersFooterRow snapshot={snapshot} disabled={props.disabled} onOpen={() => props.onOpenProviders({})} />
     </div>
   );
 }

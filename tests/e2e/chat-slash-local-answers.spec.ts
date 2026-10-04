@@ -158,21 +158,26 @@ test.describe("slash commands answered in the composer", () => {
     expect(received(), "the CLI printed its own lists about a configuration Topics does not read").toEqual([]);
   });
 
-  test("/usage and /cost open the providers panel beside the model chip, where the plan is", async ({ page, chatPage }) => {
+  test("/usage and /cost open Claude Code's detail in the model chip's selector, where the plan is", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     // Forwarded, the CLI answered with its own table, in English, as if it
     // were the agent's reply.
     const picker = page.getByTestId("provider-model-picker");
     for (const typed of ["/usage", "/cost"]) {
       await type(chatPage, page, typed);
-      const panel = page.getByTestId("home-panel-providers");
-      await expect(panel, typed).toBeVisible({ timeout: 10_000 });
-      // Beside the chip of THIS composer, not a centred sheet.
-      const [p, c] = [await panel.boundingBox(), await picker.boundingBox()];
+      const selector = page.getByTestId("provider-model-popover");
+      // Revision 2026-10-04 §5.1: a level of THIS composer's selector (on
+      // Claude Code's detail where this server registers it), not a sheet.
+      await expect(selector.getByTestId("ai-providers-settings"), typed).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
+      const [p, c] = [await selector.boundingBox(), await picker.boundingBox()];
       expect(p && c, "panel and chip are laid out").toBeTruthy();
       expect(Math.abs(p!.y + p!.height - c!.y) < 40 || Math.abs(p!.y - (c!.y + c!.height)) < 40, `${typed}: hung from the chip`).toBe(true);
-      await page.keyboard.press("Escape");
-      await expect(panel).toHaveCount(0);
+      // Back one level per Escape (detail, list, models), and the last closes.
+      await expect(async () => {
+        await page.keyboard.press("Escape");
+        await expect(selector).toHaveCount(0, { timeout: 500 });
+      }).toPass({ timeout: 10_000 });
       await expect(chatPage.messageInput, typed).toBeFocused();
     }
     await expect(result(page)).toHaveCount(0);
@@ -224,6 +229,7 @@ test.describe("slash commands answered in the composer", () => {
     await expect(page.getByTestId("profile-menu")).toHaveCount(0);
     await expect(page.getByTestId("home-panel-tools")).toHaveCount(0);
     await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
+    await expect(page.getByTestId("ai-providers-settings")).toHaveCount(0);
   });
 
   test("an ordinary message still reaches the CLI: the log above is not empty by construction", async ({ page, chatPage }) => {

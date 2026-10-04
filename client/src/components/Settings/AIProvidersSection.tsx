@@ -1,296 +1,67 @@
-import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
-import { useT } from '../../hooks/useT';
-import { X, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle } from 'lucide-react';
+/**
+ * «PROVIDER E CHIAVI», THE LEVELS (model selector revision 2026-10-04, §5).
+ *
+ * The list of accounts (`ProvidersView`) and the detail of one
+ * (`ProviderDetail`), plus the three «+» forms (an API key, an endpoint, a
+ * program). Drawn inside the model selector, in place of the models, in the
+ * same panel (Ribaltamento 2): ‹ and Escape go back one level, the detail to
+ * the list and the list to the models. Drawn in the centred sheet when no chip
+ * is on screen, the list has no ‹ and a close instead.
+ *
+ * One state for every level: the providers snapshot (pushed over the WS), the
+ * app settings, the programs and the endpoints the server knows, and the test
+ * of a provider with its 15 s watchdog.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ProviderSnapshotEntry } from '../../types';
-import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
-import { copyText } from '../../lib/clipboard';
-import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
-import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
+import { providersApi, appSettingsApi, type AppBehaviorSettings, type CliAgentPresence } from '../../lib/api';
+import type { DirectEndpointView } from '../../../../shared/direct-endpoints';
+import { providerNameForEndpoint } from '../../../../shared/direct-endpoints';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types';
-import { SettingSelect } from './SettingSelect';
-import { ProviderDefaultModel } from './ProviderDefaultModel';
-import { AgentRuntimeChoice } from './AgentRuntimeChoice';
-import { ApiKeyForm, ApiProviderSetup } from './ApiProviderSetup';
-import { DirectEndpointsPanel } from './DirectEndpointsPanel';
-import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
-import { CliAgentsPanel } from './CliAgentsPanel';
-import {
-  API_PROVIDERS,
-  isApiProvider,
-  STATUS_COLORS,
-  relativeTime,
-  PROVIDER_MODEL_FIELD,
-} from './providerFormat';
+import { usePlanUsage } from '../../state/planUsage';
+import { useT } from '../../hooks/useT';
+import { focusableWithin } from '../../hooks/useModalDialog';
+import { isTypingSurface } from '../../hooks/useMenuKeyboard';
+import { stepFocus } from '../Sidebar/stepFocus';
+import { claudePlanWarning, claudeSubscription, providersCountTail, subscriptionLabel } from '../Sidebar/formLevelTails';
+import { signInCommand } from '../Shared/ModelSelector/useModelCatalog';
+import { endpointHost, providerCards, type ProviderCard } from './providersModel';
+import { API_PROVIDERS, PROVIDER_MODEL_FIELD, type ApiProviderName } from './providerFormat';
+import { LevelBack, ProvidersView } from './ProvidersView';
+import { ProviderDetail, type TestResult } from './ProviderDetail';
+import { ApiKeyForm } from './ApiProviderSetup';
+import { EndpointForm } from './DirectEndpointsPanel';
+import { CliAgentRow } from './CliAgentsPanel';
 
-interface TestResult {
-  ok: boolean;
-  message: string;
-  at: number;
+/** Where a door asks the levels to open: an account, and the field to focus. */
+export interface ProvidersTarget {
+  account?: string;
+  focus?: 'key' | 'path';
 }
 
-/** Provider cards own their model settings and the validated default action. */
-export function AIProvidersSection() {
-  const tr = useT();
-  // Single subscription point — replaces the per-component fetches the section
-  // used to do. Snapshot updates arrive via WS, so opening Settings in two
-  // windows shows identical state without either window polling.
-  const { snapshot, loading, error, refresh, retry } = useProvidersSnapshot();
-  // Runtime selection belongs in the advanced execution section.
-  const entries: ProviderSnapshotEntry[] = useMemo(
-    () => (snapshot?.providers ?? []).filter(
-      (p) => !(AGENT_RUNTIMES as readonly string[]).includes(p.name),
-    ),
-    [snapshot],
-  );
+type View =
+  | { kind: 'list' }
+  | { kind: 'account'; name: string; focus?: 'key' | 'path' }
+  | { kind: 'add'; what: 'key' | 'endpoint' | 'program' };
 
-  // Fetch shared settings once, rather than once per expanded card.
-  const { settings, saving, error: settingsError, save, apply } = useBehaviorSettings();
+/** How long a test waits for a fresh snapshot before it reports a timeout. */
+const TEST_WATCHDOG_MS = 15_000;
 
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [advanced, setAdvanced] = useState(false);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, TestResult>>({});
-  const [defaultError, setDefaultError] = useState<string | null>(null);
-
-  // When a `test()` is in flight we set `testing = name` and remember the
-  // entry's `fetchedAt` at trigger time. The snapshot pushes a new entry once
-  // the server-side probe finishes; we detect that by comparing `fetchedAt`
-  // and synthesize the user-visible result message. This avoids a parallel
-  // HTTP path — every consumer sees the same snapshot.
-  const testTriggeredAt = useRef<Map<string, string>>(new Map());
-  // Watchdog timer for the in-flight test — if no fresh snapshot lands within
-  // the timeout we clear `testing` and surface a timeout result so the spinner
-  // doesn't stick forever.
-  const testWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear the watchdog on unmount so a pending timer can't fire after teardown.
-  useEffect(() => () => {
-    if (testWatchdog.current) clearTimeout(testWatchdog.current);
-  }, []);
-
-  useEffect(() => {
-    if (!testing) return;
-    const entry = entries.find((e) => e.name === testing);
-    if (!entry) return;
-    const previousAt = testTriggeredAt.current.get(testing);
-    if (!previousAt || entry.fetchedAt === previousAt) return;
-    // A fresh row landed — derive result from it.
-    const ok = entry.status === 'ready';
-    // Lo stato a parole viene dal dizionario, come il pallino accanto al nome:
-    // era l'unico punto della scheda che rispondeva in italiano fisso (e in
-    // inglese fisso, via `STATUS_LABELS`) qualunque lingua avesse scelto chi legge.
-    const message = ok
-      ? [
-        tr('ai.status.ready'),
-        entry.models.length ? tr('ai.test.models', { count: entry.models.length }) : '',
-        entry.version ? `v${entry.version}` : '',
-      ].filter(Boolean).join(' · ')
-      : entry.lastError ?? tr(`ai.status.${entry.status}`);
-    if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- converging external-store sync: derives the test result from a freshly-arrived WS snapshot and clears `testing`, which guards against re-runs (no cascade)
-    setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
-    testTriggeredAt.current.delete(testing);
-    setTesting(null);
-  }, [entries, testing, tr]);
-
-  const setDefault = async (name: string) => {
-    setDefaultError(null);
-    try {
-      // This endpoint validates the choice against the live registry.
-      await providersApi.setDefault(name);
-      // The endpoint also updates app settings; mirror the explicit choice.
-      apply({ aiProvider: name });
-      await refresh();
-    } catch (e) {
-      setDefaultError(e instanceof Error ? e.message : 'non è stato possibile impostare il default');
-    }
-  };
-
-  const clearDefault = async () => {
-    setDefaultError(null);
-    try {
-      // Clearing the override lets the server recompute its fallback.
-      await save({ aiProvider: null });
-      await refresh();
-    } catch (e) {
-      setDefaultError(e instanceof Error ? e.message : 'non è stato possibile togliere il default');
-    }
-  };
-
-  const test = async (name: string) => {
-    const entry = entries.find((e) => e.name === name);
-    testTriggeredAt.current.set(name, entry?.fetchedAt ?? '');
-    setTesting(name);
-    // Arm a watchdog: if no fresh snapshot converges in time, stop spinning
-    // and report a timeout instead of hanging indefinitely.
-    if (testWatchdog.current) clearTimeout(testWatchdog.current);
-    testWatchdog.current = setTimeout(() => {
-      testWatchdog.current = null;
-      testTriggeredAt.current.delete(name);
-      setResults((prev) => ({ ...prev, [name]: { ok: false, message: tr('ai.test.timedOut'), at: Date.now() } }));
-      setTesting(null);
-    }, 15000);
-    try {
-      await refresh(name);
-    } catch (err) {
-      if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
-      const message = err instanceof Error ? err.message : tr('ai.test.failed');
-      setResults((prev) => ({ ...prev, [name]: { ok: false, message, at: Date.now() } }));
-      testTriggeredAt.current.delete(name);
-      setTesting(null);
-    }
-  };
-
-  // Warn when multiple provider cards write the same model setting.
-  const modelFieldSiblings = useMemo(() => {
-    const byField = new Map<string, string[]>();
-    for (const e of entries) {
-      const field = PROVIDER_MODEL_FIELD[e.name];
-      if (!field) continue;
-      byField.set(field, [...(byField.get(field) ?? []), e.label ?? e.name]);
-    }
-    return byField;
-  }, [entries]);
-
-  // Keep setup reachable when a previously registered provider fails.
-  const providersBody = error && entries.length === 0 ? (
-    <div className="flex items-center gap-2 text-compact text-red-500">
-      <AlertCircle size={12} className="flex-shrink-0" />
-      <span className="break-words flex-1">{error.message || 'Failed to load providers.'}</span>
-      <button
-        onClick={() => { void retry(); }}
-        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover"
-      >
-        <RefreshCw size={11} />
-        {tr('common.retry')}
-      </button>
-    </div>
-  ) : loading && entries.length === 0 ? (
-    <div className="text-compact text-app-text-muted">Loading…</div>
-  ) : null;
-
-  const renderProvider = (entry: ProviderSnapshotEntry) => (
-    <ProviderCard
-      key={entry.name}
-      entry={entry}
-      expanded={expanded === entry.name}
-      testing={testing === entry.name}
-      result={results[entry.name]}
-      settings={settings}
-      saving={saving}
-      modelSharedWith={(modelFieldSiblings.get(PROVIDER_MODEL_FIELD[entry.name] ?? '') ?? [])
-        .filter((label) => label !== (entry.label ?? entry.name))}
-      onSave={save}
-      onToggle={() => setExpanded(expanded === entry.name ? null : entry.name)}
-      onSetDefault={() => { void setDefault(entry.name); }}
-      onClearDefault={() => { void clearDefault(); }}
-      onTest={() => { void test(entry.name); }}
-      onAfterConfigure={() => refresh(entry.name)}
-    />
-  );
-
-  return (
-    <div className="space-y-6" data-testid="ai-providers-settings">
-      <div className="space-y-3">
-        <h3 className="flex items-center gap-2 text-prose font-medium text-app-text">
-          <Cpu size={14} />
-          {tr('ai.api.title')}
-        </h3>
-        <p className="text-compact text-app-text-secondary">{tr('ai.api.intro')}</p>
-        <p className="text-mini text-app-text-muted" data-testid="api-billing-note">{tr('ai.api.billing')}</p>
-        {providersBody}
-        {(settingsError || defaultError) && (
-          <div role="alert" className="text-mini text-red-500">{defaultError ?? settingsError}</div>
-        )}
-        {/* A runtime can be the saved default even though it is deliberately
-            absent from the provider cards. Validate against the full registry. */}
-        {snapshot && settings?.aiProvider && !snapshot.providers.some((entry) => entry.name === settings.aiProvider) && (
-          <div data-testid="provider-default-missing" className="flex items-center gap-2 text-mini text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
-            <AlertCircle size={12} className="flex-shrink-0" />
-            <span className="flex-1 break-words">
-              {tr('ai.saved.prefix')} <span className="font-mono">{settings.aiProvider}</span>{tr('ai.saved.suffix')}
-            </span>
-            <button onClick={() => { void clearDefault(); }} disabled={saving} className="flex-shrink-0 px-2 py-1 coarse:min-h-11 rounded-md bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50">
-              {tr('ai.saved.remove')}
-            </button>
-          </div>
-        )}
-        {/* An absent API gets an onboarding card, never invented ready state. */}
-        {snapshot && <div className="space-y-2">
-          {(Object.keys(API_PROVIDERS) as Array<keyof typeof API_PROVIDERS>).map((provider) => {
-            const entry = entries.find((candidate) => candidate.name === provider);
-            return entry ? renderProvider(entry) : (
-              <ApiProviderSetup key={provider} provider={provider}
-                expanded={expanded === provider}
-                onToggle={() => setExpanded(expanded === provider ? null : provider)}
-                onSaved={() => refresh(provider)} />
-            );
-          })}
-        </div>}
-      </div>
-
-      <div className="border-t border-app-border pt-3">
-        <DirectEndpointsPanel onChanged={() => { void refresh(); }} />
-      </div>
-
-      {entries.some((entry) => !isApiProvider(entry.name)) && <div className="border-t border-app-border pt-3 space-y-2">
-        <h3 className="text-prose font-medium text-app-text">{tr('ai.agents.title')}</h3>
-        <p className="text-mini text-app-text-secondary">{tr('ai.agents.hint')}</p>
-        {entries.filter((entry) => !isApiProvider(entry.name)).map(renderProvider)}
-      </div>}
-
-      <div className="border-t border-app-border pt-3">
-        <button
-          type="button"
-          data-testid="ai-providers-advanced-toggle"
-          aria-expanded={advanced}
-          aria-controls="ai-providers-advanced"
-          onClick={() => setAdvanced((value) => !value)}
-          className="w-full flex items-center gap-2 py-2 coarse:min-h-11 text-left text-compact font-medium text-app-text"
-        >
-          {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          {tr('ai.advanced.title')}
-        </button>
-        <p className="text-mini text-app-text-muted">{tr('ai.advanced.hint')}</p>
-        {advanced && <div id="ai-providers-advanced" data-testid="ai-providers-advanced" className="mt-3 space-y-4">
-          {settings && <div className="space-y-3 rounded-lg border border-app-border px-3 py-3">
-            <h3 className="text-prose font-medium text-app-text">{tr('ai.execution.title')}</h3>
-            <AgentRuntimeChoice
-              settings={settings}
-              saving={saving}
-              registered={(snapshot?.providers ?? []).some((entry) => entry.name === (settings.agentRuntime ?? DEFAULT_AGENT_RUNTIME))}
-              onSave={save}
-            />
-            <TurnCheckpointsChoice settings={settings} saving={saving} onSave={save} />
-          </div>}
-          <div className="space-y-1.5">
-            {snapshot && settings && !entries.some((entry) => entry.name === 'claude-code') && (
-              <UnregisteredClaudeCode settings={settings} saving={saving} onSave={save} />
-            )}
-          </div>
-          <CliAgentsPanel />
-        </div>}
-      </div>
-
-    </div>
-  );
-}
-
-/** One settings copy shared by all cards. Saves reconcile with the server;
- * `apply` mirrors changes made through the separate provider-default endpoint. */
+/** One settings copy shared by every level. Saves reconcile with the server;
+ *  `apply` mirrors changes made through the separate provider-default endpoint. */
 function useBehaviorSettings() {
   const [settings, setSettings] = useState<AppBehaviorSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tr = useT();
 
   useEffect(() => {
     let live = true;
     appSettingsApi.get()
       .then((s) => { if (live) setSettings(s); })
-      .catch((e) => { if (live) setError(e instanceof Error ? e.message : 'Failed to load settings'); });
+      .catch((e) => { if (live) setError(e instanceof Error ? e.message : tr('ai.providers.saveError')); });
     return () => { live = false; };
-  }, []);
+  }, [tr]);
 
   const apply = useCallback((patch: Partial<AppBehaviorSettings>) => {
     setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -301,346 +72,377 @@ function useBehaviorSettings() {
     setError(null);
     apply(patch);
     try {
-      const next = await appSettingsApi.update(patch);
-      setSettings(next);
+      setSettings(await appSettingsApi.update(patch));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save');
+      setError(e instanceof Error ? e.message : tr('ai.providers.saveError'));
       // Re-fetch to drop the optimistic value on failure.
-      try { setSettings(await appSettingsApi.get()); } catch { /* keep last */ }
+      try { setSettings(await appSettingsApi.get()); } catch { /* keep the last one */ }
       throw e;
     } finally {
       setSaving(false);
     }
-  }, [apply]);
+  }, [apply, tr]);
 
   return { settings, saving, error, save, apply };
 }
 
-interface ProviderCardProps {
-  entry: ProviderSnapshotEntry;
-  expanded: boolean;
-  testing: boolean;
-  result?: TestResult;
-  settings: AppBehaviorSettings | null;
-  saving: boolean;
-  /** Other registered providers sharing the model setting. */
-  modelSharedWith: string[];
-  onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
-  onToggle: () => void;
-  onSetDefault: () => void;
-  onClearDefault: () => void;
-  onTest: () => void;
-  onAfterConfigure: () => Promise<void>;
+/**
+ * «Prova» and «Riprova»: ask the server for a fresh probe of one provider and
+ * read the answer from the snapshot it pushes, so every window sees the same
+ * state. A watchdog stops the spinner if no fresh entry arrives in time.
+ */
+function useProviderTest(entries: ProviderSnapshotEntry[], refresh: (name?: string) => Promise<void>) {
+  const tr = useT();
+  const [testing, setTesting] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, TestResult>>({});
+  const triggeredAt = useRef(new Map<string, string>());
+  const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (watchdog.current) clearTimeout(watchdog.current); }, []);
+
+  useEffect(() => {
+    if (!testing) return;
+    const entry = entries.find((e) => e.name === testing);
+    const previous = triggeredAt.current.get(testing);
+    if (!entry || !previous || entry.fetchedAt === previous) return;
+    const ok = entry.status === 'ready';
+    const message = ok
+      ? [tr('ai.selector.status.ready'), entry.models.length ? tr('ai.test.models', { count: entry.models.length }) : '', entry.version ? `v${entry.version}` : '']
+        .filter(Boolean).join(' · ')
+      : entry.lastError ?? tr(`ai.selector.status.${entry.status}`);
+    if (watchdog.current) { clearTimeout(watchdog.current); watchdog.current = null; }
+    setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
+    triggeredAt.current.delete(testing);
+    setTesting(null);
+  }, [entries, testing, tr]);
+
+  const test = useCallback(async (name: string) => {
+    triggeredAt.current.set(name, entries.find((e) => e.name === name)?.fetchedAt ?? '');
+    setTesting(name);
+    if (watchdog.current) clearTimeout(watchdog.current);
+    watchdog.current = setTimeout(() => {
+      watchdog.current = null;
+      triggeredAt.current.delete(name);
+      setResults((prev) => ({ ...prev, [name]: { ok: false, message: tr('ai.test.timedOut'), at: Date.now() } }));
+      setTesting(null);
+    }, TEST_WATCHDOG_MS);
+    try {
+      await refresh(name);
+    } catch (err) {
+      if (watchdog.current) { clearTimeout(watchdog.current); watchdog.current = null; }
+      triggeredAt.current.delete(name);
+      setResults((prev) => ({ ...prev, [name]: { ok: false, message: err instanceof Error ? err.message : tr('ai.test.failed'), at: Date.now() } }));
+      setTesting(null);
+    }
+  }, [entries, refresh, tr]);
+
+  return { testing, results, test };
 }
 
-function ProviderCard({
-  entry, expanded, testing, result, settings, saving, modelSharedWith,
-  onSave, onToggle, onSetDefault, onClearDefault, onTest, onAfterConfigure,
-}: ProviderCardProps) {
+/** The programs the server looks for, and the endpoints it keeps. */
+function useLocalSources() {
+  const [agents, setAgents] = useState<CliAgentPresence[]>([]);
+  const [endpoints, setEndpoints] = useState<DirectEndpointView[]>([]);
+  const loadEndpoints = useCallback(async () => {
+    try {
+      setEndpoints((await providersApi.listEndpoints()).endpoints);
+    } catch {
+      // A failed list is an empty list: the cards still come from the snapshot.
+      setEndpoints([]);
+    }
+  }, []);
+  useEffect(() => {
+    let live = true;
+    providersApi.cliAgents().then((res) => { if (live) setAgents(res.agents); }, () => { /* no programs to show */ });
+    providersApi.listEndpoints().then((res) => { if (live) setEndpoints(res.endpoints); }, () => { /* the snapshot still lists them */ });
+    return () => { live = false; };
+  }, []);
+  return { agents, setAgents, endpoints, loadEndpoints };
+}
+
+/** A press of Escape that belongs to something opened inside the level (a
+ *  list of a `Select`), not to the level. */
+function escapeBelongsToChild(root: HTMLElement): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  const popover = active?.closest('[data-popover]');
+  if (popover && !popover.contains(root)) return true;
+  return !!root.querySelector('[aria-expanded="true"][aria-haspopup="listbox"]');
+}
+
+export interface ProvidersLevelsProps {
+  target?: ProvidersTarget;
+  /** In the selector: ‹ and Escape on the list go back to the models. */
+  onBackToModels?: () => void;
+  /** Closes the surface: «Accedi» opens a terminal and the panel goes away. */
+  onClose: () => void;
+  /** The sheet only: a close button in the list's heading. */
+  closeTestId?: string;
+}
+
+export function ProvidersLevels({ target, onBackToModels, onClose, closeTestId }: ProvidersLevelsProps) {
   const tr = useT();
-  // Distinguish an explicit choice from a fallback only after settings load.
-  const defaultKnown = settings !== null;
-  const explicitDefault = settings?.aiProvider === entry.name;
-  // API labels clarify the connection type; other labels come from discovery.
-  const apiProvider = isApiProvider(entry.name) ? entry.name : null;
-  const label = apiProvider ? API_PROVIDERS[apiProvider].label : entry.label ?? entry.name;
-  const modelField = PROVIDER_MODEL_FIELD[entry.name];
-  const selectedModel = (modelField ? settings?.[modelField] : null) ?? entry.defaultModel;
-  const hasKey = !!apiProvider && entry.requirements.some((req) => req.key === API_PROVIDERS[apiProvider].requirement && req.present);
-  // Test connection only makes sense once requirements are met. When the
-  // provider is "not set up" (unavailable), there's nothing to test — the user
-  // first needs to satisfy the requirements below.
-  const canTest = entry.status !== 'unavailable';
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { snapshot, error, refresh, retry } = useProvidersSnapshot();
+  const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
+  const { settings, saving, error: settingsError, save, apply } = useBehaviorSettings();
+  const { testing, results, test } = useProviderTest(entries, refresh);
+  const { agents, setAgents, endpoints, loadEndpoints } = useLocalSources();
+  const usage = usePlanUsage();
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const [view, setView] = useState<View>(() => (target?.account ? { kind: 'account', name: target.account, focus: target.focus } : { kind: 'list' }));
+  const lastOpened = useRef<string | null>(null);
 
-  return (
-    <div data-testid={`provider-card-${entry.name}`} className={`rounded-lg border ${entry.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
-      <button
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="w-full flex min-h-11 items-center gap-2 px-3 py-2 text-left"
-      >
-        {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
-        <span className="min-w-0 flex-1">
-          <span className="block text-compact font-semibold text-app-text">{label}</span>
-          {selectedModel && <span className="block truncate text-mini text-app-text-secondary" title={selectedModel}>{selectedModel}</span>}
-        </span>
-        <span className="flex shrink-0 flex-col items-end gap-1">
-          <span className="text-mini text-app-text-secondary">{tr(`ai.status.${entry.status}`)}</span>
-          {entry.isDefault && (
-            <span
-              className="text-mini bg-primary/20 text-primary px-1.5 py-0.5 rounded"
-              title={!defaultKnown
-                ? tr('ai.default.unknown')
-                : explicitDefault
-                  ? tr('ai.default.explicit')
-                  : tr('ai.default.fallback')}
-            >
-              {defaultKnown && !explicitDefault ? 'Default · automatico' : 'Default'}
-            </span>
-          )}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-app-border space-y-2">
-          {isApiProvider(entry.name) && <p className="text-mini text-app-text-secondary">{tr('ai.api.chat')}</p>}
-          {/* Action row */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {canTest && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onTest(); }}
-                disabled={testing}
-                className="flex items-center gap-1 px-2 py-1 coarse:min-h-11 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
-              >
-                <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
-                {tr('ai.testConnection')}
-              </button>
-            )}
-            {!entry.isDefault && entry.status === 'ready' && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
-                className="px-2 py-1 coarse:min-h-11 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover"
-              >
-                {tr('ai.setDefault')}
-              </button>
-            )}
-            {entry.isDefault && explicitDefault && (
-              // Return to automatic selection without choosing another provider.
-              <button
-                onClick={(e) => { e.stopPropagation(); onClearDefault(); }}
-                disabled={saving}
-                className="px-2 py-1 coarse:min-h-11 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
-              >
-                {tr('ai.clearDefault')}
-              </button>
-            )}
-            {result && (
-              <span className={`text-mini flex items-center gap-1 ${result.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
-                {result.ok ? <Check size={11} /> : <AlertCircle size={11} />}
-                {result.message}
-              </span>
-            )}
-          </div>
-
-          {/* Settings owned by this provider. */}
-          {settings && (
-            <ProviderSettings
-              entry={entry}
-              settings={settings}
-              saving={saving}
-              modelSharedWith={modelSharedWith}
-              onSave={onSave}
-            />
-          )}
-
-          {/* Binary path */}
-          {entry.binaryPath && (
-            <div className="text-mini text-app-text-muted font-mono break-all">
-              {entry.binaryPath}
-            </div>
-          )}
-
-          {/* Last error (only when no fresh test result has overridden) */}
-          {entry.lastError && !result && (
-            <div className="flex items-start gap-1.5 text-mini text-red-500">
-              <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
-              <span className="break-words">{entry.lastError}</span>
-            </div>
-          )}
-
-          {/* Requirements */}
-          {entry.requirements.length > 0 && (
-            <div className="space-y-1.5">
-              {entry.requirements.map((req) => (
-                <RequirementRow key={req.key} req={req} />
-              ))}
-            </div>
-          )}
-
-          {apiProvider && (hasKey && entry.status === 'ready' ? (
-            <details className="border-t border-app-border pt-2" data-testid={`provider-key-details-${entry.name}`}>
-              <summary className="cursor-pointer py-1 text-compact text-app-text-secondary coarse:min-h-11">{tr('ai.api.replaceKey')}</summary>
-              <div className="pt-2"><ApiKeyForm provider={apiProvider} replacing onSaved={onAfterConfigure} /></div>
-            </details>
-          ) : <ApiKeyForm provider={apiProvider} replacing={hasKey} onSaved={onAfterConfigure} />)}
-
-          {/* Freshness footer */}
-          {entry.fetchedAt && (
-            <div className="text-mini text-app-text-muted pt-1">
-              Updated {relativeTime(entry.fetchedAt)}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+  const names = useMemo(() => new Set(entries.map((entry) => entry.name)), [entries]);
+  const hosts = useMemo(() => Object.fromEntries(endpoints.flatMap((endpoint) => {
+    const host = endpointHost(endpoint.baseUrl);
+    return host ? [[providerNameForEndpoint(endpoint), host]] : [];
+  })), [endpoints]);
+  const unregistered = useMemo(
+    () => agents.filter((agent) => agent.installed && !names.has(agent.id)).map((agent) => ({ name: agent.id, label: agent.name })),
+    [agents, names],
   );
-}
+  const cards = useMemo(() => providerCards(snapshot, unregistered, hosts), [snapshot, unregistered, hosts]);
+  const count = providersCountTail(snapshot, tr);
+  const plan = subscriptionLabel(claudeSubscription(snapshot));
+  const planWarning = claudePlanWarning(usage?.fiveHour ?? null, usage?.sevenDay ?? null, tr);
 
-/** Persist provider-specific defaults without re-registering running providers. */
-function ProviderSettings({
-  entry, settings, saving, modelSharedWith, onSave,
-}: {
-  entry: ProviderSnapshotEntry;
-  settings: AppBehaviorSettings;
-  saving: boolean;
-  modelSharedWith: string[];
-  onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
-}) {
-  const tr = useT();
-  const save = (patch: Partial<AppBehaviorSettings>) => { void onSave(patch).catch(() => { /* The section renders save errors. */ }); };
+  const open = useCallback((card: ProviderCard, focus?: 'key' | 'path') => {
+    lastOpened.current = card.name;
+    setView({ kind: 'account', name: card.name, focus });
+  }, []);
 
-  const modelField = PROVIDER_MODEL_FIELD[entry.name];
-  const modelValue = modelField ? settings[modelField] : null;
-  // A saved model absent from the catalog stays visible (and clearable) as the
-  // selector's disabled selected row.
-  const modelOptions = useMemo(() => (modelValue && !entry.models.includes(modelValue) ? [modelValue, ...entry.models] : entry.models), [entry.models, modelValue]);
+  const signIn = useCallback((command: string) => {
+    onClose();
+    // «Accedi» acts on the first press: a Topics terminal with the command
+    // typed, not run (§5.4); without a chat it opens in the home folder.
+    window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { command } }));
+  }, [onClose]);
 
-  const rows: ReactNode[] = [];
-
-  if (modelField && modelOptions.length > 0) {
-    const shared = modelSharedWith.length > 0
-      ? ` Lo stesso campo vale anche per ${modelSharedWith.join(', ')}.`
-      : '';
-    rows.push(
-      <ProviderDefaultModel
-        key="model"
-        provider={entry.name}
-        label="Modello di default"
-        // API providers resolve settings on each request; local runtimes may
-        // still retain their startup config until the server restarts.
-        hint={`${entry.defaultModel ? `In uso ora: ${entry.defaultModel}. ` : ''}${isApiProvider(entry.name) ? tr('ai.api.nextTurn') : 'Vale dal prossimo avvio del server.'}${shared}`}
-        value={modelValue}
-        disabled={saving}
-        onChange={(v) => save({ [modelField]: v } as Partial<AppBehaviorSettings>)}
-      />,
-    );
-  }
-
-  if (entry.name === 'claude-code') {
-    rows.push(
-      <SettingSelect
-        key="effort"
-        label="Effort"
-        hint="Vale dalla prossima sessione. Una chat può cambiarlo per sé."
-        value={settings.claudeEffort}
-        disabled={saving}
-        onChange={(v) => save({ claudeEffort: v })}
-        options={EFFORT_TIERS.map((v) => ({ value: v, label: v }))}
-      />,
-      <SettingSelect
-        key="enabled"
-        label="Attivazione"
-        // Disabling forced registration does not hide a discovered CLI binary.
-        hint="Auto rileva la CLI. «Attivo» lo registra anche senza CLI; «Disattivo» non lo toglie se la CLI c'è."
-        value={enabledToSelect(settings.claudeCodeEnabled)}
-        disabled={saving}
-        onChange={(v) => save({ claudeCodeEnabled: selectToEnabled(v) })}
-        options={[
-          { value: 'on', label: 'Attivo' },
-          { value: 'off', label: 'Disattivo' },
-        ]}
-      />,
-    );
-  }
-
-  if (entry.name === 'codex') {
-    rows.push(
-      <SettingSelect
-        key="reasoning"
-        label="Reasoning effort"
-        hint="Vale dal prossimo turno."
-        value={settings.codexReasoningEffort}
-        disabled={saving}
-        onChange={(v) => save({ codexReasoningEffort: v })}
-        options={CODEX_REASONING_EFFORTS.map((v) => ({ value: v, label: v }))}
-      />,
-      <SettingSelect
-        key="approval"
-        label="Modalità di approvazione"
-        hint="Vale dal prossimo avvio del server."
-        value={settings.codexApprovalMode}
-        disabled={saving}
-        onChange={(v) => save({ codexApprovalMode: v })}
-        options={[
-          { value: 'auto', label: 'auto' },
-          { value: 'full-access', label: 'full-access' },
-        ]}
-      />,
-    );
-  }
-
-  if (rows.length === 0) return null;
-
-  return <div className="rounded-md border border-app-border bg-surface/40 px-2.5 py-1.5">{rows}</div>;
-}
-
-/** Keep forced CLI registration reachable when discovery found no binary. */
-function UnregisteredClaudeCode({
-  settings, saving, onSave,
-}: {
-  settings: AppBehaviorSettings;
-  saving: boolean;
-  onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
-}) {
-  const tr = useT();
-  return (
-    <div className="rounded-lg border border-dashed border-app-border px-3 py-2">
-      <div className="text-compact font-semibold text-app-text">Claude Code</div>
-      <div className="text-mini text-app-text-muted mb-1">
-        {tr('ai.claude.missing.prefix')} <span className="font-mono">claude</span> {tr('ai.claude.missing.suffix')}
-      </div>
-      <SettingSelect
-        label="Attivazione"
-        hint="Forzarla lo registra al prossimo avvio del server, anche senza CLI rilevata."
-        value={enabledToSelect(settings.claudeCodeEnabled)}
-        disabled={saving}
-        onChange={(v) => { void onSave({ claudeCodeEnabled: selectToEnabled(v) }).catch(() => { /* The section renders save errors. */ }); }}
-        options={[
-          { value: 'on', label: 'Attivo' },
-          { value: 'off', label: 'Disattivo' },
-        ]}
-      />
-    </div>
-  );
-}
-
-function RequirementRow({ req }: { req: { key: string; label: string; present: boolean; hint?: string } }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    if (!req.hint) return;
-    const cmd = req.hint.match(/Run [^:]*:\s*(.+)/)?.[1]
-      ?? req.hint.match(/→\s*(.+)/)?.[1]
-      ?? req.hint;
-    if (!(await copyText(cmd.trim()))) return;
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const act = (card: ProviderCard) => {
+    if (card.action === 'signIn') {
+      const command = signInCommand(card.name);
+      if (command) { signIn(command); return; }
+    }
+    if (card.action === 'retry') { void test(card.name); return; }
+    open(card, card.action === 'addKey' ? 'key' : card.action === 'setUp' ? 'path' : undefined);
   };
 
+  const back = useCallback(() => {
+    if (view.kind !== 'list') { setView({ kind: 'list' }); return true; }
+    if (onBackToModels) { onBackToModels(); return true; }
+    return false;
+  }, [view.kind, onBackToModels]);
+
+  // ESCAPE GOES BACK ONE LEVEL. The panel listens on the document in the
+  // capture phase; this listens on the window, earlier, and lets through what
+  // belongs to a list opened inside, and the last Escape of the sheet.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !rootRef.current) return;
+      if (escapeBelongsToChild(rootRef.current)) return;
+      if (view.kind === 'list' && !onBackToModels) return;
+      event.stopPropagation();
+      event.preventDefault();
+      back();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [back, view.kind, onBackToModels]);
+
+  // The focus follows the level: the card that was opened when back on the
+  // list, the field a door asked for, else the level's ‹ (or its first control).
+  const viewKey = view.kind === 'account' ? `account:${view.name}:${view.focus ?? ''}` : view.kind === 'add' ? `add:${view.what}` : 'list';
+  const kind = view.kind;
+  const focusField = view.kind === 'account' ? view.focus ?? null : null;
+  useEffect(() => {
+    // A field asked for by the door takes the focus itself (`autoFocus`, `focusPath`).
+    if (focusField) return;
+    const frame = requestAnimationFrame(() => {
+      const root = rootRef.current;
+      if (!root) return;
+      const card = kind === 'list' && lastOpened.current
+        ? root.querySelector<HTMLElement>(`[data-testid="provider-card-${lastOpened.current}"] [data-testid="provider-card-open"]`)
+        : null;
+      const first = kind === 'add' ? root.querySelector<HTMLElement>('input') : null;
+      (card ?? first ?? root.querySelector<HTMLElement>('[data-testid="level-back"]') ?? focusableWithin(root)[0])?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewKey, kind, focusField]);
+
+  // ↓ ↑ walk the controls of the level, and Tab stays in it: the panel is
+  // portalled to <body>, and WebKit's own Tab skips buttons.
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    const root = rootRef.current;
+    if (!root) return;
+    if (event.key === 'Tab') {
+      const items = focusableWithin(root);
+      if (items.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const active = document.activeElement as HTMLElement | null;
+      stepFocus(items, active && root.contains(active) ? active : null, event.shiftKey).focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || isTypingSurface(event.target)) return;
+    const items = [...root.querySelectorAll<HTMLElement>('button:not([disabled]), summary')];
+    if (items.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? items.length - 1
+        : event.key === 'ArrowDown' ? (index + 1) % items.length
+          : (index - 1 + items.length) % items.length;
+    items[next]?.focus();
+  };
+
+  const setDefault = async (name: string) => {
+    setDefaultError(null);
+    try {
+      await providersApi.setDefault(name);
+      apply({ aiProvider: name });
+      await refresh();
+    } catch {
+      setDefaultError(tr('ai.providers.default.error'));
+    }
+  };
+  const clearDefault = async () => {
+    setDefaultError(null);
+    try {
+      await save({ aiProvider: null });
+      await refresh();
+    } catch {
+      setDefaultError(tr('ai.providers.default.error'));
+    }
+  };
+
+  const modelSharedWith = (name: string) => {
+    const field = PROVIDER_MODEL_FIELD[name];
+    if (!field) return [];
+    return entries.filter((e) => e.name !== name && PROVIDER_MODEL_FIELD[e.name] === field).map((e) => e.label ?? e.name);
+  };
+
+  let body: React.ReactNode;
+  const account = view.kind === 'account' ? cards.find((card) => card.name === view.name) : undefined;
+  if (view.kind === 'account' && account) {
+    const endpoint = endpoints.find((item) => providerNameForEndpoint(item) === account.name);
+    body = (
+      <ProviderDetail
+        key={account.name}
+        card={account}
+        entry={entries.find((entry) => entry.name === account.name)}
+        snapshot={snapshot}
+        agent={agents.find((agent) => agent.id === account.name)}
+        endpoint={endpoint}
+        settings={settings}
+        saving={saving}
+        error={defaultError ?? settingsError}
+        focus={view.focus}
+        testing={testing === account.name}
+        result={results[account.name]}
+        modelSharedWith={modelSharedWith(account.name)}
+        onBack={() => setView({ kind: 'list' })}
+        onTest={() => { void test(account.name); }}
+        signInCommand={signInCommand(account.name)}
+        onSignIn={signIn}
+        onSave={save}
+        onSetDefault={() => { void setDefault(account.name); }}
+        onClearDefault={() => { void clearDefault(); }}
+        onKeySaved={() => refresh(account.name)}
+        onAgentsChanged={setAgents}
+        onRemoveEndpoint={(id) => {
+          void providersApi.deleteEndpoint(id).finally(() => {
+            void loadEndpoints();
+            void refresh();
+            setView({ kind: 'list' });
+          });
+        }}
+      />
+    );
+  } else if (view.kind === 'add') {
+    body = (
+      <AddLevel
+        what={view.what}
+        missingKeys={(Object.keys(API_PROVIDERS) as ApiProviderName[]).filter((name) => !names.has(name))}
+        missingPrograms={agents.filter((agent) => !agent.installed && !names.has(agent.id))}
+        onBack={() => setView({ kind: 'list' })}
+        onKeySaved={async (name) => { await refresh(name); lastOpened.current = name; setView({ kind: 'list' }); }}
+        onEndpointSaved={async () => { await loadEndpoints(); await refresh(); setView({ kind: 'list' }); }}
+        onAgentsChanged={setAgents}
+      />
+    );
+  } else {
+    body = (
+      <ProvidersView
+        cards={cards}
+        count={count}
+        plan={plan}
+        planWarning={planWarning}
+        onBack={onBackToModels}
+        onClose={onBackToModels ? undefined : onClose}
+        closeTestId={closeTestId}
+        busy={new Set(testing ? [testing] : [])}
+        loadError={error && entries.length === 0 ? error.message : null}
+        onRetryLoad={() => { void retry(); }}
+        missingDefault={snapshot && settings?.aiProvider && !names.has(settings.aiProvider) ? settings.aiProvider : null}
+        onDropMissingDefault={() => { void clearDefault(); }}
+        onOpen={(card) => open(card)}
+        onAction={act}
+        onAdd={(what) => setView({ kind: 'add', what })}
+      />
+    );
+  }
+
   return (
-    <div className="text-mini">
-      <div className="flex items-center gap-1.5">
-        {req.present ? (
-          <Check size={12} className="text-green-500 flex-shrink-0" />
-        ) : (
-          <X size={12} className="text-red-500 flex-shrink-0" />
-        )}
-        <span className={req.present ? 'text-app-text-secondary' : 'text-app-text'}>{req.label}</span>
+    <div ref={rootRef} data-testid="ai-providers-settings" data-level={view.kind} onKeyDown={onKeyDown} className="flex min-h-0 flex-1 flex-col">
+      {body}
+    </div>
+  );
+}
+
+/** «+ Chiave API», «+ Endpoint», «+ Programma»: the forms of what is not here yet. */
+function AddLevel({ what, missingKeys, missingPrograms, onBack, onKeySaved, onEndpointSaved, onAgentsChanged }: {
+  what: 'key' | 'endpoint' | 'program';
+  missingKeys: ApiProviderName[];
+  missingPrograms: CliAgentPresence[];
+  onBack: () => void;
+  onKeySaved: (name: ApiProviderName) => Promise<void>;
+  onEndpointSaved: () => Promise<void>;
+  onAgentsChanged: (agents: CliAgentPresence[]) => void;
+}) {
+  const tr = useT();
+  const title = what === 'key' ? tr('ai.providers.add.keyTitle') : what === 'endpoint' ? tr('ai.endpoints.add') : tr('ai.local.title');
+  return (
+    <div data-testid={`providers-add-${what}-level`} className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-app-border px-1 py-1">
+        <LevelBack label={tr('ai.providers.backToList')} onBack={onBack} />
+        <h2 className="min-w-0 flex-1 truncate px-1 text-compact font-semibold text-app-text">{title}</h2>
       </div>
-      {!req.present && req.hint && (
-        <div className="ml-5 mt-0.5 flex items-start gap-1.5 text-app-text-muted">
-          <span className="break-words flex-1">{req.hint}</span>
-          <button
-            onClick={copy}
-            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface border border-app-border hover:bg-app-hover text-mini"
-            title="Copy"
-          >
-            <Copy size={10} />
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      )}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-2">
+        {what === 'key' && (missingKeys.length === 0
+          ? <p className="text-compact text-app-text-secondary">{tr('ai.providers.add.keyNone')}</p>
+          : (
+            <>
+              <p className="text-mini text-app-text-secondary">{tr('ai.api.chat')}</p>
+              {missingKeys.map((name) => <ApiKeyForm key={name} provider={name} replacing={false} onSaved={() => onKeySaved(name)} />)}
+              <p data-testid="api-billing-note" className="text-mini text-app-text-secondary">{tr('ai.api.billing')}</p>
+            </>
+          ))}
+        {what === 'endpoint' && (
+          <>
+            <p className="text-mini text-app-text-secondary">{tr('ai.endpoints.hint')}</p>
+            <EndpointForm onCancel={onBack} onSaved={onEndpointSaved} />
+          </>
+        )}
+        {what === 'program' && (missingPrograms.length === 0
+          ? <p className="text-compact text-app-text-secondary">{tr('ai.providers.add.programNone')}</p>
+          : (
+            <>
+              <p className="text-mini text-app-text-secondary">{tr('ai.local.hint')}</p>
+              {missingPrograms.map((agent) => <CliAgentRow key={agent.id} agent={agent} onChanged={onAgentsChanged} />)}
+            </>
+          ))}
+      </div>
     </div>
   );
 }
