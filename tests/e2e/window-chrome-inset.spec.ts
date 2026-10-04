@@ -28,7 +28,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_BASE } from "./helpers/test-server";
 import { openTestChat } from "./helpers";
-import { resetPaneStore } from "./helpers/api-fixtures";
+import { openBaselineChats, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { removeTmpDir } from "./helpers/file-project";
 
@@ -251,6 +251,9 @@ test.describe("The room for the native lights", () => {
     const page = await ctx.newPage();
     const video = page.video();
     try {
+      // Its row must be there before the page loads: `openTestChat` would
+      // otherwise seed the tab and reload without `?windowChrome=mac`.
+      await openBaselineChats(page.request);
       await loadMacChrome(page);
       await openTestChat(page);
       await expect(page.locator(BAR_TOGGLE)).toBeVisible();
