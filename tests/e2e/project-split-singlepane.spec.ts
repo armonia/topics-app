@@ -38,6 +38,7 @@ import {
 import { mkdirSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "fs";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { openSheetLevel } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -96,8 +97,8 @@ test.describe("In-project split (card c2984ce2)", () => {
 
     const tab = projectBars.first().locator('[data-testid^="pane-tab-"]').first();
     await tab.click({ button: "right" });
-    const menu = page.locator('[role="menu"]').first();
-    await expect(menu).toBeVisible({ timeout: 5000 });
+    // The split commands are in the Layout level of the tab's sheet.
+    const menu = await openSheetLevel(page, "layout");
     const splitRight = menu.locator("button").filter({ hasText: /Dividi a destra/ }).first();
     await expect(splitRight, "the project tab menu must offer 'Dividi a destra'").toBeVisible({ timeout: 3000 });
     await splitRight.click();

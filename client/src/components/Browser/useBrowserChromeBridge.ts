@@ -4,7 +4,7 @@
  * The pane publishes its live chrome (address, favicon, loading, history reach,
  * console tally and rows, downloads, zoom, device, session) plus the commands
  * that go with it, into `state/browserPaneChrome`. The tab reads it from there
- * and draws it in its SHEET (`BrowserTabSheet`). See that module for why it is
+ * and draws it in its SHEET (`TabSheet`). See that module for why it is
  * a registry and not a prop.
  *
  * WHAT THIS HOOK DECIDES IS ONLY *WHEN THE SHEET OPENS*, and both reasons are a

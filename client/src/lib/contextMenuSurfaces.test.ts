@@ -20,7 +20,7 @@
  *    `onContextMenu`, `handleTopicContextMenu`) and whose body does;
  *  - an `addEventListener('contextmenu', ...)` in a file that does.
  *
- * @covers CTXMENU-01
+ * @covers CTXMENU-01 @covers TABSHEET-01
  */
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -29,6 +29,25 @@ import { join, relative } from 'node:path';
 const SRC = join(import.meta.dir, '..');
 
 const SHARED_MENU = /<ContextMenuPortal\b/;
+
+/**
+ * The tab sheet (`components/Shared/TabSheet`) is the shared menu of a TAB
+ * (TABSHEET-01): it carries the same contract, and it is accepted for the three
+ * surfaces whose tabs open it and for no other file. A hand-rolled menu next
+ * to a `<TabSheet` anywhere else is still a hand-rolled menu, and the tabs of
+ * the file editor keep the cursor menu.
+ */
+const TAB_SHEET = /<TabSheet\b/;
+const TAB_SHEET_SURFACES = new Set([
+  'components/Layout/PaneTabBar.tsx',
+  'components/Browser/TopicBrowserWindow.tsx',
+  'components/Layout/StandaloneChatGroup.tsx',
+]);
+
+/** Does `code`, the source of `file`, render a menu the rule accepts? */
+function rendersSharedMenu(file: string, code: string, tabSheetSurfaces: ReadonlySet<string>): boolean {
+  return SHARED_MENU.test(code) || (tabSheetSurfaces.has(file) && TAB_SHEET.test(code));
+}
 
 /** Files that take the gesture and whose menu is rendered by another file. */
 const MENU_RENDERED_BY: Record<string, string> = {
@@ -95,6 +114,7 @@ function rightClickViolations(
   files: Array<{ file: string; text: string }>,
   renderedBy: Record<string, string> = MENU_RENDERED_BY,
   noMenu: Record<string, string> = NO_MENU_ON_PURPOSE,
+  tabSheetSurfaces: ReadonlySet<string> = TAB_SHEET_SURFACES,
 ): Violation[] {
   const byFile = new Map(files.map((f) => [f.file, stripComments(f.text)]));
   const out: Violation[] = [];
@@ -105,7 +125,7 @@ function rightClickViolations(
       if (!SHARED_MENU.test(byFile.get(menuFile) ?? '')) out.push({ file, rule: 'its menu file does not use the shared menu' });
       continue;
     }
-    if (!SHARED_MENU.test(code)) out.push({ file, rule: 'takes the right-click without the shared menu' });
+    if (!rendersSharedMenu(file, code, tabSheetSurfaces)) out.push({ file, rule: 'takes the right-click without the shared menu' });
   }
   return out;
 }
@@ -189,5 +209,30 @@ describe('right-click surfaces (CTXMENU-01)', () => {
       { file: 'components/Planted/Commented.tsx', rule: 'takes the right-click without the shared menu' },
       { file: 'hooks/usePlanted.ts', rule: 'its menu file does not use the shared menu' },
     ]);
+  });
+
+  test('the tab sheet counts only for the three tab surfaces (TABSHEET-01)', () => {
+    const takes = `export function T() { return <div onContextMenu={(e) => { e.preventDefault(); openTabSheet(id, 'commands'); }}>
+      <TabSheet sheetKey={id} target={target} /></div>; }`;
+    const planted = [
+      { file: 'components/Layout/PaneTabBar.tsx', text: takes },
+      { file: 'components/Browser/TopicBrowserWindow.tsx', text: takes },
+      { file: 'components/Layout/StandaloneChatGroup.tsx', text: takes },
+      // Any other file, the file editor's tabs included, needs the cursor menu.
+      { file: 'components/Project/EditorTabs.tsx', text: takes },
+      { file: 'components/Planted/Elsewhere.tsx', text: takes },
+    ];
+    expect(rightClickViolations(planted, {}, {})).toEqual([
+      { file: 'components/Project/EditorTabs.tsx', rule: 'takes the right-click without the shared menu' },
+      { file: 'components/Planted/Elsewhere.tsx', rule: 'takes the right-click without the shared menu' },
+    ]);
+  });
+
+  test('every tab-sheet surface still exists and still opens the tab sheet', () => {
+    const byFile = new Map(clientSources().map((s) => [s.file, stripComments(s.text)]));
+    for (const file of TAB_SHEET_SURFACES) {
+      const code = byFile.get(file) ?? '';
+      expect({ file, takes: takesTheRightClick(code), sheet: TAB_SHEET.test(code) }).toEqual({ file, takes: true, sheet: true });
+    }
   });
 });

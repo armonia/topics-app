@@ -26,8 +26,8 @@ Col sì: sparisce il blocco `ContextMenuPortal` di `PaneTabBar.tsx` (righe 1543-
 
 # Una tab, una superficie: il tasto destro apre la tab espansa
 
-Bozza (`status: draft`). Niente codice finché `.openspec.yaml` non dice
-`status: approved`.
+Approvata il 04/10 (`.openspec.yaml`, `status: approved`, risposta «ok» alle
+cinque consigliate).
 
 ## Why
 

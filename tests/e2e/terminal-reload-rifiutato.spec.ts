@@ -79,7 +79,7 @@ test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () =
     // INSIDE the context menu: the sidebar status bar has a «Ricarica» of its   allow-italian: quoted UI string
     // own (which reloads the app), and a locator that catches both fails in
     // strict mode instead of trying the gesture.
-    const reloadItem = page.getByRole("menu").getByRole("button", { name: /Ricarica/ });
+    const reloadItem = page.getByTestId("tab-sheet-commands").getByRole("menuitem", { name: /Ricarica/ });
     await expect(reloadItem).toBeVisible({ timeout: 10_000 });
     await reloadItem.click();
 

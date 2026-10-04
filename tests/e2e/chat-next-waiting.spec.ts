@@ -37,6 +37,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { TerminalPage } from "./fixtures/terminal.fixture";
+import { moveTabToGroupViaSheet } from "./helpers/tab-sheet";
 import {
   resetTerminalWorkspace,
   seedTerminalTopic,
@@ -149,9 +150,7 @@ const activeTab = (page: Page) => page.locator('[role="tab"][data-active="true"]
 /** Moves `paneId` to a new group through the tab menu, as a user does, and
  *  returns that group's id (`spaces-switcher.spec.ts`, same gesture). */
 async function moveToNewGroup(page: Page, paneId: string): Promise<string> {
-  await page.locator(`[role="tab"][data-pane-id="${paneId}"]`).click({ button: "right" });
-  await page.getByText("Sposta nel gruppo", { exact: true }).click();
-  await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+  await moveTabToGroupViaSheet(page, page.locator(`[role="tab"][data-pane-id="${paneId}"]`), "Nuovo gruppo");
   const row = page.getByTestId("space-row").filter({ hasText: "Gruppo 2" });
   await expect(row).toHaveCount(1, { timeout: 5_000 });
   const id = await row.getAttribute("data-space-id");

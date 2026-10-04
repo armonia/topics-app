@@ -844,6 +844,7 @@
    * (0,2,1) la batte a prescindere dall'ordine, e resta comunque sotto
    * `html.native-frost.dark .glass-surface` (0,3,1): la vibrancy non si tocca. */
   html:not(.native-frost) .glass-surface,
+  html:not(.native-frost) [data-sheet-open],
   html:not(.native-frost) .native-occlude,
   html:not(.native-frost) [role="region"][aria-label$=" panel"] form.bg-surface {
     background-color: var(--popover-bg);
@@ -3993,7 +3994,19 @@ html.native-frost:not(.dark) .chrome-glass {
  * la vibrancy del Mac non si tocca. */
 :root { --popover-bg: hsl(220 4.9% 95%); }
 .dark { --popover-bg: hsl(222 4.9% 17%); }
-.glass-surface { background-color: var(--popover-bg, var(--bg-surface)); }
+.glass-surface,
+[data-sheet-open] { background-color: var(--popover-bg, var(--bg-surface)); }
+/* THE TAB THAT GREW INTO ITS SHEET (TABSHEET-01). While its sheet is open a
+ * tab wears the sheet's own fill, the three faces included (the frost of the
+ * desktop app in both themes, the opaque web surface), and loses the edge
+ * between the two: no bottom radius, no lit hairline. The sheet's top border
+ * is interrupted under the tab by `TabSheetBody` itself. Unlayered, like the
+ * glass rule above, so it wins over the tab's `bg-*` utilities. */
+[data-sheet-open] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+[data-sheet-open].edge-lit::before { display: none; }
 /* L'hover di una `.glass-surface` cliccabile, e va scritto QUI.
  *
  * `.glass-surface` sta fuori dai layer di Tailwind, quindi batte qualunque
@@ -4011,11 +4024,13 @@ html.native-frost:not(.dark) .chrome-glass {
  * (Blink ships the property UNPREFIXED), so the blur silently did nothing.
  * Tailwind emits the var-chain with BOTH the prefixed and unprefixed property,
  * which is exactly the form that works here (same as `backdrop-blur-*`). */
-html.native-frost.dark .glass-surface {
+html.native-frost.dark .glass-surface,
+html.native-frost.dark [data-sheet-open] {
   background-color: hsl(224 26% 6% / 0.72);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
-html.native-frost:not(.dark) .glass-surface {
+html.native-frost:not(.dark) .glass-surface,
+html.native-frost:not(.dark) [data-sheet-open] {
   background-color: hsl(220 20% 94% / 0.72);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }

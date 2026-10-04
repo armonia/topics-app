@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
-import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
+import { firstMenuItem, useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { useSheetDrag } from '../../hooks/useSheetDrag';
 import { SheetGrabber } from './SheetGrabber';
 // Import RELATIVI e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no. Da
@@ -82,8 +82,15 @@ export interface MenuProps {
   /** Who opened this menu, written on the panel as `data-popover-owner`. The
    *  panel is portalled to <body>, so a surface that must tell "a click in a
    *  popover I opened" from "a click in some other popover" cannot ask the DOM
-   *  tree: it asks this mark (`BrowserTabSheetBody`). */
+   *  tree: it asks this mark (`TabSheetBody`). */
   owner?: string;
+  /** Where the focus goes once the panel is placed: the panel itself (default,
+   *  no ring for a mouse user) or its first row, for a level opened from the
+   *  keyboard (`SubmenuItem`). */
+  initialFocus?: 'panel' | 'first';
+  /** The panel hosting this one as a level, when it is not a `Menu`: a press
+   *  there does not close this panel (`useDismissable` `hostRefs`). */
+  hostRefs?: Array<React.RefObject<HTMLElement | null>>;
 }
 
 export function Menu({
@@ -105,6 +112,8 @@ export function Menu({
   ariaLabel,
   exclusive = true,
   owner,
+  initialFocus = 'panel',
+  hostRefs,
 }: MenuProps) {
   const { isMobile } = useMobile();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -122,6 +131,7 @@ export function Menu({
     refs: [anchorRef, panelRef, ...(extraRefs ?? [])],
     restoreFocus,
     exclusive,
+    hostRefs,
   });
 
   const reposition = useCallback(() => {
@@ -186,8 +196,9 @@ export function Menu({
   const placed = pos !== null;
   useEffect(() => {
     if (!open || unmanagedFocus || isMobile || !placed) return;
-    panelRef.current?.focus({ preventScroll: true });
-  }, [open, unmanagedFocus, isMobile, placed]);
+    const target = initialFocus === 'first' && panelRef.current ? firstMenuItem(panelRef.current) : null;
+    (target ?? panelRef.current)?.focus({ preventScroll: true });
+  }, [open, unmanagedFocus, isMobile, placed, initialFocus]);
 
   const onKeyDown = useMenuKeyboard({ panelRef, enabled: !unmanagedFocus });
 

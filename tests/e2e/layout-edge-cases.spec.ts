@@ -11,6 +11,7 @@ import { createTopic, deleteTopic, createTerminalSession, deleteTerminalSession,
 import { countColDividers, getVisibleTabLabels } from "./helpers/layout";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { chooseInTabSheet, closeTabSheet, findRowInTabSheet, openTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -90,29 +91,21 @@ async function waitForTabs(page: Page, minCount = 1) {
   }
 }
 
-/** Right-click a tab and select a context menu option */
+/** Right-click a tab and choose a row of its sheet, wherever the row lives. */
 async function rightClickTabAndSelect(page: Page, tabIndex: number, menuText: string) {
   const tab = page.locator('[role="main"] [draggable="true"]').nth(tabIndex);
   await expect(tab).toBeVisible({ timeout: 5000 });
-  await tab.click({ button: "right" });
-  const menu = page.locator('[role="menu"]');
-  await expect(menu).toBeVisible({ timeout: 3000 });
-  const btn = menu.getByText(menuText, { exact: true });
-  await expect(btn).toBeVisible({ timeout: 3000 });
-  await btn.click();
+  await chooseInTabSheet(page, tab, menuText);
 }
 
-/** Right-click a tab and check if a context menu option exists */
+/** Right-click a tab and check whether its sheet offers a row, in any level. */
 async function rightClickTabHasOption(page: Page, tabIndex: number, menuText: string): Promise<boolean> {
   const tab = page.locator('[role="main"] [draggable="true"]').nth(tabIndex);
   await expect(tab).toBeVisible({ timeout: 5000 });
-  await tab.click({ button: "right" });
-  const menu = page.locator('[role="menu"]');
-  await expect(menu).toBeVisible({ timeout: 3000 });
-  const btn = menu.getByText(menuText, { exact: true });
-  const visible = await btn.isVisible().catch(() => false);
-  await page.keyboard.press("Escape");
-  return visible;
+  await openTabSheet(page, tab);
+  const row = await findRowInTabSheet(page, menuText);
+  await closeTabSheet(page);
+  return row !== null;
 }
 
 /** Count row-resize dividers */
@@ -233,16 +226,13 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     // Now split another topic down — find a remaining tab in standalone
     const tabs = page.locator('[role="main"] [draggable="true"]');
     await expect(tabs.first()).toBeVisible({ timeout: 5000 });
-    await tabs.first().click({ button: "right" });
-    const menu = page.locator('[role="menu"]');
-    await expect(menu).toBeVisible({ timeout: 3000 });
-
-    const splitDown = menu.getByText("Dividi in basso", { exact: true });
-    if (await splitDown.isVisible().catch(() => false)) {
+    await openTabSheet(page, tabs.first());
+    const splitDown = await findRowInTabSheet(page, "Dividi in basso");
+    if (splitDown) {
       await splitDown.click();
       await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBeGreaterThanOrEqual(1);
     } else {
-      await page.keyboard.press("Escape");
+      await closeTabSheet(page);
     }
 
     // Verify main area is visible and has multiple tab bars
@@ -822,16 +812,10 @@ test.describe("I: Full Lifecycle Regression", () => {
     // Try to split another topic down
     const tabs = page.locator('[role="main"] [draggable="true"]');
     if (await tabs.count() > 2) {
-      await tabs.nth(0).click({ button: "right" });
-      const menu = page.locator('[role="menu"]');
-      if (await menu.isVisible().catch(() => false)) {
-        const splitDown = menu.getByText("Dividi in basso", { exact: true });
-        if (await splitDown.isVisible().catch(() => false)) {
-          await splitDown.click();
-        } else {
-          await page.keyboard.press("Escape");
-        }
-      }
+      await openTabSheet(page, tabs.nth(0));
+      const splitDown = await findRowInTabSheet(page, "Dividi in basso");
+      if (splitDown) await splitDown.click();
+      else await closeTabSheet(page);
     }
 
     // Close one split panel (if there are multiple tab bars). The X-click
@@ -850,19 +834,16 @@ test.describe("I: Full Lifecycle Regression", () => {
     // Close tabs until only 1 per group remains using "Chiudi le altre"
     const firstTab = page.locator('[role="main"] [draggable="true"]').first();
     if (await firstTab.isVisible().catch(() => false)) {
-      await firstTab.click({ button: "right" });
-      const menu = page.locator('[role="menu"]');
-      if (await menu.isVisible().catch(() => false)) {
-        const closeOthers = menu.getByText("Chiudi le altre", { exact: true });
-        if (await closeOthers.isVisible().catch(() => false)) {
-          await closeOthers.click();
-          // "Chiudi le altre" drains the FOCUSED GROUP to one tab; a split cell
-          // that survived above keeps its own tab — allow for it. 10s: the
-          // batch close may ride the soft-close countdown.
-          await expect.poll(() => countTabs(page), { timeout: 10000 }).toBeLessThanOrEqual(2);
-        } else {
-          await page.keyboard.press("Escape");
-        }
+      await openTabSheet(page, firstTab);
+      const closeOthers = await findRowInTabSheet(page, "Chiudi le altre");
+      if (closeOthers) {
+        await closeOthers.click();
+        // "Chiudi le altre" drains the FOCUSED GROUP to one tab; a split cell
+        // that survived above keeps its own tab — allow for it. 10s: the
+        // batch close may ride the soft-close countdown.
+        await expect.poll(() => countTabs(page), { timeout: 10000 }).toBeLessThanOrEqual(2);
+      } else {
+        await closeTabSheet(page);
       }
     }
 

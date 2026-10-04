@@ -518,7 +518,8 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     const paneTab = page.getByTestId(`pane-tab-${t.id}`);
     await expect(paneTab).toBeVisible({ timeout: 5000 });
     await paneTab.click({ button: "right" });
-    await page.getByRole("button", { name: /Chiudi ora/ }).click();
+    // «Chiudi» in the tab's sheet closes now, without a countdown (TABSHEET-03).
+    await page.getByTestId("tab-sheet-close").click();
     await expect(paneTab).toBeHidden({ timeout: 5000 });
 
     // La tessera è ancora lì — l'escape `pinnedIds` tiene la riga anche
@@ -650,7 +651,8 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     const projectPaneTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(projectPath)}`);
     await expect(projectPaneTab).toBeVisible({ timeout: 5000 });
     await projectPaneTab.click({ button: "right" });
-    await page.getByRole("button", { name: /Chiudi ora/ }).click();
+    // «Chiudi» in the tab's sheet closes now, without a countdown (TABSHEET-03).
+    await page.getByTestId("tab-sheet-close").click();
     await expect(projectPaneTab).toBeHidden({ timeout: 5000 });
     await expect(pinnedTile).toBeVisible({ timeout: 5000 });
 

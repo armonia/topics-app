@@ -53,6 +53,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { buildTabPath } from "../../shared/tab-link";
 import { removeTmpDir } from "./helpers/file-project";
+import { findRowInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -158,9 +159,10 @@ test.describe("Permalink di una tab — il produttore", () => {
     await expect(tab).toBeVisible({ timeout: 10000 });
     await tab.click({ button: "right" });
 
-    const menu = page.getByRole("menu").last();
-    await expect(menu).toBeVisible({ timeout: 5000 });
-    await menu.getByText("Copia link", { exact: true }).click();
+    // The copy-link row lives in the Tab level of the tab's sheet (TABSHEET-03).
+    const copyLink = await findRowInTabSheet(page, "Copia link");
+    expect(copyLink, "the tab's sheet offers «Copia link»").not.toBeNull();
+    await copyLink!.click();
 
     await expect.poll(() => copiedTexts(page), { timeout: 5000 })
       .toEqual([`${E2E_BASE}/tab/chat/${mainId}`]);
@@ -548,9 +550,10 @@ test.describe("Permalink di una tab — il consumatore a freddo", () => {
     await expect(tab).toBeVisible({ timeout: 10000 });
     await tab.click({ button: "right" });
 
-    const menu = page.getByRole("menu").last();
-    await expect(menu).toBeVisible({ timeout: 5000 });
-    await menu.getByText("Copia link", { exact: true }).click();
+    // The copy-link row lives in the Tab level of the tab's sheet (TABSHEET-03).
+    const copyLink = await findRowInTabSheet(page, "Copia link");
+    expect(copyLink, "the tab's sheet offers «Copia link»").not.toBeNull();
+    await copyLink!.click();
 
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })

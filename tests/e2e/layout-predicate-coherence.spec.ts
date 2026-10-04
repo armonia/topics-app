@@ -43,6 +43,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { openSheetLevel } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -135,8 +136,8 @@ test.describe("Un predicato solo per «quante colonne»", () => {
 
       // THE OLD RED: the entry vanished here, on a screen where splitting
       // works. The «Topics» menu and the palette lost it from the same source,
-      // so no route was left.
-      const splitRight = page.getByText("Dividi a destra", { exact: true });
+      // so no route was left. It lives in the Layout level of the tab's sheet.
+      const splitRight = (await openSheetLevel(page, "layout")).getByText("Dividi a destra", { exact: true });
       await expect(splitRight).toBeVisible({ timeout: 5000 });
       await splitRight.click();
 

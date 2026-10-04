@@ -65,6 +65,7 @@ import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, writeFileSync } from "fs";
+import { closeTabSheet, findInTabSheet, findRowInTabSheet, openSheetLevel } from "./helpers/tab-sheet";
 
 // Hermetic boundary: this file restarts from the globalSetup baseline instead of
 // whatever the previous spec left behind. See fixtures/hermetic.ts.
@@ -736,6 +737,8 @@ test.describe("Ingrandimento della sola cella", () => {
 
     // The menu twin, same outcome.
     await tab(page, t1).click({ button: "right" });
+    // The zoom entries live in the Layout level of the tab's sheet.
+    await findInTabSheet(page, "tab-menu-zoom-cell");
     await expect(zoomCellEntry(page)).toBeVisible({ timeout: 5_000 });
     await zoomCellEntry(page).click();
     await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(true);
@@ -762,9 +765,10 @@ test.describe("Ingrandimento della sola cella", () => {
     // here would put the content of the menu back at the mercy of the derived
     // set, the one collection nobody can see on screen.
     await tab(page, t1).click({ button: "right" });
+    await findInTabSheet(page, "tab-menu-zoom");
     await expect(zoomEntry(page)).toBeVisible({ timeout: 5_000 });
     await expect(zoomCellEntry(page)).toBeVisible();
-    await page.keyboard.press("Escape");
+    await closeTabSheet(page);
 
     // The plain double click: it used to be a silent no-op here. Now it leaves
     // the anchor's cell alone on screen.
@@ -784,9 +788,10 @@ test.describe("Ingrandimento della sola cella", () => {
 
     await tab(page, t1).click({ button: "right" });
     await expect(page.getByText("Chiudi le altre", { exact: true })).toBeVisible({ timeout: 5_000 });
-    await expect(zoomEntry(page)).toHaveCount(0);
-    await expect(zoomCellEntry(page)).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    // Absent from every level, each one looked into while open.
+    expect(await findInTabSheet(page, "tab-menu-zoom")).toBeNull();
+    expect(await findInTabSheet(page, "tab-menu-zoom-cell")).toBeNull();
+    await closeTabSheet(page);
 
     // The first gesture is spent on the layer below (pinning the preview); the
     // ones after it land on a pinned tab, where the zoom would fire if it were
@@ -820,6 +825,7 @@ test.describe("Ingrandimento della sola cella", () => {
       // …and while it is open the menu offers the single reduce entry, whatever
       // scope is stored.
       await tab(page, t1).click({ button: "right" });
+      await findInTabSheet(page, "tab-menu-unzoom");
       await expect(unzoomEntry(page)).toBeVisible({ timeout: 5_000 });
       await expect(zoomEntry(page)).toHaveCount(0);
       await expect(zoomCellEntry(page)).toHaveCount(0);
@@ -869,7 +875,7 @@ test.describe("Ingrandimento della sola cella", () => {
       paneIds: [t1, strayBrowser, t2],
       soloCells: [[strayBrowser], [t2]],
     });
-    const sheet = page.getByTestId("browser-tab-sheet");
+    const sheet = page.getByTestId("tab-sheet");
 
     // The wanted half, first, and it is the precondition of the rest: a pane
     // born empty DOES open its sheet, and one Escape is enough to be rid of it.
@@ -1386,7 +1392,7 @@ test.describe("La cornice e la griglia sotto", () => {
     await tab(page, t1).dblclick();
     await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(true);
     await tab(page, t1).click({ button: "right" });
-    const splitRight = page.getByText("Dividi a destra", { exact: true });
+    const splitRight = (await findRowInTabSheet(page, "Dividi a destra")) ?? page.getByText("Dividi a destra", { exact: true });
     await expect(splitRight).toBeVisible({ timeout: 5_000 });
     await splitRight.click();
     await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(false);
@@ -1492,10 +1498,10 @@ test.describe("Le uscite automatiche", () => {
     // A second group, made the only way one can be made: by moving a tab into
     // it. t4 shares the pool cell with t1, so the cell count does not change.
     await tab(page, t4).click({ button: "right" });
-    const move = page.getByText("Sposta nel gruppo", { exact: true });
-    await expect(move).toBeVisible({ timeout: 5_000 });
-    await move.click();
-    const newGroup = page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" });
+    // The move-to-group row is a level inside the Layout level of the tab's sheet.
+    await openSheetLevel(page, "layout");
+    const move = await openSheetLevel(page, "move-to-group");
+    const newGroup = move.getByRole("menuitem", { name: "Nuovo gruppo" });
     await expect(newGroup).toBeVisible({ timeout: 5_000 });
     await newGroup.click();
     await expect(page.getByTestId("space-row")).toHaveCount(1, { timeout: 10_000 });
@@ -1737,11 +1743,11 @@ test.describe("Il cassetto di un task", () => {
     // than the app-level one, so any particular entry may legitimately be
     // missing — and then "no zoom entry" would be true of a menu that never
     // opened.
-    await expect(page.getByRole("menu").first()).toBeVisible({ timeout: 5_000 });
-    await expect(zoomEntry(page)).toHaveCount(0);
-    await expect(zoomCellEntry(page)).toHaveCount(0);
-    await expect(unzoomEntry(page)).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 5_000 });
+    expect(await findInTabSheet(page, "tab-menu-zoom")).toBeNull();
+    expect(await findInTabSheet(page, "tab-menu-zoom-cell")).toBeNull();
+    expect(await findInTabSheet(page, "tab-menu-unzoom")).toBeNull();
+    await closeTabSheet(page);
 
     // …and the double click does not enlarge anything either.
     await drawerTab.dblclick();

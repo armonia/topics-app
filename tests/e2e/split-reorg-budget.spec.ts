@@ -50,6 +50,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir } from "./helpers/file-project";
 import { nextFrames } from "./helpers/frame-probe";
 import { projectPanesKey } from "../../shared/project-keys";
+import { closeTabViaCommand } from "./helpers/layout";
 import {
   beginGesture,
   endGesture,
@@ -467,12 +468,13 @@ test.describe("split reorganisation budget", () => {
       expect.soft(during.paneRenders, "divider drag: no pane body renders while the divider moves").toBe(0);
     }
 
-    // 8. CLOSE A SPLIT, with "Close now": the tab X runs a deliberate undo
+    // 8. CLOSE A SPLIT, with the Close row of the tab's sheet, which closes now
+    // (TABSHEET-03): the tab X runs a deliberate undo
     // countdown first (CHROME-12), and that wait is a product decision, not
     // the reorganisation. What is measured is the layout once the close lands.
     {
       await page.locator(tab(gitPane)).first().click({ button: "right" });
-      const closeNow = page.getByRole("button", { name: /^(Chiudi ora|Close now)$/ });
+      const closeNow = page.getByTestId("tab-sheet-close");
       await closeNow.waitFor({ state: "visible", timeout: 5000 });
       const marks = await beginGesture(page);
       const closeFrames = await page.evaluate(async () => {
@@ -484,9 +486,7 @@ test.describe("split reorganisation budget", () => {
             .join(" ");
         };
         const start = signature();
-        const btn = Array.from(document.querySelectorAll<HTMLElement>("button")).find((b) =>
-          /^(Chiudi ora|Close now)$/.test(b.textContent?.trim() ?? ""),
-        );
+        const btn = document.querySelector<HTMLElement>('[data-testid="tab-sheet-close"]');
         if (!btn) return -2;
         btn.click();
         for (let frame = 1; frame <= 8; frame++) {
@@ -550,9 +550,8 @@ test.describe("split reorganisation budget", () => {
       await expect(page.locator(`[data-pane-shell="${id}"]`)).toHaveAttribute("data-pane-visible", "1");
     }
 
-    // 1. Close git WITH the countdown.
-    await page.locator(tab(gitPane)).first().click({ button: "right" });
-    await page.getByRole("button", { name: /^(Chiudi \(con conto alla rovescia\)|Close \(with countdown\))$/ }).click();
+    // 1. Close git WITH the countdown, which lives on the tab's X alone (TABSHEET-03).
+    await closeTabViaCommand(page.locator(tab(gitPane)).first());
     const closeClickedAt = Date.now();
 
     // 2. Inside the countdown: files goes to a split of its own, under the chat, and takes the focus.

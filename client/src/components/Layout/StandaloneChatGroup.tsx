@@ -1,11 +1,12 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
-import { Search, Settings } from 'lucide-react';
+import { Search } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
-import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
+import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
+import { openTabSheet } from '../../state/tabSheet';
 import { openContextMenuAt, useLongPress } from '../../hooks/useLongPress';
 import { ChatPanel } from './ChatPanel';
 import { TopicColorDot } from '../Shared/TopicColorDot';
@@ -484,13 +485,13 @@ export function StandaloneChatGroup({
     handleCloseOthers,
   } = lifecycle.handlers;
 
-  // THE PHONE'S DOOR TO THE CHAT SETTINGS (model-selector AC-39). Under 768px
-  // the name of the surface replaces the tab strip, and the tab menu, the only
-  // door to «Impostazioni della chat», went with it. Holding the name (or a
-  // right click on it) opens a menu with that item when the surface is a chat.
-  const [titleMenu, setTitleMenu] = useState<{ x: number; y: number } | null>(null);
+  // THE PHONE'S DOOR TO THE TAB'S COMMANDS (TABSHEET-04, model-selector
+  // AC-39). Under 768px the name of the surface replaces the tab strip, and
+  // the strip's sheet went with it. Holding the name (or a right click on it)
+  // opens the sheet of the surface in front, as a sheet from the bottom: the
+  // same commands as its tab, the chat settings included, minus the layout.
   const titleLongPress = useLongPress(openContextMenuAt, { enabled: mobile });
-  const chatInFront = surfaceInFront?.type === 'chat' ? surfaceInFront.id : null;
+  const titleSheetKey = surfaceInFront ? `title:${surfaceInFront.id}` : null;
 
   // Cross-group drop: accept a tab dragged from another group (solo or project).
   // When a tab is dropped onto another group's tab bar:
@@ -676,6 +677,8 @@ export function StandaloneChatGroup({
   });
 
   // Tab bar rendered inline in header
+  const renameChat = (tid: string, name: string) => { void onUpdateTopic(tid, { name }); };
+  const renameBrowser = (id: string, name: string) => setBrowserPaneUserTitle(id, name);
   const tabBar = (
     <PaneTabBar
       className="flex-1 py-1 pr-0 min-w-0 app-drag-region"
@@ -740,8 +743,8 @@ export function StandaloneChatGroup({
       // canonical topic-update path (optimistic + persisted + broadcast);
       // browser tabs pin pane.title (titleSource='user') so the page-title
       // poll stops overwriting the chosen name.
-      onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
-      onRenameBrowser={(id, name) => setBrowserPaneUserTitle(id, name)}
+      onRenameChat={renameChat}
+      onRenameBrowser={renameBrowser}
       // 'Detach' = split OUT into an own cell (pool tabs). A solo cell's tab
       // instead offers 'Riporta nel gruppo' (onReattach → unsolo) — the two
       // used to share one 'Detach' label with opposite semantics.
@@ -996,12 +999,14 @@ export function StandaloneChatGroup({
             <div
               data-testid="mobile-pane-title"
               {...titleLongPress.handlers}
+              {...{ [TAB_SHEET_ANCHOR_ATTR]: '' }}
+              tabIndex={-1}
               onContextMenu={(event) => {
-                if (!chatInFront) return;
+                if (!titleSheetKey || !(event.currentTarget as Node).contains(event.target as Node)) return;
                 event.preventDefault();
-                setTitleMenu({ x: event.clientX, y: event.clientY });
+                openTabSheet(titleSheetKey, 'commands');
               }}
-              className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+              className={`flex-1 flex items-center min-w-0 overflow-hidden outline-none ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
               {/* The open chat's chosen colour, before its name: the phone
                   has no tab strip and its list is a drawer, so without this
@@ -1012,28 +1017,30 @@ export function StandaloneChatGroup({
               )}
               <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
               <MobileFindButton paneId={activePaneId} />
+              {surfaceInFront && titleSheetKey && (
+                <TabSheet
+                  sheetKey={titleSheetKey}
+                  // The pane's own requests are answered by its tab, wherever
+                  // that is mounted; the title answers only its own gesture.
+                  listenToPane={false}
+                  target={{
+                    pane: surfaceInFront,
+                    label: titleSurface,
+                    surface: 'title',
+                    focused: true,
+                    actions: {
+                      panes, activePaneId, onActivate: onFocusPanel,
+                      onClose: handleClosePane, onCloseImmediate: onClosePanelImmediate,
+                      onSettings: handleSettings, onStopStreaming: handleStopStreaming,
+                      onRenameChat: renameChat, onRenameBrowser: renameBrowser,
+                      onToggleFissato, isFissato,
+                    },
+                  }}
+                />
+              )}
             </div>
           ) : (
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
-          )}
-          {mobile && (
-            <ContextMenuPortal
-              open={!!titleMenu && !!chatInFront}
-              x={titleMenu?.x ?? 0}
-              y={titleMenu?.y ?? 0}
-              onClose={() => setTitleMenu(null)}
-              testId="mobile-pane-title-menu"
-              ariaLabel={titleSurface}
-            >
-              <button
-                type="button"
-                onClick={() => { if (chatInFront) handleSettings(chatInFront); setTitleMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
-              >
-                <Settings size={14} aria-hidden="true" />
-                <span>{tr('chat.panel.topicSettings')}</span>
-              </button>
-            </ContextMenuPortal>
           )}
           {onToggleSidebar && (
             // La coppia del «+» in coda alla riga: stesso box

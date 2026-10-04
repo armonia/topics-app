@@ -24,6 +24,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { moveTabToGroupViaSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -65,16 +66,12 @@ test.describe.serial("Gruppi — ciclo di vita nella sidebar", () => {
 
   /** Crea un gruppo spostandoci dentro la tab `paneId` (menu della tab). */
   async function moveTabToNewGroup(page: Page, paneId: string) {
-    await page.locator(`[data-pane-id="${paneId}"]`).first().click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+    await moveTabToGroupViaSheet(page, page.locator(`[data-pane-id="${paneId}"]`).first(), "Nuovo gruppo");
   }
 
   /** Sposta la tab `paneId` nel gruppo già esistente di nome `nome`. */
   async function moveTabToGroup(page: Page, paneId: string, nome: string) {
-    await page.locator(`[data-pane-id="${paneId}"]`).first().click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    await page.getByRole("menu").getByRole("button", { name: nome }).click();
+    await moveTabToGroupViaSheet(page, page.locator(`[data-pane-id="${paneId}"]`).first(), nome);
   }
 
   const card = (page: Page, nome: string) =>
@@ -187,7 +184,7 @@ test.describe.serial("Gruppi — ciclo di vita nella sidebar", () => {
     // Dal menu della tab, non dalla X: quella si scopre al passaggio del mouse
     // e sotto il cursore è la tab a prendersi il clic.
     await page.locator(`[data-pane-id="${idA}"]`).first().click({ button: "right" });
-    await page.getByRole("menu").getByText("Chiudi ora", { exact: true }).click();
+    await page.getByTestId("tab-sheet-close").click();
 
     await expect(page.getByTestId("sidebar-groups"), "niente gruppi pieni, niente scatole").toHaveCount(0, { timeout: 5000 });
     // E la finestra non resta prigioniera del gruppo svuotato — sarebbe il

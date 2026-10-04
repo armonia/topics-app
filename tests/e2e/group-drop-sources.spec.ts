@@ -27,6 +27,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { splitViaContextMenu } from "./helpers/layout";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { moveTabToGroupViaSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -228,9 +229,7 @@ test.describe("Trascinare dentro una finestra", () => {
 
   /** Crea "Gruppo 2" portandoci dentro la tab `paneId` dal suo menu. */
   async function newGroupWith(page: Page, paneId: string) {
-    await page.locator(`[data-pane-id="${paneId}"]`).first().click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+    await moveTabToGroupViaSheet(page, page.locator(`[data-pane-id="${paneId}"]`).first(), "Nuovo gruppo");
     await expect(page.getByTestId("space-card")).toHaveCount(1, { timeout: 5000 });
   }
 

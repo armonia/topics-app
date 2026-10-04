@@ -5,6 +5,7 @@ import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { findInTabSheet, revealInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -51,7 +52,7 @@ async function mountBrowserPane(
 async function openTabSheet(page: import("@playwright/test").Page): Promise<void> {
   await page.locator('[data-pane-id^="browser:"]').first().hover();
   await page.getByTestId("browser-tab-menu").first().click();
-  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10000 });
 }
 
 test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", () => {
@@ -82,7 +83,7 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
       // command is never published, so the row is not drawn at all.
       await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
       await openTabSheet(page);
-      await expect(page.getByTestId("browser-tab-engine")).toHaveCount(0);
+      expect(await findInTabSheet(page, "browser-tab-engine"), "no engine row in any level").toBeNull();
       // And nothing of it is left over the page either.
       await expect(page.locator('[data-testid="browser-engine-toggle"]')).toHaveCount(0);
     } finally {
@@ -111,7 +112,7 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
       // engine is NOT called "Nativo": that word names the device's own webview,
       // a different thing entirely. This one is the server's Playwright.
       await openTabSheet(page);
-      const toggle = page.getByTestId("browser-tab-engine");
+      const toggle = await revealInTabSheet(page, "browser-tab-engine");
       await expect(toggle).toBeVisible({ timeout: 10000 });
       await expect(toggle).toContainText("Playwright");
       await expect(toggle).not.toContainText("Nativo");

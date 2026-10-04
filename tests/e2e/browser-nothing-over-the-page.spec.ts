@@ -9,6 +9,7 @@ import {
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { expectNothingOverThePage } from "./helpers/browser-geometry";
+import { revealInTabSheet } from "./helpers/tab-sheet";
 
 // Hermetic boundary: this file starts from the globalSetup baseline, not from
 // whatever the preceding specs left behind. See fixtures/hermetic.ts.
@@ -78,7 +79,7 @@ async function mountBrowserPane(
 async function openTabSheet(page: import("@playwright/test").Page): Promise<void> {
   await page.locator('[data-pane-id^="browser:"]').first().hover();
   await page.getByTestId("browser-tab-menu").first().click();
-  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10_000 });
 }
 
 // Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
@@ -130,13 +131,14 @@ test.describe("TOPIC-BROWSER-03 — niente di permanente sopra la pagina", () =>
       // The two switches are in the sheet, where a click can reach them — this
       // is the surface that replaced the two pills.
       await openTabSheet(page);
-      const engine = page.getByTestId("browser-tab-engine");
+      // In the Session level of the sheet (TABSHEET-03), opened beside it.
+      const engine = await revealInTabSheet(page, "browser-tab-engine");
       await expect(engine).toBeVisible({ timeout: 10_000 });
       // The server's Playwright is NOT labelled «Nativo»: that word already
       // names the device's own webview, a different thing entirely.
       await expect(engine).toContainText("Playwright");
       await expect(engine).not.toContainText("Nativo");
-      await expect(page.getByTestId("browser-tab-render")).toBeVisible({ timeout: 10_000 });
+      await expect(await revealInTabSheet(page, "browser-tab-render")).toBeVisible({ timeout: 10_000 });
 
       // Opening the sheet is the other half of the rule: the surface that holds
       // the switches must not leave anything else behind over the page. The

@@ -122,7 +122,7 @@ test.describe("the settings modal: no colour is a state, every pick is a choice"
     const tab = page.getByTestId(`pane-tab-${id}`);
     await expect(tab).toBeVisible({ timeout: 10_000 });
     await tab.click({ button: "right" });
-    await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
+    await page.getByTestId("tab-sheet").getByRole("menuitem", { name: "Impostazioni della chat" }).click();
     // The native input by its type, not by a test id: what is under test is
     // the picker the person touches.
     const input = page.locator('input[type="color"]');

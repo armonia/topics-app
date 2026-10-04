@@ -19,6 +19,7 @@ import {
 } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
+import { findRowInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -190,13 +191,9 @@ test.describe("Split Screen Sync & Correctness", () => {
     {
       // Split Right first
       await tabs.first().click({ button: "right" });
-      let menu = page.locator('[role="menu"]').first();
-      await expect(menu).toBeVisible({ timeout: 3000 });
-      let splitRightBtn = menu
-        .locator("button")
-        .filter({ hasText: /Dividi a destra/ })
-        .first();
-      if ((await splitRightBtn.count()) > 0) {
+      // The split commands are in the Layout level of the tab's sheet.
+      const splitRightBtn = await findRowInTabSheet(page, "Dividi a destra");
+      if (splitRightBtn) {
         const barsBefore = await countTabBars(page);
         await splitRightBtn.click();
         // A split ADDS a tab bar. That is the observable outcome, and it is
@@ -210,13 +207,8 @@ test.describe("Split Screen Sync & Correctness", () => {
       const allTabs = page.locator('[role="main"] [draggable="true"]');
       if ((await allTabs.count()) >= 2) {
         await allTabs.nth(1).click({ button: "right" });
-        menu = page.locator('[role="menu"]').first();
-        await expect(menu).toBeVisible({ timeout: 3000 });
-        const splitDownBtn = menu
-          .locator("button")
-          .filter({ hasText: /Dividi in basso/ })
-          .first();
-        if ((await splitDownBtn.count()) > 0) {
+        const splitDownBtn = await findRowInTabSheet(page, "Dividi in basso");
+        if (splitDownBtn) {
           const barsBefore = await countTabBars(page);
           await splitDownBtn.click();
           await expect
