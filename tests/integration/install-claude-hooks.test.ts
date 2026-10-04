@@ -264,4 +264,104 @@ describe("install-claude-hooks", () => {
     expect(s.hooks.PreToolUse).toEqual([before.hooks.PreToolUse[1]]);
     expect(s.hooks.PermissionRequest).toEqual(before.hooks.PermissionRequest);
   });
+
+  const wrapper = () => `${home}/.claude/topics-hooks/post-hook.sh`;
+  const marked = (event: string) => ({
+    type: "command",
+    command: `"${wrapper()}" ${event}`,
+    timeout: 5,
+    ...(ASYNC_EVENTS.includes(event) ? { async: true } : {}),
+    topics_app: true,
+  });
+  const guard = { type: "command", command: "/usr/local/bin/block-coauthor.sh", timeout: 5 };
+  const firesOnEveryTool = (m: any) => !m.matcher || m.matcher === "*";
+
+  test("install leaves an empty matcher that is not ours where it is", () => {
+    const before = {
+      hooks: {
+        PreToolUse: [{ hooks: [marked("PreToolUse")] }, { matcher: "Edit", hooks: [] }],
+      },
+    };
+    writeFileSync(settingsPath(), JSON.stringify(before, null, 2));
+
+    run("install");
+
+    // Somebody else's matcher, empty before install touched the file: it is
+    // not ours to tidy up.
+    expect(readSettings().hooks.PreToolUse).toEqual(before.hooks.PreToolUse);
+  });
+
+  test("the Topics entry ends up in a wildcard matcher, never in a narrowed one", () => {
+    const legacy = { type: "command", command: `${wrapper()} PreToolUse`, timeout: 5 };
+    writeFileSync(
+      settingsPath(),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { matcher: "Bash", hooks: [guard, legacy] },
+            { hooks: [marked("PreToolUse")] },
+          ],
+          // A narrowed matcher holding nothing but a Topics twin goes with it.
+          PostToolUse: [{ matcher: "Edit", hooks: [marked("PostToolUse")] }, { hooks: [marked("PostToolUse")] }],
+        },
+      }),
+    );
+
+    run("install");
+
+    const s = readSettings();
+    // Limited to Bash, the hook would never see AskUserQuestion, ExitPlanMode
+    // or Monitor: the wildcard copy is the one that stays.
+    expect(s.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [guard] }, { hooks: [marked("PreToolUse")] }]);
+    expect(s.hooks.PostToolUse).toEqual([{ hooks: [marked("PostToolUse")] }]);
+  });
+
+  test("a Topics entry found only in a narrowed matcher moves to a wildcard one", () => {
+    const legacy = { type: "command", command: `${wrapper()} PreToolUse`, timeout: 5 };
+    writeFileSync(
+      settingsPath(),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [guard, legacy] }] } }),
+    );
+
+    run("install");
+
+    const s = readSettings();
+    expect(s.hooks.PreToolUse[0]).toEqual({ matcher: "Bash", hooks: [guard] });
+    const wild = s.hooks.PreToolUse.filter(firesOnEveryTool);
+    expect(wild.flatMap((m: any) => m.hooks)).toEqual([marked("PreToolUse")]);
+    expect(wrapperEntries(s, "PreToolUse")).toEqual([marked("PreToolUse")]);
+    // And it converged: a second run changes nothing.
+    const first = readFileSync(settingsPath(), "utf-8");
+    run("install");
+    expect(readFileSync(settingsPath(), "utf-8")).toBe(first);
+  });
+
+  test("a matcher without a hooks key survives install and uninstall untouched", () => {
+    writeFileSync(
+      settingsPath(),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash" }, { hooks: [marked("PreToolUse")] }] } }),
+    );
+
+    run("install");
+    expect(readSettings().hooks.PreToolUse).toEqual([{ matcher: "Bash" }, { hooks: [marked("PreToolUse")] }]);
+
+    run("uninstall");
+    expect(readSettings().hooks.PreToolUse).toEqual([{ matcher: "Bash" }]);
+  });
+
+  test("a marked entry is ours under whatever event it sits", () => {
+    const foreign = { type: "command", command: "/usr/local/bin/notify.sh", timeout: 5 };
+    const stray = { ...marked("SessionEnd") };
+    const shape = { hooks: { Stop: [{ hooks: [foreign, stray] }] } };
+    writeFileSync(settingsPath(), JSON.stringify(shape, null, 2));
+
+    run("uninstall");
+    expect(readSettings().hooks.Stop).toEqual([{ hooks: [foreign] }]);
+
+    // Install repairs it into the Stop entry instead of appending a second
+    // Topics hook next to a wrapper that would report SessionEnd on every turn.
+    writeFileSync(settingsPath(), JSON.stringify(shape, null, 2));
+    run("install");
+    expect(readSettings().hooks.Stop).toEqual([{ hooks: [foreign, marked("Stop")] }]);
+  });
 });

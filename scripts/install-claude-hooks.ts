@@ -8,10 +8,16 @@
  *   - Non-destructive: user-defined hooks for the same event are preserved
  *     (we append, never overwrite).
  *   - Localised marker: every entry we add carries `topics_app: true` in the
- *     hook object so the uninstaller can remove only our entries. An entry
+ *     hook object so the uninstaller can remove only our entries, under
+ *     whatever event they sit. An entry
  *     written before the marker existed (same wrapper path, no marker, path
  *     quoted or not) is recognised too: install repairs it in place instead of
  *     appending a second Topics hook, and uninstall removes it.
+ *   - Topics hooks fire on every tool: our entry lives in a wildcard matcher
+ *     (no `matcher`, `""` or `"*"`). A copy found in a narrowed matcher is
+ *     removed from it, and the other hooks of that matcher stay.
+ *   - Only a matcher emptied by removing our entries is dropped; an empty
+ *     matcher that was already empty belongs to someone else and stays.
  *   - Fire-and-forget events (`ASYNC_EVENTS`) are registered with
  *     `async: true`, so a slow server never holds the turn.
  *   - Token: relies on Topics App having generated the token on first boot
@@ -92,7 +98,9 @@ interface HookEntry {
 
 interface HookMatcher {
   matcher?: string;
-  hooks: HookEntry[];
+  // Optional because a hand-written file can omit it (`{"matcher":"Bash"}`):
+  // such a matcher is left exactly as it is.
+  hooks?: HookEntry[];
 }
 
 interface ClaudeSettings {
@@ -148,13 +156,36 @@ function buildEntry(event: string): HookEntry {
 // seven of them, unmarked and with the path unquoted.
 const WRAPPER_TAIL = /(?:^|\/)topics-hooks\/post-hook\.sh["']?\s+(\S+)\s*$/;
 
-/** Is this hook one of ours for `event`? Marked entries match on the event
- *  SUFFIX, not on equality, so a command written by an older version is still
- *  recognised, and `install()` can repair it instead of appending a twin. */
+/** Is this hook one of ours for `event`? A marked entry is ours wherever it
+ *  sits, whatever its command says: the marker is written by this script only,
+ *  so a marked `post-hook.sh SessionEnd` under `Stop` is a stray of ours, which
+ *  install repairs and uninstall removes. An unmarked entry is ours when it is
+ *  the wrapper followed by this very event. */
 function isOurEntry(h: HookEntry, event: string): boolean {
+  if (h?.topics_app === true) return true;
   if (typeof h?.command !== "string") return false;
-  if (h.topics_app === true && h.command.endsWith(` ${event}`)) return true;
   return WRAPPER_TAIL.exec(h.command)?.[1] === event;
+}
+
+function firesOnEveryTool(m: HookMatcher): boolean {
+  return !m.matcher || m.matcher === "*";
+}
+
+function hooksOf(m: HookMatcher): HookEntry[] {
+  return Array.isArray(m?.hooks) ? m.hooks : [];
+}
+
+/** Take `drop` out of the matchers, then remove only the matchers this left
+ *  empty: one that was empty before is somebody else's and stays. */
+function dropEntries(matchers: HookMatcher[], drop: ReadonlySet<HookEntry>): HookMatcher[] {
+  const nowEmpty = new Set<HookMatcher>();
+  for (const m of matchers) {
+    const hooks = hooksOf(m);
+    if (!hooks.some((h) => drop.has(h))) continue;
+    m.hooks = hooks.filter((h) => !drop.has(h));
+    if (m.hooks.length === 0) nowEmpty.add(m);
+  }
+  return matchers.filter((m) => !nowEmpty.has(m));
 }
 
 /** Rewrite `entry` in place to the canonical shape. Only the fields this script
@@ -181,16 +212,11 @@ function repairEntry(entry: HookEntry, event: string): boolean {
 function removeOurEntries(settings: ClaudeSettings, event: string): number {
   const matchers = settings.hooks?.[event];
   if (!matchers) return 0;
-  let removed = 0;
-  for (const m of matchers) {
-    const before = m.hooks.length;
-    m.hooks = m.hooks.filter((h) => !isOurEntry(h, event));
-    removed += before - m.hooks.length;
-  }
-  if (removed === 0) return 0;
-  settings.hooks![event] = matchers.filter((m) => m.hooks.length > 0);
+  const ours = new Set(matchers.flatMap((m) => hooksOf(m).filter((h) => isOurEntry(h, event))));
+  if (ours.size === 0) return 0;
+  settings.hooks![event] = dropEntries(matchers, ours);
   if (settings.hooks![event]!.length === 0) delete settings.hooks![event];
-  return removed;
+  return ours.size;
 }
 
 function install(): void {
@@ -205,32 +231,33 @@ function install(): void {
     // Look in EVERY matcher, not only the first wildcard one: a legacy entry
     // can sit anywhere, and missing it is what appended a second Topics hook
     // next to it.
-    const found = matchers.flatMap((m) => m.hooks.filter((h) => isOurEntry(h, event)).map((h) => ({ m, h })));
-    if (found.length === 0) {
-      // Topics App hooks fire on every matcher (no filter). We append our
-      // entry to the first wildcard matcher we find, or create a new one.
-      let target = matchers.find((m) => !m.matcher || m.matcher === "*");
-      if (!target) {
-        target = { hooks: [] };
-        matchers.push(target);
-      }
-      target.hooks.push(buildEntry(event));
-      settings.hooks[event] = matchers;
-      added += 1;
+    const found = matchers.flatMap((m) => hooksOf(m).filter((h) => isOurEntry(h, event)).map((h) => ({ m, h })));
+    // Ours, possibly written by an older version: the first copy sitting in a
+    // wildcard matcher is repaired where it stands, so a fix to the entry
+    // reaches whoever installed before it, and `matcher`, order and foreign
+    // hooks stay as they are. A copy in a narrowed matcher never wins: the hook
+    // would fire on that tool only, and `AskUserQuestion`, `ExitPlanMode` and
+    // `Monitor` would never reach the server.
+    const keep = found.find(({ m }) => firesOnEveryTool(m) && Array.isArray(m.hooks));
+    // Every other copy goes: the old installer appended one next to every
+    // unmarked entry, and a narrowed one is the case above.
+    const extra = new Set(found.filter((f) => f !== keep).map(({ h }) => h));
+    const kept = extra.size > 0 ? dropEntries(matchers, extra) : matchers;
+    if (keep) {
+      if (repairEntry(keep.h, event) || extra.size > 0) repaired += 1;
+      settings.hooks[event] = kept;
       continue;
     }
-    // Ours, possibly written by an older version: repaired where it stands, so
-    // a fix to the entry reaches whoever installed before it, and `matcher`,
-    // order and foreign hooks stay as they are. Extra copies (the old
-    // installer appended one next to every unmarked entry) are dropped.
-    const [keep, ...extra] = found;
-    let changed = repairEntry(keep!.h, event);
-    for (const { m, h } of extra) {
-      m.hooks = m.hooks.filter((x) => x !== h);
-      changed = true;
+    // None in a wildcard matcher: append to the first one we find, or create it.
+    let target = kept.find((m) => firesOnEveryTool(m) && Array.isArray(m.hooks));
+    if (!target) {
+      target = { hooks: [] };
+      kept.push(target);
     }
-    settings.hooks[event] = matchers.filter((m) => m.hooks.length > 0);
-    if (changed) repaired += 1;
+    target.hooks!.push(buildEntry(event));
+    settings.hooks[event] = kept;
+    if (found.length === 0) added += 1;
+    else repaired += 1;
   }
   let retired = 0;
   for (const event of RETIRED_EVENTS) retired += removeOurEntries(settings, event);
