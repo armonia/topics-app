@@ -34,8 +34,6 @@ const turns: Array<{ sessionKey: string; text: string }> = [];
 const open = new Map<string, () => void>();
 /** `hold`: the next turn stays open until it is aborted. `fail`: the route answers 503. */
 let mode: "answer" | "hold" | "fail" = "answer";
-/** The route takes 50 ms to receive the turn: a spawn that answers before the dispatch loses this race. */
-let slowDispatch = false;
 
 async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise<Response | null> {
   const { recordTurnEnd } = await import("../../server/providers/turn-end-registry");
@@ -49,7 +47,6 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
     return Response.json({ ok: true });
   }
   if (pathname !== "/api/chat") return null;
-  if (slowDispatch) await new Promise((r) => setTimeout(r, 50));
   const text = body.messages?.at(-1)?.content ?? "";
   turns.push({ sessionKey, text });
   if (mode === "fail") return Response.json({ error: "Questa chat è legata al motore di Topics, che non è connesso." }, { status: 503 });
@@ -150,7 +147,6 @@ beforeAll(async () => {
 
 afterEach(async () => {
   mode = "answer";
-  slowDispatch = false;
   for (const close of [...open.values()]) close();
   for (const { parent, agentId } of spawned.splice(0)) {
     if (rowOf(agentId)?.state === "running") await call(`${agents(parent)}/${agentId}/stop`, "POST");
@@ -183,22 +179,9 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(creates().length).toBe(before);
     const child = ctx.getTopicBySessionKey(body.sessionKey as string);
     expect(child).toMatchObject({ provider: "topics", model: "claude-sonnet-5-5[1m]", projectPath: PROJECT, name: "finder" });
-    // The sidebar nests it under the parent from this projection (read back from the DB).
-    expect(child?.subagentOf).toBe(PARENT);
     expect(rowOf(body.agentId as string)).toMatchObject({ runtime: "topics", session_key: body.sessionKey });
     // The prompt went to the child's chat, through the chat route.
     expect(turns.at(-1)).toEqual({ sessionKey: body.sessionKey as string, text: "Find the call sites of deliverExit." });
-  });
-
-  test("the spawn answers once the turn left: a slow route is seen, not raced", async () => {
-    slowDispatch = true;
-    try {
-      const { status, body } = await spawn(PARENT, { name: "unhurried" });
-      expect(status).toBe(200);
-      expect(turns.at(-1)).toEqual({ sessionKey: body.sessionKey as string, text: "Find the call sites of deliverExit." });
-    } finally {
-      slowDispatch = false;
-    }
   });
 
   test("the turn's end is one result for the parent, from the child's chat, and the slot is freed", async () => {
@@ -207,8 +190,6 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     const report = await until("the report", () => reportsFor(id)[0]);
     expect(report).toMatchObject({ parentSessionKey: PARENT, name: "reporter", turn: 1, outcome: { status: "completed", partial: false, text: "done: Find the call sites of deliverExit." } });
     expect(rowOf(id)).toMatchObject({ state: "retired", turns_reported: 1 });
-    // Its result reached the parent: the child leaves the view, as the Agent tool's children do.
-    expect(ctx.getTopicBySessionKey(body.sessionKey as string)?.archived).toBe(true);
   });
 
   test("send_to_agent is the chat's next turn, reported as turn 2", async () => {
@@ -248,43 +229,6 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(body.runtime).toBe("claude-code");
     await until("the create frame", () => creates().length > before);
     expect(rowOf(body.agentId as string)?.runtime).toBe("claude-code");
-  });
-
-  // 04/10: pop-demo wrote again to «arte-tappa-1», born on the CLI, and every
-  // resume reopened a Claude Code. Now it comes back native, same id.
-  test("a stopped CLI child, written to again, comes back on the engine with its task, not with --resume", async () => {
-    const { body } = await spawn(PARENT, { runtime: "claude-code", name: "arte-tappa-1" });
-    const id = body.agentId as string;
-    await call(`${agents(PARENT)}/${id}/stop`, "POST");
-    ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000aa", id]);
-    const before = creates().length;
-    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "now the bastion" });
-    expect(res.status).toBe(200);
-    const sent = await res.json() as Record<string, unknown>;
-    expect(sent).toMatchObject({ ok: true, resumed: true, runtime: "topics" });
-    expect(creates().length).toBe(before);
-    expect(rowOf(id)).toMatchObject({ runtime: "topics", session_key: sent.sessionKey });
-    const turn = await until("the migrated turn", () => turns.find((t) => t.sessionKey === sent.sessionKey));
-    expect(turn.text).toContain("«arte-tappa-1»");
-    expect(turn.text.toLowerCase()).toContain("find the call sites of deliverexit.");
-    expect(turn.text.endsWith("now the bastion")).toBe(true);
-    expect(await until("its result", () => reportsFor(id).find((r) => r.outcome.status === "completed"))).toBeTruthy();
-  });
-
-  // 04/10: retired children's tabs stayed open because this list read them as
-  // parked, and a click reopened Claude Code.
-  test("a retired sub-agent is not in the parked list a project tab would revive", async () => {
-    const insert = ctx.db.prepare(
-      "INSERT INTO terminal_sessions (id, name, cwd, command, type, created_at, status, parent_session_key) VALUES (?, ?, ?, 'claude', 'claude-code', ?, 'dormant', ?)",
-    );
-    const now = new Date().toISOString();
-    insert.run("dormant-person-0001", "mine", PROJECT, now, null);
-    insert.run("dormant-child-0001", "retired child", PROJECT, now, PARENT);
-    const res = await call(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(PROJECT)}`, "GET");
-    const ids = (await res.json() as Array<{ id: string }>).map((r) => r.id);
-    expect(ids).toContain("dormant-person-0001");
-    expect(ids).not.toContain("dormant-child-0001");
-    ctx.db.run("DELETE FROM terminal_sessions WHERE id IN ('dormant-person-0001', 'dormant-child-0001')");
   });
 
   test("an unknown runtime is refused", async () => {

@@ -182,7 +182,7 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { attentionInitFrame, forgetSocket, getAttention, isAttentionEngaged, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { attentionInitFrame, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
 import { withCommandTask } from "./server/attention/background-tasks";
 import { observeCommandChanged } from "./server/lib/command-background";
 import { attentionBootReader } from "./server/attention/boot-reader";
@@ -929,12 +929,9 @@ configureNativeSubagents({
   saveTopic: (topic, created) => {
     ctx.saveSingleTopic(topic);
     ctx.broadcastToAll({ type: created ? "topic:created" : "topic:updated", topic });
-    // An archived child also leaves the attention rows: no badge left on a chat nobody sees.
-    setClosed(topicSubject(topic.id), { archived: !!topic.archived });
   },
   loadMessages: (sk) => ctx.loadLocalMessages(sk),
   engineReady: () => tryGetProvider("topics")?.connected === true,
-  engaged: (topicId) => isAttentionEngaged(topicSubject(topicId)),
   log: (m) => console.log(`[subagent-native] ${m}`),
 });
 // Deleting a terminal session closes any browser it opened (contextId

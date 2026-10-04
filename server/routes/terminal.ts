@@ -51,7 +51,6 @@ import {
   engineModelOf, engineToolsOfProfile, nativeChildPlace, nativeSubagentsAvailable, readNativeChildOutput, sendToNativeChild,
   spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
-import { migratedChildPromptFor } from "../lib/subagent-migration";
 import {
   FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
@@ -1478,9 +1477,6 @@ function isRosterDependentRoute(pathname: string, method: string): boolean {
  * swap 33k false 404 lines for 33k 503 lines and cure nothing — the count goes
  * out once, in `markRosterReconciled`.
  */
-/** A person's terminal rows, not the sub-agents'. */
-const NOT_A_SUBAGENT = "(parent_session_key IS NULL OR parent_session_key = '')";
-
 function rosterWarming(): Response {
   warmingDeferrals++;
   return new Response(
@@ -3233,16 +3229,12 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
     // --- Dormant sessions: list and revive ---
 
-    // A retired sub-agent is not a tab to reopen: its tab used to bring it
-    // back as Claude Code with `--resume`, while now the parent picks it up
-    // with `send_to_agent`, on the Topics engine (subagent-nativi). Off this
-    // list, the client closes the tab instead of keeping it.
     if (method === "GET" && pathname === "/api/terminal/sessions/dormant") {
       const db = getDatabase();
       const cwd = url.searchParams.get('cwd');
       const rows = cwd
-        ? db.query(`SELECT * FROM terminal_sessions WHERE status = 'dormant' AND ${NOT_A_SUBAGENT} AND cwd = ?`).all(cwd) as any[]
-        : db.query(`SELECT * FROM terminal_sessions WHERE status = 'dormant' AND ${NOT_A_SUBAGENT}`).all() as any[];
+        ? db.query("SELECT * FROM terminal_sessions WHERE status = 'dormant' AND cwd = ?").all(cwd) as any[]
+        : db.query("SELECT * FROM terminal_sessions WHERE status = 'dormant'").all() as any[];
       const list = rows.map((r: any) => ({
         id: r.id, name: r.name, cwd: r.cwd, command: r.command,
         type: r.type, createdAt: r.created_at,
@@ -3471,9 +3463,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // subagent-nativi: the child runs on the Topics engine, unless the
-        // call asks for the CLI or the engine cannot take it. A fallback to
-        // the CLI is declared in the answer, never silent.
+        // subagent-nativi: il figlio gira sul motore di Topics, salvo che la
+        // chiamata chieda la CLI o che il motore non possa prenderlo. La
+        // ricaduta sulla CLI si dice nella risposta, mai in silenzio.
         if (body.runtime !== undefined && body.runtime !== "topics" && body.runtime !== "claude-code") {
           return errorResponse(400, `unknown runtime "${String(body.runtime)}": use "topics" or "claude-code"`);
         }
@@ -3538,7 +3530,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           const model = engineModelOf(launch.model);
           try {
             if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
-            const child = await spawnNativeChild({
+            const child = spawnNativeChild({
               id, parentSessionKey: parentKey, name, prompt, cwd,
               parentTopic, projectPath: nativePlace.projectPath, worktreeId: nativePlace.worktreeId, branch,
               model, effort: launch.effort, agentType: launch.agent,
@@ -3666,34 +3658,6 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
           const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
           if (refusal) return errorResponse(429, refusal);
-          // subagent-nativi: a CLI-born child does not come back as Claude
-          // Code. When the engine can take it, it restarts native with the
-          // same id (the row is rewritten) and its work as context.
-          if (nativeSubagentsAvailable()) {
-            const parentTopic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
-            const place = nativeChildPlace({
-              explicitCwd: row.cwd || null,
-              parentTopic,
-              parentCwd: sessions.get(parentKey)?.cwd ?? null,
-              knownProject: (p) => !!ctx.projectStore.getByPath(p),
-            });
-            if (place.ok) {
-              try {
-                const child = await spawnNativeChild({
-                  id: row.id, parentSessionKey: parentKey, name: row.name,
-                  prompt: migratedChildPromptFor(row, input),
-                  cwd: row.cwd, parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
-                  model: engineModelOf(row.model), effort: row.effort, agentType: row.agentType,
-                  instructions: null, tools: null,
-                  promptSnippet: row.promptSnippet,
-                });
-                console.log(`[subagent] ${row.id} (${row.name}) migrato dalla CLI al motore di Topics: ${child.sessionKey}`);
-                return json({ ok: true, sent: input.length, resumed: true, runtime: "topics", sessionKey: child.sessionKey });
-              } catch (err) {
-                console.warn(`[subagent] migrazione di ${row.id} fallita, riprende sulla CLI:`, err);
-              }
-            }
-          }
           try {
             await ensureBridge();
             const session = await createSession(row.id, row.name, row.cwd, undefined, 120, 30, undefined, "claude-code", true, row.claudeSessionId!, parentKey, "user");
