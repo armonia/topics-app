@@ -79,15 +79,14 @@ function leanFinishedToolCalls(calls: readonly ToolCall[]): readonly ToolCall[] 
 }
 
 /** A running call with a live tail gets it as `result`; anything else, the same reference. */
-function withLiveTail<T extends ToolCall>(tc: T, tails: ReadonlyMap<string, string> | undefined): T {
-  if (!tc || !tails || isFinished(tc.status)) return tc;
+function withLiveTail<T extends ToolCall>(tc: T, tails: ReadonlyMap<string, string>): T {
+  if (!tc || isFinished(tc.status)) return tc;
   const tail = tails.get(tc.id);
   return tail ? { ...tc, result: tail } : tc;
 }
 
 /** The blocks with every running call's live tail on it; same reference if none had one. */
-function withLiveTailBlocks(blocks: readonly ContentBlock[] | undefined, tails: ReadonlyMap<string, string> | undefined): readonly ContentBlock[] | undefined {
-  if (!blocks || !tails?.size) return blocks;
+function withLiveTailBlocks(blocks: readonly ContentBlock[], tails: ReadonlyMap<string, string>): readonly ContentBlock[] {
   let changed = false;
   const out = blocks.map((b) => {
     const block = b as { toolCall?: ToolCall };
@@ -98,6 +97,25 @@ function withLiveTailBlocks(blocks: readonly ContentBlock[] | undefined, tails: 
     return { ...b, toolCall: live } as ContentBlock;
   });
   return changed ? out : blocks;
+}
+
+/**
+ * The partial row with each running tool's live tail as its `result`, in the
+ * blocks and in the legacy bucket; the same reference when there is nothing to
+ * put. Both readers of a turn in flight go through here: the catch-up frame
+ * and the history page (`routes/history.ts`), which a reopening window reads
+ * right AFTER its catch-up and whose copy wins on screen (CHAT-TOOL-11).
+ */
+export function withLiveToolTails<M extends { toolCalls?: readonly ToolCall[]; blocks?: readonly ContentBlock[] }>(
+  message: M,
+  tails: ReadonlyMap<string, string> | undefined,
+): M {
+  if (!tails?.size) return message;
+  const blocks = message.blocks?.length ? withLiveTailBlocks(message.blocks, tails) : message.blocks;
+  const toolCalls = message.toolCalls?.length ? message.toolCalls.map((tc) => withLiveTail(tc, tails)) : message.toolCalls;
+  const callsChanged = !!toolCalls && toolCalls.some((tc, i) => tc !== message.toolCalls![i]);
+  if (blocks === message.blocks && !callsChanged) return message;
+  return { ...message, blocks, toolCalls: callsChanged ? toolCalls : message.toolCalls };
 }
 
 /** What the frame carries of the partial message, once trimmed. */
@@ -136,10 +154,7 @@ export function buildStreamCatchupFrame(args: {
   partial: Pick<StoredMessage, "toolCalls" | "blocks">;
 }): Record<string, unknown> {
   const { sessionKey, topicId, stream, partial } = args;
-  const lean = leanCatchupMessage(partial);
-  const tails = stream.liveToolTails;
-  const blocks = withLiveTailBlocks(lean.blocks, tails);
-  const toolCalls = lean.toolCalls && tails?.size ? lean.toolCalls.map((tc) => withLiveTail(tc, tails)) : lean.toolCalls;
+  const { toolCalls, blocks } = withLiveToolTails(leanCatchupMessage(partial), stream.liveToolTails);
   return {
     type: "stream:catchup",
     sessionKey,

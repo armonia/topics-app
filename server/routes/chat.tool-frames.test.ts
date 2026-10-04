@@ -7,7 +7,9 @@
  *    without `endedAt`, and a turn's closing error was never read: no clock, no
  *    duration and a red X without a reason, only in that window.
  *  - CHAT-TOOL-11: `onToolUpdate` was broadcast and forgotten, so a socket
- *    opened mid-command got the running shell back with no output.
+ *    opened mid-command got the running shell back with no output; and the
+ *    history page a reopening window reads right after its catch-up carried
+ *    the running shell without it too, wiping what the catch-up had restored.
  *  - CHAT-TOOL-12: a re-adoption's replay announced every tool again, stamped
  *    `Date.now()`: each tool that ran before the restart lost its duration.
  *
@@ -19,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
+import { createHistoryRouter } from "./history";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, ContentBlock, Topic, ToolCall } from "../types";
@@ -42,7 +45,7 @@ function topic(tid: string, provider: string): string {
 }
 
 /** What the provider does once the route hands it the handler. */
-let drive: (h: StreamHandler) => void = () => {};
+let drive: (h: StreamHandler) => void | Promise<void> = () => {};
 const provider = {
   name: "claude-code", capabilities: new Set(["streaming"]), contextStrategy: "inline-system",
   get connected() { return true; },
@@ -53,7 +56,7 @@ const provider = {
 } as unknown as AIProvider;
 
 /** One request through the real route, read to its end; returns the SSE `delta`s it wrote. */
-async function turn(sk: string, body: Record<string, unknown>, emit: (h: StreamHandler) => void): Promise<Array<Record<string, unknown>>> {
+async function turn(sk: string, body: Record<string, unknown>, emit: (h: StreamHandler) => void | Promise<void>): Promise<Array<Record<string, unknown>>> {
   drive = emit;
   const chat = createChatRouter(ctx, {
     resolveProvider: () => provider, resolveProviderByName: () => provider,
@@ -123,6 +126,41 @@ describe("the live output of a running tool waits on the turn's registry entry",
       h.onDone({ result: "done" } as never);
     });
     expect(seen).toEqual(["test 1 ok\ntest 2 ok\ntest 3 ok", undefined]);
+  });
+});
+
+/** The last row of the session's history page, as `GET /api/history/:sessionKey` sends it. */
+async function historyTail(sk: string): Promise<{ isStreaming: boolean; last: { partial?: boolean; blocks?: ContentBlock[]; toolCalls?: ToolCall[] } }> {
+  const history = createHistoryRouter(ctx, {
+    matchHistoryRoute: (p) => (p.startsWith("/api/history/") ? decodeURIComponent(p.slice("/api/history/".length)) : null),
+    providerForSessionKey: () => provider,
+  });
+  const path = `/api/history/${encodeURIComponent(sk)}`;
+  const url = new URL(`http://topics.test${path}?limit=40`);
+  const body = (await (await history(new Request(url, { method: "GET" }), url, path, "GET"))!.json()) as { isStreaming: boolean; messages: Array<{ partial?: boolean; blocks?: ContentBlock[]; toolCalls?: ToolCall[] }> };
+  return { isStreaming: body.isStreaming, last: body.messages[body.messages.length - 1]! };
+}
+
+describe("the history page of a turn in flight carries the running tools' live output", () => {
+  test("the running shell has its tail as result, the closed one its own output", async () => {
+    const sk = topic("history-tail", "claude-code");
+    let read: Awaited<ReturnType<typeof historyTail>> | undefined;
+    await turn(sk, { messages: [{ role: "user", content: "go" }] }, async (h) => {
+      h.onToolStart("t-done", "Bash", { command: "ls" });
+      h.onToolResult("t-done", "a.txt");
+      h.onToolStart("t-live", "Bash", { command: "bun test" });
+      h.onToolUpdate!("t-live", "r1\nr2\nr3");
+      // The row is written by the turn's throttle: let it land, as it has by the time a window reopens.
+      await new Promise((r) => setTimeout(r, 50));
+      read = await historyTail(sk);
+      h.onToolResult("t-live", "3 pass");
+      h.onDone({ result: "done" } as never);
+    });
+    expect(read!.isStreaming).toBe(true);
+    expect(read!.last.partial).toBe(true);
+    const tools = (read!.last.blocks ?? []).map((b) => (b as { toolCall?: ToolCall }).toolCall).filter(Boolean) as ToolCall[];
+    expect(tools.find((tc) => tc.id === "t-live")).toMatchObject({ status: "running", result: "r1\nr2\nr3" });
+    expect(tools.find((tc) => tc.id === "t-done")?.result).not.toBe("r1\nr2\nr3");
   });
 });
 

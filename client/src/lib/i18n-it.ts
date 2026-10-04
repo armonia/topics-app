@@ -163,7 +163,7 @@ const IT: Dict = {
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
   'tool.runningTail.more': "Sopra c'è altro output",
-  'tool.shell.silent': 'In esecuzione da {elapsed} · nessun output finora',
+  'tool.shell.silent': 'In esecuzione da {elapsed} · nessun output visibile',
   'tool.shell.sleepLeft': ' · sleep: mancano {left}',
   'tool.result.showAll': 'Mostra tutto ({size})',
   'tool.result.showLess': 'Mostra meno',

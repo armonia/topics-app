@@ -39,3 +39,14 @@ export function rememberLiveToolTail(stream: Pick<ActiveStream, "liveToolTails">
 export function forgetLiveToolTail(stream: Pick<ActiveStream, "liveToolTails"> | undefined, toolCallId: string): void {
   stream?.liveToolTails?.delete(toolCallId);
 }
+
+/**
+ * The registry entry of the turn writing `rowId`: the session's entry, or one
+ * it shadows (`startStream` lets another row's turn take the slot). Its tails
+ * are the ones that belong to that row; the top entry's may be another turn's.
+ */
+export function streamOfRow(top: ActiveStream | undefined, rowId: string): ActiveStream | undefined {
+  let s = top;
+  while (s && s.messageId !== rowId) s = s.shadowed;
+  return s;
+}

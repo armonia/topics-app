@@ -4,10 +4,14 @@ import { formatDurationMs } from './toolGrouping';
 import { formatTimeLeft, sleepLeftMs } from './silentShell';
 
 /**
- * A running command that has printed nothing yet says so, with how long it has
+ * A running command with no output on screen says so, with how long it has
  * been running and, when it opens with `sleep N`, how much of the wait is left
  * (CHAT-TOOL-13). Hidden for the first second, like `ElapsedTimer`: an instant
  * command must not blink a status in and out.
+ *
+ * "No output shown", never "no output yet": a row rebuilt from a history page
+ * or a re-adoption without the live tail cannot know whether the command
+ * printed, and the claim it did not was false on exactly those rows.
  */
 export function SilentShellStatus({ since, command }: { since: number; command: string }) {
   const tr = useT();

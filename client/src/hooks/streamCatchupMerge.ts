@@ -136,6 +136,31 @@ function liveOutputById(message: ChatMessage): Map<string, ToolCall> {
 }
 
 /**
+ * `incoming`, a copy of the turn in flight read from the server, with the live
+ * output `local` shows for each call still running that `incoming` brings
+ * without any (CHAT-TOOL-11). The same reference when there is nothing to keep.
+ *
+ * The history page a reopening window reads lands AFTER its catch-up and its
+ * copy of the row replaces the bubble, so a page without the tail (a server
+ * older than the one that puts it there) wiped the lines the catch-up had just
+ * restored, for good if the command printed nothing more.
+ */
+export function withLocalLiveOutput(incoming: ChatMessage, local: ChatMessage | undefined): ChatMessage {
+  if (!local) return incoming;
+  const live = liveOutputById(local);
+  if (live.size === 0) return incoming;
+  const toolCalls = keepLiveOutput(incoming.toolCalls, live, (tc) => tc, (_tc, next) => next);
+  const blocks = keepLiveOutput(
+    incoming.blocks,
+    live,
+    (b) => (b.kind === 'tool' ? b.toolCall : undefined),
+    (b, next) => ({ ...b, toolCall: next }) as ContentBlock,
+  );
+  if (toolCalls === incoming.toolCalls && blocks === incoming.blocks) return incoming;
+  return { ...incoming, toolCalls, blocks };
+}
+
+/**
  * Compute the next assistant message for a session given the incoming
  * catchup payload and the current last message (may be undefined).
  *

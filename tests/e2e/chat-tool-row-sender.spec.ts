@@ -97,7 +97,7 @@ test.describe("the tool row of the window that sent the message", () => {
       // CHAT-TOOL-13: what the silent command is doing.
       const silent = row.getByTestId("shell-silent-status");
       await expect(silent).toBeVisible({ timeout: 5_000 });
-      await expect(silent).toContainText("nessun output finora");
+      await expect(silent).toContainText("nessun output visibile");
       const sleepLeft = row.getByTestId("shell-sleep-countdown");
       await expect(sleepLeft).toBeVisible();
       const first = await secondsLeftShown(sleepLeft);

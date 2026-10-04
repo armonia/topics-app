@@ -5442,13 +5442,21 @@ memoria sulla voce del turno (`ActiveStream.liveToolTails`,
 `server/lib/live-tool-tail.ts`), tagliato agli ultimi 16 KB in byte come la
 coda della shell nativa, MAI scritto sul DB, e SHALL sparire quando il tool ha
 il suo esito. `buildStreamCatchupFrame` SHALL mettere quella coda come `result`
-del tool in corso, nei blocchi e nel bucket `toolCalls` quando viaggia.
+del tool in corso, nei blocchi e nel bucket `toolCalls` quando viaggia. La
+pagina di `GET /api/history/:sessionKey` SHALL fare lo stesso sulla riga
+parziale del turno in volo, con la coda della voce di QUELLA riga (anche se è
+oscurata da un altro turno, `shadowed`): una finestra che si riapre (seconda
+finestra, ricarica, riconnessione, rimontaggio della pane) legge la storia
+DOPO il catch-up, e la copia della storia sostituiva la bolla senza coda
+(misurato il 04/10: `r1..r3` nella finestra che scrive, nessuna riga in una
+seconda finestra, dopo la ricarica e dopo il cambio di tab).
 
 Il client (`mergeCatchupIntoPartial`) SHALL tenere l'output vivo che mostra già
 per un tool in corso quando il catch-up lo porta senza: i blocchi del catch-up
 sostituiscono quelli locali, e senza questa regola la shell tornava vuota a
 ogni ricollegamento, montaggio della pane o ricarica. Un catch-up che porta una
-coda vince.
+coda vince. La stessa regola SHALL valere per la storia (`mergeFetchedHistory`)
+quando la sua copia della riga in volo sostituisce quella locale.
 
 #### Scenario: il catch-up porta la coda
 - **GIVEN** un turno in volo con un `Bash` in corso e una coda di 20 KB in memoria
@@ -5461,6 +5469,12 @@ coda vince.
 - **WHEN** arriva un `stream:catchup` che porta lo stesso tool senza output
 - **THEN** le tre righe restano
 - **AND** un catch-up successivo con una coda nuova la mostra
+
+#### Scenario: la coda resta riaprendo il topic sul server vero
+- **GIVEN** la chat su `:13334` con un codex finto il cui `Bash` stampa `r1`, `r2`, `r3` (`item.updated`) e poi tace
+- **WHEN** una seconda finestra apre il topic a comando in corso, poi si ricarica, poi la sua WebSocket cade e si riapre, poi cambia tab e torna
+- **THEN** in ogni passo la riga è `running` e `shell-running-tail-line` mostra `r1`, `r2`, `r3`
+- **AND** `shell-silent-status` non c'è
 
 ### Requirement: CHAT-TOOL-12 — Un tool riannunciato tiene i suoi primi orari
 
@@ -5486,7 +5500,12 @@ topic d740f8ae il 03/10).
 
 Una riga `shell` in corso con `startedAt`, senza coda viva e senza output,
 SHALL mostrare nel corpo `shell-silent-status`: «In esecuzione da {tempo} ·
-nessun output finora», aggiornato ogni secondo e nascosto nel primo secondo.
+nessun output visibile», aggiornato ogni secondo e nascosto nel primo secondo.
+Il testo SHALL NOT affermare che il comando non ha stampato («nessun output
+finora»): una riga ricostruita dalla storia o da una riadozione senza coda non
+può saperlo, e su un comando che aveva stampato la frase era falsa. Una riga
+che ha la coda viva (da `stream:tool_update`, dal catch-up o dalla storia,
+CHAT-TOOL-11) SHALL NOT mostrare `shell-silent-status`.
 Se il comando comincia con `sleep N` (secondi, o suffisso `s`/`m`/`h`) seguito
 dalla fine del comando, da `;`, `&&`, `||` o da un a capo, SHALL mostrare anche
 `shell-sleep-countdown`: quanto manca alla fine di quella attesa, in secondi
@@ -5496,8 +5515,13 @@ comandi muti restano muti. I testi passano dall'i18n.
 #### Scenario: un sleep si conta alla rovescia
 - **GIVEN** la chat su `:13334` con la CLI finta che lancia `Bash` `sleep 30`
 - **WHEN** il tool gira
-- **THEN** la riga dice da quanto è in esecuzione e che non c'è output
+- **THEN** la riga dice da quanto è in esecuzione e che non c'è output visibile
 - **AND** il conto alla rovescia scende
+
+#### Scenario: un comando che ha stampato non si dice muto in un'altra finestra
+- **GIVEN** la chat su `:13334` con un codex finto il cui `Bash` stampa `r1`, `r2`, `r3` e poi tace
+- **WHEN** una seconda finestra apre il topic a comando in corso
+- **THEN** la riga mostra le tre righe e `shell-silent-status` non c'è
 
 #### Scenario: solo uno sleep in testa conta
 - **WHEN** si legge la durata di `sleep 30; echo ok`, `sleep 2m`, `make && sleep 5` e `sleepy 3`
