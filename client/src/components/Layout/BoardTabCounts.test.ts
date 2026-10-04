@@ -45,7 +45,7 @@ describe('board tab: review + parked + a wait mid-turn', () => {
 
   test('the general board counts the same cards the Dock counts', () => {
     const rows = rowsOf(card('r', { state: 'needs-you', reason: 'review', lit: true }), card('w', { state: 'needs-you', reason: 'question', lit: true }));
-    expect(boardAttention(rows, cards, null).count).toBe(chromeAttentionTotal(rows, {}));
+    expect(boardAttention(rows, cards, null).count).toBe(chromeAttentionTotal(rows, {}, []));
   });
 
   test('a card the list does not hold yet counts on the general board only', () => {

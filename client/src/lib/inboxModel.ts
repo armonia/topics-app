@@ -111,7 +111,7 @@ export function inboxModel(
   const cardById = new Map(cards.map((c) => [c.id, c]));
   const waiting: InboxItem[] = [];
   const finished: InboxItem[] = [];
-  for (const s of chromeAttentionSubjects(rows, topics)) {
+  for (const s of chromeAttentionSubjects(rows, topics, terminalSessions)) {
     const a = attentionOf(rows, s.key);
     const named = nameOf(s.kind, s.id, topics, terminals, cardById);
     if (!named || !a.lit) continue;

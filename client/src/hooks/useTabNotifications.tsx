@@ -68,7 +68,7 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   // attention state, an archived chat never. Dock badge, menu-bar tray glyph,
   // the PWA Badging API and the inbox's button all read `chromeCount`. No
   // history row enters it, and nothing window-local does.
-  const attentionSubjects = useMemo(() => chromeAttentionSubjects(attention, topics), [attention, topics]);
+  const attentionSubjects = useMemo(() => chromeAttentionSubjects(attention, topics, terminalSessions), [attention, topics, terminalSessions]);
   const chromeCount = attentionSubjects.length;
   // The chat and terminal rows of the tray menu, from the subjects the glyph
   // counts, so the menu lists what the number says.

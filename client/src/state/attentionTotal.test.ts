@@ -67,18 +67,18 @@ const fixture = () => {
 describe("chromeAttentionTotal", () => {
   test("counts the lit SUBJECTS: chats, terminals and cards, an archived chat never", () => {
     const f = fixture();
-    expect(chromeAttentionSubjects(f.rows, f.topics).map((s) => s.key).sort()).toEqual(
+    expect(chromeAttentionSubjects(f.rows, f.topics, f.terminals).map((s) => s.key).sort()).toEqual(
       ["task:p1", "task:r1", "task:w1", "terminal:s1", "topic:a", "topic:b", "topic:c"],
     );
   });
 
   test("a chat with many unread messages is ONE, not the message sum", () => {
-    expect(chromeAttentionTotal(rowsOf(done("topic:a", { unread: 39 })), { a: topic("a") })).toBe(1);
+    expect(chromeAttentionTotal(rowsOf(done("topic:a", { unread: 39 })), { a: topic("a") }, [])).toBe(1);
   });
 
   test("work that runs on its own and a chat already seen count zero, whatever their unread", () => {
     const f = fixture();
-    const subjects = chromeAttentionSubjects(f.rows, f.topics).map((s) => s.key);
+    const subjects = chromeAttentionSubjects(f.rows, f.topics, f.terminals).map((s) => s.key);
     expect(subjects).not.toContain("topic:bg");
     expect(subjects).not.toContain("topic:seen");
     expect(subjects).not.toContain("terminal:s2");
@@ -91,26 +91,39 @@ describe("chromeAttentionTotal", () => {
       openPanels: ["a", "b", "c", "bg", "seen", "terminal:s1", "terminal:s2"],
     });
     const board = boardAttention(f.rows, [], null).count;
-    expect(litRows(items) + board).toBe(chromeAttentionTotal(f.rows, f.topics));
+    expect(litRows(items) + board).toBe(chromeAttentionTotal(f.rows, f.topics, f.terminals));
   });
 
   test("PARITY holds with 'show archived' on: the archived row is listed and carries no number", () => {
     const f = fixture();
     const items = buildSidebarItems({ topics: f.topics, terminalSessions: f.terminals, showArchived: true, attention: f.rows, openPanels: ["terminal:s1"] });
     expect(items.find((i) => i.id === "old")?.notificationCount).toBe(0);
-    expect(litRows(items) + boardAttention(f.rows, [], null).count).toBe(chromeAttentionTotal(f.rows, f.topics));
+    expect(litRows(items) + boardAttention(f.rows, [], null).count).toBe(chromeAttentionTotal(f.rows, f.topics, f.terminals));
+  });
+
+  test("PARITY when a lit terminal leaves the roster (its PTY crashed mid-turn, the reaper parked it): it counts nowhere", () => {
+    // Review 2, surfaces B1: the sidebar, the project row and the agents menu
+    // read the roster; the Dock, the tray and the inbox kept the exited one.
+    const topics = { a: topic("a") };
+    const rows = rowsOf(done("topic:a"), done("terminal:gone", { outcome: "error" }), done("terminal:s1"));
+    const roster = [term("s1")];
+    const items = buildSidebarItems({ topics, terminalSessions: roster, showArchived: false, attention: rows, openPanels: ["a", "terminal:gone", "terminal:s1"] });
+    const subjects = chromeAttentionSubjects(rows, topics, roster);
+    expect(subjects.map((s) => s.key).sort()).toEqual(["terminal:s1", "topic:a"]);
+    expect(litRows(items) + boardAttention(rows, [], null).count).toBe(chromeAttentionTotal(rows, topics, roster));
+    expect(trayChatItems(subjects, rows, topics, roster).map((i) => i.id)).not.toContain("terminal:gone");
   });
 
   test("seeing a chat drops exactly its ONE and nothing else", () => {
     const f = fixture();
-    const before = chromeAttentionTotal(f.rows, f.topics);
+    const before = chromeAttentionTotal(f.rows, f.topics, f.terminals);
     const after = new Map(f.rows);
     after.set("topic:a", done("topic:a", { lit: false, seenEpoch: 1 }));
-    expect(chromeAttentionTotal(after, f.topics)).toBe(before - 1);
+    expect(chromeAttentionTotal(after, f.topics, f.terminals)).toBe(before - 1);
   });
 
   test("nothing lit is 0, the cleared badge", () => {
-    expect(chromeAttentionTotal(new Map(), {})).toBe(0);
+    expect(chromeAttentionTotal(new Map(), {}, [])).toBe(0);
   });
 });
 
@@ -123,7 +136,7 @@ describe("trayChatItems: the tray lists the chats and terminals its number count
       done("terminal:s1", { since: "2026-10-03T10:09:00.000Z" }),
       ask("task:r1", "review"),
     );
-    const items = trayChatItems(chromeAttentionSubjects(rows, topics), rows, topics, [term("s1")]);
+    const items = trayChatItems(chromeAttentionSubjects(rows, topics, [term("s1")]), rows, topics, [term("s1")]);
     expect(items).toEqual([{ id: "b", title: "b" }, { id: "terminal:s1", title: "term s1" }, { id: "a", title: "a" }]);
   });
 
@@ -132,7 +145,7 @@ describe("trayChatItems: the tray lists the chats and terminals its number count
     const all: AttentionSnapshot[] = [];
     for (let i = 0; i < TRAY_CHAT_ROWS + 4; i++) { topics[`t${i}`] = topic(`t${i}`); all.push(done(`topic:t${i}`)); }
     const rows = rowsOf(...all);
-    expect(trayChatItems(chromeAttentionSubjects(rows, topics), rows, topics, [])).toHaveLength(TRAY_CHAT_ROWS);
+    expect(trayChatItems(chromeAttentionSubjects(rows, topics, []), rows, topics, [])).toHaveLength(TRAY_CHAT_ROWS);
   });
 });
 

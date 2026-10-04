@@ -42,9 +42,19 @@ function kindOf(subject: string): { kind: ChromeSubjectKind; id: string } | null
  * filter here keeps a row that raced the archive from lighting a Dock nobody
  * can switch off. Work that runs on its own is not lit, and no history row
  * enters.
+ *
+ * A terminal counts only while it is in the roster: the sidebar, the project
+ * row, the state view and the agents menu read the roster, and a terminal
+ * whose session exited (a crash mid-turn, the idle reaper parking it) has no
+ * row there to switch off (review 2 of notifications-redesign, surfaces B1).
  */
-export function chromeAttentionSubjects(rows: AttentionRows, topics: Record<string, Topic>): ChromeSubject[] {
+export function chromeAttentionSubjects(
+  rows: AttentionRows,
+  topics: Record<string, Topic>,
+  terminalSessions: readonly TerminalSessionInfo[],
+): ChromeSubject[] {
   const out: ChromeSubject[] = [];
+  let roster: Set<string> | null = null;
   for (const [subject, row] of rows) {
     if (!row.lit) continue;
     const a = attentionOf(rows, subject);
@@ -52,13 +62,18 @@ export function chromeAttentionSubjects(rows: AttentionRows, topics: Record<stri
     const k = kindOf(subject);
     if (!k) continue;
     if (k.kind === 'chat' && topics[k.id]?.archived) continue;
+    if (k.kind === 'terminal' && !(roster ??= new Set(terminalSessions.map((t) => t.id))).has(k.id)) continue;
     out.push({ key: subject, kind: k.kind, id: k.id });
   }
   return out;
 }
 
-export function chromeAttentionTotal(rows: AttentionRows, topics: Record<string, Topic>): number {
-  return chromeAttentionSubjects(rows, topics).length;
+export function chromeAttentionTotal(
+  rows: AttentionRows,
+  topics: Record<string, Topic>,
+  terminalSessions: readonly TerminalSessionInfo[],
+): number {
+  return chromeAttentionSubjects(rows, topics, terminalSessions).length;
 }
 
 /** How many chats and terminals the tray menu lists: the menu stays short. */

@@ -62,8 +62,13 @@ describe('inboxModel: «Waiting for you» and «Finished»', () => {
     expect(model.finished.find((i) => i.subject === 'topic:a')?.seen).toEqual({ subject: 'topic:a', epoch: 4, turnAt: '2026-10-03T10:04:00.000Z' });
   });
 
+  test('a lit terminal whose session left the roster is not listed: the inbox says what the sidebar shows', () => {
+    const gone = inboxModel(rowsOf(done('terminal:gone', 1)), {}, [], []);
+    expect(gone.finished).toEqual([]);
+  });
+
   test('the panel lists exactly what the chrome counts', () => {
-    expect(model.waiting.length + model.finished.length).toBe(chromeAttentionTotal(rows, topics));
+    expect(model.waiting.length + model.finished.length).toBe(chromeAttentionTotal(rows, topics, [term('s1')]));
   });
 
   test('«Mark all seen» sends the finished rows only: with three finished and two waiting the number is 2', () => {
@@ -72,7 +77,7 @@ describe('inboxModel: «Waiting for you» and «Finished»', () => {
     expect(items.map((i) => i.subject).sort()).toEqual(['topic:a', 'topic:b', 'topic:c']);
     const after = new Map(three);
     for (const i of items) after.set(i.subject, { ...three.get(i.subject)!, seenEpoch: i.epoch, lit: false });
-    expect(chromeAttentionTotal(after, topics)).toBe(2);
+    expect(chromeAttentionTotal(after, topics, [])).toBe(2);
   });
 });
 
@@ -90,7 +95,7 @@ describe('inboxModel: the quiet line', () => {
     expect(model.finished).toEqual([]);
     expect(model.background.map((q) => q.subject).sort()).toEqual(['topic:x', 'topic:y']);
     expect(model.working.map((q) => q.subject)).toEqual(['topic:z']);
-    expect(chromeAttentionTotal(rows, topics)).toBe(0);
+    expect(chromeAttentionTotal(rows, topics, [])).toBe(0);
   });
 
   test('the first task named is the first one that is not a recurring cron', () => {

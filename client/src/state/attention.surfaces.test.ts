@@ -61,7 +61,7 @@ function surfaces(topics: Record<string, Topic>, id: string, roster: TerminalSes
     backgroundGlyph: a.tier === 'background',
     tabRowFill: a.lit ? a.tier : null,
     tabRowNumber: a.count,
-    bellAndDock: chromeAttentionTotal(r, topics),
+    bellAndDock: chromeAttentionTotal(r, topics, roster),
     agentsMenuBackground: menu.background.map((x) => x.id),
     agentsMenuFinished: menu.finished.map((x) => x.id),
     projectFill: project.tier,
@@ -119,7 +119,7 @@ describe('A. a chat waiting on its own background work asks nothing (BG-1, BG-3,
       waitingOnBackground: a.tier === 'background' && a.background.length === 2,
       doneMark: a.lit,
       banner: announceBannerOf(frame, { notificationsEnabled: true, notifyEvenWhenFocused: true, pushSubscribed: false }, ledger),
-      globalCount: chromeAttentionTotal(rows(), topics),
+      globalCount: chromeAttentionTotal(rows(), topics, []),
     }).toEqual({ waitingOnBackground: true, doneMark: false, banner: null, globalCount: 0 });
   });
 });
@@ -171,7 +171,7 @@ describe('C. the same fact counts the same for a chat and a terminal (TERM-1)', 
       chat: { fill: attentionOf(r, 'topic:T').tier, number: attentionOf(r, 'topic:T').count },
       terminal: { fill: attentionOf(r, 'terminal:S').tier, number: attentionOf(r, 'terminal:S').count },
       agentsMenuFinished: menu.finished.map((x) => x.id).sort(),
-      bell: chromeAttentionSubjects(r, topics).map((x) => x.key).sort(),
+      bell: chromeAttentionSubjects(r, topics, roster).map((x) => x.key).sort(),
     }).toEqual({
       chat: { fill: 'done', number: 1 },
       terminal: { fill: 'done', number: 1 },
@@ -201,7 +201,7 @@ describe('E. an archived chat counts nowhere (ARCH-1)', () => {
   test('E1 a lit row that raced the archive: sidebar 0, bell/Dock/tray 0', () => {
     const topics = { T: topic('T', { archived: true }) };
     updated(finished('topic:T'));
-    expect(chromeAttentionTotal(rows(), topics)).toBe(0);
+    expect(chromeAttentionTotal(rows(), topics, [])).toBe(0);
   });
 });
 
@@ -209,9 +209,9 @@ describe('the init frame replaces the store (F1, B4)', () => {
   test('a subject switched off while the socket was down is off after the reconnect', () => {
     const topics = { T: topic('T'), U: topic('U') };
     attentionActions.applyFrame({ type: 'attention:init', rows: [finished('topic:T'), finished('topic:U')] });
-    expect(chromeAttentionTotal(rows(), topics)).toBe(2);
+    expect(chromeAttentionTotal(rows(), topics, [])).toBe(2);
     attentionActions.applyFrame({ type: 'attention:init', rows: [finished('topic:U')] });
-    expect(chromeAttentionTotal(rows(), topics)).toBe(1);
+    expect(chromeAttentionTotal(rows(), topics, [])).toBe(1);
     expect(attentionOf(rows(), 'topic:T').tier).toBeNull();
   });
 });

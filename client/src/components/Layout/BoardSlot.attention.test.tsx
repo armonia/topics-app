@@ -45,7 +45,7 @@ test('one card in review and one parked: the general board tab says 2, as the in
   const inbox = inboxModel(rows, {}, [], [{ id: 'r1', text: 'Review me' }, { id: 'k1', text: 'Parked' }]).waiting.length;
   expect(String(badge?.props['data-notification-count'])).toBe('2');
   expect(inbox).toBe(2);
-  expect(chromeAttentionTotal(rows, {})).toBe(2);
+  expect(chromeAttentionTotal(rows, {}, [])).toBe(2);
 });
 
 /** The number the Board row draws on its first count (`board-count-review`), or null. */
