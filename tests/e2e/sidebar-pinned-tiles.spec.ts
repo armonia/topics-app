@@ -56,6 +56,27 @@ async function gotoSidebar(page: Page): Promise<void> {
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 }
 
+/** The review and in-progress numbers the Board row paints (0 when it draws none). */
+async function boardRowCounts(row: Locator): Promise<{ review: number; in_progress: number }> {
+  const read = async (status: string) => {
+    const el = row.getByTestId(`board-count-${status}`);
+    return (await el.count()) ? Number((await el.textContent())?.trim() ?? "0") : 0;
+  };
+  return { review: await read("review"), in_progress: await read("in_progress") };
+}
+
+/** The Board row's counts once two readings 250ms apart agree: the row is measured before it draws them. */
+async function settledCounts(row: Locator): Promise<{ review: number; in_progress: number }> {
+  let previous = "";
+  let current = "";
+  await expect.poll(async () => {
+    previous = current;
+    current = JSON.stringify(await boardRowCounts(row));
+    return current === previous;
+  }, { intervals: [250], timeout: 10000 }).toBe(true);
+  return JSON.parse(current) as { review: number; in_progress: number };
+}
+
 /** Crea una cartella con dentro una `favicon.png` vera, cosi' il progetto ha
  *  un'icona e la tessera prende il ramo «icona reale».
  *
@@ -1024,31 +1045,48 @@ test.describe("Sidebar — il ritmo verticale del blocco fissati", () => {
     // numeri, e quella cosa — «quanti in review, quanti stanno girando» — e'
     // esattamente cio' che si vuole senza aprire niente. E il badge col totale
     // non distingueva se ad aspettare fossi tu o un agente.
+    // The two numbers count the whole test server, and a spec that ran earlier
+    // in the shard can leave a card lit or running: on PR #229 the review count
+    // said 2 where this spec lit 1. The contract is what THESE three cards add
+    // to the row, so each count is read against the one the row painted before
+    // they existed, like NH-01 (#227) and NOTIF-ONE (#224).
+    await page.addInitScript(() => {
+      const w = window as unknown as { __appBadgePainted: boolean };
+      w.__appBadgePainted = false;
+      const nav = navigator as unknown as { setAppBadge: () => Promise<void>; clearAppBadge: () => Promise<void> };
+      nav.setAppBadge = () => { w.__appBadgePainted = true; return Promise.resolve(); };
+      nav.clearAppBadge = () => { w.__appBadgePainted = true; return Promise.resolve(); };
+    });
     const stamp = Date.now();
     const creati: string[] = [];
-    for (const [text, status] of [
-      [`E2E-Conta-Review-${stamp}`, "review"],
-      [`E2E-Conta-Corso-A-${stamp}`, "in_progress"],
-      [`E2E-Conta-Corso-B-${stamp}`, "in_progress"],
-    ]) {
-      const res = await request.post(`${E2E_BASE}/api/boards/_none/tasks`, { data: { text, status } });
-      expect(res.ok()).toBe(true);
-      creati.push((await res.json()).id as string);
-    }
 
     try {
       await setPins(page, []);
+      const feed = page.waitForResponse((r) => r.url().includes("/api/all-boards/tasks") && r.ok(), { timeout: 15000 });
       await gotoSidebar(page);
       const riga = page.getByTestId("sidebar-board-generale");
       await expect(riga).toBeVisible({ timeout: 15000 });
+      await feed;
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __appBadgePainted?: boolean }).__appBadgePainted === true), { timeout: 15000 }).toBe(true);
+      const before = await settledCounts(riga);
+
+      for (const [text, status] of [
+        [`E2E-Conta-Review-${stamp}`, "review"],
+        [`E2E-Conta-Corso-A-${stamp}`, "in_progress"],
+        [`E2E-Conta-Corso-B-${stamp}`, "in_progress"],
+      ]) {
+        const res = await request.post(`${E2E_BASE}/api/boards/_none/tasks`, { data: { text, status } });
+        expect(res.ok()).toBe(true);
+        creati.push((await res.json()).id as string);
+      }
 
       // Niente da aprire: nessun chevron, nessuna fascia.
       await expect(page.getByTestId("sidebar-board-chevron")).toHaveCount(0);
       await expect(page.getByTestId("board-state-band")).toHaveCount(0);
 
       // I conteggi stanno sulla riga, e sono quelli veri.
-      await expect(riga.getByTestId("board-count-review")).toHaveText(/1/, { timeout: 15000 });
-      await expect(riga.getByTestId("board-count-in_progress")).toHaveText(/2/);
+      await expect(riga.getByTestId("board-count-review")).toHaveText(String(before.review + 1), { timeout: 15000 });
+      await expect(riga.getByTestId("board-count-in_progress")).toHaveText(String(before.in_progress + 2), { timeout: 15000 });
       // Una colonna vuota non disegna un numero: uno zero non e' informazione.
       await expect(riga.getByTestId("board-count-todo")).toHaveCount(0);
 
