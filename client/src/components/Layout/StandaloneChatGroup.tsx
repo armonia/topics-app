@@ -1,10 +1,12 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
-import { Search } from 'lucide-react';
+import { Search, Settings } from 'lucide-react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
+import { openContextMenuAt, useLongPress } from '../../hooks/useLongPress';
 import { ChatPanel } from './ChatPanel';
 import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
@@ -480,6 +482,14 @@ export function StandaloneChatGroup({
     handleSplitRight, handleSplitDown, handleDetach, handleUnsolo,
     handleCloseOthers,
   } = lifecycle.handlers;
+
+  // THE PHONE'S DOOR TO THE CHAT SETTINGS (model-selector AC-39). Under 768px
+  // the name of the surface replaces the tab strip, and the tab menu, the only
+  // door to «Impostazioni della chat», went with it. Holding the name (or a
+  // right click on it) opens a menu with that item when the surface is a chat.
+  const [titleMenu, setTitleMenu] = useState<{ x: number; y: number } | null>(null);
+  const titleLongPress = useLongPress(openContextMenuAt, { enabled: mobile });
+  const chatInFront = surfaceInFront?.type === 'chat' ? surfaceInFront.id : null;
 
   // Cross-group drop: accept a tab dragged from another group (solo or project).
   // When a tab is dropped onto another group's tab bar:
@@ -978,13 +988,19 @@ export function StandaloneChatGroup({
           {...DRAG_REGION}
         >
           {mobile ? (
-            // Il nome della superficie al posto della striscia. Stesso corpo
-            // della tab che c'era qui (`TAB_LABEL`) e stessa riserva a sinistra
-            // che la strip usava per non finire sotto il comando: la riga si
-            // svuota, non si sposta. Non è un bersaglio — non attiva, non
-            // chiude, non si trascina: per cambiare superficie c'è la lista.
+            // The surface's name instead of the strip. Same type as the tab
+            // that was here (`TAB_LABEL`) and the same reserve on the left the
+            // strip kept clear of the command: the row empties, it does not
+            // move. It does not activate, close or drag (the list switches
+            // surfaces); held on a chat it opens the menu with the chat settings.
             <div
               data-testid="mobile-pane-title"
+              {...titleLongPress.handlers}
+              onContextMenu={(event) => {
+                if (!chatInFront) return;
+                event.preventDefault();
+                setTitleMenu({ x: event.clientX, y: event.clientY });
+              }}
               className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
               {/* The open chat's chosen colour, before its name: the phone
@@ -999,6 +1015,25 @@ export function StandaloneChatGroup({
             </div>
           ) : (
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
+          )}
+          {mobile && (
+            <ContextMenuPortal
+              open={!!titleMenu && !!chatInFront}
+              x={titleMenu?.x ?? 0}
+              y={titleMenu?.y ?? 0}
+              onClose={() => setTitleMenu(null)}
+              testId="mobile-pane-title-menu"
+              ariaLabel={titleSurface}
+            >
+              <button
+                type="button"
+                onClick={() => { if (chatInFront) handleSettings(chatInFront); setTitleMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors"
+              >
+                <Settings size={14} aria-hidden="true" />
+                <span>{tr('chat.panel.topicSettings')}</span>
+              </button>
+            </ContextMenuPortal>
           )}
           {onToggleSidebar && (
             // La coppia del «+» in coda alla riga: stesso box

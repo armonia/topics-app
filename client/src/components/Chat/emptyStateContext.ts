@@ -22,6 +22,9 @@ export function contextBits(
   /** Il modello che la chat userebbe ADESSO, quando il topic non ne impone uno.
    *  Facoltativo: senza, la riga si comporta come prima. */
   modelEffettivo?: string | null,
+  /** The names the model selector writes for an id and an engine («Opus 5.5»,
+   *  «Claude Code»): without them the line prints the raw ids. */
+  names?: { model: (id: string) => string; provider: (name: string) => string },
 ): string[] {
   const bits: string[] = [];
   if (topic.projectPath) {
@@ -38,9 +41,9 @@ export function contextBits(
   // stessa `resolveEffectiveProvider` della barra: una fonte sola, o un giorno
   // divergono di nuovo.
   const modello = topic.model || modelEffettivo;
-  if (modello) bits.push(t('chat.empty.model', { model: modello }));
+  if (modello) bits.push(t('chat.empty.model', { model: names ? names.model(modello) : modello }));
   if (topic.effort) bits.push(t('chat.empty.effort', { effort: topic.effort }));
-  if (topic.provider) bits.push(t('chat.empty.provider', { provider: topic.provider }));
+  if (topic.provider) bits.push(t('chat.empty.provider', { provider: names ? names.provider(topic.provider) : topic.provider }));
   if (topic.autonomyLevel === 'ask') bits.push(t('chat.empty.autonomyAsk'));
   else if (topic.autonomyLevel === 'auto-apply') bits.push(t('chat.empty.autonomyAutoApply'));
   else if (topic.autonomyLevel === 'yolo') bits.push(t('chat.empty.autonomyYolo'));

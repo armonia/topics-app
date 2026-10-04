@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { goToApp, ensureTopicVisible } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { modelDisplayLabel } from "../../client/src/lib/modelLabel";
 
 hermetic(test);
 
@@ -82,8 +83,10 @@ test.describe("la chat vuota dice come risponderà", () => {
     if (await picker.count()) {
       const modelloBarra = await picker.getAttribute("data-model");
       if (modelloBarra) {
+        // With the selector's name, not the raw id (model-selector AC-28).
         await expect(riga, "la riga del vuoto dice lo stesso modello della barra")
-          .toContainText(String(modelloBarra).split("[")[0]);
+          .toContainText(modelDisplayLabel(String(modelloBarra)));
+        await expect(riga).not.toContainText(String(modelloBarra).split("[")[0]);
       }
     }
     await page.screenshot({ path: join(SHOTS, "chat-vuota-contesto.png") });

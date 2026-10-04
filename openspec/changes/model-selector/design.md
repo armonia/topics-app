@@ -764,3 +764,29 @@ account aprono il pannello dei provider di oggi») è chiuso: piede, «Sistema �
   `provider-limit-notice`, `user-menu-forms`, `chat-slash-local-answers`, `context-settings`) sono
   riscritte sul contratto nuovo; i criteri del livello e del dettaglio sono in
   `model-panels-providers.spec.ts`.
+
+### 9.4 Spec e2e della revisione (04/10): dove il codice si scosta, e cosa le spec hanno trovato
+
+I criteri della revisione sono in `model-selector-revision.spec.ts` (selettore) e
+`model-panels-providers.spec.ts` (livello Provider), rossi su `origin/main` e verdi sul ramo in
+WebKit. Scritte e lanciate, le spec hanno trovato quattro difetti, corretti qui:
+
+- **I divisori fra le colonne erano invisibili** (AC-38): usavano `--border`, che sul fondo del
+  popover fa 1,09:1 in chiaro e circa 1:1 in scuro. Ora hanno i colori che il §4.4 della revisione
+  scrive, `#d3d5d9` e `#3d4044` (`COLUMN_DIVIDER` in `ModelList.tsx`), sia fra le colonne sia sopra
+  la griglia. Non è uno scarto, è il design applicato.
+- **La riga della fascia sul telefono faceva 4,48:1** (AC-34, axe): sotto i 768 px il fondo del foglio
+  è più scuro (`--popover-bg` all'88%), e il testo secondario sul blu della fascia scendeva sotto
+  4,5:1. Scarto dal §4.4 («i testi secondari usano `--text-secondary`»): sotto i 768 px la riga usa
+  `--text`. Sul desktop resta secondaria.
+- **Sul telefono le impostazioni della chat non avevano una porta** (AC-39, la causa che la revisione
+  non aveva diagnosticato): sotto i 768 px la striscia delle tab è sostituita dal nome della
+  superficie (`mobile-pane-title`), e con la striscia spariva il menu della tab, l'unica strada per
+  «Impostazioni della chat». Scarto dal §6 della revisione, che diceva «tenendo premuta la scheda
+  della chat»: sul telefono la scheda non c'è, quindi si tiene premuto il nome della chat in cima,
+  che apre un menu con quella voce (`StandaloneChatGroup.tsx`). Emendato lo scenario di MSEL-08.
+- **La riga del vuoto della chat scriveva gli id grezzi** («modello claude-opus-5-5 · via
+  claude-code») un centimetro sopra il chip che scrive «Automatico · Claude Code». Ora scrive i nomi
+  del selettore (`catalogModelLabel` e l'etichetta dello snapshot). AC-28 vieta gli id grezzi in
+  selettore, livello e dettaglio; la riga del vuoto non è fra queste superfici, ma è la stessa
+  informazione.

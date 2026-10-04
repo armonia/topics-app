@@ -13,7 +13,7 @@
  * @covers SETHOME-01 USERMENU-10 AICTRL-01 MSEL-01
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { AxeResults } from "axe-core";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
@@ -22,6 +22,11 @@ import type { ProvidersSnapshot } from "../../shared/types";
 import { KEYS, NO_KEYS, mockSnapshot, snapshotOf } from "./fixtures/model-panels-fleet";
 
 hermetic(test);
+// On WebKit a page the service worker controls (from its second load on) sends
+// its requests past `page.route`: the snapshot and the settings this file
+// hands in would come from the test server instead (seen 04/10, the key form's
+// POST reached the server once in four runs). Same fix as chat-tail-first.
+test.use({ serviceWorkers: "block" });
 test.use({ video: "on" });
 
 /** The order of the cards on the fleet «with keys»: the table, then the endpoints. */
@@ -92,6 +97,12 @@ async function axeViolations(page: Page, include: string) {
     });
     return result.violations.map(({ id, nodes }) => ({ id, nodes: nodes.slice(0, 4).map(({ target, failureSummary }) => ({ target, failureSummary })) }));
   }, include);
+}
+
+/** The evidence for the maintainer, when `MSEL_SHOTS_DIR` is set (openspec/changes/model-selector/screenshots). */
+async function shot(page: Page, name: string) {
+  const dir = process.env.MSEL_SHOTS_DIR;
+  if (dir) await page.screenshot({ path: join(dir, `revision-impl-${name}.png`) });
 }
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
@@ -188,11 +199,52 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
         expect((await cards.getByTestId("provider-card-open").getAttribute("aria-label"))?.toLowerCase()).toContain(maker.toLowerCase());
       }
     });
+
+    test("axe finds no violation of the five rules on the list, light and dark (AC-34)", async ({ page, request }) => {
+      const { picker } = await openChat(page, request, KEYS);
+      await openProvidersLevel(page, picker);
+      await shot(page, `providers-${viewport.width}-light`);
+      expect(await axeViolations(page, '[data-testid="providers-level"]'), "light").toEqual([]);
+      await page.emulateMedia({ colorScheme: "dark" });
+      await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true);
+      await shot(page, `providers-${viewport.width}-dark`);
+      expect(await axeViolations(page, '[data-testid="providers-level"]'), "dark").toEqual([]);
+    });
   });
 }
 
 test.describe("desktop 1440 × 900, the list and the detail", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the whole gesture: open, «Provider e chiavi», ‹ back with the models as they were, pick a model (AC-20)", async ({ page, request }) => {
+    const { picker } = await openChat(page, request, KEYS);
+    await picker.click();
+    await expect(models(page)).toBeVisible();
+    const search = models(page).getByTestId("model-selector-search");
+    const openAiGroup = models(page).getByTestId("model-section-openai");
+    const older = openAiGroup.getByTestId("model-section-older");
+    await older.click();
+    await expect(older).toHaveAttribute("aria-expanded", "true");
+    await search.fill("gpt-5");
+    await models(page).getByTestId("ai-selector-providers").click();
+    await expect(level(page)).toBeVisible();
+    await expect(card(page, "codex")).toBeVisible();
+    await page.getByTestId("level-back").click();
+    await expect(models(page)).toBeVisible();
+    await expect(search).toHaveValue("gpt-5");
+    await search.fill("");
+    await expect(older).toHaveAttribute("aria-expanded", "true");
+    await openAiGroup.locator('[data-testid="model-row"][data-model="gpt-5.5"]').first().click();
+    await expect(popover(page)).toHaveCount(0);
+    await expect(picker).toHaveAttribute("data-model", "gpt-5.5");
+    await expect(page.getByTestId("provider-model-picker-label")).toHaveText(/^GPT-5\.5 · via /);
+    const video = page.video();
+    const dir = process.env.MSEL_SHOTS_DIR;
+    if (video && dir) {
+      await page.close();
+      await video.saveAs(join(dir, "revision-impl-flow.webm"));
+    }
+  });
 
   test("one list, the snapshot's providers once in the fixed order, no group titles (AC-06, AC-28, AC-29)", async ({ page, request }) => {
     const { picker } = await openChat(page, request, KEYS);
@@ -429,5 +481,16 @@ test.describe("phone 390 × 844", () => {
     const [label, value] = await row.evaluate((el) => [...el.children].map((child) => child.getBoundingClientRect().top));
     expect(value!).toBeGreaterThan(label!);
     await page.screenshot({ path: test.info().outputPath("detail-phone.png") });
+  });
+
+  test("axe finds no violation of the five rules on the phone list, light and dark (AC-34)", async ({ page, request }) => {
+    const { picker } = await openChat(page, request, KEYS);
+    await openProvidersLevel(page, picker);
+    await shot(page, "providers-phone-light");
+    expect(await axeViolations(page, '[data-testid="providers-level"]'), "light").toEqual([]);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true);
+    await shot(page, "providers-phone-dark");
+    expect(await axeViolations(page, '[data-testid="providers-level"]'), "dark").toEqual([]);
   });
 });

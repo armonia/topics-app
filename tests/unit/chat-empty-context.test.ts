@@ -136,4 +136,14 @@ describe("il contesto di una chat vuota", () => {
     const bits = contextBits(topic(), t, null);
     expect(bits).toEqual([]);
   });
+
+  it("with the selector's names the line writes labels, not raw ids", () => {
+    // The chip under the composer reads «Opus 5.5 · via Claude Code»; the
+    // line above it printed «claude-opus-5-5 · via claude-code».
+    const names = { model: (id: string) => `label(${id})`, provider: (name: string) => `engine(${name})` };
+    expect(contextBits(topic({ provider: "claude-code" }), t, "claude-opus-5-5", names)).toEqual([
+      "chat.empty.model(label(claude-opus-5-5))",
+      "chat.empty.provider(engine(claude-code))",
+    ]);
+  });
 });

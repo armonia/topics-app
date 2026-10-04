@@ -70,6 +70,8 @@ export interface ModelListProps {
 export const HIDDEN_CONNECT_KEY = 'topics.modelSelector.hiddenConnect';
 /** The active ink: 4.5:1 on the popover in both themes (revision §4.4). */
 const ACTIVE_INK = 'text-blue-800 dark:text-blue-300';
+/** The column dividers, `#d3d5d9` / `#3d4044` as the revision draws them (§4.4). */
+const COLUMN_DIVIDER = 'border-[#d3d5d9] dark:border-[#3d4044]';
 const STATUS_DOT: Record<GroupStatus, string> = {
   ready: 'bg-emerald-600 dark:bg-emerald-400',
   unavailable: 'bg-zinc-400 dark:bg-zinc-500',
@@ -127,7 +129,9 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
         <span className="font-semibold text-app-text">{tr('ai.selector.routing')}</span>{' '}
         <span
           data-testid="model-selector-routing-line"
-          className={direct ? SEGNALE_ATTESA : 'text-app-text-secondary'}
+          // Under 768px the sheet's popover is darker (`--popover-bg` 88%), and
+          // the secondary ink on the blue band fell to 4.48:1 (AC-34, axe).
+          className={direct ? SEGNALE_ATTESA : 'text-app-text-secondary max-md:text-app-text'}
         >
           {line}
         </span>
@@ -712,7 +716,10 @@ export function ModelList(props: ModelListProps) {
           data-model-list-sections=""
           data-testid="model-selector-sections"
           className={isColumns
-            ? 'grid min-h-0 flex-1 border-t border-app-border'
+            // The dividers of the columns are the design's own (revision §4.4,
+            // AC-38): `--border` is 1.09:1 on the popover in light and about
+            // 1:1 in dark, so the columns read as one block.
+            ? `grid min-h-0 flex-1 border-t ${COLUMN_DIVIDER}`
             : 'min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-app-border'}
           style={isColumns ? { gridTemplateColumns: `repeat(${Math.max(1, columns.length)}, minmax(0, 1fr))` } : undefined}
         >
@@ -723,7 +730,7 @@ export function ModelList(props: ModelListProps) {
                 key={column.map((group) => group.maker).join(',')}
                 data-model-column={index}
                 data-testid="model-column"
-                className="flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-l border-app-border first:border-l-0"
+                className={`flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-l first:border-l-0 ${COLUMN_DIVIDER}`}
               >
                 {column.map((group) => groupView(group, index))}
               </div>

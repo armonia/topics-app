@@ -3,6 +3,8 @@ import { useT } from '../../hooks/useT';
 import { contextBits } from './emptyStateContext';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
+import { catalogModelLabel } from '../../lib/modelLabel';
+import { providerLabel } from '../../../../shared/provider-labels';
 import { shortcut } from '../../lib/shortcutLabel';
 import { ClipboardList, RefreshCw, Bug, Lightbulb, PenLine, Search, Sparkles } from 'lucide-react';
 
@@ -90,7 +92,11 @@ export function ChatEmptyState({
     topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
     topic.provider ?? undefined,
   );
-  const bits = contextBits(topic, t, effettivo?.model ?? null);
+  // The same names as the model chip a centimetre below, not the raw ids.
+  const bits = contextBits(topic, t, effettivo?.model ?? null, {
+    model: (id) => catalogModelLabel(snapshot, topic.provider ?? effettivo?.provider, id),
+    provider: (name) => snapshot?.providers.find((entry) => entry.name === name)?.label ?? providerLabel(name),
+  });
 
   return (
     <div

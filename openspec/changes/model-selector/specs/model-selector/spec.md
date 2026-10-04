@@ -303,6 +303,12 @@ automatica).
 - **WHEN** l'utente preme ↓ fino a GPT-6.1-Sol e poi Invio
 - **THEN** il valore è Codex con GPT-6.1-Sol e il fuoco torna al trigger
 
+#### Scenario: le impostazioni della chat sul telefono
+- **GIVEN** una chat aperta su uno schermo largo 390 px, dove al posto delle tab c'è il nome della chat
+- **WHEN** l'utente tiene premuto il nome e sceglie «Impostazioni della chat»
+- **THEN** il trigger del modello scrive «etichetta · chi esegue» e apre il selettore come foglio dal basso
+- **AND** Esc chiude il foglio e lascia le impostazioni aperte, col fuoco sul trigger
+
 ### Requirement: MSEL-09: Il catalogo porta i metadati per modello
 
 Lo snapshot SHALL portare in `modelInfo`, per modello e quando la fonte li ha:
