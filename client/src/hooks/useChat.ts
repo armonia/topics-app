@@ -2179,12 +2179,18 @@ export function useChat() {
                 commitTextBefore();
                 for (const tc of delta.tool_calls) {
                   if (tc.function?.name) {
+                    // The lifecycle rides along when the server knows it: a
+                    // native call is `pending` until it really starts, and only
+                    // then gets its `startedAt`. Absent keys stay absent, so
+                    // the merge by id keeps what the row already had.
                     const toolCall: ToolCall = {
                       id: tc.id || generateMessageId(),
                       name: tc.function.name,
                       args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-                      status: 'running',
+                      status: tc.status ?? 'running',
                       contentOffset: tc.contentOffset,
+                      ...(typeof tc.startedAt === 'number' ? { startedAt: tc.startedAt } : {}),
+                      ...(typeof tc.inputStreaming === 'boolean' ? { inputStreaming: tc.inputStreaming } : {}),
                     };
                     addToolCallToLastMessage(sessionKey, toolCall);
                   }

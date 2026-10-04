@@ -5339,6 +5339,95 @@ come `stream:tool_update`.
 - **WHEN** gira `echo ok`
 - **THEN** il tool risponde `ok`, senza errore
 
+### Requirement: CHAT-NTOOL-05 — Una chiamata nativa in coda non si mostra «in esecuzione»
+
+Il runtime nativo annuncia una chiamata quando il modello comincia a scriverla
+(`content_block_start`) ed esegue le chiamate di un giro una dopo l'altra
+(`agent-loop.ts`). Fra l'annuncio e l'esecuzione la chiamata NON gira.
+
+- Per un provider che dichiara `tool-phases`, l'annuncio (`onToolStart`) SHALL
+  avere `status: 'pending'` e NESSUN `startedAt`. I provider senza
+  `tool-phases` restano come oggi: `running` con `startedAt` all'annuncio.
+- Su `onToolExecStart` la route SHALL scrivere `status: 'running'` e
+  `startedAt = Date.now()` sulla riga salvata e sulla timeline dei blocchi, e
+  mandarli come `stream:tool_call` (upsert per id) su WS e come delta
+  `tool_calls` su SSE, con `status` e `startedAt`.
+- La durata salvata (`endedAt - startedAt`) SHALL coprire solo l'esecuzione.
+- Il client SHALL leggere `pending` come «non partita»: nessuna rotella, nessun
+  cronometro, nessuna apertura automatica del corpo, e al loro posto una
+  scritta (`data-testid="tool-queued"`) che dice «in coda» oppure, mentre il
+  modello scrive ancora gli argomenti (`inputStreaming: true`), «sta scrivendo
+  il comando…». Il gruppo di azioni conta le chiamate in coda fra quelle non
+  concluse, ma il suo cronometro parte dalla prima chiamata davvero partita.
+
+#### Scenario: la seconda chiamata di un giro aspetta la prima
+- **GIVEN** un turno nativo il cui giro chiede `sleep 5; echo first` e poi `echo second`
+- **WHEN** la prima shell dorme
+- **THEN** la seconda riga ha `data-status="pending"`, la scritta «in coda» e nessun `tool-elapsed`
+- **AND** a turno finito, nella storia salvata, `startedAt` della seconda è ≥ `endedAt` della prima
+- **AND** la durata salvata della seconda è sotto i 3 s
+
+#### Scenario: un provider senza fasi resta com'era
+- **GIVEN** un provider che non dichiara `tool-phases`
+- **WHEN** annuncia una chiamata
+- **THEN** la riga nasce `running` con `startedAt`
+
+### Requirement: CHAT-NTOOL-06 — Il comando si vede mentre il modello lo scrive
+
+Mentre arrivano i frammenti `input_json_delta` di una chiamata, il runtime
+nativo SHALL anticipare il suo argomento principale (`file_path`, `path`,
+`command`, `url`, …) con `onToolArgsUpdate(id, { [chiave]: valore }, { partial: true })`,
+al massimo una volta ogni `PARTIAL_ARGS_EMIT_MS` (500 ms) e solo quando il
+valore è cambiato. Il valore SHALL valere anche se non è ancora chiuso,
+tagliato all'ultimo carattere intero: un escape a metà (`\`, `\u12`) non si
+mostra finché non arriva il resto.
+
+- `extractPrimaryToolArg` SHALL vivere in un modulo condiviso
+  (`server/providers/partial-tool-input.ts`), lo stesso che usa il percorso
+  della CLI; per la CLI resta il contratto di oggi (solo valori chiusi).
+- Un aggiornamento parziale SHALL segnare la riga con `inputStreaming: true` e
+  NON SHALL scrivere sul DB a ogni frammento (resta nella timeline in memoria,
+  che il turno salva da sé); gli argomenti completi a `content_block_stop`
+  SHALL sostituirlo e riportare `inputStreaming: false`.
+
+#### Scenario: un heredoc lungo si vede prima della fine
+- **GIVEN** un turno nativo il cui modello impiega 10 s a scrivere un `bash` con un heredoc di 40 righe
+- **WHEN** sono passati al massimo 4 s dalla comparsa della riga
+- **THEN** la riga contiene già `cat > /dev/null`, ha `data-status="pending"` e la scritta «sta scrivendo il comando…»
+- **AND** il modello non ha ancora finito di scrivere la chiamata
+
+#### Scenario: il parser parziale
+- **GIVEN** il buffer `{"command":"echo \u00`
+- **WHEN** lo si legge con `open: true`
+- **THEN** il valore è `echo ` e non contiene `\`
+- **AND** senza `open` lo stesso buffer non dà niente
+
+### Requirement: CHAT-NTOOL-07 — Il `bash` nativo rispetta il `timeout` chiesto, fino a 10 minuti
+
+Lo schema del `bash` nativo SHALL avere un parametro `timeout` (millisecondi),
+con lo stesso contratto del Bash di Claude Code: default 120 000, massimo
+600 000 (`MAX_BASH_TIMEOUT_MS`, in una costante sola con il perché). La
+descrizione del tool SHALL dire il default e il massimo. Un valore oltre il
+massimo SHALL essere limitato al massimo; un valore assente o non valido SHALL
+dare il default (`ctx.bashTimeoutMs` se c'è). Il messaggio di uccisione SHALL
+dire come andare oltre: un `timeout` più alto fino al massimo, oppure
+`run_command` e poi `wait_for_process`.
+
+#### Scenario: un timeout chiesto oltre il default regge
+- **GIVEN** un `bash` con `timeout` più lungo del default del contesto
+- **WHEN** il comando dura più del default
+- **THEN** finisce con exit 0 e il suo output, senza `[comando ucciso`
+
+#### Scenario: un timeout oltre il massimo viene limitato
+- **GIVEN** `timeout: 900000`
+- **WHEN** si risolve il tetto
+- **THEN** vale 600 000; con `timeout: 230000` vale 230 000; senza, il default
+
+#### Scenario: l'uccisione dice come andare oltre
+- **GIVEN** un `bash` che supera il suo tetto
+- **WHEN** viene ucciso
+- **THEN** il risultato contiene `[comando ucciso dopo`, `timeout` e `run_command`
+
 ### Requirement: CHAT-TOOL-08 — La riga di un comando in corso mostra le sue ultime 8 righe
 
 Una riga `shell` con stato `pending` o `running`, il cui `detail` tipizzato non

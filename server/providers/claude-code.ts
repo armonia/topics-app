@@ -90,6 +90,7 @@ import { isGlobalOrchestratorSession } from "../services/global-orchestrator-ses
 import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
 import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
 import { claudeTranscriptPath, findClaudeTranscript } from "../lib/claude-transcript-path";
+import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
 
 // ============ Config ============
 
@@ -190,40 +191,6 @@ const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silenc
 // percepiscono su una lista che si allunga, e tolgono il grosso dei fotogrammi
 // in una raffica di azioni.
 const SUBAGENT_COALESCE_MS = 150;
-
-// Throttle for provisional partial-input emits (filename/command surfaced +
-// route timer keep-alive) while a `--include-partial-messages` tool input
-// streams. 500ms is imperceptible to the reader but bounds the broadcast rate
-// on a large Write/Edit input to ~2/s.
-const PARTIAL_ARGS_EMIT_MS = 500;
-
-// Primary input fields, in priority order — the ONE thing worth surfacing on a
-// tool row before its full input finishes streaming (the file being written,
-// the command being run, the URL being fetched). Matched against the still-
-// incomplete input-JSON buffer, so only a FULLY received quoted value counts.
-const PARTIAL_PRIMARY_KEYS = ["file_path", "filePath", "path", "command", "cmd", "url", "pattern", "query"] as const;
-
-/**
- * Pull the first fully-received primary field from a partial input-JSON buffer.
- * The regex only matches a complete `"key":"value"` (closing quote present), so
- * a value still mid-stream is ignored until done — no garbage on the row. In
- * Write/Edit/Bash the primary key streams first, so this surfaces the target
- * within moments of the input starting.
- */
-function extractPrimaryToolArg(buf: string): { key: string; value: string } | null {
-  for (const key of PARTIAL_PRIMARY_KEYS) {
-    const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
-    const m = re.exec(buf);
-    if (m) {
-      try {
-        return { key, value: JSON.parse(`"${m[1]}"`) as string };
-      } catch {
-        return { key, value: m[1] };
-      }
-    }
-  }
-  return null;
-}
 
 // ============ CLI Path Resolution ============
 

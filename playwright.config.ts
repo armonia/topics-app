@@ -619,6 +619,10 @@ export default defineConfig({
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
+        // A native-runtime call queued behind another, or still being written
+        // by the model, is not shown running: real server turns on the native
+        // runtime with a fake model API, read on the engine that ships.
+        "**/chat-native-tool-phases.spec.ts",
         "**/turn-fold.spec.ts",
         // The page the agent opened stays in sight in the turn and brings the
         // page back from the topic's window: filmed on the engine that ships.

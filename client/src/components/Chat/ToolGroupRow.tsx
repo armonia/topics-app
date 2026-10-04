@@ -58,9 +58,11 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
     setSeenFindSeq(findFocus.seq);
     setOpen(true);
   }
-  const live = summary.running > 0;
+  // Live while any call is unsettled, queued ones included: the run is not
+  // over. Its stopwatch counts from the first call that really started.
+  const live = summary.running + summary.queued > 0;
   const whollyFailed = isWhollyFailed(summary);
-  const settledCount = summary.total - summary.running;
+  const settledCount = summary.total - summary.running - summary.queued;
   // Costo del gruppo: prezzo se noto, altrimenti i token sommati.
   const groupCost = typeof summary.costCents === 'number'
     ? formatCostCents(summary.costCents)
