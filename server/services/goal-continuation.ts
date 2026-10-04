@@ -526,6 +526,8 @@ export function goalContinuationForChatRoute(deps: {
   };
   /** The wakes the session's `run_command` processes owe it (`routes/processes.ts`). */
   commandWakeState?: (sessionKey: string) => CommandWake;
+  /** The wakes the session's `spawn_agent` children owe it (`lib/subagent-runtime.ts`). */
+  subagentWakeState?: (sessionKey: string) => CommandWake;
   /** A question of the session still waits on its person (`sessionHasOpenQuestion`). */
   hasOpenQuestion?: (sessionKey: string) => boolean;
   resolveProvider: (topic?: Topic | null) => {
@@ -588,8 +590,8 @@ export function goalContinuationForChatRoute(deps: {
     broadcast: ctx.broadcastToAll,
     log: deps.log,
     isBusy: (sk) => ctx.activeStreams.has(sk), // the entry, not `isStreaming`: that one drops a turn silent for 3 min
-    backgroundWork: (sk) => sessionHasBackgroundWork(sk) || (deps.commandWakeState?.(sk) ?? "none") !== "none",
-    wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued" || deps.commandWakeState?.(sk) === "wake-queued",
+    backgroundWork: (sk) => sessionHasBackgroundWork(sk) || (deps.commandWakeState?.(sk) ?? "none") !== "none" || (deps.subagentWakeState?.(sk) ?? "none") !== "none",
+    wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued" || deps.commandWakeState?.(sk) === "wake-queued" || deps.subagentWakeState?.(sk) === "wake-queued",
   });
 
   return {
@@ -635,7 +637,7 @@ export function goalContinuationForChatRoute(deps: {
 export type ChatGoalLoop = ReturnType<typeof goalContinuationForChatRoute>;
 
 /** A `run_command` owed to the session, as `routes/processes.ts` `commandWakeState` says it. */
-type CommandWake = "running" | "wake-queued" | "none";
+export type CommandWake = "running" | "wake-queued" | "none";
 
 /**
  * What the goal reads of the session's background work when a turn ends, asked
@@ -644,10 +646,14 @@ type CommandWake = "running" | "wake-queued" | "none";
  * a wake: the server wakes the topic when one ends (`lib/process-exit-wake.ts`),
  * as the CLI does for its own work. Used by the chat route.
  */
-export function backgroundOfTurn(provider: unknown, sessionKey: string, command: CommandWake = "none"): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
+export function backgroundOfTurn(
+  provider: unknown, sessionKey: string, command: CommandWake = "none", subagent: CommandWake = "none",
+): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
   const p = provider as { backgroundState?: (sk: string) => string; hasBackgroundWork?: (sk: string) => boolean };
   const state = p.backgroundState?.(sessionKey) ?? (p.hasBackgroundWork?.(sessionKey) ? "running" : "none");
-  const states = [state, command];
+  // A `spawn_agent` child working for this chat wakes it when its turn ends
+  // (`subagentWakeState`): background work like a task of the CLI's own.
+  const states = [state, command, subagent];
   return {
     backgroundWork: states.some((s) => s !== "none"),
     // Only a wake is pending when something is queued and nothing still runs.

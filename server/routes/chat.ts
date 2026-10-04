@@ -131,6 +131,7 @@ import {
   isGlobalOrchestratorTopic,
 } from "../services/global-orchestrator-session";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
+import { subagentWakeState } from "../lib/subagent-runtime";
 
 /**
  * The keys of the messages already taken, to recognise a resend: the fast
@@ -289,7 +290,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * hands itself over on the first request it serves (see `selfRoute` below).
    */
   const goalLoop = deps.goalLoop ?? goalContinuationForChatRoute({
-    ctx, resolveProvider, commandWakeState, log: (m) => console.log(`[goal] ${m}`),
+    ctx, resolveProvider, commandWakeState, subagentWakeState, log: (m) => console.log(`[goal] ${m}`),
   });
 
   const broadcastStreamToTopic = (message: OutboundMessage, topicId: string | undefined): void => {
@@ -2640,7 +2641,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // A question this turn (or an earlier one) left open outlives
                 // the turn and is not in `interrupted`: the rows say it.
                 pendingAsk: askingPlanApproval || interrupted.length > 0 || sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
-                ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
+                ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId), subagentWakeState(sessionKey)), // a wake's turn skips its own: see commandWakeState
                 fromHuman: sentByPerson,
                 woken: isWoken || !!body.processExit || !!body.subagentResults, // a command's or a sub-agent's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,
