@@ -183,7 +183,9 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(child?.subagentOf).toBe(PARENT);
     expect(rowOf(body.agentId as string)).toMatchObject({ runtime: "topics", session_key: body.sessionKey });
     // The prompt went to the child's chat, through the chat route.
-    expect(turns.at(-1)).toEqual({ sessionKey: body.sessionKey as string, text: "Find the call sites of deliverExit." });
+    // The turn starts after the spawn answers (the route is async): wait for it, do not race it.
+    const first = await until("the first turn", () => turns.find((t) => t.sessionKey === body.sessionKey));
+    expect(first).toEqual({ sessionKey: body.sessionKey as string, text: "Find the call sites of deliverExit." });
   });
 
   test("the turn's end is one result for the parent, from the child's chat, and the slot is freed", async () => {
