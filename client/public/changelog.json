@@ -26,6 +26,16 @@
           "it": "Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Porta in inglese il commento italiano di tool-live-tail-reopen",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "NOTIF-ONE misura cio' che accendono le sue chat, non il totale del server",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -38,6 +48,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Porta la coda viva anche nella storia e non dire «nessun output finora»",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Togli i furti delle aree proiettate e porta i comandi della tab a 24",
           "en": "",
@@ -136,6 +151,11 @@
         },
         {
           "it": "Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta lo stesso tool call su SSE e WS, tieni la coda viva nel catchup, non ritimbrare al replay",
           "en": "",
           "scope": null
         },
