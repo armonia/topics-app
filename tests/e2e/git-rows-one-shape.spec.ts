@@ -17,7 +17,7 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
+import { createTopic, deleteTask, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { seedMessage } from './helpers/seed-messages';
 import { projectRow } from './helpers/project-row';
 import { E2E_BASE } from './helpers/test-server';
@@ -125,6 +125,9 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.afterAll(async ({ request }) => {
+  // The delivered card goes too: left in review it is counted by every board
+  // row read after this file in the same shard (TILE-15 read 2 for its 1).
+  if (taskId) await deleteTask(request, PROJECT_ID, taskId).catch(() => undefined);
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
   removeTmpDir(PROJECT_PATH);
 });
