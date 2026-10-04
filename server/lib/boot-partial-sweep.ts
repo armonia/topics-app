@@ -22,6 +22,12 @@
 // passate al nativo. Quindi per una card il ramo che scatta e' SEMPRE il reset,
 // ed e' esattamente per questo che il reset non puo' piu' essere muto.
 //
+// Per una CHAT nativa il reset non e' la fine: il cartello che scrive qui e'
+// quello che `lib/ripresa-boot.ts` legge per riprendere il turno da solo (con
+// una nota di continuazione se il turno aveva gia' lavorato). E' per questo che
+// dal 04/10 il cancello dei riavvii tratta una chat nativa come recuperabile
+// (`turnSurvivesRestart` in `lib/quiescence.ts`) invece di aspettarla.
+//
 // IL MESSAGGIO CHE INSERISCE usa il prefisso ⚠️ che il client gia' riconosce
 // come "turno in errore" (LEGACY_ERROR_PREFIX in turnError.ts). Questo attiva
 // due comportamenti esistenti senza nessun cambiamento al client:

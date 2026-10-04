@@ -123,7 +123,7 @@ import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { keyTakenBy, rowStoredUnderKey } from "../lib/client-message-key";
 import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
-import { providerSurvivesRestart } from "../lib/quiescence";
+import { providerSurvivesRestart, turnSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
 import { appendInterruptedVerdict } from "../lib/interrupted-turn-block";
 import {
@@ -1570,10 +1570,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (Number.isFinite(born) && born > 0 && born <= Date.now()) turnStartMs = born;
           }
           const externalAbort = new AbortController();
-          // Un turno che regge un riavvio è un turno che gira in un processo
-          // FIGLIO, cioè un provider che sa riadottare. Si chiede UNA volta, qui:
-          // il provider di una sessione non cambia mentre il turno gira.
-          startStream(sessionKey, partialMsg.id, externalAbort, providerSurvivesRestart(topicProvider));
+          // Regge un riavvio chi gira in un processo FIGLIO che si riadotta, e
+          // una chat che il boot riprende da sola (`turnSurvivesRestart`). Si
+          // chiede UNA volta, qui: non cambia mentre il turno gira.
+          startStream(sessionKey, partialMsg.id, externalAbort, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
           // From here the turn's end decides for the answers it carries, not the route's exit.
           if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
@@ -4055,7 +4055,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const originalBody = resp.body!;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
-          startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
+          startStream(sessionKey, partialMsg.id, abortController, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
           startTurnAttention(matchedTopic, boardAgentTurn);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
