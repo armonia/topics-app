@@ -155,6 +155,7 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
           maxHeight: isMobile ? 'calc(100dvh - 5.5rem)' : maxHeight ?? undefined,
         }}
         levelHeight={isMobile ? 'min(32rem, calc(100dvh - 5.5rem))' : maxHeight ?? undefined}
+        ceiling={isMobile ? null : maxHeight}
       />
     </Menu>
   );
@@ -164,7 +165,7 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
  * The inside of the panel, mounted on every opening (the `Menu` drops its
  * children when closed), so a level chosen in one opening does not survive it.
  */
-function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobile, style, levelHeight }: {
+function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobile, style, levelHeight, ceiling }: {
   list: Omit<ModelSelectorProps, 'open' | 'anchorRef' | 'align' | 'testId' | 'ariaLabel' | 'onClose' | 'initialLevel'>;
   anchorRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
@@ -174,6 +175,8 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
   style: React.CSSProperties;
   /** A level takes the panel's full height when the models are shorter. */
   levelHeight: number | string | undefined;
+  /** The desktop body's `max-height`: the floor never goes over it. */
+  ceiling: number | null;
 }) {
   const [level, setLevel] = useState<ProvidersTarget | null>(initialLevel);
   const opener = useRef<HTMLElement | null>(null);
@@ -183,8 +186,13 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
   // again on every resize, so a search that left five rows moved it: above
   // the chip it hung 150 px off it, and back from the providers level it
   // jumped below the chip (seen in WebKit, 04/10). It still grows, up to the
-  // ceiling, when a fold opens.
+  // ceiling, when a fold opens. The floor is held under the ceiling: it may
+  // have been measured before the ceiling applied (the whole catalog, 3009 px
+  // with jcode's ids) or before the window shrank, and in CSS a min-height
+  // beats a max-height, so an unbounded floor covered the trigger or ran out
+  // of the window (seen in WebKit at 1024 × 768, chat settings).
   const [floor, setFloor] = useState<number | null>(null);
+  const heldFloor = floor !== null && ceiling !== null ? Math.min(floor, ceiling) : floor;
   useLayoutEffect(() => {
     const body = bodyRef.current;
     if (isMobile || !body) return;
@@ -215,7 +223,7 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
     <div
       ref={bodyRef}
       className="relative flex flex-col"
-      style={{ ...style, minHeight: level ? levelHeight : floor ?? undefined }}
+      style={{ ...style, minHeight: level ? levelHeight : heldFloor ?? undefined }}
     >
       <div
         ref={modelsRef}

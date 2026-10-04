@@ -74,15 +74,22 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     [entries, override, defaultProviderLabel],
   );
   // Review bug #2: the routing switch must agree with the send gate on what ON
-  // targets, which needs the topic's pin even with no active override — `value`
-  // below stays override-only on purpose, it drives the panel/checkmark UI.
+  // targets, which needs the topic's pin even with no active override; `value`
+  // below is what the chat saved, and drives the panel's pressed row.
   const routingTarget = useMemo(
     () => chatRouteTarget(topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel),
     [topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel],
   );
   const activeModelId = effective?.model ?? override?.model ?? null;
-  const matchesProv = (entry: (typeof entries)[number]) => entry.name === effective?.provider;
-  const effectiveProviderLabel = entries.find(matchesProv)?.label ?? effective?.provider;
+  // What the chat saved: a complete choice, an engine with no model of its own
+  // («Automatico» within an engine, revision §3.7), or nothing (Automatico).
+  const chatProvider = override?.provider ?? defaultProviderLabel ?? null;
+  const value = { provider: chatProvider, model: override?.model ?? null };
+  // Automatico saves nothing on the chat, so the one who decides is the app's
+  // default provider, never the engine the chat is on now (§3.7: «Automatico ·
+  // Claude Code (il predefinito)»).
+  const appDefault = snapshot?.defaultProvider ?? entries.find((entry) => entry.isDefault)?.name ?? null;
+  const appDefaultLabel = appDefault ? entries.find((entry) => entry.name === appDefault)?.label ?? appDefault : null;
   // The failure itself is reported by the loader (the reload prompt); the
   // chip only records it, so a hover that failed does not look like nothing.
   const prefetchMenu = () => {
@@ -159,12 +166,13 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
   );
   const routingEnabled = effectiveTopicsRouting(topicsRouting, null, 'chat');
   // One closed format on every surface (revision §3.8): «label · who», no
-  // context window. No override is Automatic, named with who decides.
-  const automaticWho = effectiveProviderLabel ?? '';
-  const chipText = !snapshot && !override
+  // context window. No choice is Automatic, named with who decides; a model
+  // pinned by `/model` with no engine is named, not hidden behind Automatic.
+  const automaticWho = appDefaultLabel ?? '';
+  const chipText = !snapshot && !chatProvider
     ? tr('ai.selector.chipNone')
     : triggerLine(modelTriggerText(
-      { provider: override?.provider ?? null, model: override?.model ?? null },
+      chatProvider || !pinnedModel ? value : { provider: appDefault, model: pinnedModel },
       { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', automaticWho },
     ));
   const failed = loadState === 'failed' || loadState === 'broken';
@@ -219,7 +227,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         ariaLabel={tr('chat.picker.title')}
         scope="chat"
         variant="compact"
-        value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
+        value={value}
         routingTarget={routingTarget}
         onSelect={(selection) => {
           if (selection.provider && !selection.model && onProviderOnly) { onProviderOnly(selection.provider); return; }
@@ -229,8 +237,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         }}
         automatic={{
           who: automaticWho,
-          hint: effectiveProviderLabel
-            ? tr('ai.selector.auto.usesDefault', { name: effectiveProviderLabel })
+          hint: appDefaultLabel
+            ? tr('ai.selector.auto.usesDefault', { name: appDefaultLabel })
             : tr('chat.picker.noneConfigured'),
         }}
         topicsRouting={onTopicsRoutingChange ? { enabled: routingEnabled, onToggle: onTopicsRoutingChange } : undefined}

@@ -688,7 +688,8 @@ arrivano con la tappa dei provider. Fino ad allora, scarti, uno per riga, col mo
 - **«Automatico» di un motore senza modelli nel composer.** Lo scostamento non tocca il §3.7. La
   scelta del composer nomina sempre un modello, quindi la riga Automatico di Gemini CLI scrive sul
   topic `{provider: 'gemini', model: null}` con una PATCH sola
-  (`ChatPane.handleProviderOnlyChange`) e toglie la scelta del composer.
+  (`ChatPane.handleProviderOnlyChange`) e toglie la scelta del composer. Il motore senza modello
+  resta però il valore del selettore e del chip (§9.5).
 - **Il chip del composer senza scelta** dice «Automatico · <predefinito>» e non più il nome del
   modello effettivo, come vuole la tabella del §3.8 della revisione. `data-model` porta ancora l'id
   effettivo.
@@ -795,4 +796,46 @@ WebKit. Scritte e lanciate, le spec hanno trovato cinque difetti, corretti qui:
   più in alto, e tornando dal livello Provider saltava sotto il chip (496 px più giù, misurato in
   WebKit). Sul desktop il pannello ora non si accorcia finché è aperto (`SelectorBody` in
   `ModelSelector.tsx`); cresce ancora, fino al tetto, quando si apre una piega. Coperto dal gesto
-  intero di `model-panels-providers.spec.ts`.
+  intero di `model-panels-providers.spec.ts`. Il pavimento resta sotto il tetto (§9.5).
+
+### 9.5 Verifica del ramo (04/10): cosa ha trovato e dove il codice si scosta
+
+La verifica del ramo ha trovato quattro difetti, corretti qui, con le spec in
+`model-selector-revision.spec.ts` (rosse prima della correzione, verdi dopo, in WebKit):
+
+- **«Automatico» nominava il motore attuale della chat, ma salvava il predefinito dell'app.** In
+  una chat su Codex il bottone diceva «Automatico · Codex» e la frase «Usa il predefinito: Codex»,
+  e al clic la chat passava a Claude Code. Ora il chip del composer e le impostazioni della chat
+  nominano il predefinito dell'app (`snapshot.defaultProvider`), come scrive la tabella del §3.7
+  della revisione («Automatico · Claude Code (il predefinito)»). Non è uno scarto, è il design
+  applicato.
+- **«Automatico» dentro un motore arriva intatto all'andata e al ritorno.** Il valore del selettore
+  e del chip è il motore della chat anche senza modello (`{provider: 'gemini', model: null}`): il
+  chip scrive «Automatico · Gemini CLI» (§3.8) e, riaprendo, è premuta la riga di Gemini e non
+  l'Automatico in alto. In una chat nuova (bozza) la scelta sta su questo dispositivo
+  (`providerOnly:<bozza>` in `composerMemory.ts`), il primo turno manda il provider da solo (il
+  server lo accetta come override del messaggio) e la promozione lo scrive sul topic con
+  `{provider, model: null}`. Una bozza con quella scelta non eredita più l'ultima scelta fatta
+  altrove. Scarto, col motivo: una chat il cui motore elenca modelli ma che non ne ha uno suo (la
+  scrivono il dispatcher e il ponte MCP) non ha nessuna riga premuta, e il chip dice «Automatico ·
+  <motore>»; prima risultava premuto l'Automatico in alto, che però salva un'altra cosa.
+- **La scelta del motore nel titolo si usa da tastiera.** Scarto da MSEL-08 («↓ ↑ attraversano
+  tutte le sezioni»): con il `radiogroup` del motore aperto, le frecce (↓ ↑ ← →, Home, End) si
+  muovono fra i suoi motori, e Invio o Spazio sceglie. È lo schema del gruppo di radio: le frecce
+  del pannello saltano apposta le radio non scelte (il gruppo è una fermata sola), quindi senza
+  questo i motori non scelti non si raggiungevano mai. Dopo la scelta il fuoco torna al bottone del
+  motore, non al campo della chat. Chiuso il gruppo, ↓ ↑ attraversano di nuovo tutte le sezioni.
+  Emendato lo scenario di MSEL-08.
+- **Il pavimento del pannello non supera il tetto.** Il pavimento del §9.4 prendeva la più grande
+  altezza vista, anche quella misurata prima che il tetto si applicasse (il catalogo intero: 519 px
+  col fixture, 3009 px coi 134 id di jcode), e in CSS `min-height` vince su `max-height`: nelle
+  impostazioni della chat a 1024×768 il pannello copriva il trigger o usciva dalla finestra (6
+  aperture su 7). Lo stesso succedeva rimpicciolendo la finestra col pannello aperto. Ora il
+  pavimento è tenuto sotto il tetto (`SelectorBody` in `ModelSelector.tsx`).
+
+Correzioni minori, una per riga:
+- Sulle superfici delle card (cassetto, composer della card, impostazioni della board) la scelta del
+  motore nel titolo lascia il pannello aperto (`keepOpen`): il loro `onSelect` lo chiudeva, mentre
+  le altre scelte lo chiudono già da sé.
+- Una chat senza motore con un modello fissato da `/model` scrive sul chip quel modello, «Opus 4.5 ·
+  via Claude Code», invece di «Automatico · Claude Code».

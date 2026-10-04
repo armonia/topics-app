@@ -162,7 +162,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const tr = useT();
   // The model trigger, in the one closed format (revision 2026-10-04 §3.8).
   const viaTopics = chatTopicsRoute(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot, provider ? null : model).via === 'topics';
-  const defaultName = provider ?? snapshot?.defaultProvider ?? null;
+  // Automatico saves no engine, so it is named with the app's default, not
+  // with the engine this chat is on (revision §3.7).
+  const defaultName = snapshot?.defaultProvider ?? null;
   const defaultLabel = defaultName ? snapshot?.providers.find((entry) => entry.name === defaultName)?.label ?? defaultName : '';
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);

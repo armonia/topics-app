@@ -1407,8 +1407,9 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
     finally { setBusy(false); }
   };
 
+  // The selector closes itself after a choice; a heading's engine keeps it
+  // open (`keepOpen`), so closing here would undo that.
   const changeModel = async (model: string | null) => {
-    setModelMenuOpen(false);
     if (!task || task.assignedTopicId || (task.model ?? null) === model || busy) return;
     setBusy(true);
     try { await boardApi.update(projectId, taskId, { model }); setError(null); await load(); onChanged(); }

@@ -274,6 +274,17 @@ attuale passa da Topics. Ogni trigger chiuso SHALL scrivere il valore nello
 stesso formato, «etichetta · chi esegue» («Automatico · chi decide» per la scelta
 automatica).
 
+#### Scenario: Automatico nomina il predefinito, non il motore attuale
+- **GIVEN** una chat su Codex con GPT-6.1-Sol e il predefinito delle Impostazioni su Claude Code
+- **WHEN** l'utente apre il selettore del composer o quello delle impostazioni della chat
+- **THEN** Automatico dice «Automatico · Claude Code» e la frase «Usa il predefinito: Claude Code»
+- **AND** sceglierlo lascia il chip su «Automatico · Claude Code»
+
+#### Scenario: Automatico dentro un motore senza modelli
+- **GIVEN** Gemini CLI pronto senza modelli e una chat, salvata o nuova, che ha scelto la sua riga «Automatico»
+- **THEN** il chip dice «Automatico · Gemini CLI»
+- **AND** riaprendo il selettore è premuta la riga di Gemini CLI, non l'Automatico in alto
+
 #### Scenario: acceso e diretto
 - **GIVEN** la preferenza accesa e GPT-6.1-Sol selezionato
 - **WHEN** l'utente apre il selettore
@@ -295,6 +306,9 @@ automatica).
   chiude e riporta il fuoco al trigger. A colonne, `→` e `←` SHALL passare alla
   colonna accanto, e Tab SHALL fermarsi una volta per colonna (emendamento del
   04/10: la scelta del motore è nel titolo, e si apre con Invio sul suo bottone).
+  Con la scelta del motore aperta, le frecce SHALL muoversi fra i suoi motori e
+  Invio o Spazio SHALL scegliere quello col fuoco; dopo la scelta il fuoco torna
+  al bottone del motore (emendamento del 04/10, design §9.5).
 - Sotto 768 px il pannello SHALL essere un foglio dal basso a tutta larghezza,
   con righe alte almeno 44 px e lo scorrimento di sfondo bloccato.
 
@@ -302,6 +316,11 @@ automatica).
 - **GIVEN** il selettore aperto con il fuoco nella ricerca
 - **WHEN** l'utente preme ↓ fino a GPT-6.1-Sol e poi Invio
 - **THEN** il valore è Codex con GPT-6.1-Sol e il fuoco torna al trigger
+
+#### Scenario: il motore di un'azienda dalla tastiera
+- **GIVEN** il selettore aperto su Opus 5.5 con Claude Code, e il fuoco sul bottone «via Topics ⌄» di Anthropic
+- **WHEN** l'utente preme Invio, poi ↓ fino a «Claude API» e Invio
+- **THEN** il valore è Claude API con Opus 5.5, il pannello resta aperto e il fuoco torna al bottone del motore
 
 #### Scenario: le impostazioni della chat sul telefono
 - **GIVEN** una chat aperta su uno schermo largo 390 px, dove al posto delle tab c'è il nome della chat

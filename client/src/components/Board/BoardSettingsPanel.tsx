@@ -137,7 +137,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           ariaLabel={tr('board.settings.model')}
           variant="full"
           value={!s.dispatchModel || s.dispatchModel === 'auto' ? null : s.dispatchModel}
-          onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); setModelOpen(false); }}
+          onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); }}
           automatic={boardTrigger.automatic}
           topicsRouting={topicsRoutingSwitch}
         />

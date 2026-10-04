@@ -476,3 +476,171 @@ test.describe("phone 390 × 844", () => {
     await expect(trigger).toBeFocused();
   });
 });
+
+/** Claude Code the default, Gemini CLI ready with no model of its own (AC-16). */
+const GEMINI_EMPTY = snapshotOf([claudeCode, row("gemini", "Gemini CLI", []), engine]);
+/** The fixture with the 134 ids jcode really lists. */
+const REAL_KEYS = snapshotOf(KEYS.providers.map((entry) => (entry.name === "jcode" ? row("jcode", "jcode", JCODE_IDS) : entry)));
+
+const savedChoice = async (request: Parameters<typeof resetPaneStore>[0]) => {
+  const topic = (await (await request.get("/api/topics")).json()).topics[topicId];
+  return [topic.provider ?? null, topic.model ?? null];
+};
+const describedText = (button: ReturnType<Page["getByTestId"]>) =>
+  button.evaluate((el) => document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null);
+
+/** The box once two reads in a row agree: `Menu` places the panel again when its size settles. */
+async function settledBox(page: Page, selector: string) {
+  let last = "";
+  await expect.poll(async () => {
+    const now = JSON.stringify(await box(page, selector));
+    const same = now === last;
+    last = now;
+    return same;
+  }, { intervals: [50, 100, 100, 200] }).toBe(true);
+  return box(page, selector);
+}
+
+async function openChatSettings(page: Page) {
+  await page.getByTestId(`pane-tab-${topicId}`).click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
+  const trigger = page.getByTestId("topic-settings-model");
+  await trigger.waitFor({ state: "visible" });
+  return trigger;
+}
+
+test.describe("Automatico, named with the app's default (revision §3.7)", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("on a chat on Codex the composer's Automatico names the default, and pressing it keeps that name", async ({ page, request }) => {
+    await openSelector(page, request, KEYS, "gpt-6.1-sol", "codex");
+    const automatic = panel(page).getByTestId("model-row-automatic");
+    await expect(automatic).toHaveAttribute("aria-pressed", "false");
+    await expect(automatic).toHaveText("Automatico · Claude Code");
+    expect(await describedText(automatic)).toBe("Usa il predefinito: Claude Code");
+    await automatic.click();
+    await expect.poll(() => savedChoice(request)).toEqual([null, null]);
+    await expect(page.getByTestId("provider-model-picker-label")).toHaveText("Automatico · Claude Code");
+  });
+
+  test("on a chat on Codex the chat settings' Automatico names the default, and Save writes it", async ({ page, request }) => {
+    await openSelector(page, request, KEYS, "gpt-6.1-sol", "codex");
+    await page.keyboard.press("Escape");
+    const trigger = await openChatSettings(page);
+    await trigger.click();
+    const full = page.getByTestId("topic-settings-model-popover").getByTestId("model-selector-panel");
+    const automatic = full.getByTestId("model-row-automatic");
+    await expect(automatic).toHaveText("Automatico · Claude Code");
+    expect(await describedText(automatic)).toBe("Usa il predefinito: Claude Code");
+    await automatic.click();
+    await expect(trigger).toHaveText("Automatico · Claude Code");
+  });
+
+  test("a chat on an engine with no model of its own: the chip names it, its row is the pressed one, not Automatico", async ({ page, request }) => {
+    await openSelector(page, request, GEMINI_EMPTY, null, "gemini");
+    await expect(page.getByTestId("provider-model-picker-label")).toHaveText("Automatico · Gemini CLI");
+    await expect(section(page, "google").getByTestId("model-row-automatic-within")).toHaveAttribute("aria-pressed", "true");
+    const automatic = panel(page).getByTestId("model-row-automatic");
+    await expect(automatic).toHaveAttribute("aria-pressed", "false");
+    await expect(automatic).toHaveText("Automatico · Claude Code");
+  });
+
+  test("a chat on Gemini CLI with no model: the top Automatico is not the choice and says who it would be", async ({ page, request }) => {
+    await openSelector(page, request, KEYS, null, "gemini");
+    await expect(page.getByTestId("provider-model-picker-label")).toHaveText("Automatico · Gemini CLI");
+    const automatic = panel(page).getByTestId("model-row-automatic");
+    await expect(automatic).toHaveAttribute("aria-pressed", "false");
+    await expect(automatic).toHaveText("Automatico · Claude Code");
+  });
+
+  test("a new chat keeps «Automatico» within an engine, with no PATCH to the draft", async ({ page, request }) => {
+    await resetPaneStore(request, []);
+    await mockSnapshot(page, GEMINI_EMPTY);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    const draftPatches: string[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "PATCH" && /\/api\/topics\/draft(%3A|:)/.test(req.url())) draftPatches.push(req.url());
+    });
+    await page.getByTestId("pane-add-menu-trigger").first().click();
+    await page.getByTestId("pane-add-menu").getByTestId("pane-add-menu-new-chat").click();
+    const picker = page.getByTestId("provider-model-picker").last();
+    await picker.waitFor({ state: "visible", timeout: 10_000 });
+    await picker.click();
+    await section(page, "google").getByTestId("model-row-automatic-within").click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect(picker.getByTestId("provider-model-picker-label")).toHaveText("Automatico · Gemini CLI");
+    await picker.click();
+    await expect(section(page, "google").getByTestId("model-row-automatic-within")).toHaveAttribute("aria-pressed", "true");
+    await expect(panel(page).getByTestId("model-row-automatic")).toHaveAttribute("aria-pressed", "false");
+    expect(draftPatches).toEqual([]);
+  });
+
+  test("the heading's engine choice works from the keyboard: arrows move between the engines, Enter picks (MSEL-08)", async ({ page, request }) => {
+    await openSelector(page, request, KEYS, "claude-opus-5-5", "claude-code");
+    const engineButton = section(page, "anthropic").getByTestId("model-group-engine");
+    await engineButton.focus();
+    await page.keyboard.press("Enter");
+    const radios = section(page, "anthropic").getByRole("radio");
+    await expect(radios).toHaveText(["Claude Code · in Topics", "Claude API", "jcode", "OpenRouter"]);
+    await expect(radios.nth(0)).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(radios.nth(1)).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
+    await expect(radios.nth(3)).toBeFocused();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+    await expect(radios.nth(1)).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(section(page, "anthropic").getByTestId("model-group-engines")).toHaveCount(0);
+    await expect(panel(page)).toBeVisible();
+    await expect(engineButton).toBeFocused();
+    await expect(engineButton).toContainText("via Claude API");
+    await expect.poll(() => savedChoice(request)).toEqual(["claude", "claude-opus-5-5"]);
+  });
+});
+
+test.describe("desktop 1024 × 768, the chat settings' selector (AC-01, AC-10)", () => {
+  test.use({ viewport: { width: 1024, height: 768 } });
+
+  for (const [name, snapshot] of [["the fixture", KEYS], ["the 134 real jcode ids", REAL_KEYS]] as const) {
+    test(`at every opening the panel stays under its ceiling, in the window and off its trigger (${name})`, async ({ page, request }) => {
+      await openSelector(page, request, snapshot);
+      await page.keyboard.press("Escape");
+      const trigger = await openChatSettings(page);
+      for (let opening = 1; opening <= 4; opening++) {
+        await trigger.click();
+        const popover = page.getByTestId("topic-settings-model-popover");
+        await expect(popover.getByTestId("model-selector-panel")).toBeVisible();
+        const r = await settledBox(page, '[data-testid="topic-settings-model-popover"]');
+        const t = (await trigger.boundingBox())!;
+        const body = await popover.getByTestId("model-selector-panel").evaluate((el) => {
+          const style = getComputedStyle(el.parentElement!.parentElement!);
+          return { min: parseFloat(style.minHeight) || 0, max: parseFloat(style.maxHeight) };
+        });
+        test.info().annotations.push({ type: "measure", description: JSON.stringify({ opening, r, t, body }) });
+        expect(body.min, `opening ${opening}: min-height over max-height`).toBeLessThanOrEqual(body.max);
+        expect(r.height, `opening ${opening}`).toBeLessThanOrEqual(456 + 0.5);
+        expect(r.top, `opening ${opening}`).toBeGreaterThanOrEqual(8 - 0.5);
+        expect(r.bottom, `opening ${opening}`).toBeLessThanOrEqual(768 - 8 + 0.5);
+        expect(r.top < t.y + t.height && r.bottom > t.y, `opening ${opening}: the panel covers its trigger`).toBe(false);
+        await page.keyboard.press("Escape");
+        await expect(popover).toHaveCount(0);
+      }
+    });
+  }
+});
+
+test.describe("a window that shrinks with the panel open", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the panel shrinks with it and stays in the window", async ({ page, request }) => {
+    await openSelector(page, request, KEYS);
+    await page.setViewportSize({ width: 1440, height: 560 });
+    await expect.poll(async () => (await box(page, '[data-testid="provider-model-popover"]')).bottom).toBeLessThanOrEqual(560 - 8 + 0.5);
+    const r = await box(page, '[data-testid="provider-model-popover"]');
+    expect(r.top).toBeGreaterThanOrEqual(8 - 0.5);
+    await expect(page.getByTestId("ai-selector-providers")).toBeInViewport({ ratio: 1 });
+  });
+});

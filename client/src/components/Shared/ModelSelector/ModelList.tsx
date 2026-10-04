@@ -429,7 +429,31 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
   const headingId = `model-group-${domId(group.maker)}`;
   const rows = expanded ? [...group.rows, ...group.older] : group.rows;
   const radiosRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
   const routing = props.topicsRouting?.enabled ?? false;
+  const focusEngineButton = useCallback(
+    () => groupRef.current?.querySelector<HTMLElement>('[data-testid="model-group-engine"]')?.focus({ preventScroll: true }),
+    [],
+  );
+  // Inside the open engine choice the arrows move between its radios (the
+  // radio group pattern: the group is one stop of the panel, its radios are
+  // reached from within) and Enter or Space picks the one with the focus.
+  // The panel's own arrows skip the radios that are not checked, so without
+  // this the other engines could not be reached from the keyboard.
+  const onRadiosKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const radios = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]:not([disabled])')];
+    if (radios.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = radios.indexOf(document.activeElement as HTMLElement);
+    const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight';
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? radios.length - 1
+        : forward ? (index + 1) % radios.length
+          : (index - 1 + radios.length) % radios.length;
+    radios[next]?.focus();
+  };
 
   // Esc closes only the engine choice. The panel's own Escape listens on the
   // document in the capture phase, so this one listens on the window, earlier.
@@ -440,15 +464,15 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
       event.stopPropagation();
       event.preventDefault();
       onEngineOpen(false);
-      radiosRef.current?.parentElement?.querySelector<HTMLElement>('[data-testid="model-group-engine"]')?.focus();
+      focusEngineButton();
     };
     window.addEventListener('keydown', onKey, true);
     requestAnimationFrame(() => radiosRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus());
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [engineOpen, onEngineOpen]);
+  }, [engineOpen, onEngineOpen, focusEngineButton]);
 
   return (
-    <div role="group" aria-labelledby={headingId} data-testid={`model-section-${group.maker}`} data-maker={group.maker} data-column={column}>
+    <div ref={groupRef} role="group" aria-labelledby={headingId} data-testid={`model-section-${group.maker}`} data-maker={group.maker} data-column={column}>
       <GroupHeading group={group} headingId={headingId} list={list} open={engineOpen} onToggle={() => onEngineOpen(!engineOpen)} planWarning={planWarning} />
       {engineOpen && (
         <div
@@ -456,6 +480,7 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
           role="radiogroup"
           aria-label={tr('ai.selector.engine', { maker: group.label })}
           data-testid="model-group-engines"
+          onKeyDown={onRadiosKey}
           className="mx-2 mb-1 flex flex-col rounded-md bg-app-inset py-0.5"
         >
           {group.engines.map((engine) => {
@@ -469,7 +494,9 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
                 aria-checked={checked}
                 data-engine-choice={engine.name}
                 disabled={props.disabled}
-                onClick={() => { onEngine(engine.name); onEngineOpen(false); }}
+                // The radio goes with the choice: the focus goes back to the
+                // engine's button, not to the page.
+                onClick={() => { onEngine(engine.name); onEngineOpen(false); requestAnimationFrame(focusEngineButton); }}
                 className={`${POPOVER_ITEM} !py-1 coarse:!py-3 text-mini ${checked ? ACTIVE_INK : ''}`}
               >
                 <span className="min-w-0 flex-1 truncate">{inTopics ? tr('ai.selector.engineInTopics', { engine: engine.label }) : engine.label}</span>

@@ -655,7 +655,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               variant="compact"
               value={model}
               boardValue={boardDispatchModel}
-              onSelect={(m) => { setModel(m); setModelOpen(false); }}
+              onSelect={setModel}
               automatic={modelTrigger.automatic}
               topicsRouting={{
                 enabled: composerRouting,

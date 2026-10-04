@@ -287,9 +287,6 @@
       "costo",
       "parti"
     ],
-    "client/src/components/Chat/ProviderModelPicker.tsx": [
-      "matchesProv"
-    ],
     "client/src/components/Chat/ToolCards.tsx": [
       "ArgsPre",
       "ClampedPre",
