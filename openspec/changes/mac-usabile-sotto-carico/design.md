@@ -516,9 +516,17 @@ il gate `verify:all` di dancerooms e per le board future (risposta 2 del proprie
   (il 4° valore su 6 in ordine), e una finestra passa se la mediana alta dei suoi giorni interi non
   la supera. È un tetto di non regressione: dice se la macchina peggiora rispetto a questa
   settimana, non se la change l'ha migliorata.
-  Rimisura: `bun openspec/changes/mac-usabile-sotto-carico/measurements/b3-measure.ts [log] [--since AAAA-MM-GG]`.
-  Legge solo `~/.claude/jarvis/logs/topics-server.log` e `pmset -g log`, toglie gli stalli che
-  toccano un sonno ed esce 1 se una soglia non regge.
+  Rimisura della finestra di riferimento:
+  `bun openspec/changes/mac-usabile-sotto-carico/measurements/b3-measure.ts --since 2026-09-28 --until 2026-10-03`.
+  Senza `--until` la finestra cresce col log: dal primo giorno intero dopo il 03/10 lo stesso
+  comando senza argomenti non restituisce più queste soglie. Una finestra successiva si misura con
+  `--since AAAA-MM-GG` (e `--until` se va chiusa). Legge `~/.claude/jarvis/logs/topics-server.log`
+  (o un file passato come primo argomento, anche `.gz`) e `pmset -g log`, toglie gli stalli che
+  toccano un sonno ed esce 1 se una soglia non regge. Il log stdout ruota, e così si è perso il
+  «prima» del 15/09: le righe [LAG] e [memsig] del 27/09-04/10 sono committate in
+  `measurements/b3-reference-2026-09-27..2026-10-04.log.gz` (di `[memsig]` restano solo i campi
+  che lo script legge, perché `altri=` nomina le app del Mac e il repo è pubblico), e lo stesso
+  comando su quel file dà la stessa tabella.
 
   | giorno UTC | O1 stallo [LAG] s (n, max s) | O2 p95 swap-in/s | O2 p95 load1 | minuti in swap sostenuto |
   |---|---|---|---|---|
@@ -545,9 +553,11 @@ il gate `verify:all` di dancerooms e per le board future (risposta 2 del proprie
     Un albero di agente >= 1 GB che non si congela (il comando in primo piano, D20) non compare
     nella riga `[memsig]`, quindi su quegli alberi O4 non si misura dai log esistenti.
 
-  Esito: la finestra di riferimento passa per costruzione, perché le soglie vengono da lei. Le
-  ultime 72 ore intere (`--since 2026-10-01`, 01-03/10) escono 1. O1 vale 61 s e regge, mentre O2
-  supera la soglia: il p95 di swap-in/s è 1241,3 e quello di load1 è 91,2.
+  Esito: **la barra oggi è rossa.** La finestra di riferimento passa per costruzione, perché le
+  soglie vengono da lei, quindi non conta come prova. Le ultime 72 ore intere (`--since 2026-10-01`,
+  01-03/10) escono 1: O1 vale 61 s e regge, mentre O2 supera la soglia, con il p95 di swap-in/s a
+  1241,3 e quello di load1 a 91,2. La barra si chiude verde quando una finestra di giorni interi
+  dopo il 03/10 esce 0, o quando il proprietario accetta il tetto superato.
 
 ### Rischi
 

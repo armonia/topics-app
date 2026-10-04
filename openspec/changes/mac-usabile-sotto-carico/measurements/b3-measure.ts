@@ -1,7 +1,10 @@
 // B3 (e E1/E2 della tornata 3c) sul server vivo, in sola lettura: legge il log
 // stdout del server di produzione e `pmset -g log`, non scrive niente.
-// Uso: bun openspec/changes/mac-usabile-sotto-carico/measurements/b3-measure.ts [log] [--since YYYY-MM-DD]
+// Uso: bun openspec/changes/mac-usabile-sotto-carico/measurements/b3-measure.ts [log|log.gz] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
 // Esce 1 se una soglia assoluta di design.md («B3») non regge sulla finestra.
+// Finestra di riferimento (da cui vengono le soglie): `--since 2026-09-28 --until 2026-10-03`;
+// senza `--until` la finestra cresce col log. `b3-reference-2026-09-27..2026-10-04.log.gz` è
+// l'estratto [LAG]/[memsig] di quei giorni, per rimisurarla anche quando il log ruota.
 import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -15,9 +18,14 @@ const O4_MAX_S = 190;
 
 const args = process.argv.slice(2);
 const sinceIdx = args.indexOf("--since");
+const untilIdx = args.indexOf("--until");
 const since = sinceIdx >= 0 ? args[sinceIdx + 1]! : "";
-const logPath = args.find((a, i) => !a.startsWith("--") && (sinceIdx < 0 || i !== sinceIdx + 1))
+const until = untilIdx >= 0 ? args[untilIdx + 1]! : "9999-12-31";
+const valueIdx = [sinceIdx, untilIdx].filter((i) => i >= 0).map((i) => i + 1);
+const logPath = args.find((a, i) => !a.startsWith("--") && !valueIdx.includes(i))
   ?? join(homedir(), ".claude/jarvis/logs/topics-server.log");
+const raw = readFileSync(logPath);
+const logText = logPath.endsWith(".gz") ? new TextDecoder().decode(Bun.gunzipSync(raw)) : raw.toString("utf8");
 
 // Intervalli di sonno della macchina: uno stallo che li tocca è il Mac addormentato, non un blocco.
 const pm = Bun.spawnSync(["pmset", "-g", "log"]).stdout.toString();
@@ -39,7 +47,7 @@ const lagByDay = new Map<string, number[]>();
 const memByDay = new Map<string, Memsig[]>();
 const memRows: Memsig[] = [];
 let sleptStalls = 0;
-for (const line of readFileSync(logPath, "utf8").split("\n")) {
+for (const line of logText.split("\n")) {
   const lag = /^(\d{4}-\d\d-\d\d)(T\S+) \[LAG\] loop stopped (\d+)ms/.exec(line);
   if (lag) {
     const end = Date.parse(lag[1]! + lag[2]!);
@@ -70,7 +78,7 @@ const upperMedian = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math
 
 // Il primo e l'ultimo giorno del log sono parziali: contano solo i giorni UTC interi.
 const days = [...new Set([...lagByDay.keys(), ...memByDay.keys()])].sort();
-const full = days.slice(1, -1).filter((d) => d >= since);
+const full = days.slice(1, -1).filter((d) => d >= since && d <= until);
 console.log("day         O1 stall s    n  max s | O2 p95 swapin/s  p95 load1 | sustained min/rows");
 const o1: number[] = [], swap: number[] = [], load: number[] = [];
 for (const d of days) {
@@ -84,7 +92,7 @@ for (const d of days) {
   const sleepNote = Date.parse(d + "T00:00:00Z") < pmsetFrom ? " sleep not verifiable (before pmset log)" : "";
   console.log(`${d} ${stall.toFixed(0).padStart(11)} ${String(lags.length).padStart(4)} ${(lags.length ? Math.max(...lags) : 0).toFixed(1).padStart(6)} |`
     + ` ${sw.toFixed(1).padStart(15)} ${ld.toFixed(1).padStart(10)} | ${rows.filter((r) => r.swap === "sustained").length}/${rows.length}`
-    + `${isFull ? "" : " (partial or before --since)"}${sleepNote}`);
+    + `${isFull ? "" : " (partial or outside --since/--until)"}${sleepNote}`);
 }
 if (full.length === 0) { console.error("no full UTC day in the window"); process.exit(2); }
 
