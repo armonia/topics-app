@@ -476,6 +476,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const [pressingPaneId, setPressingPaneId] = useState<string | null>(null);
   /** A press on a tab is under way: the focus it brings is not kept (see the tab's `onFocus`). */
   const pointerOnTab = useRef(false);
+  /** The tab a press focused, to be let go of when the press ends. */
+  const focusedByPress = useRef<HTMLElement | null>(null);
+  // THE FOCUS A PRESS BROUGHT IS DROPPED WHEN THE PRESS ENDS, never while it is
+  // under way: a blur inside the focus event of the mousedown cancels the drag
+  // that press is starting, in WebKit and in Chromium alike (measured on this
+  // branch: `focusin`, `focusout`, then no `dragstart` at all). Only when the
+  // tab still holds it: a sheet opened by the same press has moved it already.
+  const releasePressFocus = useCallback(() => {
+    const tab = focusedByPress.current;
+    focusedByPress.current = null;
+    if (tab && document.activeElement === tab) tab.blur();
+  }, []);
   const tabLongPress = useLongPress(({ element }) => {
     const paneId = element.dataset.paneId;
     if (paneId) openTabSheet(paneId, 'commands');
@@ -1188,7 +1200,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // first-responder; yank it back to the chrome on pointer-down so the
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
             onPointerDown={() => { pointerOnTab.current = true; releaseNativeFocus(); }}
-            onPointerUp={() => { pointerOnTab.current = false; }}
+            onPointerUp={() => { pointerOnTab.current = false; releasePressFocus(); }}
+            // A finger the system took back. Not a mouse: a native drag starts
+            // with a `pointercancel` too, and its focus waits for `dragend`.
+            onPointerCancel={(e) => { if (e.pointerType !== 'touch') return; pointerOnTab.current = false; releasePressFocus(); }}
             // The sheet's body is a lazy chunk: warm it while the pointer is
             // on its way to the click, so the panel does not open empty.
             onPointerEnter={prefetchTabSheet}
@@ -1202,7 +1217,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // tab was focusable: nowhere in particular.
               if (e.target === e.currentTarget && pointerOnTab.current) {
                 pointerOnTab.current = false;
-                e.currentTarget.blur();
+                focusedByPress.current = e.currentTarget;
               }
             }}
             // The tab is the surface its sheet grows out of, and it takes the
@@ -1259,7 +1274,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             draggable={!isTouch && !!onReorderPanes}
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
-            onDragEnd={handleTabDragEnd}
+            // A drag ends without a `pointerup`: its focus is let go here.
+            onDragEnd={(e) => { handleTabDragEnd(e); releasePressFocus(); }}
             // DOVE CADRÀ: la tab lo dice da sé, con l'attributo del contratto
             // (`lib/dragPreview`, DROP_ACTIVE_ATTR) invece di montarsi dentro
             // una lama disegnata a parte. Il disegno sta in `index.css` in una
