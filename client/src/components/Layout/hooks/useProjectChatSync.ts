@@ -225,6 +225,16 @@ export function useProjectChatSync(
       gateRefs.initialChatsSyncedRef.current = true;
       markChatSyncDone();
 
+      // The saved layout seeds its chat panes before this runs, sub-agent chats included
+      // (tabs saved before they lived in the sidebar): close those once, at load.
+      for (const p of curPanes) {
+        if (p.type === 'chat' && p.topicId && topics[p.topicId]?.subagentOf && !removeSet.has(p.id)) {
+          remove.push(p.id);
+          removeSet.add(p.id);
+          survivingChatTopicIds.delete(p.topicId);
+        }
+      }
+
       const persisted = initialRef.current;
       const openSet = new Set([...(persisted?.openChatTopicIds || []), ...deferredOpenRef.current]);
       deferredOpenRef.current = new Set();
