@@ -3,7 +3,7 @@
  * ONE LIFE OF THE SERVER for `server/routes/command-runs.test.ts`: the real
  * database and the real process registry on the state folder `DATA_DIR`
  * names. A reload is a process that dies and another that loads the same
- * folder: the registry is module state and its boot is its import.
+ * folder: the registry is module state, loaded once per process.
  *
  *   start <messageId>[,<messageId>...] <command>
  *     writes a finished reply with each id, runs the command from each through
