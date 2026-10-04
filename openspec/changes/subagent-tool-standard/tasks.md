@@ -62,12 +62,22 @@ proposta e ripulite dei segreti.
       - il cast dell'handler (`:2775`) include tutti i campi.
 
       Test in `topics-mcp-server.test.ts`.
-- [ ] 1.7 Verifica a mano, senza turni: `claude agents` elenca `scout`,
+- [x] 1.7 Verifica a mano, senza turni: `claude agents` elenca `scout`,
       `verifier` e `oracle`. Una PTY aperta con `--agent scout --model sonnet`
       mostra nell'intestazione il modello atteso. Si chiude senza inviare un
       prompt.
 
-      NON FATTO: la verifica chiede una CLI claude vera, che questa lane non può lanciare.
+      Fatto il 04/10 in tmux con la CLI 2.1.289, hook spenti
+      (`--settings '{"disableAllHooks":true}'`), chiusa senza prompt.
+      `--agent scout --model sonnet`: intestazione «Sonnet 5.5 with xhigh
+      effort» e «@scout». `--agent verifier` e `--agent oracle` si risolvono
+      («@verifier», «@oracle»). Due differenze dalla lettera del compito:
+      `claude agents` in 2.1.289 elenca le sessioni in background e non i
+      profili (e `/agents` è stato tolto), quindi la prova dei tre profili è
+      che `--agent` li risolve; l'effort mostrato è xhigh e non il `low` di
+      scout né il `max` di oracle, perché a mano vince `effortLevel` delle
+      impostazioni utente. In Topics non conta: la partenza passa `--effort`
+      da sé.
 ## 2. Esito per turno (SUBAGENT-11, SUBAGENT-04 modificato)
 
 - [x] 2.1 Fixture in `tests/fixtures/subagent/`:

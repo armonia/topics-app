@@ -32,15 +32,15 @@ video `.webm` degli spec, non resoconti.
       §Trascinare).
 
 ## Tornata 1: lo stato della finestra (puro)
-- [ ] `client/src/state/topicBrowserWindow.ts`: reducer `open`, `activate`,
+- [x] `client/src/state/topicBrowserWindow.ts`: reducer `open`, `activate`,
       `close`, `setMode`, `move`, `setWidth`, `promoteToTab`, `returnFromTab`;
       invariante «una scheda in un posto solo».
-- [ ] Persistenza ui-state `topic-browser:<topicId>` con LWW, debounce e
+- [x] Persistenza ui-state `topic-browser:<topicId>` con LWW, debounce e
       `X-Client-Id`, copiando `taskBrowserTabs` (compresa l'applicazione di
       `ui-state:updated` e `ui-state:init`).
-- [ ] Test co-locati: ordine delle schede, promozione e ritorno, eco del proprio
+- [x] Test co-locati: ordine delle schede, promozione e ritorno, eco del proprio
       client scartata, sanitize al round-trip, posizione ancorata all'angolo
-      dopo un resize dell'app.
+      dopo un resize dell'app. — Atterrata con e74198a61 (`topicBrowserWindow.ts` e il suo test); 04/10: `bun test src/state/topicBrowserWindow` 65 pass su due file.
 
 ## Tornata 2: la finestra, minimizzata ed espansa
 - [x] `TopicBrowserWindow`: barra con le schede della topic, «+», espandi,
@@ -232,17 +232,17 @@ video `.webm` degli spec, non resoconti.
       e lo scenario `TOPIC-BROWSER-04d`.
 
 ## Tornata 6: un viewport, un arbitro
-- [ ] Server: `driverClientId` per contesto aggiornato dall'input; `resize`
+- [x] Server: `driverClientId` per contesto aggiornato dall'input; `resize`
       applicato solo dal driver, o dal primo client se nessuno ha dato input.
-- [ ] Client streaming: pagina in scala e centrata su fondo del tema quando il
+- [x] Client streaming: pagina in scala e centrata su fondo del tema quando il
       contenitore non coincide col viewport.
-- [ ] `DomCoBrowse`: applicare rrweb ViewportResize (incrementale, source 4).
-- [ ] Test unit del server sull'arbitro; E2E (`TOPIC-BROWSER-05`) con due
+- [x] `DomCoBrowse`: applicare rrweb ViewportResize (incrementale, source 4).
+- [x] Test unit del server sull'arbitro; E2E (`TOPIC-BROWSER-05`) con due
       contesti browser di Playwright sullo stesso contesto, uno a 1280×800 e uno
-      a 390×700.
+      a 390×700. — Su main: l'arbitro in `server/browser-service.ts` (`driverClientId`), `client/src/lib/browserFit.ts` col suo test, ViewportResize in `DomCoBrowse.tsx`, `tests/e2e/browser-viewport-arbiter.spec.ts` (`@covers TOPIC-BROWSER-05`). CI di main verde 37160001728, nightly completa verde 37112243590.
 
 ## Chiusura
-- [ ] Archiviare `tab-is-the-chrome` come assorbita, senza implementarla.
-- [ ] In `agent-inline-browser/tasks.md` segnare le fasi 4 e 6 come sostituite
-      da questa change.
+- [x] Archiviare `tab-is-the-chrome` come assorbita, senza implementarla. — Fatto in 6639a0b7a (`archive/2026-09-13-tab-is-the-chrome`).
+- [x] In `agent-inline-browser/tasks.md` segnare le fasi 4 e 6 come sostituite
+      da questa change. — Gia' segnate: `agent-inline-browser/tasks.md:42` e `:58`.
 - [ ] Video `.webm` dei tre stati e del foglio, allegati alla card.
