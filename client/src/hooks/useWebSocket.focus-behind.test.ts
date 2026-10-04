@@ -1,7 +1,7 @@
 /**
- * A window BEHIND another app is in front of nobody (notifications/spec.md:
- * «Una chat a fuoco in una finestra dietro un'altra app non è davanti a
- * nessuno: SHALL accendersi e contare»), live native browser view or not.
+ * A window BEHIND another app is in front of nobody (notifications/spec.md,
+ * the chat focused in a window behind another app SHALL light up and count),
+ * live native browser view or not.
  *
  * Review 2 of notifications-redesign, surfaces B2: the `focus` frame said
  * `awake: isWindowAwake()`, which fails open while the page owns live

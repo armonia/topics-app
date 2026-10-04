@@ -144,7 +144,7 @@ async function rig(name: string, opts: { archived: boolean; ownedByRunningCard: 
 }
 
 /** The dispatcher's turn launches a background Bash; its report wakes the CLI, which answers on its own. */
-async function dispatchedThenWoken(r: Rig, sid: string): Promise<void> {
+async function dispatchedThenWakesItself(r: Rig, sid: string): Promise<void> {
   const l = lines(sid);
   await r.send({ messages: [{ role: "user", content: "do the card" }], dispatched: true },
     [l.init(), l.listed([{ id: "bt1", d: "run tests" }]), l.started("bt1", "run tests"), ...l.text(`${sid}-1`, "Tests launched."), l.result("Tests launched.")]);
@@ -154,7 +154,7 @@ async function dispatchedThenWoken(r: Rig, sid: string): Promise<void> {
 describe("a board agent's topic stays idle through the turns the dispatcher did not send", () => {
   test("its CLI's woken turn: the archived topic of a running card stays idle, and the next push counts 1", async () => {
     const r = await rig("agent", { archived: true, ownedByRunningCard: true });
-    await dispatchedThenWoken(r, "sess-agent");
+    await dispatchedThenWakesItself(r, "sess-agent");
     const s = getAttention(r.subject);
     expect({ state: s.state, lit: s.lit }).toEqual({ state: "idle", lit: false });
     expect(litSubjectCount()).toBe(0);
@@ -168,7 +168,7 @@ describe("a board agent's topic stays idle through the turns the dispatcher did 
 
   test("rule 2 alone: an OPEN topic owned by a running card stays idle on its woken turn", async () => {
     const r = await rig("owned-open", { archived: false, ownedByRunningCard: true });
-    await dispatchedThenWoken(r, "sess-owned-open");
+    await dispatchedThenWakesItself(r, "sess-owned-open");
     expect(getAttention(r.subject).state).toBe("idle");
     expect(r.pushes).toHaveLength(0);
   });
