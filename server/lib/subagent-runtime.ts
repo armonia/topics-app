@@ -71,6 +71,9 @@ export function configureSubagentRuntime(d: SubagentRuntimeDeps): void {
   configured = d;
 }
 
+// Max depth 2 (subagent-nativi, choice 3): shared with the native provider,
+// which hides the delegation tools from a grandchild.
+export { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
 import { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
 /** Max live children per parent — a runaway parent can't fork unbounded PTYs. */
 export const MAX_CHILDREN_PER_PARENT = 5;
@@ -440,10 +443,10 @@ export function reportChildEnd(child: ChildRef, exitCode: number | null, ending:
 }
 
 /**
- * A native child's turn (subagent-nativi) has ended: it is reported like a
- * CLI child's, with the same dedup, the same foreground wait, and the same
- * delivery to the parent. `native-subagents.ts` reads the verdict from the
- * child's chat instead of from a transcript.
+ * A native child's turn (subagent-nativi) is over: it is reported like a CLI
+ * child's, with the same dedup, the same foreground wait and the same delivery
+ * to the parent. `native-subagents.ts` reads the verdict from the child's chat
+ * instead of a transcript.
  */
 export function reportNativeChildTurn(
   child: Pick<ChildRef, 'id' | 'name' | 'cwd'> & { parentSessionKey: string },

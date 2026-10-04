@@ -164,20 +164,19 @@ const NO_WORKSPACE_NOTE =
   "collegarne uno alla conversazione.";
 
 /**
- * The system prompt of a native turn, past Claude Code's identity.
+ * A native turn's system prompt, on top of Claude Code's identity.
  *
  * THE LANGUAGE LIVES HERE, not only in the message's `<context>`. The route
- * never passes `systemPrompt` to this runtime: the directive used to arrive
- * inline only, in the user turn, where dedup drops it from later turns (the
- * scope is the CLI session id, which a native chat never renews) and the
- * history rebuilt from the DB after a restart never holds it. On 04/10
- * topic:d740f8ae, moved to native with MSEL-06, answered an Italian chat in
- * English even after the directive fix: the model was following Topics'
- * English notices. In system the line is there every round, and stays in the
- * cached prefix.
+ * never passes `systemPrompt` to this runtime: the directive only rode inline
+ * in the user turn, where dedup drops it from later turns (its scope is the
+ * CLI session id, which a native chat never renews) and the history rebuilt
+ * from the DB after a restart does not hold it. On 04/10 topic:d740f8ae, moved
+ * to native by MSEL-06, answered an Italian chat in English even after the
+ * directive fix: the model followed Topics' English notices. In the system
+ * prompt the line is there on every round, and it stays in the cached prefix.
  *
- * Reread every turn, like effort and model: a language change applies from
- * the next message.
+ * Re-read on every turn, like effort and model: a language change applies
+ * from the next message.
  */
 export function nativeSystemPrompt(args: {
   base?: string;

@@ -1,25 +1,25 @@
 /**
- * I sotto-agenti sul motore di Topics (openspec/changes/subagent-nativi).
+ * Sub-agents on the Topics engine (openspec/changes/subagent-nativi).
  *
- * PERCHÉ. Da MSEL-06 le chat girano sul motore nativo, ma `spawn_agent` apriva
- * sempre una CLI Claude in un PTY: un processo da 160-820 MB per figlio, un
- * trust dialog da accettare, un prompt che si poteva perdere nel seed. Il 04/10
- * Attilio: «ancora vedo agenti claude code invece che topics».
+ * WHY. Since MSEL-06 chats run on the native engine, but `spawn_agent` still
+ * opened a Claude CLI in a PTY: a 160-820 MB process per child, a trust dialog
+ * to accept, a prompt that could get lost in the seed. On 04/10 the user said
+ * they still saw Claude Code agents instead of Topics ones.
  *
- * COSA È UN FIGLIO NATIVO. Una chat a sé: un topic con la sua session key,
- * legato al motore (`provider: "topics"`), il cui turno parte dalla route di
- * chat in questo processo, come il risveglio del padre e il goal loop. Non un
- * turno annidato dentro quello del padre: profondità, budget, canale verso la
- * UI e annullamento ce li ha già come qualunque chat (CHAT-NTOOL-03).
+ * WHAT A NATIVE CHILD IS. A chat of its own: a topic with its own session key,
+ * pinned to the engine (`provider: "topics"`), whose turn starts from the chat
+ * route in this process, like the parent's wake and the goal loop. Not a turn
+ * nested inside the parent's: depth, budget, a channel to the UI and
+ * cancellation it already has, like any chat (CHAT-NTOOL-03).
  *
- * COSA RESTA COM'ERA. La riga `subagents`, i tetti, la dedup dei risultati,
- * l'attesa in primo piano e il risveglio del padre sono quelli dei figli CLI:
- * qui si legge solo come finisce un turno (dalla chat, non da un transcript)
- * e lo si passa a `reportNativeChildTurn`.
+ * WHAT STAYS AS IT WAS. The `subagents` row, the caps, the result dedup, the
+ * foreground wait and the parent's wake are the CLI children's: this module
+ * only reads how a turn ended (from the chat, not a transcript) and hands it
+ * to `reportNativeChildTurn`.
  *
- * SENZA PROCESSO NON C'È NIENTE DA PARCHEGGIARE. Un figlio CLI resta acceso 15
- * minuti dopo il suo esito e poi si ritira; uno nativo a fine turno è già
- * `retired`: non occupa un posto, e `send_to_agent` gli manda il turno dopo.
+ * NO PROCESS, NOTHING TO PARK. A CLI child stays up 15 minutes after its result
+ * and then retires; a native one is already `retired` when its turn ends: it
+ * holds no slot, and `send_to_agent` sends it the next turn.
  */
 import { getDatabase } from "../db";
 import type { StoredMessage, Topic } from "../types";
@@ -60,10 +60,10 @@ export function nativeSubagentsAvailable(): boolean {
 export { engineToolsOfProfile } from "./subagent-tool-policy";
 
 /**
- * Gli alias che `spawn_agent` accetta, nel modello che il motore esegue: il
- * più recente di ogni famiglia nel catalogo provato (`MODELS` in
- * `providers/native/provider.ts`). Un id pieno passa com'è; uno che il motore
- * non serve lo scarta la route di chat, che cade sul default.
+ * The aliases `spawn_agent` accepts, mapped to the model the engine runs: the
+ * newest of each family in the tested catalog (`MODELS` in
+ * `providers/native/provider.ts`). A full id passes as is; one the engine does
+ * not run is dropped by the chat route, which falls back to the default.
  */
 const ENGINE_ALIASES: Record<string, string> = {
   opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", fable: "claude-fable-5-1", haiku: "claude-haiku-4-5-20251001",
@@ -79,12 +79,11 @@ export function engineModelOf(model: string | null): string | null {
 }
 
 /**
- * Dove sta un figlio nativo: il progetto (e la worktree) della sua chat. Il
- * motore lavora nel progetto della chat, non in una cartella qualunque, e un
- * `projectPath` allarga le rotte dei file a quella cartella: per questo una
- * `cwd` che Topics non conosce come progetto non diventa la casa di un figlio
- * nativo. `ok: false` = il figlio resta sulla CLI, o si rifiuta se il
- * chiamante aveva chiesto il motore.
+ * Where a native child lives: its chat's project (and worktree). The engine
+ * works in the chat's project, not in any folder, and a `projectPath` widens
+ * the file routes to that folder: so a `cwd` Topics does not know as a project
+ * never becomes a native child's home. `ok: false` = the child stays on the
+ * CLI, or is refused if the caller asked for the engine.
  */
 export function nativeChildPlace(input: {
   explicitCwd: string | null;
@@ -102,7 +101,7 @@ export function nativeChildPlace(input: {
   return { ok: false, reason: `the parent's directory${parentCwd ? ` ${parentCwd}` : ""} is not a project Topics knows` };
 }
 
-// ── Lo stato di questo processo ──────────────────────────────────────────────
+// ── This process's state ─────────────────────────────────────────────────────
 
 /** Children whose turn this process is driving: their stop must not be read as an end. */
 const driving = new Set<string>();
@@ -111,7 +110,7 @@ const stoppedByParent = new Set<string>();
 
 const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
-// ── Lo spawn ─────────────────────────────────────────────────────────────────
+// ── Spawn ────────────────────────────────────────────────────────────────────
 
 export interface NativeSpawn {
   id: string;
@@ -136,9 +135,9 @@ export interface NativeSpawn {
 }
 
 /**
- * Nasce la chat del figlio e parte il suo primo turno. Ritorna appena la
- * chat esiste: il turno va avanti da solo e il suo esito segue la strada di
- * tutti i figli (risveglio del padre, o `read_agent` per un padre terminale).
+ * Creates the child's chat and starts its first turn. Returns as soon as the
+ * chat exists: the turn runs on its own and its result takes every child's
+ * road (the parent's wake, or `read_agent` for a terminal parent).
  */
 export function spawnNativeChild(s: NativeSpawn): { sessionKey: string; topic: Topic } {
   if (!deps) throw new Error("native sub-agents are not wired");
@@ -159,7 +158,7 @@ export function spawnNativeChild(s: NativeSpawn): { sessionKey: string; topic: T
     systemPrompt: s.instructions ?? "",
     contextFiles: [],
     pinnedMessages: [],
-    // Il motore, dichiarato: un figlio non deve cadere sulla CLI per un default.
+    // The engine, declared: a child must not fall onto the CLI through a default.
     provider: "topics",
     model: s.model,
     effort: s.effort,
@@ -181,9 +180,9 @@ export function spawnNativeChild(s: NativeSpawn): { sessionKey: string; topic: T
 }
 
 /**
- * Il turno dopo: `send_to_agent` su un figlio nativo. Un figlio a metà turno
- * rifiuta (409): il suo esito arriva da solo, e due turni sulla stessa chat
- * non si accodano qui. Uno finito, ritirato o fermato riparte dalla sua chat.
+ * The next turn: `send_to_agent` on a native child. A child mid-turn refuses
+ * (409): its result arrives by itself, and two turns on one chat are not
+ * queued here. A finished, retired or stopped one resumes from its chat.
  */
 export function sendToNativeChild(row: SubagentRow, input: string): { ok: true; resumed: boolean } | { ok: false; status: number; error: string } {
   if (!deps) return { ok: false, status: 503, error: "native sub-agents are not wired" };
@@ -199,10 +198,10 @@ export function sendToNativeChild(row: SubagentRow, input: string): { ok: true; 
 }
 
 /**
- * `stop_agent` (o lo Stop del padre): il turno in corso si annulla con la
- * strada di ogni Stop, e il suo esito parte come `stopped` dal padre. Un
- * figlio fermo non produce un secondo esito (SUBAGENT-11). `archive` toglie la
- * chat dalla vista come la CLI chiudeva la sua pane; `send_to_agent` la riapre.
+ * `stop_agent` (or the parent's Stop): the turn in flight is cancelled the way
+ * every Stop is, and its result goes out as `stopped` by the parent. A stopped
+ * child yields no second result (SUBAGENT-11). `archive` takes the chat out of
+ * view, as the CLI closed its pane; `send_to_agent` reopens it.
  */
 export async function stopNativeChild(row: SubagentRow, opts: { archive: boolean }): Promise<void> {
   if (!deps || !row.sessionKey) return;
@@ -223,10 +222,10 @@ export async function stopNativeChild(row: SubagentRow, opts: { archive: boolean
 }
 
 /**
- * Lo Stop di una persona sul padre ferma anche i figli nativi che stanno
- * lavorando per lui: senza, quel turno andava avanti e svegliava il padre
- * appena fermato. Le chat restano aperte, i figli si riprendono con
- * `send_to_agent`. Ritorna quanti ne ha fermati.
+ * A person's Stop on the parent also stops the native children working for
+ * it: without this, their turn went on and woke the parent just stopped. The
+ * chats stay open, the children resume with `send_to_agent`. Returns how many
+ * it stopped.
  */
 export async function stopNativeChildrenOf(parentSessionKey: string): Promise<number> {
   if (!deps) return 0;
@@ -240,7 +239,7 @@ export async function stopNativeChildrenOf(parentSessionKey: string): Promise<nu
   return stopped;
 }
 
-// ── Il turno ─────────────────────────────────────────────────────────────────
+// ── Turn ─────────────────────────────────────────────────────────────────────
 
 /** The assistant rows written for the turn that started at `sinceMs`. */
 function turnRows(sessionKey: string, sinceMs: number): StoredMessage[] {
@@ -339,10 +338,10 @@ async function reportTurn(id: string, sentAt: number, routeError: string | null,
 }
 
 /**
- * Dopo un riavvio: i figli nativi ancora `running` non hanno un processo da
- * ritrovare, ma il loro turno può essere ripartito con la ripresa delle chat.
- * Si guarda la chat per un minuto: un turno vivo si aspetta e si riporta, uno
- * che non torna si riporta `lost` con quel che aveva scritto.
+ * After a restart: native children still `running` have no process to find,
+ * but their turn may have restarted with the chat resume. The chat is watched
+ * for a minute: a live turn is awaited and reported, one that never comes back
+ * is reported `lost` with what it had written.
  */
 export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?: number } = {}): Promise<void> {
   const d = deps;
@@ -370,9 +369,9 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
 // ── read_agent ───────────────────────────────────────────────────────────────
 
 /**
- * `read_agent` su un figlio nativo: le sue risposte e le sue chiamate di tool,
- * dalla chat. L'offset è un indice di riga, non un byte: è l'unità che la
- * chat ha, e chi chiama lo ripassa senza leggerlo.
+ * `read_agent` on a native child: its answers and its tool calls, from the
+ * chat. The offset is a row index, not a byte: that is the chat's unit, and
+ * the caller passes it back without reading it.
  */
 export function readNativeChildOutput(row: SubagentRow, since: number): { events: Array<{ type: "assistant" | "tool_use"; text?: string; name?: string; input?: unknown }>; nextOffset: number; source: "chat" } {
   const rows = row.sessionKey && deps ? deps.loadMessages(row.sessionKey) : [];

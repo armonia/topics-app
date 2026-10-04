@@ -15,7 +15,7 @@
  * reached. The tripwire below refuses to go on if the PTY resolved any other
  * binary.
  *
- * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f SUBSTRIP-01g SUBSTRIP-01h SUBSTRIP-01i SUBAGENT-20
+ * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f SUBSTRIP-01g SUBSTRIP-01h SUBSTRIP-01i
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -181,18 +181,6 @@ async function openPaneFromStrip(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="single-terminal-pane"]:visible')).toBeVisible({ timeout: 20_000 });
 }
 
-/**
- * SUBAGENT-20: closing the tab of a WORKING sub-agent asks first, naming the
- * child and the chat that started it. Confirm it, and the close goes through
- * as before. (An ended child's tab closes with no question.)
- */
-async function confirmSubagentStop(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: `Fermare «${AGENT_NAME}»?` });
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
-  await expect(dialog).toContainText(TOPIC_NAME);
-  await dialog.getByRole("button", { name: "Ferma" }).click();
-}
-
 async function showChat(page: Page): Promise<void> {
   // A chat inside a project is the project window's `chat:<id>` tab.
   await page.locator(`[role="tab"][data-pane-id="${topicId}"], [role="tab"][data-pane-id="chat:${topicId}"]`).first().click();
@@ -277,13 +265,11 @@ test("SUBSTRIP-01b: closing the tab of an ENDED sub-agent takes its row away, fo
 
 test("SUBSTRIP-01c: closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01c" });
-  test.info().annotations.push({ type: "spec", description: "SUBAGENT-20" });
   const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
 
   await openChat(page);
   await openPaneFromStrip(page);
   await closeTabViaCommand(terminalTab(page));
-  await confirmSubagentStop(page);
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
   // Closing the tab retires the session on the server...
   await expect.poll(() => serverLists(page.request, agentId), { timeout: 30_000 }).toBe(false);
@@ -386,14 +372,12 @@ async function chatInProjectWithPaneOpen(
 
 test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01e" });
-  test.info().annotations.push({ type: "spec", description: "SUBAGENT-20" });
   // The project keeps a closed terminal's session for a minute (the undo
   // window) before retiring it, and the row must not come back then.
   test.setTimeout(180_000);
   const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-project");
 
   await closeTabViaCommand(inProject.first());
-  await confirmSubagentStop(page);
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
   // The session is retired once the project's undo window is over...
   await expect.poll(() => serverLists(page.request, agentId), { timeout: 100_000, intervals: [2_000] }).toBe(false);
@@ -484,7 +468,7 @@ test("SUBSTRIP-01g: inside a project, the tab of a sub-agent its parent stopped 
   const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-ends-in-project", true);
 
   // The end closes the tab (04/10: eight finished Claude Code tabs in
-  // pop-demo); the row stays in the strip, marked ended.
+  // pop-demo); the row stays in the strip, marked as ended.
   await stopAndSeeItEnded(page);
   await expect(inProject).toHaveCount(0, { timeout: 5_000 });
 

@@ -1,10 +1,10 @@
 /**
- * A child born on the CLI, written to after it stopped, comes back on the
- * Topics engine (subagent-nativi). `--resume` used to bring it back as Claude
- * Code: on 04/10 pop-demo kept talking to «arte-tappa-1» through
- * `send_to_agent`, and every resume reopened a CLI. The CLI history does not
- * move into the native chat: what passes is the task, the last report, and
- * the transcript path, which the child can read for more if it needs it.
+ * A child born on the CLI, written to again after it stopped, comes back on
+ * the Topics engine (subagent-nativi). `--resume` relit it as Claude Code: on
+ * 04/10 pop-demo kept talking to "arte-tappa-1" through `send_to_agent`, and
+ * every resume reopened a CLI. The CLI history does not move into the native
+ * chat: the task, the last report and the transcript path do, and the child
+ * can read the transcript if it needs more.
  */
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { homedir } from "os";

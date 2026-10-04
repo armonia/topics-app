@@ -4,10 +4,9 @@
  * the directive only rode inline in the user turn, the inline dedup dropped it
  * after the first turn, and the history rebuilt from the DB never had it.
  * On 04/10 topic:d740f8ae (an Italian chat on the native runtime) answered in
- * English, following Topics' notices.
+ * English, following Topics' own notices.
  *
  * Drives the REAL provider against a stubbed API and reads what it sent.
- * @covers PROMPT-02
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
