@@ -21,8 +21,8 @@ verde resta verde. Prova di comportamento: un video `.webm` per ogni requisito
 - [ ] 1.2 Aggiornare gli scenari di `TOPIC-BROWSER-02` in
       `tests/e2e/browser-tab-chrome.spec.ts` (tasto destro = foglio; console e
       zoom nei livelli). Visti ROSSI.
-- [ ] 1.3 `lib/contextMenuSurfaces.test.ts`: il caso «una barra di tab con
-      `<TabSheet` passa, un altro file con `<TabSheet` e nessun
+- [ ] 1.3 `lib/contextMenuSurfaces.test.ts`: il caso «una delle tre superfici
+      con `<TabSheet` passa, un altro file con `<TabSheet` e nessun
       `ContextMenuPortal` no». Visto ROSSO.
 
 ## 2. Il guscio
@@ -43,6 +43,8 @@ verde resta verde. Prova di comportamento: un video `.webm` per ogni requisito
 - [ ] 3.1 `browserTabEntries`: testata, contestuali, Cerca, livelli Pagina,
       Strumenti, Sessione, Tab, Disposizione, chiusure. Togliere il doppione M7.
 - [ ] 3.2 `chatTabEntries`, `terminalTabEntries`, `utilityTabEntries`.
+- [ ] 3.2b «Chiudi» con lo stesso cancello della X in ogni tipo: assente sulle
+      pane in `nonClosablePaneIds` (oggi `PaneTabBar.tsx:1809` su M9 e M10).
 - [ ] 3.3 La regola dei livelli: una voce sola sale, zero voci sparisce. Test
       `bun:test` sulla funzione pura che costruisce l'albero delle voci.
 - [ ] 3.4 Code di stato dei livelli (zoom e dispositivo, errori e download,
@@ -59,7 +61,9 @@ verde resta verde. Prova di comportamento: un video `.webm` per ogni requisito
       tasto destro, pressione lunga), con «Apri come tab» e Chiudi.
 - [ ] 4.3 `StandaloneChatGroup.tsx`: il titolo sul telefono apre il foglio della
       superficie in primo piano come foglio dal basso.
-- [ ] 4.4 Rotaia `CTXMENU-01`: `<TabSheet` accettato per le tre barre.
+- [ ] 4.4 Rotaia `CTXMENU-01`: `<TabSheet` accettato per le tre superfici
+      (`PaneTabBar.tsx`, `TopicBrowserWindow.tsx`, `StandaloneChatGroup.tsx`);
+      `EditorTabs.tsx` resta su `ContextMenuPortal`.
 
 ## 5. Parole
 

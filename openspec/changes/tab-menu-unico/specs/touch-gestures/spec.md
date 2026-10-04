@@ -5,12 +5,13 @@
 ### Requirement: CTXMENU-01 — Il tasto destro apre il menu dell'app dove l'app ha comandi, e lascia quello di sistema dove non ne ha
 
 Dove un elemento ha comandi suoi (righe della sidebar, card della board, righe
-dei file e delle modifiche git), il tasto destro SHALL aprire il menu dell'app
-costruito sul menu al cursore CONDIVISO, non su una scheda scritta a mano:
-quattro menu scritti a mano avevano ciascuno un pezzo in meno (una misura
-indovinata, nessun ruolo, nessun fuoco a cui tornare). Su una tab di una barra di
-tab il menu dell'app SHALL essere il foglio della tab (`TABSHEET-01`), che porta
-lo stesso contratto.
+dei file e delle modifiche git, tab dell'editor di file), il tasto destro SHALL
+aprire il menu dell'app costruito sul menu al cursore CONDIVISO, non su una
+scheda scritta a mano: quattro menu scritti a mano avevano ciascuno un pezzo in
+meno (una misura indovinata, nessun ruolo, nessun fuoco a cui tornare). Sulle tab
+della barra delle pane (`PaneTabBar`), sulle schede della finestrella del browser
+della topic e sul titolo sul telefono il menu dell'app SHALL essere invece il
+foglio della tab (`TABSHEET-01`), che porta lo stesso contratto.
 
 Quel menu SHALL stare dentro la finestra, aprendosi dall'altro lato del
 puntatore quando un bordo lo taglierebbe (il foglio della tab: dall'altro lato
@@ -28,18 +29,23 @@ che non sia l'etichetta di un suo comando (il diff del task, il log della
 console): li' il menu di sistema e' l'unico modo di copiare.
 
 Un file che si prende il tasto destro senza il menu condiviso SHALL far fallire
-un controllo strutturale. Per le barre di tab il foglio della tab vale come menu
-condiviso; per ogni altro file no.
+un controllo strutturale. Per quelle tre superfici il foglio della tab vale come
+menu condiviso; per ogni altro file no, comprese le tab dell'editor di file.
 
 #### Scenario: tasto destro su una riga con comandi
 - **GIVEN** una riga della sidebar
 - **WHEN** l'utente ci clicca col tasto destro
 - **THEN** SHALL aprirsi il menu dell'app dentro la finestra, e il menu di sistema NO
 
-#### Scenario: tasto destro su una tab
-- **GIVEN** una tab della barra
+#### Scenario: tasto destro su una tab della barra delle pane
+- **GIVEN** una tab della barra delle pane
 - **WHEN** l'utente ci clicca col tasto destro
 - **THEN** SHALL aprirsi il foglio di quella tab dentro la finestra, e né il menu di sistema né un menu al cursore
+
+#### Scenario: tasto destro su una tab dell'editor di file
+- **GIVEN** una tab dell'editor di file, dentro la pane dei file
+- **WHEN** l'utente ci clicca col tasto destro
+- **THEN** SHALL aprirsi il menu al cursore condiviso con le voci di quella tab, e né il menu di sistema né il foglio della tab
 
 #### Scenario: chiusura e tastiera
 - **GIVEN** il menu aperto col tasto destro o con Shift+F10

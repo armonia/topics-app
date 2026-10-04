@@ -4,10 +4,13 @@
 
 ### Requirement: TABSHEET-01 — Una tab ha UNA superficie di comandi, ed è la tab che si espande
 
-Ogni tab di una barra di tab SHALL avere una sola superficie di comandi: il
-**foglio della tab**. Il tasto destro, la pressione lunga col dito, Shift+F10 e il
-tasto menu su una tab SHALL aprire il foglio di quella tab. Nessuna tab della
-barra SHALL aprire un menu a tendina o un menu al cursore.
+Ogni tab della barra delle pane (`PaneTabBar`), ogni scheda della finestrella
+del browser della topic e il titolo sul telefono (`TABSHEET-04`) SHALL avere una
+sola superficie di comandi: il **foglio della tab**. Il tasto destro, la
+pressione lunga col dito, Shift+F10 e il tasto menu su una di queste tab SHALL
+aprire il foglio di quella tab. Nessuna di queste tab SHALL aprire un menu a
+tendina o un menu al cursore. Le tab dell'editor di file, dentro la pane dei
+file, restano fuori: il loro menu è il menu al cursore condiviso di `CTXMENU-01`.
 
 **La forma.** Mentre il foglio è aperto la tab e il foglio SHALL essere una sola
 superficie: la tab SHALL essere dipinta con lo stesso fondo del foglio e portare
@@ -120,10 +123,10 @@ questa modifica, ciascuno in un posto solo:
 
 | Tipo | Testata | Primo livello | Livelli |
 |------|---------|---------------|---------|
-| browser | indirizzo; Indietro, Avanti, Ricarica, Copia indirizzo, Apri nel browser di sistema; suggerimenti solo dalle porte dell'indirizzo | Riprendi il controllo, Riporta nella chat, Apri nel progetto, Torna alla chat che ha aperto questo browser (ognuna solo dove esiste); Cerca nella pagina; Chiudi; Chiudi le altre | Pagina: Zoom della pagina, Dispositivo, Dimentica questo sito… · Strumenti: Console, Download, DevTools · Sessione: Condivisione, Motore, Resa · Tab: Rinomina, Fissa, Copia link alla tab · Disposizione |
-| chat | nome e stato | Interrompi il turno (solo mentre lavora), Cerca nella chat, Impostazioni della chat, Chiudi, Chiudi le altre | Tab · Disposizione, con in più Sposta in una nuova finestra |
-| terminale | nome | Ricarica, Cerca, Chiudi, Chiudi le altre | Tab · Disposizione |
-| progetto e utilità | nome | Cerca (se la pane ha un cercatore), Chiudi, Chiudi le altre | Tab: Fissa il progetto, Fissa questa tab, Copia link · Disposizione |
+| browser | indirizzo; Indietro, Avanti, Ricarica, Copia indirizzo, Apri nel browser di sistema; suggerimenti solo dalle porte dell'indirizzo | Riprendi il controllo, Riporta nella chat, Apri nel progetto, Torna alla chat che ha aperto questo browser (ognuna solo dove esiste); Cerca nella pagina; Chiudi (solo sulle tab chiudibili, come la X); Chiudi le altre (con più di una tab) | Pagina: Zoom della pagina, Dispositivo, Dimentica questo sito… · Strumenti: Console, Download, DevTools · Sessione: Condivisione, Motore, Resa · Tab: Rinomina, Fissa, Copia link alla tab · Disposizione |
+| chat | nome e stato | Interrompi il turno (solo mentre lavora), Cerca nella chat, Impostazioni della chat, Chiudi (solo sulle tab chiudibili, come la X), Chiudi le altre (con più di una tab) | Tab · Disposizione, con in più Sposta in una nuova finestra |
+| terminale | nome | Ricarica, Cerca, Chiudi (solo sulle tab chiudibili, come la X), Chiudi le altre (con più di una tab) | Tab · Disposizione |
+| progetto e utilità | nome | Cerca (se la pane ha un cercatore), Chiudi (solo sulle tab chiudibili, come la X), Chiudi le altre (con più di una tab) | Tab: Fissa il progetto, Fissa questa tab, Copia link · Disposizione |
 
 Disposizione SHALL contenere, dove hanno effetto: Ingrandisci o Riduci,
 Ingrandisci solo questa, Dividi a destra, Dividi in basso, Reimposta pannelli,
@@ -133,7 +136,10 @@ finestra.
 
 «Copia indirizzo» SHALL essere l'unico comando che copia l'indirizzo della
 pagina. «Chiudi» SHALL chiudere subito; la chiusura con il conto alla rovescia
-SHALL restare solo sulla X della tab. Lo zoom della pagina SHALL chiamarsi «Zoom
+SHALL restare solo sulla X della tab. «Chiudi» SHALL comparire solo sulle tab
+chiudibili, con lo stesso cancello della X: una pane strutturale, che la barra
+riceve fra le non chiudibili (`nonClosablePaneIds`) e che non ha la X, NON SHALL
+offrire «Chiudi» nel foglio. Lo zoom della pagina SHALL chiamarsi «Zoom
 della pagina» e quello della cella «Ingrandisci».
 
 Ogni parola del foglio SHALL venire dai cataloghi delle due lingue, compresi i
@@ -153,10 +159,16 @@ nomi dei livelli e le code di stato.
 - **THEN** «Interrompi il turno» non c'è
 
 #### Scenario: chiudere dal foglio
-- **GIVEN** il foglio aperto su una tab
+- **GIVEN** il foglio aperto su una tab chiudibile
 - **WHEN** l'utente sceglie «Chiudi»
 - **THEN** la tab sparisce dalla barra senza conto alla rovescia e il foglio è chiuso
 - **AND** il foglio non offre nessuna voce di chiusura col conto alla rovescia
+
+#### Scenario: una tab che non si chiude
+- **GIVEN** una pane strutturale fra le non chiudibili della sua barra, la cui tab non ha la X
+- **WHEN** l'utente apre il foglio di quella tab col tasto destro
+- **THEN** il foglio non offre «Chiudi»
+- **AND** la tab è ancora nella barra dopo che il foglio si è chiuso
 
 #### Scenario: in inglese
 - **GIVEN** la lingua dell'app è l'inglese
@@ -220,7 +232,7 @@ The system SHALL support sidebar toggle, pane tab bar interactions including clo
 - **AND** its Disposizione level includes a Split Down option
 
 #### Scenario: Close tab via context menu
-- **GIVEN** a tab's sheet is open
+- **GIVEN** the sheet of a closable tab is open
 - **WHEN** the user clicks the Close option
 - **THEN** the tab is removed from the tab bar without a countdown
 - **AND** the tab sheet is dismissed

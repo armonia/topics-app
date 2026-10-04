@@ -120,31 +120,33 @@ Regole comuni:
 | 1° livello › Sessione | Condivisione · Motore · Resa | F11 | coda: lo stato della condivisione |
 | 1° livello › Tab | Rinomina · Fissa (o Fissa il progetto e Fissa questa tab) · Copia link alla tab | M4, M1, M6 | |
 | 1° livello › Disposizione | Ingrandisci / Riduci · Ingrandisci solo questa · Dividi a destra · Dividi in basso · Reimposta pannelli · Sposta nel gruppo › · Sposta in una cella separata / Riporta nel pannello principale · Stacca il gruppo in una nuova finestra | M12-M15, M17-M19 | «Sposta nel gruppo» è un terzo livello (gruppi, Nuovo gruppo), non più una fisarmonica |
-| 1° livello | Chiudi (⌘W) | M9 | chiude subito |
+| 1° livello | Chiudi (⌘W) | M9 | chiude subito; solo sulle tab chiudibili, come la X (`nonClosablePaneIds`, `PaneTabBar.tsx:1809`) |
 | 1° livello | Chiudi le altre | M11 | solo con più di una tab |
 | – | ~~Chiudi (con conto alla rovescia)~~ | M10 | esce (§D5); il conto alla rovescia resta sulla X |
 
 Primo livello sotto l'indirizzo: al massimo 3 contestuali + Cerca + 5 livelli + 2
-chiusure = 11 righe.
+chiusure = 11 righe. Su una pane non chiudibile «Chiudi» non c'è, come oggi M9 e
+M10: il cancello di `PaneTabBar.tsx:1809` passa al foglio di ogni tipo (§2.2-2.4).
 
 ### 2.2 Tab chat
 
 Testata: il pallino del colore della topic, il nome, lo stato («sta lavorando»).
 Primo livello: Interrompi il turno (M8, solo mentre lavora) · Cerca nella chat
 (M3) · Impostazioni della chat (M20) · Tab › (Rinomina, Fissa, Copia link) ·
-Disposizione › (come §2.1 più «Sposta in una nuova finestra», M16) · Chiudi ·
-Chiudi le altre.
+Disposizione › (come §2.1 più «Sposta in una nuova finestra», M16) · Chiudi (solo
+se chiudibile) · Chiudi le altre (con più di una tab).
 
 ### 2.3 Tab terminale
 
 Testata: il nome della sessione. Primo livello: Ricarica (M2) · Cerca (M3) · Tab ›
-(Rinomina, Fissa, Copia link) · Disposizione › · Chiudi · Chiudi le altre.
+(Rinomina, Fissa, Copia link) · Disposizione › · Chiudi (solo se chiudibile) ·
+Chiudi le altre (con più di una tab).
 
 ### 2.4 Tab progetto e utilità (file, git, board, log)
 
 Testata: il nome. Primo livello: Cerca (se la pane ha un cercatore) · Tab ›
-(Fissa il progetto, Fissa questa tab, Copia link) · Disposizione › · Chiudi ·
-Chiudi le altre. Una utilità con id sorteggiato non ha link e spesso non si
+(Fissa il progetto, Fissa questa tab, Copia link) · Disposizione › · Chiudi (solo
+se chiudibile) · Chiudi le altre (con più di una tab). Una utilità con id sorteggiato non ha link e spesso non si
 fissa: il livello Tab resta con zero o una voce, e la regola dei livelli lo
 toglie o lo appiattisce.
 
@@ -232,7 +234,9 @@ dall'ospite.
 La rotaia di `CTXMENU-01` (`lib/contextMenuSurfaces.test.ts`) oggi accetta solo
 `<ContextMenuPortal`. Accetterà anche `<TabSheet`, solo per le barre di tab
 (`PaneTabBar.tsx`, `TopicBrowserWindow.tsx`, `StandaloneChatGroup.tsx`), così un
-menu scritto a mano in un altro file resta rosso.
+menu scritto a mano in un altro file resta rosso. Le tab dell'editor di file
+(`EditorTabs.tsx`) restano sul menu al cursore condiviso, e così le dicono
+`CTXMENU-01` e `TABSHEET-01`.
 
 `data-testid`: il pannello è `tab-sheet` con `data-pane-type`; `browser-tab-sheet`
 sparisce in un solo giro sulle 14 spec che lo leggono. Le voci tengono i testid
