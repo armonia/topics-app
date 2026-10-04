@@ -16,6 +16,7 @@ import {
   openHold,
   recomposeAttentionOnBoot,
   resetAttentionStore,
+  setBackgroundTasks,
   setCard,
   turnEnded,
   turnStarted,
@@ -84,6 +85,22 @@ describe("the epoch is tied to the cause", () => {
     noteUnreadChanged("e");
     expect(frames).toHaveLength(1);
     expect(frames[0].row.unread).toBe(3);
+  });
+
+  it("a task that changes kind or name sends a frame: the line names a Monitor once the CLI recognises it", () => {
+    // The CLI lists a Monitor as a Bash first and recognises it a moment later
+    // (chat-monitor-visible): the same id, another kind.
+    turnStarted("topic:m");
+    const startedAt = "2026-10-03T09:00:00.000Z";
+    setBackgroundTasks("topic:m", { b1: { kind: "bash", label: "JOB", startedAt } });
+    frames.length = 0;
+    setBackgroundTasks("topic:m", { b1: { kind: "monitor", label: "JOB", startedAt } });
+    expect(frames).toHaveLength(1);
+    expect(frames[0].row.background[0].kind).toBe("monitor");
+    setBackgroundTasks("topic:m", { b1: { kind: "monitor", label: "JOB renamed", startedAt } });
+    expect(frames).toHaveLength(2);
+    setBackgroundTasks("topic:m", { b1: { kind: "monitor", label: "JOB renamed", startedAt } });
+    expect(frames).toHaveLength(2);
   });
 });
 
