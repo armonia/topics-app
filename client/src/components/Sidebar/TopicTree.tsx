@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
+import { chatStopTarget, parentLabel, useConfirmSubagentStop, useConfirmTerminalStop } from '../../lib/subagentStopGuard';
+import { useTerminalSessions, useTopics } from '../../contexts/TopicsContext';
 import { boardIdForPath } from '../../lib/board';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
@@ -800,6 +802,21 @@ export function TopicTree({
     await onArchiveTopic(topicId, archive);
   }, [onArchiveTopic]);
 
+  // Closing a working sub-agent's terminal kills it, and its Stop cuts a turn
+  // another session is waiting on: both ask first (SUBAGENT-20). Archiving a
+  // row only hides it (the server does not abort a turn on archive): no question.
+  const confirmSubagentStop = useConfirmSubagentStop();
+  const confirmTerminalStop = useConfirmTerminalStop();
+  const ctxTopics = useTopics();
+  const ctxTerminals = useTerminalSessions();
+  const labelOfParent = useCallback(
+    (key: string) => parentLabel(key, ctxTopics, ctxTerminals),
+    [ctxTopics, ctxTerminals],
+  );
+  const guardedCloseTerminal = useCallback((sessionId: string) => {
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) onCloseTerminal?.(sessionId); });
+  }, [confirmTerminalStop, onCloseTerminal]);
+
   // ── Render: single sidebar item ──────────────────────────────────────────
 
   /**
@@ -997,7 +1014,10 @@ export function TopicTree({
         // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
         // bersaglio che si accende senza rispondere.
         touchDrag={item.pinned ? undefined : ditoVersoIFissati}
-        onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? () => {
+        onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? async () => {
+          // A native sub-agent's turn belongs to the session that spawned it:
+          // the Stop button only shows while it streams, so it asks (SUBAGENT-20).
+          if (!await confirmSubagentStop(chatStopTarget(topic, true, labelOfParent))) return;
           // Si archivia solo se il server ha davvero buttato via la chat: qui
           // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
           // la mossa che nell'incidente del 10 agosto il client si prendeva da
@@ -1060,7 +1080,7 @@ export function TopicTree({
         pinned={!!item.pinned}
         lastActivity={item.lastActivity}
         onTerminalClick={handleTerminalRowClick}
-        onCloseTerminal={onCloseTerminal}
+        onCloseTerminal={onCloseTerminal ? guardedCloseTerminal : undefined}
         onOpenAsProject={onOpenAsProject}
         // La stessa rete del drop e delle tessere: un terminale chiuso vive in
         // sidebar solo finché è fissato, e la voce di menu non lo dice.

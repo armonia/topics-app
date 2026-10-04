@@ -12,6 +12,7 @@ import { ChatPane } from '../Chat/ChatPane';
 import {
   createPaneId,
   getTerminalSessionFromPaneId,
+  isTerminalPaneId,
   getBrowserContextFromPaneId,
   isTaskWorkspacePath,
   useClosedTabs,
@@ -28,6 +29,7 @@ import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { missionPrompt, type Mission } from '../../lib/missions';
 import { pickMissionSession } from '../../lib/missionTarget';
+import { useConfirmTerminalStop } from '../../lib/subagentStopGuard';
 
 // The tiles are `lazyWarm`, not `lazy`: their chunks are asked for at boot from
 // the project's local tab record (`state/pane/panePreload`), and a warm chunk
@@ -236,8 +238,21 @@ export function ProjectWindowPane({
   const handleAddPaneToGroup = layout.handlers.addToGroup;
   const handleAddPaneWhenEmpty = layout.handlers.addWhenEmpty;
   const handleActivatePane = layout.handlers.activate;
-  const handleClosePane = layout.handlers.close;
-  const handleClosePaneImmediate = layout.handlers.closeNow;
+  // A working sub-agent's terminal is another session's work: closing it kills
+  // the PTY, so it asks first (SUBAGENT-20). Every other tab closes as before.
+  const confirmTerminalStop = useConfirmTerminalStop();
+  const rawClosePane = layout.handlers.close;
+  const rawClosePaneNow = layout.handlers.closeNow;
+  const handleClosePane = useCallback((groupId: string, paneId: string) => {
+    const sessionId = isTerminalPaneId(paneId) ? getTerminalSessionFromPaneId(paneId) : null;
+    if (!sessionId) { rawClosePane(groupId, paneId); return; }
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePane(groupId, paneId); });
+  }, [rawClosePane, confirmTerminalStop]);
+  const handleClosePaneImmediate = useCallback((groupId: string, paneId: string) => {
+    const sessionId = isTerminalPaneId(paneId) ? getTerminalSessionFromPaneId(paneId) : null;
+    if (!sessionId) { rawClosePaneNow(groupId, paneId); return; }
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePaneNow(groupId, paneId); });
+  }, [rawClosePaneNow, confirmTerminalStop]);
 
   /**
    * Tell the topic's browser window which pages this project already has open,

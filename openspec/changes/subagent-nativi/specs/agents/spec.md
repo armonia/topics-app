@@ -197,3 +197,39 @@ come back SHALL be reported `lost` with what it had written.
 - **GIVEN** a native child in the middle of its turn
 - **WHEN** a person presses Stop on the parent chat
 - **THEN** the child's turn SHALL end `stopped`, and its chat SHALL stay unarchived
+
+### Requirement: SUBAGENT-20 — Stopping work another session started asks first
+
+Owner, 04/10: «poi in realtà non dovrei poterle chiudere allegramente come
+processi, in caso siano avviati da altre sessioni dovrebbe chiedere conferma».
+
+When a person, from the interface, does something that STOPS a sub-agent
+another session started (a terminal with `parentSessionKey`, a chat with
+`subagentOf`) while it is still working, the client SHALL ask first with the
+app's own dialog (`useConfirm`, never `window.confirm`). The dialog SHALL name
+the sub-agent and the session that started it, and SHALL say that its work
+stops and the parent gets the result «stopped».
+
+Working means: for a CLI child, phase `working` or `waiting-prompt`, or with no
+phase yet a busy PTY; for a native child, a streaming turn.
+
+It asks on: closing the sub-agent's terminal tab (project tab bar and top-level
+grid, deferred or «close now»), closing its terminal from the sidebar (row or
+menu), and the sidebar Stop on a native child's chat.
+
+It SHALL NOT ask when nothing stops: a session the person started, a child that
+already finished its turn (even with its PTY alive), archiving a chat row (the
+server does not abort a turn on archive), closing a chat tab (a chat tab is a
+view, the turn goes on), and the «Sotto-agenti» strip's × (it only dismisses an
+ended row) or the result card (it only opens the child).
+
+#### Scenario: closing a working CLI child's tab
+- **GIVEN** a terminal tab of a sub-agent spawned by `topic:pop`, phase `working`
+- **WHEN** the person closes the tab
+- **THEN** a dialog names the child and «Remake Prince of Persia» before anything is retired
+- **AND** cancelling leaves the tab open and the PTY alive
+
+#### Scenario: a finished child or the person's own terminal
+- **GIVEN** a sub-agent in phase `finished`, or a terminal with no `parentSessionKey`
+- **WHEN** the person closes its tab
+- **THEN** it closes as before, with no question

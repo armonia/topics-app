@@ -5,7 +5,8 @@ import { useTopics, useTerminalSessions, useTopicsPending } from '../../contexts
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
-import { getProjectPathFromPaneId, isKnownPanePrefix } from '../../state/pane/adapters';
+import { getProjectPathFromPaneId, getTerminalSessionFromPaneId, isKnownPanePrefix, isTerminalPaneId } from '../../state/pane/adapters';
+import { useConfirmTerminalStop } from '../../lib/subagentStopGuard';
 import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeight } from '../../state/projectGridWeights';
 import { useGridResize } from '../../hooks/useGridResize';
 import { useLayoutMobile } from '../../hooks/useMobile';
@@ -335,8 +336,8 @@ export function PanelGrid({
   openPanels,
   focusedPanelId,
   onFocusPanel,
-  onClosePanel,
-  onClosePanelImmediate,
+  onClosePanel: rawClosePanel,
+  onClosePanelImmediate: rawClosePanelImmediate,
   onToggleFissato,
   isFissato,
   onReorderPanels,
@@ -378,6 +379,22 @@ export function PanelGrid({
   promoteDraft,
   draftMeta,
 }: PanelGridProps) {
+  // A working sub-agent's terminal is another session's work: closing it kills
+  // the PTY, so it asks first (SUBAGENT-20). Every other tab closes as before.
+  const confirmTerminalStop = useConfirmTerminalStop();
+  const onClosePanel = useCallback((id: string) => {
+    const sessionId = isTerminalPaneId(id) ? getTerminalSessionFromPaneId(id) : null;
+    if (!sessionId) { rawClosePanel(id); return; }
+    void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePanel(id); });
+  }, [rawClosePanel, confirmTerminalStop]);
+  const onClosePanelImmediate = useMemo(() => {
+    if (!rawClosePanelImmediate) return undefined;
+    return (id: string) => {
+      const sessionId = isTerminalPaneId(id) ? getTerminalSessionFromPaneId(id) : null;
+      if (!sessionId) { rawClosePanelImmediate(id); return; }
+      void confirmTerminalStop(sessionId).then((ok) => { if (ok) rawClosePanelImmediate(id); });
+    };
+  }, [rawClosePanelImmediate, confirmTerminalStop]);
   // Topics + terminal sessions come from TopicsContext — both used to be
   // drilled here as props. Single read at the top so the rest of the
   // function reads them by name as before.
