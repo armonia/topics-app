@@ -622,8 +622,12 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   `run_in_background`, Monitor, Workflow) e viene ri-chiavato all'id della CLI al
   `PostToolUse`: un turno che chiude prima del `PostToolUse` aspetta già. Il CronCreate
   entra solo al `PostToolUse` (serve `recurring`).
-- **Un cron non ricorrente di un terminale** esce con `CronDelete` o con la fine del
-  processo: il transcript non dice quando scatta. In chat lo dice lo snapshot della CLI.
+- **Un cron non ricorrente di un terminale** esce al primo turno che si apre dopo
+  quello che l'ha armato (`UserPromptSubmit` o turno aperto dalla CLI, in
+  `tracker-sync.ts`), con `CronDelete` o con la fine del processo: il transcript non
+  distingue lo scatto da un altro turno. Se la persona scrive prima dello scatto il cron
+  esce in anticipo e quel turno si accende come su `main`; lo scatto dopo è un turno
+  finito come un altro. In chat lo dice lo snapshot della CLI.
 - **`run_command`** entra nella mappa della chat come un compito solo (`command`) letto
   a fine turno da `commandWakeState`, non uno per processo.
 - **Terminali**: con hook il turno è `UserPromptSubmit`/`Stop` (e le righe del
@@ -635,11 +639,36 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
 - **Fine del processo di una chat**: il provider la dice con `observeProcessEnded`;
   il turno aperto lo chiude la rotta col suo errore (`turnClosedByRoute`), lo store
   conta solo i compiti in volo. Un `SessionEnd` è sempre trattato come chiesto dalla
-  persona.
+  persona. Il `command` (un `run_command` di Topics) non è della CLI: resta nella
+  mappa e non conta come compito in volo alla fine del processo, perché il comando gira
+  ancora e il suo risveglio arriverà (§5.5: il reaper non accende niente). Solo un
+  riavvio del server lo toglie.
+- **Un soggetto chiuso vede ogni turno che chiude mentre è chiuso** (archiviato,
+  cancellato, terminale chiuso): un turno risvegliato sotto l'archivio non resta da
+  vedere fino alla riapertura (ATTN-11, ATTN-13). Anche le due riaperture
+  dell'orchestratore globale (`restoreTopic` in `server.ts` e la riparazione in
+  `routes/orchestrator-sessions.ts`) ora lo dicono allo store.
+- **«Riprende da solo» si legge dal testo dell'avviso** (`noticePromisesResume` in
+  `lib/cancelled-notice.ts`): l'avviso di un guasto che promette la ripresa, ogni
+  avviso del limite di richieste e la coda «Riprendo da solo» che `avvisoPerTurno`
+  scrive quando la ripresa la fa lo sweep. Sono gli unici testi che la promettono, e
+  `stream:end` porta il testo, non la promessa.
+- **`bindTopic` sta fra i metodi che muovono una card**, con la discesa nei
+  discendenti: un padre con una sessione nuova rimette in `todo` gli step della
+  vecchia, e lo step che era in review o parcheggiato si spegne subito.
 - **Avvio**: la ricomposizione parte dopo la riadozione dei turni sopravvissuti. Un
   processo è vivo se il provider ha ancora lavoro in background (chat) o se la riga di
   `terminal_sessions` non è `dormant` (terminali). Le attese dei bridge non si
   rileggono: dopo un riavvio le mappe sono vuote e l'attesa non esiste più (ATTN-01).
+  Ma la riga salvata ricorda l'attesa che la teneva accesa (`epoch_cause =
+  hold:<tipo>:<id>`, stato `needs-you`): il figlio MCP che sopravvive al riavvio la
+  ridice con un id del processo nuovo, e la prima attesa dello stesso tipo dopo il
+  riavvio prende l'id vecchio, quindi stessa causa e nessuna epoca (ATTN-07). Lo
+  stesso vale per ciò che quell'attesa copriva: se all'avvio, senza l'attesa, la
+  composizione cade su un turno non visto, l'epoca resta quella. Un turno che chiude
+  o la fine del processo lasciano cadere l'attesa portata. Gli ingressi letti da
+  questo processo prima della ricomposizione (un `stream:start` di riattacco,
+  un'attesa) restano: la ricomposizione non li cancella.
 - **Una risposta rigenerata (`routes/edit.ts`) è un turno finito (T2)**: prima non
   spingeva niente; ora vale come ogni turno, e se la chat è davanti nasce vista.
 - **Il `detail` della fine del processo** è scritto dal server in italiano
@@ -669,6 +698,18 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
 - **Tasto della inbox**: numero blu (la variante di sempre), ambra appena c'è un
   `needs-you`. Il pannello è il primitivo `Menu` (foglio sotto i 768 px, Esc che rende
   il fuoco al tasto): apre in 90 ms, il `popover-enter` dei menu, non 120.
+- **Il numero della tab board e della riga Board viene dallo stato di attenzione**
+  (`useBoardAttention` in `BoardTabCounts.tsx`, `boardRowCounts` per la riga): le card
+  accese del progetto, non la colonna review. La cache locale resta solo per l'anello e
+  il tooltip delle colonne. Sulla riga Board il numero sta nel posto del glifo review
+  («ti aspetta»), col tooltip «Ti aspettano: N»; il testid della tab resta
+  `tab-board-count-review` per non riscrivere gli e2e che lo leggono.
+- **Un terminale in `background` non è al lavoro per nessuna superficie**
+  (`terminalWorkingFrom` in `signals.ts`): il progetto e il menu degli agenti leggono il
+  tier come il glifo del terminale, anche se la fase dice `watching`.
+- **Il visto ottimista non sopravvive a un `attention:init`** né a una POST fallita:
+  l'istantanea sostituisce lo store per intero, e una POST rifiutata rimette la riga
+  del server, così la soglia lo rimanda.
 - **Le card nella inbox non hanno il progetto**: il board si legge nel cassetto della
   card, la riga dice la card (prima riga del testo).
 - **Le righe di «Cronologia» si aprono** (Invio o clic portano al soggetto) ma non

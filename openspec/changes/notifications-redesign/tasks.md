@@ -217,7 +217,9 @@ server (rotta degli hook, provider finto). Ogni spec lascia il `.webm`.
   metà turno compare in inbox e sulla tab board, e la risposta la spegne; una chat letta
   scende dalla cima della sidebar in entrambe le pagine. Scostamento in design.md
   («Metà e2e»): il permesso a metà turno è provato sul ponte vero di una chat, la card
-  in review sulla tab board; la card in volo serve un agente lanciato davvero.
+  in review sulla tab board; la card in volo serve un agente lanciato davvero. Dopo la
+  review del giro 1 la stessa prova aggiunge una card parcheggiata: la tab board dice 2
+  come la inbox, poi 1 quando torna in coda (ATTN-16).
 
 ## 6. Chiusura
 
