@@ -26,6 +26,7 @@ import { join } from "path";
 import type { SessionEnvCommand, SessionEnvHook, SessionEnvMcpServer, SessionEnvPermissionRule, SessionEnvSettingsFile, SessionEnvSource, SessionEnvironment } from "../../shared/session-environment";
 import { resolveInheritedMcp, type McpServerDef } from "../providers/mcp-inheritance";
 import { listSlashCommandFiles } from "./slash-command-source";
+import { TOPICS_HOOK_EVENTS } from "./topics-hooks";
 
 export interface SessionEnvironmentOptions {
   home?: string;
@@ -41,6 +42,13 @@ export interface SessionEnvironmentOptions {
    * for in their own files.
    */
   topicsGuard?: boolean;
+  /**
+   * Topics passes its OWN hooks (phase, current tool, end of turn) to every
+   * Claude session it launches, through `--settings` (`lib/topics-hooks.ts`).
+   * They no longer sit in `~/.claude/settings.json`, so reading the files
+   * alone would show none of them: they are listed as ours, like the guard.
+   */
+  topicsHooks?: boolean;
 }
 
 /** The providers that spawn the CLI, hence the ones that inherit the files. */
@@ -262,6 +270,15 @@ const TOPICS_GUARD_HOOK: SessionEnvHook = {
   file: "server/providers/claude/args.ts",
 };
 
+/** Topics' own hooks as rows, one per event, from the definition the spawns use. */
+const TOPICS_HOOK_ROWS: SessionEnvHook[] = TOPICS_HOOK_EVENTS.map((event) => ({
+  event,
+  matcher: null,
+  command: "topics: report the session's phase and current tool to the app",
+  source: "topics",
+  file: "server/lib/topics-hooks.ts",
+}));
+
 export function resolveSessionEnvironment(opts: SessionEnvironmentOptions = {}): SessionEnvironment {
   const home = opts.home ?? homedir();
   const cwd = opts.cwd ?? process.cwd();
@@ -273,6 +290,7 @@ export function resolveSessionEnvironment(opts: SessionEnvironmentOptions = {}):
   const rules: SessionEnvPermissionRule[] = [];
   let mode: string | null = null;
   if (inherits) {
+    if (opts.topicsHooks) hooks.push(...TOPICS_HOOK_ROWS);
     if (opts.topicsGuard) hooks.push(TOPICS_GUARD_HOOK);
     for (const f of settingsFiles) {
       if (!f.exists) continue;

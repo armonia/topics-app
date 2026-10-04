@@ -31,6 +31,7 @@
   },
   // Le spec di integrazione importano moduli del server, che a loro volta
   // importano i .sql delle migration (import testuale di Bun): senza la sua
-  // dichiarazione ambient il programma vede 60 moduli inesistenti.
-  "include": ["tests", "playwright.config.ts", "server/db/sql-modules.d.ts"]
+  // dichiarazione ambient il programma vede 60 moduli inesistenti. Idem per lo
+  // script degli hook, importato come testo da `server/lib/topics-hook-script.ts`.
+  "include": ["tests", "playwright.config.ts", "server/db/sql-modules.d.ts", "server/lib/sh-modules.d.ts"]
 }

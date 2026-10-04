@@ -69,6 +69,8 @@ export function createSessionEnvironmentRouter(ctx: AppContext): RouteHandler {
         mcpPolicy: topic.mcpPolicy ?? null,
         provider: topic.provider ?? null,
         topicsGuard: isDispatched(topic.id),
+        // Every Claude spawn of Topics carries them (`providers/claude/args.ts`).
+        topicsHooks: true,
       }),
     );
   };
