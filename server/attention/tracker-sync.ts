@@ -40,6 +40,10 @@ export function syncAttention(subject: string | null, prev: ClaudeSessionState, 
     }
     if (!terminal) return;
     if (event === 'UserPromptSubmit' || (event === null && next.phase === 'running' && prev.phase !== 'running' && !isTurnWorkPhaseOf(prev))) {
+      // A terminal's one-shot cron fires as a turn the transcript does not
+      // tell apart from any other: the first turn after the one that armed it
+      // takes it (ATTN-03), or the subject would wait on it for ever.
+      applyTaskChanges(subject, [{ op: 'remove-one-shot-crons' }]);
       turnStarted(subject);
     } else if (event === 'Stop') {
       turnEnded(subject, { turnId: `stop:${next.claudeSessionId}:${t}`, outcome: 'done', at: new Date(t).toISOString() });

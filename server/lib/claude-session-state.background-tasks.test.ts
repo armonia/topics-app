@@ -149,6 +149,29 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     });
   }
 
+  it('terminal: a one-shot cron leaves at the next turn (its fire), and that turn finishes with one announce (ATTN-03)', () => {
+    const frames: any[] = [];
+    configureAttentionStore({ broadcast: (f) => { frames.push(f); } });
+    const { tracker, sid, subject } = terminalTracker([]);
+    let t = T0;
+    turn([CRON_ONCE]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+    expect(getAttention(subject).state).toBe('background');
+    // The cron fires: Claude Code submits its prompt as a turn, which ends.
+    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', prompt: 'check CI', session_id: sid } as never, (t += 200));
+    tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));
+    expect(getAttention(subject)).toMatchObject({ state: 'finished', outcome: 'done', background: [] });
+    expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+    expect(frames.filter((f) => f.type === 'attention:updated' && f.announce)).toHaveLength(1);
+  });
+
+  it('terminal: a recurring cron stays in the map across the next turn', () => {
+    const { tracker, sid, subject } = terminalTracker([]);
+    let t = T0;
+    turn([CRON_LOOP]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: sid } as never, (t += 200));
+    expect(getAttention(subject).background).toEqual([expect.objectContaining({ id: 'c0ffee01', recurring: true })]);
+  });
+
   it('terminal: the expired Monitor of the recorded transcript leaves the set, and the next Stop is awaiting-user', () => {
     const expired = readFileSync(join(import.meta.dir, '..', '..', 'tests', 'fixtures', 'claude-cli-2.1.285-monitor-wakes.transcript.jsonl'), 'utf8').split('\n')[0];
     const { tracker, sid, subject } = terminalTracker([]);

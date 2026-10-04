@@ -75,6 +75,32 @@ describe("the end of a process", () => {
     expect(rows).toEqual(["chat-error"]);
   });
 
+  it("the reaper closing a chat that waits on its run_command lights nothing: the command runs on and its wake will come", () => {
+    turnStarted("topic:cmd");
+    turnEnded("topic:cmd", { turnId: "m1", outcome: "done", background: { command: { kind: "command", label: "run_command", startedAt: new Date().toISOString() } } });
+    expect(getAttention("topic:cmd").state).toBe("background");
+    rows.length = 0; pushes.length = 0;
+    processEnded("topic:cmd", { cause: "reaper", turnClosedByRoute: true });
+    const a = getAttention("topic:cmd");
+    expect(a.state).toBe("background");
+    expect(a.background.map((t) => t.kind)).toEqual(["command"]);
+    expect(rows).toHaveLength(0);
+    expect(pushes).toHaveLength(0);
+  });
+
+  it("a CLI that dies waiting on an Agent and a run_command is one error, for the Agent only", () => {
+    turnStarted("topic:both");
+    turnEnded("topic:both", { turnId: "m1", outcome: "done", background: {
+      a1: { kind: "agent", label: "verify", startedAt: new Date().toISOString() },
+      command: { kind: "command", label: "run_command", startedAt: new Date().toISOString() },
+    } });
+    processEnded("topic:both", { cause: "cli-exit", turnClosedByRoute: true });
+    const a = getAttention("topic:both");
+    expect(a).toMatchObject({ state: "finished", outcome: "error", lit: true });
+    expect(a.detail).toContain("1 compito");
+    expect(rows).toEqual(["chat-error"]);
+  });
+
   it("markPtyCrash on a terminal in working is finished(error)", () => {
     const tracker = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50,
       attentionSubject: (s) => `terminal:${s.claudeSessionId}` });

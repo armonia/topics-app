@@ -180,7 +180,7 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { attentionInitFrame, forgetSocket, processEnded, recomposeAttentionOnBoot, setSocketFocus } from "./server/attention/store";
+import { attentionInitFrame, forgetSocket, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
 import { chatBackgroundChanged, chatSubjectOfSession, configureAttentionWire, wireHumanHolds } from "./server/attention/wire";
 import { closeSystemCycle, openSystemCycle, recordSystemNotice } from "./server/attention/system-notices";
 import { isAttentionSubject, terminalIdOfSubject, terminalSubject, topicIdOfSubject, topicSubject } from "./shared/attention";
@@ -1544,6 +1544,7 @@ const retirementConsequences: ReconcileDeps = {
     topic.archived = false;
     topic.updatedAt = new Date().toISOString();
     ctx.saveSingleTopic(topic);
+    setClosed(topicSubject(topicId), { archived: false });
     ctx.broadcastToAll({ type: "topic:archived", topic });
     ctx.broadcastToAll({ type: "topic:updated", topic });
   },

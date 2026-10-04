@@ -9,6 +9,8 @@ import {
   ensureGlobalOrchestratorSession,
   presentGlobalOrchestratorTopic,
 } from "../services/global-orchestrator-session";
+import { setClosed } from "../attention/store";
+import { topicSubject } from "../../shared/attention";
 
 /**
  * THE COORDINATOR'S GLYPH: the beamed pair of notes, not the speech bubble.
@@ -113,6 +115,7 @@ export function createOrchestratorSessionsRouter(ctx: AppContext): RouteHandler 
       // minting a replacement; subsequent archive attempts are refused.
       if (result.topic.archived) {
         result.topic.archived = false;
+        setClosed(topicSubject(result.topic.id), { archived: false });
         updated = true;
       }
       if (updated) {

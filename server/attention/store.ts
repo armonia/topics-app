@@ -172,6 +172,14 @@ interface Entry {
   graceTimer: ReturnType<typeof setTimeout> | null;
   /** What the last frame said, so an unchanged recomposition stays silent. */
   sentKey: string | null;
+  /**
+   * Read from the table after a restart: the wait that was open when the
+   * server stopped, by kind. The bridge of a child that outlived the restart
+   * says it again with an id of the new process; it is the same wait.
+   */
+  carriedHolds?: Partial<Record<AttentionHold["kind"], string>>;
+  /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
+  sameEpochCauses?: Set<string>;
 }
 
 const entries = new Map<string, Entry>();
@@ -240,7 +248,20 @@ function ensureLoaded(): void {
   } else {
     for (const r of memoryTable.values()) rows.push(structuredClone(r));
   }
-  for (const row of rows) entries.set(row.subject, { row, live: { holds: {} }, graceTimer: null, sentKey: null });
+  for (const row of rows) entries.set(row.subject, { row, live: { holds: {} }, graceTimer: null, sentKey: null, ...carriedOf(row) });
+}
+
+/**
+ * The wait a saved row was lit by when the server stopped: its cause is
+ * `hold:<kind>:<id>` and its state still says it. A wait already answered
+ * (the row moved on) carries nothing, so a new question is a new epoch.
+ */
+function carriedOf(row: SavedRow): Pick<Entry, "carriedHolds" | "sameEpochCauses"> {
+  const cause = row.epochCause;
+  if (!cause || row.state !== "needs-you" || !row.reason || !cause.startsWith(`hold:${row.reason}:`)) return {};
+  const id = cause.slice(`hold:${row.reason}:`.length);
+  if (!id) return {};
+  return { carriedHolds: { [row.reason as AttentionHold["kind"]]: id }, sameEpochCauses: new Set([cause]) };
 }
 
 function persist(row: SavedRow): void {
@@ -385,6 +406,12 @@ export function countingTasks(subject: string): number {
 interface RecomposeOpts {
   /** False at a restart: no row, no announce, no push, `live: false` on the frame. */
   live: boolean;
+  /**
+   * The recomposition of every start: a wait open when the server stopped is
+   * not re-read (its bridge is gone), and what it covered (an unseen turn, a
+   * card) is the same epoch, not a new one (ATTN-07).
+   */
+  boot?: boolean;
   /** A turn of the subject just closed: it is seen if the subject is in front of the person (T3, T5). */
   turnClosed?: boolean;
   /** The seen door: the frame goes out even when nothing changed (defect E). */
@@ -422,11 +449,21 @@ function frameKey(s: AttentionSnapshot): string {
 function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
   const e = entryOf(subject);
   const row = e.row;
+  // Closed (archived, deleted, a terminal's tab shut): every turn that closes
+  // now is seen as it closes, so reopening relights nothing of before (ATTN-13)
+  // and a woken chat under the archive is not deferred to the unarchive (ATTN-11).
+  if ((e.live.archived || e.live.deleted || e.live.closed) && row.lastTurn && isTurnUnseen(row.lastTurn, row.seenAt)) row.seenAt = row.lastTurn.at;
   let composition = composeAttention(inputsOf(e));
   let newEpoch = false;
   let bornSeen = false;
 
-  if (isLitComposition(composition) && composition.cause && composition.cause !== row.epochCause) {
+  const cause = isLitComposition(composition) ? composition.cause : null;
+  if (cause && cause !== row.epochCause && (e.sameEpochCauses?.has(cause) || (opts.boot && e.sameEpochCauses?.size))) {
+    // The same epoch under another of its causes: no bump, no announce.
+    e.sameEpochCauses?.add(cause);
+    row.epochCause = cause;
+  } else if (cause && cause !== row.epochCause) {
+    e.sameEpochCauses = undefined;
     row.epoch += 1;
     row.epochCause = composition.cause;
     newEpoch = true;
@@ -574,6 +611,7 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
     return recompose(subject, { live: true });
   }
   e.live.turnOpen = false;
+  e.carriedHolds = undefined;
   clearGrace(e);
   if (end.outcome) {
     e.row.lastTurn = {
@@ -621,6 +659,7 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
     if (c.op === "clear") for (const k of Object.keys(next)) delete next[k];
     else if (c.op === "remove") delete next[c.id];
     else if (c.op === "remove-kind") { for (const [k, t] of Object.entries(next)) if (t.kind === c.kind) delete next[k]; }
+    else if (c.op === "remove-one-shot-crons") { for (const [k, t] of Object.entries(next)) if (t.kind === "cron" && !t.recurring) delete next[k]; }
     else {
       const prev = c.replaces ? next[c.replaces] : undefined;
       if (c.replaces) delete next[c.replaces];
@@ -644,7 +683,12 @@ export function taskKind(subject: string, id: string): string | null {
 export function openHold(subject: string, source: string, hold: { kind: AttentionHold["kind"]; id: string; text?: string | null; since?: string }): AttentionSnapshot {
   const e = entryOf(subject);
   const prev = e.live.holds[source];
-  e.live.holds = { ...e.live.holds, [source]: { kind: hold.kind, id: hold.id, text: hold.text ?? null, since: prev?.id === hold.id ? prev.since : hold.since ?? nowIso() } };
+  // The first wait of this kind after a restart, while the one open at the
+  // stop is still carried: the surviving bridge saying it again (ATTN-07).
+  const carried = !prev ? e.carriedHolds?.[hold.kind] : undefined;
+  if (carried) delete e.carriedHolds![hold.kind];
+  const id = carried ?? hold.id;
+  e.live.holds = { ...e.live.holds, [source]: { kind: hold.kind, id, text: hold.text ?? null, since: prev?.id === id ? prev.since : hold.since ?? nowIso() } };
   return recompose(subject, { live: true });
 }
 
@@ -736,9 +780,16 @@ export function processEnded(
   },
 ): AttentionSnapshot {
   const e = entryOf(subject);
-  const counted = countingTaskCount(e.row.background);
+  // A `run_command` of Topics is not the CLI's: it runs on in Topics' process
+  // registry and its exit wakes the chat again, so the CLI's end neither
+  // takes it nor counts it (design 5.5: the reaper lights nothing). A restart
+  // finds nothing alive to wait on.
+  const survivors: AttentionTaskMap = {};
+  if (end.cause !== "restart") for (const [id, t] of Object.entries(e.row.background)) if (t.kind === "command") survivors[id] = t;
+  const counted = countingTaskCount(e.row.background) - countingTaskCount(survivors);
   const inFlight = (!!e.live.turnOpen && !end.turnClosedByRoute) || counted > 0;
-  e.row.background = {};
+  e.row.background = survivors;
+  e.carriedHolds = undefined;
   if (!end.turnClosedByRoute) e.live.turnOpen = false;
   clearGrace(e);
   if (e.live.holds.phase) {
@@ -849,13 +900,21 @@ export interface AttentionBootReader {
  * of the same facts; with an empty table only what is true now lights up.
  */
 export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void {
+  // What THIS process already said before the recomposition (a reattached
+  // turn's `stream:start`, a bridge's wait) is current: it survives the reread.
+  const prior = new Map<string, LiveInputs>();
+  for (const [subject, e] of entries) {
+    if (e.live.turnOpen || Object.keys(e.live.holds).length) prior.set(subject, { holds: { ...e.live.holds }, ...(e.live.turnOpen ? { turnOpen: true } : {}) });
+  }
   loadedFrom = null;
   ensureLoaded();
-  for (const e of entries.values()) {
+  for (const [subject, e] of entries) {
     clearGrace(e);
-    e.live = { holds: {} };
+    e.live = prior.get(subject) ?? { holds: {} };
+    if (Object.keys(e.live.holds).length) e.carriedHolds = undefined;
     e.sentKey = null;
   }
+  for (const [subject, live] of prior) if (!entries.has(subject)) entryOf(subject).live = live;
   for (const c of reader.cards?.() ?? []) {
     const subject = `task:${c.taskId}`;
     const e = entryOf(subject);
@@ -876,6 +935,6 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
       continue;
     }
     if (!alive) e.row.background = {};
-    recompose(subject, { live: false });
+    recompose(subject, { live: false, boot: true });
   }
 }

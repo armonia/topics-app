@@ -28,6 +28,8 @@ export type TaskChange =
   | { op: "add"; id: string; task: TaskInfo; replaces?: string }
   | { op: "remove"; id: string }
   | { op: "remove-kind"; kind: string }
+  /** A turn opened after the one that armed them: the one-shot crons have fired (or the person moved on). */
+  | { op: "remove-one-shot-crons" }
   | { op: "clear" };
 
 interface HookLike {
@@ -151,8 +153,9 @@ function lineText(parsed: Record<string, unknown>): string {
  * Workflow report once, at their end. A Monitor reports every event: only its
  * END closes it (a `<status>`, or an event that says it expired, ended or
  * stopped). A one-shot cron is closed by its fire, which the transcript does
- * not name: the reaper of its turn, `PostToolUse` of `CronDelete`, or the end
- * of the process take it.
+ * not name: the next turn that opens in a terminal (`remove-one-shot-crons`,
+ * `tracker-sync.ts`), `PostToolUse` of `CronDelete`, or the end of the process
+ * take it.
  */
 export function finishedTasksOfTranscriptLine(line: string, kindOf: (id: string) => string | null): string[] {
   let parsed: Record<string, unknown>;
