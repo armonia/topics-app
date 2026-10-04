@@ -175,8 +175,8 @@ describe("a turn cut while the CLI was retrying the API", () => {
     }
   }, 30_000);
 
-  // 03/10, topic:d740f8ae: sei minuti di retry della CLI e in chat solo la
-  // clessidra; il secondo «ci sei?» ha annullato il turno muto.
+  // 03/10, topic:d740f8ae: six minutes of CLI retries and only the hourglass
+  // in the chat; the second «are you there?» cancelled the silent turn.
   test("the CLI's api_retry reaches the turn as onRetry, so the chat can say why it is still", async () => {
     const { ClaudeCodeProvider } = await import("./claude-code");
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });

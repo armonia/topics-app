@@ -26,9 +26,9 @@ describe("composerHoldsPrompt", () => {
   });
 });
 
-// Schermo VERO di `claude` 2.1.288 aperto in una cartella mai vista (catturato
-// da un PTY il 04/10, percorso sostituito): prima il dialogo con `❯` su
-// «No, exit», poi, dopo una freccia giù, il ridisegno con `❯` su «Yes».
+// REAL screen of `claude` 2.1.288 opened in a never-seen folder (captured
+// from a PTY on 04/10, path replaced): first the dialog with `❯` on
+// «No, exit», then, after a down arrow, the redraw with `❯` on «Yes».
 describe("folder-trust dialog", () => {
   const captured = readFileSync(join(import.meta.dir, "__fixtures__/claude-trust-dialog.txt"), "utf8");
   const redraw = captured.indexOf("\x1b[>0q");

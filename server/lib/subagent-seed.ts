@@ -48,16 +48,15 @@ export function composerHoldsPrompt(screen: string, prompt: string): boolean {
 }
 
 /**
- * IL DIALOGO DI FIDUCIA DELLA CARTELLA. Una CLI che parte in una cartella mai
- * aperta prima chiede «ti fidi di questa cartella?» con il cursore su «No,
- * exit». Il seed non lo riconosceva: il riquadro del dialogo ha i bordi `╭─`,
- * che il seed prendeva per il composer pronto, quindi scriveva il prompt e
- * premeva Invio sul «No». La CLI usciva con codice 1 senza transcript: il
- * 03/10 tre sottoagenti di topic:d740f8ae in pop-demo, `reason="no-transcript"`
- * e nessuna riga di log.
+ * THE FOLDER-TRUST DIALOG. A CLI started in a folder never opened before asks
+ * "do you trust this folder?" with the cursor on «No, exit». The seed did not
+ * recognise it: the dialog's box has `╭─` borders, which the seed took for a
+ * ready composer, so it typed the prompt and pressed Enter on «No». The CLI
+ * exited with code 1 and no transcript: on 03/10 three sub-agents of
+ * topic:d740f8ae in pop-demo, `reason="no-transcript"` and no log line.
  *
- * Il buffer è tutta la scrollback, quindi il dialogo «c'è» solo se dopo la
- * sua ultima domanda non compare ancora il composer.
+ * The buffer is the whole scrollback, so the dialog "is showing" only if the
+ * composer has not appeared yet after its last question.
  */
 const TRUST_QUESTION = "itrustthisfolder";
 const COMPOSER_AFTER_TRUST = ["forshortcuts", "bypassing"];
@@ -70,7 +69,7 @@ export function trustDialogShowing(screen: string): boolean {
   return !COMPOSER_AFTER_TRUST.some((h) => after.includes(h));
 }
 
-/** Il cursore `❯` del dialogo sta sulla scelta «Yes»: solo allora Invio accetta. */
+/** The dialog's `❯` cursor sits on the «Yes» choice: only then does Enter accept. */
 export function trustCursorOnYes(screen: string): boolean {
   const seen = stripForEcho(screen);
   const cursor = seen.lastIndexOf("❯");

@@ -86,24 +86,24 @@ export function providerSurvivesRestart(provider: { reattach?: unknown } | null 
 }
 
 /**
- * Questo TURNO regge un riavvio del server?
+ * Does this TURN survive a server restart?
  *
- * Sì se gira in un processo figlio che il broker riadotta (`providerSurvivesRestart`).
- * E sì anche per una CHAT su un runtime senza figlio, come il nativo `topics`:
- * dal 04/10 il boot la riprende da solo (`lib/ripresa-boot.ts`), con la storia
- * ricostruita dal DB (`native/history-rehydrate.ts`, comprese le chiamate ai
- * tool del turno tagliato) e una nota che dice al modello che il server si è
- * riavviato e quali comandi in background sono ancora vivi. I `run_command`
- * partono `detached` e vengono riadottati al boot (`routes/processes.ts`),
- * quindi non muoiono col server.
+ * Yes if it runs in a child process the broker re-adopts (`providerSurvivesRestart`).
+ * And yes also for a CHAT on a runtime with no child, like the native `topics`:
+ * since 04/10 the boot resumes it on its own (`lib/ripresa-boot.ts`), with the
+ * history rebuilt from the DB (`native/history-rehydrate.ts`, including the
+ * tool calls of the cut turn) and a note telling the model that the server
+ * restarted and which background commands are still alive. `run_command`s
+ * start `detached` and are re-adopted at boot (`routes/processes.ts`), so they
+ * do not die with the server.
  *
- * Prima la risposta era «no» per ogni turno nativo, e il cancello aspettava che
- * finisse: il 03/10 una chat lunga (topic:d740f8ae) ha tenuto fermo
- * `restart-when-idle` per oltre cinque ore, e nessun merge di quel pomeriggio è
- * arrivato al server vivo.
+ * Before, the answer was "no" for every native turn, and the gate waited for it
+ * to finish: on 03/10 a long chat (topic:d740f8ae) held `restart-when-idle`
+ * for over five hours, and none of that afternoon's merges reached the live
+ * server.
  *
- * Una CARD resta «no»: ha il suo ripiego (il dispatcher la rimette in coda) e il
- * suo tetto (`dispatchTimeoutMin`), e la ripresa del boot non la tocca.
+ * A CARD stays "no": it has its own fallback (the dispatcher requeues it) and
+ * its own cap (`dispatchTimeoutMin`), and the boot's resume does not touch it.
  */
 export function turnSurvivesRestart(args: { providerReattaches: boolean; boardCard: boolean }): boolean {
   return args.providerReattaches || !args.boardCard;
@@ -119,13 +119,13 @@ export function turnSurvivesRestart(args: { providerReattaches: boolean; boardCa
  * processo figlio che il SIGTERM non tocca, il broker lo tiene, e al riavvio
  * viene riadottato.
  *
- * Per il runtime nativo `topics` era FALSA: quel turno gira dentro il processo
- * del server e non esiste nessun `reattach` che possa riprenderlo. Il 20/08 su
- * topic:9f9e9629 il cancello ha aspettato il suo minuto, ha detto «procedo,
- * tanto lo riprendono» e ha ucciso un turno che nessuno avrebbe ripreso: la
- * chat si è fermata a metà frase e lì è rimasta. Dal 04/10 una chat nativa la
- * riprende il boot (`turnSurvivesRestart`): resta «non riadottabile» solo ciò
- * che nessuno riprende, cioè una card.
+ * For the native `topics` runtime it was FALSE: that turn runs inside the
+ * server process and there is no `reattach` that could resume it. On 20/08 on
+ * topic:9f9e9629 the gate waited its minute, said "going ahead, they will
+ * resume it" and killed a turn nobody would resume: the chat stopped
+ * mid-sentence and stayed there. Since 04/10 the boot resumes a native chat
+ * (`turnSurvivesRestart`): the only thing left "not re-adoptable" is what
+ * nobody resumes, that is a card.
  *
  * Quindi la domanda giusta non è «è una chat o una card»: è «questo turno
  * sopravvive al riavvio». Chi non sopravvive merita l'attesa lunga, come una

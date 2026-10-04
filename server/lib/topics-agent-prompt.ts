@@ -22,13 +22,13 @@ import { hasCommandShell } from './command-process';
  * perché così era scritta la costante, sulla board italiano perché così era
  * scritto il kickoff, e il selettore non spostava né l'uno né l'altro.
  *
- * `auto` non sceglie una lingua: dice di seguire quella in cui scrive la
- * PERSONA. Prima tornava stringa vuota, e il modello seguiva l'ultimo messaggio
- * del turno utente — che in una chat lunga è quasi sempre un avviso di Topics,
- * scritto in inglese (il promemoria del goal, «Command … finished», i risultati
- * dei sottoagenti). Così una chat in italiano è passata all'inglese per ~15 ore
- * di fila (topic:d740f8ae, 02-03/10/2026). La riga resta neutra: nomina chi
- * conta, non una lingua.
+ * `auto` does not pick a language: it says to follow the one the PERSON
+ * writes in. It used to return an empty string, and the model followed the
+ * last message of the user turn, which in a long chat is almost always a
+ * Topics notice written in English (the goal reminder, "Command ... finished",
+ * the sub-agent results). That is how an Italian chat switched to English for
+ * ~15 hours straight (topic:d740f8ae, 02-03/10/2026). The line stays neutral:
+ * it names who matters, not a language.
  */
 export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()): string {
   switch (lang) {
