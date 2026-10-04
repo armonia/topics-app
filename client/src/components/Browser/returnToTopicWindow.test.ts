@@ -9,9 +9,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { __resetProjectSyncForTests } from '../../state/pane/adapters/projectLayoutSync';
-import { returnCommandFor, releaseArrivedSheetFromLayout } from './returnToTopicWindow';
-import { publishProjectBrowserPanes } from '../../state/pane/adapters/projectBrowserPanes';
-import { usePaneStore } from '../../state/pane/store';
+import { returnCommandFor } from './returnToTopicWindow';
 import {
   topicBrowserWindow,
   getTopicWindow,
@@ -55,61 +53,5 @@ describe('the return-to-chat command of a promoted tab', () => {
     expect(after.promoted).not.toContain('ctx-a');
     expect(after.tabs.map((s) => s.contextId)).toContain('ctx-a');
     expect(after.activeContextId).toBe('ctx-a');
-  });
-});
-
-/**
- * The other half of a return made on ANOTHER device: the window record says the
- * page is a sheet again, and the layout here lets go of it. Asked by identity,
- * so a page nobody here holds is left alone.
- */
-describe('releaseArrivedSheetFromLayout (a page put back elsewhere)', () => {
-  const PROJECT = '/tmp/release-arrived-project';
-  let stopPublishing: () => void = () => {};
-
-  beforeEach(() => {
-    usePaneStore.setState({ panes: {}, groups: {}, closedStack: [], tombstones: {} });
-  });
-  afterEach(() => {
-    stopPublishing();
-    stopPublishing = () => {};
-    usePaneStore.setState({ panes: {}, groups: {}, closedStack: [], tombstones: {} });
-  });
-
-  test('a PROJECT pane holding the page is reclaimed through its project window', () => {
-    const reclaimed: string[] = [];
-    stopPublishing = publishProjectBrowserPanes(
-      PROJECT,
-      [{ contextId: 'ctx-p', url: 'https://example.test/p', title: 'P' }],
-      (id) => { reclaimed.push(id); },
-    );
-
-    expect(releaseArrivedSheetFromLayout('ctx-p')).toBe(true);
-    expect(reclaimed).toEqual(['ctx-p']);
-  });
-
-  test('a WORKSPACE pane holding the page leaves the pane store, without an undo record', () => {
-    usePaneStore.getState().dispatch({
-      type: 'OPEN_PANE',
-      payload: { id: 'browser:ctx-w', type: 'browser', title: 'W', groupId: 'g1' },
-    });
-
-    expect(releaseArrivedSheetFromLayout('ctx-w')).toBe(true);
-    const state = usePaneStore.getState();
-    expect(state.panes['browser:ctx-w']).toBeUndefined();
-    expect(state.closedStack.some((c) => c.pane.id === 'browser:ctx-w')).toBe(false);
-  });
-
-  test('a page no layout here holds touches nothing', () => {
-    const reclaimed: string[] = [];
-    stopPublishing = publishProjectBrowserPanes(
-      PROJECT,
-      [{ contextId: 'ctx-other', url: '', title: '' }],
-      (id) => { reclaimed.push(id); },
-    );
-
-    expect(releaseArrivedSheetFromLayout('ctx-new')).toBe(false);
-    expect(reclaimed).toEqual([]);
-    expect(usePaneStore.getState().tombstones?.['browser:ctx-new']).toBeUndefined();
   });
 });

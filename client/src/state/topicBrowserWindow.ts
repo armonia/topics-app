@@ -32,6 +32,8 @@ import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey'
 import { createUiStatePersister } from './uiStatePersist';
 import { MIN_EXPANDED_WIDTH } from '../components/Browser/topicBrowserWindowLazy';
 import { apiFetch } from '../lib/shell/net';
+import { subscribeRestoredProjectBrowserPanes } from './pane/adapters/projectBrowserPanes';
+import { releaseArrivedSheetFromLayout } from '../components/Browser/reclaimFromLayout';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -480,29 +482,38 @@ const cache = new Map<string, TopicBrowserWindowState>();
 const loaded = new Set<string>();
 const loading = new Set<string>();
 const listeners = new Set<() => void>();
-const arrivalListeners = new Set<(contextIds: string[]) => void>();
 
 function notify(): void {
   for (const l of listeners) { try { l(); } catch { /* ignore */ } }
 }
 
 /**
- * Be told which sheets a value read from the server put in a window (see
- * `sheetsArrived`). Called BEFORE the window's own subscribers hear of the
- * change, so the layout lets go of the page in the same React commit in which
- * the window starts drawing it: the same order as the local return
- * (`returnSheetToWindow`), where the reclaim runs before the commit.
+ * Let go, in this device's layout, of the sheets a value read from the server
+ * put in a window (see `sheetsArrived`).
+ *
+ * Called directly, not through a subscription somebody has to install: the
+ * reads that matter most (the first read of a device that was away) can run
+ * before any other module has loaded, and an announcement nobody hears is lost
+ * for good. Called BEFORE the window's own subscribers hear of the change, so
+ * the layout lets go of the page in the same React commit in which the window
+ * starts drawing it: the same order as the local return (`returnSheetToWindow`),
+ * where the reclaim runs before the commit.
  */
-export function subscribeSheetArrivals(listener: (contextIds: string[]) => void): () => void {
-  arrivalListeners.add(listener);
-  return () => { arrivalListeners.delete(listener); };
+function announceArrivals(prev: TopicBrowserWindowState | undefined, next: TopicBrowserWindowState): void {
+  for (const id of sheetsArrived(prev, next)) {
+    try { releaseArrivedSheetFromLayout(id); } catch { /* ignore */ }
+  }
 }
 
-function announceArrivals(prev: TopicBrowserWindowState | undefined, next: TopicBrowserWindowState): void {
-  const arrived = sheetsArrived(prev, next);
-  if (!arrived.length) return;
-  for (const l of arrivalListeners) { try { l(arrived); } catch { /* ignore */ } }
-}
+// The other order of the same two reads: the window record is already here and
+// a project window mounts with a pane restored from this device's memory that
+// the record names as a sheet. The window has nothing left to announce, so the
+// project's restored list is checked against it.
+subscribeRestoredProjectBrowserPanes((contextIds) => {
+  for (const id of contextIds) {
+    if (findTopicHoldingSheet(id)) releaseArrivedSheetFromLayout(id);
+  }
+});
 
 /** Lazily hydrate a topic's window from ui-state (once). Safe to call often. */
 export async function ensureTopicWindowLoaded(topicId: string): Promise<void> {
@@ -518,7 +529,9 @@ export async function ensureTopicWindowLoaded(topicId: string): Promise<void> {
       cache.set(topicId, sanitized);
       writes.noteApplied(keyFor(topicId), read?.seq ?? null);
       // A device that was away when another one took a page back still holds
-      // that page in its layout record: the first read is its only chance.
+      // that page in its layout record. If its project window has already
+      // mounted, this read is what releases it; if not, the mount will be
+      // checked against this value (`subscribeRestoredProjectBrowserPanes`).
       announceArrivals(undefined, sanitized);
       notify();
     }
@@ -529,12 +542,12 @@ export function getTopicWindow(topicId: string): TopicBrowserWindowState {
   return cache.get(topicId) ?? EMPTY_TOPIC_BROWSER_WINDOW;
 }
 
-function commit(topicId: string, next: TopicBrowserWindowState): void {
+function commit(topicId: string, next: TopicBrowserWindowState, delayMs?: number): void {
   const cur = getTopicWindow(topicId);
   if (next === cur) return;
   cache.set(topicId, next);
   loaded.add(topicId);
-  writes.put(keyFor(topicId), next, next.tabs.length || next.promoted.length ? 800 : 0);
+  writes.put(keyFor(topicId), next, delayMs ?? (next.tabs.length || next.promoted.length ? 800 : 0));
   notify();
 }
 
@@ -722,6 +735,22 @@ export const topicBrowserWindow = {
     commit(topicId, reconcilePromoted(getTopicWindow(topicId), isLive)),
   returnFromTab: (topicId: string, sheet: { contextId: string; url?: string; title?: string; openedBy?: TopicBrowserOpenedBy }) =>
     commit(topicId, returnFromTab(getTopicWindow(topicId), sheet)),
+  /**
+   * A page that leaves a layout for the window: taken back if it was lent,
+   * opened as a sheet otherwise.
+   *
+   * Written at once, not after the usual debounce. The layout it leaves writes
+   * its own record too (a project's tabs, 500 ms later), and another device
+   * must read THIS one first: it is what makes that device let go of the pane
+   * (`announceArrivals`). Read the other way round, the project record arrives
+   * while the page is still a pane there, is merged additively, and that
+   * device saves the merged list back, handing the pane to this layout again.
+   */
+  takeFromLayout: (topicId: string, sheet: { contextId: string; url?: string; title?: string }) => {
+    const cur = getTopicWindow(topicId);
+    const next = cur.promoted.includes(sheet.contextId) ? returnFromTab(cur, sheet) : open(cur, sheet);
+    commit(topicId, next, 0);
+  },
 };
 
 /**
