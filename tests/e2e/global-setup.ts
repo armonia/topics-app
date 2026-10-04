@@ -12,7 +12,8 @@
 import { spawn, type ChildProcess } from "child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { homedir } from "os";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
+import { webkit } from "@playwright/test";
 import {
   E2E_BASE,
   E2E_PORT,
@@ -73,6 +74,24 @@ function resolveChromiumPath(): string {
     }
   } catch { /* ignore */ }
   return "";
+}
+
+/**
+ * The Playwright browser cache as THIS process (real HOME) sees it.
+ *
+ * start-test-server.sh isolates HOME, and Playwright looks for its browsers
+ * under the home directory, so the server would look in an empty
+ * `<DATA_DIR>/.home/...` cache. The preview photo is taken by the server's own
+ * WebKit (KANBAN-95), which has no CHROMIUM_PATH-style pin: handing the real
+ * cache down as PLAYWRIGHT_BROWSERS_PATH is what makes it findable. The
+ * executable sits at `<cache>/webkit-<rev>/<binary>` on every platform.
+ */
+function resolvePlaywrightBrowsersPath(): string {
+  try {
+    return dirname(dirname(webkit.executablePath()));
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -331,6 +350,8 @@ async function startTestServer(): Promise<void> {
       // running on a machine with a different layout.
       CHROMIUM_PATH: process.env.CHROMIUM_PATH ||
         resolveChromiumPath(),
+      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ||
+        resolvePlaywrightBrowsersPath(),
     },
   });
 

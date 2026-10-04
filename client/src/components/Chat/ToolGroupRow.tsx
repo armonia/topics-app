@@ -58,9 +58,11 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
     setSeenFindSeq(findFocus.seq);
     setOpen(true);
   }
-  const live = summary.running > 0;
+  // Live while any call is unsettled, queued ones included: the run is not
+  // over. Its stopwatch counts from the first call that really started.
+  const live = summary.running + summary.queued > 0;
   const whollyFailed = isWhollyFailed(summary);
-  const settledCount = summary.total - summary.running;
+  const settledCount = summary.total - summary.running - summary.queued;
   // Costo del gruppo: prezzo se noto, altrimenti i token sommati.
   const groupCost = typeof summary.costCents === 'number'
     ? formatCostCents(summary.costCents)
@@ -93,7 +95,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
           here); the keyboard uses the real toggle button. */}
       <div
         onClick={toggle}
-        className="group/toolgroup w-full py-1 text-left text-app-text-secondary hover:text-app-text transition-colors cursor-pointer"
+        className="group/toolgroup w-full py-0.5 text-left text-app-text-secondary hover:text-app-text transition-colors cursor-pointer coarse:py-0"
         data-testid="tool-group-summary"
       >
         <span className="flex items-center gap-2">
@@ -101,7 +103,11 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
             type="button"
             data-testid="tool-group-toggle"
             aria-expanded={expanded}
-            className="flex-shrink-0 inline-flex items-center gap-2 text-left"
+            // 24 tall with the mouse, 44 under a finger (WCAG 2.5.8 and the
+            // phone floor; usability audit 04/10 measured 20). The row's own
+            // padding shrank by the same amount, so the transcript keeps its
+            // rhythm on desktop.
+            className="flex-shrink-0 inline-flex min-h-6 items-center gap-2 text-left coarse:min-h-11"
           >
           <span data-testid="tool-group-chevron" data-open={expanded ? 'true' : 'false'} className="flex-shrink-0 inline-flex">
             {expanded ? (
@@ -166,13 +172,13 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
               <ElapsedTimer since={summary.startedAt} title={tr('toolgroup.elapsed')} />
             )}
             {summary.durationMs !== undefined && !live && (
-              <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-duration">
+              <span className={`text-mini tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-duration">
                 {formatDurationMs(summary.durationMs)}
               </span>
             )}
             {/* Costo sommato delle azioni del gruppo — la sua parte del turno. */}
             {groupCost && (
-              <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title={tr('toolgroup.cost')}>
+              <span className={`text-mini tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title={tr('toolgroup.cost')}>
                 {groupCost}
               </span>
             )}

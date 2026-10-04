@@ -195,7 +195,7 @@ export function SuggestionMenu<T>({
         ) : groupOf ? (
           groupSegments(items, groupOf).map((seg) => (
             <div key={seg.group} role="group" aria-label={groupLabel?.(seg.group) ?? seg.group} data-group={seg.group}>
-              <div aria-hidden="true" className="px-3 pt-2 pb-0.5 text-micro font-medium uppercase tracking-wide text-app-text-tertiary">
+              <div aria-hidden="true" className="px-3 pt-2 pb-0.5 text-mini font-medium uppercase tracking-wide text-app-text-tertiary">
                 {groupLabel?.(seg.group) ?? seg.group}
               </div>
               {seg.items.map(({ item, idx }) => (

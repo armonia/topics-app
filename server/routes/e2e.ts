@@ -124,6 +124,7 @@ import { envDataDir } from "../lib/data-dir";
 import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
 import { clearPlanUsage, clearProviderHold } from "../lib/provider-hold";
 import { observePlanUsage } from "../providers/native/usage-window";
+import { registerProvider, removeProvider } from "../providers";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
 import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
@@ -403,6 +404,26 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const body = (await req.json().catch(() => null)) as { ms?: number } | null;
       const until = holdDispatchReconcile(typeof body?.ms === "number" ? body.ms : 0);
       return json({ ok: true, until });
+    }
+
+    // POST /api/test/native-runtime {on: true, workspace} | {on: false}
+    //
+    // Registers (or removes) the native runtime on a server that is already up.
+    // At boot it registers only when a Claude credential exists, and the bench
+    // has none: a spec that drives real native turns writes a fake credential
+    // and a fake API address into the isolated home
+    // (`tests/e2e/helpers/fake-anthropic-api.ts`), then asks for the runtime
+    // here instead of restarting the server. The same `registerProvider` the
+    // settings use; `{on: false}` takes it away again so the specs after it see
+    // the bench as it booted.
+    if (method === "POST" && pathname === "/api/test/native-runtime") {
+      const body = (await req.json().catch(() => null)) as { on?: boolean; workspace?: string } | null;
+      if (body?.on) {
+        const p = registerProvider({ type: "native", ...(body.workspace ? { defaultWorkspace: body.workspace } : {}) });
+        return json({ ok: true, connected: p.connected });
+      }
+      removeProvider("topics");
+      return json({ ok: true, connected: false });
     }
 
     // POST /api/test/plan-usage {fiveHour, sevenDay} | {clear: true}

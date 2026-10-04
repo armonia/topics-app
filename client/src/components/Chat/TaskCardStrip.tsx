@@ -30,7 +30,7 @@ export function TaskCardStrip({ topicId }: { topicId: string }) {
       className="chat-measure flex flex-shrink-0 items-center gap-2 border-b border-app-border px-3 py-1.5"
     >
       <ClipboardList size={13} className="flex-shrink-0 text-app-text-secondary" />
-      <span className="flex-shrink-0 text-micro uppercase tracking-wide text-app-text-muted">
+      <span className="flex-shrink-0 text-mini uppercase tracking-wide text-app-text-muted">
         {tr('chat.session.taskLabel')}
       </span>
       <span className="min-w-0 flex-1 truncate text-compact text-app-text" title={task.text}>

@@ -3,8 +3,8 @@
  * ONE LIFE OF THE SERVER'S PROCESS REGISTRY, as a process of its own, for
  * `process-run-command.test.ts`. A reload of the server is a process that dies
  * and another that loads the same state folder (`DATA_DIR`), and that is what
- * two runs of this script are: the registry is module state and its boot is
- * its import, so no in-process trick would reproduce it.
+ * two runs of this script are: the registry is module state, loaded once per
+ * process (`loadProcessRegistry`), so no in-process trick would reproduce it.
  *
  *   start <project> <command>
  *     runs the command through the session route and dies at once, printing

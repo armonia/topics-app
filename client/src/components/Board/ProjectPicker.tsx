@@ -99,7 +99,7 @@ export function ProjectPickerBody({
 
   return (
     <>
-      <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{listLabel}</p>
+      <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{listLabel}</p>
       {headerNote}
       <div className="px-2.5 pb-1.5">
         <input
@@ -168,7 +168,7 @@ export function ProjectPickerBody({
             {/* DOVE nascerà: la cartella è dedotta dal server, e una deduzione
                 che crea cartelle sul disco si dichiara PRIMA, non si scopre dopo. */}
             {newProjectDir && (
-              <span className="shrink-0 text-micro text-app-text-muted">in {newProjectDir.split('/').pop()}</span>
+              <span className="shrink-0 text-mini text-app-text-muted">in {newProjectDir.split('/').pop()}</span>
             )}
           </button>
         </>

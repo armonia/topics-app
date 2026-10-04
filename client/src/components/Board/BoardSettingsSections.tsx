@@ -28,7 +28,10 @@ export function SettingsPanelHead({ onClose }: { onClose: () => void }) {
       <button
         aria-label={tr('board.settings.close')}
         onClick={onClose}
-        className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"
+        // 24 with the mouse (`tap-expand`), a real 44 box under a finger: a
+        // projected 44 here would reach into the first row of the panel and
+        // take its taps (usability audit, 04/10).
+        className="tap-expand rounded p-0.5 text-app-text-secondary hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"
       ><X className="h-3.5 w-3.5" /></button>
     </div>
   );
@@ -50,8 +53,10 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch }: {
   const tr = useT();
   return (
     <>
+      {/* The whole row is the checkbox's label, and it is the target: 24 tall
+          with the mouse, 44 under a finger (usability audit, 04/10: 16). */}
       <label
-        className="flex cursor-pointer items-center justify-between gap-3"
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
         title={tr('board.settings.dispatchOnTitle')}
       >
         {/* SAME label as the ▾ in the header: it is the same global switch, and

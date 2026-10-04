@@ -954,7 +954,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
               data-testid="card-open-session"
-              className="shrink-0 rounded bg-white/10 p-1 text-app-text hover:bg-white/20"
+              // 24x24 (WCAG 2.5.8), not 20: `-m-0.5` gives the 4px back to the row,
+              // `tap-expand` makes it 44 under a finger (usability audit, 04/10);
+              // `coarse:mr-0.5` keeps that 44 inside the card's padding, which clips.
+              className="tap-expand -m-0.5 shrink-0 rounded bg-white/10 p-1.5 text-app-text hover:bg-white/20 coarse:mr-0.5"
               title={tr('board.task.openSessionTitle')}
             ><MessageSquare className="h-3 w-3" /></button>
           )}
@@ -1058,7 +1061,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {showPriority && (
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
-              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-micro ${
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
                 task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
               }`}
             >
@@ -1192,14 +1195,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-worked-in-place"
               title={tr('board.card.inPlaceTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
           )}
           {spostataAMano && (
             <span
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
                   «la vedo sgranata», e misurata lo e' davvero. A 12px il
                   viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
@@ -1388,7 +1391,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   data-testid={`card-subtask-work-${s.id}`}
                   data-kind="unattended"
                   title={work.title}
-                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-micro text-rose-300"
+                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
                 ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
               ) : (
                 <span
@@ -1469,7 +1472,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 <button
                   data-testid="card-human-context-toggle"
                   onClick={(e) => { e.stopPropagation(); setRichiestaAperta((v) => !v); }}
-                  className="text-compact leading-4 md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+                  className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
                 >
                   {richiestaAperta ? tr('board.card.commentLess') : tr('board.card.commentMore')}
                 </button>
@@ -1557,7 +1560,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               {notesOfMachine && (
                 <span
                   data-testid="card-comment-system-tag"
-                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-micro uppercase tracking-wide text-app-text-muted"
+                  className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-mini uppercase tracking-wide text-app-text-muted"
                 ><Cpu className="h-2.5 w-2.5 shrink-0" /> {tr('board.card.systemNote')}</span>
               )}
               {/* IL RECINTO ```question NON ARRIVA MAI CRUDO AL MARKDOWN.
@@ -1578,7 +1581,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
             >
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
@@ -1602,7 +1605,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact leading-4 md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              className="text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
             >
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
@@ -1629,7 +1632,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
           // esiste per togliere.
           <span
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-micro font-medium bg-rose-500/15 text-rose-300"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-300"
             // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
             // «il tab del task», che è l'altra superficie e non ha un campo
             // dove rispondere a un turno vivo.
@@ -1725,7 +1728,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         {/* The last update closes the row, on the right: it is the weakest of
             the four measures and does not belong among the others. */}
         <span
-          className="ml-auto text-compact leading-4 md:text-micro text-app-text-muted"
+          className="ml-auto text-compact leading-4 md:text-mini text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         >{fmtUpdatedAt(task.updatedAt)}</span>
       </div>
@@ -1782,12 +1785,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
               placeholder={tr('board.card.steerPlaceholder')}
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder coarse:min-h-11"
             />
             <button
               disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
               title={tr('board.card.steerSendTitle')}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50 coarse:min-h-11 coarse:min-w-11 coarse:justify-center"
             ><Send className="h-3.5 w-3.5" /></button>
             <TaskChoiceMenu
               task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
@@ -1867,7 +1870,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               placeholder={isAgentReview
                 ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
                 : tr('board.card.commentPlaceholder')}
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder coarse:min-h-11"
             />
             {/* L'INVIO SI VEDE. È la stessa azione del primo bottone qui sopra,
                 con dentro la frase appena scritta: stessa icona, e il tooltip
@@ -1884,7 +1887,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               aria-label={primaChoice
                 ? tr('board.card.replySendTitle', { action: primaChoice.label })
                 : tr('board.card.steerSendTitle')}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50 coarse:min-h-11 coarse:min-w-11 coarse:justify-center"
             ><Send className="h-3.5 w-3.5" /></button>
           </div>
         </div>

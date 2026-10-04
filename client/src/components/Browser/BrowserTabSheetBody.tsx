@@ -104,7 +104,7 @@ function RowButton({
  *  heading every four rows turns a panel into a form. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-3 pt-1.5 pb-0.5 text-micro font-medium uppercase tracking-wide text-app-text-faint select-none">
+    <div className="px-3 pt-1.5 pb-0.5 text-mini font-medium uppercase tracking-wide text-app-text-faint select-none">
       {children}
     </div>
   );

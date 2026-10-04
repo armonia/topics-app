@@ -109,14 +109,14 @@ describe("readApiRetry", () => {
   };
 
   test("no HTTP answer, or a 5xx/529: the API is down", () => {
-    expect(readApiRetry(retry)).toEqual({ outage: true });
-    expect(readApiRetry({ ...retry, error_status: 500, error: "server_error" })).toEqual({ outage: true });
-    expect(readApiRetry({ ...retry, error_status: 529, error: "overloaded" })).toEqual({ outage: true });
+    expect(readApiRetry(retry)).toEqual({ outage: true, attempt: 5, maxAttempts: 10, delayMs: 8000, status: "unknown" });
+    expect(readApiRetry({ ...retry, error_status: 500, error: "server_error" })).toMatchObject({ outage: true });
+    expect(readApiRetry({ ...retry, error_status: 529, error: "overloaded" })).toMatchObject({ outage: true });
   });
 
   test("a 429 is the plan's limit and a 4xx is our request: retried, but the API is up", () => {
-    expect(readApiRetry({ ...retry, error_status: 429, error: "rate_limit" })).toEqual({ outage: false });
-    expect(readApiRetry({ ...retry, error_status: 400, error: "invalid_request" })).toEqual({ outage: false });
+    expect(readApiRetry({ ...retry, error_status: 429, error: "rate_limit" })).toMatchObject({ outage: false });
+    expect(readApiRetry({ ...retry, error_status: 400, error: "invalid_request" })).toMatchObject({ outage: false });
   });
 
   test("any other line is no retry", () => {

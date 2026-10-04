@@ -22,11 +22,13 @@ import { hasCommandShell } from './command-process';
  * perché così era scritta la costante, sulla board italiano perché così era
  * scritto il kickoff, e il selettore non spostava né l'uno né l'altro.
  *
- * `auto` torna stringa vuota — nessuna direttiva. NON è una svista: quando
- * l'utente non ha scelto una lingua, inventargliene una sarebbe peggio che
- * lasciare il modello libero di rispondere nella lingua in cui gli si parla.
- * Chi chiama deve quindi controllare che la stringa non sia vuota prima di
- * concatenarla, altrimenti si ritrova una riga bianca nel prompt.
+ * `auto` does not pick a language: it says to follow the one the PERSON
+ * writes in. It used to return an empty string, and the model followed the
+ * last message of the user turn, which in a long chat is almost always a
+ * Topics notice written in English (the goal reminder, "Command ... finished",
+ * the sub-agent results). That is how an Italian chat switched to English for
+ * ~15 hours straight (topic:d740f8ae, 02-03/10/2026). The line stays neutral:
+ * it names who matters, not a language.
  */
 export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()): string {
   switch (lang) {
@@ -35,7 +37,7 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
     case 'en':
       return 'Always answer in English, whatever language the request is written in.';
     default:
-      return '';
+      return "Answer in the language the person writes in. Topics' own notices in the user turn (objective reminders, finished-command and sub-agent reports) are written in English by the app, not by the person: they never change the language of your answer.";
   }
 }
 
@@ -204,9 +206,7 @@ export function topicsAgentSystemPrompt(
   lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform, boardAgent = false,
   headless = false,
 ): string {
-  const directive = languageDirective(lang);
-  const processes = topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless);
-  return directive ? `${processes} ${directive}` : processes;
+  return `${topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless)} ${languageDirective(lang)}`;
 }
 
 /**

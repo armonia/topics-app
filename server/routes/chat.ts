@@ -123,7 +123,7 @@ import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { keyTakenBy, rowStoredUnderKey } from "../lib/client-message-key";
 import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
-import { providerSurvivesRestart } from "../lib/quiescence";
+import { providerSurvivesRestart, turnSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
 import { appendInterruptedVerdict } from "../lib/interrupted-turn-block";
 import {
@@ -1426,6 +1426,29 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             }
           };
+          /** The timeline block of an announced call, newest first. */
+          const findToolBlock = (id: string): Extract<ContentBlock, { kind: "tool" }> | undefined => {
+            for (let i = blocks.length - 1; i >= 0; i--) {
+              const b = blocks[i];
+              if (b.kind === "tool" && b.toolCall.id === id) return b;
+            }
+            return undefined;
+          };
+          /**
+           * The SSE twin of a `stream:tool_call` frame, for the window that sent
+           * the message (it drops the WS copy). It carries the lifecycle fields
+           * too: a row rebuilt from a bare name and args would read `running`
+           * without a clock, whatever the call is really doing.
+           */
+          const sseToolCallDelta = (tc: ToolCall): string => JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{
+            id: tc.id,
+            function: { name: tc.name, arguments: JSON.stringify(tc.args ?? {}) },
+            contentOffset: tc.contentOffset,
+            ...(tc.status ? { status: tc.status } : {}),
+            ...(typeof tc.startedAt === "number" ? { startedAt: tc.startedAt } : {}),
+            ...(typeof tc.inputStreaming === "boolean" ? { inputStreaming: tc.inputStreaming } : {}),
+            ...(tc.status === "waiting_for_input" && tc.userInputSchema ? { userInputSchema: tc.userInputSchema } : {}),
+          }] } }] });
           // Captured at stream-end if the provider's final message includes
           // usage (claude-code SDK does; codex turn.completed will too).
           // finalizeStream() reads these and persists them on the message so
@@ -1570,10 +1593,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (Number.isFinite(born) && born > 0 && born <= Date.now()) turnStartMs = born;
           }
           const externalAbort = new AbortController();
-          // Un turno che regge un riavvio è un turno che gira in un processo
-          // FIGLIO, cioè un provider che sa riadottare. Si chiede UNA volta, qui:
-          // il provider di una sessione non cambia mentre il turno gira.
-          startStream(sessionKey, partialMsg.id, externalAbort, providerSurvivesRestart(topicProvider));
+          // Regge un riavvio chi gira in un processo FIGLIO che si riadotta, e
+          // una chat che il boot riprende da sola (`turnSurvivesRestart`). Si
+          // chiede UNA volta, qui: non cambia mentre il turno gira.
+          startStream(sessionKey, partialMsg.id, externalAbort, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
           // From here the turn's end decides for the answers it carries, not the route's exit.
           if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
@@ -2845,14 +2868,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `shared/tool-detail.ts`. Unknown names fall through
               // to `{ type: 'unknown' }` so the legacy generic row still works.
               const detail = deriveToolDetail(name, args);
+              // A provider with `tool-phases` announces the call while the
+              // model is still writing it and runs it later, after the calls
+              // before it in the same round: until `onToolExecStart` it is
+              // QUEUED, with no clock. Shown "running" from here, a call queued
+              // behind a long shell looked stuck on a command that had not
+              // started (04/10: 288 native calls queued over 1 s in three
+              // days, the worst 1,135.6 s for 0.3 s of work), and its stored
+              // duration was mostly the wait.
+              const queued = providerSignalsExecStart;
               const toolCall: ToolCall = {
                 id: toolCallId, name, args: args || {},
-                status: 'running', contentOffset: fullContent.length,
+                status: queued ? 'pending' : 'running', contentOffset: fullContent.length,
                 detail,
                 // Real-usage window opens NOW. With partial-message streaming
                 // (claude-code) this is when the model starts WRITING the
                 // input — the UI's duration covers generation + execution.
-                startedAt: Date.now(),
+                ...(queued ? {} : { startedAt: Date.now() }),
               };
               // IL TURNO È VIVO. `lastActivity` lo scriveva SOLO
               // `updateStreamContent`, cioè prosa e thinking: un turno che
@@ -2875,7 +2907,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastTurnFrame({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall, ...rowOfFrame() }, matchedTopic?.id);
 
               // Also send as SSE for the HTTP client
-              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) }, contentOffset: fullContent.length }] } }] }));
+              writeSSE(sseToolCallDelta(toolCall));
 
               // Track sessions_spawn
               if (name === 'sessions_spawn' && matchedTopic && !globalOrchestrator) {
@@ -3025,6 +3057,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // just a stream being listened to, and a stream can be dead.
               updateStreamActivity(sessionKey);
               markToolExecuting(toolCallId);
+              // ...and only from here is it RUNNING on screen, with its clock:
+              // the announcement left it `pending` (see `onToolStart`).
+              const block = findToolBlock(toolCallId);
+              if (!block) return;
+              const startedAt = Date.now();
+              const started: ToolCall = { ...block.toolCall, status: 'running', startedAt };
+              updateToolCallFields(sessionKey, toolCallId, { status: 'running', startedAt }, ownRow);
+              updateBlockTool(toolCallId, { status: 'running', startedAt });
+              broadcastTurnFrame({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: started, ...rowOfFrame() }, matchedTopic?.id);
+              writeSSE(sseToolCallDelta(started));
             },
 
             onToolUpdate: (toolCallId: string, _partialResult: string) => {
@@ -3069,26 +3111,32 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
-            onToolArgsUpdate: (toolCallId: string, args: Record<string, unknown>) => {
+            onToolArgsUpdate: (toolCallId: string, args: Record<string, unknown>, update?: { partial?: boolean }) => {
               resetStreamTimer();
               // The tool was announced EARLY (input still streaming, args {})
               // and its input is now complete. Upsert the full args + a fresh
               // derived detail onto the same ToolCall — persisted row, blocks
               // timeline, and clients (stream:tool_call merges by id in
               // useChat's addToolCallToLastMessage).
-              let merged: ToolCall | undefined;
-              for (let i = blocks.length - 1; i >= 0; i--) {
-                const b = blocks[i];
-                if (b.kind === "tool" && b.toolCall.id === toolCallId) {
-                  merged = { ...b.toolCall, args, detail: deriveToolDetail(b.toolCall.name, args) };
-                  break;
-                }
-              }
-              if (!merged) return; // never announced (shouldn't happen)
-              updateToolCallFields(sessionKey, toolCallId, { args, detail: merged.detail }, ownRow);
-              updateBlockTool(toolCallId, { args, detail: merged.detail });
+              const block = findToolBlock(toolCallId);
+              if (!block) return; // never announced (shouldn't happen)
+              // A PARTIAL update (the native runtime, every 500 ms while the
+              // model writes the call) marks the row as still being written,
+              // and the complete one clears the mark. `false`, not a missing
+              // key: a client merges by spread, and an absent key would leave
+              // the old `true` in place.
+              const writing = update?.partial
+                ? { inputStreaming: true }
+                : block.toolCall.inputStreaming ? { inputStreaming: false } : {};
+              const fields = { args, detail: deriveToolDetail(block.toolCall.name, args), ...writing };
+              const merged: ToolCall = { ...block.toolCall, ...fields };
+              // A partial update is not written to the database: it is
+              // superseded within half a second, and the timeline in memory
+              // (persisted by the turn's own flush) already carries it.
+              if (!update?.partial) updateToolCallFields(sessionKey, toolCallId, fields, ownRow);
+              updateBlockTool(toolCallId, fields);
               broadcastTurnFrame({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged, ...rowOfFrame() }, matchedTopic?.id);
-              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name: merged.name, arguments: JSON.stringify(args) }, contentOffset: merged.contentOffset }] } }] }));
+              writeSSE(sseToolCallDelta(merged));
             },
 
             onUserInputRequired: (toolCallId, _toolName, schema) => {
@@ -3122,6 +3170,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 toolCallId,
                 schema,
               });
+              // THE SENDER GETS IT ON ITS SSE TOO, in order with the rest of the
+              // row. The WS frame alone has no order with the SSE: WebKit can
+              // hold an SSE burst until the next byte, so the frame may land
+              // before the row it patches exists there (and is lost), or before
+              // the `running` announcement written just above it. Measured on
+              // 04/10: 4 runs out of 6 left the sender on a spinner.
+              const asking = findToolBlock(toolCallId);
+              if (asking) writeSSE(sseToolCallDelta(asking.toolCall));
             },
 
             onSubAgentUpdate: (parentToolCallId, snapshot) => {
@@ -4055,7 +4111,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const originalBody = resp.body!;
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
-          startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
+          startStream(sessionKey, partialMsg.id, abortController, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
           startTurnAttention(matchedTopic, boardAgentTurn);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,

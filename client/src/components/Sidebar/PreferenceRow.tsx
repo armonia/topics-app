@@ -50,6 +50,6 @@ export function SwitchRow({ label, hint, checked, onChange, disabled, testId }: 
 /** The quiet heading over a group of rows inside a level. */
 export function LevelHeading({ children }: { children: ReactNode }) {
   return (
-    <div className="px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide text-app-text-muted">{children}</div>
+    <div className="px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide text-app-text-muted">{children}</div>
   );
 }

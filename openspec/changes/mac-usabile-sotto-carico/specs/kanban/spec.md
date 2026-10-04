@@ -1150,3 +1150,32 @@ selettori di occlusione del guscio nativo.
 - **AND** nessun pixel del canvas sotto una casella di testo SHALL avere alpha oltre 2/255, nei due temi e nei due motori
 - **AND** a brina posata i disegni sul canvas SHALL essere zero su una finestra di 3 s
 - **AND** con `prefers-reduced-motion` la brina SHALL comparire già finita e sparire senza scioglimento
+
+### Requirement: KANBAN-95 — La foto dell'anteprima di una card la scatta WebKit, mai Chromium
+
+Lo screenshot dell'anteprima (`screenshot`) e la lettura della shell vuota
+(`emptyAppShell`) del preview manager SHALL girare su un browser Playwright WebKit
+proprio (`server/services/preview-browser.ts`), e NON SHALL passare dal servizio del
+browser remoto delle pane (`server/browser-service.ts`), che lancia Chromium. La
+regola della postazione dal 25/09/2026 è WebKit di default sul Mac e Chromium solo
+con un ok esplicito del proprietario, e questo percorso gira a ogni consegna con un
+URL senza che nessuno lo chieda. Il browser remoto delle pane resta fuori da questo
+requisito: è una decisione del proprietario (tornata 5, punto 3).
+
+Il processo WebKit SHALL essere uno solo per le catture in corso (lancio a volo
+singolo) e SHALL chiudersi da solo dopo un minuto senza catture: a riposo zero
+processi. Il lancio SHALL lasciare spenti i gestori di segnale di Playwright
+(`handleSIGTERM`, `handleSIGINT`, `handleSIGHUP` a `false`), per la stessa ragione
+del browser remoto.
+
+#### Scenario: una consegna con URL non accende Chromium
+- **GIVEN** una card in review con un'anteprima viva su un URL locale
+- **WHEN** il preview manager la fotografa e ne controlla la shell
+- **THEN** il servizio SHALL chiamare `webkit.launch` e NON SHALL chiamare `chromium.launch`
+- **AND** fra i figli del server NON SHALL comparire nessun processo `chrome-headless-shell` o Chromium, durante la cattura e dopo
+- **AND** l'immagine SHALL essere 1440×760 e non bianca
+
+#### Scenario: a riposo zero processi
+- **GIVEN** l'ultima cattura finita
+- **WHEN** passa la finestra di inattività senza nuove catture
+- **THEN** il processo WebKit SHALL essere chiuso

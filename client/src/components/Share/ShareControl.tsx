@@ -306,7 +306,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         ref={ancoraRef}
         onClick={() => setAperto((v) => !v)}
         data-testid="share-control"
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text coarse:min-h-11"
         title={t(KEY_TITLE[resourceType])}
       >
         <Share2 size={12} />
@@ -367,7 +367,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                         ogni suo dispositivo, il secondo muore con quel ferro.
                         Il nome da solo non lo dice, e la revoca è la stessa
                         riga per due significati diversi. */}
-                    <span className="ml-1 text-micro text-app-text-muted">
+                    <span className="ml-1 text-mini text-app-text-muted">
                       {ETICHETTA[s.subjectType]}
                     </span>
                   </span>
@@ -394,7 +394,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                       value={s.level}
                       disabled={inCorso}
                       onChange={(e) => void changeLevel(s, e.target.value as GrantLevel)}
-                      className="flex-shrink-0 rounded border border-app-border bg-app-bg px-1 py-0.5 text-micro text-app-text disabled:opacity-50"
+                      className="flex-shrink-0 rounded border border-app-border bg-app-bg px-1 py-0.5 text-mini text-app-text disabled:opacity-50"
                     >
                       {LEVELS.map((l) => (
                         <option key={l} value={l}>{t(KEY_LEVEL[l])}</option>
@@ -404,7 +404,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                     <span
                       data-testid="share-level-fixed"
                       title={t(s.viaType ? 'share.levelFromContainer' : 'share.levelNotChosenHere')}
-                      className="flex-shrink-0 rounded border border-transparent px-1 py-0.5 text-micro text-app-text-muted"
+                      className="flex-shrink-0 rounded border border-transparent px-1 py-0.5 text-mini text-app-text-muted"
                     >
                       {t(KEY_LEVEL[s.level])}
                     </span>
@@ -417,7 +417,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                     <span
                       data-testid="share-via"
                       title={t('share.levelFromContainer')}
-                      className="flex-shrink-0 text-micro text-app-text-muted"
+                      className="flex-shrink-0 text-mini text-app-text-muted"
                     >
                       {t('share.viaProject')}
                     </span>
@@ -462,7 +462,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                       value={appenaCreato}
                       onFocus={(e) => e.currentTarget.select()}
                       aria-label={t('share.linkToShare')}
-                      className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-1.5 py-1 font-mono text-micro text-app-text outline-none"
+                      className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-1.5 py-1 font-mono text-mini text-app-text outline-none"
                     />
                     <button
                       onClick={() => { void copyGuestLink(); }}
@@ -474,7 +474,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                   </div>
                   {/* Le due cose che chi crea un link deve leggere ADESSO, non
                       scoprire dopo: che il link È la credenziale, e che scade. */}
-                  <p className="mt-1.5 text-micro leading-snug text-app-text-muted">
+                  <p className="mt-1.5 text-mini leading-snug text-app-text-muted">
                     {t('share.linkWarning', { object: t(KEY_OBJECT[resourceType]) })}
                   </p>
                 </>
@@ -491,7 +491,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                       valido lo stesso, ma non si apre finché non torna. Dirlo
                       prima è meglio che farlo scoprire a chi lo riceve. */}
                   {!relay.connected && (
-                    <span className="flex-shrink-0 text-micro text-amber-500">{t('share.notConnected')}</span>
+                    <span className="flex-shrink-0 text-mini text-amber-500">{t('share.notConnected')}</span>
                   )}
                 </button>
               )}
@@ -521,7 +521,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
 
           {disponibili.length > 0 ? (
             <>
-              <div className="mb-1 px-3 text-micro uppercase tracking-wide text-app-text-muted">{t('share.add')}</div>
+              <div className="mb-1 px-3 text-mini uppercase tracking-wide text-app-text-muted">{t('share.add')}</div>
               <ul className="space-y-0.5 px-1">
                 {disponibili.map((o) => (
                   <li key={chiave(o.subjectType, o.subjectId)}>
@@ -535,7 +535,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                       {/* Un team dice quante persone tiene: «condiviso con
                           Armonia» senza un numero non fa capire con quanti. */}
                       {o.subjectType !== 'device' && (
-                        <span className="ml-auto flex-shrink-0 text-micro text-app-text-muted">
+                        <span className="ml-auto flex-shrink-0 text-mini text-app-text-muted">
                           {ETICHETTA[o.subjectType]}{o.devices > 1 ? ` · ${o.devices}` : ''}
                         </span>
                       )}

@@ -235,7 +235,16 @@
   "opens, hung from the same «+». Recorded by hand, these two rows only.",
     "03/10, model-selector: `client/src/lib/i18n-en.ts` recorded 2661 -> 2802. Only +12 are this change (the one",
     "selector: band line, three direct reasons, search, four company headings, older fold, retirement, chat settings;",
-    "nine keys of the two-level menu left): main was already at 2790 against a ceiling of 2794, unrecorded."
+    "nine keys of the two-level menu left): main was already at 2790 against a ceiling of 2794, unrecorded.",
+    "04/10, six fixes of the night session. server/lib/ripresa-boot.ts 1065 on main -> 1163: +98 the restart",
+    "continuation (a native chat cut by a restart after it had already run tools is continued with a note instead",
+    "of resending the question, without spending a resume attempt, capped at ten in a row). main was already over",
+    "the 982 recorded on 28/09, inside the ceiling. server/lib/claude-session-tracker.test.ts 1131 on main -> 1160:",
+    "+29 the two tests of a SessionStart that declares a transcript path that does not exist. Recorded by hand,",
+    "these two rows only.",
+    "04/10, preview screenshots on WebKit (PR #219). tests/e2e/global-setup.ts 800 -> 821: +21 hand the isolated",
+    "test server PLAYWRIGHT_BROWSERS_PATH, because its HOME is isolated and Playwright looked for WebKit in an",
+    "empty cache. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -370,13 +379,13 @@
 
     "server/lib/claude-session-state.ts": 933,
 
-    "server/lib/claude-session-tracker.test.ts": 1022,
+    "server/lib/claude-session-tracker.test.ts": 1160,
 
     "server/lib/claude-session-tracker.ts": 961,
 
     "server/lib/ripresa-boot.test.ts": 847,
 
-    "server/lib/ripresa-boot.ts": 982,
+    "server/lib/ripresa-boot.ts": 1163,
 
     "server/lib/tab-resolver.ts": 1018,
 
@@ -473,6 +482,7 @@
 
     "tests/e2e/chat.spec.ts": 989,
 
+    "tests/e2e/global-setup.ts": 821,
     "tests/e2e/grid-split.spec.ts": 952,
 
     "tests/e2e/helpers/api-fixtures.ts": 966,

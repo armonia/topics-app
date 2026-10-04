@@ -78,7 +78,7 @@ export function ProjectUsagePanel({ range, onRange }: {
           </button>
         ))}
         {usage && (
-          <span className="ml-auto flex-shrink-0 text-micro text-app-text-faint" title={usage.cachedAt}>
+          <span className="ml-auto flex-shrink-0 text-mini text-app-text-faint" title={usage.cachedAt}>
             {tr('usage.readAt', { time: formatTime(usage.cachedAt, locale) })}
           </span>
         )}
@@ -97,7 +97,7 @@ export function ProjectUsagePanel({ range, onRange }: {
           {/* A HEADER, because this one IS a table: two numeric columns that
               have to be read down, not across. The inventory above is a list
               and has none, and the difference is the point. */}
-          <div className="flex items-center gap-2 px-1 pb-1 text-micro uppercase tracking-wide text-app-text-faint">
+          <div className="flex items-center gap-2 px-1 pb-1 text-mini uppercase tracking-wide text-app-text-faint">
             <span className="min-w-0 flex-1">{tr('usage.colProject')}</span>
             <span className="w-14 flex-shrink-0 text-right">{tr('usage.colTokens')}</span>
             <span className="w-12 flex-shrink-0 text-right">{tr('usage.colCost')}</span>
@@ -106,7 +106,7 @@ export function ProjectUsagePanel({ range, onRange }: {
             <Row key={p.projectId} p={p} compact={compact} money={money} tr={tr} />
           ))}
           {hidden > 0 && (
-            <div className="px-1 pt-1 text-micro text-app-text-faint">
+            <div className="px-1 pt-1 text-mini text-app-text-faint">
               {tr('usage.more', { n: hidden })}
             </div>
           )}
@@ -116,7 +116,7 @@ export function ProjectUsagePanel({ range, onRange }: {
       {/* THE FLOOR, SAID OUT LOUD. `cost.partial` is a field and not an
           inference: the payload knows which half it could not price. */}
       {usage?.cost.partial && (
-        <div data-testid="usage-partial" className="mt-1.5 border-t border-app-border pt-1.5 text-micro leading-snug text-app-text-secondary">
+        <div data-testid="usage-partial" className="mt-1.5 border-t border-app-border pt-1.5 text-mini leading-snug text-app-text-secondary">
           {tr('usage.costFloor', {
             tokens: compact.format(usage.cost.excluded.taskTokens),
             total: compact.format(usage.totals.totalTokens),

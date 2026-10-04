@@ -121,7 +121,7 @@ export function AutonomyPicker({ value, onChange, openRef }: {
         aria-label={`Autonomia: ${current.label}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`h-7 px-2 inline-flex items-center gap-1 rounded-lg text-mini font-medium transition-colors ${
+        className={`h-7 coarse:h-11 px-2 inline-flex items-center gap-1 rounded-lg text-mini font-medium transition-colors ${
           current.value === 'ask'
             ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
             : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'

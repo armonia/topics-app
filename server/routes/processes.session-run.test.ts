@@ -9,11 +9,17 @@
  * startScriptProcess as the long-standing UI endpoint.
  * @covers PROCESS-01
  */
-import { describe, test, expect } from "bun:test";
+import { beforeAll, describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createProcessesRouter } from "./processes";
+import { setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+
+// The registry writes its logs and `scripts.json` under the state folder: a
+// temporary one, or it falls on the working directory, the live one in the repo.
+const ROOT = testTmpDir("processes-session-run");
+beforeAll(() => setupTestDataDir(join(ROOT, "data")));
 
 type Topic = { id: string; sessionKey: string; projectPath?: string } | null;
 

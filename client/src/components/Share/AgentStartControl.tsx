@@ -278,7 +278,7 @@ export function AgentStartControl({ projectId, subjects }: {
         <Bot size={12} className="shrink-0 text-violet-400" />
         <div className="min-w-0 flex-1">
           <h3 className="text-compact font-medium text-app-text">{t('share.agentStart.title')}</h3>
-          <p className="text-micro leading-snug text-app-text-muted">{t('share.agentStart.blurb')}</p>
+          <p className="text-mini leading-snug text-app-text-muted">{t('share.agentStart.blurb')}</p>
         </div>
         {!editing && availableSubjects.length > 0 && (
           <button
@@ -299,7 +299,7 @@ export function AgentStartControl({ projectId, subjects }: {
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-compact text-app-text">{capability.subjectName ?? subjects.find((item) => subjectKey(item) === subjectKey(capability))?.name ?? capability.subjectId}</p>
-                  <p className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-micro text-app-text-muted">
+                  <p className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-mini text-app-text-muted">
                     <span className="inline-flex items-center gap-1"><Monitor size={10} />{capability.computerName ?? capability.machineName ?? capability.machineId}</span>
                     <span>{capability.repositoryName ?? capability.repositoryKey}</span>
                     <span>{friendlyModelLabel(capability.model)}</span>
@@ -336,7 +336,7 @@ export function AgentStartControl({ projectId, subjects }: {
               <div className="min-w-0 flex-1">
                 <p className="text-mini text-app-text-secondary">{t(`share.agentStart.remoteState.${request.state}`)}</p>
                 {request.code && request.state === 'pending' && <p className="mt-0.5 font-mono text-prose tracking-[0.18em] text-app-text">{request.code}</p>}
-                <p className="mt-0.5 text-micro leading-snug text-app-text-muted">{t('share.agentStart.remoteStatusNote')}</p>
+                <p className="mt-0.5 text-mini leading-snug text-app-text-muted">{t('share.agentStart.remoteStatusNote')}</p>
               </div>
               {(request.state === 'expired' || request.state === 'failed' || request.state === 'denied') && (
                 <button type="button" disabled={busy} onClick={() => void recoverRemote(request.id)} aria-label={t('share.agentStart.remoteReissue')} title={t('share.agentStart.remoteReissue')} className="rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text disabled:opacity-50"><RefreshCw size={12} /></button>
@@ -352,11 +352,11 @@ export function AgentStartControl({ projectId, subjects }: {
       {editing && (
         <div className="mt-2 space-y-2 rounded-md border border-violet-500/25 bg-violet-500/5 p-2" data-testid="agent-start-form">
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            <div className="text-micro text-app-text-muted">
+            <div className="text-mini text-app-text-muted">
               <span>{t('share.agentStart.subject')}</span>
               <Select value={subject} options={availableSubjects.map((item) => ({ value: subjectKey(item), label: item.name }))} onChange={setSubject} ariaLabel={t('share.agentStart.subject')} className="mt-0.5 w-full" />
             </div>
-            <div className="text-micro text-app-text-muted">
+            <div className="text-mini text-app-text-muted">
               <span>{t('share.agentStart.computer')}</span>
               <Select
                 value={computer}
@@ -372,15 +372,15 @@ export function AgentStartControl({ projectId, subjects }: {
             </div>
             {selectedComputer?.modelSupport !== 'unverified' && (
               <>
-                <div className="text-micro text-app-text-muted">
+                <div className="text-mini text-app-text-muted">
                   <span>{t('share.agentStart.model')}</span>
                   <Select value={model} onChange={setModel} ariaLabel={t('share.agentStart.model')} placeholder={t('share.agentStart.chooseModel')} className="mt-0.5 w-full" options={modelChoices.map((item) => ({ value: item.id, label: item.label ?? friendlyModelLabel(item.id) }))} />
                 </div>
-                <div className="text-micro text-app-text-muted">
+                <div className="text-mini text-app-text-muted">
                   <span>{t('share.agentStart.effort')}</span>
                   <Select value={effort} options={efforts.map((item) => ({ value: item, label: item }))} onChange={setEffort} ariaLabel={t('share.agentStart.effort')} className="mt-0.5 w-full" />
                 </div>
-                <div className="text-micro text-app-text-muted sm:col-span-2">
+                <div className="text-mini text-app-text-muted sm:col-span-2">
                   <span>{t('share.agentStart.duration')}</span>
                   <Select value={duration} options={durations.map((item) => ({ value: String(item), label: t('share.agentStart.minutes', { n: item }) }))} onChange={setDuration} ariaLabel={t('share.agentStart.duration')} className="mt-0.5 w-full" />
                 </div>
@@ -388,7 +388,7 @@ export function AgentStartControl({ projectId, subjects }: {
             )}
           </div>
           {selectedComputer && (
-            <div className="space-y-1 text-micro leading-snug text-app-text-muted">
+            <div className="space-y-1 text-mini leading-snug text-app-text-muted">
               <p>{t('share.agentStart.repository', { repository: selectedComputer.repositoryName })}</p>
               {selectedComputer.modelSupport === 'unverified' && (
                 <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2">
@@ -415,7 +415,7 @@ export function AgentStartControl({ projectId, subjects }: {
                 <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5" />
                 <span><ShieldCheck size={11} className="mr-1 inline" />{t('share.agentStart.confirm')}</span>
               </label>
-              <p className="text-micro leading-snug text-app-text-muted">{t('share.agentStart.policyNote')}</p>
+              <p className="text-mini leading-snug text-app-text-muted">{t('share.agentStart.policyNote')}</p>
             </>
           )}
           <div className="flex justify-end gap-1.5">

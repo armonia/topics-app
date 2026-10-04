@@ -186,7 +186,7 @@ export const CommandRunBlock = memo(function CommandRunBlock({ run, sessionKey, 
           </button>
         )}
         {run.droppedLines > 0 && (showAll || lines.length <= FINISHED_TAIL_LINES) && (
-          <div className="px-2.5 pt-1 text-micro text-gray-500">{tr('run.dropped', { n: run.droppedLines })}</div>
+          <div className="px-2.5 pt-1 text-mini text-gray-500">{tr('run.dropped', { n: run.droppedLines })}</div>
         )}
         <div
           ref={boxRef}

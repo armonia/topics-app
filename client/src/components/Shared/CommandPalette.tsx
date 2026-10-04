@@ -721,7 +721,7 @@ export function CommandPalette({
                time. The same row as the normal palette, so the two surfaces
                cannot tell the same story in two different ways. */
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Cronologia" data-testid="palette-history">
-              <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 {t('palette.history')}
                 {historyItems.length > 0 && <span data-testid="palette-history-count" className="text-app-text-tertiary font-normal">{historyItems.length}</span>}
               </div>
@@ -757,7 +757,7 @@ export function CommandPalette({
           ) : scope === 'projects' ? (
             /* ⌘F — projects scope: one full-width list, find/jump to a project. */
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Projects">
-              <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 Projects
                 {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
               </div>
@@ -774,7 +774,7 @@ export function CommandPalette({
                   il contenitore: `flex-1` le spartirebbe a meta' lo schermo,
                   lasciando un vuoto sotto la lista corta. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'flex-1 overflow-y-auto border-r border-app-border'}`}>
-                <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   {t('palette.recentProjects')}
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>
@@ -788,11 +788,11 @@ export function CommandPalette({
                   vuota e' la colonna delle cose che si FANNO, mentre a sinistra
                   ci sono quelle che si ritrovano. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'flex-1 overflow-y-auto'}`}>
-                <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   {t('palette.create')}
                 </div>
                 {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
-                <div className="px-3 pt-2 pb-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
+                <div className="px-3 pt-2 pb-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
                   {t('palette.history')}
                   {historyItems.length > 0 && <span className="text-app-text-tertiary font-normal">{historyItems.length}</span>}
                 </div>
@@ -811,7 +811,7 @@ export function CommandPalette({
                   esiste: due colonne da 150px troncano ogni riga a nulla, quindi
                   le due sezioni si impilano e scorre il contenitore. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'overflow-y-auto border-r border-app-border'}`}>
-                <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   {t('palette.projects')}
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>

@@ -86,11 +86,11 @@ export function CliAgentRow({
         />
         <span className="text-compact text-app-text flex-1 truncate">{agent.name}</span>
         {agent.installed ? (
-          <span className="text-micro text-app-text-muted font-mono truncate max-w-[45%]" title={agent.path ?? ''}>
+          <span className="text-mini text-app-text-muted font-mono truncate max-w-[45%]" title={agent.path ?? ''}>
             {agent.path}
           </span>
         ) : (
-          <span className="text-micro text-app-text-muted">{t('ai.local.notFound')}</span>
+          <span className="text-mini text-app-text-muted">{t('ai.local.notFound')}</span>
         )}
         {!agent.installed && (
           <a
@@ -117,12 +117,12 @@ export function CliAgentRow({
           that is done. */}
       {!agent.installed && isCommand && (
         <div className="mt-1.5 flex items-center gap-2">
-          <code className="flex-1 text-micro font-mono text-app-text-muted bg-app-bg rounded px-1.5 py-1 truncate">
+          <code className="flex-1 text-mini font-mono text-app-text-muted bg-app-bg rounded px-1.5 py-1 truncate">
             {agent.install}
           </code>
           <button
             onClick={() => { void copyInstall(); }}
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-micro bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-mini bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
           >
             {copied ? <Check size={10} /> : <Copy size={10} />}
             {t(copied ? 'ai.local.copied' : 'ai.local.copy')}
@@ -131,7 +131,7 @@ export function CliAgentRow({
       )}
 
       {agent.manualPathBroken && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-micro text-amber-500">
+        <div className="mt-1.5 flex items-center gap-1.5 text-mini text-amber-500">
           <AlertCircle size={10} className="flex-shrink-0" />
           <span className="break-all">{t('ai.local.missingPath', { path: agent.manualPath ?? '' })}</span>
         </div>
@@ -168,11 +168,11 @@ export function CliAgentRow({
               </button>
             )}
           </div>
-          <p className="text-micro text-app-text-muted">
+          <p className="text-mini text-app-text-muted">
             {t('ai.local.pathHint', { command: `which ${agent.bin}` })}
           </p>
           {rowError && (
-            <div className="flex items-center gap-1.5 text-micro text-red-500" data-testid="cli-agent-path-error">
+            <div className="flex items-center gap-1.5 text-mini text-red-500" data-testid="cli-agent-path-error">
               <AlertCircle size={10} className="flex-shrink-0" />
               <span className="break-words">{rowError}</span>
             </div>

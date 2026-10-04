@@ -163,7 +163,7 @@ export function RemoteNodeRequests() {
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="font-mono text-title tracking-[0.18em] text-app-text">{request.code}</span>
                   <span className="text-mini text-app-text-secondary">{request.originName ?? request.requestedBy ?? t('settings.machines.remote.otherComputer')}</span>
-                  <span className="inline-flex items-center gap-1 text-micro text-app-text-muted"><Clock3 size={10} />{t('settings.machines.remote.expires')}</span>
+                  <span className="inline-flex items-center gap-1 text-mini text-app-text-muted"><Clock3 size={10} />{t('settings.machines.remote.expires')}</span>
                 </div>
                 <p className="mt-1 text-mini leading-snug text-app-text-secondary">
                   {request.subjectName && `${request.subjectName} · `}
@@ -174,15 +174,15 @@ export function RemoteNodeRequests() {
                 </p>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div>
-                    <span className="text-micro text-app-text-muted">{t('settings.machines.remote.checkout')}</span>
+                    <span className="text-mini text-app-text-muted">{t('settings.machines.remote.checkout')}</span>
                     <Select value={chosen.projectId} options={projectOptions} onChange={(projectId) => setSelection((current) => ({ ...current, [request.id]: { ...chosen, projectId } }))} ariaLabel={t('settings.machines.remote.checkout')} placeholder={t('settings.machines.remote.chooseCheckout')} className="mt-0.5 w-full" />
                   </div>
                   <div>
-                    <span className="text-micro text-app-text-muted">{t('settings.machines.remote.identity')}</span>
+                    <span className="text-mini text-app-text-muted">{t('settings.machines.remote.identity')}</span>
                     <Select value={chosen.personId} options={ownerOptions} onChange={(personId) => setSelection((current) => ({ ...current, [request.id]: { ...chosen, personId } }))} ariaLabel={t('settings.machines.remote.identity')} placeholder={t('settings.machines.remote.chooseIdentity')} className="mt-0.5 w-full" />
                   </div>
                 </div>
-                <p className="mt-2 text-micro leading-snug text-app-text-muted"><ShieldCheck size={10} className="mr-1 inline" />{t(request.purpose === 'catalog' ? 'settings.machines.remote.catalogScope' : 'settings.machines.remote.scope')}</p>
+                <p className="mt-2 text-mini leading-snug text-app-text-muted"><ShieldCheck size={10} className="mr-1 inline" />{t(request.purpose === 'catalog' ? 'settings.machines.remote.catalogScope' : 'settings.machines.remote.scope')}</p>
                 <div className="mt-2 flex justify-end gap-1.5">
                   <button type="button" disabled={busy === request.id} onClick={() => void decide(request, false)} className="inline-flex items-center gap-1 rounded px-2 py-1 text-mini text-app-text-secondary hover:bg-app-hover disabled:opacity-50"><X size={11} />{t('settings.machines.remote.deny')}</button>
                   <button type="button" disabled={busy === request.id || !chosen.projectId || !chosen.personId} onClick={() => void decide(request, true)} className="inline-flex items-center gap-1 rounded bg-violet-600 px-2 py-1 text-mini text-white disabled:opacity-40"><Check size={11} />{t('settings.machines.remote.approve')}</button>
@@ -220,7 +220,7 @@ export function RemoteNodeRequests() {
                     <ShieldCheck size={12} className="shrink-0 text-emerald-500" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-mini font-medium text-app-text" title={firstLine}>{firstLine}</p>
-                      <p className="truncate text-micro text-app-text-muted" title={secondLine}>{secondLine}</p>
+                      <p className="truncate text-mini text-app-text-muted" title={secondLine}>{secondLine}</p>
                     </div>
                     <button type="button" disabled={busy === request.id} onClick={() => void revoke(request)} className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-mini text-red-500 hover:bg-red-500/10 disabled:opacity-50" aria-label={t('settings.machines.remote.revoke')}>
                       <Trash2 size={11} />{t('settings.machines.remote.revoke')}

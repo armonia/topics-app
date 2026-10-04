@@ -1355,7 +1355,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return (
                 <div
                   data-testid="terminal-stale-info"
-                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-micro leading-relaxed text-app-text-muted/70"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-mini leading-relaxed text-app-text-muted/70"
                 >
                   {info?.type && (
                     <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
@@ -1419,7 +1419,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return (
                 <div
                   data-testid="terminal-dormant-info"
-                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-micro leading-relaxed text-app-text-muted/70"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-mini leading-relaxed text-app-text-muted/70"
                 >
                   {info?.type && (
                     <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>

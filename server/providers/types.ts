@@ -239,8 +239,13 @@ export interface StreamHandler {
    * the row shows `Write(App.tsx)` within moments instead of a blank running
    * row for the whole (possibly minutes-long) input generation. Idempotent
    * upsert: a later call with fuller args overwrites.
+   *
+   * `update.partial` says the input is still streaming (the native runtime
+   * sends it on every provisional update, see `partial-tool-input.ts`): the
+   * consumer may show it but need not persist it, and the complete args that
+   * follow clear the mark.
    */
-  onToolArgsUpdate?: (toolCallId: string, args: ToolArgs) => void;
+  onToolArgsUpdate?: (toolCallId: string, args: ToolArgs, update?: { partial?: boolean }) => void;
   /**
    * Keep-alive: the tool's input is actively streaming (input_json_delta),
    * even though no new field is parseable yet. Lets the route reset its
@@ -255,8 +260,8 @@ export interface StreamHandler {
    * `attempt` is the one that just failed, 1-based; `delayMs` how long it will
    * wait before the next. The turn is ALIVE during that wait: consumers reset
    * their silence watchdog and, ideally, tell the person why nothing moves.
-   * Only the native runtime emits this; the CLIs retry internally and stay
-   * silent about it.
+   * The native runtime emits it from its own loop, claude-code from the CLI's
+   * `system/api_retry` lines.
    */
   onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number; reason: string }) => void;
   /**
