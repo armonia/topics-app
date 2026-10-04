@@ -213,7 +213,10 @@ export function TabSheetBody({
     : undefined;
   // Shown short, copied whole: a pasted address without its scheme is a
   // different address (http and https), and the old tab menu copied it whole.
-  const fullAddress = chrome ? chrome.url : (storedUrl ?? '');
+  // WHOLE IS THE DOCUMENT'S ADDRESS, NOT THE TRANSPORT: a local file travels as
+  // `/api/media?path=…`, and the copy is the `file://` the address field shows
+  // (`displayUrl`), never a link to this server.
+  const fullAddress = displayUrl(chrome ? chrome.url : (storedUrl ?? ''));
   const address = prettyUrl(fullAddress);
   const copyAddress = useCallback(() => {
     if (!fullAddress) return;
