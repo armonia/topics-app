@@ -38,12 +38,12 @@ export function commandDirs(home = homedir(), cwd = process.cwd()): string[] {
 }
 
 /**
- * Le cartelle delle skill, in ordine di precedenza.
+ * The skill folders, in order of precedence.
  *
- * L'hub `~/.agents/skills` è la fonte unica che Claude Code, Codex, jcode e
- * OpenClaw leggono già (`~/.claude/skills` è un suo link): se c'è, è l'unica
- * cartella. Le due storiche restano solo per una macchina senza hub, dove
- * altrimenti l'elenco sparirebbe del tutto.
+ * The hub `~/.agents/skills` is the single source Claude Code, Codex, jcode and
+ * OpenClaw already read (`~/.claude/skills` links to it): when present, it is
+ * the only folder. The two older ones remain only for a machine without the
+ * hub, where the listing would otherwise vanish entirely.
  */
 export function skillDirs(home = homedir()): string[] {
   const hub = join(home, ".agents", "skills");

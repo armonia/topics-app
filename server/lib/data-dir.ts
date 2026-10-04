@@ -48,9 +48,9 @@ import { topicsHome } from "../services/daemon-state";
  */
 export function resolveStateDir(fallback: string, env: NodeJS.ProcessEnv = process.env): string {
   const target = stateDirTarget(fallback, env);
-  // Il cancello sta qui e non nei chiamanti: ogni modulo che scrive stato
-  // (browser-state, push, ai-bridge, backup dei file, processi…) passa da
-  // questa porta, quindi nessuno puo' dimenticarselo.
+  // The gate sits here and not in the callers: every module that writes state
+  // (browser-state, push, ai-bridge, file backups, processes…) goes through
+  // this door, so nobody can forget it.
   assertNotLiveStateUnderTest(target, LIVE_REPO_ROOT, env);
   try {
     mkdirSync(target, { recursive: true });
@@ -187,7 +187,7 @@ export function isTestProcess(
  * Under test, a state dir equal to the repo the server runs from, or inside it,
  * is the LIVE layout (dev and the prod LaunchAgent write there): DB,
  * topics.json, memory/, browser-state, vapid keys. Twice something got through
- * before this gate existed: three «bench progetto» topics on 16/08 and a global
+ * before this gate existed: three test-bench project topics on 16/08 and a global
  * memory holding a test string from 25/08 to 02/10. It runs inside
  * `resolveStateDir`, the one door every subsystem resolves its state through,
  * so a test that forgets to isolate fails loudly instead of passing by writing

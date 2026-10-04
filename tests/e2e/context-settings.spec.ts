@@ -222,8 +222,8 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
-    // contesto-dall-hub: la «Global Memory» di Topics e' ritirata; le regole
-    // globali sono ~/.agents/AGENTS.md, mostrate come fonte e non modificabili.
+    // contesto-dall-hub: Topics' «Global Memory» is retired; the global rules
+    // are ~/.agents/AGENTS.md, shown as the source and not editable.
     const globalWrites: string[] = [];
     page.on("request", (req) => {
       if (/\/api\/memory$/.test(req.url()) && req.method() !== "GET") globalWrites.push(req.method());

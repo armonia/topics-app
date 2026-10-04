@@ -567,11 +567,11 @@ export function subagentWakeOwed(parentSessionKey: string): boolean {
  * (`backgroundOfTurn`): `running` while a child's turn is open, `wake-queued`
  * when every child is done and only a result still has to reach the chat.
  *
- * Il 04/10 topic:d740f8ae aspettava il sottoagente `anim-fix` e il goal lo
- * spingeva ogni ~2 minuti: 12 turni su 16 erano «aspetto anim-fix», 37 $, poi
- * il tetto di 20 continuazioni. Il risveglio del figlio riapre già il turno da
- * solo. Due query su indice (`idx_subagents_parent_state`), una volta per fine
- * turno: niente scansioni né `ps`.
+ * On 04/10 topic:d740f8ae was waiting on the sub-agent `anim-fix` and the goal
+ * nudged it every ~2 minutes: 12 turns out of 16 were «waiting for anim-fix»,
+ * $37, then the cap of 20 continuations. The child's wake already reopens the
+ * turn on its own. Two indexed queries (`idx_subagents_parent_state`), once per
+ * turn end: no scans, no `ps`.
  */
 export function subagentWakeState(parentSessionKey: string): 'running' | 'wake-queued' | 'none' {
   const db = getDatabase();

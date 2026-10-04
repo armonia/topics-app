@@ -27,7 +27,7 @@ const MAX_RULES_BYTES = 64 * 1024;
 const MAX_DESCRIPTION_CHARS = 180;
 
 export interface UserRules {
-  /** Il file da cui vengono, per il pannello: lo mostra come fonte, in sola lettura. */
+  /** The file they come from, for the panel: shown as the source, read-only. */
   path: string;
   content: string;
 }
@@ -52,7 +52,7 @@ export function readUserRulesSource(home = homedir()): UserRules | null {
   return content === null ? null : { path: file, content };
 }
 
-/** Il solo testo delle regole: la forma che usano i chiamanti storici. */
+/** The rules text alone: the shape the older callers use. */
 export function readUserRules(home = homedir()): string | null {
   return readUserRulesSource(home)?.content ?? null;
 }

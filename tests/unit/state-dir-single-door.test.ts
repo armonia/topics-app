@@ -108,8 +108,8 @@ describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stateDir", () =
 
   test("senza nulla nell'ambiente: fuori dai test il repo, sotto test un rifiuto", () => {
     const empty = {} as NodeJS.ProcessEnv;
-    // Il ramo di produzione (fallback = repo) e' coperto da `assertNotLiveStateUnderTest`
-    // con un main non di test; qui siamo sotto `bun test`, e il repo e' lo stato vivo.
+    // The production branch (fallback = repo) is covered by `assertNotLiveStateUnderTest`
+    // with a non-test main; here we run under `bun test`, and the repo is the live state.
     expect(() => resolveStateDir(ROOT, empty)).toThrow(/live state dir/);
     expect(resolveDataDir(ROOT, empty)).toBe(join(ROOT, "data"));
     expect(envDataDir(empty)).toBeUndefined();

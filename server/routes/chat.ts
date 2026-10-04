@@ -157,7 +157,7 @@ export interface ChatDeps {
   detectLocalhostAutoNav: (content: string, topic: Topic | null) => string;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
-  /** Le cartelle-progetto già note: dicono dove nasce un progetto nuovo. */
+  /** The project folders already known: they say where a new project is born. */
   knownProjectPaths?: () => string[];
   getProjectIdForTopic: (topicId: string) => string | null;
   getWorkspaceProjects: () => string[];

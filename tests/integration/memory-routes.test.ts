@@ -122,9 +122,9 @@ describe("aggiungere alla memoria di un topic", () => {
 });
 
 describe("la memoria globale e' ritirata", () => {
-  // Change `contesto-dall-hub`: le regole comuni stanno nell'hub `~/.agents`.
-  // 410 e non 404, e soprattutto NIENTE scritto: un client vecchio che fa PUT
-  // non deve rimettere in vita il file che nessuno legge piu'.
+  // Change `contesto-dall-hub`: the shared rules live in the hub `~/.agents`.
+  // 410 and not 404, and above all NOTHING written: an old client that PUTs
+  // must not bring back to life the file nobody reads any more.
   test("GET, PUT e DELETE della globale rispondono 410 e non scrivono", async () => {
     const id = `t-ritiro-${Date.now()}`;
     const router = await banco(id);

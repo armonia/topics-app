@@ -783,11 +783,10 @@ function pushTopicSwitchDirectoryBlock(
 }
 
 /**
- * La memoria del topic. Quella «globale» di Topics e' ritirata (change
- * `contesto-dall-hub`): era un archivio che nessun altro harness leggeva, e dal
- * 25/08 al 02/10 ha portato in ogni sessione una stringa di test senza che
- * nessuno se ne accorgesse. Cio' che vale per tutti gli agenti sta nell'hub,
- * ed entra col blocco delle regole.
+ * The topic's memory. Topics' «global» one is retired (change
+ * `contesto-dall-hub`): it was a store no other harness read, and from 25/08 to
+ * 02/10 it carried a test string into every session without anyone noticing.
+ * What holds for every agent lives in the hub and arrives with the rules block.
  */
 function pushMemoryBlocks(
   blocks: SystemBlock[],
@@ -795,9 +794,9 @@ function pushMemoryBlocks(
   ctx: AppContext,
   isEnabled: (id: string) => boolean,
 ): void {
-  // STATE_DIR, non BASE_DIR: e' la radice in cui scrive la route della memoria.
-  // Nel layout di sviluppo coincidono; nell'app scaricata no, e il blocco
-  // leggeva una cartella in cui nessuno scrive.
+  // STATE_DIR, not BASE_DIR: it is the root the memory route writes to. In the
+  // dev layout they coincide; in the downloaded app they do not, and the block
+  // read a folder nobody writes to.
   const topicPath = join(ctx.STATE_DIR, "memory", `${topic.id}.md`);
   const topicContent = readSafe(topicPath) ?? "";
   if (topicContent.trim().length > 0) {
@@ -932,16 +931,17 @@ function pushGoalHintBlock(
   });
 }
 
-/** Il percorso come lo scrive l'utente: `~/.agents/AGENTS.md`, non la home per esteso. */
+/** The path as the user writes it: `~/.agents/AGENTS.md`, not the home spelled out. */
 function tildePath(p: string): string {
   const home = homedir();
   return p === home || p.startsWith(home + "/") ? "~" + p.slice(home.length) : p;
 }
 
 /**
- * Le regole che l'utente da' a OGNI agente, dall'hub `~/.agents/AGENTS.md` (o da
- * `~/.claude/CLAUDE.md` dove l'hub non c'e'). L'id resta `user:CLAUDE.md`: e'
- * quello salvato in `disabledContextSources` di chi l'ha spento.
+ * The rules the user gives EVERY agent, from the hub `~/.agents/AGENTS.md` (or
+ * from `~/.claude/CLAUDE.md` where there is no hub). The id stays
+ * `user:CLAUDE.md`: it is the one saved in the `disabledContextSources` of
+ * whoever turned it off.
  */
 function pushUserRulesBlock(blocks: SystemBlock[], isEnabled: (id: string) => boolean): void {
   const rules = readUserRulesSource();

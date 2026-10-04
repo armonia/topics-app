@@ -28,8 +28,8 @@ export const MOCK_CONTEXT_ANALYSIS = {
       countInBudget: true,
     },
     {
-      // Le regole globali vengono dall'hub, in sola lettura (change contesto-dall-hub):
-      // la «Global Memory» modificabile non esiste piu'.
+      // The global rules come from the hub, read-only (change contesto-dall-hub):
+      // the editable «Global Memory» no longer exists.
       id: "user:CLAUDE.md",
       label: "~/.agents/AGENTS.md",
       category: "template",
