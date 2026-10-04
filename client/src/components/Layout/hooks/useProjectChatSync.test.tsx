@@ -69,6 +69,42 @@ describe('useProjectChatSync, sub-agent chats', () => {
   });
 });
 
+describe('useProjectChatSync, a server snapshot naming sub-agent chats', () => {
+  test('reopens the parent, not the sub-agents', () => {
+    const applied: ChatReconciliation[] = [];
+    const topics: Record<string, Topic> = { A: topic('A', 0), S1: { ...topic('S1', 1), subagentOf: 'A' } as Topic };
+    const box: { hydrate: ((fresh: { nonChatPanes: Pane[]; openChatTopicIds?: string[] }) => void) | null } = { hydrate: null };
+
+    function Probe() {
+      const sync = useProjectChatSync({
+        projectPath: PROJECT,
+        topics,
+        initial: { nonChatPanes: [], openChatTopicIds: [], activeChatTopicId: undefined },
+        panes: [],
+        groups: [],
+        focusedGroupId: null,
+        applyChatReconciliation: (r) => { applied.push(r); },
+        reopenChatPane: () => {},
+        gateRefs: { initialChatsSyncedRef: { current: false } },
+        markChatSyncDone: () => {},
+      });
+      useEffect(() => { box.hydrate = sync.onServerHydrate; });
+      return null;
+    }
+
+    const h = mount(createElement(Probe));
+    try {
+      if (!box.hydrate) throw new Error('useProjectChatSync did not mount');
+      box.hydrate({ nonChatPanes: [], openChatTopicIds: ['A', 'S1'] });
+      const added = applied.flatMap(r => r.add.map(p => p.topicId));
+      expect(added).toContain('A');
+      expect(added).not.toContain('S1');
+    } finally {
+      h.unmount();
+    }
+  });
+});
+
 describe('useProjectChatSync, sub-agent tabs the saved layout seeded', () => {
   test('are closed at load; the parent chat stays', () => {
     const chatA: Pane = { id: 'chat:A', type: 'chat', topicId: 'A', title: 'A', preview: false };

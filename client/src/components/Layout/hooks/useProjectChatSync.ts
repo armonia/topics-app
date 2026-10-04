@@ -442,6 +442,8 @@ export function useProjectChatSync(
           // it when the topics arrive. After it, the delta branch does.
           if (!ftopic && firstSyncPathRef.current !== projectPath) deferredOpenRef.current.add(tid);
           if (!ftopic || ftopic.archived || ftopic.projectPath !== projectPath) continue;
+          // A sub-agent lives in the sidebar under its parent: a saved snapshot never reopens it as a tab.
+          if (ftopic.subagentOf) continue;
           stubs.push({
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,
