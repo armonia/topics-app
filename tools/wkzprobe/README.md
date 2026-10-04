@@ -1,6 +1,6 @@
 # wkzprobe — two child webviews in one window: who is on top, and can a drag move one of them live?
 
-The instrument for the two unknowns of `openspec/changes/browser-della-topic`
+The instrument for the two unknowns of `openspec/changes/archive/2026-10-04-browser-della-topic`
 (card `e0821533`), before a floating browser window gets written. Two arms, one
 binary, the same shape the shell has: a host webview filling the window plus
 child webviews positioned by `set_bounds`, exactly like a browser pane.
