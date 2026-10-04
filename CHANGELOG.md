@@ -2,6 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.446 — 2026-10-04
+
+### Sotto il cofano
+- NH-01 controlla che la riga non faccia salire il numero, non che il server sia vuoto
+- Domanda in coda dietro un'altra chiamata: il form resta nella finestra da cui si è scritto
+- Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato
+- Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava
+
+## 2.2.445 — 2026-10-04
+
+### Sotto il cofano
+- Togli i furti delle aree proiettate e porta i comandi della tab a 24
+- Chiudi i tre buchi della guardia di usabilità
+
 ## 2.2.444 — 2026-10-04
 
 ### Sotto il cofano
@@ -13,12 +27,20 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Accetta il dialogo di fiducia della cartella prima di seminare un sottoagente
 - Segui il transcript vero quando SessionStart dichiara un path che non esiste
 - Fai sopravvivere ai riavvii le chat sul motore interno, invece di rinviare il riavvio
+- Scatta la foto dell'anteprima con WebKit, non con Chromium (tornata 5)
 - Carica il registro dei processi quando serve, non all'import del modulo
+- Libera la pane di progetto quando un altro dispositivo riporta la pagina nella finestra
 - Porta in inglese i commenti nuovi dei sei fix e dichiara la copertura della ripresa
 - Parcheggia il piano dei nodi cloud: VPS come nodi di Topics per il lavoro pesante
 - Isola DATA_DIR in topics.streaming.test.ts
+- Libera la pane anche sul dispositivo che torna dopo il ritorno, e scrivi la finestra prima del progetto
 - Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219
+- Rendi la X del banner di aggiornamento un bersaglio vero
+- Porta bersagli, testo e contrasto alla soglia nelle radici condivise
+- Aggiungi la guardia di usabilità: bersagli, testo e contrasto misurati
 - Allinea shutdown-wiring al contratto nuovo: una chat senza reattach sopravvive al riavvio
+- Banco e2e: API Anthropic finta per il motore nativo, senza Keychain né proxy ereditato
+- Motore nativo: mostra in coda la chiamata non partita, il comando mentre si scrive, rispetta il timeout della shell
 
 ## 2.2.442 — 2026-10-04
 
