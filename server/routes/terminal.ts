@@ -16,6 +16,8 @@ import { augmentPath, realHome } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
+import { topicsHooksSettings } from "../lib/topics-hooks";
+import { hookScriptPath } from "../lib/topics-hook-script";
 import { resolveKimiBin } from "../lib/kimi-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
@@ -1789,6 +1791,12 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // --append-system-prompt works in interactive mode and is additive to the
     // project's own CLAUDE.md.
     args.push('--append-system-prompt', topicsAgentSystemPrompt());
+    // Topics' hooks (phase, current tool, end of turn) travel with the spawn,
+    // not from the user's `~/.claude/settings.json`: they fire in this pane and
+    // not in the Claude the user starts outside Topics. Same definition as the
+    // chat engine (`lib/topics-hooks.ts`). The only `--settings` of this argv:
+    // the CLI would keep just the last one.
+    args.push('--settings', JSON.stringify(topicsHooksSettings(hookScriptPath())));
     // Start the interactive session at the same effort tier a Warp shell would
     // ("ultracode" = xhigh). The server runs under launchd with no CLAUDE_EFFORT
     // in its env, and the user's global effortLevel defaults to low, so without

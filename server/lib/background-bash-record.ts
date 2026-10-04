@@ -1,9 +1,9 @@
 /**
  * WHICH OF AN AGENT'S COMMANDS IS IN THE BACKGROUND, FROM THE TOOL CALL ITSELF.
  *
- * Every Claude Code CLI on this machine posts `PreToolUse` with its `tool_input`
- * to Topics (`~/.claude/settings.json`, installed by
- * `scripts/install-claude-hooks.ts`), and `run_in_background` is in that payload.
+ * Every Claude Code CLI Topics launches posts `PreToolUse` with its `tool_input`
+ * to Topics (the hooks its spawns pass through `--settings`, defined in
+ * `lib/topics-hooks.ts`), and `run_in_background` is in that payload.
  * That is the ONLY honest way to tell the two apart, and the difference decides
  * whether a command may be frozen at all:
  *

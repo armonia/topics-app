@@ -96,6 +96,45 @@ describe("buildClaudeArgs — il cancello sulle immagini nel contesto", () => {
   });
 });
 
+describe("buildClaudeArgs — gli hook di Topics viaggiano con lo spawn", () => {
+  // They used to come from the GLOBAL `~/.claude/settings.json`, so they fired
+  // in every Claude session of the machine. Now only in those Topics launches,
+  // and the CLI takes one `--settings`, the last one.
+  const SCRIPT = "/home/me/.topics/claude-hooks/post-hook.sh";
+  const EVENTS = ["Notification", "PostToolUse", "PreToolUse", "SessionEnd", "SessionStart", "Stop", "UserPromptSubmit"];
+  function settingsOf(args: string[]) {
+    expect(args.filter((a) => a === "--settings").length).toBe(1);
+    return JSON.parse(args[args.indexOf("--settings") + 1]!);
+  }
+
+  test("agente del board: UN --settings con i 7 eventi, il cancello su PreToolUse e le altre leve", () => {
+    const s = settingsOf(buildClaudeArgs({
+      ...BASE, hooksScriptPath: SCRIPT, blockImageReads: true,
+      toolSearch: "1", mcpOutputTokens: 4000, slimSkillListing: true,
+    }));
+    expect(Object.keys(s.hooks).sort()).toEqual(EVENTS);
+    // PreToolUse carries BOTH: ours (every tool) and the guard (Read).
+    const beforeToolMatchers = s.hooks.PreToolUse;
+    expect(beforeToolMatchers.map((m: { matcher?: string }) => m.matcher ?? "*")).toEqual(["*", "Read"]);
+    expect(beforeToolMatchers[0].hooks[0].command).toBe(`"${SCRIPT}" PreToolUse`);
+    expect(s.hooks.Stop[0].hooks[0]).toMatchObject({ command: `"${SCRIPT}" Stop`, async: true, timeout: 5 });
+    expect(s.env).toEqual({ ENABLE_TOOL_SEARCH: "1", MAX_MCP_OUTPUT_TOKENS: "4000" });
+    expect(s.skillListingMaxDescChars).toBe(1);
+  });
+
+  test("chat: gli hook ci sono anche senza cancello, e il deferral resta", () => {
+    const s = settingsOf(buildClaudeArgs({ ...BASE, hooksScriptPath: SCRIPT, toolSearch: "1" }));
+    expect(Object.keys(s.hooks).sort()).toEqual(EVENTS);
+    expect(s.hooks.PreToolUse.length).toBe(1);
+    expect(s.env.ENABLE_TOOL_SEARCH).toBe("1");
+  });
+
+  test("da soli bastano a emettere il --settings", () => {
+    const s = settingsOf(buildClaudeArgs({ ...BASE, hooksScriptPath: SCRIPT }));
+    expect(Object.keys(s)).toEqual(["hooks"]);
+  });
+});
+
 describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca", () => {
   // Decomposto per ablazione appaiata il 11/08/2026 (CLI 2.1.227, HOME reale,
   // rumore di fondo 0-4 token): dei 34.845 token di prefisso su opus-5[1m],

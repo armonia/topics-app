@@ -78,6 +78,19 @@ describe("hooks and permissions", () => {
     expect(resolveSessionEnvironment({ home, cwd }).hooks).toEqual([]);
   });
 
+  test("the hooks Topics passes through --settings are listed as ours, once per event", () => {
+    // They are no longer in ~/.claude/settings.json: reading the files alone
+    // would show a Topics session with no Topics hook at all.
+    const env = resolveSessionEnvironment({ home, cwd, topicsHooks: true, topicsGuard: true });
+    expect(env.hooks.map((h) => [h.event, h.source])).toEqual([
+      ["SessionStart", "topics"], ["SessionEnd", "topics"], ["UserPromptSubmit", "topics"],
+      ["PreToolUse", "topics"], ["PostToolUse", "topics"], ["Notification", "topics"], ["Stop", "topics"],
+      ["PreToolUse", "topics"],
+    ]);
+    // An engine that does not inherit the CLI settings gets none of them.
+    expect(resolveSessionEnvironment({ home, cwd, topicsHooks: true, provider: "codex" }).hooks).toEqual([]);
+  });
+
   test("allow/deny/ask rules keep their file, and the last mode wins", () => {
     writeJson(join(home, ".claude", "settings.json"), {
       permissions: { allow: ["Bash(ls:*)"], deny: ["Read(./.env)"], defaultMode: "default" },

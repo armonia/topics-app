@@ -34,6 +34,7 @@ import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker
 import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
+import { hookScriptPath } from "../lib/topics-hook-script";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota, readDispatchBinding } from "../services/agent-job-quota";
 import { resolveInheritedMcp } from "./mcp-inheritance";
@@ -2734,6 +2735,10 @@ export class ClaudeCodeProvider implements AIProvider {
       // voce di spesa più grossa misurata (25% del contesto dei task); il perché
       // sta accanto all'opzione, in `claude/args.ts`.
       blockImageReads: overrides.dispatched,
+      // Topics' hooks travel with the spawn, no longer from the user's global
+      // file: phase, tool label and foreground command list for EVERY session
+      // launched from here, and for no other.
+      hooksScriptPath: hookScriptPath(),
       // Solo gli agenti del board: il catalogo delle skill dell'UTENTE
       // (14.067 byte, ~4.200 token di prefisso misurati il 10/08) sta nel
       // prefisso e si ripaga a ogni turno, per un elenco che un agente col

@@ -21,6 +21,8 @@
  * stato deciso.
  */
 
+import { mergeHooks, topicsHooksSettings, type HooksBlock } from "../../lib/topics-hooks";
+
 /** Ciò che serve per montare l'argv di una sessione di chat persistente. */
 export interface ClaudeSpawnArgsOptions {
   /** Modalità di permessi già risolta (autonomia del topic → config → default). */
@@ -82,6 +84,16 @@ export interface ClaudeSpawnArgsOptions {
    * disattivarlo dal disco per sbaglio.
    */
   blockImageReads?: boolean;
+  /**
+   * The path of Topics' hook script (`lib/topics-hook-script.ts`). Set, the
+   * session gets the hooks that drive its phase, its live tool label and the
+   * swap freezer's foreground list (`lib/topics-hooks.ts`), inside the ONE
+   * `--settings`. They used to come from the user's global
+   * `~/.claude/settings.json`, which made them fire in every Claude session of
+   * the machine; now only the sessions Topics launches carry them. The spawn
+   * always passes it; absent (the benches under `scripts/`) means no hooks.
+   */
+  hooksScriptPath?: string | null;
   /**
    * Manda il CATALOGO delle skill al modello coi soli NOMI, senza descrizioni
    * (`skillListingMaxDescChars: 1` → `- nome: …`).
@@ -237,13 +249,13 @@ const IMAGE_READ_GUARD_CMD =
   + 'process.exit(2)}\'';
 
 /** Il blocco `hooks` da passare a `--settings` quando il cancello e attivo. */
-export const IMAGE_READ_GUARD_SETTINGS = {
+export const IMAGE_READ_GUARD_SETTINGS: { hooks: HooksBlock } = {
   hooks: {
     PreToolUse: [
       { matcher: "Read", hooks: [{ type: "command", command: IMAGE_READ_GUARD_CMD }] },
     ],
   },
-} as const;
+};
 
 /** Quale dei due tagli applicare. Il perché sta accanto a `toolTrim`. */
 export type ToolTrim = "chat" | "dispatched";
@@ -394,9 +406,18 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
     // vale −71,5% di prefisso: perderlo per l'elenco delle skill sarebbe uno
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
-    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads
+    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.hooksScriptPath
       ? ["--settings", JSON.stringify({
-          ...(opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS : {}),
+          // The two `hooks` blocks MERGED event by event: the guard and ours
+          // both sit on `PreToolUse`, and a spread would keep only one.
+          ...(opts.blockImageReads || opts.hooksScriptPath
+            ? {
+                hooks: mergeHooks(
+                  opts.hooksScriptPath ? topicsHooksSettings(opts.hooksScriptPath).hooks : undefined,
+                  opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS.hooks : undefined,
+                ),
+              }
+            : {}),
           ...(opts.toolSearch || opts.mcpOutputTokens
             ? {
                 env: {
