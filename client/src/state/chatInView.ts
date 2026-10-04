@@ -11,7 +11,7 @@
  *
  * Subjects are the attention keys: `topic:<id>`, `terminal:<id>`.
  */
-import { isWindowAwake } from './windowAwake';
+import { isWindowFocused } from './windowAwake';
 
 /** The holders, in the order they declared: the last one is the subject in front. */
 const held: string[] = [];
@@ -46,9 +46,9 @@ export function subjectInFront(): string | null {
   return held.length ? held[held.length - 1] : null;
 }
 
-/** Is the person looking at this subject now: held in front AND the window awake. */
+/** Is the person looking at this subject now: held in front AND the window focused (`isWindowFocused`). */
 export function isSubjectInFront(subject: string): boolean {
-  return held.includes(subject) && isWindowAwake();
+  return held.includes(subject) && isWindowFocused();
 }
 
 /** Called whenever the subject in front changes. Returns the unsubscribe. */

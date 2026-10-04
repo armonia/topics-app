@@ -7,7 +7,7 @@ import { serverWsBase } from '../lib/shell/net';
 import { applyUnreadUpdate } from '../state/unread';
 import { setWsClientId } from '../state/wsIdentity';
 import { onSubjectInFrontChange, subjectInFront } from '../state/chatInView';
-import { isWindowAwake, onWindowAwakeChange } from '../state/windowAwake';
+import { isWindowFocused, onWindowAwakeChange } from '../state/windowAwake';
 
 /**
  * The `focus` frame: the chat in front (stream routing) and the attention
@@ -16,7 +16,7 @@ import { isWindowAwake, onWindowAwakeChange } from '../state/windowAwake';
  * chat was focused before it.
  */
 function focusFrame(topicId: string | null): { type: 'focus'; topicId: string | null; subject: string | null; awake: boolean } {
-  return { type: 'focus', topicId, subject: subjectInFront(), awake: isWindowAwake() };
+  return { type: 'focus', topicId, subject: subjectInFront(), awake: isWindowFocused() };
 }
 
 /** What a focus frame tells the server. Nothing in front is one state whatever

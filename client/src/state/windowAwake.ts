@@ -42,6 +42,24 @@ export function isWindowAwake(): boolean {
 }
 
 /**
+ * Is the person looking at this window: shown AND the key window of the app
+ * in front. The question the attention state asks (a subject born seen, the
+ * seen dwell, ATTN-06), and NOT `isWindowAwake`: that one fails open while the
+ * page owns live native browser views, right for a poll, wrong here. A window
+ * behind another app with a browser pane told the server it was awake, and the
+ * chat in front was born seen: no banner, no push, no Dock (review 2 of
+ * notifications-redesign, surfaces B2). The price is the other way round: a
+ * click inside a native browser pane reads as "not looking", so a chat beside
+ * it lights and announces as on main.
+ */
+export function isWindowFocused(): boolean {
+  if (typeof document === 'undefined') return true;
+  if (document.hidden) return false;
+  if (typeof document.hasFocus !== 'function') return true;
+  return document.hasFocus();
+}
+
+/**
  * Calls `onChange` on every event that can flip `isWindowAwake()` (the tab
  * hidden or shown, the window focused or blurred) and returns the unsubscribe.
  * Not a store: whoever needs to react to the window coming back (the seen

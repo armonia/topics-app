@@ -27,7 +27,7 @@
 import { useEffect } from 'react';
 import { SEEN_DWELL_MS } from './signals';
 import { holdSubjectInFront } from './chatInView';
-import { isWindowAwake, onWindowAwakeChange } from './windowAwake';
+import { isWindowFocused, onWindowAwakeChange } from './windowAwake';
 import { useProjectFocusStore } from './projectFocus';
 import { createPaneId, getTerminalSessionFromPaneId } from './pane/adapters/paneConfig';
 import { isUtilityPanelId } from './pane/adapters/utilityPanelId';
@@ -74,7 +74,7 @@ export function seeSubject(subject: string): void {
 /**
  * Arms the seen dwell on `subject` while it is in front: declared in front for
  * the server (`holdSubjectInFront`, the `focus` frame), and seen after
- * SEEN_DWELL_MS of continuous look with the window awake. The dwell re-arms
+ * SEEN_DWELL_MS of continuous look with the window focused. The dwell re-arms
  * whenever the subject has something new to see, so a turn that ends on the
  * pane you are looking at clears after the dwell instead of staying until you
  * click somewhere else and back.
@@ -91,14 +91,14 @@ function useSeenSubjectInFront(subject: string | null): void {
       timer = setTimeout(() => {
         timer = null;
         // The window can have gone behind during the wait without an event.
-        if (!disposed && isWindowAwake()) seeSubject(subject);
+        if (!disposed && isWindowFocused()) seeSubject(subject);
       }, SEEN_DWELL_MS);
     };
     const disarm = () => {
       if (timer !== null) { clearTimeout(timer); timer = null; }
     };
     // Only a continuous look counts: a window that goes behind restarts the wait.
-    const onAwakeChange = () => { if (isWindowAwake()) arm(); else disarm(); };
+    const onAwakeChange = () => { if (isWindowFocused()) arm(); else disarm(); };
     onAwakeChange();
     const stopListening = onWindowAwakeChange(onAwakeChange);
     return () => {

@@ -5,7 +5,7 @@
  * release), the last one is the subject in front, and a change is announced
  * so `useWebSocket` sends the frame again.
  *
- * Under bun there is no document, so `isWindowAwake()` answers true: the
+ * Under bun there is no document, so `isWindowFocused()` answers true: the
  * awake half is the e2e's.
  *
  * @covers ATTN-06, CHAT-DONE-01
