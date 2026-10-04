@@ -641,8 +641,10 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   conta solo i compiti in volo. Un `SessionEnd` è sempre trattato come chiesto dalla
   persona. Il `command` (un `run_command` di Topics) non è della CLI: resta nella
   mappa e non conta come compito in volo alla fine del processo, perché il comando gira
-  ancora e il suo risveglio arriverà (§5.5: il reaper non accende niente). Solo un
-  riavvio del server lo toglie.
+  ancora e il suo risveglio arriverà (§5.5: il reaper non accende niente). Al riavvio
+  resta finché il registro dei processi gli deve ancora il risveglio
+  (`commandWakeState`), e solo se non lo deve più conta come compito morto (vedi
+  «Avvio»).
 - **Un soggetto chiuso vede ogni turno che chiude mentre è chiuso** (archiviato,
   cancellato, terminale chiuso): un turno risvegliato sotto l'archivio non resta da
   vedere fino alla riapertura (ATTN-11, ATTN-13). Anche le due riaperture
@@ -668,7 +670,14 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   composizione cade su un turno non visto, l'epoca resta quella. Un turno che chiude
   o la fine del processo lasciano cadere l'attesa portata. Gli ingressi letti da
   questo processo prima della ricomposizione (un `stream:start` di riattacco,
-  un'attesa) restano: la ricomposizione non li cancella.
+  un'attesa) restano: la ricomposizione non li cancella. Il lettore sta in
+  `server/attention/boot-reader.ts`. Due letture in più dal giro 2 di review: il
+  pannello del piano è un'attesa salvata (HOLD-04) perché vive sulla sua riga e non in
+  un bridge, quindi se la riga lo ha ancora in `waiting_for_input` torna
+  `needs-you(plan)` nella stessa epoca; una chat con la CLI andata ma un `run_command`
+  ancora dovuto resta in `background` sul `command`, senza epoca. Un `wake` salvato non
+  conta mai come compito morto al riavvio: la coda vera è della CLI, e il riattacco la
+  rilegge.
 - **Una risposta rigenerata (`routes/edit.ts`) è un turno finito (T2)**: prima non
   spingeva niente; ora vale come ogni turno, e se la chat è davanti nasce vista.
 - **Il `detail` della fine del processo** è scritto dal server in italiano
@@ -736,6 +745,44 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   server), e un cambio di veglia o di soggetto rimanda il frame solo se cambia ciò che
   il server legge (`focusKey` in `useWebSocket.ts`). Senza, il risveglio mandava tre
   `focus` uguali e rompeva il conto delle strette di mano di `useWebSocket.wake.test.ts`.
+
+### Correzioni del giro 2 di review
+
+- **Il `wake` in coda vale 2 s dal `result` del turno in cui è arrivato il report**
+  (`WAKE_AFTER_RESULT_MS`, `background-work.ts`), non i 60 s di un wake in coda a turno
+  chiuso. La CLI tiene un report arrivato dentro un turno fino al `result` e apre il
+  wake subito dopo (init 0,3-1,1 s), oppure lo ha incorporato nel turno e non apre
+  niente. Non c'è una riga che dica quale dei due: il turno chiude in `background` sul
+  `wake` e, se il wake non si apre, il provider rilegge la mappa all'istante in cui
+  smette di contare (`armWakeExpiry`). Quindi l'annuncio di un turno che ha incorporato
+  il report arriva fino a 2 s dopo il `result`. L'uscita del solo `wake` dalla mappa non
+  arma la grazia di T6/T7: il turno che la grazia aspetterebbe è proprio quello che non
+  è venuto.
+- **«Agente di board» per lo stato di attenzione = turno `dispatched` oppure topic
+  posseduto da una card `in_progress`** (`runningTaskOwnsTopic`, la regola con cui la
+  rotta adotta già i suoi wake). Vale per ogni turno di quel topic: il wake della CLI,
+  il riattacco, il risveglio di un comando, e anche un messaggio della persona scritto
+  nella chat dell'agente, dove il soggetto resta la card. Ogni `turnStarted` porta anche
+  l'archiviato del topic com'è adesso: un topic nato archiviato non passa da nessuna
+  strada di archiviazione, e lo store lo sapeva solo al riavvio. Anche i percorsi
+  d'errore della rotta passano il flag, così non scrivono un `lastTurn` d'errore sul
+  topic dell'agente. La quarta strada di archiviazione (la potatura dei tentativi
+  perdenti, `reapAttemptWorkspace`) ora chiama `setClosed`.
+- **Un terminale conta nel chrome solo se sta nel roster** (`chromeAttentionSubjects`
+  prende il roster): sidebar, riga del progetto, vista per stato e menu agenti leggono
+  il roster, e un terminale uscito (PTY morta a metà turno, parcheggiato dal reaper)
+  non ha una riga da spegnere. Il soggetto resta acceso sul server e sulla tab della
+  pane, se è aperta: il numero del chrome resta quello delle righe di sidebar più la tab
+  board. Finché il roster non è caricato, i terminali non contano.
+- **«Davanti alla persona» = pagina visibile e `document.hasFocus()`** (`isWindowFocused`
+  in `windowAwake.ts`), per il frame `focus`, `isSubjectInFront` e il visto per
+  permanenza. `isWindowAwake` resta per i poll: lì fallire aperto con una webview figlia
+  viva è giusto, qui faceva nascere visto il fine turno di una finestra dietro un'altra
+  app. Il prezzo è il verso opposto: un clic dentro una pane browser nativa conta come
+  «non guarda», e una chat accanto si accende e annuncia, come su `main`.
+- **Il Dock e il badge PWA si scrivono solo dopo `attention:init`** (`ready` dello
+  store): al ricarico lo store vuoto scriveva 0 e poi N. Durante una disconnessione
+  resta l'ultimo numero scritto.
 
 ### Metà e2e (sezione 5 di `tasks.md`)
 

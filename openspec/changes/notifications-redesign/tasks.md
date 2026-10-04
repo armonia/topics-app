@@ -98,6 +98,10 @@ rossi; diventano verdi con le sezioni 2 e 3.
   `routes/chat.ts`: `background` nel frame `stream:end` da `attentionBackground`;
   `finalizeTurnActivity` solo con un messaggio visibile; il pannello del piano apre
   `hold(plan)`; un errore con `resumesByItself` non fa epoca. Fa passare 1.1, 1.4.
+  Giro 2 di review: il `wake` in coda a fine turno vale 2 s e il provider rilegge alla
+  scadenza; ogni turno di un topic posseduto da una card in corso conta come agente di
+  board, e porta l'archiviato del topic (`chat.attention-folded-report.test.ts`,
+  `chat.attention-board-agent-wake.test.ts`).
 - [x] 2.5 `lib/claude-session-state.ts` e `claude-session-tracker.ts`: i compiti per id
   scritti nello store (unico detentore) al posto di `monitorArmed`, e `applyHook` che allo
   `Stop` riceve dallo store il numero di compiti che contano;
@@ -129,6 +133,9 @@ rossi; diventano verdi con le sezioni 2 e 3.
 - [x] 2.11 Ricomposizione a ogni avvio (ATTN-07, T19): rilettura degli ingressi riletti,
   `processEnded { cause: 'restart' }` ai soggetti senza processo vivo, `live: false`;
   tabella vuota → solo ingressi veri. Test sul DB sintetico. Fa passare 1.12.
+  Giro 2 di review: il lettore esce in `attention/boot-reader.ts`, rilegge il
+  `run_command` ancora dovuto e il pannello del piano ancora sulla riga
+  (`boot-reader.test.ts`, database vero).
 - [x] 2.12 `processEnded` (ATTN-15): `SessionEnd`, uscita del PTY e del figlio CLI, reaper,
   tetto di vita, `markPtyCrash`, uccisione dello swap. Fa passare 1.11.
 
@@ -154,6 +161,8 @@ rossi; diventano verdi con le sezioni 2 e 3.
   riga solo se acceso (TAB-BADGE-01, PARITY-01 modificati); la tray elenca chat e
   terminali contati. Test di parità di CHROME-COUNT-01: righe di sidebar accese + numero
   della tab board generale = numero del chrome.
+  Giro 2 di review: un terminale conta solo se sta nel roster, e il Dock non si scrive
+  prima di `attention:init`.
 - [x] 3.5 `useCompletionNotifier.tsx`: banner solo da `announce`, claim su
   `subject#epoch`, poi il cancello di Non disturbare (QUIET-01); via i rami
   `session:state`, `stream:end` e `message:new` (`decideMessageBanner`) e i POST di righe.
@@ -162,6 +171,8 @@ rossi; diventano verdi con le sezioni 2 e 3.
 - [x] 3.6 `paneSeen.ts` e `useWebSocket.ts`: la soglia di visto manda `{subject, epoch}`
   alla porta nuova (`{subject, epoch, turnAt}`, anche in `background` con `turnUnseen`);
   `focus` con soggetto e veglia a ogni cambio di pane e di `visibilitychange`.
+  Giro 2 di review: la veglia del frame e della soglia è `isWindowFocused`, stretta,
+  non `isWindowAwake` (`useWebSocket.focus-behind.test.ts`).
 - [x] 3.7 `lib/waitingQueue.ts` e il gestore di ⌘J (CHAT-WAIT-03 modificato): mete da
   `attentionOf` (`needs-you` con `question`, `permission`, `plan`), sezione «Ti aspetta»;
   `handleTerminalRowClick` manda il visto. `waitingCount` (`App.tsx:1359`) e la porta di
