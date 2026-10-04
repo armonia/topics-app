@@ -623,6 +623,9 @@ export default defineConfig({
         // The page the agent opened stays in sight in the turn and brings the
         // page back from the topic's window: filmed on the engine that ships.
         "**/chat-browser-open-marker.spec.ts",
+        // A page taken back by the topic window on another device leaves this
+        // device's project layout too: two clients, the native view is WebKit.
+        "**/topic-browser-window-remote-return.spec.ts",
         "**/board-conversation-details.spec.ts",
         // "Recapture evidence" boots a worktree and photographs it. The server
         // takes that photo with its own WebKit (KANBAN-95), so the whole
