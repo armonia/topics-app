@@ -665,6 +665,9 @@ export default defineConfig({
         // Phone push enrolment: the service worker on a non-localhost origin
         // and the Settings toggle, on the engine iOS ships (stubbed PushManager).
         "**/push-phone-enroll.spec.ts",
+        // Target size, text size and contrast on every main surface, measured
+        // in the engine that ships (WebKit), two viewports, two themes.
+        "**/usability-audit.spec.ts",
       ],
       use: {
         browserName: "webkit",
