@@ -112,12 +112,30 @@ function hostLayer(): HTMLDivElement {
   return el;
 }
 
+/** Two spellings of one address (`https://a.b` and `https://a.b/`) are the
+ *  same page: comparing the parsed form keeps a remount from reloading it. */
+function sameAddress(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The frame for `contextId`, created on first use and reused afterwards.
  *
- * `src` is written ONCE, at creation. Assigning it again - even the same string -
- * is a navigation, which is the reload this module exists to avoid; in-pane
- * navigation goes through the frame's own history, not through this function.
+ * `src` is written at creation and again only when the pane's address becomes
+ * a DIFFERENT one. Assigning it - even the same string - is a navigation, which
+ * is the reload this module exists to avoid, so a remount that hands back the
+ * address the frame already has (a cross-group move) leaves it alone.
+ *
+ * A different address is a navigation the pane asked for: an address typed in
+ * the tab's sheet, its ‹ and ›. Until 2026-10-04 `src` was written only at
+ * creation, so after the first page every one of those changed the tab's label
+ * and nothing else: the frame kept showing the first page, and ‹ looked dead
+ * (`tests/e2e/browser-back.spec.ts`).
  */
 export function retainHostedFrame(contextId: string, url: string): HTMLIFrameElement {
   for (const timers of [pendingRelease, pendingHide]) {
@@ -130,6 +148,10 @@ export function retainHostedFrame(contextId: string, url: string): HTMLIFrameEle
   const existing = hosted.get(contextId);
   if (existing) {
     existing.refs += 1;
+    if (!sameAddress(existing.url, url)) {
+      existing.url = url;
+      existing.iframe.src = url;
+    }
     return existing.iframe;
   }
 

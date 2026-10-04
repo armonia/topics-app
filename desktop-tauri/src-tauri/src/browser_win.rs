@@ -696,8 +696,38 @@ pub fn reload(wv: &tauri::Webview) -> Result<(), String> {
 /// e il valore non lo guarda nessuno. Vale la pena scriverla giusta lo stesso:
 /// il giorno che WebView2 esponesse la cronologia, un `index` rimasto li si
 /// leggerebbe come 0 invece che come l'indice vero.
-pub fn nav_entries(_wv: &tauri::Webview) -> Result<String, String> {
-    Ok("{\"entries\":[],\"activeIndex\":0}".to_string())
+///
+/// The two flags WebView2 DOES have travel with the empty list, as
+/// `canGoBack` / `canGoForward`. The client used to derive the arrows from the
+/// list alone (`activeIndex > 0`), so on Windows ‹ and › were disabled for good
+/// even with history behind the page; it now reads these flags when present
+/// (`parseNavHistory` in `useTauriBrowser.ts`).
+pub fn nav_entries(wv: &tauri::Webview) -> Result<String, String> {
+    let (tx, rx) = mpsc::channel::<(bool, bool)>();
+    wv.with_webview(move |platform| {
+        let flags = match core(&platform) {
+            Ok(c) => {
+                let mut back = BOOL(0);
+                let mut forward = BOOL(0);
+                let back_ok = unsafe { c.CanGoBack(&mut back) }.is_ok();
+                let forward_ok = unsafe { c.CanGoForward(&mut forward) }.is_ok();
+                (back_ok && back.as_bool(), forward_ok && forward.as_bool())
+            }
+            Err(_) => (false, false),
+        };
+        let _ = tx.send(flags);
+    })
+    .map_err(|e| e.to_string())?;
+    let (can_go_back, can_go_forward) = rx
+        .recv_timeout(OP_TIMEOUT)
+        .map_err(|_| "nav_entries timeout".to_string())?;
+    Ok(serde_json::json!({
+        "entries": [],
+        "activeIndex": 0,
+        "canGoBack": can_go_back,
+        "canGoForward": can_go_forward,
+    })
+    .to_string())
 }
 
 /// Lo user-agent di serie di ogni pane, memorizzato la prima volta che lo si

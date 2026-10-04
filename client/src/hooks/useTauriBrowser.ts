@@ -243,6 +243,48 @@ function resolveCornerRadius(viewId: string): number {
 }
 
 /**
+ * What the shell's `browser_nav_entries` says about this pane's history: the
+ * list for the history menu, and whether ‹ and › have somewhere to go.
+ *
+ * The arrows come from the shell's own `canGoBack` / `canGoForward` when it
+ * sends them, and that is the WebView2 case: WebView2 exposes no history LIST,
+ * only the two flags, so its list is always empty and an arrow derived from the
+ * list was disabled for good on Windows. Without the flags (WKWebView,
+ * WebKitGTK) they are read off the list: an entry behind the active one, an
+ * entry ahead of it.
+ */
+export function parseNavHistory(raw: string): {
+  entries: { url: string; title: string; index: number }[];
+  activeIndex: number;
+  canGoBack: boolean;
+  canGoForward: boolean;
+} {
+  let parsed: {
+    entries?: { url: string; title: string }[];
+    activeIndex?: number;
+    canGoBack?: unknown;
+    canGoForward?: unknown;
+  } = {};
+  try {
+    parsed = JSON.parse(raw || '{}') ?? {};
+  } catch {
+    parsed = {};
+  }
+  const entries = (Array.isArray(parsed.entries) ? parsed.entries : []).map((e, index) => ({
+    url: e.url,
+    title: e.title,
+    index,
+  }));
+  const activeIndex = typeof parsed.activeIndex === 'number' ? parsed.activeIndex : 0;
+  return {
+    entries,
+    activeIndex,
+    canGoBack: typeof parsed.canGoBack === 'boolean' ? parsed.canGoBack : activeIndex > 0,
+    canGoForward: typeof parsed.canGoForward === 'boolean' ? parsed.canGoForward : activeIndex < entries.length - 1,
+  };
+}
+
+/**
  * `hasFocus` is the focus of THIS pane on its surface (default: `isVisible`).
  * It only matters once the pane is heavy: see `lib/shell/nativePaneLive`.
  */
@@ -263,10 +305,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const [title, setTitle] = useState('');
   const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  // Whether the real WKBackForwardList can go back/forward, derived from
-  // getNavEntries after each load settles (see the effect below). Drives the
-  // toolbar arrows' disabled state — otherwise a click at the end of history is
-  // a silent no-op.
+  // Whether the real back-forward list can go back/forward, derived from
+  // getNavEntries after each load settles and each change of address (see the
+  // effect below). Drives the toolbar arrows' disabled state — otherwise a
+  // click at the end of history is a silent no-op.
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   // Last navigation failure (Rust did-fail queue). Owned by navigate()/the
@@ -1944,19 +1986,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // back/forward history dropdown. The client adds the 0-based `index`.
   const getNavEntries = useCallback(async () => {
     try {
-      const raw = await tauriInvoke<string>('browser_nav_entries', { id });
-      const parsed = JSON.parse(raw || '{}') as {
-        entries?: { url: string; title: string }[];
-        activeIndex?: number;
-      };
-      const entries = (Array.isArray(parsed.entries) ? parsed.entries : []).map((e, index) => ({
-        url: e.url,
-        title: e.title,
-        index,
-      }));
-      return { entries, activeIndex: typeof parsed.activeIndex === 'number' ? parsed.activeIndex : 0 };
+      return parseNavHistory(await tauriInvoke<string>('browser_nav_entries', { id }));
     } catch {
-      return { entries: [], activeIndex: 0 };
+      return parseNavHistory('');
     }
   }, [id]);
 
@@ -2008,18 +2040,25 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     });
   }, [id, applyBounds, requestOpenView]);
 
-  // Derive the arrows' enabled state from the real WKBackForwardList. Event-
-  // driven (runs when a load settles, not per poll-tick): activeIndex>0 means
-  // there's history behind, activeIndex<last means there's history ahead.
+  // Derive the arrows' enabled state from the real back-forward list (see
+  // `parseNavHistory`). Event-driven, not per poll-tick.
   const refreshNavState = useCallback(async () => {
-    const { entries, activeIndex } = await getNavEntries();
-    setCanGoBack(activeIndex > 0);
-    setCanGoForward(activeIndex < entries.length - 1);
+    const history = await getNavEntries();
+    setCanGoBack(history.canGoBack);
+    setCanGoForward(history.canGoForward);
   }, [getNavEntries]);
 
+  // WHEN THE ADDRESS CHANGES TOO, not only when a load settles. Until
+  // 2026-10-04 this ran on the `loading` edge alone, and the most common
+  // navigation never makes one: the shell coalesces its KVO state to the
+  // LATEST per pane (`NAV_STATE_EVENTS`), so a link that loads inside one
+  // 250 ms drain arrives as `loading: false` straight away, and a same-document
+  // navigation (`pushState`, an anchor) never loads at all. The list had grown
+  // and ‹ stayed disabled, in the tab's sheet and in the context menu alike:
+  // «l'indietro sembra non funzionale».
   useEffect(() => {
     if (ready && !loading) void refreshNavState();
-  }, [ready, loading, refreshNavState]);
+  }, [ready, loading, url, refreshNavState]);
 
   const viewId = ready ? id : null;
 

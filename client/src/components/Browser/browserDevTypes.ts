@@ -267,8 +267,9 @@ export interface NativeBrowserHandle {
   /** Fetch the back/forward navigation history for the Chrome-style menu. */
   getNavEntries(): Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   goToNavIndex(index: number): Promise<void>;
-  /** Optional — Tauri only. Whether the WKBackForwardList has an entry to go
-   *  back/forward to, derived from getNavEntries after each load settles. Lets
+  /** Optional — Tauri only. Whether the back-forward list has an entry to go
+   *  back/forward to, derived from getNavEntries after each load settles and
+   *  each change of address. Lets
    *  the toolbar grey the arrows at the ends of history instead of leaving them
    *  always live (a silent no-op click). Absent on the streaming/web path,
    *  where the toolbar falls back to enabled. */
