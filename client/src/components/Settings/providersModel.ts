@@ -13,15 +13,13 @@
  * Pure on purpose: the order, the companies, the action and the count are the
  * rules the revision writes down, tested without a DOM.
  */
-import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
+import type { ProviderSnapshotEntry, ProviderStatus, ProvidersSnapshot } from '../../types';
 import { FIXED_MAKERS, engineMaker, makerLabel, modelMaker } from '../../../../shared/modelMaker';
 import { DIRECT_PROVIDER_PREFIX } from '../../../../shared/direct-endpoints';
 import type { Translate } from '../../../../shared/queue-reason-text';
 
 /** The fixed order of the list (§5.2). Unknown names come after, never between. */
 export const PROVIDER_ORDER = ['claude-code', 'topics', 'claude', 'codex', 'openai', 'gemini', 'jcode', 'openclaw', 'goose'] as const;
-
-export type ProviderStatus = ProviderSnapshotEntry['status'];
 
 /** What kind of account a card is: it decides the first words of the fact. */
 export type CardKind = 'subscription' | 'key' | 'program' | 'agent' | 'endpoint' | 'engine';
