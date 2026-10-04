@@ -27,6 +27,9 @@ import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic, type FakeRound } from "./helpers/fake-anthropic-api";
 
+/** How long `recordWire({ until: "answered" })` keeps the question's result back. */
+const RESULT_HELD_MS = 3_000;
+
 const LONG_COMMAND = `cat > /dev/null <<'EOF'\n${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\nEOF\necho written`;
 
 const SCRIPTS: Record<string, FakeRound[]> = {
@@ -116,6 +119,147 @@ async function rowHistory(page: Page): Promise<Array<{ id: string; status: strin
   return page.evaluate(() => (window as unknown as { __rowStatuses: Array<{ id: string; status: string; at: number }> }).__rowStatuses);
 }
 
+/**
+ * Records, in the page, what the window was handed and when: every read of its
+ * own reply's SSE (`/api/chat`) and every WS frame about a tool, on the same
+ * clock as `recordRowStatuses`. Installed before the app loads, so the socket
+ * the app opens is the one tapped.
+ *
+ * `holdLikeWebKit` replays, every time, the order measured in the runs that
+ * failed (04/10, 1 run in 20): the SSE reads that announce the rows are held
+ * until the question has come over WS, and the SSE copy of the question, the
+ * last byte before the turn pauses, never comes. Held, not dropped: the stream
+ * is not read meanwhile, as when WebKit keeps a burst back.
+ *
+ * `until: "answered"` holds the same reads longer, until the answer given in
+ * another window has come over WS too, and then keeps the question's own
+ * result back for `RESULT_HELD_MS`: the window between the row's birth and its
+ * result, which is where a row born on a panel already closed shows.
+ */
+async function recordWire(page: Page, opts: { holdLikeWebKit?: boolean; until?: "asked" | "answered" } = {}): Promise<void> {
+  await page.addInitScript(({ holdLikeWebKit, until, resultHeldMs }) => {
+    type Entry = { via: "sse" | "ws"; at: number; what: string[] };
+    const wire: Entry[] = [];
+    (window as unknown as { __wire: Entry[] }).__wire = wire;
+    let asked = false;
+    let questionId = "";
+    let release = () => {};
+    const askedOverWs = new Promise<void>((resolve) => { release = resolve; });
+    const isResultOf = (line: string, id: string): boolean => {
+      if (!id || !line.startsWith("data: ")) return false;
+      try { return JSON.parse(line.slice(6)).choices?.[0]?.delta?.tool_result?.id === id; } catch { return false; }
+    };
+    const isSseQuestion = (line: string): boolean => {
+      try {
+        const calls = JSON.parse(line.slice(6)).choices?.[0]?.delta?.tool_calls as Array<{ status?: string }> | undefined;
+        return !!calls?.length && calls.every((c) => c.status === "waiting_for_input");
+      } catch { return false; }
+    };
+    const summarize = (obj: Record<string, unknown>): string | null => {
+      const delta = (obj.choices as Array<{ delta?: Record<string, unknown> }> | undefined)?.[0]?.delta;
+      if (delta) {
+        const out: string[] = [];
+        for (const tc of (delta.tool_calls as Array<Record<string, unknown>> | undefined) ?? []) {
+          out.push(`call ${String(tc.id).slice(-6)} ${String(tc.status)}${tc.userInputSchema ? "+form" : ""}`);
+        }
+        const tr = delta.tool_result as Record<string, unknown> | undefined;
+        if (tr) out.push(`result ${String(tr.id).slice(-6)} ${String(tr.status)}`);
+        return out.length ? out.join(", ") : null;
+      }
+      const type = String(obj.type ?? "");
+      if (!type.startsWith("stream:tool")) return null;
+      const tc = obj.toolCall as Record<string, unknown> | undefined;
+      const id = String(obj.toolCallId ?? tc?.id ?? "").slice(-6);
+      return `${type} ${id} ${String(obj.status ?? tc?.status ?? "")}`;
+    };
+    const realFetch = window.fetch.bind(window);
+    const recordingFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const res = await realFetch(input, init);
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!/\/api\/chat(\?|$)/.test(url) || !res.body) return res;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          const { done, value } = await reader.read();
+          if (done) { controller.close(); return; }
+          let text = decoder.decode(value, { stream: true });
+          let bytes = value;
+          if (holdLikeWebKit) {
+            if (!asked && text.includes('"tool_calls"')) await askedOverWs;
+            const kept = text.split("\n").filter((line) => !(line.startsWith("data: ") && isSseQuestion(line))).join("\n");
+            if (kept !== text) { text = kept; bytes = new TextEncoder().encode(kept); }
+          }
+          if (holdLikeWebKit && until === "answered" && questionId) {
+            const lines = text.split("\n");
+            const at = lines.findIndex((line) => isResultOf(line, questionId));
+            if (at >= 0) {
+              if (at > 0) {
+                controller.enqueue(new TextEncoder().encode(`${lines.slice(0, at).join("\n")}\n`));
+                wire.push({ via: "sse", at: performance.now(), what: ["(before the held result)"] });
+              }
+              await new Promise((resolve) => setTimeout(resolve, resultHeldMs));
+              text = lines.slice(at).join("\n");
+              bytes = new TextEncoder().encode(text);
+            }
+          }
+          const what: string[] = [];
+          for (const line of text.split("\n")) {
+            if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+            try { const s = summarize(JSON.parse(line.slice(6))); if (s) what.push(s); } catch { what.push("(split frame)"); }
+          }
+          wire.push({ via: "sse", at: performance.now(), what: what.length ? what : [`${bytes.byteLength} B`] });
+          controller.enqueue(bytes);
+        },
+        cancel(reason) { return reader.cancel(reason); },
+      });
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    };
+    window.fetch = recordingFetch as typeof window.fetch;
+    const RealWebSocket = window.WebSocket;
+    window.WebSocket = class extends RealWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        this.addEventListener("message", (ev) => {
+          if (typeof ev.data !== "string") return;
+          try {
+            const frame = JSON.parse(ev.data) as Record<string, unknown>;
+            const s = summarize(frame);
+            if (s) wire.push({ via: "ws", at: performance.now(), what: [s] });
+            // Released in a task of its own: resolving here would let the held
+            // read reach the app in this listener's microtask checkpoint,
+            // before the app's own `onmessage` has seen the question.
+            if (frame.type === "stream:tool_user_input_required") {
+              questionId = String(frame.toolCallId ?? "");
+              if (until !== "answered") { asked = true; setTimeout(release, 0); }
+            }
+            if (until === "answered" && frame.type === "stream:tool_update" && frame.userResponse && frame.toolCallId === questionId) {
+              asked = true;
+              setTimeout(release, 0);
+            }
+          } catch { /* not JSON */ }
+        });
+      }
+    };
+  }, { holdLikeWebKit: opts.holdLikeWebKit ?? false, until: opts.until ?? "asked", resultHeldMs: RESULT_HELD_MS });
+}
+
+/** The row statuses and the wire, merged in time order, one line each. */
+async function timeline(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const w = window as unknown as {
+      __wire?: Array<{ via: string; at: number; what: string[] }>;
+      __rowStatuses?: Array<{ id: string; status: string; at: number }>;
+    };
+    const lines = [
+      ...(w.__wire ?? []).map((e) => ({ at: e.at, text: `${e.via.padEnd(3)} ${e.what.join(" | ")}` })),
+      ...(w.__rowStatuses ?? []).map((r) => ({ at: r.at, text: `ROW ${r.id.slice(-6)} -> ${r.status}` })),
+    ].sort((a, b) => a.at - b.at);
+    const t0 = lines[0]?.at ?? 0;
+    return lines.map((l) => `${String(Math.round(l.at - t0)).padStart(6)} ms  ${l.text}`).join("\n");
+  });
+}
+
 hermetic(test);
 
 test.describe("native runtime: a call that has not started is not shown running", () => {
@@ -195,7 +339,9 @@ test.describe("native runtime: a call that has not started is not shown running"
     const { topic, sessionKey } = await nativeTopic(request, "ntool-askq");
     const viewer = await context.newPage();
     await openChat(viewer, viewer.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }), topic.name);
+    await recordWire(page);
     await openChat(page, chatPage.messageInput, topic.name);
+    await recordRowStatuses(page);
     await chatPage.sendMessage("SCEN:askq go");
 
     // When the shell ends, the question starts and asks at once. Its `running`
@@ -207,7 +353,8 @@ test.describe("native runtime: a call that has not started is not shown running"
     await expect(viewerQuestion).toHaveAttribute("data-status", "waiting_for_input", { timeout: 10_000 });
 
     const question = page.locator('[data-testid^="tool-call-row-"]').nth(1);
-    await expect(question).toHaveAttribute("data-status", "waiting_for_input", { timeout: 10_000 });
+    await expect(question).toHaveAttribute("data-status", "waiting_for_input", { timeout: 10_000 })
+      .catch(async (err: Error) => { throw new Error(`${err.message}\n\nsender timeline:\n${await timeline(page)}`); });
     // It has to HOLD, not just pass by: the announcement lands after the form.
     const heldFrom = Date.now();
     await expect.poll(async () => {
@@ -224,6 +371,86 @@ test.describe("native runtime: a call that has not started is not shown running"
     await form.locator('input[type="radio"][value="One"]').check();
     await form.getByTestId("ask-submit").click();
     await expect(page.getByText("FINE-askq").first()).toBeVisible({ timeout: 30_000 });
+    await deleteTopic(request, topic.id).catch(() => {});
+  });
+
+  test("a question whose row reaches the sender after its form still opens the form there", async ({ page, request, chatPage }) => {
+    // The order of the runs that failed, every time: the WS question comes
+    // first and finds no row, the held SSE burst then gives birth to the row
+    // as queued and running, and the SSE copy of the question never comes.
+    const { topic, sessionKey } = await nativeTopic(request, "ntool-askq-held");
+    await recordWire(page, { holdLikeWebKit: true });
+    await openChat(page, chatPage.messageInput, topic.name);
+    await recordRowStatuses(page);
+    await chatPage.sendMessage("SCEN:askq go");
+
+    await expect.poll(async () => (await storedCalls(request, sessionKey)).map((c) => c.status), { timeout: 20_000 })
+      .toEqual(["success", "waiting_for_input"]);
+    const question = page.locator('[data-testid^="tool-call-row-"]').nth(1);
+    await expect(question).toHaveAttribute("data-status", "waiting_for_input", { timeout: 10_000 })
+      .catch(async (err: Error) => { throw new Error(`${err.message}\n\nsender timeline:\n${await timeline(page)}`); });
+    // The replay did what it says: the row was born after the WS question, and no SSE question came.
+    const wire = await page.evaluate(() => (window as unknown as { __wire: Array<{ via: string; at: number; what: string[] }> }).__wire);
+    const askedAt = wire.find((e) => e.via === "ws" && e.what.some((w) => w.startsWith("stream:tool_user_input_required")))?.at;
+    const rows = await rowHistory(page);
+    const questionId = (await question.getAttribute("data-testid"))!;
+    const bornAt = rows.find((r) => r.id === questionId)?.at;
+    expect(askedAt, await timeline(page)).toBeDefined();
+    expect(bornAt!, await timeline(page)).toBeGreaterThan(askedAt!);
+    expect(wire.some((e) => e.via === "sse" && e.what.some((w) => w.includes("+form"))), await timeline(page)).toBe(false);
+
+    const form = question.locator('[data-testid^="tool-input-form-"]');
+    await expect(form).toBeVisible();
+    await expect(question.getByTestId("tool-elapsed")).toHaveCount(0);
+    await expect(chatPage.messageInput).toHaveAttribute("placeholder", /Rispondi alla domanda|Answer the question/);
+    await form.locator('input[type="radio"][value="One"]').check();
+    await form.getByTestId("ask-submit").click();
+    await expect(page.getByText("FINE-askq").first()).toBeVisible({ timeout: 30_000 });
+    await deleteTopic(request, topic.id).catch(() => {});
+  });
+
+  test("a question answered in another window before its row reaches the sender is not asked again there", async ({ page, request, chatPage, context }) => {
+    // The same held burst, but the person answers on the other window (the
+    // phone shows the form at once over WS) before the sender's row is born.
+    // The answer frame used to be dropped while the question was held, so the
+    // row was born on the form and kept it until the result: a form over a
+    // question already answered.
+    const { topic, sessionKey } = await nativeTopic(request, "ntool-askq-answered");
+    const viewer = await context.newPage();
+    await openChat(viewer, viewer.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }), topic.name);
+    await recordWire(page, { holdLikeWebKit: true, until: "answered" });
+    await openChat(page, chatPage.messageInput, topic.name);
+    await recordRowStatuses(page);
+    await chatPage.sendMessage("SCEN:askq go");
+
+    const viewerQuestion = viewer.locator('[data-testid^="tool-call-row-"]').nth(1);
+    await expect(viewerQuestion).toHaveAttribute("data-status", "waiting_for_input", { timeout: 20_000 });
+    // Nothing reached the sender's rows yet: its SSE is held.
+    await expect(page.locator('[data-testid^="tool-call-row-"]')).toHaveCount(0);
+    const viewerForm = viewerQuestion.locator('[data-testid^="tool-input-form-"]');
+    await viewerForm.locator('input[type="radio"][value="One"]').check();
+    await viewerForm.getByTestId("ask-submit").click();
+
+    // Born after the answer, while its result is still held: running, no form.
+    const question = page.locator('[data-testid^="tool-call-row-"]').nth(1);
+    await expect(question).toHaveAttribute("data-status", "running", { timeout: RESULT_HELD_MS })
+      .catch(async (err: Error) => { throw new Error(`${err.message}\n\nsender timeline:\n${await timeline(page)}`); });
+    await expect(question.locator('[data-testid^="tool-input-form-"]')).toHaveCount(0);
+
+    await expect(page.getByText("FINE-askq").first()).toBeVisible({ timeout: 30_000 });
+    // The text can come before the held result: the row closes when the result does.
+    await expect(question).toHaveAttribute("data-status", "success", { timeout: 10_000 });
+    const questionId = (await question.getAttribute("data-testid"))!;
+    const statuses = (await rowHistory(page)).filter((r) => r.id === questionId).map((r) => r.status);
+    expect(statuses, await timeline(page)).not.toContain("waiting_for_input");
+    expect(statuses.at(-1), await timeline(page)).toBe("success");
+    // The replay did what it says: the answer came over WS before the row was born.
+    const wire = await page.evaluate(() => (window as unknown as { __wire: Array<{ via: string; at: number; what: string[] }> }).__wire);
+    const answeredAt = wire.find((e) => e.via === "ws" && e.what.some((w) => w.startsWith("stream:tool_update") && w.endsWith("running")))?.at;
+    const bornAt = (await rowHistory(page)).find((r) => r.id === questionId)?.at;
+    expect(answeredAt, await timeline(page)).toBeDefined();
+    expect(bornAt!, await timeline(page)).toBeGreaterThan(answeredAt!);
+    expect((await storedCalls(request, sessionKey)).map((c) => c.status)).toEqual(["success", "success"]);
     await deleteTopic(request, topic.id).catch(() => {});
   });
 

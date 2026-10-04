@@ -193,7 +193,10 @@ describe('an announcement does not move a row back', () => {
   });
 
   test('the announcement handler goes through the guard', () => {
+    // `useChat` merges through `withAnnouncedToolCall`, which applies the guard to a row it already has.
     const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
-    expect(src).toContain('withToolAnnouncement(lastMsg.toolCalls![existingIdx]!, toolCall)');
+    expect(src).toContain('withAnnouncedToolCall(lastMsg, toolCall, heldToolFactsRef.current, sessionKey)');
+    const merge = readFileSync(join(import.meta.dir, 'heldToolFacts.ts'), 'utf8');
+    expect(merge).toContain('withToolAnnouncement(msg.toolCalls![existingIdx]!, announced)');
   });
 });
