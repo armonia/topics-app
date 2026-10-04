@@ -22,6 +22,17 @@
 // id, and applied the moment the row is born. From there `withToolAnnouncement`
 // keeps it: a later announcement cannot take a row out of `waiting_for_input`
 // or `awaiting_permission`.
+//
+// Which is also why the frame that CLOSES the panel must not be dropped once
+// the panel is held. The person can answer or decide in another window (the
+// phone shows the panel at once over WS) while this window's SSE burst is
+// still held: `stream:tool_permission_resolved` or the `stream:tool_update`
+// carrying the answer then reaches a row that does not exist either. Dropped,
+// the row was born on the held panel and the announcement rule above kept it
+// there: a permission panel on a command already allowed, refusing its live
+// output, a form on a question already answered. So every frame for a row with
+// a fact held follows that fact into the hold (`patchToolCallOrFollow`), and
+// the row is born with the whole story in arrival order.
 
 import type { ChatMessage, ContentBlock, ToolCall } from '../types';
 import { withToolAnnouncement } from './toolUpdatePatch';
@@ -36,9 +47,14 @@ export class HeldToolFacts {
   /** Keeps a fact for a row not born yet; a second fact for the same row applies after the first. */
   hold(sessionKey: string, toolCallId: string, fact: ToolFact): void {
     const forSession = this.bySession.get(sessionKey) ?? new Map<string, ToolFact>();
-    const earlier = forSession.get(toolCallId);
-    forSession.set(toolCallId, earlier ? (tc) => fact(earlier(tc)) : fact);
+    const previous = forSession.get(toolCallId);
+    forSession.set(toolCallId, previous ? (tc) => fact(previous(tc)) : fact);
     this.bySession.set(sessionKey, forSession);
+  }
+
+  /** Is a fact waiting for this row? */
+  has(sessionKey: string, toolCallId: string): boolean {
+    return this.bySession.get(sessionKey)?.has(toolCallId) ?? false;
   }
 
   /** The row as it is born: with the held facts applied, which are then gone. */
@@ -57,14 +73,30 @@ export class HeldToolFacts {
   }
 }
 
-/** The question a `stream:tool_user_input_required` frame asks, on its row. */
+const isClosed = (tc: ToolCall): boolean => tc.status === 'success' || tc.status === 'error';
+
+/**
+ * The question a `stream:tool_user_input_required` frame asks, on its row. A
+ * row already answered or closed keeps its state: WS and the SSE have no order
+ * between them, so the ask can land after the result (same rule as
+ * `withToolAnnouncement`).
+ */
 export function withQuestionAsked(schema: ToolCall['userInputSchema']): ToolFact {
-  return (tc) => ({ ...tc, status: 'waiting_for_input', userInputSchema: schema });
+  return (tc) => (tc.userResponse != null || isClosed(tc) ? tc : { ...tc, status: 'waiting_for_input', userInputSchema: schema });
 }
 
-/** The permission a `stream:tool_permission_required` frame asks for, on its row. */
+/** The permission a `stream:tool_permission_required` frame asks for, on its row; a closed row keeps its state. */
 export function withPermissionAsked(request: ToolCall['permissionRequest']): ToolFact {
-  return (tc) => ({ ...tc, status: 'awaiting_permission', permissionRequest: request, permissionOutcome: undefined });
+  return (tc) => (isClosed(tc) ? tc : { ...tc, status: 'awaiting_permission', permissionRequest: request, permissionOutcome: undefined });
+}
+
+/**
+ * The decision a `stream:tool_permission_resolved` frame carries, on its row:
+ * back to running, with the outcome kept in view. A row that already has its
+ * result keeps its status and takes only the outcome.
+ */
+export function withPermissionResolved(outcome: ToolCall['permissionOutcome']): ToolFact {
+  return (tc) => (isClosed(tc) ? { ...tc, permissionOutcome: outcome } : { ...tc, status: 'running', permissionOutcome: outcome });
 }
 
 /**
@@ -110,6 +142,25 @@ export function patchToolCallOrHold(
 ): ChatMessage[] {
   if (!hasToolCall(msgs, toolCallId)) {
     held.hold(sessionKey, toolCallId, fact);
+    return msgs;
+  }
+  return patchToolCallInMessages(msgs, toolCallId, fact);
+}
+
+/**
+ * The messages with a fact applied to its row; when the row is not born yet,
+ * the fact is held only behind one already held for it (the frame that closes a
+ * panel held before its row), and otherwise dropped as before.
+ */
+export function patchToolCallOrFollow(
+  msgs: ChatMessage[],
+  held: HeldToolFacts,
+  sessionKey: string,
+  toolCallId: string,
+  fact: ToolFact,
+): ChatMessage[] {
+  if (!hasToolCall(msgs, toolCallId)) {
+    if (held.has(sessionKey, toolCallId)) held.hold(sessionKey, toolCallId, fact);
     return msgs;
   }
   return patchToolCallInMessages(msgs, toolCallId, fact);

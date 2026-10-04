@@ -73,7 +73,7 @@ import {
 import { senderAlsoSeesFrame } from './senderAlsoSees';
 import { toolCallFromSse, withSseToolResult, type SseToolCallDelta, type SseToolResultDelta } from './sseToolFrames';
 import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
-import { HeldToolFacts, patchToolCallInMessages, patchToolCallOrHold, withAnnouncedToolCall, withPermissionAsked, withQuestionAsked } from './heldToolFacts';
+import { HeldToolFacts, patchToolCallOrFollow, patchToolCallOrHold, withAnnouncedToolCall, withPermissionAsked, withPermissionResolved, withQuestionAsked } from './heldToolFacts';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -1226,11 +1226,11 @@ export function useChat() {
    * dei token. `patchToolCallInMessages` restituisce l'array com'era quando non
    * trova niente: qui quel «com'era» diventa un `prev` che React salta.
    */
+  // A frame for a row not born yet follows the panel held for it (`heldToolFacts.ts`).
   const applyToolPatch = useCallback((sessionKey: string, toolCallId: string, patch: (tc: ToolCall) => ToolCall) => {
     setMessages(prev => {
-      const cur = prev[sessionKey];
-      if (!cur || cur.length === 0) return prev;
-      const next = patchToolCallInMessages(cur, toolCallId, patch);
+      const cur = prev[sessionKey] ?? [];
+      const next = patchToolCallOrFollow(cur, heldToolFactsRef.current, sessionKey, toolCallId, patch);
       return next === cur ? prev : { ...prev, [sessionKey]: next };
     });
   }, []);
@@ -1267,11 +1267,10 @@ export function useChat() {
     setMessages(prev => {
       let next = prev;
       for (const [sk, perTool] of pending) {
-        const cur = next[sk];
-        if (!cur || cur.length === 0) continue;
+        const cur = next[sk] ?? [];
         let msgs = cur;
         for (const [toolCallId, partialResult] of perTool) {
-          msgs = patchToolCallInMessages(msgs, toolCallId, tc => withPartialResult(tc, partialResult));
+          msgs = patchToolCallOrFollow(msgs, heldToolFactsRef.current, sk, toolCallId, tc => withPartialResult(tc, partialResult));
         }
         if (msgs !== cur) next = { ...next, [sk]: msgs };
       }
@@ -1590,12 +1589,7 @@ export function useChat() {
         // spariva e della decisione non restava traccia fino al reload,
         // perché `stream:tool_update` porta solo `partialResult`.
         if (event.toolCallId) {
-          const outcome = event.outcome;
-          applyToolPatch(sessionKey, event.toolCallId, (tc) => ({
-            ...tc,
-            status: 'running',
-            permissionOutcome: outcome,
-          }));
+          applyToolPatch(sessionKey, event.toolCallId, withPermissionResolved(event.outcome));
         }
         break;
 
