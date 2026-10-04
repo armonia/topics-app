@@ -83,6 +83,7 @@ import { coalescedFetch } from './coalesceFetch';
 import { uiGet, uiPutDebounced } from './boardDraftsIO';
 import { serverHttpBase, apiFetch } from './shell/net';
 import type { DiffRevs } from '../../../shared/diff-revs';
+import type { ChangeSet, ChangeSetFile } from '../../../shared/change-set';
 
 /**
  * Reserved board id for tasks created WITHOUT a project (work spanning several
@@ -863,15 +864,8 @@ export interface PublishCommit {
   when: string;
 }
 
-/** Per-file summary line of a unified diff. status: A/M/D/R (git name-status). */
-export interface DiffFileStat {
-  path: string;
-  additions: number; // -1 = binary
-  deletions: number; // -1 = binary
-  status: string;
-  /** Rename or copy (`R`/`C`): the path the content came from, where its Before lives. */
-  origPath?: string;
-}
+/** Per-file summary line of a unified diff: the shared contract (`shared/change-set.ts`). */
+export type DiffFileStat = ChangeSetFile;
 
 /**
  * Perché NON c'è un diff — tre risposte, e tenerle separate è il punto: prima
@@ -889,27 +883,30 @@ export type DiffMissCode = 'no_changes' | 'unreadable' | 'not_dispatched';
 /** Da dove viene la gamma — cambia cosa stai leggendo, quindi si dice. */
 export type DiffSource = 'worktree' | 'landed-merge' | 'delivery-commit';
 
-/** A unified-diff bundle: per-file stat + the raw patch, capped server-side. */
-export interface DiffBundle {
+/**
+ * What the diff panel draws: a changeset (`shared/change-set.ts`) whose
+ * `revs` a card's test fixture may leave out.
+ */
+export type DiffPanelBundle = Omit<ChangeSet, 'revs'> & { revs?: DiffRevs | null };
+
+/** A card's or a publish's changeset, with the fields only those routes add. */
+export interface DiffBundle extends DiffPanelBundle {
   branch: string | null;
   range?: string;
   base?: string | null;
-  stat: DiffFileStat[];
-  patch: string;
-  truncated: boolean;
   code?: DiffMissCode;
   source?: DiffSource | null;
-  /** The two SHAs the diff compares: the byte route answers only for these. */
-  revs?: DiffRevs | null;
 }
 
-/** Which route a diff panel reads from: a card (or one attempt of its fan-out), or a publish. */
+/** Which route a diff panel reads from: a card (or one attempt of its fan-out), a publish, or a chat's changeset. */
 export type DiffPanelSource =
   | { kind: 'task'; projectId: string; taskId: string; attemptId?: string }
-  | { kind: 'publish'; projectId: string };
+  | { kind: 'publish'; projectId: string }
+  | { kind: 'topic'; topicId: string };
 
 /** The route of a panel source, and the query it always carries (the attempt). */
 function diffRoute(source: DiffPanelSource): { path: string; extra: string } {
+  if (source.kind === 'topic') return { path: `/topics/${enc(source.topicId)}/changes/diff`, extra: '' };
   if (source.kind === 'publish') return { path: `/boards/${enc(source.projectId)}/publish-diff`, extra: '' };
   return {
     path: `/boards/${enc(source.projectId)}/tasks/${enc(source.taskId)}/diff`,

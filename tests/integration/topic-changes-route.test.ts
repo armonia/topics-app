@@ -12,14 +12,16 @@
  * conversation must NOT appear, which is exactly what a plain `git status`
  * would have shown.
  *
- * @covers CHAT-CHANGES-01
+ * @covers CHAT-CHANGES-01, CHGSET-02, CHGSET-04
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { StoredMessage } from "../../server/types";
 import type { TopicChanges } from "../../shared/topic-changes";
+import type { ChangeSet } from "../../shared/change-set";
+import { projectIdForPath } from "../../shared/board";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 
 const ROOT = testTmpDir("topic-changes");
@@ -115,7 +117,7 @@ describe("GET /api/topics/:id/changes", () => {
     const { id } = (await created.json()) as { id: string };
     const res = await call(router, "GET", `/api/topics/${id}/changes`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ files: [], git: null });
+    expect(await res.json()).toEqual({ files: [], git: null, revs: null });
   });
 
   test("an unknown topic is a 404, not an empty panel", async () => {
@@ -524,7 +526,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
       { id: `m-${Date.now()}`, role: "assistant", content: "just talking", timestamp: new Date().toISOString() },
     ]);
 
-    expect(await changes()).toEqual({ files: [], git: null });
+    expect(await changes()).toEqual({ files: [], git: null, revs: null });
   });
 
   test("a file the chat wrote stays listed past the untracked cap", async () => {
@@ -564,7 +566,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     }]);
 
     const res = await call(router, "GET", `/api/topics/${b}/changes`);
-    expect(await res.json()).toEqual({ files: [], git: null });
+    expect(await res.json()).toEqual({ files: [], git: null, revs: null });
 
     // A: its Write, read against the worktree's HEAD like any topic without a
     // task. `src/a.ts` is committed, so no count: the editor's diff is empty too.
@@ -577,3 +579,150 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
   });
 });
 
+
+/** A tiny valid PNG: 1x1, one pixel. Its bytes must survive the route untouched. */
+const PNG_1X1 = Buffer.from(
+  "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+  "1f15c4890000000d49444154789c6360f8cf00000301010018dd8db00000000049454e44ae426082",
+  "hex",
+);
+
+/**
+ * `GET /api/topics/:id/changes/diff`: the topic's changeset, on the SAME target
+ * the list was counted on, and a window on nothing else.
+ */
+describe("GET /api/topics/:id/changes/diff", () => {
+  /** A topic without a task in `repo`, whose conversation wrote `paths` (repo-relative). */
+  async function chatTopic(repo: string, ...paths: string[]) {
+    const { createTopicsRouter } = await import("../../server/routes/topics");
+    const ctx = await createTestAppContext();
+    const router = createTopicsRouter(ctx);
+    const created = await call(router, "POST", "/api/topics", { name: `chat-${Date.now()}-${Math.random()}` });
+    const { id } = (await created.json()) as { id: string };
+    await call(router, "PATCH", `/api/topics/${id}`, { projectPath: repo });
+    ctx.appendImportedMessages(ctx.getTopicById(id)!.sessionKey, [{
+      id: `m-${Date.now()}-${Math.random()}`,
+      role: "assistant",
+      content: "done",
+      timestamp: new Date().toISOString(),
+      toolCalls: paths.map((p, i) => ({ id: `w${i}`, name: "Write", args: {}, detail: { type: "write" as const, filePath: join(repo, p) } })),
+    }]);
+    const get = (path: string) => call(router, "GET", `/api/topics/${id}${path}`);
+    return { ctx, router, id, get };
+  }
+
+  test("a dirty file the chat never named is not in the changeset, and the list carries the same revs", async () => {
+    const repo = makeRepo(`chgset-${Date.now()}`);
+    writeFileSync(join(repo, "c.ts"), "c\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "c");
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const { get } = await chatTopic(repo, "a.ts", "b.ts");
+    writeFileSync(join(repo, "a.ts"), "alpha\n");
+    writeFileSync(join(repo, "b.ts"), "beta\ngamma\n");
+    // Somebody else's work in the same checkout.
+    writeFileSync(join(repo, "c.ts"), "c\nchanged by another session\n");
+
+    const res = await get("/changes/diff");
+    expect(res.status).toBe(200);
+    const set = (await res.json()) as ChangeSet;
+    expect(set.stat.map((f) => f.path).sort()).toEqual(["a.ts", "b.ts"]);
+    expect(set.stat.find((f) => f.path === "b.ts")).toMatchObject({ additions: 2, deletions: 0, status: "A" });
+    expect(set.patch).toContain("b/a.ts");
+    expect(set.patch).not.toContain("c.ts");
+    expect(set.revs).toEqual({ base: head, head: null });
+    expect(set.revs!.base).toMatch(/^[0-9a-f]{40}$/);
+
+    const list = (await (await get("/changes")).json()) as TopicChanges;
+    expect(list.revs).toEqual(set.revs);
+
+    const one = await get("/changes/diff?file=b.ts&context=full");
+    expect(one.status).toBe(200);
+    expect(((await one.json()) as { patch: string }).patch).toContain("+gamma");
+
+    const outside = await get("/changes/diff?file=c.ts");
+    expect(outside.status).toBe(404);
+    expect(await outside.json()).toMatchObject({ code: "not_in_changeset" });
+  });
+
+  test("the bytes: a PNG the chat wrote is identical, one it never touched is refused", async () => {
+    const repo = makeRepo(`chgset-png-${Date.now()}`);
+    mkdirSync(join(repo, "assets"), { recursive: true });
+    writeFileSync(join(repo, "assets/logo.png"), PNG_1X1);
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "logo");
+    mkdirSync(join(repo, "docs"), { recursive: true });
+    writeFileSync(join(repo, "docs/shot.png"), PNG_1X1);
+    const { get } = await chatTopic(repo, "docs/shot.png");
+    const set = (await (await get("/changes/diff")).json()) as ChangeSet;
+    expect(set.stat.map((f) => f.path)).toEqual(["docs/shot.png"]);
+
+    const bytes = await get("/changes/diff?file=docs/shot.png&blob=worktree");
+    expect(bytes.status).toBe(200);
+    expect(bytes.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await bytes.arrayBuffer()).equals(readFileSync(join(repo, "docs/shot.png")))).toBe(true);
+
+    const untouched = await get(`/changes/diff?file=assets/logo.png&blob=${set.revs!.base}`);
+    expect(untouched.status).toBe(404);
+    expect(await untouched.json()).toMatchObject({ code: "not_in_changeset" });
+    expect(untouched.headers.get("content-type")).not.toBe("image/png");
+  });
+
+  test("outside a repository the changeset is empty, with no revisions", async () => {
+    const dir = join(realpathSync(ROOT), `plain-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "x.md"), "x\n");
+    const { get } = await chatTopic(dir, "x.md");
+    expect(await (await get("/changes/diff")).json()).toEqual({ stat: [], patch: "", truncated: false, revs: null });
+    expect((await (await get("/changes")).json() as TopicChanges).revs).toBeNull();
+  });
+
+  test("a card's topic reads the drawer's changeset: same stat, same revs", async () => {
+    const { createTopicsRouter } = await import("../../server/routes/topics");
+    const { createTasksRouter } = await import("../../server/routes/tasks");
+    const ctx = await createTestAppContext();
+    const topics = createTopicsRouter(ctx);
+    const label = `chgset-card-${Date.now()}`;
+    const repo = makeRepo(label);
+    const wt = join(realpathSync(ROOT), `wt-${label}`);
+    git(repo, "worktree", "add", "-q", "-b", `topics/${label}`, wt);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "card work");
+    // Uncommitted and untracked too: the live range holds the working tree.
+    writeFileSync(join(wt, "base.ts"), "one\ntwo\nthree\nfour\n");
+    writeFileSync(join(wt, "notes.md"), "x\n");
+    // The shared checkout's dirt is not the card's.
+    writeFileSync(join(repo, "stranger.ts"), "not mine\n");
+
+    const project = ctx.projectStore.create({ name: label, slug: label, path: repo });
+    const worktree = ctx.worktreeStore.create({
+      projectId: project.id, name: label, branchName: `topics/${label}`, baseRef: "main", mode: "branch", absPath: wt,
+    });
+    const created = await call(topics, "POST", "/api/topics", { name: `card-${label}` });
+    const { id } = (await created.json()) as { id: string };
+    await call(topics, "PATCH", `/api/topics/${id}`, { projectPath: repo, worktreeId: worktree.id });
+    const taskId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    ctx.db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id) VALUES (?, ?, 'card', 'review', ?, ?, ?)`,
+    ).run(taskId, projectIdForPath(repo), nowIso, nowIso, id);
+    ctx.appendImportedMessages(ctx.getTopicById(id)!.sessionKey, [{
+      id: `m-${Date.now()}`, role: "assistant", content: "done", timestamp: nowIso,
+      toolCalls: [{ id: "w0", name: "Write", args: {}, detail: { type: "write", filePath: join(wt, "src/a.ts") } }],
+    }]);
+
+    const tasks = createTasksRouter(ctx, undefined, { listProjectDirs: () => [repo] });
+    const drawerRes = await call(tasks, "GET", `/api/boards/${projectIdForPath(repo)}/tasks/${taskId}/diff`);
+    const drawer = (await drawerRes.json()) as ChangeSet;
+    const set = (await (await call(topics, "GET", `/api/topics/${id}/changes/diff`)).json()) as ChangeSet;
+
+    expect(drawer.stat.map((f) => f.path).sort()).toEqual(["base.ts", "notes.md", "src/a.ts"]);
+    expect(set.stat).toEqual(drawer.stat);
+    expect(set.revs).toEqual(drawer.revs);
+    expect(set.revs?.head).toBeNull();
+    const list = (await (await call(topics, "GET", `/api/topics/${id}/changes`)).json()) as TopicChanges;
+    expect(list.revs).toEqual(drawer.revs);
+  });
+});

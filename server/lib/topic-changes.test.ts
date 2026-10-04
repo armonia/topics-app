@@ -8,14 +8,14 @@
  *    listing them would say the agent modified everything it looked at;
  *  - a failed tool call wrote nothing, so it must not appear at all.
  *
- * @covers CHAT-CHANGES-01
+ * @covers CHAT-CHANGES-01, CHGSET-02
  */
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { aggregateTouchedFiles, computeTopicChanges, pathInTree, rangeFiles, refineKind } from "./topic-changes";
+import { aggregateTouchedFiles, computeTopicChanges, pathInTree, rangeFiles, refineKind, resolveTopicChangeTarget, type TopicRangeAnchors } from "./topic-changes";
 import type { ToolCall } from "../../shared/types";
 
 function call(name: string, detail: ToolCall["detail"], extra: Partial<ToolCall> = {}): ToolCall {
@@ -276,5 +276,88 @@ describe("computeTopicChanges behind a symlink", () => {
     expect(changes.files.map((f) => f.path)).toEqual(["base.ts"]);
     expect(changes.files[0]?.added).toBe(1);
     expect(changes.files[0]?.kind).toBe("modified");
+  });
+});
+
+/**
+ * The target both changes routes read: decided ONCE, so the list and the
+ * changeset can never describe two different diffs.
+ */
+describe("resolveTopicChangeTarget", () => {
+  /** A throwaway repository with one committed file, or none when `commit` is false. */
+  function repo(commit = true): { dir: string; git: (...args: string[]) => string; done: () => void } {
+    const base = mkdtempSync(join(realpathSync(tmpdir()), "topic-target-"));
+    const dir = join(base, "repo");
+    mkdirSync(dir);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "test@example.invalid");
+    git("config", "user.name", "Test");
+    if (commit) {
+      writeFileSync(join(dir, "base.ts"), "one\n");
+      git("add", "-A");
+      git("commit", "-qm", "base");
+    }
+    return { dir, git, done: () => rmSync(base, { recursive: true, force: true }) };
+  }
+  const wrote = (...paths: string[]) => [{ timestamp: "2026-01-01T10:00:00.000Z", toolCalls: paths.map((p) => call("Write", { type: "write", filePath: p })) }];
+
+  test("a topic without a task reads HEAD against the working tree, limited to its repo-relative paths", async () => {
+    const r = repo();
+    try {
+      const target = await resolveTopicChangeTarget(r.dir, wrote(join(r.dir, "src/a.ts"), "/somewhere/else.md"));
+      expect(target).toEqual({ kind: "head", cwd: r.dir, range: "HEAD", live: true, paths: ["src/a.ts"], hasHead: true });
+      const changes = await computeTopicChanges(r.dir, wrote(join(r.dir, "src/a.ts")));
+      expect(changes.revs).toEqual({ base: r.git("rev-parse", "HEAD"), head: null });
+    } finally {
+      r.done();
+    }
+  });
+
+  test("a card's topic reads the task's range, whole: no path filter", async () => {
+    const r = repo();
+    try {
+      const wt = join(r.dir, "..", "wt");
+      r.git("worktree", "add", "-q", "-b", "topics/card", wt);
+      writeFileSync(join(wt, "shell.txt"), "x\n");
+      r.git("-C", wt, "add", "-A");
+      r.git("-C", wt, "commit", "-qm", "card work");
+      const anchors: TopicRangeAnchors = {
+        task: { id: "t1", deliveryBranch: null, deliveryCommit: null, deliveryFiles: null, attemptBranch: null },
+        worktree: { absPath: realpathSync(wt), mode: "branch", branchName: "topics/card" },
+        repoPath: r.dir,
+      };
+      const target = await resolveTopicChangeTarget(r.dir, wrote(join(wt, "other.ts")), anchors);
+      expect(target?.kind).toBe("range");
+      expect(target && "paths" in target).toBe(false);
+      expect(target?.cwd).toBe(realpathSync(wt));
+    } finally {
+      r.done();
+    }
+  });
+
+  test("outside a repository, or with nothing written, there is no target and no revisions", async () => {
+    const outside = mkdtempSync(join(realpathSync(tmpdir()), "topic-target-plain-"));
+    try {
+      expect(await resolveTopicChangeTarget(outside, wrote(join(outside, "x.md")))).toBeNull();
+      expect(await resolveTopicChangeTarget(outside, [])).toBeNull();
+      expect((await computeTopicChanges(outside, wrote(join(outside, "x.md")))).revs).toBeNull();
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("a repository with no commit has no HEAD: no revisions, and its untracked files are still the changes", async () => {
+    const r = repo(false);
+    try {
+      writeFileSync(join(r.dir, "first.ts"), "a\nb\n");
+      const target = await resolveTopicChangeTarget(r.dir, wrote(join(r.dir, "first.ts")));
+      expect(target).toMatchObject({ kind: "head", paths: ["first.ts"], hasHead: false });
+      const changes = await computeTopicChanges(r.dir, wrote(join(r.dir, "first.ts")));
+      expect(changes.revs).toBeNull();
+      expect(changes.files).toEqual([expect.objectContaining({ path: "first.ts", kind: "created", added: 2 })]);
+    } finally {
+      r.done();
+    }
   });
 });
