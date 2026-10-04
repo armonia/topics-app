@@ -1,5 +1,5 @@
 /**
- * @covers MP-TASK-01, KANBAN-80, MSEL-01, MSEL-06
+ * @covers MP-TASK-01, KANBAN-80, MSEL-01, MSEL-06, MP-TASK-07
  *
  * THE CARD SELECTOR IS THE ONE SELECTOR, AND IT NEVER CHOOSES FOR YOU.
  *
@@ -33,7 +33,7 @@ function draw(value: string | null, props: Partial<ModelListProps> = {}, snapsho
   return renderToStaticMarkup(
     <ModelList
       scope="task" variant="compact" layout="list" focusSearch={false} onClose={() => {}} onSelect={() => {}}
-      automatic={{ label: 'Auto', hint: 'Topics sceglie' }} snapshot={snapshot}
+      automatic={{ who: 'segue la board', hint: 'Segue la scelta della board' }} snapshot={snapshot}
       value={taskMenuSelection(value, snapshot)}
       routingTarget={value === null && boardValue ? taskMenuSelection(boardValue, snapshot) : undefined}
       {...props}
@@ -41,11 +41,12 @@ function draw(value: string | null, props: Partial<ModelListProps> = {}, snapsho
   );
 }
 
-/** Every option of the list as `<model, selected, disabled>`. */
+/** Every choice of the list as `<model, selected, disabled>`: the rows are
+ *  buttons with `aria-pressed` (revision 2026-10-04 §4.7, no listbox). */
 function options(markup: string) {
-  return [...markup.matchAll(/<(?:div|button)[^>]*role="option"[^>]*>/g)].map((m) => ({
+  return [...markup.matchAll(/<button[^>]*data-testid="model-row(?:-automatic(?:-within)?)?"[^>]*>/g)].map((m) => ({
     model: /data-model="([^"]*)"/.exec(m[0])?.[1] ?? (/data-testid="model-row-automatic"/.test(m[0]) ? 'auto' : /data-provider="([^"]*)"/.exec(m[0])?.[1] ?? ''),
-    selected: /aria-selected="true"/.test(m[0]),
+    selected: /aria-pressed="true"/.test(m[0]),
     disabled: /aria-disabled="true"|\sdisabled=""/.test(m[0]),
   }));
 }
@@ -56,11 +57,10 @@ describe('the card rows', () => {
     expect(drawn[0]).toMatchObject({ model: 'auto', selected: true });
   });
 
-  test('only coding engines, «Automatico in Codex», and never a Topics row (AICTRL-01)', () => {
+  test('only coding engines, «Automatico» within Codex, and never a Topics row (AICTRL-01)', () => {
     const fleet = snapshotOf([CLAUDE_CODE, CODEX_ENTRY, ENGINE, entry('openai', 'OpenAI', ['gpt-api-only'], { capabilities: ['streaming'] })]);
     const markup = draw(null, {}, fleet);
-    expect(markup).toContain('data-testid="model-row-automatic-within"');
-    expect(markup).toContain('Automatico in Codex');
+    expect(markup).toMatch(/data-testid="model-row-automatic-within"[^>]*data-provider="codex"/);
     expect(markup).not.toContain('data-model="gpt-api-only"');
     expect(markup).not.toContain('data-provider="topics"');
   });
@@ -90,7 +90,7 @@ describe('the card rows', () => {
     const jcode = snapshotOf([entry('jcode', 'jcode', ['claude-opus-5-5'])], 'jcode');
     const markup = draw('jcode:claude-opus-5-5', {}, jcode);
     expect(markup).toContain('data-model="claude-opus-5-5"');
-    expect(markup).not.toContain('Automatico in jcode');
+    expect(markup).not.toMatch(/data-testid="model-row-automatic-within"[^>]*data-provider="jcode"/);
   });
 });
 
@@ -160,10 +160,14 @@ describe('the surfaces open the one selector', () => {
     expect(surfaces.composer).toContain('useComposerBoardSettings(global, targetProject, projectId, paneSettings)');
   });
 
-  test('the chips keep their test hooks and label the STORED model', () => {
+  // Revision 2026-10-04 §3.8: one closed format, «label · who», the same
+  // function on every card surface (AC-30).
+  test('the chips keep their test hooks and label the STORED model in the one closed format', () => {
     expect(surfaces.composer).toContain('data-testid="composer-model-chip"');
     expect(surfaces.drawer).toContain('data-testid="task-model-chip"');
-    expect(surfaces.composer).toContain('{model ? friendlyModelLabel(model) : tr(\'board.composer.modelAutoChip\')}');
-    expect(surfaces.drawer).toContain('{task.model ? fmtModel(task.model) : \'Auto\'}');
+    expect(surfaces.composer).toContain('useTaskModelTrigger(model, composerRouting, \'task\', boardDispatchModel)');
+    expect(surfaces.drawer).toContain('useTaskModelTrigger(task?.model || null, drawerRouting, \'task\', boardDispatchModel)');
+    expect(surfaces.settings).toContain('useTaskModelTrigger(s?.dispatchModel ?? null');
+    for (const src of [surfaces.composer, surfaces.drawer, surfaces.settings]) expect(src).toContain('{modelTrigger.line}'.replace('modelTrigger', src === surfaces.settings ? 'boardTrigger' : 'modelTrigger'));
   });
 });

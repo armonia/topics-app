@@ -9,7 +9,8 @@ import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJEC
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
-import { autoGrow, friendlyModelLabel } from './format';
+import { autoGrow } from './format';
+import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { StatusIcon } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -348,6 +349,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const boardSettings = useComposerBoardSettings(global, targetProject, projectId, paneSettings);
   const boardTopicsRoutingDefault = boardSettings?.dispatchTopicsRouting ?? null;
   const boardDispatchModel = boardSettings?.dispatchModel ?? null;
+  const composerRouting = surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel);
+  const modelTrigger = useTaskModelTrigger(model, composerRouting, 'task', boardDispatchModel);
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.
   const targetLabel = autoTarget
@@ -640,9 +643,9 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               ref={modelBtnRef}
               onClick={() => setModelOpen(true)}
               data-testid="composer-model-chip"
-              title={model ? tr('board.composer.modelNamedTitle', { label: friendlyModelLabel(model) }) : tr('board.composer.modelAutoTitle')}
+              title={modelTrigger.line}
               className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-mini text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
-            ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : tr('board.composer.modelAutoChip')}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
+            ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{modelTrigger.line}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
             <TaskModelSelector
               open={modelOpen}
               anchorRef={modelBtnRef}
@@ -653,9 +656,9 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               value={model}
               boardValue={boardDispatchModel}
               onSelect={(m) => { setModel(m); setModelOpen(false); }}
-              automatic={{ label: tr('board.composer.modelAuto'), hint: tr('board.composer.modelAutoOptionTitle') }}
+              automatic={modelTrigger.automatic}
               topicsRouting={{
-                enabled: surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel),
+                enabled: composerRouting,
                 onToggle: setTopicsRouting,
               }}
             />

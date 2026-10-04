@@ -91,19 +91,21 @@ export function computeMenuPosition(
   // When the menu is wider than the viewport, prefer showing its left edge.
   left = maxLeft >= margin ? Math.max(margin, Math.min(left, maxLeft)) : margin;
 
-  // Vertical: open below by default; flip above when there isn't room below.
+  // Vertical: open below when it fits; otherwise on the side with more room.
+  // Placement, top and ceiling all come from that ONE side: when the panel fit
+  // nowhere, `top` used to go above while the ceiling came from the roomier
+  // side, below, so a composer in the middle of an empty chat opened a panel
+  // over its own trigger (model selector revision 2026-10-04, §4.2).
   const spaceBelow = vh - margin - (anchor.bottom + gap);
   const spaceAbove = anchor.top - gap - margin;
   const fitsBelow = menu.height <= spaceBelow;
-  const top = fitsBelow ? anchor.bottom + gap : Math.max(margin, anchor.top - menu.height - gap);
+  const below = fitsBelow || (menu.height > spaceAbove && spaceBelow > spaceAbove);
+  const top = below ? anchor.bottom + gap : Math.max(margin, anchor.top - Math.min(menu.height, spaceAbove) - gap);
 
-  // Il tetto del lato scelto. Quando NON ci sta da nessuna parte si prende il
-  // lato più capiente: ribaltare su un lato ancora più stretto sarebbe solo un
-  // modo diverso di tagliare.
-  const spazio = fitsBelow ? spaceBelow : Math.max(spaceAbove, spaceBelow);
-  const maxHeight = Math.max(minHeight, Math.min(spazio, vh - margin * 2));
+  const space = below ? spaceBelow : spaceAbove;
+  const maxHeight = Math.max(minHeight, Math.min(space, vh - margin * 2));
 
-  return { top, left, placement: fitsBelow ? 'below' : 'above', maxHeight };
+  return { top, left, placement: below ? 'below' : 'above', maxHeight };
 }
 
 /**

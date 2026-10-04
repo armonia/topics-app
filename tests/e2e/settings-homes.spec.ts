@@ -138,14 +138,14 @@ test.describe("ogni modulo vive dove si usa", () => {
       const footer = selector.getByTestId("ai-selector-providers");
       await expect(footer).toBeVisible({ timeout: 15_000 });
       await expect(footer).toContainText("Provider e chiavi");
-      await expect(selector.getByTestId("ai-selector-providers-tail")).toHaveText(/^\d+ pront[oi]$/, { timeout: 20_000 });
+      await expect(selector.getByTestId("ai-selector-providers-tail")).toHaveText(/^(\d+ pront[oi]|Nessuno pronto)( · (1 errore|\d+ errori))?$/, { timeout: 20_000 });
       // A FOOTER: the last row of the selector.
       const last = await selector.locator("button").last().getAttribute("data-testid");
       expect(last).toBe("ai-selector-providers");
-      // The Claude plan beside the Claude models, under the Anthropic heading
-      // of the one panel (MSEL-02): read without opening anything more.
-      await expect(selector.getByTestId("model-section-anthropic").getByTestId("ai-selector-claude-plan"))
-        .toHaveText("Max 20x · 5 h al 42%");
+      // The plan is read in the providers panel; the Anthropic heading warns
+      // only from PLAN_USAGE_WARN_AT, and 42% is under it (revision §4.5).
+      await expect(selector.getByTestId("model-section-anthropic").getByTestId("model-section-heading")).toBeVisible();
+      await expect(selector.getByTestId("model-plan-warning")).toHaveCount(0);
       await expect(selector.getByTestId("ai-selector-providers")).toBeVisible();
 
       await selector.getByTestId("ai-selector-providers").click();

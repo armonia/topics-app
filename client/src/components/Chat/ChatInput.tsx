@@ -345,6 +345,8 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
   onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  /** «Automatico» within one engine: the chat's provider with no model. */
+  onProviderOnlyChange?: (provider: string) => void;
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   onTopicsRoutingChange?: (next: boolean) => void;
@@ -436,6 +438,7 @@ export function ChatInput({
   onCancelEdit,
   providerOverride,
   onProviderOverrideChange,
+  onProviderOnlyChange,
   topicsRouting,
   onTopicsRoutingChange,
   autonomy,
@@ -1913,6 +1916,7 @@ export function ChatInput({
                   defaultProviderLabel={defaultProviderLabel}
                   pinnedModel={pinnedModel}
                   onChange={onProviderOverrideChange}
+                  onProviderOnly={onProviderOnlyChange}
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}
                   openRef={openModelRef}

@@ -8,8 +8,7 @@ import { isChunkLoadError } from '../../lib/chunkReloadGuard';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { chatRouteTarget, chatTopicsRoute } from '../../lib/topicsRoutingGate';
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
-import { splitModelId, catalogModelLabel } from '../../lib/modelLabel';
-import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
+import { modelTriggerText, triggerLine } from '../../lib/modelLabel';
 import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/openHome';
 
 export interface ProviderModelOverride {
@@ -24,6 +23,9 @@ interface Props {
    *  server judges the route on it, so the chip and the band do too. */
   pinnedModel?: string | null;
   onChange: (override: ProviderModelOverride | null) => void;
+  /** «Automatico» within one engine (an engine that lists no model, revision
+   *  §3.7): the chat's provider, with no model of its own. */
+  onProviderOnly?: (provider: string) => void;
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   onTopicsRoutingChange?: (next: boolean) => void;
@@ -37,7 +39,7 @@ interface Props {
 }
 
 /** The chat composer's model selector (`ModelSelector`, scope `chat`, variant `compact`). */
-export function ProviderModelPicker({ override, defaultProviderLabel, pinnedModel = null, onChange, topicsRouting, onTopicsRoutingChange, openRef, openProvidersRef, paneFocused = false }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, pinnedModel = null, onChange, onProviderOnly, topicsRouting, onTopicsRoutingChange, openRef, openProvidersRef, paneFocused = false }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const openNowRef = useRef(open);
@@ -63,18 +65,6 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     [topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel],
   );
   const activeModelId = effective?.model ?? override?.model ?? null;
-  const { name: modelName } = splitModelId(activeModelId ?? '');
-  // The window the provider DECLARES, when there is one, ahead of the table:
-  // for a configured endpoint it is the only honest source, and the table of
-  // known models cannot possibly know about it.
-  const declaredWindow = useMemo(() => {
-    const entry = entries.find((candidate) => candidate.name === effective?.provider);
-    return activeModelId ? entry?.modelContextWindows?.[activeModelId] : undefined;
-  }, [entries, effective?.provider, activeModelId]);
-  const activeWindow = useMemo(
-    () => contextWindowFor(activeModelId, declaredWindow),
-    [activeModelId, declaredWindow],
-  );
   const matchesProv = (entry: (typeof entries)[number]) => entry.name === effective?.provider;
   const effectiveProviderLabel = entries.find(matchesProv)?.label ?? effective?.provider;
   // The failure itself is reported by the loader (the reload prompt); the
@@ -125,6 +115,15 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
     [topicsRouting, override, defaultProviderLabel, snapshot, pinnedModel],
   );
   const routingEnabled = effectiveTopicsRouting(topicsRouting, null, 'chat');
+  // One closed format on every surface (revision §3.8): «label · who», no
+  // context window. No override is Automatic, named with who decides.
+  const automaticWho = effectiveProviderLabel ?? '';
+  const chipText = !snapshot && !override
+    ? tr('ai.selector.chipNone')
+    : triggerLine(modelTriggerText(
+      { provider: override?.provider ?? null, model: override?.model ?? null },
+      { snapshot, tr, surface: 'chat', viaTopics: route.via === 'topics', automaticWho },
+    ));
   const failed = loadState === 'failed' || loadState === 'broken';
   const chipTitle = loadState === 'failed'
     ? tr('chat.picker.menuFailed')
@@ -157,21 +156,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
             <Route className="h-3 w-3 text-primary" aria-label={tr('ai.selector.route.topics')} />
           </span>
         )}
-        <span className="max-w-[160px] truncate @max-[380px]:max-w-[70px]">
-          {modelName ? catalogModelLabel(snapshot, effective?.provider, modelName) : 'Model'}
-        </span>
-        <span
-          data-testid="model-context-badge"
-          data-context-tokens={activeWindow.tokens}
-          data-context-known={activeWindow.known ? 'true' : 'false'}
-          className={`flex-shrink-0 rounded px-1 text-nano font-semibold tabular-nums ${
-            activeWindow.known ? 'bg-primary/15 text-primary' : 'bg-app-hover text-app-text-muted'
-          }`}
-          title={activeWindow.known
-            ? tr('model.ctxWindow', { n: activeWindow.tokens.toLocaleString('it-IT') })
-            : tr('model.ctxWindow.guess', { n: activeWindow.tokens.toLocaleString('it-IT') })}
-        >
-          {activeWindow.known ? '' : '≈'}{formatContextWindow(activeWindow.tokens)}
+        <span data-testid="provider-model-picker-label" className="max-w-[220px] truncate @max-[380px]:max-w-[110px]">
+          {chipText}
         </span>
         {loadState === 'loading' ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
@@ -192,14 +178,15 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
         routingTarget={routingTarget}
         onSelect={(selection) => {
+          if (selection.provider && !selection.model && onProviderOnly) { onProviderOnly(selection.provider); return; }
           onChange(selection.provider && selection.model
             ? { provider: selection.provider, model: selection.model }
             : null);
         }}
         automatic={{
-          label: tr('chat.picker.resetDefault'),
+          who: automaticWho,
           hint: effectiveProviderLabel
-            ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
+            ? tr('ai.selector.auto.usesDefault', { name: effectiveProviderLabel })
             : tr('chat.picker.noneConfigured'),
         }}
         topicsRouting={onTopicsRoutingChange ? { enabled: routingEnabled, onToggle: onTopicsRoutingChange } : undefined}

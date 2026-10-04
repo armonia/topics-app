@@ -156,10 +156,7 @@ const CHAT_IT: Dict = {
   'chat.picker.loadFailed': 'Non sono riuscito a caricare i provider.',
   'chat.picker.retry': 'Riprova',
   'chat.picker.noneReady': 'Nessun provider pronto.',
-  'chat.picker.openSettings': 'Apri le impostazioni',
   'chat.picker.noMatches': 'Nessuna corrispondenza.',
-  'chat.picker.resetDefault': 'Torna al default',
-  'chat.picker.defaultIs': 'Default: {name}',
   'chat.picker.noneConfigured': 'Nessun provider configurato',
 
   'chat.mention.header': 'File',

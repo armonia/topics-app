@@ -513,7 +513,6 @@ function ProviderSettings({
         value={modelValue}
         disabled={saving}
         onChange={(v) => save({ [modelField]: v } as Partial<AppBehaviorSettings>)}
-        autoLabel="Auto (lo decide il provider)"
       />,
     );
   }

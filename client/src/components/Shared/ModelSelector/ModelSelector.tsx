@@ -14,11 +14,11 @@
  * scope is a defect. The trigger stays with the caller: its look and its
  * `data-testid` belong to the surface.
  *
- * Layout (MSEL-02): from 720px of window up, one column per company side by
- * side, each scrolling on its own under a fixed heading; below, one list, and
- * under 768px the `Menu` sheet from the bottom. Band, search and Automatic
- * never scroll: only the sections do, inside a height taken from the free
- * space on the side the popover opens.
+ * Layout (MSEL-02, revision 2026-10-04 §3.4): from 720px of window up, up to
+ * four columns of companies side by side, each scrolling on its own under
+ * sticky headings; below, one list, and under 768px the `Menu` sheet from the
+ * bottom. Band, search and Automatic never scroll: only the columns do, inside
+ * a height of at most `min(456, room on the roomier side - 16)` (§4.2).
  */
 import { Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import { Menu } from '../Menu';
@@ -30,8 +30,13 @@ import type { ModelListProps } from './ModelList';
 const COLUMNS_FROM_PX = 720;
 /** Room kept between the panel and the edge of the window, in px. */
 const EDGE_PX = 16;
+/** The tallest the desktop panel gets (revision §4.2). */
+const MAX_PANEL_PX = 456;
+/** The popover surface around the body: `py-1` and a 1px border. */
+const SURFACE_CHROME_PX = 10;
 
-export interface ModelSelectorProps extends Omit<ModelListProps, 'layout' | 'focusSearch'> {
+export interface ModelSelectorProps extends Omit<ModelListProps, 'layout' | 'focusSearch' | 'onSelect'> {
+  onSelect: (selection: ModelListProps['value']) => void;
   open: boolean;
   anchorRef: React.RefObject<HTMLElement | null>;
   align?: 'left' | 'right';
@@ -67,9 +72,11 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
     return () => { alive = false; };
   }, [open, ready]);
 
-  // Desktop height: the free space on the roomier side of the trigger, which
-  // is the side `computeMenuPosition` opens on when the panel does not fit
-  // below, minus a margin. `Menu` gives the desktop popover no ceiling.
+  // Desktop height: at most 456 px and the free space on the roomier side of
+  // the trigger minus a margin. A panel that high always fits on that side,
+  // which is the side `computeMenuPosition` opens on when it does not fit
+  // below: side, top and ceiling come from the same side (AC-10). `Menu`
+  // gives the desktop popover no ceiling.
   useLayoutEffect(() => {
     if (!open || isMobile) return;
     const measure = () => {
@@ -77,7 +84,7 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
       if (!rect) return;
       const below = window.innerHeight - rect.bottom;
       const above = rect.top;
-      setMaxHeight(Math.max(below, above) - EDGE_PX - 8);
+      setMaxHeight(Math.min(MAX_PANEL_PX, Math.max(below, above) - EDGE_PX) - SURFACE_CHROME_PX);
     };
     measure();
     window.addEventListener('resize', measure);
@@ -112,8 +119,9 @@ export function ModelSelector({ open, anchorRef, align, testId, ariaLabel, onClo
             // A choice closes the popover and gives the focus back to the
             // trigger (MSEL-08, MP-TASK-07), after whatever the surface does
             // with the choice in the same pass.
-            onSelect={(selection) => {
+            onSelect={(selection, options) => {
               list.onSelect(selection);
+              if (options?.keepOpen) return;
               requestAnimationFrame(() => requestAnimationFrame(() => anchorRef.current?.focus({ preventScroll: true })));
             }}
             onClose={onClose}

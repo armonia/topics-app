@@ -6,15 +6,15 @@
 import { useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
-import { friendlyModelLabel } from '../../lib/modelLabel';
+import { modelDisplayLabel } from '../../lib/modelLabel';
+import { providerLabel } from '../../../../shared/provider-labels';
 import { useT } from '../../hooks/useT';
 
-export function ProviderDefaultModel({ provider, label, hint, value, autoLabel, disabled, onChange }: {
+export function ProviderDefaultModel({ provider, label, hint, value, disabled, onChange }: {
   provider: string;
   label: string;
   hint?: string;
   value: string | null;
-  autoLabel: string;
   disabled?: boolean;
   onChange: (model: string | null) => void;
 }) {
@@ -38,7 +38,7 @@ export function ProviderDefaultModel({ provider, label, hint, value, autoLabel, 
         onClick={() => setOpen((current) => !current)}
         className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-app-border bg-app-inset px-2.5 py-1 coarse:min-h-11 text-compact text-app-text hover:bg-app-hover disabled:opacity-40"
       >
-        <span className="min-w-0 truncate">{value ? friendlyModelLabel(value) : autoLabel}</span>
+        <span className="min-w-0 truncate">{value ? modelDisplayLabel(value) : tr('ai.selector.auto')}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
       </button>
       <ModelSelector
@@ -53,7 +53,7 @@ export function ProviderDefaultModel({ provider, label, hint, value, autoLabel, 
         onlyProvider={provider}
         value={{ provider: value ? provider : null, model: value }}
         onSelect={(next) => onChange(next.model)}
-        automatic={{ label: autoLabel, hint: tr('ai.selector.providerDefaultHint') }}
+        automatic={{ who: '', hint: tr('ai.selector.auto.providerLong', { name: providerLabel(provider) }) }}
         disabled={disabled}
       />
     </div>

@@ -174,3 +174,27 @@ describe('placeAtPoint (context menu at the pointer)', () => {
     expect(placeAtPoint({ x: 100, y: 50 }, { width: 200, height: 900 }, vp).top).toBe(8);
   });
 });
+
+// Revision 2026-10-04 §4.2, AC-10: when the panel fits on neither side, its
+// placement, its top and its ceiling all come from the SAME side, the roomier
+// one. Before, `top` went above while `maxHeight` came from the space below:
+// a composer in the middle of an empty chat opened a panel over its own chip.
+describe('fits on neither side: one side for placement, top and ceiling (AC-10)', () => {
+  const vp768 = { viewportWidth: 1024, viewportHeight: 768 };
+
+  test('more room below: opens below, sized for below', () => {
+    // 300 above, 416 below, a 600 px panel.
+    const p = computeMenuPosition({ top: 312, bottom: 340, left: 100, right: 300 }, { width: 400, height: 600 }, vp768);
+    expect(p.placement).toBe('below');
+    expect(p.top).toBe(344);
+    expect(p.maxHeight).toBe(768 - 8 - 344);
+  });
+
+  test('more room above: opens above, sized for above, and never covers the trigger', () => {
+    // The chip at y=420 of 1024x768: 408 above, 320 below.
+    const p = computeMenuPosition({ top: 420, bottom: 448, left: 100, right: 300 }, { width: 400, height: 600 }, vp768);
+    expect(p.placement).toBe('above');
+    expect(p.maxHeight).toBe(420 - 4 - 8);
+    expect(p.top + Math.min(600, p.maxHeight)).toBeLessThanOrEqual(420);
+  });
+});

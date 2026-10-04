@@ -108,7 +108,9 @@ test.describe("the plan meter", () => {
     await page.keyboard.press("Escape");
 
     await page.getByTestId("provider-model-picker").click();
-    await expect(page.getByTestId("provider-model-popover").getByTestId("ai-selector-claude-plan").first()).toHaveText("Max 20x · 5 h al 38% · sett. 78%", { timeout: 15_000 });
+    // Revision 2026-10-04 §4.5: one short warning on the Anthropic heading, the
+    // window over PLAN_USAGE_WARN_AT; the full reading is in the providers panel.
+    await expect(page.getByTestId("provider-model-popover").getByTestId("model-section-anthropic").getByTestId("model-plan-warning")).toHaveText("sett. 78%", { timeout: 15_000 });
     await page.keyboard.press("Escape");
 
     await send(chatPage, page, "/cost");

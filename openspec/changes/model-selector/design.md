@@ -659,3 +659,45 @@ Non sono scostamenti, e la revisione li ha tolti dalla bozza:
 
 La scheda Topics si scosta solo dal filtro del codice `AGENT_RUNTIMES` (`AIProvidersSection.tsx:40-43`),
 che oggi nasconde le schede di Topics e jcode (IA-06).
+
+### 9.2 Implementazione del selettore (04/10): dove il codice si scosta dalla revisione
+
+Il selettore della revisione è nel codice (`shared/modelMaker.ts`, `shared/modelMergeKey.ts`,
+`client/src/lib/modelLabel.ts`, `ModelSelector/useModelCatalog.ts`, `ModelSelector/ModelList.tsx`,
+`client/src/lib/popoverPosition.ts`). Il livello «Provider e chiavi» e il dettaglio di un account
+arrivano con la tappa dei provider. Fino ad allora, scarti, uno per riga, col motivo:
+
+- **Le porte verso un account aprono il pannello dei provider di oggi.** Il piede, «Sistema ›»,
+  «Aggiungi chiave ›» e «Configura ›» chiamano `openHome('providers')`. Il livello dello stesso
+  pannello (Ribaltamento 2) non c'è ancora. «Accedi» invece agisce già con un tocco: emette
+  `topics:open-terminal-with-command` con `codex login` scritto e non eseguito, e senza `sessionKey`
+  il terminale si apre nella home (`App.tsx`).
+- **Conti delle generazioni sul jcode vero.** OpenAI ha 16 correnti e 15 precedenti, Anthropic 4 e
+  10, invece dei 16/18 e 4/11 del §3.4 della revisione. Il motivo è la chiave di unione: le misure
+  della revisione contavano gli id datati a parte (`claude-haiku-4-5-20251001` e
+  `claude-haiku-4-5` sono una riga sola). Google resta 22 e 8.
+- **Titolo del gruppo alto 44 px** (`h-11`) e non 43: la stessa altezza su desktop e telefono, dove
+  la riga unica del titolo deve essere un bersaglio da 44.
+- **Righe alte 28 px, 44 con «via X»**: interlinea di 16 px su entrambe le righe. Fascia e piede
+  sono più bassi del mockup (24 e 25 px), perché il pannello misurato si apre sopra un composer a
+  metà schermo: a 1024×768 l'area colonne resta ≥ 280 px e ≥ 70% del pannello
+  (AC-08, `model-selector-revision.spec.ts`).
+- **Inchiostro attivo**: `blue-800` in chiaro e `blue-300` in scuro (non `#8cb8ff`), classi della
+  palette invece di un colore scritto a mano. axe-core non trova violazioni di contrasto in nessuno
+  dei due temi.
+- **«Automatico» di un motore senza modelli nel composer.** Lo scostamento non tocca il §3.7. La
+  scelta del composer nomina sempre un modello, quindi la riga Automatico di Gemini CLI scrive sul
+  topic `{provider: 'gemini', model: null}` con una PATCH sola
+  (`ChatPane.handleProviderOnlyChange`) e toglie la scelta del composer.
+- **Il chip del composer senza scelta** dice «Automatico · <predefinito>» e non più il nome del
+  modello effettivo, come vuole la tabella del §3.8 della revisione. `data-model` porta ancora l'id
+  effettivo.
+- **EFFORTUI-01** («la finestra in un distintivo»): il distintivo esce dal chip chiuso (§3.8 della
+  revisione) e resta nella riga aperta, cioè la pillola 1M e la colonna della finestra. La spec e2e
+  `effort-single-surface.spec.ts` è riscritta su questo contratto.
+- **La riga del piano Claude non c'è più nel selettore.** C'è l'avviso corto nel titolo Anthropic
+  (`claudePlanWarning`). La lettura intera resta nel pannello dei provider finché arriva il
+  dettaglio di Claude Code, e le spec `plan-usage-meter` e `settings-homes` sono riscritte di
+  conseguenza.
+- **Esc sul `radiogroup` del motore** è ascoltato su `window` in fase di cattura. Il popover ascolta
+  Escape su `document` nella stessa fase, quindi solo così Esc chiude il gruppo e non il pannello.

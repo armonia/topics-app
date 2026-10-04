@@ -772,6 +772,19 @@ function ChatPaneComponent({
     });
   }, [isDraftTopic, onUpdateTopic, topic.id]);
 
+  // «Automatico» within one engine (revision 2026-10-04 §3.7): the chat keeps
+  // that provider and no model of its own; the override goes, since it always
+  // names a model. One PATCH, so the two fields cannot land out of order.
+  const handleProviderOnlyChange = useCallback((provider: string) => {
+    setProviderOverride(null);
+    rememberProviderSelection(safeStore(), null);
+    if (isDraftTopic) {
+      safeStore().removeItem(providerOverrideKey(topic.id));
+      return;
+    }
+    void onUpdateTopic(topic.id, { provider, model: null });
+  }, [isDraftTopic, onUpdateTopic, topic.id]);
+
   const handleEffortChange = useCallback((next: string | null) => {
     setEffort(next);
     // Stessa memoria del modello: l'ultima scelta vale per le chat nuove, e
@@ -2026,7 +2039,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} pinnedModel={pinnedModel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} onProviderOnlyChange={handleProviderOnlyChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} pinnedModel={pinnedModel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
         {/* The phone's button row, when this chat owns its band (`bandOwned` in
             App): a box at the foot of the block and not a padding, because the
             block's height is read from `contentRect`, which leaves padding out.

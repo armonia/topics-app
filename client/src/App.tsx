@@ -946,11 +946,14 @@ function App() {
 
   // «Open in terminal» under a code block of a reply (CHAT-RUN-05): a shell
   // where that chat's agent works, with the command typed and not run. Same
-  // bus as above: the block lives deep inside the message list.
+  // bus as above: the block lives deep inside the message list. Without a
+  // sessionKey (the model selector's «Accedi», revision 2026-10-04 §4.6) the
+  // shell opens in the home directory, with `codex login` typed, not run.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { sessionKey?: string; command?: string } | undefined;
-      if (detail?.sessionKey && detail.command) void handleQuickCreateTerminal('shell', claudeSkipPermissions, { cwdOf: detail.sessionKey, paste: detail.command });
+      if (!detail?.command) return;
+      void handleQuickCreateTerminal('shell', claudeSkipPermissions, detail.sessionKey ? { cwdOf: detail.sessionKey, paste: detail.command } : { paste: detail.command });
     };
     window.addEventListener('topics:open-terminal-with-command', handler);
     return () => window.removeEventListener('topics:open-terminal-with-command', handler);

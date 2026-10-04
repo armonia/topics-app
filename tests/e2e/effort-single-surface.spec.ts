@@ -225,9 +225,17 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     // L'identità resta l'id ESATTO della CLI, suffisso compreso: è quello che
     // viene mandato al provider, e non deve essere ricostruito dall'etichetta.
     await expect(picker).toHaveAttribute("data-model", "claude-opus-5[1m]", { timeout: 10_000 });
-    await expect(picker.getByTestId("model-context-badge")).toHaveText("1M");
-    // …e il nome accanto non porta più le parentesi.
+    // …e il nome non porta più le parentesi. La finestra esce dal trigger chiuso
+    // (revisione del selettore 04/10, §3.8: «label · chi esegue»): la si legge
+    // nel distintivo 1M della riga aperta.
     await expect(picker).not.toContainText("[1m]");
+    await expect(picker.getByTestId("model-context-badge")).toHaveCount(0);
+    await picker.click();
+    // The chosen row says 1M: its 1M switch on, or (a saved id no engine lists
+    // here, e.g. a CI runner without `claude`) its window column.
+    const chosen = page.getByTestId("provider-model-popover").locator('[data-testid="model-row-wrap"]').filter({ has: page.locator('[aria-pressed="true"]') }).first();
+    await expect(chosen).toContainText("1M");
+    await page.keyboard.press("Escape");
   });
 
   test("la finestra c'è per OGNI modello, non solo per quelli a 1M", async ({ page, request }) => {
@@ -244,9 +252,6 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     const picker = page.getByTestId("provider-model-picker");
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await expect(picker).toHaveAttribute("data-model", "claude-haiku-4-5", { timeout: 10_000 });
-    const badge = picker.getByTestId("model-context-badge");
-    await expect(badge).toHaveText("200K");
-    await expect(badge).toHaveAttribute("data-context-known", "true");
 
     // E nella lista: ogni riga porta il suo numero, così la finestra si vede
     // NEL momento in cui si sceglie e non dopo, sul bottone.
@@ -269,8 +274,9 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
       const row = rows.nth(i);
       const model = await row.getAttribute("data-model");
       const win = row.getByTestId(`model-window-${model}`);
+      // Una finestra si mostra solo se è NOTA (revisione 04/10, AC-12): mai «≈».
       await expect(win, `il modello ${model} deve dire la sua finestra`).toHaveText(
-        /^≈?\d+(\.\d)?[KM]$/,
+        /^\d+(\.\d)?[KM]$/,
       );
       const box = await win.boundingBox();
       const rowBox = await row.boundingBox();

@@ -1644,9 +1644,6 @@
       "basename",
       "tryHostname"
     ],
-    "client/src/lib/popoverPosition.ts": [
-      "spazio"
-    ],
     "client/src/lib/popoverRegistry.test.ts": [
       "unregister",
       "unregisterFirst"

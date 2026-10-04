@@ -99,21 +99,37 @@ export function claudeSubscription(snapshot: ProvidersSnapshot | null): Provider
 }
 
 /**
- * THE PROVIDERS ROW OF A MODEL SELECTOR: how many can run a turn right now, or
- * the one problem that matters, which is the provider this selector has chosen
- * not being ready: "3 ready"; "Codex not ready" in the warning tone; "None
- * ready" when nothing can run. `topics` is not counted: it is the routing
- * switch above the list, not a provider of its own (AICTRL-01).
+ * THE COUNT OF THE PROVIDERS, at the foot of every model selector and in the
+ * heading of the providers level (model selector revision 2026-10-04, §5.3):
+ * the providers that are ready, plus the errors when there are any. Every
+ * provider of the snapshot counts, `topics` included: the providers level
+ * shows it as a card of its own.
  */
-export function providersReadyTail(snapshot: ProvidersSnapshot | null, chosen: string | null, tr: Translate): Tail | null {
+export function providersCountTail(snapshot: ProvidersSnapshot | null, tr: Translate): Tail | null {
   if (!snapshot) return null;
-  const chosenRow = chosen ? snapshot.providers.find((p) => p.name === chosen) : undefined;
-  if (chosenRow && chosenRow.status !== 'ready') {
-    return { text: tr('home.providers.notReady', { name: chosenRow.label ?? chosenRow.name }), warn: true };
-  }
-  const ready = snapshot.providers.filter((p) => p.name !== 'topics' && p.status === 'ready').length;
-  if (ready === 0) return { text: tr('home.providers.noneReady'), warn: true };
-  return { text: ready === 1 ? tr('home.providers.readyOne') : tr('home.providers.ready', { n: ready }), warn: false };
+  const ready = snapshot.providers.filter((p) => p.status === 'ready').length;
+  const errors = snapshot.providers.filter((p) => p.status === 'error').length;
+  const readyText = ready === 0 ? tr('home.providers.noneReady') : ready === 1 ? tr('home.providers.readyOne') : tr('home.providers.ready', { n: ready });
+  const errorText = errors === 0 ? null : errors === 1 ? tr('ai.selector.providers.errorOne') : tr('ai.selector.providers.errors', { n: errors });
+  return { text: errorText ? `${readyText} · ${errorText}` : readyText, warn: ready === 0 || errors > 0 };
+}
+
+/**
+ * THE PLAN WARNING ON THE ANTHROPIC HEADING of a selector (revision §4.5): one
+ * short reading, «sett. 67%» or «5 h 88%», only when a window has reached
+ * `PLAN_USAGE_WARN_AT`; the higher of the two when both have.
+ */
+export function claudePlanWarning(
+  fiveHour: { utilization: number } | null | undefined,
+  sevenDay: { utilization: number } | null | undefined,
+  tr: Translate,
+): string | null {
+  const five = fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT ? fiveHour.utilization : -1;
+  const week = sevenDay && sevenDay.utilization >= PLAN_USAGE_WARN_AT ? sevenDay.utilization : -1;
+  if (five < 0 && week < 0) return null;
+  return week >= five
+    ? tr('home.claudeWeek', { pct: Math.round(week) })
+    : tr('ai.selector.plan.fiveHour', { pct: Math.round(five) });
 }
 
 /** Is this provider one whose models run on the Claude subscription? */

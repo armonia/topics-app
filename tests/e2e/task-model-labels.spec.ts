@@ -100,13 +100,14 @@ for (const device of [
         const details = drawer.getByTestId('task-details-toggle');
         await details.click();
         const chip = drawer.getByTestId('task-model-chip');
-        await expect(chip).toHaveAttribute('title', /tutti i provider|all providers/);
+        // One closed format (revision 2026-10-04 §3.8): Automatic says who decides.
+        await expect(chip).toHaveAttribute('title', /Automatico · segue la board|Automatic · follows the board/);
         await chip.click();
         // MSEL-01: the drawer opens the one selector, compact, card scope.
         const panel = page.getByTestId('model-selector-panel');
         await expect(panel).toHaveAttribute('data-variant', 'compact');
         await expect(panel).toHaveAttribute('data-scope', 'task');
-        await expect(page.getByRole('option', { name: /Auto \((project default|dal progetto)\)/ })).toBeVisible();
+        await expect(panel.getByTestId('model-row-automatic')).toContainText(/Automatico · segue la board|Automatic · follows the board/);
         // AICTRL-01: Topics is the band above the list, never a row; the API
         // chat connection is no coding engine.
         await expect(panel.locator('[data-provider="topics"]')).toHaveCount(0);
@@ -121,7 +122,7 @@ for (const device of [
         await expect(chip).toHaveText(/GPT-5\.5.*Codex/);
         await expect.poll(async () => (await (await request.get(taskUrl)).json()).task.model).toBe('codex:gpt-5.5');
         await chip.click();
-        await page.getByRole('option', { name: /Auto \((project default|dal progetto)\)/ }).click();
+        await page.getByTestId('model-selector-panel').getByTestId('model-row-automatic').click();
         await expect.poll(async () => (await (await request.get(taskUrl)).json()).task.model).toBeNull();
 
         // The dispatcher persists the chosen model before assignment. Seed the
@@ -130,11 +131,11 @@ for (const device of [
         expect((await request.post(`/api/test/tasks/${task.id}/bind-topic`, { data: { topicId: topic.id } })).ok()).toBe(true);
         await page.reload();
         await details.click();
-        await expect(chip).toHaveText('GPT-5.5');
+        await expect(chip).toHaveText('GPT-5.5 · via Codex');
         await expect(chip).toHaveAttribute('aria-disabled', 'true');
         await expect(chip).toHaveAttribute('title', /GPT-5\.5/);
         await chip.click({ force: true });
-        await expect(page.getByRole('option', { name: 'GPT-5.5', exact: true })).toHaveCount(0);
+        await expect(page.locator('[data-testid="model-row"][data-model="gpt-5.5"]')).toHaveCount(0);
         const metrics = await chip.evaluate((element) => {
           const box = element.getBoundingClientRect();
           const parent = element.parentElement!.getBoundingClientRect();
@@ -196,11 +197,12 @@ for (const device of [
         expect(longResponse.ok()).toBe(true);
         longTaskId = (await longResponse.json()).id;
         const longCard = projectWindow.locator(`[data-task-card="${longTaskId}"]`);
-        const longChip = longCard.getByTestId('card-foot').getByText(`${longModel.slice(6)} · Codex`, { exact: true });
+        const longLabel = 'Project Model With A Long Release Identifier 2026';
+        const longChip = longCard.getByTestId('card-foot').getByText(`${longLabel} · via Codex`, { exact: true });
         await expect(longChip).toBeVisible();
         expect(await longChip.evaluate((element) => element.getBoundingClientRect().width
           <= element.parentElement!.getBoundingClientRect().width + 1)).toBe(true);
-        await expect(longChip).toHaveAttribute('title', new RegExp(longModel.slice(6)));
+        await expect(longChip).toHaveAttribute('title', new RegExp(longLabel));
         await page.screenshot({ path: testInfo.outputPath('resolved-card-model.png') });
         // MSEL-01, variant `chip`: a card whose choice runs through Topics says so.
         const routedResponse = await request.post(`/api/boards/${projectId}/tasks`, {
@@ -209,8 +211,8 @@ for (const device of [
         expect(routedResponse.ok()).toBe(true);
         routedTaskId = (await routedResponse.json()).id;
         const routedCard = projectWindow.locator(`[data-task-card="${routedTaskId}"]`);
-        await expect(routedCard.getByTestId('card-route')).toHaveText(/via Topics/);
-        await expect(card.getByTestId('card-route')).toHaveCount(0);
+        await expect(routedCard.getByTestId('card-foot')).toContainText('Opus 4.8 · via Topics');
+        await expect(card.getByTestId('card-foot')).not.toContainText('via Topics');
 
         await page.goto(`/topic/${chatTopic.id}`);
         await expect(page.getByTestId('chat-message-input')).toBeVisible();
@@ -222,7 +224,7 @@ for (const device of [
         await codexRow.click();
         await expect(chatPicker).toHaveAttribute('data-model', 'gpt-5.5');
         await chatPicker.click();
-        await expect(codexRow).toHaveAttribute('aria-selected', 'true');
+        await expect(codexRow).toHaveAttribute('aria-pressed', 'true');
         await page.keyboard.press('Escape');
       } finally {
         if (longTaskId) await deleteTask(request, projectId, longTaskId);
