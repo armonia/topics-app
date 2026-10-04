@@ -315,35 +315,36 @@ riga SHALL dire che lì un comando è testo. Invio SHALL mandare il testo come o
 - **WHEN** la tocco
 - **THEN** si apre la chat dell'agente della card
 
-### Requirement: CMDUI-09 — Una skill riceve il contesto fuori dal messaggio
+### Requirement: CMDUI-09 — Una skill riceve il contesto accanto al comando, non davanti
 
 Quando il messaggio è un'invocazione (SKILL-03) di un nome che non è un built-in
-della CLI, su Claude Code il messaggio SHALL arrivare alla CLI nudo, cioè iniziare
-con il comando, e il blocco del contesto NON SHALL stare né prima né dopo il comando
-nello stesso messaggio. Al primo turno di una CLI il contesto SHALL andare nel suo
-prompt di sistema e SHALL contare come mandato. Su una CLI già avviata gli slot che
-cambiano a ogni turno (plan mode, board globale) SHALL saltare quel turno e tornare
-al turno dopo, e gli slot ancora da mandare NON SHALL contare come mandati.
+della CLI, su Claude Code il turno SHALL arrivare alla CLI come UN solo messaggio
+utente con due blocchi di testo: il blocco `<context>` nel primo e il comando NUDO,
+esattamente come l'ha scritto la persona, nell'ultimo. La CLI legge il comando
+dall'ultimo blocco, quindi `$ARGUMENTS` SHALL essere solo ciò che ha scritto la
+persona. Il contesto NON SHALL viaggiare negli argomenti di avvio:
+`--append-system-prompt` SHALL restare il prompt fisso di Topics, senza slot.
 
-Un messaggio che non è un'invocazione SHALL avere il contesto come oggi.
+Un messaggio che non è un'invocazione SHALL avere il contesto come oggi, in una
+stringa sola con `<context>` davanti al testo.
 
 #### Scenario: una skill al primo turno
 - **GIVEN** una chat Claude Code nuova
 - **WHEN** il primo messaggio è `/vai solo il bug X`
-- **THEN** la CLI riceve un messaggio che è esattamente `/vai solo il bug X`
-- **AND** il prompt di sistema con cui parte contiene gli slot del contesto di quel turno
+- **THEN** la CLI riceve UN messaggio utente con due blocchi di testo
+- **AND** il primo blocco contiene `<context>` e l'ultimo è esattamente `/vai solo il bug X`
+- **AND** `--append-system-prompt` negli argomenti di avvio non contiene il contesto
 
-#### Scenario: una skill in plan mode
-- **GIVEN** una chat Claude Code già avviata, in plan mode
-- **WHEN** mando `/recap`
-- **THEN** la CLI riceve `/recap` senza `<context>`
-- **WHEN** mando poi un messaggio normale
-- **THEN** quel messaggio porta lo slot del plan mode
+#### Scenario: una skill che solo la CLI conosce
+- **GIVEN** una chat Claude Code la cui CLI ha elencato una skill nel suo `system/init`
+- **WHEN** mando quella skill con un argomento
+- **THEN** il comando arriva nudo nell'ultimo blocco, col contesto nel blocco prima
 
 #### Scenario: un messaggio normale
 - **GIVEN** una chat Claude Code nuova
 - **WHEN** il primo messaggio è `ciao`
-- **THEN** la CLI riceve `<context>` davanti a `ciao`, come oggi
+- **THEN** la CLI riceve una stringa sola con `<context>` davanti a `ciao`, come oggi
+- **AND** un percorso incollato come `/tmp/x` non è una skill e ha la stessa forma
 
 ### Requirement: CMDUI-10 — Un messaggio appuntato si vede
 

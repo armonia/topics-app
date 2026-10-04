@@ -8,7 +8,7 @@
  * Both must agree, and a server-built detail must survive `resolveToolDetail`
  * (schema validation) instead of being dropped back to the generic view.
  *
- * @covers TOOL-PARITY-01
+ * @covers TOOL-PARITY-01, CHAT-BROWSER-03
  */
 
 import { describe, expect, test } from 'bun:test';
