@@ -57,6 +57,7 @@ import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicToProject } from "../lib/relocate-pane";
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
+import { subagentWakeState } from "../lib/subagent-runtime";
 import { requestSubagentWake } from "../services/subagent-wake";
 import { computeTopicChanges } from "../lib/topic-changes";
 import { archiveTopicFully } from "../services/archive-topic";
@@ -952,7 +953,7 @@ export function createTopicsRouter(
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
   const goalLoop = goalContinuationForChatRoute({
-    ctx, resolveProvider, commandWakeState, log: (m) => console.log(`[goal] ${m}`),
+    ctx, resolveProvider, commandWakeState, subagentWakeState, log: (m) => console.log(`[goal] ${m}`),
     hasOpenQuestion: (sk) => sessionHasOpenQuestion(ctx, sk, decodeCol),
   });
   extra.exposeGoalLoop?.(goalLoop);

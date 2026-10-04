@@ -327,21 +327,26 @@ describe("a foreground spawn waits for the result (SUBAGENT-13)", () => {
 
 describe("the parent is owed a wake while its child works (SUBAGENT-12)", () => {
   test("owed from the spawn until the chat holds the result", async () => {
-    const { subagentWakeOwed } = await import("../../server/lib/subagent-runtime");
+    const { subagentWakeOwed, subagentWakeState } = await import("../../server/lib/subagent-runtime");
     const parent = topicKey(4);
     topic(parent, "claude-sonnet-5-5[1m]");
     expect(subagentWakeOwed(parent)).toBe(false);
+    expect(subagentWakeState(parent)).toBe("none");
     const { body, child } = await spawn(parent, { name: "owed" });
     const agentId = body.agentId as string;
     expect(subagentWakeOwed(parent)).toBe(true);
+    // The goal loop reads this: a working child is running work, not a wake.
+    expect(subagentWakeState(parent)).toBe("running");
     await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
     expect(subagentWakeOwed(parent)).toBe(true);
     endTurn(child!, "Report: owed");
     const [report] = await until("the result", () => reportsFor(agentId).length > 0 && reportsFor(agentId), 15_000);
     // Delivered to the wake, not yet in the chat: still owed.
     expect(subagentWakeOwed(parent)).toBe(true);
+    expect(subagentWakeState(parent)).toBe("wake-queued");
     report!.settle?.();
     expect(subagentWakeOwed(parent)).toBe(false);
+    expect(subagentWakeState(parent)).toBe("none");
   }, 60_000);
 });
 

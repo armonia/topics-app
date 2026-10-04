@@ -559,12 +559,28 @@ export function bootChildSweep(): void {
  * waits for, instead of being nudged (`awaitsSubagentWake`).
  */
 export function subagentWakeOwed(parentSessionKey: string): boolean {
+  return subagentWakeState(parentSessionKey) !== 'none';
+}
+
+/**
+ * The same question split the way the goal loop reads background work
+ * (`backgroundOfTurn`): `running` while a child's turn is open, `wake-queued`
+ * when every child is done and only a result still has to reach the chat.
+ *
+ * Il 04/10 topic:d740f8ae aspettava il sottoagente `anim-fix` e il goal lo
+ * spingeva ogni ~2 minuti: 12 turni su 16 erano «aspetto anim-fix», 37 $, poi
+ * il tetto di 20 continuazioni. Il risveglio del figlio riapre già il turno da
+ * solo. Due query su indice (`idx_subagents_parent_state`), una volta per fine
+ * turno: niente scansioni né `ps`.
+ */
+export function subagentWakeState(parentSessionKey: string): 'running' | 'wake-queued' | 'none' {
   const db = getDatabase();
+  let held = false;
   for (const row of runningSubagents(db, parentSessionKey)) {
-    if (childPhase(row.id) !== 'finished') return true;
-    if (foregroundHolds.get(row.id)?.held.length) return true;
+    if (childPhase(row.id) !== 'finished') return 'running';
+    if (foregroundHolds.get(row.id)?.held.length) held = true;
   }
-  return parentHasPendingResults(db, parentSessionKey);
+  return held || parentHasPendingResults(db, parentSessionKey) ? 'wake-queued' : 'none';
 }
 
 /** The phase the roster shows for a live child, or null before the first look. */
