@@ -810,10 +810,20 @@ export interface ToolCall {
    * the route handler: `startedAt` at announce (which, with partial-message
    * streaming, is when the model STARTS writing the input — not when the
    * input is complete), `endedAt` when the result lands. UI shows
-   * `endedAt - startedAt` as the call's duration.
+   * `endedAt - startedAt` as the call's duration. A provider that tells
+   * announcing from running (`tool-phases`, the native runtime) leaves
+   * `startedAt` unset while the call is `pending` and stamps it when the
+   * call starts, so its duration is the run alone.
    */
   startedAt?: number;
   endedAt?: number;
+  /**
+   * The model is still writing this call's input: `args` hold only what has
+   * arrived so far (its primary field, see `server/providers/partial-tool-input.ts`).
+   * Set while a `pending` native call streams its input, `false` once the
+   * input is complete; absent on every other provider.
+   */
+  inputStreaming?: boolean;
   /**
    * Costo di QUESTA azione in centesimi di dollaro — la quota della chiamata al
    * modello che l'ha decisa (vedi `StreamHandler.onToolUsage`). È il costo

@@ -20,6 +20,7 @@
  * between a mistake and an incident.
  */
 
+import { BASH_DESCRIPTION, BASH_TIMEOUT_HINT, BASH_TIMEOUT_PROPERTY, DEFAULT_BASH_TIMEOUT_MS, resolveBashTimeoutMs } from "./bash-timeout";
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
@@ -115,7 +116,6 @@ const MAX_OUTPUT_CHARS = 30_000;
 const LIVE_TAIL_BYTES = 16 * 1024;
 /** The live tail goes out at most this often: 4 frames/s to every window watching the topic. */
 const LIVE_TAIL_EVERY_MS = 250;
-const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 /** How long the last output still in the pipe gets, after the leader has exited. */
 const DRAIN_AFTER_EXIT_MS = 250;
 /** How long a kill gets before the answer goes out anyway, event or no event. */
@@ -233,13 +233,13 @@ export const CODING_TOOLS: ToolSpec[] = [
   },
   {
     name: "bash",
-    description:
-      "Run a shell command in the workspace. Use it for git, builds, tests, and any tool the machine already has. Output is captured (stdout+stderr) and truncated if huge. Non-interactive only: a command that waits for input will hit the timeout.",
+    description: BASH_DESCRIPTION,
     input_schema: {
       type: "object",
       properties: {
         command: { type: "string", description: "The command line to run." },
         cwd: { type: "string", description: "Working directory, relative to the workspace. Defaults to the workspace root." },
+        timeout: BASH_TIMEOUT_PROPERTY,
       },
       required: ["command"],
     },
@@ -342,7 +342,7 @@ async function runCommand(
   cwd: string,
   timeoutMs: number,
   signal?: AbortSignal,
-  owner?: { sessionKey?: string; command?: string },
+  owner?: { sessionKey?: string; command?: string; killNote?: string },
   onOutput?: (tail: string) => void,
 ): Promise<{ out: string; code: number | null; annullato?: boolean }> {
   // Già annullato: far partire il comando vorrebbe dire spendere secondi per
@@ -446,7 +446,7 @@ async function runCommand(
       armedAt = Date.now();
       timer = setTimeout(() => {
         abbatti();
-        out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
+        out += `\n[comando ucciso dopo ${timeoutMs}ms]${owner?.killNote ? `\n${owner.killNote}` : ""}`;
         giveUp();
       }, leftMs);
       timer.unref?.();
@@ -697,8 +697,8 @@ export async function executeTool(
         const cwd = input.cwd ? safePath(ctx, String(input.cwd)) : resolve(ctx.workspace);
         const { out, code, annullato } = await runCommand(
           "/bin/bash", ["-lc", String(input.command)],
-          cwd, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS, ctx.signal,
-          { ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), command: String(input.command) },
+          cwd, resolveBashTimeoutMs(input.timeout, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS), ctx.signal,
+          { ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), command: String(input.command), killNote: BASH_TIMEOUT_HINT },
           ctx.onOutput,
         );
         const body = truncate(out.trim() || "(nessun output)");

@@ -390,6 +390,8 @@ const EN = {
   'task.dispatch.noReason': 'No reason recorded: the card is stuck here and nobody wrote why. Look at the thread.',
   'tool.failed': 'failed',
   'tool.awaitingYou': 'Waiting for your answer',
+  'tool.queued': 'queued',
+  'tool.writingInput': 'writing the command…',
   'tool.freeMode.pre': 'This chat switched to',
   'tool.freeMode.name': 'free mode',
   'tool.freeMode.by': ' · by {who}',

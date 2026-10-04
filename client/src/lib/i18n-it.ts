@@ -391,6 +391,8 @@ const IT: Dict = {
   'task.dispatch.noReason': 'Motivo non registrato: la card è ferma qui e nessuno ha scritto perché. Guarda il thread.',
   'tool.failed': 'fallita',
   'tool.awaitingYou': 'In attesa della tua risposta',
+  'tool.queued': 'in coda',
+  'tool.writingInput': 'sta scrivendo il comando…',
   'tool.freeMode.pre': 'Questa chat è passata in',
   'tool.freeMode.name': 'modalità libera',
   'tool.freeMode.by': ' · da {who}',

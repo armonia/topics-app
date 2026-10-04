@@ -213,6 +213,18 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // Il bundle servito è la fotografia fatta dal globalSetup, non `public/` del
     // repo: vedi publicDirForPort qui sopra.
     TOPICS_PUBLIC_DIR: publicDirForPort(port),
+    // The test server never reads the login Keychain. Its HOME is isolated,
+    // but the Keychain ignores HOME: a native-runtime turn would pick up the
+    // real Claude token (and might rotate it) instead of the fake credential
+    // file a spec puts in the isolated home (`helpers/fake-anthropic-api.ts`).
+    TOPICS_CREDENTIALS_KEYCHAIN: "0",
+    // Nor does it inherit the developer's API address. A shell started from
+    // Claude Code carries `ANTHROPIC_BASE_URL` (on this Mac the account
+    // switcher on :3336), and the variable wins over the isolated home's
+    // `settings.json` (`server/providers/native/base-url.ts`): measured on
+    // 2026-10-04, a native-runtime spec meant for a fake API got a real
+    // model's answer through the switcher. Empty reads as unset there.
+    ANTHROPIC_BASE_URL: "",
     NO_TLS: "1",
     // Arma le route di reset (`/api/test/checkpoint`, `/api/test/reset`). Sono
     // distruttive per costruzione — svuotano ogni tabella — quindi esistono solo
