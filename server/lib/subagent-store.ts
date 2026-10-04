@@ -15,6 +15,13 @@ import type { Database } from "bun:sqlite";
 import type { SubAgentResult } from "./subagent-result";
 
 export type SubagentState = "running" | "retired" | "stopped" | "lost";
+/**
+ * Where the child runs: a Claude CLI in a PTY, or a chat of its own on the
+ * Topics engine (openspec/changes/subagent-nativi). A native child has no
+ * process: «retired» per lui vuol dire solo che il turno è finito e che non
+ * occupa un posto.
+ */
+export type SubagentRuntime = "claude-code" | "topics";
 
 /** After this long, an ended child leaves `list_agents` and can no longer be resumed (SUBAGENT-14). */
 export const SUBAGENT_RESUME_WINDOW_MS = 24 * 60 * 60_000;
@@ -37,6 +44,11 @@ export interface SubagentRow {
   reportedAt: string | null;
   createdAt: string;
   endedAt: string | null;
+  runtime: SubagentRuntime;
+  /** The child chat's session key (`topic:<id8>`): native children only. */
+  sessionKey: string | null;
+  /** The engine's tool names the profile allows, null = no restriction. Native children only. */
+  tools: string[] | null;
 }
 
 type Db = Pick<Database, "query" | "run">;
@@ -46,6 +58,17 @@ interface RawRow {
   effort: string | null; prompt_snippet: string | null; cwd: string; branch: string | null;
   claude_session_id: string | null; state: SubagentState; turns_reported: number; reported_at: string | null;
   created_at: string; ended_at: string | null;
+  runtime: string | null; session_key: string | null; tools: string | null;
+}
+
+function parseTools(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((t): t is string => typeof t === "string") : null;
+  } catch {
+    return null;
+  }
 }
 
 const fromRaw = (r: RawRow): SubagentRow => ({
@@ -53,9 +76,10 @@ const fromRaw = (r: RawRow): SubagentRow => ({
   effort: r.effort, promptSnippet: r.prompt_snippet, cwd: r.cwd, branch: r.branch,
   claudeSessionId: r.claude_session_id, state: r.state, turnsReported: r.turns_reported,
   reportedAt: r.reported_at, createdAt: r.created_at, endedAt: r.ended_at,
+  runtime: r.runtime === "topics" ? "topics" : "claude-code", sessionKey: r.session_key, tools: parseTools(r.tools),
 });
 
-const COLUMNS = "id, parent_session_key, name, model, agent_type, effort, prompt_snippet, cwd, branch, claude_session_id, state, turns_reported, reported_at, created_at, ended_at";
+const COLUMNS = "id, parent_session_key, name, model, agent_type, effort, prompt_snippet, cwd, branch, claude_session_id, state, turns_reported, reported_at, created_at, ended_at, runtime, session_key, tools";
 
 /**
  * Every read and write is best-effort: a database without the table (an old
@@ -70,14 +94,46 @@ function attempt<T>(fallback: T, fn: () => T): T {
   }
 }
 
-export function insertSubagent(db: Db, row: Omit<SubagentRow, "state" | "turnsReported" | "reportedAt" | "endedAt">): void {
+export function insertSubagent(
+  db: Db,
+  row: Omit<SubagentRow, "state" | "turnsReported" | "reportedAt" | "endedAt" | "runtime" | "sessionKey" | "tools">
+    & Partial<Pick<SubagentRow, "runtime" | "sessionKey" | "tools">>,
+): void {
   attempt(undefined, () => {
     db.run(
-      `INSERT OR REPLACE INTO subagents (id, parent_session_key, name, model, agent_type, effort, prompt_snippet, cwd, branch, claude_session_id, state, turns_reported, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 0, ?)`,
-      [row.id, row.parentSessionKey, row.name, row.model, row.agentType, row.effort, row.promptSnippet, row.cwd, row.branch, row.claudeSessionId, row.createdAt],
+      `INSERT OR REPLACE INTO subagents (id, parent_session_key, name, model, agent_type, effort, prompt_snippet, cwd, branch, claude_session_id, state, turns_reported, created_at, runtime, session_key, tools)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 0, ?, ?, ?, ?)`,
+      [row.id, row.parentSessionKey, row.name, row.model, row.agentType, row.effort, row.promptSnippet, row.cwd, row.branch, row.claudeSessionId, row.createdAt,
+        row.runtime ?? "claude-code", row.sessionKey ?? null, row.tools ? JSON.stringify(row.tools) : null],
     );
   });
+}
+
+/** The native child whose chat is this session, or null (a CLI child, a person's chat). */
+export function getSubagentBySessionKey(db: Db, sessionKey: string): SubagentRow | null {
+  return attempt(null, () => {
+    const r = db.query(`SELECT ${COLUMNS} FROM subagents WHERE session_key = ?`).get(sessionKey) as RawRow | null;
+    return r ? fromRaw(r) : null;
+  });
+}
+
+/**
+ * Quanti spawn stanno sopra questa sessione: 0 per la chat o il terminale di
+ * una persona, 1 per un figlio, 2 per un nipote. Si cammina sulle righe, così
+ * un riavvio non lo azzera; un figlio CLI ha per chiave il suo id, uno nativo
+ * la session key della sua chat.
+ */
+export function subagentDepth(db: Db, sessionKey: string): number {
+  let depth = 0;
+  const seen = new Set<string>();
+  for (let key: string | undefined = sessionKey; key && !seen.has(key); ) {
+    seen.add(key);
+    const row: SubagentRow | null = getSubagent(db, key) ?? getSubagentBySessionKey(db, key);
+    if (!row) break;
+    depth++;
+    key = row.parentSessionKey;
+  }
+  return depth;
 }
 
 export function getSubagent(db: Db, id: string): SubagentRow | null {
@@ -130,7 +186,8 @@ export function endedSubagents(db: Db, parentSessionKey: string, now = Date.now(
 /** Can this ended child still be resumed, and if not, why. */
 export function resumeVerdict(row: SubagentRow, now = Date.now()): { ok: true } | { ok: false; status: 409 | 410; reason: string } {
   if (row.state === "running") return { ok: false, status: 409, reason: "the sub-agent is running" };
-  if (!row.claudeSessionId) return { ok: false, status: 410, reason: "the sub-agent has no session to resume: its transcript was never found" };
+  // Un figlio nativo ha per storia la sua chat: non c'è un transcript da perdere.
+  if (row.runtime !== "topics" && !row.claudeSessionId) return { ok: false, status: 410, reason: "the sub-agent has no session to resume: its transcript was never found" };
   const endedAt = row.endedAt ? Date.parse(row.endedAt) : NaN;
   if (Number.isFinite(endedAt) && now - endedAt > SUBAGENT_RESUME_WINDOW_MS) {
     return { ok: false, status: 410, reason: `the sub-agent ended more than 24 hours ago (${row.endedAt}); its transcript is still on disk, spawn a new one to continue` };

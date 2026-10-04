@@ -24,6 +24,19 @@ export interface AgentProfile {
   effort: string | null;
   source: "user" | "project";
   path: string;
+  /** The frontmatter `tools:` line, split; null when the profile does not restrict them. */
+  tools?: string[] | null;
+}
+
+/** What follows the frontmatter: the profile's own instructions, the child's system prompt. */
+export function profileInstructions(profile: Pick<AgentProfile, "path">): string | null {
+  try {
+    const text = readFileSync(profile.path, "utf-8");
+    const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").trim();
+    return body || null;
+  } catch {
+    return null;
+  }
 }
 
 /** The longest summary one profile gets in the tool description. */
@@ -72,6 +85,7 @@ function profilesIn(dir: string, source: AgentProfile["source"]): AgentProfile[]
       effort: fm.effort || null,
       source,
       path,
+      tools: fm.tools ? fm.tools.replace(/^\[|\]$/g, "").split(",").map((t) => t.trim().replace(/^(['"])(.*)\1$/, "$2")).filter(Boolean) : null,
     });
   }
   return out;

@@ -23,7 +23,7 @@ import {
 } from "./subagent-result";
 import {
   SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent,
-  markTurnReported, parentHasPendingResults, runningSubagents, setSubagentState, type SubagentRow,
+  markTurnReported, parentHasPendingResults, runningSubagents, setSubagentState, subagentDepth, type SubagentRow,
 } from "./subagent-store";
 import type { SubAgentExitInfo } from "../routes/subagent-exit";
 import { parseJsonlLine, splitJsonlChunk } from "./claude-session-state";
@@ -71,8 +71,10 @@ export function configureSubagentRuntime(d: SubagentRuntimeDeps): void {
   configured = d;
 }
 
-/** Max spawned-agent ancestry depth (a top-level orchestrator's child = 1). */
-export const MAX_AGENT_DEPTH = 3;
+// Max depth 2 (subagent-nativi, choice 3): shared with the native provider,
+// which hides the delegation tools from a grandchild.
+export { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
+import { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
 /** Max live children per parent — a runaway parent can't fork unbounded PTYs. */
 export const MAX_CHILDREN_PER_PARENT = 5;
 
@@ -441,6 +443,23 @@ export function reportChildEnd(child: ChildRef, exitCode: number | null, ending:
 }
 
 /**
+ * Un turno di un figlio nativo (subagent-nativi) è finito: si riporta come
+ * quello di un figlio CLI, con la stessa dedup, la stessa attesa in primo piano
+ * e lo stesso recapito al padre. Il verdetto lo legge `native-subagents.ts`
+ * dalla chat del figlio invece che da un transcript.
+ */
+export function reportNativeChildTurn(
+  child: Pick<ChildRef, 'id' | 'name' | 'cwd'> & { parentSessionKey: string },
+  turn: number,
+  outcome: SubAgentOutcome,
+  facts: TurnFacts | null,
+  opts: { stoppedByParent?: boolean } = {},
+): void {
+  const result = resultOf(child, getSubagent(getDatabase(), child.id), turn, outcome, facts);
+  emitChildResult(child.parentSessionKey, opts.stoppedByParent ? { ...result, stoppedByParent: true } : result, null);
+}
+
+/**
  * Children the database still calls `running` with no terminal behind them
  * after a restart: they were lost with it, and are reported so.
  */
@@ -448,6 +467,9 @@ function reportLostChildren(): void {
   const live = new Set(deps().liveChildren().map((c) => c.id));
   for (const row of runningSubagents(getDatabase())) {
     if (live.has(row.id)) continue;
+    // A native child has no terminal to lose: its turn may have survived the
+    // restart, and `native-subagents.ts` adopts it (`adoptNativeChildrenAtBoot`).
+    if (row.runtime === "topics") continue;
     reportChildEnd({
       id: row.id, name: row.name, createdAt: row.createdAt, cwd: row.cwd,
       claudeSessionId: row.claudeSessionId ?? undefined, parentSessionKey: row.parentSessionKey,
@@ -487,15 +509,8 @@ const MAX_LIVE_SUBAGENTS = 6;
 export function subagentLimitRefusal(parentKey: string, live: { depth: number; childIds: readonly string[] }): string | null {
   const db = getDatabase();
   // Depth: the in-memory walk, or the persisted one when the map was reset.
-  let rowDepth = 0;
-  const seen = new Set<string>();
-  for (let key: string | undefined = parentKey; key && !seen.has(key); ) {
-    seen.add(key);
-    const row = getSubagent(db, key);
-    if (!row) break;
-    rowDepth++;
-    key = row.parentSessionKey;
-  }
+  // The persisted one also crosses native children, keyed by their chat.
+  const rowDepth = subagentDepth(db, parentKey);
   if (Math.max(live.depth, rowDepth) + 1 > MAX_AGENT_DEPTH) {
     return `sub-agent depth limit (${MAX_AGENT_DEPTH}) reached`;
   }

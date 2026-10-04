@@ -182,6 +182,7 @@ import m20261001220421_command_runs from "./migrations/20261001220421-command-ru
 import m20261002192446_command_runs_last_output from "./migrations/20261002192446-command-runs-last-output.sql" with { type: "text" };
 import m20261003202540_messages_client_message_id from "./migrations/20261003202540-messages-client-message-id.sql" with { type: "text" };
 import m20261003214001_subject_attention from "./migrations/20261003214001-subject-attention.sql" with { type: "text" };
+import m20261004180000_subagents_native_runtime from "./migrations/20261004180000-subagents-native-runtime.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -368,4 +369,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20261002192446, name: "20261002192446-command-runs-last-output.sql", sql: m20261002192446_command_runs_last_output },
   { version: 20261003202540, name: "20261003202540-messages-client-message-id.sql", sql: m20261003202540_messages_client_message_id },
   { version: 20261003214001, name: "20261003214001-subject-attention.sql", sql: m20261003214001_subject_attention },
+  { version: 20261004180000, name: "20261004180000-subagents-native-runtime.sql", sql: m20261004180000_subagents_native_runtime },
 ];

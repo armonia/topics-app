@@ -18,7 +18,8 @@ import {
   setSubagentState,
 } from "./subagent-store";
 
-const SQL = readFileSync(resolve(import.meta.dir, "../db/migrations/20261001203100-subagents.sql"), "utf8");
+const SQL = ["20261001203100-subagents.sql", "20261004180000-subagents-native-runtime.sql"]
+  .map((f) => readFileSync(resolve(import.meta.dir, "../db/migrations", f), "utf8")).join("\n");
 
 function db(): Database {
   const d = new Database(":memory:");
