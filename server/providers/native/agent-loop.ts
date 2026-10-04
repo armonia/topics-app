@@ -130,6 +130,11 @@ export interface AgentTurnOptions {
    * and that is the price worth paying over a round wasted on unknown tools.
    */
   tools?: () => ToolSpec[];
+  /**
+   * The schemas are only a hint to the model: a sub-agent's chat (subagent-
+   * nativi) refuses at execution too a tool its profile or its depth denies.
+   */
+  allowTool?: (name: string) => boolean;
   toolContext: ToolContext;
   /** La conversazione finora. Viene ESTESA in place: è la memoria della sessione. */
   history: AgentMessage[];
@@ -947,7 +952,9 @@ export async function runAgentTurn(
       // `mcp__<server>__<tool>` is a name WE built when mounting, so it cannot
       // collide with a native tool, while the other two are told apart by the
       // table that owns their names.
-      const out = !verdict.allow
+      const out = opts.allowTool && !opts.allowTool(t.name!)
+        ? { content: `tool not available to this sub-agent: ${t.name}`, isError: true }
+        : !verdict.allow
         ? { content: verdict.reason, isError: true }
         : hookVeto && !hookVeto.ok
           ? { content: hookVeto.reason, isError: true }

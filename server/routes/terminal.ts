@@ -44,9 +44,13 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
-import { readAgentProfiles } from "../lib/agent-profiles";
+import { profileInstructions, readAgentProfiles } from "../lib/agent-profiles";
 import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
-import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
+import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, runningSubagents, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
+import {
+  engineModelOf, engineToolsOfProfile, nativeChildPlace, nativeSubagentsAvailable, readNativeChildOutput, sendToNativeChild,
+  spawnNativeChild, stopNativeChild,
+} from "../lib/native-subagents";
 import {
   FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
@@ -3459,6 +3463,33 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
+        // subagent-nativi: il figlio gira sul motore di Topics, salvo che la
+        // chiamata chieda la CLI o che il motore non possa prenderlo. La
+        // ricaduta sulla CLI si dice nella risposta, mai in silenzio.
+        if (body.runtime !== undefined && body.runtime !== "topics" && body.runtime !== "claude-code") {
+          return errorResponse(400, `unknown runtime "${String(body.runtime)}": use "topics" or "claude-code"`);
+        }
+        let runtime: "topics" | "claude-code" = body.runtime === "claude-code" ? "claude-code" : "topics";
+        let runtimeNote: string | null = null;
+        let nativePlace: { projectPath: string | null; worktreeId: string | null } | null = null;
+        if (runtime === "topics") {
+          const place = isolation === "worktree"
+            ? { ok: true as const, projectPath: null, worktreeId: null } // decided once the worktree exists
+            : nativeChildPlace({
+              explicitCwd: typeof body.cwd === "string" && body.cwd ? body.cwd : null,
+              parentTopic,
+              parentCwd: parent?.cwd ?? null,
+              knownProject: (p) => !!ctx.projectStore.getByPath(p),
+            });
+          const why = !nativeSubagentsAvailable() ? "the Topics engine is not available" : !place.ok ? place.reason : null;
+          if (why) {
+            if (body.runtime === "topics") return errorResponse(!nativeSubagentsAvailable() ? 503 : 400, `cannot start a sub-agent on the Topics engine: ${why}`);
+            runtime = "claude-code";
+            runtimeNote = `claude-code (${why})`;
+          } else if (place.ok) {
+            nativePlace = { projectPath: place.projectPath, worktreeId: place.worktreeId };
+          }
+        }
         let branch: string | null = null;
         if (isolation === "worktree") {
           const project = resolveAgentProject(
@@ -3484,6 +3515,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             if (!wt) return errorResponse(502, `worktree ${worktreeId} created but not readable`);
             cwd = wt.absPath;
             branch = wt.branchName;
+            // The native child's chat keeps the project for the sidebar and works in the checkout.
+            if (nativePlace) nativePlace = { projectPath: ctx.projectStore.get(project.projectStoreId)?.path ?? null, worktreeId };
           } catch (err: any) {
             return errorResponse(502, `Failed to create worktree for sub-agent: ${err?.message ?? err}`);
           }
@@ -3492,6 +3525,31 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const chosenName = typeof body.name === "string" && body.name ? body.name : null;
         const name = chosenName ?? `agent ${id.slice(0, 8)}`;
         const foreground = body.run_in_background === false || body.runInBackground === false;
+        if (runtime === "topics" && nativePlace) {
+          const profile = launch.agent ? agentProfilesFor(cwd).get(launch.agent) ?? null : null;
+          const model = engineModelOf(launch.model);
+          try {
+            if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
+            const child = spawnNativeChild({
+              id, parentSessionKey: parentKey, name, prompt, cwd,
+              parentTopic, projectPath: nativePlace.projectPath, worktreeId: nativePlace.worktreeId, branch,
+              model, effort: launch.effort, agentType: launch.agent,
+              instructions: profile ? profileInstructions(profile) : null,
+              tools: engineToolsOfProfile(profile?.tools),
+              promptSnippet: normalizePromptSnippet(prompt),
+            });
+            return json({
+              agentId: id, name, cwd, branch, runtime: "topics", sessionKey: child.sessionKey, topicId: child.topic.id,
+              model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
+              agentType: launch.agent, effort: launch.effort,
+              notify: parentKey.startsWith("topic:") ? "chat" : "read_agent",
+              runInBackground: !foreground,
+            });
+          } catch (err) {
+            releaseForeground(id);
+            return errorResponse(502, `Failed to spawn sub-agent: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
         try {
           await ensureBridge();
           // A name the parent chose is owned like a user's rename: the
@@ -3523,6 +3581,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           scheduleClaudeSubAgentIdCapture(id);
           return json({
             agentId: id, name: session.name, cwd: session.cwd, branch,
+            runtime: "claude-code", ...(runtimeNote ? { runtimeNote } : {}),
             model: launch.model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
             agentType: launch.agent, effort: launch.effort,
             // How the parent hears of the result: a chat is woken, a terminal reads.
@@ -3549,6 +3608,14 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           state: "running",
           phase: childPhase(s.id),
         }));
+        // Native children have no terminal: their running rows are the live list.
+        const native = runningSubagents(getDatabase(), parentKey)
+          .filter((r) => r.runtime === "topics")
+          .map((r) => ({
+            agentId: r.id, name: r.name, cwd: r.cwd, branch: r.branch, claudeSessionId: null, runtime: "topics", sessionKey: r.sessionKey,
+            busy: childPhase(r.id) !== "finished", state: "running", phase: childPhase(r.id),
+          }));
+        live.push(...(native as typeof live));
         // Ended children stay listed for 24 hours: `send_to_agent` brings them back.
         const liveIds = new Set(live.map((a) => a.agentId));
         const ended = endedSubagents(getDatabase(), parentKey)
@@ -3563,6 +3630,23 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(sendM.agentId);
         const body = await readJSON(req).catch(() => ({}));
         const input = typeof body.input === "string" ? body.input : (typeof body.text === "string" ? body.text : "");
+        {
+          // A native child: the next turn of its chat, whatever its state.
+          const row = getSubagent(getDatabase(), agentId);
+          if (row?.runtime === "topics") {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            if (!input) return errorResponse(400, "input (string) is required");
+            if (row.state !== "running") {
+              const verdict = resumeVerdict(row);
+              if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
+              const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
+              if (refusal) return errorResponse(429, refusal);
+            }
+            const sent = sendToNativeChild(row, input);
+            if (!sent.ok) return errorResponse(sent.status, sent.error);
+            return json({ ok: true, sent: input.length, ...(sent.resumed ? { resumed: true } : {}) });
+          }
+        }
         const child = resolveOwnedChild(parentKey, agentId);
         if (!child) {
           // Not running: a retired, stopped or lost child of this parent comes
@@ -3603,6 +3687,13 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(readM.sessionKey);
         const agentId = decodeURIComponent(readM.agentId);
+        {
+          const row = getSubagent(getDatabase(), agentId);
+          if (row?.runtime === "topics") {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            return json(readNativeChildOutput(row, Number(url.searchParams.get("since") || "0")));
+          }
+        }
         const child = resolveOwnedChild(parentKey, agentId) ?? endedChildForRead(parentKey, agentId);
         if (!child) return errorResponse(404, subAgentNotFound(agentId));
         const since = Number(url.searchParams.get("since") || "0");
@@ -3628,6 +3719,14 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(stopM.sessionKey);
         const agentId = decodeURIComponent(stopM.agentId);
+        {
+          const row = getSubagent(getDatabase(), agentId);
+          if (row?.runtime === "topics") {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            await stopNativeChild(row, { archive: true });
+            return json({ ok: true, branch: row.branch });
+          }
+        }
         const child = resolveOwnedChild(parentKey, agentId);
         if (!child) {
           // A retired child has no process: stopping it only closes its row.

@@ -59,6 +59,7 @@ import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
 import { requestSubagentWake } from "../services/subagent-wake";
+import { stopNativeChildrenOf } from "../lib/native-subagents";
 import { computeTopicChanges } from "../lib/topic-changes";
 import { archiveTopicFully } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
@@ -2573,9 +2574,13 @@ export function createTopicsRouter(
         return true;
       };
 
+      // A person's Stop reaches the native sub-agents working for this chat too
+      // (subagent-nativi): left running, a child woke the parent just stopped.
+      const stoppedChildren = stopCauseOf(req, body?.cause) === "user" ? await stopNativeChildrenOf(sessionKey) : 0;
       if (!stream) {
         const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
         if (background) return json(background); // only background work was left: the Stop was for it
+        if (stoppedChildren > 0) return json({ ok: true, stoppedSubagents: stoppedChildren, cleared: false });
         // Niente da fermare: turno già finito, oppure una finestra che stava
         // solo guardando quello di un'altra. Nessun effetto — né sul provider
         // (un `abort` alla cieca taglierebbe un turno headless che questo

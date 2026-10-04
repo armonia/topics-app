@@ -173,6 +173,7 @@ import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/ser
 import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
+import { adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -918,6 +919,20 @@ const browserRouter = createBrowserRouter(ctx, browserService, (c) =>
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);
+// `spawn_agent` children on the Topics engine (openspec/changes/subagent-nativi):
+// a chat of their own, whose turns go through the chat route in this process.
+configureNativeSubagents({
+  route: topicsRouter,
+  isBusy: (sk) => activeStreams.has(sk),
+  getTopicBySessionKey: ctx.getTopicBySessionKey,
+  saveTopic: (topic, created) => {
+    ctx.saveSingleTopic(topic);
+    ctx.broadcastToAll({ type: created ? "topic:created" : "topic:updated", topic });
+  },
+  loadMessages: (sk) => ctx.loadLocalMessages(sk),
+  engineReady: () => tryGetProvider("topics")?.connected === true,
+  log: (m) => console.log(`[subagent-native] ${m}`),
+});
 // Deleting a terminal session closes any browser it opened (contextId
 // `term-<id>`): broadcast the pane close for every client + destroy the
 // server-side headless context. Best-effort — a native-only pane has no
@@ -5780,6 +5795,12 @@ void survivingTurnsAdopted
     },
     log: (m) => console.log(`[subagent-wake] ${m}`),
   }));
+// Native children still `running` after the restart: their turn may have been
+// resumed with their chat, or lost with the process. Watched, then reported.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => adoptNativeChildrenAtBoot())
+  .catch((err) => console.warn("[subagent-native] boot adoption failed:", err));
 // THE ATTENTION STATE AT EVERY START (notifications-redesign, section 7):
 // once the surviving turns and their children are adopted, the store reads
 // its table again, the re-read inputs from where they live, ends the subjects

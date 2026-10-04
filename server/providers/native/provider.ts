@@ -58,6 +58,7 @@ import { clampMaxTokens } from "../../lib/native-parity";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 import { nativeModelId } from "../../../shared/task-coding-models";
+import { nativeSubagentToolPolicy, toolAllowedByPolicy } from "../../lib/subagent-tool-policy";
 
 /**
  * The model we start from when nobody asks for one.
@@ -696,6 +697,10 @@ export class NativeProvider implements AIProvider {
       // and a child mounted by this very turn must be callable by the next
       // round. `fleetAllowed` and `workspace` stay captured, read once per turn
       // as before: the per-session policy is not the thing that changes.
+      // A sub-agent's chat (subagent-nativi) sees what its profile allows, and
+      // no delegation tools at the depth cap. Read once per turn: the row does
+      // not change under a running turn. Null for every other chat.
+      const subagentPolicy = globalOrchestrator ? null : nativeSubagentToolPolicy(sessionKey);
       const tools = () => {
         // This is an ordinary unbound Topic with a special, registry-backed
         // capability profile—not an unbound coding/chat session. Do not append
@@ -704,13 +709,14 @@ export class NativeProvider implements AIProvider {
         if (globalOrchestrator) {
           return topicsToolSpecs("global-orchestrator");
         }
-        return [
+        const all = [
           // No workspace does not mean no tools: the two that resolve no path
           // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
           ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
           ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
           ...(fleetAllowed ? mcpToolSpecs() : []),
         ];
+        return subagentPolicy ? all.filter((t) => toolAllowedByPolicy(subagentPolicy, t.name)) : all;
       };
       // `resolveClaudeModel()` si rilegge A OGNI TURNO, non solo alla costruzione:
       // altrimenti cambiare il modello in Impostazioni non ha effetto finche' il
@@ -749,6 +755,7 @@ export class NativeProvider implements AIProvider {
           // nothing tells it apart from Topics' own processes.
           toolContext: { workspace: workspace ?? "", signal: abort.signal, sessionKey },
           topics: topics ?? undefined,
+          ...(subagentPolicy ? { allowTool: (name: string) => toolAllowedByPolicy(subagentPolicy, name) } : {}),
           // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal
           // messaggio dopo, non dalla prossima chat.
