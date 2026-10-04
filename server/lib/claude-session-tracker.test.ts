@@ -1198,6 +1198,17 @@ describe('ClaudeSessionTracker — hooks arriving out of order', () => {
     expect(tracker.getSessionByKey('topic-o')?.phase).toBe('running');
   });
 
+  it('a PostToolUse stamped before its PreToolUse but arriving after it still closes the tool', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    // The jitter of two shells starting stamps the Pre 10 ms AFTER its Post; the Pre still arrives first.
+    tracker.ingestHook(hook('PreToolUse', T0 + 910, { tool_name: 'Read', tool_use_id: 'toolu_3' }), T0 + 1_000);
+    const post = tracker.ingestHook(hook('PostToolUse', T0 + 900, { tool_name: 'Read', tool_use_id: 'toolu_3' }), T0 + 1_100);
+    expect(post.kind).toBe('ok');
+    const s = tracker.getSessionByKey('topic-o')!;
+    expect(s.phase).toBe('running');
+    expect(s.lastTool).toBeUndefined();
+  });
+
   it('a late SessionStart does not reset a working session to starting, and still brings the transcript', () => {
     tracker.ingestHook(hook('UserPromptSubmit', T0 + 500), T0 + 550);
     const late = tracker.ingestHook(hook('SessionStart', T0 + 100, { source: 'startup', transcript_path: '/tmp/never/cli-o.jsonl' }), T0 + 4_000);

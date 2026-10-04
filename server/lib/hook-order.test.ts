@@ -49,6 +49,23 @@ describe("createHookOrder", () => {
     expect(order.admit("s", "PreToolUse", "toolu_b", T + 30)).toBe("in-order");
   });
 
+  test("a PostToolUse stamped before its own PreToolUse, arriving after it, closes the call", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "UserPromptSubmit", undefined, T)).toBe("in-order");
+    // Jitter of two shells starting: the Pre is stamped 10 ms after its Post, and arrives first.
+    expect(order.admit("s", "PreToolUse", "toolu_a", T + 910)).toBe("in-order");
+    expect(order.admit("s", "PostToolUse", "toolu_a", T + 900)).toBe("in-order");
+    // The clock did not move back: a hook fired between the two stamps is still stale.
+    expect(order.admit("s", "Notification", undefined, T + 905)).toBe("stale");
+  });
+
+  test("a PostToolUse older than a hook applied AFTER its PreToolUse is still stale", () => {
+    const order = createHookOrder();
+    expect(order.admit("s", "PreToolUse", "toolu_a", T + 910)).toBe("in-order");
+    expect(order.admit("s", "Stop", undefined, T + 3_000)).toBe("in-order");
+    expect(order.admit("s", "PostToolUse", "toolu_a", T + 900)).toBe("stale");
+  });
+
   test("sessions are independent", () => {
     const order = createHookOrder();
     order.admit("a", "Stop", undefined, T + 5_000);

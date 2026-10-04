@@ -16,7 +16,9 @@
  *    hook fired before the newest one already applied is stale news;
  *  - the `tool_use_id`, which pairs a `PostToolUse` with its `PreToolUse`
  *    exactly, whatever the clocks say: a `PreToolUse` of a call whose
- *    `PostToolUse` already arrived describes a tool that has finished.
+ *    `PostToolUse` already arrived describes a tool that has finished, and a
+ *    `PostToolUse` that comes right after its own `PreToolUse` closes that call
+ *    even when the jitter of the two shells stamped it a few ms earlier.
  *
  * Pure and in memory: after a server restart the first hook of a session is
  * simply in order, which is what it was before this existed.
@@ -64,6 +66,8 @@ export type HookOrderVerdict = "in-order" | "stale" | "finished-call";
 interface SessionOrder {
   newestAt: number;
   endedCalls: string[];
+  /** The `tool_use_id` of the last hook applied in order when it was a `PreToolUse`, null otherwise. */
+  lastStartedCall: string | null;
 }
 
 export interface HookOrder {
@@ -76,7 +80,7 @@ export function createHookOrder(): HookOrder {
   function orderOf(sid: string): SessionOrder {
     let found = sessions.get(sid);
     if (!found) {
-      found = { newestAt: -Infinity, endedCalls: [] };
+      found = { newestAt: -Infinity, endedCalls: [], lastStartedCall: null };
       sessions.set(sid, found);
       if (sessions.size > MAX_SESSIONS) {
         // Map iteration is insertion order: the first key is the oldest session.
@@ -96,8 +100,15 @@ export function createHookOrder(): HookOrder {
         if (s.endedCalls.length > MAX_ENDED_CALLS) s.endedCalls.shift();
       }
       if (event === "PreToolUse" && id && s.endedCalls.includes(id)) return "finished-call";
+      // The Post of the call whose Pre is the newest hook applied: nothing else happened in between,
+      // so it is in order whatever its stamp says. The clock stays where the Pre put it.
+      if (event === "PostToolUse" && id && id === s.lastStartedCall) {
+        s.lastStartedCall = null;
+        return "in-order";
+      }
       if (at < s.newestAt) return "stale";
       s.newestAt = at;
+      s.lastStartedCall = event === "PreToolUse" ? id : null;
       return "in-order";
     },
   };
