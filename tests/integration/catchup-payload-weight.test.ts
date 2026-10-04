@@ -32,11 +32,15 @@
  * gate. Measured with this fixture: 93,050 B in the old shape against 14,445 B,
  * and on a live instance with 4 turns in flight the catchup was 2,828,244 B in
  * total (audit of 2026-09-07).
- * @covers WIRE-09
+ * The live output of the running call travels too (CHAT-TOOL-11): at most
+ * 16 KB more per running shell, measured here against the same budget.
+ *
+ * @covers WIRE-09, CHAT-TOOL-11
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { buildStreamCatchupFrame, type CatchupStreamState } from "../../server/lib/stream-catchup-frame";
+import { LIVE_TOOL_TAIL_BYTES, rememberLiveToolTail } from "../../server/lib/live-tool-tail";
 import type { AppContext, StoredMessage } from "../../server/types";
 import type { ToolCall, ContentBlock } from "../../shared/types";
 
@@ -191,5 +195,44 @@ describe("il catch-up di uno stream attivo non ripete i tool e non tocca quello 
     expect(new Set(ids).size).toBe(ids.length / 2);
     expect(frameToolCalls(before).every((tc) => tc.detailBytes === undefined)).toBe(true);
     expect(wireBytes(before)).toBeGreaterThan(75 * 1024);
+  });
+});
+
+describe("il catch-up porta la coda viva del tool in corso, e solo di quello", () => {
+  /** A tail longer than the cap: the frame must carry its LAST 16 KB. */
+  const tail = Array.from({ length: 2_000 }, (_, i) => `test ${i + 1} ok`).join("\n");
+
+  async function frameWithTails(sessionKey: string) {
+    const ctx = await createTestAppContext();
+    const partial = seedPartialTurn(ctx, sessionKey);
+    const stream: CatchupStreamState = { ...STREAM };
+    rememberLiveToolTail(stream, RUNNING_ID, tail);
+    // A tail left on a call that is over must not paint over its result.
+    const finishedId = `${sessionKey.replace(/[^a-z0-9]/gi, "")}-0`;
+    rememberLiveToolTail(stream, finishedId, "stale tail");
+    return { frame: buildStreamCatchupFrame({ sessionKey, topicId: "t", stream, partial }), partial, finishedId };
+  }
+
+  test("il tool in corso ha come result gli ultimi 16 KB della coda; quelli chiusi no", async () => {
+    expect(Buffer.byteLength(tail)).toBeGreaterThan(LIVE_TOOL_TAIL_BYTES);
+    const { frame, finishedId } = await frameWithTails("topic:catchup-tail");
+    const calls = frameToolCalls(frame);
+    const running = calls.find((tc) => tc.id === RUNNING_ID)!;
+    expect(typeof running.result).toBe("string");
+    expect(Buffer.byteLength(running.result!)).toBeLessThanOrEqual(LIVE_TOOL_TAIL_BYTES);
+    expect(running.result!.endsWith("test 2000 ok")).toBe(true);
+    expect(calls.find((tc) => tc.id === finishedId)!.result).not.toBe("stale tail");
+  });
+
+  test("con la coda il frame resta nei 75 KB", async () => {
+    const { frame } = await frameWithTails("topic:catchup-tail-weight");
+    expect(wireBytes(frame)).toBeLessThan(75 * 1024);
+  });
+
+  test("senza code in memoria il frame è quello di prima", async () => {
+    const ctx = await createTestAppContext();
+    const partial = seedPartialTurn(ctx, "topic:catchup-no-tail");
+    const frame = buildStreamCatchupFrame({ sessionKey: "topic:catchup-no-tail", topicId: "t", stream: STREAM, partial });
+    expect(frameToolCalls(frame).find((tc) => tc.id === RUNNING_ID)!.result).toBeUndefined();
   });
 });

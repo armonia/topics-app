@@ -23,7 +23,7 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
@@ -114,6 +114,7 @@ import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } fro
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
+import { createPreviewBrowser } from "./server/services/preview-browser";
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { killProcessTree } from "./server/lib/process-tree";
@@ -2213,6 +2214,7 @@ const worktreeOfTask = (taskId: string) => {
 // la card mostrava un'immagine rotta.
 const PREVIEW_MEDIA_DIR = join(ctx.OPENCLAW_DIR, "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
+const previewBrowser = createPreviewBrowser();
 
 /** `lsof` per le domande d'identità sulla porta (macOS non lo ha sempre nel PATH). */
 function lsofBin(): string { return Bun.which("lsof") ?? "/usr/sbin/lsof"; }
@@ -2312,46 +2314,16 @@ previewManager = createPreviewManager({
     } catch { return null; }
   },
   // `blankShot` reads bytes; this reads the DOM the SPA drew, which is the
-  // only place "the app has no topic open" is visible. Own throwaway
-  // context (the screenshot's one is already destroyed by the time this
-  // runs). "Welcome to Topics" is the literal string PanelGrid renders when
-  // no topic is selected — see client/src/components/Layout/PanelGrid.tsx.
-  emptyAppShell: async (url) => {
-    const id = `preview-shell-check:${Math.random().toString(36).slice(2)}`;
-    try {
-      await browserService.createContext(id, { viewport: { width: 1440, height: 760 } });
-      const nav = await browserService.navigate(id, url);
-      if (nav.error) return false;
-      await new Promise((r) => setTimeout(r, 1500));
-      const text = await browserService.evaluate(id, "document.body ? document.body.innerText : ''");
-      return typeof text === "string" && text.includes("Welcome to Topics");
-    } catch { return false; }
-    finally { try { await browserService.destroyContext(id); } catch { /* ignore */ } }
-  },
-  // Reuse the already-running headless Chromium (no extra launch) via a throwaway
-  // context, sized to 1440px. Best-effort → boolean.
-  screenshot: async (url, outPath, opts) => {
-    let port = "0"; try { port = new URL(url).port || "0"; } catch { /* keep */ }
-    const id = `preview-shot:${port}`;
-    try {
-      // Viewport, non full-page: la card disegna l'anteprima in `object-cover`
-      // e un'immagine più alta di `PREVIEW_CARD_MAX_RATIO` (0.70) volte la
-      // larghezza la TAGLIA invece di rimpicciolirla — 1440×760 = 0.528 sta
-      // dentro con margine, una full-page no.
-      await browserService.createContext(id, { viewport: { width: opts.width, height: 760 } });
-      const nav = await browserService.navigate(id, url);
-      if (nav.error) return false;
-      await new Promise((r) => setTimeout(r, 1500)); // let the first paint settle
-      const buf = await browserService.screenshot(id, { format: "png", fullPage: false });
-      writeFileSync(outPath, buf);
-      return true;
-    } catch (err) {
-      console.error("[preview] screenshot", err);
-      return false;
-    } finally {
-      try { await browserService.destroyContext(id); } catch { /* ignore */ }
-    }
-  },
+  // only place "the app has no topic open" is visible. "Welcome to Topics" is
+  // the literal string PanelGrid renders when no topic is selected — see
+  // client/src/components/Layout/PanelGrid.tsx.
+  // Both captures run on the preview's own WebKit, never on the remote
+  // browser's Chromium (KANBAN-95, server/services/preview-browser.ts).
+  emptyAppShell: (url) => previewBrowser.emptyAppShell(url),
+  // Viewport, not full page: the card draws the preview with `object-cover`,
+  // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width
+  // gets CROPPED instead of scaled — 1440×760 = 0.528 fits with margin.
+  screenshot: (url, outPath, opts) => previewBrowser.screenshot(url, outPath, opts),
   currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
   currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
   setOutputUrl: (taskId, url) => {
@@ -6835,6 +6807,7 @@ async function gracefulShutdown(signal: string) {
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await webrtcBridge.shutdown();
   await browserService.close();
+  await previewBrowser.close();
   // Il sidecar Chromium NON è di browserService: il suo processo appartiene al
   // registry degli engine, che lo tiene a conteggio di riferimenti. close() qui
   // sopra chiude solo i client CDP, quindi finché mancava questa riga l'uscita

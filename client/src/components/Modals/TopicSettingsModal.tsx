@@ -348,7 +348,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           <div className="flex items-center gap-2">
             <h2 className="text-title font-semibold text-app-text">{topic.name} Settings</h2>
             {isGlobalOrchestrator && (
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-micro font-medium text-primary">
+              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-mini font-medium text-primary">
                 {tr('topic.orchestrator.badge')}
               </span>
             )}

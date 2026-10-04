@@ -286,7 +286,7 @@ function RailButton({
           un cerchio chiaro attorno a un numero colorato è una terza cosa che non
           dice niente. */}
       {badge !== null && badge > 0 && (
-        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-nano font-bold leading-none tabular-nums ${toneClass}`}>
+        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-mini font-bold leading-none tabular-nums ${toneClass}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}

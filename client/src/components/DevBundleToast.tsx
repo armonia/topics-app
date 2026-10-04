@@ -75,7 +75,7 @@ export function DevBundleToast({ docked = true }: { docked?: boolean }) {
     >
       <button
         onClick={() => reloadForNewBundle()}
-        className="mt-1 text-primary underline underline-offset-2 hover:no-underline"
+        className="tap-expand-y mt-1 text-primary underline underline-offset-2 hover:no-underline"
         data-testid="bundle-stale-reload"
       >
         {tr('dev.reload')}

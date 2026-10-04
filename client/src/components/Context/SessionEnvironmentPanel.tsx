@@ -163,7 +163,7 @@ export function SessionEnvironmentPanel({ topicId }: { topicId: string }) {
 function Section({ icon, title, count, children }: { icon: React.ReactNode; title: string; count: number; children: React.ReactNode }) {
   return (
     <div>
-      <div className="flex items-center gap-1.5 pb-1 text-micro font-semibold uppercase tracking-wider text-app-text-tertiary">
+      <div className="flex items-center gap-1.5 pb-1 text-mini font-semibold uppercase tracking-wider text-app-text-tertiary">
         <span className="text-app-text-muted">{icon}</span>
         <span>{title}</span>
         <span className="tabular-nums text-app-text-muted">{count}</span>
@@ -195,7 +195,7 @@ const TONE: Record<string, string> = {
 
 function Chip({ children, tone, mono }: { children: React.ReactNode; tone?: keyof typeof TONE; mono?: boolean }) {
   return (
-    <span className={`rounded border px-1 py-px text-micro ${mono ? 'font-mono ' : ''}${TONE[tone ?? 'muted']}`}>
+    <span className={`rounded border px-1 py-px text-mini ${mono ? 'font-mono ' : ''}${TONE[tone ?? 'muted']}`}>
       {children}
     </span>
   );

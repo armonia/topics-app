@@ -1100,7 +1100,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     <div
                       data-testid="commit-error"
                       role="alert"
-                      className="mx-2 mb-1 px-2 py-1 rounded border border-red-500/40 bg-red-500/10 text-micro leading-[14px] text-red-600 dark:text-red-400 flex items-start gap-1 flex-shrink-0"
+                      className="mx-2 mb-1 px-2 py-1 rounded border border-red-500/40 bg-red-500/10 text-mini leading-[14px] text-red-600 dark:text-red-400 flex items-start gap-1 flex-shrink-0"
                     >
                       <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
                       <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
@@ -1119,7 +1119,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       dai soli numeri è plausibile abbastanza da passare per una
                       descrizione, ed è esattamente per questo che va detto. */}
                   {msgSource === 'rules' && (
-                    <div data-testid="commit-message-source" className="px-2 pb-1 text-micro text-app-text-muted flex-shrink-0">
+                    <div data-testid="commit-message-source" className="px-2 pb-1 text-mini text-app-text-muted flex-shrink-0">
                       {tr('git.msgFromRules')}
                     </div>
                   )}
@@ -1418,7 +1418,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               </button>
             </div>
             {msgSource === 'rules' && (
-              <div data-testid="commit-message-source" className="text-micro text-app-text-muted">
+              <div data-testid="commit-message-source" className="text-mini text-app-text-muted">
                 {tr('git.msgFromRules')}
               </div>
             )}

@@ -181,7 +181,7 @@ export function ConsoleBadge({
   const hasErr = summary.errors > 0;
   const hasWarn = !hasErr && summary.warnings > 0;
   const count = hasErr ? summary.errors : hasWarn ? summary.warnings : 0;
-  const chipBase = 'px-1.5 h-[18px] flex items-center gap-1 rounded border text-micro leading-none transition-colors';
+  const chipBase = 'px-1.5 h-[18px] flex items-center gap-1 rounded border text-mini leading-none transition-colors';
   return (
     <>
       <button ref={btnRef} type="button" title="Console"
@@ -192,7 +192,7 @@ export function ConsoleBadge({
           : `h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? DANGER_TEXT : hasWarn ? WARNING_TEXT : 'text-app-text-secondary'}`}>
         <Terminal size={ICON} className={label ? 'shrink-0' : undefined} />
         {label && <span className="flex-1 text-left">{label}</span>}
-        {count > 0 && <span className="text-micro font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
+        {count > 0 && <span className="text-mini font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
       </button>
       {/* Anchored React <Menu> (portal + flip/clamp + Escape/dismissal + focus-
           restore). A scrollable log panel that owns its own layout → unmanagedFocus.
@@ -274,7 +274,7 @@ export function ConsoleBadge({
                 type="button"
                 onClick={goToTail}
                 data-testid="browser-console-tail"
-                className="absolute right-2 bottom-2 flex items-center gap-1 px-2 h-6 rounded-full glass-surface border border-app-border text-micro text-app-text-secondary shadow hover:bg-app-hover"
+                className="absolute right-2 bottom-2 flex items-center gap-1 px-2 h-6 rounded-full glass-surface border border-app-border text-mini text-app-text-secondary shadow hover:bg-app-hover"
               >
                 <ArrowDown size={11} aria-hidden />
                 {t('browser.dev.console.toTail')}

@@ -5339,6 +5339,117 @@ come `stream:tool_update`.
 - **WHEN** gira `echo ok`
 - **THEN** il tool risponde `ok`, senza errore
 
+### Requirement: CHAT-NTOOL-05 — Una chiamata nativa in coda non si mostra «in esecuzione»
+
+Il runtime nativo annuncia una chiamata quando il modello comincia a scriverla
+(`content_block_start`) ed esegue le chiamate di un giro una dopo l'altra
+(`agent-loop.ts`). Fra l'annuncio e l'esecuzione la chiamata NON gira.
+
+- Per un provider che dichiara `tool-phases`, l'annuncio (`onToolStart`) SHALL
+  avere `status: 'pending'` e NESSUN `startedAt`. I provider senza
+  `tool-phases` restano come oggi: `running` con `startedAt` all'annuncio.
+- Su `onToolExecStart` la route SHALL scrivere `status: 'running'` e
+  `startedAt = Date.now()` sulla riga salvata e sulla timeline dei blocchi, e
+  mandarli come `stream:tool_call` (upsert per id) su WS e come delta
+  `tool_calls` su SSE, con `status` e `startedAt`.
+- La durata salvata (`endedAt - startedAt`) SHALL coprire solo l'esecuzione.
+- Il client SHALL leggere `pending` come «non partita»: nessuna rotella, nessun
+  cronometro, nessuna apertura automatica del corpo, e al loro posto una
+  scritta (`data-testid="tool-queued"`) che dice «in coda» oppure, mentre il
+  modello scrive ancora gli argomenti (`inputStreaming: true`), «sta scrivendo
+  il comando…». Il gruppo di azioni conta le chiamate in coda fra quelle non
+  concluse, ma il suo cronometro parte dalla prima chiamata davvero partita.
+- Un annuncio (`stream:tool_call` su WS, delta `tool_calls` su SSE) SHALL
+  fondersi sulla riga per id senza farla tornare indietro
+  (`withToolAnnouncement`): una riga `waiting_for_input`,
+  `awaiting_permission`, `success` o `error` SHALL tenere il suo stato, e una
+  riga `running` non SHALL tornare `pending`; gli altri campi (argomenti,
+  `startedAt`, `inputStreaming`) si prendono. Il runtime nativo fa partire la
+  chiamata e pone la domanda nello stesso istante: l'annuncio `running` viaggia
+  sull'SSE del mittente, il form su WS, senza ordine fra i due canali.
+- Su `onUserInputRequired` la route SHALL mandare, oltre al frame WS
+  `stream:tool_user_input_required`, anche il delta SSE `tool_calls` della riga
+  con `status: 'waiting_for_input'` e `userInputSchema`, così il mittente riceve
+  la domanda in ordine con la riga (WebKit può trattenere un blocco dell'SSE
+  fino al byte dopo, e il frame WS arriva prima che la riga esista). Un annuncio
+  `waiting_for_input` NON SHALL riaprire una riga che ha già `userResponse` o è
+  chiusa.
+
+#### Scenario: la seconda chiamata di un giro aspetta la prima
+- **GIVEN** un turno nativo il cui giro chiede `sleep 5; echo first` e poi `echo second`
+- **WHEN** la prima shell dorme
+- **THEN** la seconda riga ha `data-status="pending"`, la scritta «in coda» e nessun `tool-elapsed`
+- **AND** nella finestra da cui si è scritto la seconda riga non si mostra partita prima che la prima sia finita
+- **AND** a turno finito, nella storia salvata, `startedAt` della seconda è ≥ `endedAt` della prima
+- **AND** la durata salvata della seconda è sotto i 3 s
+
+#### Scenario: una domanda in coda dietro una shell tiene il form nella finestra da cui si è scritto
+- **GIVEN** un turno nativo il cui giro chiede `sleep 2; echo first` e poi `ask_user_question`
+- **WHEN** la shell finisce e la domanda parte
+- **THEN** nella finestra da cui si è scritto la riga della domanda resta `data-status="waiting_for_input"` per almeno 3 s, con il form, senza `tool-elapsed`, e il composer dice «Rispondi alla domanda…»
+- **AND** la risposta data da quella finestra fa finire il turno
+
+#### Scenario: un provider senza fasi resta com'era
+- **GIVEN** un provider che non dichiara `tool-phases`
+- **WHEN** annuncia una chiamata
+- **THEN** la riga nasce `running` con `startedAt`
+
+### Requirement: CHAT-NTOOL-06 — Il comando si vede mentre il modello lo scrive
+
+Mentre arrivano i frammenti `input_json_delta` di una chiamata, il runtime
+nativo SHALL anticipare il suo argomento principale (`file_path`, `path`,
+`command`, `url`, …) con `onToolArgsUpdate(id, { [chiave]: valore }, { partial: true })`,
+al massimo una volta ogni `PARTIAL_ARGS_EMIT_MS` (500 ms) e solo quando il
+valore è cambiato. Il valore SHALL valere anche se non è ancora chiuso,
+tagliato all'ultimo carattere intero: un escape a metà (`\`, `\u12`) non si
+mostra finché non arriva il resto.
+
+- `extractPrimaryToolArg` SHALL vivere in un modulo condiviso
+  (`server/providers/partial-tool-input.ts`), lo stesso che usa il percorso
+  della CLI; per la CLI resta il contratto di oggi (solo valori chiusi).
+- Un aggiornamento parziale SHALL segnare la riga con `inputStreaming: true` e
+  NON SHALL scrivere sul DB a ogni frammento (resta nella timeline in memoria,
+  che il turno salva da sé); gli argomenti completi a `content_block_stop`
+  SHALL sostituirlo e riportare `inputStreaming: false`.
+
+#### Scenario: un heredoc lungo si vede prima della fine
+- **GIVEN** un turno nativo il cui modello impiega 10 s a scrivere un `bash` con un heredoc di 40 righe
+- **WHEN** sono passati al massimo 4 s dalla comparsa della riga
+- **THEN** la riga contiene già `cat > /dev/null`, ha `data-status="pending"` e la scritta «sta scrivendo il comando…»
+- **AND** il modello non ha ancora finito di scrivere la chiamata
+
+#### Scenario: il parser parziale
+- **GIVEN** il buffer `{"command":"echo \u00`
+- **WHEN** lo si legge con `open: true`
+- **THEN** il valore è `echo ` e non contiene `\`
+- **AND** senza `open` lo stesso buffer non dà niente
+
+### Requirement: CHAT-NTOOL-07 — Il `bash` nativo rispetta il `timeout` chiesto, fino a 10 minuti
+
+Lo schema del `bash` nativo SHALL avere un parametro `timeout` (millisecondi),
+con lo stesso contratto del Bash di Claude Code: default 120 000, massimo
+600 000 (`MAX_BASH_TIMEOUT_MS`, in una costante sola con il perché). La
+descrizione del tool SHALL dire il default e il massimo. Un valore oltre il
+massimo SHALL essere limitato al massimo; un valore assente o non valido SHALL
+dare il default (`ctx.bashTimeoutMs` se c'è). Il messaggio di uccisione SHALL
+dire come andare oltre: un `timeout` più alto fino al massimo, oppure
+`run_command` e poi `wait_for_process`.
+
+#### Scenario: un timeout chiesto oltre il default regge
+- **GIVEN** un `bash` con `timeout` più lungo del default del contesto
+- **WHEN** il comando dura più del default
+- **THEN** finisce con exit 0 e il suo output, senza `[comando ucciso`
+
+#### Scenario: un timeout oltre il massimo viene limitato
+- **GIVEN** `timeout: 900000`
+- **WHEN** si risolve il tetto
+- **THEN** vale 600 000; con `timeout: 230000` vale 230 000; senza, il default
+
+#### Scenario: l'uccisione dice come andare oltre
+- **GIVEN** un `bash` che supera il suo tetto
+- **WHEN** viene ucciso
+- **THEN** il risultato contiene `[comando ucciso dopo`, `timeout` e `run_command`
+
 ### Requirement: CHAT-TOOL-08 — La riga di un comando in corso mostra le sue ultime 8 righe
 
 Una riga `shell` con stato `pending` o `running`, il cui `detail` tipizzato non
@@ -5401,6 +5512,131 @@ dell'evento (`toolUpdatePatch`) resta com'è.
 - **WHEN** arriva un `stream:tool_update` per la stessa riga
 - **THEN** `result` resta quello finale
 - **AND** sulla chat di `:13334`, con la riga senza `detail` tipizzato (come arriva dall'SSE nella finestra mittente), `tool-call-result` mostra ancora l'output finale
+
+### Requirement: CHAT-TOOL-10 — La finestra da cui hai scritto riceve lo stesso tool call delle altre
+
+La finestra che ha mandato il messaggio legge il turno dal proprio SSE e, finché
+la risposta è aperta, scarta i frame WS della sessione (`senderAlsoSees.ts`).
+Il server SHALL quindi scrivere sull'SSE lo stesso `ToolCall` del frame WS:
+
+- la voce di `delta.tool_calls` SHALL portare `status`, `startedAt` e `detail`
+  oltre a `id`, `function` e `contentOffset` (annuncio e argomenti completi);
+- `delta.tool_result` SHALL portare `endedAt`, e `error` e `detail` quando il
+  frame WS li porta (esito del tool, tool eseguiti dalla route, chiusura dei
+  tool aperti a fine turno).
+
+Il client (`client/src/hooks/sseToolFrames.ts`) SHALL leggerli con le stesse
+regole di `stream:tool_result` su WS. Una riga `shell` in `error` senza output
+SHALL mostrare il testo di `error` (`tool-call-error`): prima la X rossa non
+diceva il perché.
+
+#### Scenario: il cronometro c'è anche nella finestra che scrive
+- **GIVEN** una chat `claude-code` su `:13334` con la CLI finta che lancia `Bash` `sleep 30`
+- **WHEN** il messaggio parte da questa finestra
+- **THEN** la riga del tool mostra `tool-elapsed` entro 2 s da quando compare
+- **AND** a tool chiuso, prima che la storia sia riletta, mostra `tool-duration`
+
+#### Scenario: un turno tagliato dice perché
+- **GIVEN** la stessa chat, con la CLI che muore mentre il `Bash` gira
+- **WHEN** il turno si chiude e la storia non è ancora stata riletta
+- **THEN** la riga è in `error` e `tool-call-error` contiene il motivo
+
+#### Scenario: i frame SSE della route portano i tempi
+- **GIVEN** un provider che annuncia un tool, ne aggiorna l'output e lo chiude con un errore
+- **WHEN** la route scrive l'SSE
+- **THEN** la voce `tool_calls` ha `startedAt` e `detail`, il `tool_result` ha `endedAt` ed `error`
+
+### Requirement: CHAT-TOOL-11 — La coda viva di un comando in corso sopravvive al catch-up
+
+L'ultimo `stream:tool_update` di ogni tool ancora in corso SHALL restare in
+memoria sulla voce del turno (`ActiveStream.liveToolTails`,
+`server/lib/live-tool-tail.ts`), tagliato agli ultimi 16 KB in byte come la
+coda della shell nativa, MAI scritto sul DB, e SHALL sparire quando il tool ha
+il suo esito. `buildStreamCatchupFrame` SHALL mettere quella coda come `result`
+del tool in corso, nei blocchi e nel bucket `toolCalls` quando viaggia. La
+pagina di `GET /api/history/:sessionKey` SHALL fare lo stesso sulla riga
+parziale del turno in volo, con la coda della voce di QUELLA riga (anche se è
+oscurata da un altro turno, `shadowed`): una finestra che si riapre (seconda
+finestra, ricarica, riconnessione, rimontaggio della pane) legge la storia
+DOPO il catch-up, e la copia della storia sostituiva la bolla senza coda
+(misurato il 04/10: `r1..r3` nella finestra che scrive, nessuna riga in una
+seconda finestra, dopo la ricarica e dopo il cambio di tab).
+
+Il client (`mergeCatchupIntoPartial`) SHALL tenere l'output vivo che mostra già
+per un tool in corso quando il catch-up lo porta senza: i blocchi del catch-up
+sostituiscono quelli locali, e senza questa regola la shell tornava vuota a
+ogni ricollegamento, montaggio della pane o ricarica. Un catch-up che porta una
+coda vince. La stessa regola SHALL valere per la storia (`mergeFetchedHistory`)
+quando la sua copia della riga in volo sostituisce quella locale.
+
+#### Scenario: il catch-up porta la coda
+- **GIVEN** un turno in volo con un `Bash` in corso e una coda di 20 KB in memoria
+- **WHEN** si costruisce il frame di catch-up
+- **THEN** il tool porta come `result` gli ultimi 16 KB della coda
+- **AND** i tool chiusi restano senza coda e il frame resta sotto il budget di peso
+
+#### Scenario: la coda resta a schermo dopo il catch-up
+- **GIVEN** la chat su `:13334` con un `Bash` in `running` che mostra tre righe in `shell-running-tail`
+- **WHEN** arriva un `stream:catchup` che porta lo stesso tool senza output
+- **THEN** le tre righe restano
+- **AND** un catch-up successivo con una coda nuova la mostra
+
+#### Scenario: la coda resta riaprendo il topic sul server vero
+- **GIVEN** la chat su `:13334` con un codex finto il cui `Bash` stampa `r1`, `r2`, `r3` (`item.updated`) e poi tace
+- **WHEN** una seconda finestra apre il topic a comando in corso, poi si ricarica, poi la sua WebSocket cade e si riapre, poi cambia tab e torna
+- **THEN** in ogni passo la riga è `running` e `shell-running-tail-line` mostra `r1`, `r2`, `r3`
+- **AND** `shell-silent-status` non c'è
+
+### Requirement: CHAT-TOOL-12 — Un tool riannunciato tiene i suoi primi orari
+
+Un tool call già visto SHALL tenere il primo `startedAt` e il primo `endedAt`
+(`server/lib/tool-call-times.ts`): nella fusione di `addToolCallToLastMessage`
+(`server/utils.ts`) e nell'annuncio e nell'esito della route, dove contano gli
+orari della timeline del turno e poi quelli della riga riadottata. Il replay di
+una riadozione dopo un riavvio ri-emette tutti i tool: con `Date.now()` ogni
+tool di prima del riavvio veniva riscritto con durata zero (21% dei tool di
+topic d740f8ae il 03/10).
+
+#### Scenario: la fusione non ritimbra
+- **GIVEN** una riga con un tool `t1` che ha `startedAt` e `endedAt`
+- **WHEN** lo stesso id viene riannunciato con orari nuovi
+- **THEN** `startedAt` ed `endedAt` restano quelli di prima
+
+#### Scenario: il replay della riadozione non ritimbra
+- **GIVEN** una riga in volo con un tool chiuso e uno ancora in corso, ciascuno col suo `startedAt`
+- **WHEN** la route riadotta il turno (`mode: "reattach"`) e il replay riannuncia e chiude entrambi
+- **THEN** nella riga e nei frame i due tool hanno ancora il `startedAt` di prima, e quello già chiuso il suo `endedAt`
+
+### Requirement: CHAT-TOOL-13 — Una shell in corso senza output dice da quanto gira
+
+Una riga `shell` in corso con `startedAt`, senza coda viva e senza output,
+SHALL mostrare nel corpo `shell-silent-status`: «In esecuzione da {tempo} ·
+nessun output visibile», aggiornato ogni secondo e nascosto nel primo secondo.
+Il testo SHALL NOT affermare che il comando non ha stampato («nessun output
+finora»): una riga ricostruita dalla storia o da una riadozione senza coda non
+può saperlo, e su un comando che aveva stampato la frase era falsa. Una riga
+che ha la coda viva (da `stream:tool_update`, dal catch-up o dalla storia,
+CHAT-TOOL-11) SHALL NOT mostrare `shell-silent-status`.
+Se il comando comincia con `sleep N` (secondi, o suffisso `s`/`m`/`h`) seguito
+dalla fine del comando, da `;`, `&&`, `||` o da un a capo, SHALL mostrare anche
+`shell-sleep-countdown`: quanto manca alla fine di quella attesa, in secondi
+interi arrotondati per eccesso. Niente PTY: è una scelta di presentazione, i
+comandi muti restano muti. I testi passano dall'i18n.
+
+#### Scenario: un sleep si conta alla rovescia
+- **GIVEN** la chat su `:13334` con la CLI finta che lancia `Bash` `sleep 30`
+- **WHEN** il tool gira
+- **THEN** la riga dice da quanto è in esecuzione e che non c'è output visibile
+- **AND** il conto alla rovescia scende
+
+#### Scenario: un comando che ha stampato non si dice muto in un'altra finestra
+- **GIVEN** la chat su `:13334` con un codex finto il cui `Bash` stampa `r1`, `r2`, `r3` e poi tace
+- **WHEN** una seconda finestra apre il topic a comando in corso
+- **THEN** la riga mostra le tre righe e `shell-silent-status` non c'è
+
+#### Scenario: solo uno sleep in testa conta
+- **WHEN** si legge la durata di `sleep 30; echo ok`, `sleep 2m`, `make && sleep 5` e `sleepy 3`
+- **THEN** valgono 30 s, 120 s, nessuna e nessuna
 
 ### Requirement: CHAT-RUN-01 — Il blocco shell di una risposta finita offre Esegui, e niente gira da solo
 

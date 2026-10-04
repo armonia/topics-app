@@ -138,7 +138,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         {label && <span className="text-app-text-faint tabular-nums text-mini">{items.length}</span>}
         {activeCount > 0 && (
           <span
-            className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full bg-primary text-white text-nano leading-[13px] text-center tabular-nums"
+            className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full bg-primary text-white text-mini leading-[13px] text-center tabular-nums"
             data-testid="browser-downloads-badge"
           >
             {activeCount}
@@ -221,7 +221,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       {d.filename}
                     </div>
                   )}
-                  <div className="text-micro text-app-text-faint truncate flex items-center gap-1.5">
+                  <div className="text-mini text-app-text-faint truncate flex items-center gap-1.5">
                     <span className="truncate">
                       {failed ? 'Non riuscito' : d.detail || (done ? 'Completato' : 'In corso…')}
                     </span>

@@ -186,7 +186,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
         aria-valuemax={reading.limit != null && Number.isFinite(reading.limit) ? reading.limit : undefined}
         aria-label={phrase}
         title={phrase}
-        className={`flex items-center gap-1 rounded px-1 py-0.5 text-micro font-medium normal-case tracking-normal tabular-nums hover:bg-white/10 ${loadToneClass(reading)}`}
+        className={`tap-expand-y flex items-center gap-1 rounded px-1 py-0.5 text-mini font-medium normal-case tracking-normal tabular-nums hover:bg-white/10 ${loadToneClass(reading)}`}
       >
         <LoadRing reading={reading} size={12} />
         <span data-testid="dispatch-load-word">{tr(loadWordKey(reading))}</span>

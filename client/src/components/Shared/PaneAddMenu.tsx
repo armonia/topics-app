@@ -164,7 +164,10 @@ export function PaneAddMenuItems({
                 questo ferma la propagazione. */}
             {item.id === 'claude-code' && (
               <span
-                className="flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0"
+                // `tap-expand-y` + `coarse:px-1.5`: the switch is its own
+                // target inside the row, 24 tall with the mouse and 44x50
+                // under a finger (it was 38x17, usability audit 04/10).
+                className="tap-expand-y flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0 coarse:px-1.5"
                 onClick={(e) => { e.stopPropagation(); setClaudeSkipPermissions(!claudeSkipPermissions); }}
                 role="checkbox"
                 aria-checked={claudeSkipPermissions}
@@ -400,7 +403,7 @@ export function PaneAddMenu({
         {triggerVariant === 'bar' ? (
           <>
             <Plus size={triggerIconSize} aria-hidden="true" />
-            {triggerLabel && <span className="pointer-events-none absolute inset-x-0 text-center text-micro font-medium leading-none" style={{ top: BAR_LABEL_TOP }}>{triggerLabel}</span>}
+            {triggerLabel && <span className="pointer-events-none absolute inset-x-0 text-center text-mini font-medium leading-none" style={{ top: BAR_LABEL_TOP }}>{triggerLabel}</span>}
           </>
         ) : (
           <>

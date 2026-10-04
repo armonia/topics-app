@@ -11,6 +11,8 @@ import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
 import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
 import { decodeCol } from "../../shared/message-blob";
 import { flushTurnBody } from "../lib/turn-body-flush";
+import { withLiveToolTails } from "../lib/stream-catchup-frame";
+import { streamOfRow } from "../lib/live-tool-tail";
 import { appendChatFind, CHAT_FIND_MAX_HITS, type ChatFindResult } from "../../shared/chat-find";
 
 /**
@@ -259,10 +261,19 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // in place, so `m === pageLast` still recognises the page's last row.
       const shapeForWire = (m: StoredMessage) => {
         const n = numbers.get(m.id);
-        const out = n ? { ...m, promptNumber: n } : m;
+        let out = n ? { ...m, promptNumber: n } : m;
         if (streamContent && m === pageLast && out.role === 'assistant' && out.partial) {
           out.content = streamContent.content;
           if (streamContent.thinking) out.thinking = streamContent.thinking;
+        }
+        // The running tools' live output, as the catch-up carries it: the row
+        // on disk never has it, and a reopening window reads this page AFTER
+        // its catch-up, so without it the page wiped the tail the catch-up had
+        // just put on screen (CHAT-TOOL-11, measured 04/10: r1..r3 in the
+        // sending window, none in a second one, after a reload, a reconnect or
+        // a tab switch).
+        if (currentStream && m === pageLast && out.role === 'assistant' && out.partial) {
+          out = withLiveToolTails(out, streamOfRow(currentStream, m.id)?.liveToolTails);
         }
         return leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
       };

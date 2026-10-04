@@ -386,9 +386,11 @@ export const filterFieldClass = (active: boolean) =>
  * The INPUT that lives inside one of those shells (search, token field): it
  * brings no background and no ring of its own, because the shell around it is
  * already the field. Shared so the two inputs cannot drift apart again.
+ * The shell's own height (`TOOLBAR_CONTROL_H`): at `h-5` the field took clicks on 20 of its
+ * 24 pixels (usability audit, 04/10, WCAG 2.5.8).
  */
 export const filterInputClass =
-  'h-5 min-w-0 flex-1 bg-transparent text-mini leading-none text-app-text outline-none placeholder:text-app-placeholder';
+  `${TOOLBAR_CONTROL_H} min-w-0 flex-1 bg-transparent text-mini leading-none text-app-text outline-none placeholder:text-app-placeholder`;
 
 /**
  * A PILL inside the token field: the value the field holds. It sits on an
@@ -402,7 +404,7 @@ export const filterTokenPillClass =
 /** Caption of a group inside a filter dropdown. It was a local string inside
  *  `InlineFilters`; the field that owns the menu now owns the class. */
 export const filterMenuCaptionClass =
-  'px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted';
+  'px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted';
 
 /**
  * The board's five filter axes. It used to be declared TWICE inside

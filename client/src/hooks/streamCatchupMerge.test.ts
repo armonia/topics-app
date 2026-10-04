@@ -2,7 +2,7 @@
  * Merging a catch-up payload into the partial assistant message a stream had
  * already started, with and without a bubble to merge into.
  *
- * @covers CHAT-01
+ * @covers CHAT-01, CHAT-TOOL-11
  */
 import { describe, expect, test } from "bun:test";
 import { isClientGeneratedMessageId, mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder } from "./streamCatchupMerge";
@@ -280,6 +280,40 @@ describe("mergeCatchupIntoPartial", () => {
       expect(msg.thinking).toBe("deliberating...");
       expect(msg.content).toBe("");
     });
+  });
+});
+
+/**
+ * The live output of a running command is on screen; a catch-up built from the
+ * database row carries the same call without it (CHAT-TOOL-11).
+ */
+describe("mergeCatchupIntoPartial keeps the live output of a running call", () => {
+  const shown = "r1\nr2\nr3";
+  const onScreen = (result: string | undefined, status: ToolCall["status"] = "running"): ToolCall => ({ ...tc("toolu_live", status), result });
+
+  test("a running call the catch-up brings without output keeps the lines on screen, in blocks and bucket", () => {
+    const last = partial({ toolCalls: [onScreen(shown)], blocks: [{ kind: "tool", toolCall: onScreen(shown) }] });
+    const msg = mergeCatchupIntoPartial({ blocks: [{ kind: "tool", toolCall: onScreen(undefined) }], toolCalls: [onScreen(undefined)] }, last, ID, NOW);
+    expect((msg.blocks![0] as { toolCall: ToolCall }).toolCall.result).toBe(shown);
+    expect(msg.toolCalls![0].result).toBe(shown);
+  });
+
+  test("a catch-up that carries a tail wins: it is the newer one", () => {
+    const last = partial({ blocks: [{ kind: "tool", toolCall: onScreen(shown) }] });
+    const msg = mergeCatchupIntoPartial({ blocks: [{ kind: "tool", toolCall: onScreen("r4") }] }, last, ID, NOW);
+    expect((msg.blocks![0] as { toolCall: ToolCall }).toolCall.result).toBe("r4");
+  });
+
+  test("a call the catch-up says is over takes the catch-up's result, not the stale tail", () => {
+    const last = partial({ blocks: [{ kind: "tool", toolCall: onScreen(shown) }] });
+    const msg = mergeCatchupIntoPartial({ blocks: [{ kind: "tool", toolCall: onScreen(undefined, "success") }] }, last, ID, NOW);
+    expect((msg.blocks![0] as { toolCall: ToolCall }).toolCall.result).toBeUndefined();
+  });
+
+  test("nothing live on screen: the catch-up blocks pass through as they are", () => {
+    const blocks: ContentBlock[] = [{ kind: "tool", toolCall: onScreen(undefined) }, txt("hi")];
+    const msg = mergeCatchupIntoPartial({ blocks }, partial({ blocks: [tool("toolu_live")] }), ID, NOW);
+    expect(msg.blocks).toBe(blocks);
   });
 });
 

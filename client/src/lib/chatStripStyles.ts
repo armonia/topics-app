@@ -29,4 +29,5 @@ export const CHAT_STRIP = 'mx-2 md:mx-3 mb-1 rounded-lg';
 export const CHAT_STRIP_NEUTRAL = `${CHAT_STRIP} border border-app-border/60 bg-app-hover/40 text-app-text`;
 
 /** La riga cliccabile che apre/chiude una striscia espandibile. */
-export const CHAT_STRIP_ROW = 'flex w-full items-center gap-2 px-2.5 py-1.5 text-left';
+/** `coarse:min-h-11`: a strip row is a target, 44 tall under a finger (it was 29, usability audit 04/10). */
+export const CHAT_STRIP_ROW = 'flex w-full items-center gap-2 px-2.5 py-1.5 text-left coarse:min-h-11';

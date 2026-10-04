@@ -845,6 +845,53 @@ suggerimento risultava testo `rgb(26,27,28)` su `rgb(30,30,30)` — un rapporto 
 - **GIVEN** un token che nel tema opposto porta il valore dell'altro
 - **THEN** il banco SHALL fallire
 
+### Requirement: UI-READ-01 — Bersagli, testo e contrasto si MISURANO su ogni superficie di ogni giorno
+
+Ogni superficie che si tocca ogni giorno (sidebar e banner di versione, menu
+utente e impostazioni, chat con i tool chiusi e aperti, composer e selettore
+del modello, board con card, impostazioni e scheda del task, pane browser e
+menu «+») SHALL rispettare tre numeri, nei due temi:
+
+- **bersaglio**: l'area che RICEVE il click, misurata con `elementFromPoint`
+  dal centro verso i bordi, SHALL essere almeno **24×24 px** a 1440×900 con il
+  mouse (WCAG 2.2 AA, 2.5.8) e almeno **44×44 px** a 390×844 con il dito.
+  L'area può venire dal box o da uno pseudo-elemento (`.tap-expand`,
+  `.tap-expand-y`), purché sia l'elemento a rispondere: un bersaglio coperto da
+  un altro conta zero;
+- **testo**: ogni testo visibile SHALL stare ad almeno **11 px**
+  (`--text-mini`). Sotto resta solo `--text-nano`, riservato a un conteggio o
+  a un monogramma dentro una scatola fissa, nei file che `check:typography`
+  elenca;
+- **contrasto**: axe-core `color-contrast` SHALL non trovare niente, in chiaro
+  e in scuro.
+
+Una deroga SHALL stare in un elenco nel test, una riga col perché, e per i
+bersagli con la misura a cui è stata accettata: sotto quella misura torna rosso.
+
+Misurato il 04/10 prima delle correzioni: 258 rilievi, fra cui la X del banner
+di aggiornamento a 8×12 (area 8×16 col mouse) e i banner del telefono dipinti
+DIETRO la fila di bottoni in basso, dove un tocco su «Ricarica» finiva su
+«Cerca».
+
+#### Scenario: un bersaglio sotto soglia
+- **GIVEN** un comando la cui area che risponde è 20×20 a 1440×900
+- **THEN** `tests/e2e/usability-audit.spec.ts` SHALL fallire e SHALL nominare il
+  selettore, la misura e il file del componente
+
+#### Scenario: un bersaglio coperto
+- **GIVEN** un bottone il cui centro è risposto da un altro elemento
+- **THEN** il test SHALL fallire nominando chi lo copre
+
+#### Scenario: un testo sotto 11 px
+- **GIVEN** un testo visibile a 10 px su una delle superfici
+- **THEN** il test SHALL fallire, e `check:typography` SHALL rifiutare la classe
+  `text-micro` e `text-nano` fuori dai file che la riservano
+
+#### Scenario: una deroga che peggiora
+- **GIVEN** un bersaglio in deroga accettato a 36×44
+- **WHEN** scende a 36×36
+- **THEN** il test SHALL tornare rosso
+
 ### Requirement: EMPTY-01 — Il vuoto è una PRIMITIVA, leggibile nelle sue varianti e nei due temi
 
 Lo stato VUOTO SHALL essere una primitiva condivisa, non scritto a mano da ogni

@@ -263,13 +263,19 @@ export function ProjectWindowPane({
   );
   const reclaimBrowserRef = useRef(layout.handlers.reclaimBrowser);
   reclaimBrowserRef.current = layout.handlers.reclaimBrowser;
-  useEffect(
-    () =>
-      publishProjectBrowserPanes(projectPath, browserPanesForTopicWindow, (contextId) => {
-        reclaimBrowserRef.current(createPaneId('browser', contextId));
-      }),
-    [projectPath, browserPanesForTopicWindow],
-  );
+  // The first list published for a path is the one restored from this device's
+  // memory at mount; the window store checks it against the window record.
+  const publishedPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    const restored = publishedPathRef.current !== projectPath;
+    publishedPathRef.current = projectPath;
+    return publishProjectBrowserPanes(
+      projectPath,
+      browserPanesForTopicWindow,
+      (contextId) => { reclaimBrowserRef.current(createPaneId('browser', contextId)); },
+      restored,
+    );
+  }, [projectPath, browserPanesForTopicWindow]);
   const handleReorderGroupPanes = layout.handlers.reorderGroupPanes;
   const handleMovePaneBetweenGroups = layout.handlers.moveBetweenGroups;
   const handleSplitGroup = layout.handlers.splitGroup;

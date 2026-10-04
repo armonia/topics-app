@@ -71,7 +71,8 @@ import {
   type MessageResidencyInput,
 } from '../state/messageResidency';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
-import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
+import { toolCallFromSse, withSseToolResult, type SseToolCallDelta, type SseToolResultDelta } from './sseToolFrames';
+import { toolUpdatePatch, withPartialResult, withToolAnnouncement, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -1187,9 +1188,10 @@ export function useChat() {
         if (existingIdx >= 0) {
           // Update in place — preserve any state the existing entry already
           // accumulated (e.g. result if a re-announce raced after the first
-          // settle). The new payload's args usually win.
+          // settle). The new payload's args usually win, its status only
+          // when it moves the row forward (`withToolAnnouncement`).
           nextToolCalls = lastMsg.toolCalls!.slice();
-          nextToolCalls[existingIdx] = { ...lastMsg.toolCalls![existingIdx], ...toolCall };
+          nextToolCalls[existingIdx] = withToolAnnouncement(lastMsg.toolCalls![existingIdx]!, toolCall);
           if (nextBlocks) {
             nextBlocks = nextBlocks.map(b =>
               b.kind === 'tool' && b.toolCall.id === toolCall.id
@@ -2177,17 +2179,10 @@ export function useChat() {
               // Handle tool calls
               if (delta?.tool_calls) {
                 commitTextBefore();
-                for (const tc of delta.tool_calls) {
-                  if (tc.function?.name) {
-                    const toolCall: ToolCall = {
-                      id: tc.id || generateMessageId(),
-                      name: tc.function.name,
-                      args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-                      status: 'running',
-                      contentOffset: tc.contentOffset,
-                    };
-                    addToolCallToLastMessage(sessionKey, toolCall);
-                  }
+                for (const tc of delta.tool_calls as SseToolCallDelta[]) {
+                  // The same ToolCall the WS frame carries: `startedAt` and `detail` included (CHAT-TOOL-10).
+                  const toolCall = toolCallFromSse(tc, generateMessageId);
+                  if (toolCall) addToolCallToLastMessage(sessionKey, toolCall);
                 }
               }
 
@@ -2197,7 +2192,8 @@ export function useChat() {
               // React.memo on MessageContent sees a real prop change and
               // re-renders the row out of its "running" state.
               if (delta?.tool_result) {
-                const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
+                const toolResult = delta.tool_result as SseToolResultDelta;
+                const trId = toolResult.id;
                 if (trId) {
                   commitTextBefore();
                   setMessages(prev => {
@@ -2207,7 +2203,8 @@ export function useChat() {
                         const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === trId);
                         if (tcIdx >= 0) {
                           const oldTc = msgs[i].toolCalls![tcIdx];
-                          const newTc: ToolCall = { ...oldTc, status: trStatus || 'success', result: trResult };
+                          // `endedAt`, `error` and `detail` too, as on the WS frame (CHAT-TOOL-10).
+                          const newTc: ToolCall = withSseToolResult(oldTc, toolResult);
                           const nextToolCalls = msgs[i].toolCalls!.slice();
                           nextToolCalls[tcIdx] = newTc;
                           let nextBlocks = msgs[i].blocks;
