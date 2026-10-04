@@ -159,8 +159,13 @@ const boardWaits = (cmd: boolean): string[] => [
  * when it ends. It gets `boardWaits` instead of `chatWaits`: told it could end
  * the turn and be woken, a card spent an attempt and met its wake over a
  * nudge (verifiers of 28/09). The wake flow is for ordinary chats.
+ *
+ * `headless`: a chat or a card launched by the engine, which has no native
+ * `Agent`/`Workflow` (`NATIVE_DELEGATION_TOOLS`), so it is told where
+ * delegation went. An interactive terminal pane keeps both and its prompt
+ * (and cache prefix) does not change.
  */
-const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
+const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolean): string => [
   'You are running inside Topics, a workspace that tracks long-running processes.',
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
@@ -174,7 +179,7 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
   ...(board ? boardWaits(cmd) : chatWaits(cmd)),
-  'To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.',
+  ...(headless ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.'] : []),
   cmd
     ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
     : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',
@@ -197,9 +202,10 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
  */
 export function topicsAgentSystemPrompt(
   lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform, boardAgent = false,
+  headless = false,
 ): string {
   const directive = languageDirective(lang);
-  const processes = topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent);
+  const processes = topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless);
   return directive ? `${processes} ${directive}` : processes;
 }
 

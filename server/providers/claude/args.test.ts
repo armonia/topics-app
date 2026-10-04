@@ -113,16 +113,15 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(args[i + 2]).toStartWith("--");
   });
 
-  test("chat: le tre voci irraggiungibili, e `Workflow` NO", () => {
-    // Il criterio è lo stesso dei bracci del board — «questa sessione non lo
-    // può usare comunque» — ma su `Workflow` dà l'esito opposto: la sua
-    // descrizione lo vieta senza un consenso esplicito dell'umano, e in una
-    // chat l'umano c'è. Toglierlo non risparmierebbe, toglierebbe una leva.
+  test("chat: the trim keeps `Workflow`, the native delegation list drops it", () => {
+    // The trim's criterion still keeps it in a chat (the person can give the
+    // consent its description asks for): `TRIMMED_TOOLS_CHAT` has no
+    // `Workflow`. But a workflow's `agent()` calls are native sub-agents
+    // Topics cannot see, so `NATIVE_DELEGATION_TOOLS` takes it off anyway.
     const args = buildClaudeArgs({ ...BASE, toolTrim: "chat" } as never);
     const i = args.indexOf("--disallowed-tools");
     expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent");
-    expect(args[i + 1]).not.toContain("Workflow");
+    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent,Workflow");
     expect(args[i + 2]).toStartWith("--");
   });
 
@@ -138,13 +137,13 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(TRIMMED_TOOLS_CHAT).not.toContain("Workflow" as never);
   });
 
-  test("trim off: the registry stays whole, except the built-in question and the native sub-agent", () => {
+  test("trim off: the registry stays whole, except the built-in question and the native delegation", () => {
     for (const args of [buildClaudeArgs({ ...BASE }), buildClaudeArgs({ ...BASE, toolTrim: null } as never)]) {
-      expect(args[args.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion,Agent");
+      expect(args[args.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion,Agent,Workflow");
     }
   });
 
-  test("the native Agent tool is never offered: a chat or a card delegates through spawn_agent", () => {
+  test("native Agent and Workflow are never offered: a chat or a card delegates through spawn_agent", () => {
     // Topic d740f8ae (pop-demo, 02/10-03/10): 11 native `Agent` calls plus
     // `SendMessage` to their native ids, none of them visible to Topics (no
     // pane, no list_agents, no per-machine cap, no wake of the parent).
@@ -153,10 +152,14 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
       // One flag only: the CLI is variadic here, and a second
       // `--disallowed-tools` would not be the place to read the whole list.
       expect(args.filter((a) => a === "--disallowed-tools")).toHaveLength(1);
-      expect(args[args.indexOf("--disallowed-tools") + 1]!.split(",")).toContain("Agent");
+      const list = args[args.indexOf("--disallowed-tools") + 1]!.split(",");
+      expect(list).toContain("Agent");
+      expect(list).toContain("Workflow");
+      // A card has `Workflow` from the trim too: it is listed once.
+      expect(new Set(list).size).toBe(list.length);
     }
-    expect([...NATIVE_DELEGATION_TOOLS]).toEqual(["Agent"]);
-    // Not part of the trim: `TOPICS_TOOL_TRIM=off` must not bring it back.
+    expect([...NATIVE_DELEGATION_TOOLS]).toEqual(["Agent", "Workflow"]);
+    // Not part of the trim: `TOPICS_TOOL_TRIM=off` must not bring `Agent` back.
     for (const lista of [TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED]) expect(lista).not.toContain("Agent" as never);
   });
 
@@ -191,11 +194,11 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     // L'assertion che chiude il giro: la stessa funzione che lo spawn chiama,
     // infilata nella stessa funzione che costruisce l'argv.
     const chat = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: false, env: {} }) } as never);
-    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent");
+    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent,Workflow");
     const agente = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: {} }) } as never);
     expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent");
     const spento = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } }) } as never);
-    expect(spento[spento.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion,Agent");
+    expect(spento[spento.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion,Agent,Workflow");
   });
 
   test("`Read` is in neither trim list: the trim only drops what the session cannot use", () => {
@@ -296,7 +299,7 @@ describe("buildClaudeArgs — la fotografia", () => {
       "--mcp-config", "/tmp/topics-mcp/topic-7.json",
       "--strict-mcp-config",
       "--permission-prompt-tool", "mcp__topics__approval_prompt",
-      "--disallowed-tools", "AskUserQuestion,Agent",
+      "--disallowed-tools", "AskUserQuestion,Agent,Workflow",
       "--append-system-prompt", "<prompt di sistema>",
       "--input-format", "stream-json",
       "--output-format", "stream-json",

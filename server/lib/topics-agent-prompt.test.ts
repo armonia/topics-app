@@ -312,11 +312,18 @@ describe('topicsAgentSystemPrompt', () => {
   });
 
   test('names spawn_agent as the way to delegate, on a chat and on a card', () => {
-    // A chat or a card has no native `Agent` (`NATIVE_DELEGATION_TOOLS`), and
-    // the bridge's tools are deferred: only the name reaches the model.
+    // A chat or a card has no native `Agent`/`Workflow` (`NATIVE_DELEGATION_TOOLS`),
+    // and the bridge's tools are deferred: only the name reaches the model.
     for (const board of [false, true]) {
-      expect(topicsAgentSystemPrompt('auto', 'darwin', board)).toContain('`mcp__topics__spawn_agent`');
+      expect(topicsAgentSystemPrompt('auto', 'darwin', board, true)).toContain('`mcp__topics__spawn_agent`');
     }
+  });
+
+  test('an interactive terminal pane keeps its prompt: no spawn_agent line', () => {
+    // routes/terminal.ts calls it bare: that TUI keeps the native sub-agents,
+    // and a new line would also change its cache prefix.
+    expect(topicsAgentSystemPrompt()).not.toContain('spawn_agent');
+    expect(topicsAgentSystemPrompt('auto', 'darwin', true)).not.toContain('spawn_agent');
   });
 });
 
