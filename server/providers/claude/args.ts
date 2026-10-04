@@ -181,10 +181,6 @@ export interface ClaudeSpawnArgsOptions {
    * `"chat"` taglia le tre voci irraggiungibili ovunque, `"dispatched"` ci
    * aggiunge `Workflow`. `null`/assente non taglia niente (la via d'uscita è
    * `TOPICS_TOOL_TRIM=off`).
-    *
-   * Since 04/10 `Workflow` is off in a chat as well, for a different reason
-   * than the trim: it launches native sub-agents Topics cannot see, see
-   * `NATIVE_DELEGATION_TOOLS`. The two trim lists keep their own criterion.
    */
   toolTrim?: ToolTrim | null;
   /**
@@ -293,15 +289,13 @@ export const HEADLESS_DISALLOWED_TOOLS = ["AskUserQuestion"] as const;
  * messages other sessions, the second stops background shells; `TaskOutput`
  * is not registered at all. Interactive terminal panes keep it.
  *
- * `Workflow` goes too, chat included, overriding the trim's reason to keep it
- * there (the person can give the consent its description asks for): a workflow
- * script's `agent()` calls are native sub-agents as well. Measured on CLI
- * 2.1.289 with a chat's list minus `Workflow`: one `Workflow` call started a
- * `local_workflow` task whose child answered, and Topics saw none of it. In a
- * card it is already in `TRIMMED_TOOLS_DISPATCHED`; `buildClaudeArgs` drops
- * the duplicate.
+ * `Workflow` stays in a chat on purpose, although its `agent()` calls are
+ * native sub-agents too (measured on 2.1.289: a `local_workflow` child ran and
+ * Topics saw none of it). It starts only when the person asks for it, Topics
+ * has nothing that does the same, and the trim already keeps it for that
+ * reason; a card loses it through `TRIMMED_TOOLS_DISPATCHED`.
  */
-export const NATIVE_DELEGATION_TOOLS = ["Agent", "Workflow"] as const;
+export const NATIVE_DELEGATION_TOOLS = ["Agent"] as const;
 
 /** La lista che corrisponde a un taglio. */
 export function trimmedTools(trim: ToolTrim): readonly string[] {
