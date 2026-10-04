@@ -252,6 +252,22 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(await until("its result", () => reportsFor(id).find((r) => r.outcome.status === "completed"))).toBeTruthy();
   });
 
+  // 04/10: le schede dei figli ritirati restavano aperte perche' questa lista
+  // le dava per parcheggiate, e al clic riaprivano Claude Code.
+  test("a retired sub-agent is not in the parked list a project tab would revive", async () => {
+    const insert = ctx.db.prepare(
+      "INSERT INTO terminal_sessions (id, name, cwd, command, type, created_at, status, parent_session_key) VALUES (?, ?, ?, 'claude', 'claude-code', ?, 'dormant', ?)",
+    );
+    const now = new Date().toISOString();
+    insert.run("dormant-person-0001", "mine", PROJECT, now, null);
+    insert.run("dormant-child-0001", "retired child", PROJECT, now, PARENT);
+    const res = await call(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(PROJECT)}`, "GET");
+    const ids = (await res.json() as Array<{ id: string }>).map((r) => r.id);
+    expect(ids).toContain("dormant-person-0001");
+    expect(ids).not.toContain("dormant-child-0001");
+    ctx.db.run("DELETE FROM terminal_sessions WHERE id IN ('dormant-person-0001', 'dormant-child-0001')");
+  });
+
   test("an unknown runtime is refused", async () => {
     const { status } = await spawn(PARENT, { runtime: "codex" });
     expect(status).toBe(400);

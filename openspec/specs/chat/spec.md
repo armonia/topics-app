@@ -1605,7 +1605,7 @@ position, so the rest of the answer keeps landing in its own bubble.
 
 ### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
 
-A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes) the row SHALL stay, marked ended with the "done" check, until the user dismisses it, closes its terminal tab, or the parent chat is archived; it SHALL survive a reload. The sub-agent's terminal tab, top-level or inside a project window, SHALL stay open while that row does, whether its session was parked or deleted, also across a reload. A sub-agent resumed from its pane SHALL be listed live again.
+A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes) the row SHALL stay, marked ended with the "done" check, until the user dismisses it, closes its terminal tab, or the parent chat is archived; it SHALL survive a reload. The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
 
 #### Scenario: A message in the parent chat does not take the sub-agent away
 - **GIVEN** a chat with a live sub-agent listed in its strip and its terminal pane open
@@ -1616,7 +1616,6 @@ A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is th
 - **GIVEN** a chat whose only sub-agent is live
 - **WHEN** the sub-agent's process ends
 - **THEN** the strip SHALL still show its row, marked ended
-- **AND** the sub-agent's terminal pane SHALL stay open
 - **AND** after a reload the ended row SHALL still be there, until the user dismisses it
 
 ### Requirement: SUBSTRIP-01b — Closing an ended sub-agent's tab takes its row away
@@ -1655,15 +1654,20 @@ In the desktop shell, closing the focused terminal tab of an ended sub-agent wit
 - **WHEN** the user presses Cmd+W
 - **THEN** the tab SHALL close and the strip SHALL no longer show its row, also after a reload
 
-### Requirement: SUBSTRIP-01g — Inside a project, a stopped sub-agent's tab stays open with its ended row
+### Requirement: SUBSTRIP-01g — Inside a project, a sub-agent's tab closes when it ends
 
-Inside a project window, the terminal tab of a chat's sub-agent SHALL NOT be closed by the end of its session, also when the end deletes the session instead of parking it (the parent's `stop_agent`): it SHALL stay open, also across a reload, for as long as the chat's strip shows the sub-agent's row marked ended (SUBSTRIP-01), and dismissing that row SHALL close the tab with it.
+Inside a project window, the terminal tab of a chat's sub-agent SHALL close when its session ends, whether the parent stopped it (session deleted) or it was retired (session parked `dormant`), and SHALL NOT come back after a reload; the chat's strip SHALL keep its row marked ended (SUBSTRIP-01). A retired sub-agent's parked session SHALL NOT be listed by `GET /api/terminal/sessions/dormant`: it is resumed by its parent (`send_to_agent`, on the Topics engine), not revived from a tab as a Claude Code CLI. Before (04/10), a project kept the tabs of eight finished Claude Code sub-agents open, and opening one revived the CLI.
 
 #### Scenario: The parent stops the sub-agent whose tab is open in the project
 - **GIVEN** a project's chat whose sub-agent's terminal tab is open in the project window
-- **WHEN** the parent stops the sub-agent, which deletes its session instead of parking it
-- **THEN** the tab SHALL stay open while the strip shows the row marked ended, also after a reload
-- **AND** dismissing the row SHALL close the tab
+- **WHEN** the parent stops the sub-agent
+- **THEN** the tab SHALL close, also after a reload
+- **AND** the strip SHALL show the row marked ended
+
+#### Scenario: A retired sub-agent's tab
+- **GIVEN** a project's chat whose sub-agent retired after its idle window, its session parked
+- **WHEN** the project window reconciles its tabs, also at the next launch
+- **THEN** the sub-agent's tab SHALL be closed
 
 ### Requirement: SUBSTRIP-01h — A stopped sub-agent's top-level tab stays open
 
@@ -1674,14 +1678,14 @@ A top-level terminal tab of a chat's sub-agent SHALL NOT be closed by the end of
 - **WHEN** the parent stops the sub-agent, which deletes its session instead of parking it
 - **THEN** the tab SHALL stay open while the strip shows the row marked ended, also after a reload
 
-### Requirement: SUBSTRIP-01i — A sub-agent stopped while the app is closed keeps its project tab at the next launch
+### Requirement: SUBSTRIP-01i — A sub-agent stopped while the app is closed has no project tab at the next launch
 
-Inside a project window, the terminal tab of a chat's sub-agent whose session ended while no page of the app was open SHALL stay open at the next launch, with the chat's strip showing its row marked ended (SUBSTRIP-01g), also when the roster answers after the parked-sessions list.
+Inside a project window, the terminal tab of a chat's sub-agent whose session ended while no page of the app was open SHALL be closed at the next launch, with the chat's strip showing its row marked ended (SUBSTRIP-01g), also when the roster answers after the parked-sessions list.
 
 #### Scenario: The parent stops the sub-agent while the app is closed
 - **GIVEN** a project's chat whose live sub-agent's terminal tab is open in the project window
 - **WHEN** the app is closed, the parent stops the sub-agent, and the app is opened again
-- **THEN** the tab SHALL be open and the strip SHALL show the row marked ended, also after a further reload
+- **THEN** the tab SHALL be closed and the strip SHALL show the row marked ended, also after a further reload
 
 ### Requirement: SUBSTRIP-01d — A dismissal holds in every window of the browser
 

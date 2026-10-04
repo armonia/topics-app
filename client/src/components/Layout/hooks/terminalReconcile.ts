@@ -67,14 +67,12 @@
  * lands in `confirmedGoneIds`) is finally pruned. That is also what terminates
  * the loop: without it a re-read would return `verify` forever.
  *
- * AN ENDED SUB-AGENT IS A FOURTH CASE, and its tab is not a corpse either. A
- * chat's sub-agent stopped by its parent (`stop_agent`) has its row DELETED,
- * not parked: the fresh dormant read does not list it, so it was confirmed
- * gone and its tab inside the project closed by itself a moment after the
- * end, while the chat's strip kept its row marked ended (SUBSTRIP-01). The
- * ended sub-agents the client remembers (`state/endedSubAgents.ts`) are
- * passed in, and their panes stay for as long as that row does: until the
- * user closes the tab or dismisses the row, or the parent chat is archived.
+ * AN ENDED SUB-AGENT IS A FOURTH CASE, and its tab closes. It used to stay
+ * while the chat's strip kept the row marked ended (old SUBSTRIP-01g): eight
+ * finished Claude Code tabs piled up in one project, and opening one revived
+ * the CLI. Its end is told by the result card in the parent chat and by the
+ * strip's row; the tab goes with the session (`state/endedSubAgents.ts`
+ * passes the ended ids in).
  */
 
 /** Keep the pane · re-read the dormant list before deciding · prune it. */
@@ -97,7 +95,7 @@ export type RestoredTerminalPaneVerdict = 'keep' | 'verify' | 'prune';
  *                             disappearance did not list: neither live nor
  *                             parked, so they are really gone.
  * @param endedSubAgentIds     sub-agents whose end the chat's strip shows as an
- *                             ended row: their tab stays with the row.
+ *                             ended row: their tab is pruned.
  */
 const NO_IDS: ReadonlySet<string> = new Set<string>();
 
@@ -112,13 +110,15 @@ export function decideRestoredTerminalPane(
 ): RestoredTerminalPaneVerdict {
   // Present now → keep.
   if (rosterIds.has(sessionId)) return 'keep';
+  // Un sotto-agente finito → si chiude. Prima della regola del parcheggio: un
+  // figlio ritirato resta `dormant`, e tenerne la scheda voleva dire riaprirlo
+  // come Claude Code al primo clic, quando ora si riprende dal padre sul motore
+  // di Topics (subagent-nativi). Il 04/10 pop-demo ne mostrava otto.
+  if (endedSubAgentIds.has(sessionId)) return 'prune';
   // Parked → keep. Must come BEFORE the seen-then-gone rule: to that rule a
   // parked session is indistinguishable from one closed elsewhere, and pruning
   // it would make the idle-park mechanism delete the tabs it is parking.
   if (dormantIds.has(sessionId)) return 'keep';
-  // An ended sub-agent → keep. Its session is gone for good, but the user has
-  // not dismissed it yet: the tab says how it ended until they do.
-  if (endedSubAgentIds.has(sessionId)) return 'keep';
   // Seen-then-gone: closed in another window, or parked one second ago. The
   // dormant set in hand cannot tell them apart, because it was read before the
   // disappearance. Ask again; prune only once the fresh answer has ruled.

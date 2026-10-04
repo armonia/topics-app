@@ -130,7 +130,7 @@ export function useProjectTerminalSync({
       // hand cannot settle: collected here, re-checked after the update. The
       // panes stay meanwhile.
       const toVerify = new Set<string>();
-      // Ended sub-agents keep their tab while the chat's strip keeps their row
+      // Ended sub-agents lose their tab, the chat's strip keeps their row
       // (see terminalReconcile): read now, the store re-runs this pass below.
       const endedSubAgentIds = new Set(subAgentMemorySnapshot().ended.map(e => e.id));
       setPanes(prev => {

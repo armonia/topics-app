@@ -169,21 +169,23 @@ test('una sessione uscita ADESSO non è un cadavere: prima si richiede', () => {
 });
 
 /**
- * SUBSTRIP-01g. A sub-agent stopped by its parent has its row DELETED, so a
- * fresh read confirms it gone; before, its tab inside a project closed by
- * itself while the chat still showed it as ended.
+ * SUBSTRIP-01g. Il 04/10 pop-demo teneva aperte le schede di otto sotto-agenti
+ * Claude Code finiti, ritirati (dormant) o fermati dal padre, anche dopo un reload.
  */
 describe("decideRestoredTerminalPane — ended sub-agents", () => {
-  test("the tab of an ended sub-agent stays, even once confirmed gone", () => {
-    const ended = set("child");
-    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1", "child"), true, NONE, set("child"), ended)).toBe("keep");
+  test("the tab of an ended sub-agent closes once its session left the roster", () => {
+    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1", "child"), true, NONE, NONE, set("child"))).toBe("prune");
   });
 
-  test("and across a reload, when it was never seen in this mount", () => {
-    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1"), true, NONE, NONE, set("child"))).toBe("keep");
+  test("a retired sub-agent's parked session does not keep its tab", () => {
+    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1"), true, set("child"), NONE, set("child"))).toBe("prune");
   });
 
-  test("once its row is dismissed, a gone session is pruned as before", () => {
-    expect(decideRestoredTerminalPane("child", set("live-1"), set("live-1", "child"), true, NONE, set("child"), NONE)).toBe("prune");
+  test("nor does a reload, while the roster is still unproven", () => {
+    expect(decideRestoredTerminalPane("child", set(), set(), false, NONE, NONE, set("child"))).toBe("prune");
+  });
+
+  test("a sub-agent live again (resumed) keeps its tab", () => {
+    expect(decideRestoredTerminalPane("child", set("child"), set("child"), true, NONE, NONE, set("child"))).toBe("keep");
   });
 });

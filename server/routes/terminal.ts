@@ -1478,6 +1478,9 @@ function isRosterDependentRoute(pathname: string, method: string): boolean {
  * swap 33k false 404 lines for 33k 503 lines and cure nothing — the count goes
  * out once, in `markRosterReconciled`.
  */
+/** Le righe dei terminali di una persona, non dei sotto-agenti. */
+const NOT_A_SUBAGENT = "(parent_session_key IS NULL OR parent_session_key = '')";
+
 function rosterWarming(): Response {
   warmingDeferrals++;
   return new Response(
@@ -3230,12 +3233,16 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
     // --- Dormant sessions: list and revive ---
 
+    // Un sotto-agente ritirato non e' una scheda da riaprire: la sua scheda
+    // lo riaccendeva come Claude Code con `--resume`, mentre ora lo riprende
+    // il padre con `send_to_agent`, sul motore di Topics (subagent-nativi).
+    // Fuori da questa lista, il client chiude la scheda invece di tenerla.
     if (method === "GET" && pathname === "/api/terminal/sessions/dormant") {
       const db = getDatabase();
       const cwd = url.searchParams.get('cwd');
       const rows = cwd
-        ? db.query("SELECT * FROM terminal_sessions WHERE status = 'dormant' AND cwd = ?").all(cwd) as any[]
-        : db.query("SELECT * FROM terminal_sessions WHERE status = 'dormant'").all() as any[];
+        ? db.query(`SELECT * FROM terminal_sessions WHERE status = 'dormant' AND ${NOT_A_SUBAGENT} AND cwd = ?`).all(cwd) as any[]
+        : db.query(`SELECT * FROM terminal_sessions WHERE status = 'dormant' AND ${NOT_A_SUBAGENT}`).all() as any[];
       const list = rows.map((r: any) => ({
         id: r.id, name: r.name, cwd: r.cwd, command: r.command,
         type: r.type, createdAt: r.created_at,
