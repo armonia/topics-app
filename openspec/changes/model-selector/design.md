@@ -839,3 +839,22 @@ Correzioni minori, una per riga:
   le altre scelte lo chiudono già da sé.
 - Una chat senza motore con un modello fissato da `/model` scrive sul chip quel modello, «Opus 4.5 ·
   via Claude Code», invece di «Automatico · Claude Code».
+
+### 9.6 CI della PR (04/10): cosa ha trovato e dove il codice si scosta
+
+- **La regola del lato del §4.2 mandava fuori finestra i pannelli che non applicano il tetto.**
+  `computeMenuPosition` ora apre sotto quando il pannello non ci sta da nessuna parte e sotto c'è
+  più spazio, e affida il tetto (`maxHeight`) al chiamante. `Menu` però non lo applica: ogni
+  pannello tiene il suo `max-h`. Il pannello Modifiche del cassetto della card (`max-h-[70vh]`, 560
+  px a 1280×800) si apriva sotto il trigger a y≈400 e finiva 160 px oltre il bordo, e
+  `changed-files-complete.spec.ts` e CHANGES-04 di `board-task-changes-panel.spec.ts` erano rosse in
+  Chromium e in WebKit (verdi su `main`). Ora `Menu` fa risalire dentro la finestra un pannello che
+  uscirebbe dal fondo, dov'era prima di questa regola. Il selettore si dimensiona sul lato più
+  capiente e non arriva mai a quel ramo, quindi AC-10 non cambia.
+- **AC-08 si misura sul pannello vero, non su 400 px fissi.** I 280 px dell'AC valgono per un
+  pannello di 400 (tabella del §4.3 della revisione). Il pannello misurato si apre sopra il composer
+  a metà di una chat vuota, ed è alto quanto lo spazio sopra il chip, che dipende dai font della
+  chat vuota: 398 px in WebKit sul Mac, 384 in Chromium su Linux (chip 14 px più in alto), dove
+  l'area colonne faceva 279. La spec ora chiede che il pannello prenda tutto lo spazio del suo lato
+  (§4.2: `min(456, spazio − 16)`) e che la cornice fissa non superi 120 px, cioè 280 su 400; resta
+  il ≥ 70%. Con la mutazione che accorcia il pannello di 24 px la spec torna rossa.

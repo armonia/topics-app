@@ -349,7 +349,14 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       }
       if (viewport.width === 1024) {
         // AC-08: the column area takes most of the panel; Anthropic is whole.
-        expect(sections.height).toBeGreaterThanOrEqual(280);
+        // The AC's 280 px is defined on a 400 px panel (revision §4.3), and the
+        // panel is as tall as the room above this mid-screen chip, which moves
+        // with the empty chat's fonts: 398 px in WebKit on the Mac, 384 in
+        // Chromium on Linux (the chip 14 px higher). So the panel must take all
+        // that room (§4.2) and its fixed chrome must leave 280 of 400, that is
+        // at most 120 px, so a panel of 400 or more has 280 px of columns.
+        expect(popover.height).toBeGreaterThanOrEqual(Math.min(456, Math.max(above, below) - 16) - 1);
+        expect(popover.height - sections.height).toBeLessThanOrEqual(400 - 280);
         expect(sections.height / popover.height).toBeGreaterThanOrEqual(0.7);
         const anthropic = await visibleStops(page, 0);
         expect(anthropic.visible).toBe(anthropic.total);
