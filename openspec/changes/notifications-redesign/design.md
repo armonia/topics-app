@@ -695,3 +695,55 @@ Metà server (sezioni 1 e 2 di `tasks.md`). Ogni voce: cosa fa il codice, e perc
   server), e un cambio di veglia o di soggetto rimanda il frame solo se cambia ciò che
   il server legge (`focusKey` in `useWebSocket.ts`). Senza, il risveglio mandava tre
   `focus` uguali e rompeva il conto delle strette di mano di `useWebSocket.wake.test.ts`.
+
+### Metà e2e (sezione 5 di `tasks.md`)
+
+- **Gli ingressi delle spec nuove sono le rotte vere** (`tests/e2e/helpers/attention.ts`):
+  i turni di un terminale dalla rotta degli hook di Claude Code col token che il server
+  di test scrive nella sua home, il ritorno di un compito dalla riga
+  `<task-notification>` scritta nel transcript che il server segue, i turni di una chat
+  dalla rotta `/api/chat` con la CLI finta, il permesso dalle gambe del ponte
+  (`/api/sessions/:key/permission`), la domanda da `/ask-user`, card e review dalle
+  rotte della board, il parcheggio da `setDispatchState` attraverso il varco di test
+  (`/api/test/tasks/:id/dispatch-state`), l'unico che ci arriva senza un agente.
+  Nessun frame `attention:*` è iniettato nelle spec `attention-*`; la socket di una
+  pagina è instradata solo in `attention-sync`, e solo per tagliarla.
+- **5.6, la card che chiede un permesso a metà turno, non è un e2e.** Il permesso va su
+  `task:<id>` solo se la sessione è nella mappa delle card in volo del dispatcher
+  (`taskForSession`), e in quella mappa entra solo un agente lanciato davvero: worktree,
+  spawn della CLI e il pavimento di memoria dell'ammissione. Nessuna spec della suite
+  lancia un agente, e sotto carico il pavimento trattiene la coda. La spec copre le due
+  metà che il client vede: il ponte vero dei permessi che accende `needs-you(permission)`
+  su una chat (stessa porta, stesse superfici: tab ambra, «Ti aspettano», risposta dal
+  pannello che la spegne) e un soggetto `task:` in review contato sulla tab board e
+  nella inbox, spento dalla decisione. La mappatura sessione → card è il test 1.3.
+- **Difetti trovati dagli e2e e corretti nel client**: il terminale che aspetta un
+  lavoro in background teneva l'anello blu (la partizione delle fasi conta `watching`
+  come lavoro): ora il glifo grigio legge il tier come per una chat. La inbox metteva il
+  fuoco sulla prima riga mentre il `Menu` era ancora `visibility: hidden`, e Freccia e
+  Invio non facevano niente: riprova ai frame seguenti, non col dito. I tempi di «Ti
+  aspettano» e «Finite» non stavano in colonna (la riga senza «Segna visto» non ne
+  teneva lo spazio) e il progetto si riduceva a una lettera. Il sottotitolo di una
+  sessione ferma su una domanda diceva «Attende: other».
+- **Segnali senza lingua aggiunti per i test**: `data-background` e `data-working` sulla
+  riga quieta della inbox, `data-testid="inbox-history-more"` sul «carica altro».
+- **5.5, come sono state riscritte le spec vecchie**: sul server vero dove costava poco
+  (`chat-finished-banner`, `mute-and-badge`, `message-banner-single-delivery`,
+  `unread-clearing`, `unread-badge-cross-client`, `notifications-one-truth`, i ponti in
+  `chat-next-waiting` e nella domanda di `tab-state-view`), altrimenti con
+  `attention:updated` messo in scena dopo l'`attention:init` della socket
+  (`stageAttention`), come dicono gli scenari di TAB-BADGE-01 e PARITY-01. Cambi di
+  contratto che le spec ora dicono: il segno di una chat finita resta dopo un ricarico
+  (è del server); il numero di una tab di progetto sono i figli accesi, non i loro
+  non-letti (il «99+» si misura su una tab di chat); un messaggio di sistema da solo non
+  dà numero; una socket della persona sveglia e a fuoco fa nascere visto il turno anche
+  su un'altra finestra, una non sveglia no. `notification-history` misura la linguetta
+  «Cronologia»; NH-03 e NH-05, che misuravano il numero fatto di righe, hanno i gemelli
+  in `attention-sync` e `attention-inbox`, scritti nell'intestazione.
+- **La quarta prova di `chat-finished-banner`** (la riga di una chat tenuta da un'altra
+  finestra) finge ancora il guscio con `fakeTauriShell`: gira sul PC, mai sul Mac,
+  dove `127.0.0.1:13333` è la Topics.app vera.
+- **Titoli dei banner**: ora il banner del Mac dice le parole dell'annuncio del server
+  (PUSH-04, con le loro emoji: «💬 nome», «❓ Claude ti sta aspettando»). Non toccate:
+  sono il testo delle spinte di sempre, ora usato anche dal Mac. Il titolo della domanda
+  di un terminale non porta il suo nome (la descrizione del soggetto non lo dà).

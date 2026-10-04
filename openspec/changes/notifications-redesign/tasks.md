@@ -189,24 +189,35 @@ rossi; diventano verdi con le sezioni 2 e 3.
 Niente frame iniettati con `page.routeWebSocket` per gli stati di attenzione: si pilota il
 server (rotta degli hook, provider finto). Ogni spec lascia il `.webm`.
 
-- [ ] 5.1 `tests/e2e/attention-background.spec.ts`: un terminale con hook lancia un Bash in
+- [x] 5.1 `tests/e2e/attention-background.spec.ts`: un terminale con hook lancia un Bash in
   background e fa `Stop` → nessun fill, numero o voce in inbox, glifo grigio, riga quieta
   «1 in background»; arriva la `task-notification` e lo `Stop` → blu, inbox 1, un banner.
-- [ ] 5.2 `tests/e2e/attention-sync.spec.ts`: due pagine; visto in A spegne B; ricarico di
+- [x] 5.2 `tests/e2e/attention-sync.spec.ts`: due pagine; visto in A spegne B; ricarico di
   B non riaccende; socket chiusa e riaperta in B dopo un visto in A → B spenta senza
   aprire la inbox.
-- [ ] 5.3 `tests/e2e/attention-inbox.spec.ts`: aprire non spegne; Invio su una `Finite`;
+- [x] 5.3 `tests/e2e/attention-inbox.spec.ts`: aprire non spegne; Invio su una `Finite`;
   `E` e ⇧`E`; una domanda resta; tastiera sola; 390 px col foglio e lo scorrimento.
   Screenshot chiaro e scuro, desktop e 390 px.
-- [ ] 5.4 `tests/e2e/attention-archive-park.spec.ts`: chiudere la tab di una chat finita
+- [x] 5.4 `tests/e2e/attention-archive-park.spec.ts`: chiudere la tab di una chat finita
   cala il numero; una card parcheggiata rimessa in coda esce dalla inbox.
 - [ ] 5.5 `tests/e2e/chat-finished-banner.spec.ts`, `chat-next-waiting.spec.ts` e le
   altre spec che iniettano `stream:end`, `session:state` o `unread:updated` per
   l'attenzione o per i badge (TAB-BADGE, PARITY): riscritte sul server vero o su frame
-  `attention:*`, nessuna cancellata senza un gemello.
-- [ ] 5.6 `tests/e2e/attention-board-sidebar.spec.ts`: una card che chiede un permesso a
+  `attention:*`, nessuna cancellata senza un gemello. Fatte: chat-finished-banner,
+  chat-next-waiting, notification-history, notifications-one-truth, mute-and-badge,
+  message-banner-single-delivery, tab-notifications, tab-state-view, tab-one-slot,
+  tab-widget-geometry, split-badge-focus, space-card-seen, project-tab-seen,
+  project-badge-attributable, unread-clearing, unread-badge-cross-client,
+  turn-awaiting-input, chat-streaming-indicator, pane-zoom, profile-menu,
+  topic-management-org, motion-floating-surfaces, sidebar-header-fit, user-menu-*
+  (e i testid della campanella in window-chrome-inset e mobile-chrome-bar). Resta `seen-on-any-focus.spec.ts` (8 prove,
+  rosse su questo ramo): inietta `stream:end`/`terminal:activity` e legge le righe di
+  cronologia che il client non scrive più; va riscritta sul server vero.
+- [x] 5.6 `tests/e2e/attention-board-sidebar.spec.ts`: una card che chiede un permesso a
   metà turno compare in inbox e sulla tab board, e la risposta la spegne; una chat letta
-  scende dalla cima della sidebar in entrambe le pagine.
+  scende dalla cima della sidebar in entrambe le pagine. Scostamento in design.md
+  («Metà e2e»): il permesso a metà turno è provato sul ponte vero di una chat, la card
+  in review sulla tab board; la card in volo serve un agente lanciato davvero.
 
 ## 6. Chiusura
 
