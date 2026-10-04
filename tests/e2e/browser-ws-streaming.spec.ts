@@ -519,11 +519,13 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       //    caret in the address field: the focus is nowhere near it.
       await expect(page.getByTestId("tab-sheet"), "dismissing an entry left the sheet open").toHaveCount(1);
       await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
-      // The downloads live in the Tools level of the sheet (TABSHEET-02): one
-      // Esc per level, then the sheet.
-      await page.keyboard.press("Escape");
-      await expect(page.getByTestId("tab-sheet-level-tools-menu"), "the first Esc closes the level").toHaveCount(0);
-      await expect(page.getByTestId("tab-sheet")).toHaveCount(1);
+      // The downloads lived in the Tools level (TABSHEET-02). With the last file
+      // gone the level is left with one row at most, and a level of one does
+      // not exist: its row went up to the first level and the level closed with
+      // it. So there is no level for an Esc to close first, and ONE Esc closes
+      // the sheet.
+      await expect(page.getByTestId("tab-sheet-level-tools-menu"), "a level of one row does not exist").toHaveCount(0);
+      await expect(page.getByTestId("browser-tab-downloads"), "no row for an empty list").toHaveCount(0);
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("tab-sheet"), "Esc closes the sheet from any focus").toHaveCount(0);
     } finally {
