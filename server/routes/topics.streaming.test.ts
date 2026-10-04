@@ -15,9 +15,18 @@
  *
  * @covers STREAM-SNAPSHOT-01
  */
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect, mock, beforeAll, afterAll } from "bun:test";
+import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createTopicsRouter } from "./topics";
 import type { Topic } from "../types";
+
+// The route answers with `commandServices()`, which loads the process registry
+// from the state folder. Without DATA_DIR that folder is the working directory:
+// run from the repo, this file re-adopted or closed the LIVE commands, rewrote
+// `.state/scripts.json` and deleted old logs (04/10/2026).
+const ROOT = testTmpDir("topics-streaming");
+beforeAll(() => setupTestDataDir(`${ROOT}/data`));
+afterAll(() => cleanupTestDataDir(ROOT));
 
 mock.module("./terminal", () => ({
   getTerminalSessionById: () => undefined,
