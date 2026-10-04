@@ -263,6 +263,17 @@ test("SUBSTRIP-01b: closing the tab of an ENDED sub-agent takes its row away, fo
   await expect(stripRow(page)).toHaveCount(0);
 });
 
+/**
+ * SUBAGENT-20: closing the tab of a sub-agent that is still working, started by
+ * another session, asks first. These tests mean to close it, so they confirm.
+ */
+async function confirmStopOfLiveSubAgent(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog").filter({ hasText: /Fermare|Stop / });
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await dialog.getByRole("button", { name: /^(Ferma|Stop)$/ }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
 test("SUBSTRIP-01c: closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01c" });
   const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
@@ -270,6 +281,7 @@ test("SUBSTRIP-01c: closing the tab of a LIVE sub-agent does not leave it behind
   await openChat(page);
   await openPaneFromStrip(page);
   await closeTabViaCommand(terminalTab(page));
+  await confirmStopOfLiveSubAgent(page);
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
   // Closing the tab retires the session on the server...
   await expect.poll(() => serverLists(page.request, agentId), { timeout: 30_000 }).toBe(false);
@@ -378,6 +390,7 @@ test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does n
   const { projectDir, sentinelId, inProject } = await chatInProjectWithPaneOpen(page, "e2e-substrip-project");
 
   await closeTabViaCommand(inProject.first());
+  await confirmStopOfLiveSubAgent(page);
   await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
   // The session is retired once the project's undo window is over...
   await expect.poll(() => serverLists(page.request, agentId), { timeout: 100_000, intervals: [2_000] }).toBe(false);
