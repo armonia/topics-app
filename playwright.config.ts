@@ -615,6 +615,10 @@ export default defineConfig({
         // moving mouse selects is the engine's default, so it is read on the
         // engine that ships.
         "**/drag-no-text-selection.spec.ts",
+        // The streaming pane's back/forward arrows follow the server history:
+        // the streaming pane is what a phone's Safari shows, so it is read on
+        // WebKit.
+        "**/browser-stream-back-forward.spec.ts",
         // The card's changed-files chip end to end: count, show-all, filter,
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",

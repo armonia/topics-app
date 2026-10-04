@@ -35,8 +35,11 @@ import {
   screencastParams,
   startScreencast as cdpStartScreencast,
   stopScreencast as cdpStopScreencast,
+  readNavigationHistoryFlags,
+  type NavigationHistoryFlags,
   type ScreencastFramePayload,
 } from "./browser-cdp-surface";
+import { createNavHistoryPublisher, isPublishableUrl, type NavHistoryPublisher } from "./browser-nav-history";
 import { setBackgroundTree, type AgentOwnerTest, type BrowserContextOwner } from "./lib/low-priority";
 import { createBrowserQosGovernor, markedBrowserPid } from "./lib/browser-qos";
 
@@ -90,6 +93,12 @@ interface BrowserContextEntry {
    *  (CSP-exempt, unlike addScriptTag whose inline <script> most real sites'
    *  Content-Security-Policy refuses). Lazily created; detached on destroy. */
   recorderCdp?: import("playwright-core").CDPSession;
+  /** Cached CDP session that reads the session history for the pane's
+   *  back/forward arrows. Lazily created; dropped on a failed read, detached
+   *  on destroy. */
+  historyCdp?: import("playwright-core").CDPSession;
+  /** Publishes the arrow flags to the pane (browser-nav-history.ts). */
+  navHistory?: NavHistoryPublisher;
 }
 
 interface BrowserServiceOptions {
@@ -368,7 +377,9 @@ export interface BrowserService {
   getNetworkEntries(id: string): NetworkEntry[];
   /** L'ultimo dialogo apparso su una pane e come è stato chiuso, o null. */
   getLastDialog(id: string): { type: string; message: string; at: number; handled: "accept" | "dismiss" } | null;
-  getUrl(id: string): { url: string; title: string } | null;
+  /** The flags are present once the session history has been read at least
+   *  once: a pane that reconnects learns them here, not at the next navigation. */
+  getUrl(id: string): ({ url: string; title: string } & Partial<NavigationHistoryFlags>) | null;
   listContexts(): { id: string; url: string; title: string; createdAt: string; lastActivity: number }[];
   /**
    * How many entries each per-contextId registry holds RIGHT NOW.
@@ -933,6 +944,35 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       });
     });
 
+    // Back/forward availability for the streaming pane. The read goes through
+    // one cached CDP session; a failed read drops it so the next one reopens
+    // (the page may have been swapped under it), and answers null, which the
+    // pane takes as "keep what you had".
+    const readHistory = async (): Promise<NavigationHistoryFlags | null> => {
+      try {
+        entry.historyCdp ??= await openCdpSession(entry.context, page);
+        return await readNavigationHistoryFlags(entry.historyCdp);
+      } catch {
+        const stale = entry.historyCdp;
+        entry.historyCdp = undefined;
+        await stale?.detach().catch(() => {});
+        return null;
+      }
+    };
+    entry.navHistory = createNavHistoryPublisher({
+      read: readHistory,
+      currentUrl: () => page.url(),
+      publish: (u) => opts.broadcastToBrowserWs?.(id, { type: "nav", phase: "history", ...u }),
+    });
+    // `framenavigated` fires for every main-frame navigation, the
+    // same-document ones included (pushState, fragments: CDP's
+    // Page.navigatedWithinDocument, which never reaches `load`). The
+    // publisher sends only what changed, so the cross-document commit that
+    // precedes a `load` costs at most one message.
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) entry.navHistory?.navigated();
+    });
+
     // Track navigation
     page.on("load", async () => {
       entry.url = page.url();
@@ -948,8 +988,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // the URL bar stale — a restored context streamed its page while the
       // pane still said "Browser ready". Guarded to real pages so the initial
       // about:blank load can't clobber the pane's url state.
-      if (/^https?:\/\//.test(entry.url)) {
-        opts.broadcastToBrowserWs?.(id, { type: "nav", url: entry.url, phase: "response" });
+      if (isPublishableUrl(entry.url)) {
+        const url = entry.url;
+        const flags = await entry.navHistory?.flagsForLoad(url);
+        opts.broadcastToBrowserWs?.(id, { type: "nav", url, phase: "response", ...(flags ?? {}) });
       }
     });
   }
@@ -1470,6 +1512,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // T1 DOM co-browse — detach the recorder CDP session (best-effort; closing
       // the context would detach it anyway, but don't leave it dangling).
       if (entry.recorderCdp) { await entry.recorderCdp.detach().catch(() => {}); entry.recorderCdp = undefined; }
+      if (entry.historyCdp) { await entry.historyCdp.detach().catch(() => {}); entry.historyCdp = undefined; }
       entry.autoSaveCleanup?.();
       if (entry.engine === "chromium") {
         // Chromium engine: the sidecar owns the persistent profile (no per-context
@@ -1724,7 +1767,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     getUrl(id) {
       const entry = contexts.get(id);
       if (!entry) return null;
-      return { url: entry.url, title: entry.title };
+      return { url: entry.url, title: entry.title, ...(entry.navHistory?.current() ?? {}) };
     },
 
     listContexts() {

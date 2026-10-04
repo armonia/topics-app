@@ -61,8 +61,17 @@ const navMessageSchema = z.object({
   url: z.string(),
   // 'error' (server -> client): goto/launch failed; `error` carries the short
   // reason the panel renders with Retry (BRW-REL-02). Mirrors server schema.
-  phase: z.enum(['request', 'response', 'error']),
+  // 'history' (server -> client): the main frame moved without a load (a
+  // same-document navigation) or only the session history changed; carries
+  // the url and the two flags below, and nothing about loading.
+  phase: z.enum(['request', 'response', 'error', 'history']),
   error: z.optional(z.string()),
+  // Whether the server page's session history has an entry behind / ahead of
+  // the current one (CDP Page.getNavigationHistory). Absent = unknown: an
+  // older server, or a read that failed. The pane then keeps what it had,
+  // and a pane that never heard them keeps both arrows enabled.
+  canGoBack: z.optional(z.boolean()),
+  canGoForward: z.optional(z.boolean()),
 });
 
 const agentActiveMessageSchema = z.object({
