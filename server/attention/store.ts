@@ -577,8 +577,12 @@ function armGraceOnLastTask(subject: string, e: Entry, before: AttentionTaskMap)
   (e.graceTimer as { unref?: () => void }).unref?.();
 }
 
-/** T1: a turn opens. `dispatched`: a board agent's turn, whose subject is its card. */
-export function turnStarted(subject: string, opts: { dispatched?: boolean } = {}): AttentionSnapshot {
+/**
+ * T1: a turn opens. `dispatched`: a board agent's turn, whose subject is its
+ * card. `archived`: the topic as it is now, which a topic born archived (a
+ * board agent's) says nowhere else until the next start.
+ */
+export function turnStarted(subject: string, opts: { dispatched?: boolean; archived?: boolean } = {}): AttentionSnapshot {
   const e = entryOf(subject);
   clearGrace(e);
   e.live.turnOpen = true;
@@ -589,6 +593,7 @@ export function turnStarted(subject: string, opts: { dispatched?: boolean } = {}
     e.live.holds = next;
   }
   if (opts.dispatched !== undefined) e.live.dispatched = opts.dispatched;
+  if (opts.archived !== undefined) e.live.archived = opts.archived;
   return recompose(subject, { live: true });
 }
 

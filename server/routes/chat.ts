@@ -115,6 +115,7 @@ import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } f
 import { turnEnded, turnStarted } from "../attention/store";
 import { planApprovalOpened } from "../attention/wire";
 import { classifyTurnEnd } from "../push-triggers";
+import { runningTaskOwnsTopic } from "../lib/wake-adoption";
 import { sessionAttentionBackground } from "../providers/background-probes";
 import { topicSubject, type AttentionTaskMap } from "../../shared/attention";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
@@ -345,9 +346,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * classified by `classifyTurnEnd`, the gates the reply push used to apply on
    * the frame.
    */
-  const startTurnAttention = (topic: Topic | null | undefined, dispatched: boolean): void => {
+  const startTurnAttention = (topic: Topic | null | undefined, boardAgent: boolean): void => {
     if (!topic) return;
-    try { turnStarted(topicSubject(topic.id), { dispatched }); } catch (err) { console.warn("[attention] turn start failed:", err); }
+    // Both read from the topic at every turn: a board agent's topic is born
+    // archived and no archive path ever runs for it, and its woken turns carry
+    // no `dispatched` (review 2 of notifications-redesign, B2).
+    try { turnStarted(topicSubject(topic.id), { dispatched: boardAgent, archived: !!topic.archived }); } catch (err) { console.warn("[attention] turn start failed:", err); }
   };
   const endTurnAttention = (
     topic: Topic | null | undefined,
@@ -497,6 +501,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         : [];
       // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
       const matchedTopic = getTopicBySessionKey(sessionKey);
+      // A board agent's topic for the attention state (rule 2): the turn the
+      // dispatcher sent, and every other turn of a topic its running card
+      // owns, its CLI's own wakes, a reattach, a command's wake. Only the
+      // dispatched one says so on the wire; the card is the subject of all.
+      const boardAgentTurn = dispatched || (!!matchedTopic && runningTaskOwnsTopic(ctx.db, matchedTopic.id));
       // The `before` snapshot of THIS turn, when one was taken: its label and
       // the folder it was taken in, held so the end-of-turn `after` reuses
       // exactly them. Recomputing the label from "the last user message" at
@@ -1236,7 +1245,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         if (matchedTopic) {
           broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: wire });
           broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: rowId });
-          endTurnAttention(matchedTopic, { messageId: rowId, reason: "error", error: wire });
+          endTurnAttention(matchedTopic, { messageId: rowId, reason: "error", error: wire, dispatched: boardAgentTurn });
           finalizeTurnActivity(matchedTopic);
         }
         return wire;
@@ -1575,7 +1584,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // delta, o il replay si somma a quello che c'è già e il testo esce
           // doppio. È l'azzeramento che prima si faceva cancellando la riga in
           // DB: la vista si può rifare, il record no.
-          startTurnAttention(matchedTopic, dispatched);
+          startTurnAttention(matchedTopic, boardAgentTurn);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
             ...(reusedRow ? { reattached: true as const } : {}),
@@ -1820,7 +1829,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `reason: "error"` + the notice: this end bypasses finalizeStream,
               // so the failure push (push-triggers) must be told here.
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog", reason: "error", error: timeoutMsg, ...(dispatched ? { dispatched: true } : {}) });
-              endTurnAttention(matchedTopic, { messageId: partialMsg.id, stopCause: "watchdog", reason: "error", error: timeoutMsg });
+              endTurnAttention(matchedTopic, { messageId: partialMsg.id, stopCause: "watchdog", reason: "error", error: timeoutMsg, dispatched: boardAgentTurn });
               finalizeTurnActivity(matchedTopic);
             }
             // No separate "grace expired" log line — the soft-timeout entry
@@ -1871,7 +1880,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
               // Same as the grace path: told here because finalizeStream never runs.
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog", reason: "error", error: msg, ...(dispatched ? { dispatched: true } : {}) });
-              endTurnAttention(matchedTopic, { messageId: partialMsg.id, stopCause: "watchdog", reason: "error", error: msg });
+              endTurnAttention(matchedTopic, { messageId: partialMsg.id, stopCause: "watchdog", reason: "error", error: msg, dispatched: boardAgentTurn });
               finalizeTurnActivity(matchedTopic);
             }
             logStreamHardTimeout({
@@ -2597,7 +2606,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 ...(attentionWork ? { background: { count: attentionWork.count, kinds: attentionWork.kinds } } : {}),
               };
               broadcastToAll(endFrame);
-              endTurnAttention(matchedTopic, endFrame, { ...(attentionWork ? { background: attentionWork.tasks } : {}), preview: fullContent });
+              endTurnAttention(matchedTopic, { ...endFrame, dispatched: boardAgentTurn }, { ...(attentionWork ? { background: attentionWork.tasks } : {}), preview: fullContent });
               finalizeTurnActivity(matchedTopic, { visible: !discardedMessageId && !!finalizedMsg });
 
               // THE TURN IS OVER, THE OBJECTIVE MAY NOT BE.
@@ -3955,7 +3964,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 const crashText = notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}`;
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: crashText });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: crashedPartialId, reason: "error", error: crashText, ...(dispatched ? { dispatched: true } : {}) });
-                endTurnAttention(matchedTopic, { messageId: crashedPartialId, reason: "error", error: crashText });
+                endTurnAttention(matchedTopic, { messageId: crashedPartialId, reason: "error", error: crashText, dispatched: boardAgentTurn });
               }
             }
           } catch (cleanupErr) {
@@ -4003,8 +4012,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id, reason: "error", error: errorMsg, ...(dispatched ? { dispatched: true } : {}) });
-              startTurnAttention(matchedTopic, dispatched);
-              endTurnAttention(matchedTopic, { messageId: errorPartial.id, reason: "error", error: errorMsg });
+              startTurnAttention(matchedTopic, boardAgentTurn);
+              endTurnAttention(matchedTopic, { messageId: errorPartial.id, reason: "error", error: errorMsg, dispatched: boardAgentTurn });
               finalizeTurnActivity(matchedTopic);
             }
             return new Response(
@@ -4036,8 +4045,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const storedJsonAssistant = content ? appendLocalMessage(sessionKey, "assistant", content) : null;
             if (matchedTopic && storedJsonAssistant) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant.id, content, preview: content.slice(0, 100) });
-              startTurnAttention(matchedTopic, dispatched);
-              endTurnAttention(matchedTopic, { messageId: storedJsonAssistant.id, completed: true }, { preview: content });
+              startTurnAttention(matchedTopic, boardAgentTurn);
+              endTurnAttention(matchedTopic, { messageId: storedJsonAssistant.id, completed: true, dispatched: boardAgentTurn }, { preview: content });
               finalizeTurnActivity(matchedTopic);
             }
             if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => autoBindProject(matchedTopic!), 100);
@@ -4050,7 +4059,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
-          startTurnAttention(matchedTopic, dispatched);
+          startTurnAttention(matchedTopic, boardAgentTurn);
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
             ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
@@ -4128,7 +4137,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // The shared module already broadcast stream:end; re-broadcast
                 // with the chat-specific completed/dispatched fields.
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id, completed: true, ...(dispatched ? { dispatched: true } : {}) });
-                endTurnAttention(matchedTopic, { messageId: partialMsg.id, completed: true }, { preview: contentRef.value });
+                endTurnAttention(matchedTopic, { messageId: partialMsg.id, completed: true, dispatched: boardAgentTurn }, { preview: contentRef.value });
                 finalizeTurnActivity(matchedTopic);
               }
             },
@@ -4136,7 +4145,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // chat.ts-specific: unregister handler + finalize activity (abrupt end).
               topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
-                endTurnAttention(matchedTopic, { messageId: partialMsg.id });
+                endTurnAttention(matchedTopic, { messageId: partialMsg.id, dispatched: boardAgentTurn });
                 finalizeTurnActivity(matchedTopic);
               }
             },
