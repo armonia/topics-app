@@ -8,7 +8,7 @@
  * those paths gets the `stream:catchup` (which carried the tail) and THEN
  * reads `/api/history`, whose copy of the live row had the running shell
  * without its output and replaced the bubble. Worse, the row then said
- * "nessun output finora" about a command that had printed three lines.
+ * "no output yet" about a command that had printed three lines.
  *
  * Nothing is injected here: the turn is a real one on the isolated server,
  * driven by `helpers/fake-codex-running-tail.ts` through the codex provider,
