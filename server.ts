@@ -181,9 +181,10 @@ import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
 import { attentionInitFrame, forgetSocket, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { attentionBootReader } from "./server/attention/boot-reader";
 import { chatBackgroundChanged, chatSubjectOfSession, configureAttentionWire, wireHumanHolds } from "./server/attention/wire";
 import { closeSystemCycle, openSystemCycle, recordSystemNotice } from "./server/attention/system-notices";
-import { isAttentionSubject, terminalIdOfSubject, terminalSubject, topicIdOfSubject, topicSubject } from "./shared/attention";
+import { isAttentionSubject, terminalSubject, topicSubject } from "./shared/attention";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
@@ -5767,40 +5768,15 @@ void survivingTurnsAdopted
   .catch(() => { /* logged by the chain below */ })
   .then(() => {
     try {
-      recomposeAttentionOnBoot({
-        liveProcess: (subject) => {
-          const topicId = topicIdOfSubject(subject);
-          if (topicId) {
-            const sk = ctx.getTopicById(topicId)?.sessionKey;
-            return !!sk && sessionHasBackgroundWork(sk);
-          }
-          const terminalId = terminalIdOfSubject(subject);
-          if (terminalId) {
-            const row = ctx.db.query("SELECT status FROM terminal_sessions WHERE id = ?").get(terminalId) as { status?: string } | null;
-            return !!row && row.status !== "dormant";
-          }
-          return true;
-        },
-        cards: () => (ctx.db.query(
-          `SELECT id, status, dispatch_error, review_at, updated_at FROM tasks
-            WHERE archived = 0 AND (status = 'review' OR (status = 'backlog' AND dispatch_state IN ('failed', 'blocked', 'waited_out')))`,
-        ).all() as Array<{ id: string; status: string; dispatch_error: string | null; review_at: string | null; updated_at: string }>)
-          .map((r) => r.status === "review"
-            ? { taskId: r.id, status: "review" as const, since: r.review_at ?? r.updated_at }
-            : { taskId: r.id, status: "parked" as const, since: r.updated_at, detail: r.dispatch_error }),
-        archived: (subjects) => new Set(subjects.filter((subject) => {
-          const topicId = topicIdOfSubject(subject);
-          if (!topicId) return false;
-          const topic = ctx.getTopicById(topicId);
-          return !topic || topic.archived;
-        })),
-        closed: (subjects) => new Set(subjects.filter((subject) => {
-          const terminalId = terminalIdOfSubject(subject);
-          if (!terminalId) return false;
-          return !ctx.db.query("SELECT 1 FROM terminal_sessions WHERE id = ?").get(terminalId);
-        })),
-        dispatched: () => taskDispatcher.sessionsInFlight().map((sk) => chatSubjectOfSession(sk)).filter((x): x is string => !!x),
-      });
+      recomposeAttentionOnBoot(attentionBootReader({
+        db: ctx.db,
+        loadActiveThread: ctx.loadActiveThread,
+        getTopicById: ctx.getTopicById,
+        cliHasWork: sessionHasBackgroundWork,
+        commandOwesWake: (sk) => commandWakeState(sk) !== "none",
+        dispatchedSubjects: () => taskDispatcher.sessionsInFlight().map((sk) => chatSubjectOfSession(sk)).filter((x): x is string => !!x),
+        decode: decodeCol,
+      }));
     } catch (err) {
       console.error("[attention] boot recomposition failed:", err);
     }

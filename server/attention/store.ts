@@ -769,6 +769,30 @@ export function setDispatched(subject: string, dispatched: boolean): AttentionSn
 export type ProcessEndCause = "session-end" | "pty-exit" | "cli-exit" | "reaper" | "lifetime-cap" | "crash" | "swap-kill" | "restart";
 
 /**
+ * The tasks a process's end leaves in the map. A `run_command` of Topics is
+ * not the CLI's: it runs on in Topics' process registry and its exit wakes the
+ * chat again, so the CLI's end neither takes it nor counts it (design 5.5: the
+ * reaper lights nothing). A restart keeps it only while the registry still
+ * owes its wake (review 2 of notifications-redesign, B3).
+ */
+function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: ProcessEndCause; commandsOwed?: boolean }): AttentionTaskMap {
+  const survivors: AttentionTaskMap = {};
+  if (end.cause !== "restart" || end.commandsOwed) for (const [id, t] of Object.entries(background)) if (t.kind === "command") survivors[id] = t;
+  return survivors;
+}
+
+/**
+ * How many counting tasks died with the process. A restart does not count a
+ * saved `wake`: the reattach reads the CLI's own queue again, and a wake the
+ * server remembers is no task that died.
+ */
+function lostWithProcess(background: AttentionTaskMap, survivors: AttentionTaskMap, end: { cause: ProcessEndCause }): number {
+  const lost: AttentionTaskMap = {};
+  for (const [id, t] of Object.entries(background)) if (!(id in survivors) && !(end.cause === "restart" && t.kind === "wake")) lost[id] = t;
+  return countingTaskCount(lost);
+}
+
+/**
  * The process of a subject is gone (section 5.5, T16): its tasks go with it.
  * With a turn open or tasks that counted, and an end the person did not ask
  * for, the wait it promised will never be answered: `finished(error)` with a
@@ -786,16 +810,13 @@ export function processEnded(
      * same death. Only the tasks in flight are this end's to report.
      */
     turnClosedByRoute?: boolean;
+    /** A restart: the Topics commands still owe their wake (re-adopted by the process registry). */
+    commandsOwed?: boolean;
   },
 ): AttentionSnapshot {
   const e = entryOf(subject);
-  // A `run_command` of Topics is not the CLI's: it runs on in Topics' process
-  // registry and its exit wakes the chat again, so the CLI's end neither
-  // takes it nor counts it (design 5.5: the reaper lights nothing). A restart
-  // finds nothing alive to wait on.
-  const survivors: AttentionTaskMap = {};
-  if (end.cause !== "restart") for (const [id, t] of Object.entries(e.row.background)) if (t.kind === "command") survivors[id] = t;
-  const counted = countingTaskCount(e.row.background) - countingTaskCount(survivors);
+  const survivors = survivorsOfProcessEnd(e.row.background, end);
+  const counted = lostWithProcess(e.row.background, survivors, end);
   const inFlight = (!!e.live.turnOpen && !end.turnClosedByRoute) || counted > 0;
   e.row.background = survivors;
   e.carriedHolds = undefined;
@@ -892,6 +913,10 @@ export function forgetSocket(socketId: string): void {
 export interface AttentionBootReader {
   /** Is the process that holds this subject's tasks still alive? */
   liveProcess?: (subject: string) => boolean;
+  /** A chat's Topics `run_command` still owes it a wake: alive in the process registry, whatever its CLI. */
+  commandOwed?: (subject: string) => boolean;
+  /** The plan panel this subject was waiting on when the server stopped is still unanswered on its row. */
+  planWaiting?: (subject: string, toolCallId: string) => boolean;
   /** Cards in review or parked, read from `tasks`. */
   cards?: () => Array<{ taskId: string; status: AttentionCard["status"]; since?: string | null; detail?: string | null }>;
   /** Of these subjects, the ones archived or deleted (`topics`). */
@@ -937,13 +962,25 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   for (const s of archived) { const e = entries.get(s); if (e) e.live.archived = true; }
   for (const s of closed) { const e = entries.get(s); if (e) e.live.closed = true; }
   for (const s of reader.dispatched?.() ?? []) entryOf(s).live.dispatched = true;
+  // A saved wait (HOLD-04): the plan panel lives on its row, not in a bridge,
+  // so it is read again; a bridge's wait comes back when its child says it.
+  for (const [subject, e] of entries) {
+    const planId = e.carriedHolds?.plan;
+    if (!planId || e.live.holds.plan || !reader.planWaiting?.(subject, planId)) continue;
+    e.live.holds = { ...e.live.holds, plan: { kind: "plan", id: planId, text: e.row.detail, since: e.row.since } };
+    delete e.carriedHolds!.plan;
+  }
   for (const [subject, e] of [...entries]) {
     const alive = reader.liveProcess ? reader.liveProcess(subject) : true;
-    if (!alive && countingTaskCount(e.row.background) > 0) {
-      processEnded(subject, { cause: "restart" });
-      continue;
+    if (!alive) {
+      const end = { cause: "restart" as const, commandsOwed: reader.commandOwed?.(subject) === true };
+      const survivors = survivorsOfProcessEnd(e.row.background, end);
+      if (lostWithProcess(e.row.background, survivors, end) > 0) {
+        processEnded(subject, end);
+        continue;
+      }
+      e.row.background = survivors;
     }
-    if (!alive) e.row.background = {};
     recompose(subject, { live: false, boot: true });
   }
 }
