@@ -1,3 +1,9 @@
+/**
+ * How an answered question reads on its closed row: options against free text,
+ * multi-select, the recommended word, and an MCP form field by field.
+ *
+ * @covers ASK-12, ASK-08
+ */
 import { describe, expect, test } from 'bun:test';
 import { readAnsweredQuestions, readElicitationAnswer, readRecommendation, splitAnswer } from './questionAnswers';
 

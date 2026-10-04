@@ -837,3 +837,45 @@ su Codex.
 #### Scenario: l'attrezzo nativo senza interfaccia
 - **GIVEN** una sessione Claude Code senza interfaccia, in qualunque taglio di strumenti
 - **THEN** `AskUserQuestion` SHALL essere fra gli strumenti vietati
+
+### Requirement: ASK-12 -- Una domanda risposta mostra la scelta sulla sua riga, chiusa e dopo un reload
+
+Il 04/10 Attilio: «quando rispondo a una domanda, quando arrivo a vedere il
+tool, non mi fa vedere la risposta che ho selezionato». La riga della risposta
+stava dentro il corpo del tool, che si richiude quando il tool finisce; e con
+piu' domande univa i soli valori, perdendo quale risposta andava con quale.
+
+La riga di una domanda risposta SHALL mostrare la scelta SENZA essere aperta:
+una riga per domanda, «domanda → scelta», anche dopo un reload, da un altro
+client e quando la risposta e' arrivata dal campo di scrittura. Una scelta
+multipla SHALL leggersi come elenco, un testo libero («Altro») SHALL leggersi
+fra virgolette come testo della persona, mai agganciato a un'opzione.
+
+La scelta NON SHALL mai essere tagliata: su una pane stretta va a capo, e cede
+la domanda. Se la domanda e' una sola ed e' gia' scritta nell'intestazione, la
+riga NON SHALL ripeterla.
+
+Aperta, la riga SHALL dire la cosa una volta sola: tutte le opzioni, la scelta
+marcata con un'icona, le altre attenuate; il riassunto della riga chiusa SHALL
+sparire.
+
+Un turno finito che si piega in «N azioni» NON SHALL portarsi dentro una domanda
+risposta: la domanda resta fuori dal piego, e non conta fra le azioni.
+
+Una risposta a un modulo MCP SHALL leggersi campo per campo, coi nomi che il
+modulo ha dato ai campi, mai come JSON.
+
+#### Scenario: la scelta resta sulla riga chiusa
+- **GIVEN** una domanda a cui la persona ha risposto
+- **WHEN** il tool finisce e la riga si richiude
+- **THEN** la riga SHALL mostrare «domanda → scelta» senza essere aperta
+
+#### Scenario: dopo un reload, dentro un turno piegato
+- **GIVEN** un turno finito [tool, domanda risposta, tool, testo]
+- **WHEN** la chat si ricarica e il turno si piega
+- **THEN** la domanda SHALL restare fuori dal piego con la sua scelta, e il piego SHALL contare le sole altre azioni
+
+#### Scenario: scelta multipla e testo libero su una pane da 320 px
+- **GIVEN** una risposta con due opzioni e un testo libero
+- **WHEN** la riga chiusa si disegna su una pane da 320 px
+- **THEN** la scelta SHALL andare a capo intera, coi due nomi in elenco e il testo fra virgolette

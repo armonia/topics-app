@@ -24,7 +24,7 @@ hermetic(test);
  *
  * A behaviour: the video is the proof.
  *
- * @covers ASK-11
+ * @covers ASK-11, ASK-12
  */
 test.use({ video: "on" });
 
