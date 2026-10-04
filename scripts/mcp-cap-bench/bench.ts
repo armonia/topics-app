@@ -101,6 +101,9 @@ const LEVER = (flag("--lever", "cap") as "cap" | "prefix");
  * soprattutto token letti dalla cache, che costano un decimo. Resta la leva
  * più grossa in token, e non è la più grossa in dollari.
  */
+// Stale since 04/10: `Workflow` is in `NATIVE_DELEGATION_TOOLS`, so both arms
+// drop it and the `prefix` lever no longer measures its share of this number
+// (7.856 tokens per request on opus). Pass `--atteso` until it is re-measured.
 const EXPECTED_PER_REQUEST = Number(flag("--atteso", "13176"));
 /** Le due pagine di cui si chiede il marcatore: una grande (versata su file) e una piccola. */
 const ASK = [4, 10];
