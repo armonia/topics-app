@@ -624,6 +624,10 @@ export default defineConfig({
         // page back from the topic's window: filmed on the engine that ships.
         "**/chat-browser-open-marker.spec.ts",
         "**/board-conversation-details.spec.ts",
+        // "Recapture evidence" boots a worktree and photographs it. The server
+        // takes that photo with its own WebKit (KANBAN-95), so the whole
+        // delivery-preview path runs on this Mac without a Chromium.
+        "**/board-recapture-preview.spec.ts",
         "**/chat-compact-command.spec.ts",
         "**/chat-compact-drain.spec.ts",
         "**/chat-compaction-fold.spec.ts",
