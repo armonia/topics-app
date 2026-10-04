@@ -769,7 +769,7 @@ account aprono il pannello dei provider di oggi») è chiuso: piede, «Sistema �
 
 I criteri della revisione sono in `model-selector-revision.spec.ts` (selettore) e
 `model-panels-providers.spec.ts` (livello Provider), rossi su `origin/main` e verdi sul ramo in
-WebKit. Scritte e lanciate, le spec hanno trovato quattro difetti, corretti qui:
+WebKit. Scritte e lanciate, le spec hanno trovato cinque difetti, corretti qui:
 
 - **I divisori fra le colonne erano invisibili** (AC-38): usavano `--border`, che sul fondo del
   popover fa 1,09:1 in chiaro e circa 1:1 in scuro. Ora hanno i colori che il §4.4 della revisione
@@ -790,3 +790,9 @@ WebKit. Scritte e lanciate, le spec hanno trovato quattro difetti, corretti qui:
   del selettore (`catalogModelLabel` e l'etichetta dello snapshot). AC-28 vieta gli id grezzi in
   selettore, livello e dettaglio; la riga del vuoto non è fra queste superfici, ma è la stessa
   informazione.
+- **Il pannello cambiava posto mentre si cercava**: `Menu` lo rimette a posto a ogni cambio di
+  misura, e una ricerca che lasciava cinque righe lo accorciava; sopra il chip restava appeso 150 px
+  più in alto, e tornando dal livello Provider saltava sotto il chip (496 px più giù, misurato in
+  WebKit). Sul desktop il pannello ora non si accorcia finché è aperto (`SelectorBody` in
+  `ModelSelector.tsx`); cresce ancora, fino al tetto, quando si apre una piega. Coperto dal gesto
+  intero di `model-panels-providers.spec.ts`.

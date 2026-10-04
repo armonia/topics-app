@@ -178,6 +178,22 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
   const [level, setLevel] = useState<ProvidersTarget | null>(initialLevel);
   const opener = useRef<HTMLElement | null>(null);
   const modelsRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // On desktop the panel does not shrink while it is open. `Menu` places it
+  // again on every resize, so a search that left five rows moved it: above
+  // the chip it hung 150 px off it, and back from the providers level it
+  // jumped below the chip (seen in WebKit, 04/10). It still grows, up to the
+  // ceiling, when a fold opens.
+  const [floor, setFloor] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (isMobile || !body) return;
+    const keep = () => setFloor((current) => Math.max(current ?? 0, body.offsetHeight));
+    keep();
+    const observer = new ResizeObserver(keep);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [isMobile]);
 
   const openLevel = (target: ProvidersTarget) => {
     opener.current = document.activeElement as HTMLElement | null;
@@ -196,7 +212,11 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, columns, isMobil
   };
 
   return (
-    <div className="relative flex flex-col" style={{ ...style, minHeight: level ? levelHeight : undefined }}>
+    <div
+      ref={bodyRef}
+      className="relative flex flex-col"
+      style={{ ...style, minHeight: level ? levelHeight : floor ?? undefined }}
+    >
       <div
         ref={modelsRef}
         // Under a level the models stay laid out (the scroll of each column is

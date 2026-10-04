@@ -225,12 +225,25 @@ test.describe("desktop 1440 × 900, the list and the detail", () => {
     const older = openAiGroup.getByTestId("model-section-older");
     await older.click();
     await expect(older).toHaveAttribute("aria-expanded", "true");
+    const placed = await rect(popover(page));
+    // A search that leaves a few rows does not move or shrink the panel.
     await search.fill("gpt-5");
+    const same = (box: { x: number; y: number; width: number; height: number }) => {
+      for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(box[key] - placed[key]), key).toBeLessThanOrEqual(1);
+    };
+    // Measured once the rows are filtered and `Menu` has had two frames to place it again.
+    await expect(models(page).getByTestId("model-section-anthropic")).toHaveCount(0);
+    const settled = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await settled();
+    same(await rect(popover(page)));
     await models(page).getByTestId("ai-selector-providers").click();
     await expect(level(page)).toBeVisible();
     await expect(card(page, "codex")).toBeVisible();
     await page.getByTestId("level-back").click();
     await expect(models(page)).toBeVisible();
+    await expect(models(page).getByTestId("ai-selector-providers")).toBeFocused();
+    await settled();
+    same(await rect(popover(page)));
     await expect(search).toHaveValue("gpt-5");
     await search.fill("");
     await expect(older).toHaveAttribute("aria-expanded", "true");
