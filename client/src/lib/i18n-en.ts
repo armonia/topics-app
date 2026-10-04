@@ -211,6 +211,7 @@ const EN = {
   'update.updateApp': 'Update the app',
   'banner.eyebrow.build': 'Client bundle',
   'banner.eyebrow.release': 'App shell',
+  'banner.dismiss': 'Dismiss',
   'update.err.network': 'Could not reach the update server',
   'update.err.endpoint': 'No update published for this build',
   'update.err.generic': 'Update failed',

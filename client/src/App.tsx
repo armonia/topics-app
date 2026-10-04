@@ -127,7 +127,7 @@ import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { Inbox } from './components/Sidebar/Inbox';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
-import { useSidebarBottomInset } from './hooks/useSidebarBottomInset';
+import { useSidebarHandleInsets } from './hooks/useSidebarBottomInset';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -416,7 +416,7 @@ function App() {
   // in ONE reflow (terminals settle once) then slides a transform at 60fps regardless of N,
   // with nothing hidden/held. In FLOATING-SPLITS mode the expanded pad gets the same inter-card
   // gap (2×--float-gap = 4px) the floating sidebar card uses, matching the split-card gaps.
-  const sidebarBottomInset = useSidebarBottomInset();
+  const sidebarHandleInsets = useSidebarHandleInsets();
 
   const FLOAT_SIDEBAR_GAP = 4; // px — keep in sync with index.css --float-gap (2px) ×2
   const expandedPad = sidebarWidth + (appSettings.floatingSplits ? FLOAT_SIDEBAR_GAP : 0);
@@ -1981,7 +1981,20 @@ function App() {
             sua larghezza — non più come cartellino flottante ancorato al
             numeretto in fondo. Vedi DevBundleToast / UpdaterToast: cercano
             questo slot e ci si portalano dentro. */}
-        <div data-update-slot className="flex-shrink-0 empty:hidden" style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }} />
+        {/* On the phone the column runs to the bottom of the screen, under the
+            row of buttons (`MobileChromeBar`): the list pays that band as a
+            spacer of its own (`SIDEBAR_SCROLL_BOTTOM_PROPERTY`), and so must
+            this slot, or the banner sits BEHIND the row. Measured 04/10 at
+            390x844: only its eyebrow and the X peeked out, and a tap on the
+            centre of «Ricarica» landed on «Cerca». */}
+        <div
+          data-update-slot
+          className="flex-shrink-0 empty:hidden"
+          style={{
+            paddingInline: ROW_INSET,
+            paddingBottom: isMobile ? `calc(${ROW_INSET}px + var(${SIDEBAR_SCROLL_BOTTOM_PROPERTY}, 0px))` : ROW_INSET,
+          }}
+        />
 
         {/* THE FOOT OF THE COLUMN KEEPS THE IDENTITY, and nothing else.
 
@@ -2095,7 +2108,7 @@ function App() {
       {!isMobile && !sidebarCollapsed && (
         <div
           className="group fixed z-50 cursor-col-resize"
-          style={{ left: sidebarWidth - 8, width: 10, top: 0, bottom: sidebarBottomInset }}
+          style={{ left: sidebarWidth - 8, width: 10, top: sidebarHandleInsets.top, bottom: sidebarHandleInsets.bottom }}
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >
