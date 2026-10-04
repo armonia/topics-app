@@ -1694,6 +1694,8 @@ test.describe("Il cassetto di un task", () => {
 
   test("dentro il cassetto il comando «Ingrandisci» non esiste, ma il tiling c'e'", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-38" });
+    // The Esc that closes a tab's sheet inside the drawer closes nothing else.
+    test.info().annotations.push({ type: "spec", description: "TABSHEET-02" });
     await page.routeWebSocket(BROWSER_STREAM_WS, () => { /* swallow: no server, no frames */ });
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -1735,6 +1737,16 @@ test.describe("Il cassetto di un task", () => {
     const drawerTab = body.locator('[data-testid^="pane-tab-"]').first();
     await expect(drawerTab, "il cassetto monta lo stesso tiling, con la sua barra").toBeVisible({ timeout: 15_000 });
 
+    // The new tab is a BLANK browser pane, and a blank pane opens its own sheet
+    // on the address (TOPIC-BROWSER-02). A right click on a tab whose sheet is
+    // open closes it (TABSHEET-01), so that sheet is closed first, with one
+    // Esc: one press closes one thing (TABSHEET-02), and the drawer under the
+    // sheet stays open.
+    await expect(page.getByTestId("tab-sheet"), "the blank tab opens its sheet by itself").toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("tab-sheet")).toHaveCount(0);
+    await expect(page.getByTestId("task-detail-drawer"), "the Esc of the address field left the drawer open").toBeVisible();
+
     // THE POINT: the same tab bar, and neither entry. The drawer is already an
     // overlaid surface; two nested "outsides" are not an interface.
     await drawerTab.click({ button: "right" });
@@ -1747,7 +1759,11 @@ test.describe("Il cassetto di un task", () => {
     expect(await findInTabSheet(page, "tab-menu-zoom")).toBeNull();
     expect(await findInTabSheet(page, "tab-menu-zoom-cell")).toBeNull();
     expect(await findInTabSheet(page, "tab-menu-unzoom")).toBeNull();
+    // From the commands door the focus is on a row, not in the address field,
+    // so this Esc reaches the sheet's own listener: it closes the sheet and
+    // nothing under it.
     await closeTabSheet(page);
+    await expect(page.getByTestId("task-detail-drawer"), "the Esc that closed the sheet left the drawer open").toBeVisible();
 
     // …and the double click does not enlarge anything either.
     await drawerTab.dblclick();

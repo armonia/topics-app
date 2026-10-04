@@ -123,6 +123,10 @@ export function TabSheet({ sheetKey, target, listenToPane = true }: TabSheetProp
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // The Esc is spent here: a surface under the sheet that closes on Esc
+      // from `window` (a task's drawer) reads `defaultPrevented` and stays.
+      // One press, one thing closed (TABSHEET-02).
+      e.preventDefault();
       closeTabSheet(sheetKey);
     };
     document.addEventListener('pointerdown', onDown, true);
