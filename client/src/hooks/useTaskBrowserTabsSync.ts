@@ -55,10 +55,24 @@ import { getTabId } from '../state/pane/middleware/syncCrossTab';
 // Destructured on purpose, not `import(...)` handed around whole: knip reads a
 // bare `import()` as opaque and would count every export of the store as used
 // (`check:deadcode-blindspots`).
+//
+// The layout side is wired here, with the store, and not by whoever happens to
+// import it first: a page put back into a window by ANOTHER device has to leave
+// this device's layout (`releaseArrivedSheetFromLayout`), and the frames that
+// say so are exactly the ones this hook routes. The first `ui-state:init` of a
+// connection loads the store, so the wiring is in place before any frame or
+// first read of a window is applied.
 const importTopicWindowStore = async () => {
-  const { applyTopicWindowFrame, reloadTopicWindowsFromServer, forgetTopicWindow } = await import(
-    '../state/topicBrowserWindow'
-  );
+  const [
+    { applyTopicWindowFrame, reloadTopicWindowsFromServer, forgetTopicWindow, subscribeSheetArrivals },
+    { releaseArrivedSheetFromLayout },
+  ] = await Promise.all([
+    import('../state/topicBrowserWindow'),
+    import('../components/Browser/returnToTopicWindow'),
+  ]);
+  subscribeSheetArrivals((contextIds) => {
+    for (const id of contextIds) releaseArrivedSheetFromLayout(id);
+  });
   return { applyTopicWindowFrame, reloadTopicWindowsFromServer, forgetTopicWindow };
 };
 let topicWindowStore: ReturnType<typeof importTopicWindowStore> | null = null;

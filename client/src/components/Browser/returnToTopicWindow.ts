@@ -16,7 +16,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters/paneConfig';
-import { reclaimProjectBrowserPane } from '../../state/pane/adapters/projectBrowserPanes';
+import { reclaimProjectBrowserPane, isProjectBrowserPaneOpen } from '../../state/pane/adapters/projectBrowserPanes';
 import {
   topicBrowserWindow,
   getTopicWindow,
@@ -43,6 +43,31 @@ export function reclaimPaneFromLayout(contextId: string): void {
   if (reclaimProjectBrowserPane(contextId)) return;
   const paneId = createPaneId('browser', contextId);
   usePaneStore.getState().dispatch({ type: 'RECLAIM_PANE', payload: { id: paneId } });
+}
+
+/**
+ * A page that ANOTHER device put back into a topic's window leaves the layout
+ * here too.
+ *
+ * The device that took it back ran `returnSheetToWindow`, which reclaims the
+ * pane in ITS layout. This device hears about it through two records, and they
+ * do not say the same thing: the window record names the page as a sheet again,
+ * while a project's tab record is received additively (it can add a tab, never
+ * remove one) and carries no tombstone for a page that was moved, not closed.
+ * Without this the page stayed a pane here and was drawn a second time inside
+ * the window. The window record is the one that knows the page by identity, so
+ * it is the one that decides.
+ *
+ * Only a page some layout here actually holds is touched: the move mark of the
+ * native view is for a surface that is about to let go, and a mark nobody takes
+ * would park the close of a sheet closed in the next seconds.
+ */
+export function releaseArrivedSheetFromLayout(contextId: string): boolean {
+  const paneId = createPaneId('browser', contextId);
+  if (!usePaneStore.getState().panes[paneId] && !isProjectBrowserPaneOpen(contextId)) return false;
+  beginNativeViewMove(contextId);
+  reclaimPaneFromLayout(contextId);
+  return true;
 }
 
 /**

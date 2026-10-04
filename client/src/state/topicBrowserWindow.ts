@@ -276,6 +276,26 @@ export function reconcilePromoted(
   return { ...state, promoted: live };
 }
 
+/**
+ * The sheets that a value read from ELSEWHERE puts in the window and that this
+ * device did not have as sheets before. `prev` undefined (a window this device
+ * has never seen) makes every sheet an arrival.
+ *
+ * A sheet that arrives this way may be a page this device is still drawing as a
+ * layout pane: another device took it back (`returnFromTab`) or moved it in
+ * through the «+». The window record says so by identity, the layout records
+ * cannot: a project's tab channel is received ADDITIVELY and only ever adds
+ * tabs. So the arrival is what tells the layout to let go of that page here.
+ */
+export function sheetsArrived(
+  prev: TopicBrowserWindowState | undefined,
+  next: TopicBrowserWindowState,
+): string[] {
+  return next.tabs
+    .map((t) => t.contextId)
+    .filter((id) => !prev || !hasSheet(prev, id));
+}
+
 /** Breathing room between the floating window and the edges of the area, and
  *  between the floating window and the composer below it. */
 export const FLOAT_MARGIN_PX = 24;
@@ -460,9 +480,28 @@ const cache = new Map<string, TopicBrowserWindowState>();
 const loaded = new Set<string>();
 const loading = new Set<string>();
 const listeners = new Set<() => void>();
+const arrivalListeners = new Set<(contextIds: string[]) => void>();
 
 function notify(): void {
   for (const l of listeners) { try { l(); } catch { /* ignore */ } }
+}
+
+/**
+ * Be told which sheets a value read from the server put in a window (see
+ * `sheetsArrived`). Called BEFORE the window's own subscribers hear of the
+ * change, so the layout lets go of the page in the same React commit in which
+ * the window starts drawing it: the same order as the local return
+ * (`returnSheetToWindow`), where the reclaim runs before the commit.
+ */
+export function subscribeSheetArrivals(listener: (contextIds: string[]) => void): () => void {
+  arrivalListeners.add(listener);
+  return () => { arrivalListeners.delete(listener); };
+}
+
+function announceArrivals(prev: TopicBrowserWindowState | undefined, next: TopicBrowserWindowState): void {
+  const arrived = sheetsArrived(prev, next);
+  if (!arrived.length) return;
+  for (const l of arrivalListeners) { try { l(arrived); } catch { /* ignore */ } }
 }
 
 /** Lazily hydrate a topic's window from ui-state (once). Safe to call often. */
@@ -478,6 +517,9 @@ export async function ensureTopicWindowLoaded(topicId: string): Promise<void> {
     if (sanitized) {
       cache.set(topicId, sanitized);
       writes.noteApplied(keyFor(topicId), read?.seq ?? null);
+      // A device that was away when another one took a page back still holds
+      // that page in its layout record: the first read is its only chance.
+      announceArrivals(undefined, sanitized);
       notify();
     }
   }
@@ -507,6 +549,7 @@ function adopt(topicId: string, value: unknown): boolean {
   const cur = cache.get(topicId);
   if (cur && JSON.stringify(cur) === JSON.stringify(sanitized)) return false;
   cache.set(topicId, sanitized);
+  announceArrivals(cur, sanitized);
   return true;
 }
 
