@@ -36,11 +36,13 @@ import { MAX_ROWS, splitPath, visibleChangedRows, type ChangedFileRow, type Chan
 /**
  * The letter and its colour. `text-*-600 dark:text-*-400` and not a single
  * tone: on a light theme the 400s measure under 3:1 on the panel background,
- * and this letter is the only thing on the row that is not the path.
+ * and this letter is the only thing on the row that is not the path. Green and
+ * amber go to 700: their 600s measured 3.5:1 on the elevated panel, under the
+ * 4.5:1 a bold 11px letter needs (usability audit, the chat's strip).
  */
 const MARK: Record<ChangedFileStatus, { letter: string; tone: string }> = {
-  added: { letter: 'A', tone: 'text-emerald-600 dark:text-emerald-400' },
-  modified: { letter: 'M', tone: 'text-amber-600 dark:text-amber-400' },
+  added: { letter: 'A', tone: 'text-emerald-700 dark:text-emerald-400' },
+  modified: { letter: 'M', tone: 'text-amber-700 dark:text-amber-400' },
   deleted: { letter: 'D', tone: 'text-red-600 dark:text-red-400' },
   renamed: { letter: 'R', tone: 'text-blue-600 dark:text-blue-400' },
   copied: { letter: 'C', tone: 'text-blue-600 dark:text-blue-400' },
@@ -167,9 +169,9 @@ export function ChangedFileCounts({ row }: { row: ChangedFileRow }) {
       className="shrink-0 tabular-nums text-mini leading-none"
       title={tr('git.files.countsTitle', { add: String(row.added ?? 0), del: String(row.removed ?? 0) })}
     >
-      {!!row.added && <span className="text-emerald-600 dark:text-emerald-400">+{row.added}</span>}
+      {!!row.added && <span className="text-emerald-700 dark:text-emerald-400">+{row.added}</span>}
       {!!row.added && !!row.removed && ' '}
-      {!!row.removed && <span className="text-red-600 dark:text-red-400">-{row.removed}</span>}
+      {!!row.removed && <span className="text-red-700 dark:text-red-400">-{row.removed}</span>}
     </span>
   );
 }
@@ -228,7 +230,8 @@ export function ChangedFileList({ rows, onOpen, loading, error, emptyLabel, test
             data-path={row.path}
             title={row.origPath ? `${row.origPath} -> ${row.path}` : row.path}
             onClick={(e) => { e.stopPropagation(); onOpen(row); }}
-            className={`${className} hover:bg-app-hover`}
+            // A row that opens is a target: 24 tall with the mouse, 44 under a finger.
+            className={`${className} min-h-6 hover:bg-app-hover coarse:min-h-11`}
           >
             {inner}
           </button>

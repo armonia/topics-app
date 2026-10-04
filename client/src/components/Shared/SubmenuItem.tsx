@@ -108,6 +108,32 @@ export function MenuWidthProvider({ width, children }: { width: number; children
   return <HostWidthContext.Provider value={width}>{children}</HostWidthContext.Provider>;
 }
 
+/**
+ * WHO OWNS THE LEVELS, when the host is not a `Menu`.
+ *
+ * A level is portalled to <body>, so to a host that closes on a press outside
+ * its own panel (the tab sheet, `TabSheet`) a click inside the level is a click
+ * outside: the sheet closed and took the level, and the row that was clicked,
+ * with it before the click landed. Measured on the graft probe of
+ * `tab-menu-unico` (task 0.1). The host names itself here, and every level
+ * below it, at any depth, carries the mark as `data-popover-owner`, which is
+ * the question such a host already asks of the popovers it opens.
+ */
+interface LevelHost {
+  owner: string;
+  /** The host's panel. A press on another of its rows is a choice made there
+   *  (another command, another level), not a press outside that only closes
+   *  the open level: the click is not eaten. */
+  panelRef?: React.RefObject<HTMLElement | null>;
+}
+
+const OwnerContext = createContext<LevelHost | undefined>(undefined);
+
+export function SubmenuOwnerProvider({ owner, panelRef, children }: LevelHost & { children: React.ReactNode }) {
+  const host = useMemo(() => ({ owner, panelRef }), [owner, panelRef]);
+  return <OwnerContext.Provider value={host}>{children}</OwnerContext.Provider>;
+}
+
 /** A lucide icon, or anything with the same two props. */
 type Glyph = React.ComponentType<{ size?: number; className?: string }>;
 
@@ -188,6 +214,11 @@ export function SubmenuItem({
   // The call site's number is a FLOOR, not the measure: the wider of it and
   // the host's width wins. See `HostWidthContext`.
   const hostWidth = useContext(HostWidthContext);
+  const host = useContext(OwnerContext);
+  const hostRefs = useMemo(() => (host?.panelRef ? [host.panelRef] : undefined), [host]);
+  // Opened from the keyboard, the focus lands on the level's first row, not on
+  // its container: the next key is a choice, not a step into the list.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const levelWidth = maxWidth
     ? Math.min(Math.max(minWidth, hostWidth), maxWidth)
     : Math.max(minWidth, hostWidth);
@@ -225,10 +256,11 @@ export function SubmenuItem({
     }, HOVER_GRACE_MS);
   }, [cancelClose, close]);
 
-  const openLevel = useCallback((pin: boolean) => {
+  const openLevel = useCallback((pin: boolean, fromKeyboard = false) => {
     cancelClose();
     cancelHoverOpen();
     if (pin) pinned.current = true;
+    setKeyboardOpen(fromKeyboard);
     siblings.claim(token, close);
     setOpen(true);
   }, [cancelClose, cancelHoverOpen, close, siblings, token]);
@@ -283,7 +315,7 @@ export function SubmenuItem({
     if (e.key === 'ArrowRight') {
       e.preventDefault();
       e.stopPropagation();
-      openLevel(true);
+      openLevel(true, true);
     }
   };
 
@@ -319,7 +351,8 @@ export function SubmenuItem({
         // level by the time the click lands, and a toggle would close what the
         // user is trying to reach. Closing is the job of the leave grace,
         // ArrowLeft, Escape and the outside press.
-        onClick={() => openLevel(true)}
+        // `detail === 0` is a click made by Enter or Space.
+        onClick={(e) => openLevel(true, e.detail === 0)}
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
         onKeyDown={onTriggerKeyDown}
@@ -340,6 +373,9 @@ export function SubmenuItem({
           side="right"
           role={levelRole}
           exclusive={false}
+          owner={host?.owner}
+          hostRefs={hostRefs}
+          initialFocus={keyboardOpen ? 'first' : 'panel'}
           minWidth={levelWidth}
           maxWidth={maxWidth}
           className={className}

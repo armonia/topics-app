@@ -211,14 +211,12 @@ async function armBackgroundSibling(page: Page, request: APIRequestContext) {
   const body = (await res.json()) as { topics: Record<string, { sessionKey?: string }> };
   const siblingKey = body.topics?.[sibling.id]?.sessionKey ?? "";
   if (!siblingKey) throw new Error("the sibling topic has no sessionKey");
-  const snapshot = { alsoStreaming: false };
   await page.route("**/api/topics/streaming", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         sessions: [
-          ...(snapshot.alsoStreaming ? [{ topicId: childId, sessionKey: childSessionKey, state: "streaming" }] : []),
           {
             topicId: sibling.id, sessionKey: siblingKey, state: "background",
             tasks: [{ type: "local_bash", description: "Monitor deploy" }], lastSignalAt: Date.now(),
@@ -232,10 +230,10 @@ async function armBackgroundSibling(page: Page, request: APIRequestContext) {
   // The sibling's tier, as the server sends it for a chat whose turn left a Monitor running.
   const stageBackground = () =>
     stageAttention(ws, attentionUpdated(topicSubject(sibling.id), {
-      state: "background",
+      state: "working",
       background: [{ id: "bg-monitor", kind: "monitor", label: "Monitor deploy", startedAt: new Date().toISOString() }],
     }));
-  return { siblingId: sibling.id, snapshot, stageBackground };
+  return { siblingId: sibling.id, stageBackground };
 }
 
 /** The project HEADER row: the element that owns the chevron, the name, the
@@ -374,12 +372,12 @@ test.describe("Project folder loader", () => {
     );
   });
 
-  test("a chat waiting on background work: the shut folder draws the grey ring and no clock, and a real turn wins over it", async ({
+  test("a chat waiting on background work: the shut folder draws the working ring and no clock", async ({
     page,
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
-    const { siblingId, snapshot, stageBackground } = await armBackgroundSibling(page, request);
+    const { siblingId, stageBackground } = await armBackgroundSibling(page, request);
     try {
       await resetPaneStore(request, []);
       await goToApp(page);
@@ -388,18 +386,12 @@ test.describe("Project folder loader", () => {
       await expect(header).toBeVisible({ timeout: 15_000 });
       await expect(header.getByRole("button", { name: `Expand ${PROJECT_NAME}` })).toBeVisible();
 
-      // SHUT, only background work inside: the third state, and no running
-      // clock, because no turn is running.
-      await didascalia(page, "Cartella CHIUSA, solo lavoro in background: anello grigio, niente tempo vivo");
+      // SHUT, only background work inside: work in progress, the same ring as
+      // a turn, and no running clock, because no turn is running.
+      await didascalia(page, "Cartella CHIUSA, solo lavoro in background: anello di lavoro, niente tempo vivo");
       const rollupLoader = header.locator("[data-loader-state]");
-      await expect(rollupLoader).toHaveAttribute("data-loader-state", "background", { timeout: 15_000 });
+      await expect(rollupLoader).toHaveAttribute("data-loader-state", "working", { timeout: 15_000 });
       await expect(header.getByTestId("project-elapsed")).toHaveCount(0);
-      await beat(page);
-
-      // A REAL TURN in the same folder wins: the next poll brings it.
-      snapshot.alsoStreaming = true;
-      await didascalia(page, "Un'altra chat risponde: vince il turno vero");
-      await expect(rollupLoader).toHaveAttribute("data-loader-state", "working", { timeout: 20_000 });
       await beat(page);
     } finally {
       await deleteTopic(request, siblingId).catch(() => {});
@@ -418,7 +410,7 @@ test.describe("Project folder loader", () => {
       await expect(otherTab).toBeVisible({ timeout: 15_000 });
       await otherTab.click();
       await expect(projectTab).toHaveAttribute("data-active", "false");
-      await expect(projectTab.locator("[data-loader-state]")).toHaveAttribute("data-loader-state", "background", { timeout: 15_000 });
+      await expect(projectTab.locator("[data-loader-state]")).toHaveAttribute("data-loader-state", "working", { timeout: 15_000 });
     } finally {
       await deleteTopic(request, siblingId).catch(() => {});
     }

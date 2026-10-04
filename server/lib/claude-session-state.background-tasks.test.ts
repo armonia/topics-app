@@ -14,6 +14,7 @@
  * (`backgroundTaskId`, `agentId`, `taskId`, the cron's `id` and `recurring`),
  * copied from `tests/fixtures/claude-cli-2.1.282-*.ndjson`.
  * @covers ATTN-03
+ * @covers ATTN-12
  */
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
@@ -155,7 +156,7 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     const { tracker, sid, subject } = terminalTracker([]);
     let t = T0;
     turn([CRON_ONCE]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
-    expect(getAttention(subject).state).toBe('background');
+    expect(getAttention(subject).state).toBe('working');
     // The cron fires: Claude Code submits its prompt as a turn, which ends.
     tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', prompt: 'check CI', session_id: sid } as never, (t += 200));
     tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));
@@ -189,5 +190,39 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
     expect(countingTasks(subject)).toBe(0);
     tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, Date.parse('2026-09-30T20:54:00Z'));
     expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+  });
+});
+
+/**
+ * A terminal's turn interrupted with Esc gets no `Stop` (Claude Code fires none
+ * on a user interrupt): the reaper's demotion of the silent turn is the only
+ * thing that ends it. The attention state must end it too, or the terminal
+ * reads «working» on its tab, its project and the agents' menu until the next
+ * prompt (ATTN-12).
+ */
+describe('a terminal turn put to rest without a Stop is over for the attention state', () => {
+  beforeEach(() => { resetAttentionStore(); configureAttentionStore({ db: () => null, sendPush: () => {}, recordRow: () => null }); });
+
+  it('terminal: prompt, Esc (no Stop), the reaper demotes the turn: idle, nothing lit', () => {
+    const { tracker, sid, subject } = terminalTracker([]);
+    let t = T0;
+    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: sid } as never, (t += 200));
+    expect(getAttention(subject).state).toBe('working');
+    // Esc: no Stop. Hours later the reaper finds the turn silent.
+    expect(tracker.reapOnce(t + 2 * 60 * 60 * 1000)).toBe(1);
+    expect(phaseOf(tracker, sid)).toBe('dormant');
+    expect(getAttention(subject)).toMatchObject({ state: 'idle', lit: false });
+  });
+
+  it('terminal: the same demotion with a job still in flight keeps the terminal at work on the job', () => {
+    const { tracker, sid, subject } = terminalTracker([]);
+    let t = T0;
+    const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+    hook({ hook_event_name: 'UserPromptSubmit' });
+    hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_BG });
+    hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_BG });
+    tracker.reapOnce(t + 2 * 60 * 60 * 1000);
+    expect(phaseOf(tracker, sid)).toBe('dormant');
+    expect(getAttention(subject)).toMatchObject({ state: 'working', background: [expect.objectContaining({ id: 'b7kapz0ad' })] });
   });
 });

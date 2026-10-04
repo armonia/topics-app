@@ -111,7 +111,7 @@ const NO_SHELL = -1;
  */
 async function labelsAtRest(page: Page, probe: string): Promise<void> {
   const editor = page.getByTestId("browser-tab-address-input");
-  const dropdown = page.getByTestId("browser-tab-sheet");
+  const dropdown = page.getByTestId("tab-sheet");
   if (probe.startsWith("browser:")) {
     await dropdown.waitFor({ state: "attached", timeout: 5_000 }).catch(() => {});
   }

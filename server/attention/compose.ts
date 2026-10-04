@@ -49,7 +49,7 @@ export interface AttentionInputs {
   background?: AttentionTaskMap;
   /**
    * The last counting task just returned and no turn has opened yet: the
-   * subject stays `background` for a few seconds, so the wake that carries the
+   * subject stays `working` for a few seconds, so the wake that carries the
    * report announces once instead of the turn before it (T6 against T7).
    */
   backgroundGrace?: boolean;
@@ -96,9 +96,14 @@ const IDLE: AttentionComposition = { state: "idle", reason: null, outcome: null,
  *   4. card in review / parked          -> needs-you(review|parked)
  *   5. turn open                        -> working
  *   6. last turn error, not seen        -> finished(error)
- *   7. a task in flight that counts     -> background
+ *   7. a task in flight that counts     -> working
  *   8. last turn done, not seen         -> finished(done)
  *   9. otherwise                        -> idle
+ *
+ * Rule 7 is `working`, not a state of its own (since 2026-10-04): a chat
+ * waiting on the job it launched is a chat at work, on every surface. A
+ * process meant to stay up (a server, `run_command` without a wake) is not a
+ * task here at all: it is the chat's server, shown apart and never counted.
  */
 export function composeAttention(i: AttentionInputs): AttentionComposition {
   if (i.archived || i.deleted || i.closed) return IDLE;
@@ -116,7 +121,7 @@ export function composeAttention(i: AttentionInputs): AttentionComposition {
     return { state: "finished", reason: null, outcome: "error", detail: i.lastTurn.detail ?? null, cause: `turn:error:${i.lastTurn.id}` };
   }
   if (countingTaskCount(i.background) > 0 || i.backgroundGrace) {
-    return { state: "background", reason: null, outcome: null, detail: null, cause: null };
+    return { state: "working", reason: null, outcome: null, detail: null, cause: null };
   }
   if (i.lastTurn && unseen) {
     return { state: "finished", reason: null, outcome: "done", detail: i.lastTurn.detail ?? null, cause: `turn:done:${i.lastTurn.id}` };

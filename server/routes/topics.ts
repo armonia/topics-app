@@ -60,7 +60,10 @@ import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
 import { requestSubagentWake } from "../services/subagent-wake";
 import { stopNativeChildrenOf } from "../lib/native-subagents";
-import { computeTopicChanges } from "../lib/topic-changes";
+import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../lib/topic-changes";
+import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
+import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
+import type { ChangeSet } from "../../shared/change-set";
 import { archiveTopicFully } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
@@ -1188,6 +1191,26 @@ export function createTopicsRouter(
       out[id] = (systemPrompt ? { ...rest, hasSystemPrompt: true } : rest) as Topic;
     }
     return out;
+  }
+
+  /**
+   * What both changes routes read a topic's changes from: its folder, its
+   * messages and, on a card's topic, the task's anchors. `null` = no such topic.
+   */
+  function topicChangeInputs(topicId: string) {
+    const topic = getTopicById(topicId);
+    if (!topic) return null;
+    // The worktree wins over the project folder: a topic bound to one has
+    // its own checkout, and the project path would answer for another tree.
+    const worktree = topic.worktreeId ? worktreeStore.get(topic.worktreeId) : null;
+    const cwd = worktree?.absPath || topic.projectPath || null;
+    const messages = loadLocalMessages(topic.sessionKey);
+    // A task topic reads its task's diff range first, the drawer's: it outlives the pruned
+    // worktree and sees what no write tool call named (a shell command, a sub-agent). Without
+    // a task nothing says whose a worktree's range is, so the tool calls answer.
+    const task = taskSvc.taskForTopic(topic.id);
+    const anchors = task ? { task, worktree, repoPath: topic.projectPath ?? null } : null;
+    return { cwd, messages, anchors };
   }
 
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -2397,19 +2420,45 @@ export function createTopicsRouter(
     {
       const params = matchRoute(pathname, "/api/topics/:id/changes");
       if (params && method === "GET") {
-        const topic = getTopicById(params.id);
-        if (!topic) return json({ error: "Topic not found" }, 404);
-        // The worktree wins over the project folder: a topic bound to one has
-        // its own checkout, and the project path would answer for another tree.
-        const worktree = topic.worktreeId ? worktreeStore.get(topic.worktreeId) : null;
-        const cwd = worktree?.absPath || topic.projectPath || null;
-        const messages = loadLocalMessages(topic.sessionKey);
-        // A task topic reads its task's diff range first, the drawer's: it outlives the pruned
-        // worktree and sees what no write tool call named (a shell command, a sub-agent). Without
-        // a task nothing says whose a worktree's range is, so the tool calls answer.
-        const task = taskSvc.taskForTopic(topic.id);
-        const anchors = task ? { task, worktree, repoPath: topic.projectPath ?? null } : null;
-        return json(await computeTopicChanges(cwd, messages, anchors));
+        const read = topicChangeInputs(params.id);
+        if (!read) return json({ error: "Topic not found" }, 404);
+        return json(await computeTopicChanges(read.cwd, read.messages, read.anchors));
+      }
+    }
+
+    // GET /api/topics/:id/changes/diff - the topic's CHANGESET (`shared/change-set.ts`)
+    // on the same target `/changes` counted its rows on (`resolveTopicChangeTarget`):
+    // a card's topic reads its task's range, the drawer's; any other topic `HEAD`
+    // against the working tree, limited to the paths its write tool calls name.
+    // `?file=` (with `context=full` and a rename's `orig`, or `blob=` for the bytes)
+    // reads one file of it, and only of it: the checkout of a topic without a
+    // worktree is the project's, and this route is no window on the whole repository.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/changes/diff");
+      if (params && method === "GET") {
+        const read = topicChangeInputs(params.id);
+        if (!read) return json({ error: "Topic not found" }, 404);
+        const target = await resolveTopicChangeTarget(read.cwd, read.messages, read.anchors);
+        const scope = target ? { includeUntracked: target.live, paths: target.kind === "head" ? target.paths : undefined } : null;
+        const q = url.searchParams;
+        const onlyFile = q.get("file");
+        if (onlyFile !== null) {
+          const listed = target && scope ? (await gitDiffStat(target.cwd, target.range, scope)).stat : [];
+          const members = new Set(listed.flatMap((f) => (f.origPath ? [f.path, f.origPath] : [f.path])));
+          const orig = q.get("orig");
+          if (!target || !members.has(onlyFile) || (orig !== null && !members.has(orig))) {
+            return json({ error: "file not in this topic's changeset", code: "not_in_changeset" }, 404);
+          }
+          const blob = q.get("blob");
+          if (blob !== null) return serveDiffBlob(target, onlyFile, blob);
+          const one = await gitDiffFilePatch(target.cwd, target.range, onlyFile, {
+            includeUntracked: target.live, fullContext: q.get("context") === "full", origPath: orig,
+          });
+          return one ? json(one) : json({ error: "invalid file path", code: "invalid_input" }, 400);
+        }
+        if (!target || !scope) return json({ stat: [], patch: "", truncated: false, revs: null } satisfies ChangeSet);
+        const [bundle, revs] = await Promise.all([gitDiffBundle(target.cwd, target.range, scope), revsOfTarget(target)]);
+        return json({ ...bundle, revs } satisfies ChangeSet);
       }
     }
 

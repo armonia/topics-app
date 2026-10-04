@@ -86,7 +86,7 @@ test.describe("heavy native browser pane", () => {
     // On a tab that was already active that click is also a door of the tab sheet.
     // Left open, the dots pressed later would CLOSE it (a door toggles) instead of opening it.
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId("tab-sheet")).toHaveCount(0, { timeout: 10_000 });
     const glyph = page.locator(`[data-pane-id="${paneId}"] [data-testid="browser-tab-type-icon"]`);
     await page.clock.runFor(25_000);
     await expect(glyph).toHaveAttribute("data-kind", "heavy", { timeout: 10_000 });
@@ -114,9 +114,9 @@ test.describe("heavy native browser pane", () => {
     const tab = page.locator(`[data-pane-id="${paneId}"]`);
     await tab.hover();
     await tab.getByTestId("browser-tab-menu").click();
-    await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId("tab-sheet")).toHaveCount(0, { timeout: 10_000 });
     await page.getByTestId("browser-paused-resume").click();
     await expect(page.getByTestId("browser-paused")).toHaveCount(0, { timeout: 5_000 });
 

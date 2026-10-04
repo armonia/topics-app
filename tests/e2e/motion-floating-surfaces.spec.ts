@@ -110,18 +110,19 @@ test.describe("Floating surfaces enter and leave", () => {
     await expectExit(page, "context menu", "popover", POPOVER_MAX_MS);
   });
 
-  test("MOTION-04k: a pane tab's context menu", async ({ page }) => {
+  test("MOTION-04k: a pane tab's sheet, opened by the right click", async ({ page }) => {
     await ready(page);
     await page.getByRole("treeitem", { name: topic!.name }).first().click();
     const tab = page.locator(`[data-testid="panel-tab-bar"] [data-pane-id="${topic!.id}"]`).first();
     await expect(tab).toBeVisible({ timeout: 10_000 });
-    await watch(page, '[role="menu"]');
+    // The right click opens the tab's sheet (TABSHEET-01): the panel is what enters.
+    await watch(page, '[data-testid="tab-sheet"]');
     await tab.click({ button: "right" });
-    await expect(page.getByRole("menu")).toBeVisible();
-    await expectEntrance(page, "tab context menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await expect(page.getByTestId("tab-sheet")).toBeVisible();
+    await expectEntrance(page, "tab sheet from the right click", POPOVER_MAX_MS, COMPOSITOR_PROPS);
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("menu")).toHaveCount(0);
-    await expectExit(page, "tab context menu", "popover", POPOVER_MAX_MS);
+    await expect(page.getByTestId("tab-sheet")).toHaveCount(0);
+    await expectExit(page, "tab sheet from the right click", "popover", POPOVER_MAX_MS);
   });
 
   test("MOTION-04l: the composer's slash menu", async ({ page }) => {
@@ -257,10 +258,10 @@ test.describe("Every other surface enters and leaves on the same mechanism", () 
     await openChat(page);
     const tab = page.locator(`[data-testid="panel-tab-bar"] [data-pane-id="${topic!.id}"]`).first();
     await tab.click({ button: "right" });
-    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(page.getByTestId("tab-sheet")).toBeVisible();
     const dialog = `[role="dialog"][aria-label="${topic!.name} Settings"]`;
     await watch(page, `${dialog} > :first-child`);
-    await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
+    await page.getByTestId("tab-sheet").getByRole("menuitem", { name: "Impostazioni della chat" }).click();
     await expect(page.locator(dialog)).toBeVisible();
     await expectEntrance(page, "chat settings veil", MODAL_MAX_MS, ["opacity"]);
     await page.keyboard.press("Escape");
@@ -394,10 +395,10 @@ test.describe("Every other surface enters and leaves on the same mechanism", () 
       // The sheet opens by itself as the empty pane is born, so the watch is
       // armed before the app boots.
       await page.addInitScript(() => {
-        (window as unknown as { __motionWatch: string }).__motionWatch = '[data-testid="browser-tab-sheet"]';
+        (window as unknown as { __motionWatch: string }).__motionWatch = '[data-testid="tab-sheet"]';
       });
       await goToApp(page);
-      const sheet = page.getByTestId("browser-tab-sheet");
+      const sheet = page.getByTestId("tab-sheet");
       await expect(sheet).toBeVisible({ timeout: 15_000 });
       await expectEntrance(page, "tab sheet", POPOVER_MAX_MS, COMPOSITOR_PROPS);
       await page.keyboard.press("Escape");

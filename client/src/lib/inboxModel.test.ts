@@ -82,26 +82,26 @@ describe('inboxModel: «Waiting for you» and «Finished»', () => {
 });
 
 describe('inboxModel: the quiet line', () => {
-  test('nothing lit and two chats in background: both sections empty, «2 in background», no number', () => {
+  test('nothing lit, two chats waiting on their jobs and one answering: both sections empty, «3 at work», no number', () => {
     const topics = { x: topic('x'), y: topic('y'), z: topic('z') };
     const task = { id: 't1', kind: 'agent', label: 'verify render', startedAt: '' };
     const rows = rowsOf(
-      snap('topic:x', { state: 'background', background: [{ id: 'c', kind: 'cron', label: '*/5', startedAt: '', recurring: true }, task] }),
-      snap('topic:y', { state: 'background', background: [task] }),
+      snap('topic:x', { state: 'working', background: [{ id: 'c', kind: 'cron', label: '*/5', startedAt: '', recurring: true }, task] }),
+      snap('topic:y', { state: 'working', background: [task] }),
       snap('topic:z', { state: 'working' }),
     );
     const model = inboxModel(rows, topics, [], []);
     expect(model.waiting).toEqual([]);
     expect(model.finished).toEqual([]);
-    expect(model.background.map((q) => q.subject).sort()).toEqual(['topic:x', 'topic:y']);
-    expect(model.working.map((q) => q.subject)).toEqual(['topic:z']);
+    expect(model.working.map((q) => q.subject).sort()).toEqual(['topic:x', 'topic:y', 'topic:z']);
+    expect(model.working.find((q) => q.subject === 'topic:z')?.firstTask).toBeNull();
     expect(chromeAttentionTotal(rows, topics, [])).toBe(0);
   });
 
   test('the first task named is the first one that is not a recurring cron', () => {
     const task = { id: 't1', kind: 'agent', label: 'verify render', startedAt: '' };
-    const rows = rowsOf(snap('topic:x', { state: 'background', background: [{ id: 'c', kind: 'cron', label: '*/5', startedAt: '', recurring: true }, task] }));
-    expect(inboxModel(rows, { x: topic('x') }, [], []).background[0]?.firstTask).toEqual(task);
+    const rows = rowsOf(snap('topic:x', { state: 'working', background: [{ id: 'c', kind: 'cron', label: '*/5', startedAt: '', recurring: true }, task] }));
+    expect(inboxModel(rows, { x: topic('x') }, [], []).working[0]?.firstTask).toEqual(task);
   });
 });
 

@@ -890,18 +890,18 @@ export function sidebarItemSpace(
 
 // ── Raggruppamento per STATO ───────────────────────────────────────────────────
 //
-// Perché serve. La sidebar ordina gli accesi in cima, ma non distingue le cose
-// che l'utente distingue eccome — "aspetta una mia risposta", "ha finito e non
-// l'ho ancora guardato", "sta aspettando il suo lavoro in background", "sta
-// lavorando". La vista per stato le separa, leggendo il TIER dello stato di
-// attenzione (ATTN-12): lo stesso frame che colora la riga, quindi una chat in
-// background non può stare sotto «Ti aspetta» mentre la riga è grigia (BG-4).
+// Why. The sidebar sorts the lit rows on top, but does not tell apart what the
+// person does: "waits for my answer", "finished and I have not looked", "is
+// working" (a turn answering, or a job a closed turn left running: the same
+// thing since 2026-10-04). The view by state splits them by the TIER of the
+// attention state (ATTN-12): the frame that paints the row, so a chat waiting
+// on its job cannot sit under «Waiting for you» (BG-4).
 //
 // Pura di proposito: le righe di attenzione arrivano dal chiamante, così è
 // provabile senza store né WS — come tutto il resto di questo file.
 
 /** Le sezioni della vista per stato. L'ordine è la priorità di lettura. */
-export type SidebarStateBucket = 'needs-you' | 'finished' | 'background' | 'working' | 'rest';
+export type SidebarStateBucket = 'needs-you' | 'finished' | 'working' | 'rest';
 
 /**
  * Il soggetto di un item, cioè la chiave con cui i Set dei segnali lo conoscono.
@@ -918,9 +918,9 @@ export function sidebarItemSubject(item: SidebarItem): string | null {
 }
 
 /**
- * In quale sezione sta un item: il tier del suo soggetto. `needs-you` sopra
- * tutto, poi i finiti accesi (fatto o errore), poi il background, poi il
- * lavoro. Un item senza soggetto (progetto, browser, utility) sta in 'rest':
+ * Which section an item is in: the tier of its subject. `needs-you` above all,
+ * then the lit finished ones (done or error), then the work (a closed turn
+ * waiting on its tasks included). Un item senza soggetto (progetto, browser, utility) sta in 'rest':
  * un progetto è un contenitore, e i suoi figli finiscono nelle sezioni per
  * conto proprio.
  */
@@ -932,7 +932,6 @@ export function sidebarItemState(item: SidebarItem, attention: AttentionRows): S
   if (item.type === 'chat' && item.topic?.archived) return 'rest';
   if (a.tier === 'needs-you') return 'needs-you';
   if (a.lit) return 'finished';
-  if (a.tier === 'background') return 'background';
   if (a.tier === 'working') return 'working';
   return 'rest';
 }
@@ -954,7 +953,7 @@ export function groupSidebarItemsByState(
   items: SidebarItem[],
   attention: AttentionRows,
 ): Record<SidebarStateBucket, SidebarItem[]> {
-  const groups: Record<SidebarStateBucket, SidebarItem[]> = { 'needs-you': [], finished: [], background: [], working: [], rest: [] };
+  const groups: Record<SidebarStateBucket, SidebarItem[]> = { 'needs-you': [], finished: [], working: [], rest: [] };
   for (const item of items) {
     if (item.type === 'project' && item.children?.length) {
       const remaining: SidebarItem[] = [];

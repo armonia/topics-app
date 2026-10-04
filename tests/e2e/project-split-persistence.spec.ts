@@ -30,6 +30,7 @@ import {
   deleteTopic,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { chooseInTabSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -89,11 +90,10 @@ test.describe("Split inside a project: it survives the return", () => {
       .poll(() => projectCells.count(), { timeout: 15000, message: "the project opens with one cell" })
       .toBe(1);
 
-    // The gesture, from the menu that tab offers. The companion chat is created
+    // The gesture, from the sheet that tab opens (TABSHEET-01). The companion chat is created
     // on the server, so the second cell appears a few frames after the click --
     // that wait is the deferred split of DNDSPLIT-03, not slowness.
-    await projectTabs.first().click({ button: "right" });
-    await page.getByText("Dividi a destra", { exact: true }).click();
+    await chooseInTabSheet(page, projectTabs.first(), "Dividi a destra");
     await expect
       .poll(() => projectCells.count(), { timeout: 15000, message: "the split must add a cell inside the project" })
       .toBe(2);

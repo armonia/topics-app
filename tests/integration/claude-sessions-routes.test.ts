@@ -2,6 +2,7 @@
  * The two routes that expose Claude Code session state to the client.
  *
  * @covers CCS-01
+ * @covers CCS-03
  *
  * Only CCS-01: this file exercises the canonical record through its HTTP read
  * surface. CCS-05 (the `session:state` WS broadcast contract) is NOT proven
@@ -32,6 +33,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
+import { hookTokenPath } from "../../server/routes/claude-hooks";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { createClaudeSessionTracker, type ClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
@@ -190,5 +192,40 @@ describe("l'istantanea delle sessioni Claude", () => {
 
     const after = (await (await call(router, "/api/claude-sessions/by-key/topic:quattro")).json()) as { session: Snapshot };
     expect(after.session.phase, "la rotta serve una copia congelata invece dello stato vivo").not.toBe("starting");
+  });
+});
+
+/**
+ * The hooks are async: the route reads when each FIRED from the script's
+ * header, and that is what lets the tracker apply them in order. A `PreToolUse`
+ * delivered after the `Stop` of its turn must not bring the turn back.
+ */
+describe("the hook route dates an event by its firing stamp", () => {
+  test("a PreToolUse fired before the Stop but POSTed after it leaves the turn finished", async () => {
+    const db = dbFresco();
+    const tracker = createClaudeSessionTracker({ db, broadcast: () => {}, coalesceWindowMs: 20, dedupWindowMs: 100, rateLimitPerSec: 50 });
+    const { createClaudeHooksRouter } = await import("../../server/routes/claude-hooks");
+    const router = createClaudeHooksRouter(await createTestAppContext(), tracker);
+    const token = readFileSync(hookTokenPath(), "utf-8").trim();
+    seed(db, "topic:ordine", "cli-ordine");
+
+    const post = async (event: string, firedAt: number, body: Record<string, unknown> = {}) => {
+      const url = new URL(`https://127.0.0.1:3333/api/claude-hooks/${event}`);
+      const req = new Request(url, {
+        method: "POST",
+        headers: { host: "127.0.0.1:3333", authorization: `Bearer ${token}`, "content-type": "application/json", "x-topics-hook-fired-at": String(firedAt) },
+        body: JSON.stringify({ session_id: "cli-ordine", ...body }),
+      });
+      const res = await router(req, url, url.pathname, "POST");
+      if (!res) throw new Error(`no route handled POST ${event}`);
+      return (await res.json()) as { ok: boolean; result: string };
+    };
+
+    const now = Date.now();
+    await post("UserPromptSubmit", now - 9_000);
+    await post("Stop", now - 5_000);
+    const late = await post("PreToolUse", now - 7_000, { tool_name: "Bash", tool_use_id: "toolu_late", tool_input: { command: "ls" } });
+    expect(late.result).toBe("stale");
+    expect(tracker.getSessionByKey("topic:ordine")?.phase).toBe("awaiting-user");
   });
 });

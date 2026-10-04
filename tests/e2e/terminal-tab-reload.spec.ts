@@ -21,6 +21,7 @@ import { goToApp, openTopic } from "./helpers";
 import { projectRowSelector } from "./helpers/terminal-workspace";
 import type { Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { revealInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -163,7 +164,7 @@ test.describe.serial("Terminal tab reload", () => {
       await chatTab.waitFor({ state: "visible", timeout: 10_000 });
       await chatTab.click({ button: "right" });
       // The menu opens (a known item is present) but the reload item is NOT.
-      await expect(page.getByText("Chiudi ora")).toBeVisible();
+      await expect(page.getByTestId("tab-sheet-close")).toBeVisible();
       await expect(page.getByTitle(/^Riavvia la sessione/)).toHaveCount(0);
     } finally {
       await deleteTopic(request, chat.id);
@@ -189,7 +190,8 @@ test.describe.serial("Terminal tab reload", () => {
     // Right-click → "Rinomina" is present for terminal tabs. Disambiguate via
     // its unique title (the sidebar chat rename uses the English "Rename").
     await tab.click({ button: "right" });
-    const rinomina = page.getByTitle("Rinomina questa scheda");
+    // The rename row lives in the Tab level of the tab's sheet (TABSHEET-03).
+    const rinomina = await revealInTabSheet(page, "tab-sheet-rename");
     await expect(rinomina, "terminal tab menu must offer Rinomina").toBeVisible({
       timeout: 3_000,
     });

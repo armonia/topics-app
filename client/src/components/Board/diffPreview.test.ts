@@ -9,7 +9,7 @@
  * list and the click) re-reads the bundle, and a renamed file's patch is asked
  * for together with its old path, or git reads the rename as a new file.
  *
- * @covers DIFFPV-02, DIFFPV-03, DIFFPV-04, DIFFPV-05
+ * @covers DIFFPV-02, DIFFPV-03, DIFFPV-04, DIFFPV-05, CHGSET-04
  */
 import { describe, expect, spyOn, test } from 'bun:test';
 import { fetchDiffText, previewSides, renderedSide, reportStaleBlob, resolveMarkdownImagePath } from './diffPreview';
@@ -75,6 +75,12 @@ describe('the byte route of each panel source', () => {
     expect(diffBlobPath({ kind: 'publish', projectId: 'p' }, 'x.png', revs.head)).toBe(`/api/boards/p/publish-diff?file=x.png&blob=${revs.head}`);
     // Off the desktop shell the base is '' and the two forms coincide.
     expect(diffBlobUrl({ kind: 'publish', projectId: 'p' }, 'x.png', revs.head)).toBe(`/api/boards/p/publish-diff?file=x.png&blob=${revs.head}`);
+  });
+
+  test("a topic's changeset reads its bytes from the topic's own route (CHGSET-04)", () => {
+    expect(diffBlobPath({ kind: 'topic', topicId: 't 1' }, 'docs/shot.png', 'worktree', 'v1'))
+      .toBe('/api/topics/t%201/changes/diff?file=docs%2Fshot.png&blob=worktree&v=v1');
+    expect(diffBlobPath({ kind: 'topic', topicId: 't' }, 'a.png', revs.base)).toBe(`/api/topics/t/changes/diff?file=a.png&blob=${revs.base}`);
   });
 });
 

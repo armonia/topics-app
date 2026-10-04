@@ -182,7 +182,7 @@ describe("reopening and closing", () => {
   it("a woken turn that closes while the chat is archived relights nothing at the unarchive (ATTN-11, ATTN-13)", () => {
     turnStarted("topic:woke");
     turnEnded("topic:woke", { turnId: "m1", outcome: "done", background: { b1: { kind: "bash", label: "build", startedAt: "2026-10-03T09:00:00.000Z" } } });
-    expect(getAttention("topic:woke").state).toBe("background");
+    expect(getAttention("topic:woke").state).toBe("working");
     setClosed("topic:woke", { archived: true });
     turnStarted("topic:woke");
     turnEnded("topic:woke", { turnId: "m2", outcome: "done", background: {} });

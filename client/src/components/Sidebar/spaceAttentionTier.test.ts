@@ -38,7 +38,7 @@ function chatPane(id: string, topicId: string, spaceId: string): Pane {
   return { id, type: 'chat', topicId, spaceId } as Pane;
 }
 
-type Lit = 'needs-you' | 'done' | 'error' | 'seen' | 'background';
+type Lit = 'needs-you' | 'done' | 'error' | 'seen' | 'working';
 
 /** Attention rows: `t1` a chat, `s:s1` a terminal. 'seen' is a finished
  *  subject whose epoch the person saw, in any window: not lit. */
@@ -46,7 +46,7 @@ function rows(entries: Record<string, Lit> = {}): Map<string, AttentionSnapshot>
   return new Map(Object.entries(entries).map(([k, v]) => {
     const subject = k.startsWith('s:') ? `terminal:${k.slice(2)}` : `topic:${k}`;
     return [subject, {
-      subject, state: v === 'needs-you' ? 'needs-you' : v === 'background' ? 'background' : 'finished',
+      subject, state: v === 'needs-you' ? 'needs-you' : v === 'working' ? 'working' : 'finished',
       reason: v === 'needs-you' ? 'question' : null, outcome: v === 'error' ? 'error' : v === 'done' || v === 'seen' ? 'done' : null,
       detail: null, since: '', epoch: 1, seenEpoch: v === 'seen' ? 1 : 0, lit: v === 'needs-you' || v === 'done' || v === 'error',
       unread: 0, turnUnseen: false, lastTurnAt: null, background: [],
@@ -90,8 +90,8 @@ describe('spaceAttentionTier: the chat branch', () => {
     expect(tierOf(panes, rows({ t1: 'done', t2: 'error', t3: 'needs-you' }))).toBe('needs-you');
   });
 
-  it('a chat in the background lights nothing', () => {
-    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'background' }))).toBeNull();
+  it('a chat waiting on its job (working) lights nothing', () => {
+    expect(tierOf([chatPane('p1', 't1', SPACE)], rows({ t1: 'working' }))).toBeNull();
   });
 
   it('says nothing when no chat of the group is lit', () => {

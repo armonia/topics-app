@@ -11,6 +11,7 @@ import { tracePaneAttach } from '../lib/paneAttachTrace';
 import {
   appendStreamConsole, keepConsoleOfPage, tallyConsole, type StreamConsoleEntry,
 } from '../components/Browser/streamConsole';
+import { applyHistoryUpdate, historyFlagsOf } from '../components/Browser/streamNavHistory';
 import { apiFetch } from '../lib/shell/net';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
@@ -83,6 +84,11 @@ interface RemoteBrowserState {
    *  (`streamConsole.ts`). The sheet lists them; their tallies light the tab's
    *  corner and the dots' badge. */
   consoleEntries: StreamConsoleEntry[];
+  /** Whether the server page has a page behind / ahead in its history.
+   *  Undefined until the server says so (an older server never does): the
+   *  panel then keeps the arrow enabled. See `streamNavHistory.ts`. */
+  canGoBack?: boolean;
+  canGoForward?: boolean;
 }
 
 interface InteractionHandlers {
@@ -516,6 +522,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           url: data.url || s.url,
           title: data.title || s.title,
           loading: false,
+          // A reconnecting pane hears no navigation until the next one: the
+          // flags the server already knows arrive with the context info.
+          ...historyFlagsOf(data),
         }));
         return true;
       } else if (res.status === 404) {
@@ -794,7 +803,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
               setState(s => ({
                 ...s, url: msg.url, loading: false, error: null, errorUrl: null,
                 consoleEntries: keepConsoleOfPage(s.consoleEntries, msg.url),
+                ...historyFlagsOf(msg),
               }));
+            } else if (msg.phase === 'history') {
+              // Same-document navigation, or only the history moved: the url
+              // and the arrows follow, the loading state and the console
+              // rows do not (no new document arrived).
+              setState(s => applyHistoryUpdate(s, msg));
             } else if (msg.phase === 'error') {
               // Failed goto/launch: the page is still on the previous URL —
               // surface the reason instead of silently clearing the spinner

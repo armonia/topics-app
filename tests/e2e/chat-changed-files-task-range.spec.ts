@@ -5,15 +5,17 @@
  * range: after the land that is the land merge, read in the project's
  * checkout. A row used to open the editor's diff there, which compares HEAD
  * with the disk, so the counts said `+2` and the diff that opened was empty
- * (or, in a shared checkout, somebody else's work in progress). The row now
- * opens the task's drawer on that file: the drawer draws the same range.
+ * (or, in a shared checkout, somebody else's work in progress). The strip now
+ * draws the topic's changeset, which on a card's topic IS the drawer's range:
+ * the row opens the drawer's lines in place, and «Open in the card» takes the
+ * same file to the drawer, where review notes are written.
  *
  * What this walks: a card that landed by merge and whose worktree is gone, a
- * chat whose Write names a path inside that pruned worktree, the strip listing
- * the file repo-relative and counted, and the click landing on the drawer's
- * changes panel with that file focused.
+ * chat whose Write names a path inside that pruned worktree, the strip drawing
+ * the file repo-relative with the drawer's lines, and the link landing on the
+ * drawer's changes panel with that file focused.
  *
- * @covers CHAT-CHANGES-01
+ * @covers CHAT-CHANGES-01, CHGSET-03
  */
 import { expect } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
@@ -112,7 +114,7 @@ test.afterAll(async ({ request }) => {
   removeTmpDir(PROJECT_PATH);
 });
 
-test('a row of a task topic strip opens the task diff, on that file', async ({ page }) => {
+test("a row of a task topic strip opens the card's lines in the strip, and the link opens the drawer on that file", async ({ page }) => {
   test.setTimeout(90_000);
   // By permalink: a topic bound to a project has no top-level sidebar row
   // (see git-rows-one-shape.spec.ts).
@@ -124,14 +126,17 @@ test('a row of a task topic strip opens the task diff, on that file', async ({ p
   const chip = page.getByTestId('chat-changes-chip');
   await expect(chip).toBeVisible({ timeout: 20_000 });
   await chip.click();
-  const row = page.getByTestId('chat-changes-list').first()
-    .locator(`[data-testid="changed-file-row"][data-path="${FILE}"]`);
-  await expect(row).toBeVisible({ timeout: 15_000 });
+  const file = page.getByTestId('chat-changes-diff').locator(`[data-testid="diff-file"][data-path="${FILE}"]`);
+  await expect(file).toBeVisible({ timeout: 15_000 });
+  await file.getByRole('button', { name: /a\.ts/ }).click();
+  // The land merge's lines, the ones the drawer draws: in the strip, not in the editor.
+  await expect(file).toContainText('+export const b = 2;', { timeout: 15_000 });
+  await expect(page.getByTestId('file-pane')).toHaveCount(0);
   await page.getByTestId('chat-changes-strip').screenshot({ path: `${SHOTS}/strip.png` });
-  await row.click();
 
+  await page.getByTestId('chat-changes-open-card').click();
   // The drawer of THAT task, on its changes panel, with THAT file focused and
-  // its patch drawn: the `+2` of the strip is what opens.
+  // its patch drawn: the same changeset the strip showed.
   const drawer = page.getByTestId('task-detail-drawer');
   await expect(drawer).toBeVisible({ timeout: 20_000 });
   const panel = page.getByTestId('task-changes-panel');

@@ -80,7 +80,7 @@ describe("the seen door", () => {
     setBackgroundTasks("topic:d", { b1: { kind: "bash", label: "make", startedAt: new Date().toISOString() } });
     turnStarted("topic:d");
     turnEnded("topic:d", { turnId: "m2", outcome: "done", at: new Date(Date.now() + 1000).toISOString() });
-    expect(getAttention("topic:d").state).toBe("background");
+    expect(getAttention("topic:d").state).toBe("working");
     markAttentionSeen([{ subject: "topic:d", epoch: old.epoch, turnAt: old.lastTurnAt }]);
     expect(getAttention("topic:d").turnUnseen).toBe(true);
   });
@@ -97,7 +97,7 @@ describe("the seen door", () => {
     turnStarted("topic:f");
     turnEnded("topic:f", { turnId: "m1", outcome: "done", background: { a1: { kind: "agent", label: "verify", startedAt: new Date().toISOString() } } });
     const bg = getAttention("topic:f");
-    expect(bg.state).toBe("background");
+    expect(bg.state).toBe("working");
     expect(bg.turnUnseen).toBe(true);
     markAttentionSeen([{ subject: "topic:f", epoch: bg.epoch, turnAt: bg.lastTurnAt }]);
     expect(getAttention("topic:f").turnUnseen).toBe(false);
@@ -112,7 +112,7 @@ describe("the seen door", () => {
     turnEnded("topic:g", { turnId: "m1", outcome: "done", background: { a1: { kind: "agent", label: "verify", startedAt: new Date().toISOString() } } });
     setBackgroundTasks("topic:g", {});
     // Within the grace a turn may still open: nothing yet.
-    expect(getAttention("topic:g").state).toBe("background");
+    expect(getAttention("topic:g").state).toBe("working");
     await Bun.sleep(60);
     expect(getAttention("topic:g")).toMatchObject({ state: "finished", outcome: "done", epoch: 1, lit: true });
   });

@@ -607,6 +607,9 @@ export default defineConfig({
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.
         "**/chat-goal.spec.ts",
+        // The tab sheet grows out of its tab: the seam, the shared fill and the
+        // levels beside it are painted and focused by the engine that ships.
+        "**/tab-sheet.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",
@@ -615,9 +618,18 @@ export default defineConfig({
         // moving mouse selects is the engine's default, so it is read on the
         // engine that ships.
         "**/drag-no-text-selection.spec.ts",
+        // The streaming pane's back/forward arrows follow the server history:
+        // the streaming pane is what a phone's Safari shows, so it is read on
+        // WebKit.
+        "**/browser-stream-back-forward.spec.ts",
         // The card's changed-files chip end to end: count, show-all, filter,
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",
+        // The chat's strip draws its changeset with the same diff panel: a
+        // row opens its lines in place, a picture its Before/After, and a
+        // card's topic links to the drawer. Filmed on the shipping engine.
+        "**/chat-changed-files.spec.ts",
+        "**/chat-changed-files-task-range.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
         // A native-runtime call queued behind another, or still being written
         // by the model, is not shown running: real server turns on the native

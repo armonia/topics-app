@@ -346,10 +346,19 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     this.wsRouteRef.send(JSON.stringify({ type: 'console', level, text, ...(pageUrl ? { pageUrl } : {}) }));
   }
 
-  /** The server page finished loading `url` (the server's `load` broadcast). */
-  sendNavLoaded(url: string): void {
+  /** The server page finished loading `url` (the server's `load` broadcast).
+   *  `history` = the back/forward flags a current server reads from the
+   *  session history; omitted = an older server, which never sends them. */
+  sendNavLoaded(url: string, history?: { canGoBack: boolean; canGoForward: boolean }): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
-    this.wsRouteRef.send(JSON.stringify({ type: 'nav', url, phase: 'response' }));
+    this.wsRouteRef.send(JSON.stringify({ type: 'nav', url, phase: 'response', ...(history ?? {}) }));
+  }
+
+  /** The server page moved WITHOUT a load (pushState, a fragment): the
+   *  `history` broadcast of `server/browser-nav-history.ts`. */
+  sendNavWithinDocument(url: string, history: { canGoBack: boolean; canGoForward: boolean }): void {
+    if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
+    this.wsRouteRef.send(JSON.stringify({ type: 'nav', url, phase: 'history', ...history }));
   }
 
   /**

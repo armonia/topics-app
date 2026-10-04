@@ -154,7 +154,7 @@ describe("a chat turn that leaves background work running", () => {
     // The frame says what the chat waits on: the Agent, the Bash, the Monitor.
     expect((first.background as { count: number } | undefined)?.count).toBe(3);
     const subject = topicSubject(h.topic.id);
-    expect(getAttention(subject).state).toBe("background");
+    expect(getAttention(subject).state).toBe("working");
     expect(getAttention(subject).epoch).toBe(0);
     expect(historyRows(h.topic.id)).toBe(0);
     expect(h.pushes).toHaveLength(0);

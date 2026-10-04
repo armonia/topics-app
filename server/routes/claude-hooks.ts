@@ -9,6 +9,7 @@ import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
 import { hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
+import { hookEventTime } from "../lib/hook-order";
 
 /**
  * Where the hook auth token lives: under Topics' OWN home, never under
@@ -136,10 +137,16 @@ export function createClaudeHooksRouter(
           return errorResponse(400, "Body must be a JSON object");
         }
 
+        // When the hook FIRED, from our script's header and never from the
+        // body: the hooks are async and reach us out of order, and this stamp
+        // is what puts them back in order (`lib/hook-order.ts`).
+        const arrivedAt = Date.now();
+        const firedAt = hookEventTime(req.headers.get("x-topics-hook-fired-at"), arrivedAt);
         const payload: HookPayload = {
           ...body,
           hook_event_name: params.event,
           session_id: body.session_id ?? body.sessionId ?? "",
+          fired_at: firedAt,
         } as HookPayload;
 
         if (!payload.session_id) {
@@ -151,7 +158,7 @@ export function createClaudeHooksRouter(
         // background shell and must never pause a foreground one, and this
         // payload is the whole evidence (`lib/background-bash-record.ts`).
         if (payload.hook_event_name === "PreToolUse") {
-          noteBashToolCall(payload.session_id, payload.tool_name, payload.tool_input, Date.now(), payload.tool_use_id);
+          noteBashToolCall(payload.session_id, payload.tool_name, payload.tool_input, firedAt, payload.tool_use_id);
         } else if (payload.hook_event_name === "PostToolUse") {
           // The `PostToolUse` of THIS call, not of any tool at all: the hook is
           // installed on every matcher, and a `Read` that finishes says nothing
@@ -161,7 +168,7 @@ export function createClaudeHooksRouter(
           forgetBashRecords(payload.session_id);
         }
 
-        const result = tracker.ingestHook(payload);
+        const result = tracker.ingestHook(payload, arrivedAt);
 
         // Keep a Claude Code chat's tab label tracking its topic: on the first
         // prompt and at each turn boundary, re-derive the auto-name from the

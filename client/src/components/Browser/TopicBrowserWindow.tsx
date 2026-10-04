@@ -12,7 +12,7 @@
  *    rectangle, instead of being absolutely placed inside the chat cell. A
  *    transformed ancestor becomes the containing block of every `fixed`
  *    descendant, and the tab strip above the chat has one: the same trap that
- *    put the tab sheet at y = -3 (see `BrowserTabSheet`). Measuring the topic
+ *    put the tab sheet at y = -3 (see `TabSheet`). Measuring the topic
  *    area and drawing on the body is what gives the window the viewport back.
  *
  * 2. Moving a window does NOT move the native page inside it. The WKWebView is
@@ -75,6 +75,12 @@ import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
+import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
+import { prefetchTabSheet } from '../Shared/tabSheetLazy';
+import { openTabSheet } from '../../state/tabSheet';
+import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
+import { useLongPress } from '../../hooks/useLongPress';
+import { useMobile } from '../../hooks/useMobile';
 /** A promotion younger than this is not yet expected to have a pane on screen,
  *  so the reconciler must not read its absence as "the tab was closed". */
 const PROMOTION_GRACE_MS = 5000;
@@ -238,6 +244,12 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // The chat beside it and this window take turns: a heavy page pauses while
   // the person types in the chat.
   const focus = useSurfaceFocus();
+  // Holding a sheet's tab opens its sheet on the commands, as a right click does.
+  const { isTouch } = useMobile();
+  const sheetLongPress = useLongPress(({ element }) => {
+    const key = element.dataset.sheetKey;
+    if (key) openTabSheet(key, 'commands');
+  }, { enabled: isTouch });
   const [addOpen, setAddOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   // Where the "+" menu is drawn, in viewport coordinates: it is a portal on the
@@ -534,27 +546,72 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       )}
       <div
         data-testid="topic-browser-bar"
-        onPointerDown={startMove}
+        // A press inside a tab's sheet reaches the bar through the React tree
+        // (the sheet is portalled): it is not a press on the bar.
+        onPointerDown={(e) => { if ((e.currentTarget as Node).contains(e.target as Node)) startMove(e); }}
         className={`flex items-center gap-1 px-1.5 h-9 flex-shrink-0 border-b border-app-border bg-surface ${expanded ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
-          {state.tabs.map((t) => (
-            <button
-              key={t.contextId}
-              data-testid="topic-browser-tab"
-              data-context-id={t.contextId}
-              data-active={t.contextId === active?.contextId}
-              onClick={() => topicBrowserWindow.activate(topicId, t.contextId)}
-              className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate max-w-[160px] ${t.contextId === active?.contextId ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
-            >
-              <span className="truncate">{t.title || t.url || tr('browser.url.placeholder')}</span>
-              <X
-                size={11}
-                data-testid="topic-browser-tab-close"
-                onClick={(e) => { e.stopPropagation(); topicBrowserWindow.close(topicId, t.contextId); }}
-              />
-            </button>
-          ))}
+          {state.tabs.map((t) => {
+            const sheetKey = createPaneId('browser', t.contextId);
+            const isActive = t.contextId === active?.contextId;
+            const label = t.title || t.url || tr('browser.url.placeholder');
+            return (
+              <button
+                key={t.contextId}
+                data-testid="topic-browser-tab"
+                data-context-id={t.contextId}
+                data-active={isActive}
+                // The sheet's key, NOT `data-pane-id`: that attribute names a
+                // pane of the LAYOUT (drop targets, geometry, the native view's
+                // rectangle all look it up), and this tab is a page held by the
+                // window, not a pane. Carrying it made the window's tab count as
+                // a second copy of a page that was only in the window.
+                data-sheet-key={sheetKey}
+                // THE SAME SHEET AS A TAB OF THE STRIP (TABSHEET-04): the
+                // active one opens it on the address, a right click, a long
+                // press or Shift+F10 open it on its commands.
+                {...{ [TAB_SHEET_ANCHOR_ATTR]: '' }}
+                data-sheet-door={isActive ? '' : undefined}
+                onPointerEnter={prefetchTabSheet}
+                onClick={() => {
+                  if (sheetLongPress.consumeClick()) return;
+                  if (!isActive) { topicBrowserWindow.activate(topicId, t.contextId); return; }
+                  const edit = getBrowserPaneChrome(sheetKey)?.commands.editAddress;
+                  if (edit) edit();
+                  else openTabSheet(sheetKey, 'address');
+                }}
+                onContextMenu={(e) => {
+                  if (!(e.currentTarget as Node).contains(e.target as Node)) return;
+                  e.preventDefault();
+                  openTabSheet(sheetKey, 'commands');
+                }}
+                {...sheetLongPress.handlers}
+                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate max-w-[160px] ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
+              >
+                <span className="truncate">{label}</span>
+                <X
+                  size={11}
+                  data-testid="topic-browser-tab-close"
+                  onClick={(e) => { e.stopPropagation(); topicBrowserWindow.close(topicId, t.contextId); }}
+                />
+                <TabSheet
+                  sheetKey={sheetKey}
+                  target={{
+                    pane: { id: sheetKey, type: 'browser', title: t.title, url: t.url },
+                    label,
+                    surface: 'window',
+                    focused: isActive && focus.focused,
+                    actions: { panes: [], activePaneId: active ? createPaneId('browser', active.contextId) : null },
+                    window: {
+                      openAsTab: () => openAsTab(t.contextId, t.url),
+                      close: () => topicBrowserWindow.close(topicId, t.contextId),
+                    },
+                  }}
+                />
+              </button>
+            );
+          })}
           <button
             ref={addButtonRef}
             data-testid="topic-browser-add"

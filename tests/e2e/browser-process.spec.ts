@@ -77,7 +77,7 @@ async function openTabAddressEditor(page: import("@playwright/test").Page): Prom
   const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
   await expect(tab).toBeVisible({ timeout: 10_000 });
   await tab.getByTestId("pane-tab-label").click();
-  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("browser-tab-address-input")).toBeVisible({ timeout: 10_000 });
   await expectNoRowAboveThePage(page, "opening the sheet brings no row over the page");
 }
@@ -325,12 +325,12 @@ test.describe("RemoteBrowserPanel", () => {
       await tab.hover();
       await expect(tab.getByTestId("browser-tab-reload")).toBeVisible(longWait);
       await page.getByTestId("browser-tab-menu").first().click();
-      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible(longWait);
+      await expect(page.getByTestId("tab-sheet")).toBeVisible(longWait);
       // The address is IN the sheet, focused: there is no "edit address" entry
       // any more, because reaching it is what opening the sheet does.
       await expect(page.getByTestId("browser-tab-address-input")).toBeFocused();
       await page.keyboard.press("Escape");
-      await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0);
+      await expect(page.getByTestId("tab-sheet")).toHaveCount(0);
       await expectNoRowAboveThePage(page, "no row under the tab");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

@@ -423,8 +423,7 @@
     ],
     "client/src/components/Layout/PaneTabBar.tsx": [
       "etichettaTab",
-      "sottotitolo",
-      "voci"
+      "sottotitolo"
     ],
     "client/src/components/Layout/PanelGrid.tsx": [
       "acc",

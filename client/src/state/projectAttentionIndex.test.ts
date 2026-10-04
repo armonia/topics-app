@@ -56,7 +56,7 @@ function seededRandom(seed: number): () => number {
 }
 
 const PROJECTS = ["/w/alpha", "/w/beta", "/w/gamma"];
-const STATES: AttentionState[] = ["idle", "working", "background", "needs-you", "finished"];
+const STATES: AttentionState[] = ["idle", "working", "needs-you", "finished"];
 
 function row(subject: string, state: AttentionState, lit: boolean, error: boolean): AttentionSnapshot {
   return {

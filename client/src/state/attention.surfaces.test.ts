@@ -7,7 +7,7 @@
  * server sends them, and each surface is read through the exact pure function
  * it renders from:
  *   - tab/row fill and number : attentionOf (TopicItem, PaneTabBar, TopicTree)
- *   - background glyph        : attentionOf(...).tier === 'background' (TabSlot, TopicItem)
+ *   - working ring            : attentionOf(...).tier === 'working' (TabSlot, TopicItem)
  *   - bell, Dock, tray        : chromeAttentionSubjects (useTabNotifications, Inbox)
  *   - agents menu             : activeAgentRowsFrom
  *   - project row/tab         : projectAttention
@@ -58,11 +58,11 @@ function surfaces(topics: Record<string, Topic>, id: string, roster: TerminalSes
   const menu = activeAgentRowsFrom(roster, topics, { ...NO_LOADING, attention: r });
   const project = projectAttention(r, '/p', topics, roster);
   return {
-    backgroundGlyph: a.tier === 'background',
+    workingRing: a.tier === 'working',
     tabRowFill: a.lit ? a.tier : null,
     tabRowNumber: a.count,
     bellAndDock: chromeAttentionTotal(r, topics, roster),
-    agentsMenuBackground: menu.background.map((x) => x.id),
+    agentsMenuWorking: menu.working.map((x) => x.id),
     agentsMenuFinished: menu.finished.map((x) => x.id),
     projectFill: project.tier,
     projectNumber: project.count,
@@ -76,33 +76,33 @@ describe('CONTROL: a finished chat, nobody looking', () => {
     const topics = { T: topic('T') };
     attentionActions.applyFrame({ type: 'attention:init', rows: [finished('topic:T', { unread: 1 })] });
     expect(surfaces(topics, 'T')).toEqual({
-      backgroundGlyph: false, tabRowFill: 'done', tabRowNumber: 1, bellAndDock: 1,
-      agentsMenuBackground: [], agentsMenuFinished: ['T'], projectFill: 'done', projectNumber: 1,
+      workingRing: false, tabRowFill: 'done', tabRowNumber: 1, bellAndDock: 1,
+      agentsMenuWorking: [], agentsMenuFinished: ['T'], projectFill: 'done', projectNumber: 1,
     });
   });
 });
 
-describe('A. a chat waiting on its own background work asks nothing (BG-1, BG-3, bgwait-3)', () => {
-  test('A1 Stop with a background Bash: the glyph alone, no fill, no number, not on the bell', () => {
+describe('A. a chat waiting on its own background work is at work and asks nothing (BG-1, BG-3, bgwait-3)', () => {
+  test('A1 Stop with a background Bash: the working ring alone, no fill, no number, not on the bell', () => {
     const topics = { T: topic('T') };
-    updated(snap('topic:T', { state: 'background', unread: 1, turnUnseen: true, lastTurnAt: '2026-10-03T10:00:00.000Z', background: [bash] }));
+    updated(snap('topic:T', { state: 'working', unread: 1, turnUnseen: true, lastTurnAt: '2026-10-03T10:00:00.000Z', background: [bash] }));
     expect(surfaces(topics, 'T')).toEqual({
-      backgroundGlyph: true, tabRowFill: null, tabRowNumber: 0, bellAndDock: 0,
-      agentsMenuBackground: ['T'], agentsMenuFinished: [], projectFill: null, projectNumber: 0,
+      workingRing: true, tabRowFill: null, tabRowNumber: 0, bellAndDock: 0,
+      agentsMenuWorking: ['T'], agentsMenuFinished: [], projectFill: null, projectNumber: 0,
     });
   });
 
-  test('A2 the frame of a turn closed into background carries no announce: no banner', () => {
+  test('A2 the frame of a turn closed on a job left running carries no announce: no banner', () => {
     const ledger = createAnnounceLedger();
-    const frame = { type: 'attention:updated', row: snap('topic:T', { state: 'background', epoch: 0, background: [bash] }), live: true };
+    const frame = { type: 'attention:updated', row: snap('topic:T', { state: 'working', epoch: 0, background: [bash] }), live: true };
     expect(announceBannerOf(frame, { notificationsEnabled: true, notifyEvenWhenFocused: true, pushSubscribed: false }, ledger)).toBeNull();
   });
 
-  test('A3 a Monitor armed: background, not blue, not counted', () => {
+  test('A3 a Monitor armed: at work, no fill, not counted', () => {
     const topics = { T: topic('T') };
-    updated(snap('topic:T', { state: 'background', background: [monitor] }));
+    updated(snap('topic:T', { state: 'working', background: [monitor] }));
     const seen = surfaces(topics, 'T');
-    expect({ fill: seen.tabRowFill, bell: seen.bellAndDock, finished: seen.agentsMenuFinished, project: seen.projectFill, glyph: seen.backgroundGlyph })
+    expect({ fill: seen.tabRowFill, bell: seen.bellAndDock, finished: seen.agentsMenuFinished, project: seen.projectFill, glyph: seen.workingRing })
       .toEqual({ fill: null, bell: 0, finished: [], project: null, glyph: true });
   });
 
@@ -111,12 +111,12 @@ describe('A. a chat waiting on its own background work asks nothing (BG-1, BG-3,
     const ledger = createAnnounceLedger();
     const frame = {
       type: 'attention:updated', live: true,
-      row: snap('topic:t1', { state: 'background', unread: 1, background: [bash, { id: 'a1', kind: 'agent', label: 'Verify render v131', startedAt: '2026-10-03T10:00:00.000Z' }] }),
+      row: snap('topic:t1', { state: 'working', unread: 1, background: [bash, { id: 'a1', kind: 'agent', label: 'Verify render v131', startedAt: '2026-10-03T10:00:00.000Z' }] }),
     };
     attentionActions.applyFrame(frame as never);
     const a = attentionOf(rows(), 'topic:t1');
     expect({
-      waitingOnBackground: a.tier === 'background' && a.background.length === 2,
+      waitingOnBackground: a.tier === 'working' && a.background.length === 2,
       doneMark: a.lit,
       banner: announceBannerOf(frame, { notificationsEnabled: true, notifyEvenWhenFocused: true, pushSubscribed: false }, ledger),
       globalCount: chromeAttentionTotal(rows(), topics, []),
@@ -125,10 +125,10 @@ describe('A. a chat waiting on its own background work asks nothing (BG-1, BG-3,
 });
 
 describe('A4. the sidebar state view', () => {
-  test('a chat waiting on its background Bash sits under «In background», not «Ti aspetta»', () => {
-    updated(snap('topic:T', { state: 'background', background: [bash] }));
+  test('a chat waiting on its background Bash sits under «Al lavoro», not «Ti aspetta»', () => {
+    updated(snap('topic:T', { state: 'working', background: [bash] }));
     const row = { id: 'T', type: 'chat', name: 'chat T', topic: topic('T') } as unknown as SidebarItem;
-    expect(sidebarItemState(row, rows())).toBe('background');
+    expect(sidebarItemState(row, rows())).toBe('working');
   });
 });
 

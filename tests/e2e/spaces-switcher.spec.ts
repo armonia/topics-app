@@ -20,6 +20,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { moveTabToGroupViaSheet, openSheetLevel, openTabSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -88,16 +89,10 @@ test.describe.serial("Gruppi (Spazi)", () => {
 
   /** Crea un gruppo spostandoci dentro la tab `paneId` (via menu contestuale). */
   async function moveTabToNewGroup(page: Page, paneId: string) {
-    await page.locator(`[data-pane-id="${paneId}"]`).first().click({ button: "right" });
-    const moveEntry = page.getByText("Sposta nel gruppo", { exact: true });
-    await expect(moveEntry, "il menu della tab offre 'Sposta nel gruppo'").toBeVisible({ timeout: 3000 });
-    await moveEntry.click();
-    // Scoped al MENU per abitudine, non per necessità: dal 2026-08-05 questo è
-    // l'UNICO "Nuovo gruppo" dell'app (l'invito in fondo alla sidebar creava un
-    // gruppo vuoto ed è stato tolto).
-    const newGroup = page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" });
-    await expect(newGroup, "il sottomenu offre 'Nuovo gruppo'").toBeVisible({ timeout: 3000 });
-    await newGroup.click();
+    // Dal 2026-08-05 questo è l'UNICO "Nuovo gruppo" dell'app (l'invito in
+    // fondo alla sidebar creava un gruppo vuoto ed è stato tolto); vive nel
+    // livello «Sposta nel gruppo» della Disposizione, nel foglio della tab.
+    await moveTabToGroupViaSheet(page, page.locator(`[data-pane-id="${paneId}"]`).first(), "Nuovo gruppo");
   }
 
   test("SPACE-01: con un gruppo solo non si disegna niente (zero chrome)", async ({ page }) => {
@@ -183,11 +178,11 @@ test.describe.serial("Gruppi (Spazi)", () => {
     // Riapri il suo menu → "Sposta nel gruppo". La riga "Principale" deve essere
     // ABILITATA: senza, una tab spostata non tornerebbe più indietro (il bug era
     // che il sottomenu leggeva una pane ricostruita, senza `spaceId`).
-    await tabAinSpace.click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    // Scoped al MENU: "Principale" è anche il nome sull'intestazione della sua
-    // card, e senza lo scope il locator è ambiguo.
-    const mainEntry = page.getByRole("menu").getByRole("button", { name: "Principale", exact: true });
+    await openTabSheet(page, tabAinSpace);
+    await openSheetLevel(page, "layout");
+    // Scoped al LIVELLO: "Principale" è anche il nome sull'intestazione della
+    // sua card, e senza lo scope il locator è ambiguo.
+    const mainEntry = (await openSheetLevel(page, "move-to-group")).getByRole("menuitem", { name: "Principale", exact: true });
     await expect(mainEntry, "la riga di ritorno c'è").toBeVisible({ timeout: 3000 });
     await expect(mainEntry, "ed è cliccabile").toBeEnabled();
   });

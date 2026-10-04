@@ -31,7 +31,7 @@
  *     (evaluate-vs-runtime.mjs). That is what makes the recorder injection
  *     portable — see the verdict on Runtime.evaluate below.
  *
- * THE SIX CALLS, AND WHAT EACH WOULD COST TO PORT.
+ * THE SEVEN CALLS, AND WHAT EACH WOULD COST TO PORT.
  *
  *  1. Page.startScreencast      NOT PORTABLE — rewrite as a screenshot loop.
  *  2. Page.stopScreencast       Chromium pushes frames and throttles them with
@@ -81,6 +81,11 @@
  *                               already treats as the no-regression fallback.
  *                               So this one gets skipped on a non-Chromium
  *                               engine, not translated.
+ *
+ *  7. Page.getNavigationHistory NOT PORTABLE, AND HARMLESS TO LOSE. It only
+ *                               decides whether the streaming pane greys its
+ *                               back/forward arrows. Without it the pane keeps
+ *                               both arrows live, its behaviour before the call.
  *
  * Both non-portable groups therefore turn into "engine has no CDP" branches, not
  * into ports. Only Runtime.evaluate is a straight swap, and only
@@ -245,4 +250,48 @@ export function startScreencast(cdp: CDPSession, params: ReturnType<typeof scree
 /** Stop pushing frames. Leaves the session attached — the caller detaches. */
 export function stopScreencast(cdp: CDPSession): Promise<unknown> {
   return cdp.send("Page.stopScreencast");
+}
+
+/** What the pane's back and forward arrows may offer: whether the tab's
+ *  session history holds an entry behind / ahead of the current one. */
+export interface NavigationHistoryFlags {
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+/**
+ * Turn a `Page.getNavigationHistory` answer into the two arrow flags.
+ *
+ * Pure on purpose: it is the only decision in this path, and it must be
+ * testable without a browser. An index outside the list (an answer the
+ * protocol does not promise, but a malformed one costs nothing to handle)
+ * says "nothing to go to" on that side instead of lighting a dead arrow.
+ */
+export function navigationHistoryFlags(history: {
+  currentIndex: number;
+  entries: readonly unknown[];
+}): NavigationHistoryFlags {
+  const { currentIndex, entries } = history;
+  const valid = Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < entries.length;
+  return {
+    canGoBack: valid && currentIndex > 0,
+    canGoForward: valid && currentIndex < entries.length - 1,
+  };
+}
+
+/**
+ * Read the tab's session history and reduce it to the arrow flags. Does not
+ * need `Page.enable`: it is a query, not an event subscription.
+ * Doc: https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-getNavigationHistory
+ *
+ * Portability: Chromium-only like every call here. Playwright has no history
+ * API at all (no index, no length), so on another engine the pane simply
+ * keeps both arrows enabled, which is what it did before this call existed.
+ */
+export async function readNavigationHistoryFlags(cdp: CDPSession): Promise<NavigationHistoryFlags> {
+  const res = (await cdp.send("Page.getNavigationHistory")) as {
+    currentIndex: number;
+    entries: { url: string }[];
+  };
+  return navigationHistoryFlags(res);
 }

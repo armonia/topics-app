@@ -14,7 +14,11 @@
 
 import type { NotifyAction, NotifyActionRequest } from "./notify-actions";
 
-export const ATTENTION_STATES = ["idle", "working", "background", "needs-you", "finished"] as const;
+/**
+ * `working` covers a turn open AND a closed turn whose tasks still run: a job
+ * the chat waits for is work in progress, not a state of its own.
+ */
+export const ATTENTION_STATES = ["idle", "working", "needs-you", "finished"] as const;
 export type AttentionState = (typeof ATTENTION_STATES)[number];
 
 /** Why a subject needs the person. */

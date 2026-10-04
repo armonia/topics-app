@@ -44,6 +44,7 @@ import { useReturnToTopicWindow } from './returnToTopicWindow';
 import { openExternalOnce } from '../../lib/openExternal';
 import type { DeviceMode } from './browserDevTypes';
 import { useBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
+import { arrowEnabled } from './streamNavHistory';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -446,7 +447,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     toggleShare: onToggleShare,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
     // The sheet covers the page: it says so itself instead of waiting for the
-    // occlusion watcher to measure it (see `BrowserTabSheet`).
+    // occlusion watcher to measure it (see `TabSheet`).
     freeze: browser.freeze,
     thaw: browser.thaw,
     // Offered only while one is driving: a command that ends a state nobody is
@@ -892,8 +893,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // `browser.url` is still `about:blank`. See `urlToShow` in the bridge.
     knownUrl: knownPaneUrl,
     loading: browser.loading,
-    canGoBack: true,
-    canGoForward: true,
+    // Lit only when the server page has somewhere to go (it reads its own
+    // session history); enabled while it has not said, as before.
+    canGoBack: arrowEnabled(browser.canGoBack),
+    canGoForward: arrowEnabled(browser.canGoForward),
     // The server page's console: the tallies for the tab, the rows for the
     // sheet. The iframe branch shows this device's own page, whose console the
     // server does not see.

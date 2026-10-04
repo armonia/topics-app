@@ -1414,7 +1414,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * A queued wake is a task of the attention state (`attentionBackgroundOf`)
    * that leaves by the clock alone: no line says the CLI folded the report
    * into the turn that just ended, or that the wake never opened. Without a
-   * re-read at that instant the chat stayed `background` on a wake gone for
+   * re-read at that instant the chat stayed `working` on a wake gone for
    * good, and the idle reaper later counted it as work that died (review 2 of
    * notifications-redesign, B1). Not cleared when the wake opens: the re-read
    * then finds the map unchanged, or the turn's own end already wrote it.

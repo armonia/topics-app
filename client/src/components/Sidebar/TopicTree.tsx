@@ -7,7 +7,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, Orbit, type LucideIcon, Share2 } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2 } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -71,16 +71,15 @@ import { useSidebarRowFlip } from './useSidebarRowFlip';
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono: il tier
  * dello stato di attenzione (ATTN-12).
  *
- * «Ti aspetta» prima di tutto: è l'unica riga su cui devi muoverti tu. Poi le
- * finite che non hai guardato, poi chi aspetta il proprio lavoro in background
- * (informazione: non chiede niente), poi chi sta lavorando, poi il resto.
+ * «Waiting for you» first: the only row you have to act on. Then the finished
+ * ones you have not looked at, then the ones at work (a job a closed turn left
+ * running included: it asks nothing), then the rest.
  *
  * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase.
  */
 const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labelKey: string }[] = [
   { key: 'needs-you', icon: Hourglass, labelKey: 'sidebar.state.needsYou' },
   { key: 'finished', icon: CircleCheck, labelKey: 'sidebar.state.finished' },
-  { key: 'background', icon: Orbit, labelKey: 'sidebar.state.background' },
   { key: 'working', icon: Activity, labelKey: 'sidebar.state.working' },
   { key: 'rest', icon: MoreHorizontal, labelKey: 'sidebar.state.rest' },
 ];

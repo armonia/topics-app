@@ -37,7 +37,7 @@ const SCRIPT = resolve(__dirname, "fake-claude-slow-turn.ts");
  * is the last guess (the PC's PATH carries an unpaired quote that breaks
  * cmd's lookup, not this one).
  */
-function bunPath(): string {
+export function bunPath(): string {
   if (process.versions.bun) return process.execPath;
   const names = IS_WINDOWS ? ["bun.exe", "bun.cmd", "bun"] : ["bun"];
   const dirs = [...(process.env.PATH ?? "").split(delimiter), join(homedir(), ".bun", "bin")];

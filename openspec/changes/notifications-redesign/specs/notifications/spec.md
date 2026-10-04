@@ -5,7 +5,7 @@
 ### Requirement: ATTN-01 — Ogni soggetto ha UNO stato di attenzione, e lo compone il server
 
 Ogni chat (`topic:<id>`), terminale (`terminal:<id>`) e card (`task:<id>`) SHALL avere
-uno e un solo stato di attenzione: `idle`, `working`, `background`, `needs-you` (con
+uno e un solo stato di attenzione: `idle`, `working`, `needs-you` (con
 motivo `question`, `permission`, `plan`, `review` o `parked`) o `finished` (con esito
 `done` o `error`), più un'epoca e l'ultima epoca vista. Un soggetto è **acceso** quando è
 `needs-you`, o quando è `finished` e la sua epoca non è stata vista.
@@ -15,8 +15,16 @@ ultimo turno, stato della card, archiviazione e chiusura, con questa precedenza:
 archiviato, cancellato o terminale chiuso → `idle`; topic di un agente di board → `idle`;
 attesa aperta → `needs-you`;
 card in review o parcheggiata → `needs-you`; turno aperto → `working`; ultimo turno in
-errore non visto → `finished(error)`; compiti in background → `background`; ultimo turno
+errore non visto → `finished(error)`; compiti in background → `working`; ultimo turno
 finito non visto → `finished(done)`; altrimenti `idle`.
+
+Un soggetto che aspetta il lavoro che ha lanciato È al lavoro (modifica del 2026-10-04):
+non esiste uno stato `background` a parte, e ogni superficie lo mostra «in corso» come un
+turno aperto. Un processo fatto per restare acceso (un server avviato con `run_script`, o
+con `run_command` senza sveglia, che ascolta su una porta) NON SHALL essere un compito che
+conta: è un server della chat (BGVIS-08), con un segno suo sulla riga della sidebar, che
+non conta come lavoro in corso e non accende niente. Una riga salvata come `background`
+prima della modifica SHALL caricarsi come `working`.
 
 Un'attesa aperta nella sessione di una card in volo SHALL essere un ingresso del soggetto
 `task:<id>` di quella card, non del suo topic. L'attesa resta un fatto transitorio come
@@ -26,7 +34,7 @@ bridge sono vuote e l'attesa non esiste più.
 Un solo modulo SHALL scrivere lo stato e trasmetterlo (`attention:init`,
 `attention:updated`). Tab di pane, riga della sidebar (anche la sua presenza e il suo
 ordine), riga e tab di progetto, card del gruppo, tab board e riga Board, vista per stato,
-coda di ⌘J e porta «In attesa» del telefono, menu agenti, glifo «in background», inbox,
+coda di ⌘J e porta «In attesa» del telefono, menu agenti, anello di lavoro, inbox,
 Dock, tray e badge PWA SHALL derivare solo da quello stato, con le stesse due funzioni per
 soggetto e per insieme di soggetti. Nessuna superficie SHALL leggere la fase Claude, le
 righe del registro, il poll di `GET /api/topics/streaming` o un segno in memoria per
@@ -48,10 +56,15 @@ decidere se accendersi o se mostrare il lavoro in background.
 - **WHEN** si leggono la sua tab, la sua riga, la riga di progetto e la card del gruppo
 - **THEN** tutte e quattro SHALL avere `data-attention="done"`
 
-#### Scenario: nessuna chat è insieme in background e finita
+#### Scenario: nessuna chat è insieme al lavoro e finita
 - **GIVEN** una chat con un Agent in background
 - **WHEN** si compone il menu agenti
-- **THEN** la chat SHALL stare fra le attive in background e NON SHALL stare fra le finite
+- **THEN** la chat SHALL stare fra quelle al lavoro e NON SHALL stare fra le finite
+
+#### Scenario: un server acceso non è lavoro in corso
+- **GIVEN** una chat il cui agente ha avviato un dev server con `run_script`, che ascolta su una porta
+- **THEN** il suo stato NON SHALL essere `working`, la riga della sidebar SHALL avere il segno del server (`row-server-sign`) col suo indirizzo e nessun anello
+- **AND** la riga quieta della inbox NON SHALL contarla
 
 #### Scenario: il topic di un agente di board
 - **GIVEN** il topic di una card dispatchata che finisce un turno
@@ -69,13 +82,13 @@ decidere se accendersi o se mostrare il lavoro in background.
 - **WHEN** la persona chiude la sua tab, o la sua pane viene rimossa
 - **THEN** il soggetto SHALL essere `idle`, la sua riga di cronologia vista, e campanella e Dock SHALL calare di uno
 
-### Requirement: ATTN-02 — Il lavoro in background non chiede niente, e la fine vera avvisa una volta
+### Requirement: ATTN-02 — Il lavoro in background è lavoro in corso, non chiede niente, e la fine vera avvisa una volta
 
 Un turno che finisce lasciando compiti in volo (Bash o Agent con `run_in_background`,
 Workflow, Monitor, CronCreate non ricorrente, `run_command` di Topics) SHALL portare il
-soggetto in `background`: niente fill, niente numero, niente banner, niente spinta,
-niente riga di cronologia, e nessun conto in campanella, Dock, tray o vista «Ti aspetta».
-Il glifo grigio «in background» SHALL restare l'unico segno.
+soggetto in `working`, come un turno aperto: niente fill, niente numero, niente banner,
+niente spinta, niente riga di cronologia, e nessun conto in campanella, Dock, tray o vista
+«Ti aspetta». L'anello di lavoro in corso SHALL essere il suo segno, lo stesso di un turno.
 
 `stream:end` SHALL portare `background: { count, kinds }`, calcolato prima del frame da
 una funzione dell'attenzione (`attentionBackground`) che conta i compiti vivi, la CLI che
@@ -84,12 +97,12 @@ si sta già svegliando (`wake-queued`) e i cron non ricorrenti. NON SHALL venire
 armato per due ore: quelli restano al goal loop, invariati.
 
 Un turno risvegliato che chiude con altri compiti ancora in volo SHALL lasciare il
-soggetto in `background`, senza avvisi. Quando l'ultimo compito è tornato e il turno che
+soggetto in `working`, senza avvisi. Quando l'ultimo compito è tornato e il turno che
 lo porta chiude, il soggetto SHALL passare a `finished(done)` con un'epoca nuova: un
 avviso solo per tutta l'attesa. Se l'ultimo compito torna e nessun turno si apre entro
 5 s, il soggetto SHALL passare a `finished(done)` se l'ultimo turno non era stato visto,
 altrimenti a `idle`. Un turno è visto quando la persona ha guardato il soggetto dopo che è
-chiuso, anche in `background` (ATTN-06, `seen_at`), o quando è chiuso davanti a lei.
+chiuso, anche mentre aspetta i suoi compiti (ATTN-06, `seen_at`), o quando è chiuso davanti a lei.
 
 Nessun messaggio dentro un turno e nessun turno risvegliato SHALL alzare un banner su
 nessuna finestra, nemmeno sulla finestra principale nascosta nella tray: il ramo dei
@@ -102,32 +115,32 @@ Un turno in errore SHALL dare `finished(error)` anche con compiti in volo.
 - **GIVEN** una chat non a fuoco il cui turno lancia un Agent e un Bash in background e risponde «Lanciati, aspetto»
 - **WHEN** arriva `stream:end`
 - **THEN** il frame SHALL portare `background.count = 2`
-- **AND** lo stato SHALL essere `background`, senza riga di cronologia, senza spinta e senza banner
+- **AND** lo stato SHALL essere `working`, senza riga di cronologia, senza spinta e senza banner
 - **AND** la tab e la riga NON SHALL avere fill né numero, e campanella e Dock NON SHALL cambiare
 
 #### Scenario: uno di tre è tornato
-- **GIVEN** la chat in `background` con tre compiti
+- **GIVEN** la chat in attesa del suo lavoro (`working`) con tre compiti
 - **WHEN** il primo torna, la CLI si sveglia e il turno chiude con «1 di 3 arrivato»
-- **THEN** lo stato SHALL tornare `background` senza epoca nuova, e il non-letto SHALL salire di uno senza che nessuna superficie lo mostri
+- **THEN** lo stato SHALL restare `working` senza epoca nuova, e il non-letto SHALL salire di uno senza che nessuna superficie lo mostri
 
 #### Scenario: l'ultimo torna
-- **GIVEN** la chat in `background` con un solo compito, e due messaggi non letti dei turni risvegliati
+- **GIVEN** la chat in attesa del suo lavoro (`working`) con un solo compito, e due messaggi non letti dei turni risvegliati
 - **WHEN** l'ultimo compito torna e il turno che lo porta chiude senza altro in volo
 - **THEN** lo stato SHALL essere `finished(done)` con un'epoca nuova
 - **AND** SHALL partire un banner solo, e la riga e la tab SHALL mostrare 3
 
 #### Scenario: il compito torna e la CLI non si sveglia
-- **GIVEN** una chat in `background` il cui ultimo turno non era stato visto
+- **GIVEN** una chat in attesa del suo lavoro (`working`) il cui ultimo turno non era stato visto
 - **WHEN** l'ultimo compito torna e per 5 s non si apre nessun turno
 - **THEN** lo stato SHALL essere `finished(done)`
 
-#### Scenario: guardata mentre era in background
-- **GIVEN** una chat in `background`, guardata dalla persona per la soglia dopo la fine del turno
+#### Scenario: guardata mentre aspettava il suo lavoro
+- **GIVEN** una chat in attesa del suo lavoro (`working`), guardata dalla persona per la soglia dopo la fine del turno
 - **WHEN** l'ultimo compito torna e per 5 s non si apre nessun turno
 - **THEN** lo stato SHALL essere `idle`, senza epoca nuova né banner
 
 #### Scenario: la finestra principale è nella tray
-- **GIVEN** la finestra principale nascosta nella tray, e una chat in `background` con tre compiti
+- **GIVEN** la finestra principale nascosta nella tray, e una chat in attesa del suo lavoro (`working`) con tre compiti
 - **WHEN** tornano i primi due, ciascuno con un turno risvegliato che scrive un messaggio
 - **THEN** NON SHALL partire nessun banner
 - **WHEN** torna il terzo e il turno chiude senza altro in volo
@@ -141,7 +154,7 @@ Un turno in errore SHALL dare `finished(error)` anche con compiti in volo.
 
 #### Scenario: un Monitor armato
 - **GIVEN** una chat che ha armato un Monitor e chiude il turno
-- **THEN** lo stato SHALL essere `background`, e la tab NON SHALL essere blu né contata in campanella
+- **THEN** lo stato SHALL essere `working`, con l'anello di lavoro, e la tab NON SHALL essere blu né contata in campanella
 
 #### Scenario: un errore con compiti in volo
 - **GIVEN** una chat con un Bash in background
@@ -174,7 +187,7 @@ la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15).
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
 - **WHEN** un turno lancia un Bash con `run_in_background`, oppure un Agent con `run_in_background`, oppure un Workflow, e poi arriva `Stop`
-- **THEN** la fase SHALL essere `watching` e lo stato di attenzione `background`
+- **THEN** la fase SHALL essere `watching` e lo stato di attenzione `working`
 
 #### Scenario: il Monitor scaduto di un terminale
 - **GIVEN** un terminale in `watching` per un solo Monitor
@@ -188,7 +201,7 @@ la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15).
 #### Scenario: il server si ricarica con un terminale in attesa
 - **GIVEN** un terminale con un Agent in volo e il bridge PTY vivo
 - **WHEN** il server si ricarica
-- **THEN** il terminale SHALL essere ancora `background` con lo stesso id in volo
+- **THEN** il terminale SHALL essere ancora `working` con lo stesso id in volo
 
 #### Scenario: un cron ricorrente in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -275,7 +288,7 @@ superficie.
 - **THEN** lo stato SHALL essere `finished(done)`, epoca +1, blu con numero su tab e riga, +1 in campanella e Dock
 
 #### Scenario: un tick di Monitor a cui il modello non risponde
-- **GIVEN** una chat in `background` per un Monitor
+- **GIVEN** una chat in attesa del suo lavoro (`working`) per un Monitor
 - **WHEN** arriva un turno risvegliato che viene scartato perché vuoto
 - **THEN** il non-letto NON SHALL cambiare e NON SHALL nascere un'epoca
 
@@ -312,7 +325,7 @@ dispositivo della persona, SEMPRE, anche quando non ha cambiato niente.
 
 Un visto per un'epoca NON SHALL spegnere un'epoca più nuova, e un `turnAt` vecchio NON
 SHALL coprire un turno più nuovo. Una pane a fuoco SHALL mandare il visto anche quando il
-soggetto è in `background` con un turno chiuso non visto.
+soggetto aspetta i suoi compiti (`working`) con un turno chiuso non visto.
 
 Il frame `focus` SHALL portare il soggetto a fuoco e se la finestra è sveglia, e la
 chiusura della socket SHALL cancellarlo. Un'epoca che nasce mentre il suo soggetto è a
@@ -433,7 +446,8 @@ Il tasto della sidebar SHALL aprire un pannello «Da guardare» con due linguett
 (`needs-you`, dal più vecchio) e «Finite» (`finished` non visti, dal più recente), ogni
 riga con icona del motivo, nome, progetto, tempo e una seconda linea con la domanda, il
 permesso, il motivo, l'inizio dell'ultimo messaggio o l'errore. Sotto, una riga quieta
-SHALL dire quanti soggetti sono in background e al lavoro, senza entrare nel numero.
+SHALL dire quanti soggetti sono al lavoro (un turno aperto o un lavoro in background che
+aspettano: un conto solo), senza entrare nel numero.
 
 Aprire il pannello NON SHALL segnare niente. Aprire una voce SHALL portare al soggetto nel
 punto (la chat sulla domanda, la card nel cassetto) e, per una `Finite`, segnarla vista.
@@ -469,9 +483,9 @@ emoji.
 - **THEN** il numero SHALL essere 2
 
 #### Scenario: niente da guardare, due al lavoro in background
-- **GIVEN** nessun soggetto acceso e due chat in `background`
+- **GIVEN** nessun soggetto acceso e due chat in attesa del suo lavoro (`working`)
 - **WHEN** si apre il pannello
-- **THEN** SHALL dire «Niente da guardare» e «2 in background», e il tasto NON SHALL avere numero
+- **THEN** SHALL dire «Niente da guardare» e «2 al lavoro», e il tasto NON SHALL avere numero
 
 #### Scenario: solo tastiera
 - **WHEN** la persona apre il pannello con la scorciatoia, scende con ↓, segna con `E` e chiude con Esc
@@ -490,8 +504,8 @@ non `topic:`, una per ciclo. NON SHALL accendere nessun soggetto né entrare in 
 numero.
 
 #### Scenario: un comando in background congelato e scongelato
-- **GIVEN** una chat in `background` col comando che lo swap congela e poi scongela
-- **THEN** la chat SHALL restare `background`, spenta, e la cronologia SHALL avere UNA riga «Sistema» per quel ciclo
+- **GIVEN** una chat in attesa del suo lavoro (`working`) col comando che lo swap congela e poi scongela
+- **THEN** la chat SHALL restare `working`, spenta, e la cronologia SHALL avere UNA riga «Sistema» per quel ciclo
 
 #### Scenario: un riavvio trattenuto
 - **WHEN** il server trattiene un riavvio per una chat al lavoro
@@ -548,33 +562,40 @@ SHALL leggere la concentrazione del Mac.
 
 ### Requirement: ATTN-12 — Pane, tab, riga, progetto e gruppo mostrano lo stesso tier
 
-Ogni superficie SHALL disegnare il tier del soggetto così: `working` spinner; `background`
-glifo grigio senza fill né numero; `needs-you` fill ambra; `finished(done)` non visto fill
+Ogni superficie SHALL disegnare il tier del soggetto così: `working` (un turno aperto o un
+lavoro in background che aspetta) l'anello di lavoro, senza fill né numero; `needs-you` fill ambra; `finished(done)` non visto fill
 blu; `finished(error)` non visto fill rosso; visto o `idle` niente. Le superfici accese
 SHALL esporre `data-attention` col tier (`needs-you`, `done`, `error`) e il numero
 `max(1, non-letti)`. Riga e tab di progetto e card del gruppo SHALL mostrare il tier più
 alto dei figli accesi (`needs-you` sopra `error` sopra `done`) e il numero dei figli
 accesi. La vista per stato della sidebar SHALL avere le sezioni «Ti aspetta», «Finite»,
-«In background», «Al lavoro», dallo stesso tier.
+«Al lavoro», dallo stesso tier. Un server acceso (BGVIS-08) NON SHALL accendere l'anello:
+la riga ha il suo segno del server.
 
-Il glifo «in background», l'indicatore di lavoro e la riga del background della chat
+L'anello di lavoro, l'indicatore di lavoro e la riga del background della chat
 SHALL leggere il tier e i compiti dello stato di attenzione, dallo stesso frame del fill;
 lo Stop del lavoro in background SHALL leggere i compiti in volo, anche col tier `error`.
 
 Il numero su tab e riga SHALL esserci solo per un soggetto acceso: una chat spenta con
-non-letti (in `background`, vista, o con un messaggio di sistema) NON SHALL avere numero.
+non-letti (al lavoro, vista, o con un messaggio di sistema) NON SHALL avere numero.
 
 #### Scenario: la chat in background nella vista per stato
-- **GIVEN** una chat in `background`
-- **THEN** nella vista per stato SHALL stare sotto «In background» e NON sotto «Ti aspetta»
+- **GIVEN** una chat in attesa del suo lavoro (`working`)
+- **THEN** nella vista per stato SHALL stare sotto «Al lavoro» e NON sotto «Ti aspetta»
+
+#### Scenario: la chat in background in sidebar e sulla tab
+- **GIVEN** una chat il cui turno ha lasciato un Bash in background
+- **THEN** la sua riga e la sua tab SHALL avere `[data-loader-state="working"]`, senza `data-attention`
+- **WHEN** il Bash torna e il turno che lo riporta chiude
+- **THEN** la riga SHALL avere `data-attention="done"` e nessun anello
 
 #### Scenario: il progetto con una domanda e una chat finita
 - **GIVEN** un progetto con una chat `needs-you` e una `finished(done)` non vista
 - **THEN** la riga del progetto SHALL essere ambra con il numero 2
 
-#### Scenario: glifo e fill insieme non esistono più
+#### Scenario: anello e fill insieme non esistono più
 - **GIVEN** una qualunque chat, anche `finished(error)` con un Bash ancora in volo
-- **THEN** la sua riga NON SHALL mostrare insieme il glifo «in background» e un fill
+- **THEN** la sua riga NON SHALL mostrare insieme l'anello di un lavoro in background e un fill
 - **AND** con il Bash in volo il composer SHALL offrire lo Stop del lavoro in background
 
 ### Requirement: ATTN-13 — Archiviare, cancellare o chiudere spegne il soggetto e le sue righe, dove si scrive
@@ -640,7 +661,7 @@ epoche: un turno già visto NON SHALL riaccendersi, uno non visto SHALL restare 
 - **THEN** lo stato SHALL restare `idle`, senza epoca, riga né banner
 
 #### Scenario: il tetto di vita chiude una chat in background
-- **GIVEN** una chat in `background` con un Agent in volo
+- **GIVEN** una chat in attesa del suo lavoro (`working`) con un Agent in volo
 - **WHEN** il tetto di vita chiude la CLI
 - **THEN** lo stato SHALL essere `finished(error)` con un'epoca nuova, rosso e contato
 
@@ -650,7 +671,7 @@ epoche: un turno già visto NON SHALL riaccendersi, uno non visto SHALL restare 
 - **THEN** lo stato SHALL essere `finished(error)`
 
 #### Scenario: il server riparte e il processo non c'è più
-- **GIVEN** una chat in `background` con un compito in volo, e nessun processo vivo dopo il riavvio
+- **GIVEN** una chat in attesa del suo lavoro (`working`) con un compito in volo, e nessun processo vivo dopo il riavvio
 - **THEN** lo stato SHALL essere `finished(error)`, contato, senza banner né spinta
 
 ### Requirement: ATTN-16 — La tab board conta le card accese
@@ -807,7 +828,7 @@ quando non ce n'è nessuno.
 Il numero che Topics dipinge sul sistema operativo (badge dell'icona, glifo nella barra
 dei menu, Badging API della PWA) SHALL essere il risultato di UNA funzione pura sullo stato
 di attenzione: il numero di soggetti accesi non archiviati. Il lavoro che gira da solo
-(`working`, `background`) non entra, un topic archiviato non entra mai, e le righe di
+(`working`, anche quando aspetta un lavoro in background) non entra, un topic archiviato non entra mai, e le righe di
 cronologia non entrano.
 
 Il numero SHALL coincidere con le righe di sidebar che mostrano un tier acceso più il
@@ -879,7 +900,7 @@ Ciò che è ancora acceso NON SHALL essere spento da un automatismo.
 The system SHALL render a numeric badge on an inactive chat tab only while the topic's
 attention subject is lit (`needs-you`, or `finished` not seen: ATTN-01), and its text
 SHALL be `max(1, unread)`, both read from the same `attention:*` frame. A topic that is
-not lit (`idle`, `working`, `background`, seen) SHALL NOT have a badge, whatever its
+not lit (`idle`, `working` with or without a job left running, seen) SHALL NOT have a badge, whatever its
 unread count: unread raised by a woken turn in background, a system message or an edit
 waits for the subject to light up.
 
@@ -893,7 +914,7 @@ waits for the subject to light up.
 - **THEN** A's inactive pane tab shows a badge whose text is exactly "1"
 
 #### Scenario: Unread in background paints nothing
-- **WHEN** topic A is `background` with an unread count of 2
+- **WHEN** topic A is `working` on a job left running, with an unread count of 2
 - **THEN** no badge element is rendered inside A's tab
 
 ### Requirement: PARITY-01 — Same count on the tab bar and the sidebar row

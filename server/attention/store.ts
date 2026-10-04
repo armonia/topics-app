@@ -228,7 +228,8 @@ function ensureLoaded(): void {
       for (const r of raw) {
         rows.push({
           subject: String(r.subject),
-          state: r.state as AttentionState,
+          // A row saved before 2026-10-04 may say `background`, which is `working` now.
+          state: (r.state === "background" ? "working" : r.state) as AttentionState,
           reason: (r.reason as AttentionReason | null) ?? null,
           outcome: (r.outcome as AttentionOutcome | null) ?? null,
           detail: (r.detail as string | null) ?? null,
@@ -478,7 +479,7 @@ function recompose(subject: string, opts: RecomposeOpts): AttentionSnapshot {
       composition = composeAttention(inputsOf(e));
     }
   }
-  // A turn that closes into `background` in front of the person is seen too:
+  // A turn that closes on running tasks in front of the person is seen too:
   // the end of the wait (T7) must not light it again.
   if (opts.live && opts.turnClosed && !isLitComposition(composition) && row.lastTurn && isTurnUnseen(row.lastTurn, row.seenAt) && inFrontOfThePerson(subject)) {
     row.seenAt = row.lastTurn.at;
@@ -559,7 +560,7 @@ function clearGrace(e: Entry): void {
 }
 
 /**
- * The last counting task left with no turn open: hold `background` for
+ * The last counting task left with no turn open: hold `working` for
  * `graceMs`, so the wake that carries the report is the one turn that
  * announces (T6); if no turn opens, the end of the wait decides (T7).
  * Not when all that left was the queued `wake` itself: it leaves by the

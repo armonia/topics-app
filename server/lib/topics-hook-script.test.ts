@@ -2,6 +2,7 @@
  * The hook script the server writes at boot, next to the token.
  *
  * @covers CCS-06
+ * @covers CCS-03
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -56,5 +57,43 @@ describe("the hook script under TOPICS_HOME", () => {
     expect(readFileSync(path, "utf-8")).toContain("/api/claude-hooks/");
     // No temp left next to it.
     expect(readdirSync(join(home, "claude-hooks")).sort()).toEqual(["post-hook.sh"]);
+  });
+});
+
+/**
+ * The hooks are async and reach the server in any order; the script's stamp of
+ * when it FIRED is what lets the server put them back in order. Run for real,
+ * against a plain-HTTP stand-in for the server.
+ */
+describe("the script stamps when the hook fired", () => {
+  test("X-Topics-Hook-Fired-At carries epoch ms, taken before the POST", async () => {
+    const path = hookScriptPath(home);
+    writeHookScript(path);
+    writeFileSync(join(home, "claude-hooks", "hook-token"), "a".repeat(64), { mode: 0o600 });
+    const seen: { event: string; firedAt: string | null }[] = [];
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        seen.push({ event: new URL(req.url).pathname, firedAt: req.headers.get("x-topics-hook-fired-at") });
+        return new Response("{}");
+      },
+    });
+    try {
+      const before = Date.now();
+      const p = Bun.spawn(["sh", path, "PreToolUse"], {
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, TOPICS_HOME: home, TOPICS_APP_URL: `http://127.0.0.1:${server.port}` },
+        stdin: new TextEncoder().encode(JSON.stringify({ session_id: "s" })),
+      });
+      expect(await p.exited).toBe(0);
+      const after = Date.now();
+      expect(seen.map((x) => x.event)).toEqual(["/api/claude-hooks/PreToolUse"]);
+      const firedAt = seen[0]!.firedAt ?? "";
+      expect(firedAt).toMatch(/^\d{13}$/);
+      expect(Number(firedAt)).toBeGreaterThanOrEqual(before - 1);
+      expect(Number(firedAt)).toBeLessThanOrEqual(after);
+    } finally {
+      server.stop(true);
+    }
   });
 });

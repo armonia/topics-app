@@ -18,7 +18,7 @@
  *    element that was right-clicked;
  *  - Shift+F10 on the focused element opens the same menu.
  *
- * @covers CTXMENU-01
+ * @covers CTXMENU-01 @covers TABSHEET-01
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "child_process";
@@ -30,6 +30,7 @@ import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
+import { moveTabToGroupViaSheet } from "./helpers/tab-sheet";
 
 hermetic(test);
 
@@ -280,28 +281,24 @@ test.describe("Right-click across the app (CTXMENU-01)", () => {
     await exerciseMenu(page, row);
   });
 
-  test("RC-04 pane tab: the menu opens under the tab and the focus goes back where it was", async ({ page }) => {
+  test("RC-04 pane tab: the sheet opens under the tab and the focus goes back to the tab", async ({ page }) => {
     await openApp(page, [topicId, otherId]);
     const tab = page.locator(`[role="tab"][data-pane-id="${topicId}"]`).first();
     await expect(tab).toBeVisible();
-    // A tab is not a focus stop (clicking one would light the bar's
-    // focus-within reveal), so the focus returns to what held it before the
-    // right-click: the composer.
-    const composer = page.getByTestId("chat-message-input").first();
-    await composer.focus();
-    await exerciseMenu(page, tab, { focusBack: composer, keyboard: null, atPointer: false });
+    // The tab's menu is its sheet (TABSHEET-01), and on close the focus goes
+    // back to the tab, which takes it from the keyboard (Shift+F10) and not
+    // from the pointer. The sheet hangs from the tab, not from the pointer.
+    await exerciseMenu(page, tab, { focusBack: tab, keyboard: tab, atPointer: false });
     const tabBox = (await tab.boundingBox())!;
     await tab.click({ button: "right" });
-    const menuBox = (await page.getByRole("menu").boundingBox())!;
+    const menuBox = (await page.getByTestId("tab-sheet").boundingBox())!;
     expect(menuBox.y).toBeGreaterThanOrEqual(tabBox.y + tabBox.height - 1);
     await page.keyboard.press("Escape");
   });
 
   test("RC-05 sidebar group header", async ({ page }) => {
     await openApp(page, [topicId, otherId]);
-    await page.locator(`[role="tab"][data-pane-id="${otherId}"]`).first().click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+    await moveTabToGroupViaSheet(page, page.locator(`[role="tab"][data-pane-id="${otherId}"]`).first(), "Nuovo gruppo");
     await expect(page.getByRole("menu")).toHaveCount(0);
     const header = page.locator('[data-testid="space-row"], [data-testid="space-row-active"]').first();
     await expect(header).toBeVisible({ timeout: 10_000 });

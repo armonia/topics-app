@@ -113,7 +113,7 @@ describe("a background report folded into a turn of ours", () => {
       { type: "system", subtype: "task_started", task_id: "bbuild1", tool_use_id: "toolu_b1", description: "Run the build", is_backgrounded: true, task_type: "local_bash", session_id: SID, uuid: u() },
       ...text("msg_1", "Build launched, I will tell you."), result("Build launched, I will tell you.")]);
     await Bun.sleep(150);
-    expect(getAttention(subject).state).toBe("background");
+    expect(getAttention(subject).state).toBe("working");
 
     // Turn 2: the person asks something else; the build reports INSIDE it, and no init follows.
     await post("meanwhile, what is 2+2?");
@@ -124,7 +124,7 @@ describe("a background report folded into a turn of ours", () => {
     await Bun.sleep(150);
     // Its wake may still open: the turn waits on it, nothing announced yet.
     const atEnd = getAttention(subject);
-    expect(atEnd.state).toBe("background");
+    expect(atEnd.state).toBe("working");
     expect(atEnd.background.map((t) => t.kind)).toEqual(["wake"]);
     expect(pushes).toHaveLength(0);
 

@@ -16,6 +16,8 @@ import { promises as fsp, statSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import {
   applyHook,
+  applyStaleHook,
+  newSessionFromByteZero,
   applyJsonlEvent,
   reapStaleSession,
   markPtyCrash,
@@ -40,6 +42,7 @@ import { parseTranscriptDelta } from './claude-transcript-import';
 import type { StoredMessage } from '../types';
 import { applyTaskChanges, countingTasks, processEnded } from '../attention/store';
 import { hookTasks, syncAttention, transcriptTasks } from '../attention/tracker-sync';
+import { createHookOrder, hookDedupKey, hookEventTime } from './hook-order';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
 
@@ -284,6 +287,7 @@ export type IngestResult =
   | { kind: 'unknown-session'; claudeSessionId: string }
   | { kind: 'rate-limited'; claudeSessionId: string }
   | { kind: 'duplicate'; claudeSessionId: string }
+  | { kind: 'stale'; claudeSessionId: string } // fired before a hook already applied (`hook-order.ts`)
   | { kind: 'unknown-event'; event: string };
 
 export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): ClaudeSessionTracker {
@@ -351,9 +355,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   // riavvio si riparte a guardare, che è il comportamento giusto.
   const forkWatch = new Map<string, { lastScanAt: number; rejected: Map<string, number> }>();
 
-  function dedupKey(claudeSessionId: string, event: string): string {
-    return `${claudeSessionId}|${event}`;
-  }
+  const hookOrder = createHookOrder();
 
   function checkRateLimit(claudeSessionId: string, t: number): boolean {
     const bucket = rateBuckets.get(claudeSessionId);
@@ -365,8 +367,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return bucket.count <= rateLimitPerSec;
   }
 
-  function checkDedup(claudeSessionId: string, event: string, t: number): boolean {
-    const k = dedupKey(claudeSessionId, event);
+  function checkDedup(claudeSessionId: string, event: string, t: number, toolUseId?: unknown): boolean {
+    const k = hookDedupKey(claudeSessionId, event, toolUseId);
     const entry = dedupMap.get(k);
     if (entry && t - entry.lastEventAt < dedupWindowMs) {
       entry.lastEventAt = t;
@@ -485,38 +487,37 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       return { kind: 'rate-limited', claudeSessionId: sid };
     }
 
-    if (!checkDedup(sid, event, t)) {
+    if (!checkDedup(sid, event, t, payload.tool_use_id)) {
       return { kind: 'duplicate', claudeSessionId: sid };
     }
     if (event === 'SessionStart') payload = withLiveTranscript(payload);
 
     // Topic sessions live in the DB; topic-less terminal sessions in-memory.
     const dbPrev = repo.loadByClaudeSessionId(sid);
-    if (dbPrev) {
-      // Il flag dell'attesa si rimette PRIMA di applicare l'hook (il DB l'ha
-      // perso) e si rilegge DOPO (l'hook può averlo acceso o spento). Vedi
-      // `attesArmate`.
-      const subject = subjectOf(dbPrev);
-      hookTasks(subject, payload, t);
-      const next = snapOffsetIfPathChanged(dbPrev, applyHook(conAttesa(dbPrev), payload, t, { countingTasks: subject ? countingTasks(subject) : 0 }));
-      if (next.sessionKey) {
-        if (next.monitorArmed) attesArmate.add(next.sessionKey);
-        else attesArmate.delete(next.sessionKey);
-      }
-      const res = commit(dbPrev, next);
-      syncAttention(subject, dbPrev, res.state, event, false, t);
-      return { kind: 'ok', state: res.state, changed: res.changed };
+    const prev = dbPrev ?? terminalStates.get(sid);
+    if (!prev) return { kind: 'unknown-session', claudeSessionId: sid };
+
+    // Dated when it FIRED (`hook-order.ts`). `SessionEnd`, still sync and the last one, is never late.
+    const at = hookEventTime(payload.fired_at, t);
+    const verdict = hookOrder.admit(sid, event, payload.tool_use_id, at);
+    if (verdict === 'finished-call') return { kind: 'stale', claudeSessionId: sid };
+    const late = verdict === 'stale' && event !== 'SessionEnd';
+    const subject = subjectOf(prev);
+    // A late add or remove still lands by id; only the `clear` of a late `SessionStart` would wipe a newer wait.
+    if (!(late && event === 'SessionStart')) hookTasks(subject, payload, at);
+    const counting = { countingTasks: subject ? countingTasks(subject) : 0 };
+    // The wait flag goes back on BEFORE the hook (the DB lost it) and is read again AFTER: see `attesArmate`.
+    const base = dbPrev ? conAttesa(dbPrev) : prev;
+    const applied = late ? applyStaleHook(base, payload, t, counting) : applyHook(base, payload, at, counting);
+    const moved = applied !== base;
+    const next = moved ? newSessionFromByteZero(prev, snapOffsetIfPathChanged(prev, applied), payload) : prev;
+    if (dbPrev && moved && next.sessionKey) {
+      if (next.monitorArmed) attesArmate.add(next.sessionKey); else attesArmate.delete(next.sessionKey);
     }
-    const memPrev = terminalStates.get(sid);
-    if (memPrev) {
-      const subject = subjectOf(memPrev);
-      hookTasks(subject, payload, t);
-      const next = snapOffsetIfPathChanged(memPrev, applyHook(memPrev, payload, t, { countingTasks: subject ? countingTasks(subject) : 0 }));
-      const res = commitTerminal(memPrev, next);
-      syncAttention(subject, memPrev, res.state, event, true, t);
-      return { kind: 'ok', state: res.state, changed: res.changed };
-    }
-    return { kind: 'unknown-session', claudeSessionId: sid };
+    const res = dbPrev ? commit(dbPrev, next) : commitTerminal(prev, next);
+    // A late hook opens or closes no turn: the hook that overtook it already did.
+    syncAttention(subject, prev, res.state, late ? null : event, !dbPrev, at);
+    return late ? { kind: 'stale', claudeSessionId: sid } : { kind: 'ok', state: res.state, changed: res.changed };
   }
 
   function notePtyCrash(claudeSessionId: string, exitCode: number, overrideNow?: number): boolean {
@@ -691,6 +692,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       const next = reapStaleSession(prev, t, reaperConfig, idle);
       if (next !== prev) {
         commitTerminal(prev, next);
+        syncAttention(subjectOf(next), prev, next, null, true, t); // a turn put to rest ends for attention too
         changed += 1;
       }
     }

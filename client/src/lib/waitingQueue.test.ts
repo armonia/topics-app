@@ -115,11 +115,11 @@ describe('waitingQueue: the rows that wait for an answer, in sidebar order', () 
     expect(subjects(items, [], rows)).toEqual(['ask']);
   });
 
-  test('a working or background chat is not a target', () => {
+  test('a chat at work, a turn or a job left running, is not a target', () => {
     const items = [chat('w'), chat('bg'), chat('ask')];
     const rows = rowsOf(
       [snap('topic:w', { state: 'working' })],
-      [snap('topic:bg', { state: 'background', background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] })],
+      [snap('topic:bg', { state: 'working', background: [{ id: 'b', kind: 'bash', label: 'x', startedAt: '' }] })],
       waiting('question', 'ask'),
     );
     expect(subjects(items, [], rows)).toEqual(['ask']);

@@ -112,7 +112,7 @@ describe("the snapshot of a new socket", () => {
     turnStarted("topic:quiet"); turnEnded("topic:quiet", {});
     const init = attentionInitFrame() as unknown as { type: string; rows: Array<{ subject: string; state: string }> };
     expect(init.type).toBe("attention:init");
-    expect(init.rows.map((r) => `${r.subject}=${r.state}`).sort()).toEqual(["topic:bg=background", "topic:done=finished", "topic:work=working"]);
+    expect(init.rows.map((r) => `${r.subject}=${r.state}`).sort()).toEqual(["topic:bg=working", "topic:done=finished", "topic:work=working"]);
     expect(litSubjectCount()).toBe(1);
   });
 
@@ -127,5 +127,27 @@ describe("the snapshot of a new socket", () => {
     expect(getAttention("topic:f")).toMatchObject({ state: "finished", epoch: 1, lit: true });
     expect(pushes).toHaveLength(0);
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("a row saved before the job left running became `working`", () => {
+  it("loads as `working`: no client is ever sent the retired `background`", async () => {
+    const { Database } = await import("bun:sqlite");
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const db = new Database(":memory:");
+    db.run(readFileSync(join(import.meta.dir, "../db/migrations/20261003214001-subject-attention.sql"), "utf8"));
+    db.run(
+      "INSERT INTO subject_attention (subject, state, since, background, updated_at) VALUES (?, ?, ?, ?, ?)",
+      ["topic:old", "background", "2026-10-03T21:40:00.000Z", JSON.stringify({ b1: { kind: "bash", label: "sleep 40", startedAt: "2026-10-03T21:39:00.000Z" } }), "2026-10-03T21:40:00.000Z"],
+    );
+    configureAttentionStore({ db: () => db, broadcast: () => {}, recordRow: () => null, sendPush: () => {}, unreadOf: () => 0 });
+    try {
+      const init = attentionInitFrame() as unknown as { rows: Array<{ subject: string; state: string }> };
+      expect(init.rows.map((r) => `${r.subject}=${r.state}`)).toEqual(["topic:old=working"]);
+    } finally {
+      resetAttentionStore();
+      db.close();
+    }
   });
 });

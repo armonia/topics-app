@@ -3,6 +3,18 @@
 Tutte le righe di codice citate sono di `origin/main` f93eeb187 (03/10). Le prove stanno
 in `evidence/`; la proposta dice quale file prova quale difetto.
 
+> **Modifica del 2026-10-04** (`.openspec.yaml`, `modifiche`). Lo stato `background` non
+> esiste più: la regola 7 di §3 dà `working`, e dove sotto si legge `background` come stato
+> o tier vale `working` (T3-T7 restano le stesse transizioni, solo senza cambio di stato
+> fra turno e attesa). La mappa dei compiti in volo (`background` della riga, §5) resta:
+> la riga in chat e lo Stop del composer la leggono. Il glifo grigio, la sezione «In
+> background» della vista per stato, la riga «N in background» della inbox e il gruppo
+> «In background» del menu agenti spariscono: ovunque l'anello e il conto «al lavoro».
+> L'unico stato a parte è un server acceso (BGVIS-08: `run_command` senza sveglia, o
+> `run_script` dell'agente, che ascolta su una porta), col segno `row-server-sign` sulla
+> riga della sidebar; non è un compito, non conta come lavoro e non accende niente. Le
+> righe salvate come `background` si caricano come `working` (`store.ts`).
+
 ## 1. Oggi: sei assi, tre memorie, tredici superfici
 
 Il server tiene sei fatti su una chat e non li compone mai:

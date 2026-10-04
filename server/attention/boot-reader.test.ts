@@ -61,13 +61,13 @@ describe("a restart while a chat waits on its run_command (B3)", () => {
     turnStarted(subject);
     turnEnded(subject, { turnId: "m1", outcome: "done", background: { command: { kind: "command", label: "run_command", startedAt: new Date().toISOString() } } });
     const before = getAttention(subject);
-    expect(before.state).toBe("background");
+    expect(before.state).toBe("working");
 
     restart();
     recomposeAttentionOnBoot(attentionBootReader(sources({ commandOwesWake: (sk) => sk === t.sessionKey })));
     const after = getAttention(subject);
     expect({ state: after.state, epoch: after.epoch, lit: after.lit, background: after.background.map((x) => x.kind) })
-      .toEqual({ state: "background", epoch: before.epoch, lit: false, background: ["command"] });
+      .toEqual({ state: "working", epoch: before.epoch, lit: false, background: ["command"] });
 
     // The command ends and its wake opens the chat's turn.
     turnStarted(subject);

@@ -2,12 +2,35 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.448 — 2026-10-04
+
+### Sotto il cofano
+- Pannello chiuso prima della sua riga: la riga nasce chiusa, non sul pannello
+- Traduci in inglese i commenti nuovi dei commit locali e traccia il goal che aspetta un sottoagente
+- Isola lo stato di browser-close-keeps-session, ora che resolveStateDir rifiuta il repo sotto test
+- Cancella la card che git-rows-one-shape e chat-changed-files-task-range lasciano in review
+- Mostra le regole globali dell'hub nell'ispettore anche senza progetto
+
+## 2.2.447 — 2026-10-04
+
+### Sotto il cofano
+- Domanda arrivata prima della sua riga: il form si apre lo stesso nella finestra mittente
+- Registra la scelta del proprietario: il browser remoto delle pane resta su Chromium
+- A project created by name is born next to the user's projects, not in the agent workspace
+- Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired
+- Archive the contesto-dall-hub change: shipped
+- A test process can no longer write the live state through any module, not only createAppContext
+- Non spingere il goal mentre un sottoagente lavora per la chat
+- TILE-15 misura cio' che aggiungono le sue card, non il totale del server
+
 ## 2.2.446 — 2026-10-04
 
 ### Sotto il cofano
 - NH-01 controlla che la riga non faccia salire il numero, non che il server sia vuoto
 - Domanda in coda dietro un'altra chiamata: il form resta nella finestra da cui si è scritto
 - Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato
+- Fai funzionare l'indietro delle tab browser: frame che segue l'indirizzo e frecce native accese
+- Fai tornare l'indietro della tab sulla pagina lasciata da un link nel frame, senza voci nella cronologia dell'app
 - Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava
 - Porta in inglese il commento italiano di tool-live-tail-reopen
 - NOTIF-ONE misura cio' che accendono le sue chat, non il totale del server

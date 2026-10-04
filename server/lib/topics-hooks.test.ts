@@ -25,13 +25,14 @@ describe("topicsHooksSettings", () => {
     }
   });
 
-  test("async only on UserPromptSubmit, Stop and Notification", () => {
+  test("async on every event but SessionEnd: no tool and no turn waits for the script", () => {
+    // The script exits 0 and returns no decision; a sync hook made each tool
+    // wait for it, up to 37.4 s on 04/10. SessionEnd fires as the CLI exits,
+    // when an async hook is cut, and holds nothing up.
     const { hooks } = topicsHooksSettings(SCRIPT);
     const asyncOnes = TOPICS_HOOK_EVENTS.filter((e) => hooks[e]![0]!.hooks![0]!.async === true);
-    expect(asyncOnes.sort()).toEqual(["Notification", "Stop", "UserPromptSubmit"]);
-    for (const e of ["PreToolUse", "PostToolUse", "SessionStart", "SessionEnd"]) {
-      expect("async" in hooks[e]![0]!.hooks![0]!).toBe(false);
-    }
+    expect(asyncOnes.sort()).toEqual(["Notification", "PostToolUse", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
+    expect("async" in hooks.SessionEnd![0]!.hooks![0]!).toBe(false);
   });
 
   test("the quoted path survives a home with a space through /bin/sh -c", async () => {

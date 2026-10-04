@@ -29,7 +29,7 @@ const PRECEDENCE: Array<[string, AttentionInputs, ReturnType<typeof composeAtten
   ["4 card parked", { card: { status: "parked", since: AT } }, "needs-you", "parked"],
   ["5 turn open", { turnOpen: true, lastTurn: error, background: bash }, "working", null],
   ["6 error unseen beats background", { lastTurn: error, background: bash }, "finished", "error"],
-  ["7 background beats done", { lastTurn: done, background: bash }, "background", null],
+  ["7 a job in flight is working, and beats done", { lastTurn: done, background: bash }, "working", null],
   ["8 done unseen", { lastTurn: done }, "finished", "done"],
   ["9 nothing", {}, "idle", null],
   ["9 done seen", { lastTurn: done, seenAt: AT }, "idle", null],
@@ -72,16 +72,16 @@ describe("the transitions as the composition sees them (design section 4.2)", ()
   test("T2 a turn ends with a message and nothing in flight: finished(done)", () => {
     expect(composeAttention({ lastTurn: done })).toMatchObject({ state: "finished", outcome: "done" });
   });
-  test("T3 / T5 a turn ends with tasks in flight: background, the turn kept unseen", () => {
-    expect(composeAttention({ lastTurn: done, background: bash }).state).toBe("background");
+  test("T3 / T5 a turn ends with tasks in flight: working, the turn kept unseen", () => {
+    expect(composeAttention({ lastTurn: done, background: bash }).state).toBe("working");
     expect(isTurnUnseen(done, null)).toBe(true);
   });
   test("T6 / T7 the last task returns: finished(done) if the turn was not seen, idle if it was", () => {
     expect(composeAttention({ lastTurn: done, background: {} }).state).toBe("finished");
     expect(composeAttention({ lastTurn: done, background: {}, seenAt: AT }).state).toBe("idle");
   });
-  test("T7 within the grace the subject stays background", () => {
-    expect(composeAttention({ lastTurn: done, background: {}, backgroundGrace: true }).state).toBe("background");
+  test("T7 within the grace the subject stays working", () => {
+    expect(composeAttention({ lastTurn: done, background: {}, backgroundGrace: true }).state).toBe("working");
   });
   test("T8 / T9 a wait opens and closes", () => {
     expect(composeAttention({ turnOpen: true, holds: question }).state).toBe("needs-you");
@@ -115,6 +115,6 @@ describe("tasks that count", () => {
   test("lit is needs-you or finished", () => {
     expect(isLitComposition({ state: "needs-you" })).toBe(true);
     expect(isLitComposition({ state: "finished" })).toBe(true);
-    for (const state of ["idle", "working", "background"] as const) expect(isLitComposition({ state })).toBe(false);
+    for (const state of ["idle", "working"] as const) expect(isLitComposition({ state })).toBe(false);
   });
 });

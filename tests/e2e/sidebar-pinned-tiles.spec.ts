@@ -7,6 +7,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpRoot } from "./helpers/file-project";
+import { moveTabToGroupViaSheet } from "./helpers/tab-sheet";
 
 /**
  * Le TESSERE dei Fissati.
@@ -665,9 +666,7 @@ test.describe("Sidebar — tessere fissate", () => {
     await gotoSidebar(page);
     await expect(page.locator(`[data-pane-id="${altra.id}"]`).first()).toBeVisible({ timeout: 15000 });
 
-    await page.locator(`[data-pane-id="${altra.id}"]`).first().click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+    await moveTabToGroupViaSheet(page, page.locator(`[data-pane-id="${altra.id}"]`).first(), "Nuovo gruppo");
     await expect(page.getByTestId("sidebar-groups")).toBeVisible({ timeout: 10000 });
 
     const tile = tiles(page).first();

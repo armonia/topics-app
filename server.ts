@@ -2873,7 +2873,7 @@ const publicProfileHandler = createPublicProfileHandler(ctx);
 const tabsRouter = createTabsRouter(ctx, browserService);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
 // che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
-const e2eRouter = createE2eRouter(ctx);
+const e2eRouter = createE2eRouter(ctx, { reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t) });
 
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 // Replay JSONL tails for any session whose state was lost on the previous

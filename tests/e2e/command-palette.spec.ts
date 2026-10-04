@@ -5,6 +5,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { ensureTopicVisible, goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { chooseInTabSheet } from "./helpers/tab-sheet";
 import { canonicalTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -683,13 +684,11 @@ test.describe("Command Palette", () => {
     ]);
     await goToApp(page);
 
-    // Nest the layout via the tab context menu (Dividi in basso → vertical stack).
+    // Nest the layout via the tab's sheet (Dividi in basso → vertical stack).
     const tab = page.locator('[role="main"] [draggable="true"]').first();
     await expect(tab).toBeVisible({ timeout: 10000 });
-    await tab.click({ button: "right" });
-    const splitDown = page.getByText("Dividi in basso", { exact: true });
-    await expect(splitDown).toBeVisible({ timeout: 3000 });
-    await splitDown.click();
+    // The split lives in the tab's sheet (TABSHEET-01), wherever its shape put it.
+    await chooseInTabSheet(page, tab, "Dividi in basso");
     await expect
       .poll(() => page.locator('[role="main"] .cursor-row-resize').count(), { timeout: 5000 })
       .toBeGreaterThanOrEqual(1);

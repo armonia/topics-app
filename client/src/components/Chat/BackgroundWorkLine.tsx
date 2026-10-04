@@ -5,7 +5,7 @@
  * leaves the chat with no turn open and nothing on screen: no phrase, no timer,
  * no spinner, while the CLI waits for its own work and will wake to answer it.
  * This line names that work, from the tasks of the chat's attention state
- * (`useTopicBackgroundTasks`, the frame the grey glyph and the fill read too,
+ * (`useTopicBackgroundTasks`, the frame the working ring and the fill read too,
  * ATTN-12), and goes away with it. The poll of `/api/topics/streaming` adds
  * only what the attention state does not carry: the process of each
  * `run_command` (its link to the Processes pane) and when the CLI last said
@@ -140,7 +140,7 @@ function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turn
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
         <span className="flex min-w-0 items-center gap-2">
           <span className={`flex flex-shrink-0 ${isStale ? 'opacity-70' : ''}`}>
-            <OrbitLoader state="background" />
+            <OrbitLoader state="working" />
           </span>
           <span className="min-w-0 truncate text-compact text-app-text-secondary">
             {n === 0

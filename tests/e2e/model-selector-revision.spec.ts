@@ -254,7 +254,7 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
     // The chat settings write the same text for the same value.
     await page.getByTestId(`pane-tab-${topicId}`).click({ button: "right" });
-    await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
+    await page.getByTestId("tab-sheet").getByRole("menuitem", { name: "Impostazioni della chat" }).click();
     const trigger = page.getByTestId("topic-settings-model");
     await expect(trigger).toHaveText(chipText);
     // In the `full` variant the long sentence is on screen, under Automatico.
@@ -459,7 +459,8 @@ test.describe("phone 390 × 844", () => {
     await openSelector(page, request, KEYS);
     await page.keyboard.press("Escape");
     await expect(panel(page)).toHaveCount(0);
-    const item = page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" });
+    // The title opens the chat's sheet from the bottom (TABSHEET-04).
+    const item = page.getByTestId("tab-sheet").getByRole("menuitem", { name: "Impostazioni della chat" });
     // WebKit has no `Touch` constructor, so there the hold is the `contextmenu`
     // that `useLongPress` itself dispatches; Chromium holds a real finger.
     if (browserName === "webkit") await page.getByTestId("mobile-pane-title").dispatchEvent("contextmenu");
@@ -510,7 +511,7 @@ async function settledBox(page: Page, selector: string) {
 
 async function openChatSettings(page: Page) {
   await page.getByTestId(`pane-tab-${topicId}`).click({ button: "right" });
-  await page.getByRole("menu").getByRole("button", { name: "Impostazioni della chat" }).click();
+  await page.getByTestId("tab-sheet").getByRole("menuitem", { name: "Impostazioni della chat" }).click();
   const trigger = page.getByTestId("topic-settings-model");
   await trigger.waitFor({ state: "visible" });
   return trigger;

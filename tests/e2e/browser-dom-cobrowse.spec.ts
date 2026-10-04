@@ -4,6 +4,7 @@ import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from ".
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { revealInTabSheet } from "./helpers/tab-sheet";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -57,8 +58,8 @@ async function expectRenderMode(
 ): Promise<void> {
   await page.locator('[data-pane-id^="browser:"]').first().hover();
   await page.getByTestId("browser-tab-menu").first().click();
-  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10000 });
-  const row = page.getByTestId("browser-tab-render");
+  await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10000 });
+  const row = await revealInTabSheet(page, "browser-tab-render");
   await expect(row).toBeVisible({ timeout: 10000 });
   await expect(row).toHaveAttribute("data-render-mode", mode);
   await expect(row).toContainText(label);

@@ -125,9 +125,9 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.afterAll(async ({ request }) => {
-  // The card goes too: a `review` card left on the shared server is counted by
-  // every later spec that reads the board's totals (TILE-15, NH-01).
-  if (taskId) await deleteTask(request, PROJECT_ID, taskId);
+  // The delivered card goes too: left in review it is counted by every board
+  // row read after this file in the same shard (TILE-15 read 2 for its 1).
+  if (taskId) await deleteTask(request, PROJECT_ID, taskId).catch(() => undefined);
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
   removeTmpDir(PROJECT_PATH);
 });

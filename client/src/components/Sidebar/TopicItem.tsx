@@ -9,7 +9,9 @@ import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
 import { getProjectLabel } from '@/lib/buildSidebarItems';
 import { DND_TYPES } from '@/lib/dndTypes';
-import { useTopicLoading, useTopicInBackground, useTopicAttentionFill } from '@/state/signals';
+import { useTopicLoading, useTopicInProgress, useTopicAttentionFill } from '@/state/signals';
+import { useTopicRunningServices } from '@/state/runningServices';
+import { ServerSign } from './ServerSign';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
@@ -132,11 +134,13 @@ export const TopicItem = memo(function TopicItem({
   // upstream prop needed; deduplicates the wiring across surfaces.
   const tr = useT();
   const isStreaming = useTopicLoading(topic.id);
-  // No turn open, but work its last turn left running and nothing to ask:
-  // the same slot shows the grey glyph, and the row gets no Stop (that one is
-  // the composer's). From the attention state, the frame the fill reads too,
-  // so the row is never grey and blue at once (BG-1).
-  const inBackground = useTopicInBackground(topic.id);
+  // In progress: a turn open, or work its last turn left running (attention
+  // `working`, the frame the fill reads too). One ring for both; only a turn
+  // gets the row's Stop, the job's Stop is the composer's.
+  const inProgress = useTopicInProgress(topic.id);
+  // A server the chat started stays up on purpose: its own sign, never work
+  // in progress and never attention (BGVIS-08).
+  const servers = useTopicRunningServices(topic.id);
   /** Topics is holding a command of this chat stopped: the row frosts over. */
   const swapFreeze = useSwapFreeze({ topicId: topic.id });
   // Attention TIER: amber 'needs-you' (a question, a permission, a plan), red
@@ -522,7 +526,8 @@ export const TopicItem = memo(function TopicItem({
             <AppWindow size={12} />
           </span>
         )}
-        {!isStreaming && !inBackground && (
+        <ServerSign services={servers} onFill={onFill} />
+        {!inProgress && (
           <RelativeTime
             at={topic.updatedAt}
             className={cn('flex-shrink-0 text-mini tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
@@ -534,7 +539,7 @@ export const TopicItem = memo(function TopicItem({
             state of a status glyph. */}
         {/* Frozen: no working glyph, because a command Topics has stopped is
             not working. The words are on the second line (above). */}
-        {(isStreaming || inBackground) && !swapFreeze && (
+        {inProgress && !swapFreeze && (
           <TopicStreamingSpinner
             topicId={topic.id}
             variant="labeled"

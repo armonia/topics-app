@@ -54,6 +54,7 @@ import { interceptWebSocket } from "./helpers/ws-helpers";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { revealInTabSheet } from "./helpers/tab-sheet";
 
 const test = mergeTests(chatTest, browserTest);
 hermetic(test);
@@ -229,7 +230,8 @@ test.describe.serial("Una tab, tre zone", () => {
     await stageAttention(ws, attentionUpdated(`topic:${childId}`, { state: "finished", unread: 13 }));
     // Pinned, through the tab's own menu.
     await projectTab.click({ button: "right" });
-    await page.getByTestId("tab-menu-pin-tab").click();
+    // The pin lives in the Tab level of the sheet (TABSHEET-03).
+    await (await revealInTabSheet(page, "tab-menu-pin-tab")).click();
     await expect(projectTab, "the pin is said in the accessible name").toHaveAttribute("aria-label", /Fissato/, { timeout: 10_000 });
     await pointerAway(page);
 
@@ -593,8 +595,9 @@ test.describe.serial("Una tab, tre zone", () => {
       // 3. THE ROWS BEHIND THE DOT, and the command that empties them.
       await tab.hover();
       await dots.click();
-      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
-      const consoleRow = page.getByTestId("browser-tab-console");
+      await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10_000 });
+      // In the Tools level of the sheet (TABSHEET-03).
+      const consoleRow = await revealInTabSheet(page, "browser-tab-console");
       await expect(consoleRow, "the sheet offers the console the dot counts").toBeVisible();
       await consoleRow.click();
       const panel = page.getByTestId("browser-console-panel");
@@ -604,9 +607,11 @@ test.describe.serial("Una tab, tre zone", () => {
       await panel.getByTestId("browser-console-clear").click();
       await expect(cue, "Clear turns the dot off").toHaveCount(0, { timeout: 10_000 });
       await expect(dots).not.toHaveAttribute("data-console-errors", /.+/);
+      // One Esc per layer: the console panel, the Tools level, the sheet.
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
-      await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0, { timeout: 10_000 });
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("tab-sheet")).toHaveCount(0, { timeout: 10_000 });
 
       // 4. A LOST LINK TAKES THE CORNER: without the socket the tally cannot
       //    move, and "connection lost" is the news. The errors stay on the dots.

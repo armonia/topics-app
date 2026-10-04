@@ -5,6 +5,7 @@
  * is here, the localhost-only gate lives in the route. CCS-05 (the
  * `session:state` broadcast contract, including burst coalescing) is covered.
  * @covers MONITOR-04
+ * @covers CCS-03
  */
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
@@ -1156,5 +1157,110 @@ describe('ClaudeSessionTracker — noteWatchDelivered', () => {
   it('una chat che non esiste non e\' un errore', () => {
     const tracker = makeTracker(freshDb(), makeRecorder());
     expect(tracker.noteWatchDelivered('topic-mai-esistita', T0 + 10)).toBe(false);
+  });
+});
+
+/**
+ * The hooks are async (`topics-hooks.ts`): each one races to the server through
+ * its own `sh` + `curl`, and on a loaded Mac they arrive in any order. The
+ * script stamps when each FIRED (`fired_at`), and the tracker applies them in
+ * that order. Every case below is an arrival order the async hooks produce.
+ */
+describe('ClaudeSessionTracker — hooks arriving out of order', () => {
+  let db: Database;
+  let tracker: ClaudeSessionTracker;
+
+  beforeEach(() => {
+    db = freshDb();
+    seedSession(db, 'topic-o', 'cli-o');
+    tracker = makeTracker(db, makeRecorder());
+  });
+
+  const hook = (event: string, firedAt: number, extra: Record<string, unknown> = {}) =>
+    ({ hook_event_name: event as never, session_id: 'cli-o', fired_at: firedAt, ...extra });
+
+  it('a PreToolUse that arrives after the Stop of its turn does not revive the turn', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    tracker.ingestHook(hook('Stop', T0 + 3_000), T0 + 3_050);
+    // Fired at +1 s, delivered 10 s later by a starved shell.
+    const late = tracker.ingestHook(hook('PreToolUse', T0 + 1_000, { tool_name: 'Bash', tool_use_id: 'toolu_1' }), T0 + 11_000);
+    expect(late.kind).toBe('stale');
+    expect(tracker.getSessionByKey('topic-o')?.phase).toBe('awaiting-user');
+    expect(tracker.getSessionByKey('topic-o')?.lastTool).toBeUndefined();
+  });
+
+  it('a PostToolUse that overtakes its PreToolUse leaves no tool running', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    tracker.ingestHook(hook('PostToolUse', T0 + 900, { tool_name: 'Bash', tool_use_id: 'toolu_2' }), T0 + 950);
+    // Its Pre, stamped a few ms AFTER the Post by the jitter of two shells starting.
+    const late = tracker.ingestHook(hook('PreToolUse', T0 + 910, { tool_name: 'Bash', tool_use_id: 'toolu_2' }), T0 + 1_400);
+    expect(late.kind).toBe('stale');
+    expect(tracker.getSessionByKey('topic-o')?.phase).toBe('running');
+  });
+
+  it('a PostToolUse stamped before its PreToolUse but arriving after it still closes the tool', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    // The jitter of two shells starting stamps the Pre 10 ms AFTER its Post; the Pre still arrives first.
+    tracker.ingestHook(hook('PreToolUse', T0 + 910, { tool_name: 'Read', tool_use_id: 'toolu_3' }), T0 + 1_000);
+    const post = tracker.ingestHook(hook('PostToolUse', T0 + 900, { tool_name: 'Read', tool_use_id: 'toolu_3' }), T0 + 1_100);
+    expect(post.kind).toBe('ok');
+    const s = tracker.getSessionByKey('topic-o')!;
+    expect(s.phase).toBe('running');
+    expect(s.lastTool).toBeUndefined();
+  });
+
+  it('a late SessionStart does not reset a working session to starting, and still brings the transcript', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 500), T0 + 550);
+    const late = tracker.ingestHook(hook('SessionStart', T0 + 100, { source: 'startup', transcript_path: '/tmp/never/cli-o.jsonl' }), T0 + 4_000);
+    expect(late.kind).toBe('stale');
+    const s = tracker.getSessionByKey('topic-o')!;
+    expect(s.phase).toBe('running');
+    expect(s.jsonlPath).toBe('/tmp/never/cli-o.jsonl');
+  });
+
+  it('a Stop fired before the SessionEnd and delivered after it does not revive a completed session', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    tracker.ingestHook(hook('SessionEnd', T0 + 2_000), T0 + 2_010);
+    tracker.ingestHook(hook('Stop', T0 + 1_900), T0 + 2_500);
+    expect(tracker.getSessionByKey('topic-o')?.phase).toBe('completed');
+  });
+
+  it('a Monitor armed before the Stop and delivered after it still leaves the session watching', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    tracker.ingestHook(hook('Stop', T0 + 3_000), T0 + 3_050);
+    expect(tracker.getSessionByKey('topic-o')?.phase).toBe('awaiting-user');
+    tracker.ingestHook(hook('PreToolUse', T0 + 1_000, { tool_name: 'Monitor', tool_use_id: 'toolu_m' }), T0 + 9_000);
+    expect(tracker.getSessionByKey('topic-o')?.phase).toBe('watching');
+  });
+
+  it('two parallel PreToolUse a few ms apart are two events, not a duplicate', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 150);
+    const a = tracker.ingestHook(hook('PreToolUse', T0 + 1_000, { tool_name: 'Bash', tool_use_id: 'toolu_a' }), T0 + 1_010);
+    const b = tracker.ingestHook(hook('PreToolUse', T0 + 1_086, { tool_name: 'Read', tool_use_id: 'toolu_b' }), T0 + 1_090);
+    expect(a.kind).toBe('ok');
+    expect(b.kind).toBe('ok');
+    expect(tracker.getSessionByKey('topic-o')?.lastTool?.name).toBe('Read');
+  });
+
+  it('the transition is dated when the hook fired, not when it arrived', () => {
+    tracker.ingestHook(hook('UserPromptSubmit', T0 + 100), T0 + 7_000);
+    expect(tracker.getSessionByKey('topic-o')?.phaseUpdatedAt).toBe(T0 + 100);
+  });
+
+  it('a new session whose SessionStart arrives after its first lines follows the transcript from byte 0', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cst-startup-'));
+    const path = join(dir, 'cli-o.jsonl');
+    writeFileSync(path, JSON.stringify({ type: 'user', timestamp: new Date(T0 + 200).toISOString(), message: { role: 'user', content: 'ciao' } }) + '\n');
+    tracker.ingestHook(hook('SessionStart', T0 + 100, { source: 'startup', transcript_path: path }), T0 + 5_000);
+    expect(tracker.getSessionByKey('topic-o')?.jsonlOffset).toBe(0);
+  });
+
+  it('a resumed session still starts from the end of its history', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cst-resume-'));
+    const path = join(dir, 'cli-o.jsonl');
+    const history = JSON.stringify({ type: 'user', timestamp: new Date(T0 - 60_000).toISOString(), message: { role: 'user', content: 'ieri' } }) + '\n';
+    writeFileSync(path, history);
+    tracker.ingestHook(hook('SessionStart', T0 + 100, { source: 'resume', transcript_path: path }), T0 + 200);
+    expect(tracker.getSessionByKey('topic-o')?.jsonlOffset).toBe(Buffer.byteLength(history));
   });
 });

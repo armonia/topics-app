@@ -244,7 +244,10 @@
     "these two rows only.",
     "04/10, preview screenshots on WebKit (PR #219). tests/e2e/global-setup.ts 800 -> 821: +21 hand the isolated",
     "test server PLAYWRIGHT_BROWSERS_PATH, because its HOME is isolated and Playwright looked for WebKit in an",
-    "empty cache. Recorded by hand, this row only."
+    "empty cache. Recorded by hand, this row only.",
+    "05/10, tornata of #234 and #236. server/lib/claude-session-tracker.ts 961 -> 1082: +121 from two PRs each",
+    "inside the ceiling alone: hooks made async and put back in order by when they fired (#234), and a",
+    "terminal's turn closed when the phase rests without a Stop, the Esc case (#236). Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -381,7 +384,7 @@
 
     "server/lib/claude-session-tracker.test.ts": 1160,
 
-    "server/lib/claude-session-tracker.ts": 961,
+    "server/lib/claude-session-tracker.ts": 1082,
 
     "server/lib/ripresa-boot.test.ts": 847,
 
