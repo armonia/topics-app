@@ -1,7 +1,7 @@
 /**
  * Protocol contract of the browser pane socket for the two native-grade
  * streaming variants: `resize` (client to server) and `download` (server to client).
- * @covers BROWSER-CHAT-02
+ * @covers BROWSER-CHAT-02, BROWSER-STREAM-HISTORY-01
  */
 import { describe, it, expect } from 'bun:test';
 import { parseBrowserWsMessage } from '../shared/browser-ws-messages';
@@ -164,5 +164,26 @@ describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);
     expect(parseBrowserWsMessage({ type: 'bogus' }).ok).toBe(false);
+  });
+});
+
+// BROWSER-STREAM-HISTORY-01: the back/forward flags ride on the `nav` message.
+describe('browser-ws-messages: nav history flags (server -> client)', () => {
+  it('a load response may carry the flags', () => {
+    const r = parseBrowserWsMessage({ type: 'nav', url: 'https://a.test/', phase: 'response', canGoBack: true, canGoForward: false });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual({ type: 'nav', url: 'https://a.test/', phase: 'response', canGoBack: true, canGoForward: false });
+  });
+
+  it('a response without them (an older server) still parses', () => {
+    expect(parseBrowserWsMessage({ type: 'nav', url: 'https://a.test/', phase: 'response' }).ok).toBe(true);
+  });
+
+  it('a same-document navigation travels as phase history', () => {
+    expect(parseBrowserWsMessage({ type: 'nav', url: 'https://a.test/#x', phase: 'history', canGoBack: true, canGoForward: false }).ok).toBe(true);
+  });
+
+  it('a flag that is not a boolean is refused', () => {
+    expect(parseBrowserWsMessage({ type: 'nav', url: 'https://a.test/', phase: 'history', canGoBack: 'yes' }).ok).toBe(false);
   });
 });

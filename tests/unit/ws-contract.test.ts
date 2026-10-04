@@ -251,7 +251,9 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     const sig = objectSignature(nav);
     // 'error' joined with web-path nav-error surfacing (PR #8): the server
     // resolves goto/launch failures as an error-phase frame the pane renders.
-    expect(sig.enums.phase).toEqual(['error', 'request', 'response']);
+    // 'history' joined with BROWSER-STREAM-HISTORY-01: a same-document
+    // navigation carries the url and the back/forward flags, nothing else.
+    expect(sig.enums.phase).toEqual(['error', 'history', 'request', 'response']);
   });
 
   test('console.level enum is locked', () => {
