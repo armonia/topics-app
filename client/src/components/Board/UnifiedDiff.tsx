@@ -39,8 +39,8 @@ const MarkdownPreview = lazy(() => import('../Editor/MarkdownPreview'));
 
 function rowClass(row: DiffRow): string {
   switch (row.kind) {
-    case 'hunk': return 'bg-sky-500/10 text-sky-600 dark:text-sky-300';
-    case 'add': return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+    case 'hunk': return 'bg-sky-500/10 text-sky-800 dark:text-sky-300';
+    case 'add': return 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300';
     case 'del': return 'bg-red-500/10 text-red-700 dark:text-red-300'; // allow-italian: 'del' is a patch row kind
     case 'nonewline': return 'text-app-text-muted italic';
     default: return 'text-app-text-faint dark:text-app-text-secondary';
@@ -241,7 +241,7 @@ function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: File
           data-testid={`diff-view-${v}`}
           aria-pressed={value === v}
           onClick={() => onChange(v)}
-          className={`rounded px-1.5 py-0.5 text-mini ${value === v ? 'bg-indigo-500/20 text-indigo-200' : 'text-app-text-muted hover:text-app-text'}`}
+          className={`min-h-6 rounded px-1.5 py-0.5 text-mini coarse:min-h-11 coarse:min-w-11 ${value === v ? 'bg-indigo-500/20 text-indigo-800 dark:text-indigo-200' : 'text-app-text-secondary hover:text-app-text'}`}
         >
           {tr(VIEW_LABEL[v])}
         </button>
@@ -548,7 +548,7 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
             if (!open) onOpened(path);
           }}
           title={row.origPath ? `${row.origPath} -> ${path}` : path}
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-mini hover:bg-app-hover"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-mini hover:bg-app-hover coarse:min-h-11"
         >
           {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
           <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />

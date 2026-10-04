@@ -101,7 +101,9 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
             type="button"
             data-testid="chat-changes-open-card"
             onClick={() => openTaskInApp({ taskId }, cardFocus ? diffFocusFor(cardFocus) : undefined)}
-            className="flex items-center gap-1 rounded px-1 py-0.5 text-mini text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
+            // A real box and not `.tap-expand`: the diff sits 6px below, and a
+            // projected 44 would take its first file's header under a finger.
+            className="flex min-h-6 items-center gap-1 rounded px-1 py-0.5 text-mini text-indigo-700 coarse:min-h-11 hover:bg-indigo-500/10 hover:text-indigo-800 dark:text-indigo-300 dark:hover:text-indigo-200"
           >
             <ExternalLink size={12} className="flex-shrink-0" />
             {tr('chat.changes.openInCard')}
