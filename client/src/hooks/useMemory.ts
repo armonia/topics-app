@@ -8,7 +8,6 @@ interface UseMemoryOptions {
 
 export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
   const [topicMemory, setTopicMemory] = useState('');
-  const [globalMemory, setGlobalMemory] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +28,6 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
       const data = await memoryApi.getForTopic(id);
       if (topicIdRef.current !== id) return; // stale — another topic is active
       setTopicMemory(data.topicContent);
-      setGlobalMemory(data.globalContent);
     } catch (err) {
       if (topicIdRef.current !== id) return;
       setError(err instanceof Error ? err.message : 'Failed to load memory');
@@ -56,7 +54,7 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
     if (!onMessage || !topicId) return;
     const unsub = onMessage((msg: WSMessage) => {
       if (msg.type === 'memory:updated') {
-        if (msg.scope === 'global' || (msg.scope === 'topic' && msg.topicId === topicId)) {
+        if (msg.scope === 'topic' && msg.topicId === topicId) {
           load();
         }
       }
@@ -76,18 +74,6 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
       setSaving(false);
     }
   }, [topicId]);
-
-  const saveGlobalMemory = useCallback(async (content: string) => {
-    setSaving(true);
-    try {
-      await memoryApi.updateGlobal(content);
-      setGlobalMemory(content);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  }, []);
 
   const appendToTopicMemory = useCallback(async (content: string) => {
     if (!topicId) return;
@@ -116,29 +102,14 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
     }
   }, [topicId]);
 
-  const clearGlobalMemory = useCallback(async () => {
-    setSaving(true);
-    try {
-      await memoryApi.deleteGlobal();
-      setGlobalMemory('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to clear');
-    } finally {
-      setSaving(false);
-    }
-  }, []);
-
   return {
     topicMemory,
-    globalMemory,
     loading,
     saving,
     error,
     saveTopicMemory,
-    saveGlobalMemory,
     appendToTopicMemory,
     clearTopicMemory,
-    clearGlobalMemory,
     reload: load,
   };
 }

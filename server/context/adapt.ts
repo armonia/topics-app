@@ -376,7 +376,7 @@ function adaptGatewayStateful(
  *   4. `synthetic:browser-instruction`
  *   5. `synthetic:project-markers`
  *   6. `synthetic:topic-switch-directory`
- *   7. memory aggregated (`memory:global` + `memory:topic`)
+ *   7. `memory:topic`
  *   8. `pinned:messages` aggregated under "Pinned messages from this conversation"
  *   9. `synthetic:plan-mode`
  *
@@ -408,7 +408,9 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   const userRules = enabled.find((b) => b.id === "user:CLAUDE.md");
   if (userRules) {
     push("user-rules",
-      `The user's global instructions, from ~/.claude/CLAUDE.md. They apply to every task and override defaults:\n\n${userRules.content}`);
+      // The block names the source: the hub `~/.agents/AGENTS.md`, or CLAUDE.md
+      // where there is no hub. Hard-coded, it lied to the model about the origin.
+      `The user's global instructions, from ${userRules.label || "~/.claude/CLAUDE.md"}. They apply to every task and override defaults:\n\n${userRules.content}`);
   }
   const skills = enabled.find((b) => b.id === "synthetic:skills");
   if (skills) push("skills", skills.content);
@@ -452,16 +454,12 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   const topicSwitch = enabled.find((b) => b.id === "synthetic:topic-switch-directory");
   if (topicSwitch) push("topic-switch", topicSwitch.content);
 
-  // ── 7. Memory (aggregated, mirrors `loadMemoryForTopic`) ──
-  const globalMem = enabled.find((b) => b.id === "memory:global");
+  // ── 7. Memory (the topic's own; the global one is retired) ──
   const topicMem = enabled.find((b) => b.id === "memory:topic");
-  if (globalMem || topicMem) {
-    const parts: string[] = [];
-    if (globalMem) parts.push(`### Global Memory\n${globalMem.content.trim()}`);
-    if (topicMem) parts.push(`### Topic Memory\n${topicMem.content.trim()}`);
+  if (topicMem) {
     push(
       "memory",
-      `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n${parts.join("\n\n")}`,
+      `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Topic Memory\n${topicMem.content.trim()}`,
     );
   }
 

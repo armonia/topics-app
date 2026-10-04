@@ -23,7 +23,7 @@
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
-import { existsSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, resolve, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
 import { projectIdForPath } from "./tasks";
@@ -223,4 +223,45 @@ export function newProjectParentDir(
     if (best !== null && (parent.length < best.length || (parent.length === best.length && parent < best))) best = parent;
   }
   return best ?? ws;
+}
+
+/**
+ * Creates the folder of a new project: the ONE place a project is born by
+ * name. There used to be five copies of `join(workspace, name)` and only one
+ * (the board) went through `newProjectParentDir`: the sessions'
+ * `create_project` tool, `/project create` and the two topic routes created
+ * everything inside `~/.openclaw/workspace`, which is the agent's plumbing
+ * (02/10: `pop-demo`).
+ *
+ * The new folder is also REGISTERED in the store: outside the workspace no
+ * scan picks it up, and unregistered it would vanish from the picker on the
+ * first reload (see the `/api/all-boards/projects` route).
+ *
+ * `exists` = a folder with that name is already there: nothing is overwritten,
+ * the caller answers 409 or its equivalent. Disk errors propagate.
+ */
+export function scaffoldNewProject(
+  safeName: string,
+  deps: {
+    workspaceDir: string;
+    homeDir: string;
+    knownDirs: readonly string[];
+    projectStore?: Pick<ProjectStore, "getByPath" | "slugify" | "create"> | null;
+  },
+): { dir: string; exists: boolean } {
+  const dir = join(newProjectParentDir(deps.knownDirs, deps), safeName);
+  if (existsSync(dir)) return { dir, exists: true };
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "CLAUDE.md"), `# ${safeName}\n`);
+  const store = deps.projectStore;
+  if (store && !store.getByPath(dir)) {
+    // Slug already taken by another project: try a derived one instead of
+    // leaving the folder orphaned and invisible.
+    const base = store.slugify(safeName);
+    for (const slug of [base, `${base}-${projectIdForPath(dir).split("-").pop()}`]) {
+      try { store.create({ name: safeName, slug, path: dir, color: null, icon: null }); break; }
+      catch { /* slug conflict: try the next one */ }
+    }
+  }
+  return { dir, exists: false };
 }

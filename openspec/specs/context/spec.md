@@ -1,6 +1,6 @@
 ## Purpose
 
-Specifies behavioral scenarios for the context inspector, token budget management, context source toggling, context pills in chat input, and topic-level and global memory CRUD operations.
+Specifies behavioral scenarios for the context inspector, token budget management, context source toggling, context pills in chat input, topic-level memory CRUD, and the read-only global rules taken from the agents hub.
 
 ## Background
 
@@ -14,7 +14,7 @@ Common preconditions shared across scenarios:
 
 ### Requirement: CTX-01 — Inspector, Budget Bar, Source Toggle & Memory CRUD
 
-The system SHALL provide a context inspector that displays context sources with token counts, a budget bar showing total usage, the ability to toggle sources on and off, context pills in chat input, and inline CRUD operations for topic and global memory entries.
+The system SHALL provide a context inspector that displays context sources with token counts, a budget bar showing total usage, the ability to toggle sources on and off, context pills in chat input, and inline CRUD operations for topic memory entries. Global rules are shown read-only from the hub (see CTX-HUB-01); there is no editable global memory (CTX-HUB-02).
 
 #### Scenario: Context inspector displays list of context sources
 - **GIVEN** a topic is selected with an active chat session
@@ -26,13 +26,13 @@ The system SHALL provide a context inspector that displays context sources with 
 - **GIVEN** the context inspector is open
 - **WHEN** the user views the source list
 - **THEN** each context source row displays its token count in a human-readable format
-- **AND** sources include system prompt, topic memory, global memory, and attached files
+- **AND** sources include system prompt, topic memory, the hub global rules, and attached files
 
 #### Scenario: Inspector shows at least four default context sources
 - **GIVEN** a topic exists with default configuration
 - **WHEN** the user opens the context inspector
 - **THEN** at least four source rows are visible
-- **AND** sources include SOUL.md, Topic Memory, Global Memory, and System Prompt
+- **AND** sources include SOUL.md, Topic Memory, `~/.agents/AGENTS.md`, and System Prompt
 
 #### Scenario: Budget bar shows total token usage as a percentage
 - **GIVEN** the context inspector is open
@@ -112,23 +112,12 @@ The system SHALL provide a context inspector that displays context sources with 
 - **THEN** a PUT request is sent to the topic memory endpoint
 - **AND** the request body contains the updated content
 
-#### Scenario: Global memory list shows shared entries
-- **GIVEN** global memory exists with content
+#### Scenario: Global rules are shown read-only from the hub
+- **GIVEN** `~/.agents/AGENTS.md` exists
 - **WHEN** the user opens the context inspector
-- **THEN** the Global Memory source row is visible
-- **AND** the memory content is accessible via the expand or edit action
-
-#### Scenario: Edit global memory entry inline
-- **GIVEN** the context inspector is open with Global Memory visible
-- **WHEN** the user clicks the edit button on the Global Memory row
-- **THEN** a textarea appears with the current global memory content
-- **AND** the user can modify the text
-
-#### Scenario: Save edited global memory content
-- **GIVEN** the user has edited global memory content in the textarea
-- **WHEN** the user clicks the Save button
-- **THEN** a PUT request is sent to the global memory endpoint
-- **AND** the request body contains the updated content
+- **THEN** a source row labelled with that path is visible
+- **AND** it has no edit action, and no Global Memory row is shown
+- **AND** no write request is sent to the global memory endpoint
 
 #### Scenario: Context pills in chat input show attached context filenames
 - **GIVEN** a topic has context files attached
@@ -500,3 +489,38 @@ o un instradatore a catena si mangia le rotte di quelli dopo.
 #### Scenario: un percorso di qualcun altro
 - **GIVEN** una richiesta non di questa superficie
 - **THEN** SHALL essere lasciata passare
+
+### Requirement: CTX-HUB-01 — Le regole globali sono quelle dell'hub
+
+Sul runtime nativo il blocco delle regole utente SHALL venire da `~/.agents/AGENTS.md`
+quando il file esiste, e SHALL NON aggiungere sopra `~/.claude/CLAUDE.md`. Senza hub
+SHALL ricadere su `~/.claude/CLAUDE.md` con un livello di `@import` espanso. Il blocco
+SHALL portare come fonte il percorso del file letto, e il testo che lo presenta al
+modello SHALL nominare quella stessa fonte.
+
+#### Scenario: hub presente
+- **GIVEN** una home con `~/.agents/AGENTS.md` e `~/.claude/CLAUDE.md`
+- **THEN** il blocco contiene il testo dell'hub e non quello di CLAUDE.md
+- **AND** il modello legge che le regole vengono da `~/.agents/AGENTS.md`
+
+### Requirement: CTX-HUB-02 — La memoria globale di Topics è ritirata
+
+Il contesto SHALL NON contenere un blocco `memory:global`, anche se `memory/_global.md`
+esiste ancora su disco. `GET` e `PUT /api/memory` e `DELETE /api/memory/global` SHALL
+rispondere 410 senza scrivere. La memoria del topic resta.
+
+#### Scenario: file residuo
+- **GIVEN** un `memory/_global.md` rimasto su disco
+- **THEN** nessun blocco del contesto ne contiene il testo
+
+### Requirement: CTX-HUB-03 — Un processo di test non apre lo stato vivo
+
+Sotto `bun test` (riconosciuto da `NODE_ENV=test` o dall'entry point che è un file di
+test, perché bun non sovrascrive un `NODE_ENV` già impostato) `resolveStateDir` SHALL
+rifiutare una cartella di stato uguale al repo da cui gira il server o contenuta in esso.
+Ogni modulo che scrive stato passa da lì, non solo `createAppContext`.
+
+#### Scenario: test senza DATA_DIR
+- **GIVEN** un test che non ha isolato `DATA_DIR`
+- **WHEN** un modulo che scrive stato (es. browser-state) risolve la sua cartella
+- **THEN** riceve un errore invece di aprire lo stato vivo

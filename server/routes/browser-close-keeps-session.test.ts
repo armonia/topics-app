@@ -13,7 +13,8 @@
  * questo test lo blocca se torna.
  * @covers BROWSER-CHAT-01
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
+import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createBrowserRouter } from "./browser";
 import {
   saveStorageState,
@@ -22,6 +23,13 @@ import {
   loadLastUrl,
   deleteStorageState,
 } from "../browser-state-store";
+
+// The store resolves its state from the working directory: run alone, without
+// DATA_DIR, this file wrote `data/browser-state` into the checkout. The gate in
+// `resolveStateDir` refuses that now, so the file isolates like every other.
+const STATE_ROOT = testTmpDir("browser-close-keeps-session");
+beforeAll(() => setupTestDataDir(`${STATE_ROOT}/data`));
+afterAll(() => cleanupTestDataDir(STATE_ROOT));
 
 const CTX = "topic-che-si-chiude";
 const ALTRO = "topic-che-resta";

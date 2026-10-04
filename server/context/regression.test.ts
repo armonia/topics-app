@@ -112,6 +112,7 @@ const topicsData: TopicsData = { topics: { [topic.id]: topic } };
 
 const ctx = {
   BASE_DIR: baseDir,
+  STATE_DIR: baseDir,
   OPENCLAW_DIR: openclawDir,
   getTopicBySessionKey: (sk: string) => (sk === topic.sessionKey ? topic : null),
   loadLocalMessages: (_sk: string) => storedMessages,
@@ -233,11 +234,8 @@ Call \`open_project\` whenever the user, in ANY phrasing or language, asks to op
     finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
   }
   // 7. memory
-  if (isSourceEnabled("memory:global") || isSourceEnabled("memory:topic")) {
-    const memoryContent = loadMemoryForTopic(baseDir, topic.id, {
-      includeGlobal: isSourceEnabled("memory:global"),
-      includeTopic: isSourceEnabled("memory:topic"),
-    });
+  if (isSourceEnabled("memory:topic")) {
+    const memoryContent = loadMemoryForTopic(baseDir, topic.id);
     if (memoryContent) {
       const idx = finalMessages.findIndex((m) => m.role !== "system");
       finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content: memoryContent });
