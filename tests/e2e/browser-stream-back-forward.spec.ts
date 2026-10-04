@@ -77,6 +77,16 @@ test.describe("BROWSER-STREAM-HISTORY-01 - streaming back/forward follow the ser
       await openSheet(page);
       await expect(back, "back at the first page").toBeDisabled({ timeout: 10_000 });
       await expect(forward, "the second page is ahead").toBeEnabled();
+
+      // 4. A navigation that fails: the server sits on its error page, which
+      //    it never shows the pane (url empty), but whose history it does:
+      //    back is the way out, and the pruned page ahead is gone.
+      browserProcessPageV2.sendNavWithinDocument("", { canGoBack: true, canGoForward: false });
+      await expect(back, "back out of the error page").toBeEnabled({ timeout: 10_000 });
+      await expect(forward, "the pruned page is not ahead any more").toBeDisabled();
+      await page.keyboard.press("Escape");
+      await openSheet(page);
+      await expect(page.getByTestId("browser-tab-address-input"), "the pane keeps its own url").toHaveValue(/example\.com/);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
       await closeAllBrowserContexts(request);

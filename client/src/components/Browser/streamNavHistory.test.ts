@@ -36,6 +36,11 @@ describe('applyHistoryUpdate', () => {
     expect(applyHistoryUpdate(base, { url: 'https://a.test/', canGoBack: false, canGoForward: false })).toBe(base);
   });
 
+  test('an empty url (an error page on the server) moves only the arrows', () => {
+    const next = applyHistoryUpdate(base, { url: '', canGoBack: true, canGoForward: false });
+    expect(next).toEqual({ url: 'https://a.test/', loading: true, canGoBack: true, canGoForward: false });
+  });
+
   test('an update without flags keeps the held ones', () => {
     const next = applyHistoryUpdate(base, { url: 'https://a.test/#c' });
     expect(next.canGoBack).toBe(false);

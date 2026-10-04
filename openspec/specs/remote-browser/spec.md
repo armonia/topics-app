@@ -2651,7 +2651,9 @@ scheda (CDP `Page.getNavigationHistory`: indietro se `currentIndex > 0`, avanti 
 `currentIndex < entries.length - 1`) e SHALL pubblicarlo nel messaggio `nav` che già manda
 alla pane: con `phase: 'response'` a ogni caricamento, con `phase: 'history'` a ogni
 navigazione senza caricamento (stesso documento: pushState, frammento), e nella risposta
-di `GET /api/browsers/:id` per una pane che si ricollega.
+di `GET /api/browsers/:id` per una pane che si ricollega. Su una pagina che la pane non mostra
+(`about:blank`, la pagina d'errore di Chromium) il server SHALL pubblicare i due valori con
+l'indirizzo vuoto, che la pane legge come «tieni il tuo».
 
 Un messaggio senza i due valori (server di versione precedente, lettura fallita) NON SHALL
 spegnere una freccia: la pane SHALL tenere ciò che sapeva, e una pane che non li ha mai
@@ -2667,6 +2669,13 @@ ricevuti SHALL lasciare entrambe le frecce abilitate, come prima.
 - **WHEN** il server manda `nav` con `phase: 'history'`, un nuovo indirizzo e `canGoBack: true`
 - **THEN** ‹ si abilita e › resta disabilitato
 - **AND** l'indirizzo della pane è quello nuovo
+
+#### Scenario: una navigazione fallita accende l'indietro anche sulla pagina d'errore
+- **GIVEN** una pane in streaming su una pagina con una voce avanti
+- **WHEN** la pagina del server finisce su un indirizzo che la pane non mostra (la pagina
+  d'errore di Chromium dopo una navigazione fallita, `about:blank`)
+- **THEN** il server manda comunque `nav` con `phase: 'history'`, l'indirizzo vuoto e i due valori
+- **AND** ‹ si abilita, › si spegne, e la pane tiene il proprio indirizzo
 
 #### Scenario: un server che non manda i valori lascia le frecce come oggi
 - **GIVEN** una pane in streaming collegata a un server che non conosce i due valori

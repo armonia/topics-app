@@ -13,6 +13,8 @@
  *     and the case where only the history moved. It is published only when the
  *     url or a flag actually changed, so a page that rewrites its url on every
  *     scroll does not turn into a message per scroll step it has already sent.
+ *     On a page the pane must not show (about:blank, an error page) the url
+ *     goes out empty and only the flags count.
  *
  * Kept apart from browser-service.ts so the coalescing and the dedup can be
  * tested with plain fakes, without a browser.
@@ -40,8 +42,9 @@ export interface NavHistoryPublisher {
   current(): NavigationHistoryFlags | null;
 }
 
-/** Only real pages reach the pane: the initial about:blank and Chromium's own
- *  error pages must not overwrite its url (same guard as the load broadcast). */
+/** Only real pages reach the pane's url: the initial about:blank and Chromium's
+ *  own error pages must not overwrite it (same guard as the load broadcast).
+ *  Their history flags still do, see drain(). */
 export function isPublishableUrl(url: string): boolean {
   return /^https?:\/\//.test(url);
 }
@@ -70,9 +73,13 @@ export function createNavHistoryPublisher(deps: {
         const read = await deps.read();
         if (!read) continue;
         flags = read;
+        // A page the pane must not show (about:blank, Chromium's error page
+        // after a failed navigation) still moves the arrows: there back is the
+        // only way out, and the failed navigation may have pruned the entry
+        // forward used to reach. Its url goes out empty, which the pane reads
+        // as "keep yours" (applyHistoryUpdate).
         const url = deps.currentUrl();
-        if (!isPublishableUrl(url)) continue;
-        const update = { url, ...read };
+        const update = { url: isPublishableUrl(url) ? url : "", ...read };
         if (sameAsLast(update)) continue;
         last = update;
         deps.publish(update);

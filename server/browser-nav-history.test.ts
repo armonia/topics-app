@@ -107,14 +107,25 @@ describe('createNavHistoryPublisher', () => {
     expect(h.sent).toEqual([]);
   });
 
-  it('about:blank and error pages never reach the pane', async () => {
-    const h = harness({ url: 'about:blank', flags: { canGoBack: false, canGoForward: false } });
-    h.publisher.navigated();
-    await h.settle();
+  it('about:blank and error pages keep their url from the pane, not their flags', async () => {
+    // The url stays out (the pane keeps its own, see applyHistoryUpdate), the
+    // arrows do not: on an error page back is the only way out, and a forward
+    // entry the failed navigation pruned must not stay lit.
+    const h = harness({ url: 'https://a.test/', flags: { canGoBack: false, canGoForward: true } });
+    await h.publisher.flagsForLoad('https://a.test/');
     h.world.url = 'chrome-error://chromewebdata/';
+    h.world.flags = { canGoBack: true, canGoForward: false };
     h.publisher.navigated();
     await h.settle();
-    expect(h.sent).toEqual([]);
+    h.world.url = 'about:blank';
+    h.world.flags = { canGoBack: true, canGoForward: true };
+    h.publisher.navigated();
+    await h.settle();
+    expect(h.sent).toEqual([
+      { url: '', canGoBack: true, canGoForward: false },
+      { url: '', canGoBack: true, canGoForward: true },
+    ]);
+    expect(h.sent.some((u) => u.url.startsWith('chrome-error:') || u.url.startsWith('about:'))).toBe(false);
   });
 
   it('a read that fails publishes nothing and reports nothing for the load', async () => {
