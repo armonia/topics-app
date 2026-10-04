@@ -91,7 +91,8 @@ interface Exception {
 const EXCEPTIONS: Exception[] = [
   { kind: "text-size", selector: /identity-glyph/, why: "a monogram inside the fixed 14px avatar (IDENTITY_GLYPH_BOX): a picture of a name that is written out in the title, `text-nano` reserved by check:typography" },
   { kind: "target-size", selector: /group\/proj\.row-card\.flex > but/, floor: { w: 12, h: 34 }, why: "the accordion chevron of a project row, 12px column shared by every sidebar row (ROW_CHEVRON_SLOT); WCAG 2.5.8 «equivalent»: the project name beside it toggles the same accordion on a second click" },
-  { kind: "axe:target-size", selector: /group\\\/proj > \.w-3/, why: "same chevron as above, seen by axe on its box" },
+  // `[^>]*`: with more than one project in the sidebar axe names the row by its classes too (`.group\/proj.mx-1\.5...`).
+  { kind: "axe:target-size", selector: /group\\\/proj[^>]* > \.w-3/, why: "same chevron as above, seen by axe on its box" },
   { kind: "axe:target-size", selector: /testid=task-id-chip$/, why: "the task id chip (atoms.tsx): axe reads the 18px BOX, the area that answers is the 24x24 `.tap-expand` projection, which the hit probe above measures and holds to the threshold" },
   { kind: "target-size", selector: /topic-row-archive|span\.row-actions/, viewport: "phone", floor: { w: 36, h: 44 }, why: "the command rail at the end of a row: two 36px commands side by side, a 44px area each would overlap and the last in the DOM would take the other's taps (index.css, `.tap-expand-y`)" },
   { kind: "target-size", selector: /topic-row-archive/, viewport: "desktop", floor: { w: 22, h: 28 }, why: "the sidebar resize handle (App.tsx, `left: sidebarWidth - 8`) covers the last 6px of the row's archive: its band sits INSIDE the sidebar because a native WKWebView pane flush on the content side eats every pixel past the edge, so moving it out would leave nothing to grab next to a browser pane (pre-existing on main, seen once rows were measured hovered)" },
