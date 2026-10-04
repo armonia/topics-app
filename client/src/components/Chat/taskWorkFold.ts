@@ -22,7 +22,8 @@
  *  2. WHAT NEEDS A HUMAN IS NEVER FOLDED. A question, a permission request and
  *     the work that is STILL RUNNING stay open: the first two are the reason
  *     the turn stopped, and the third is the one thing a person watches while
- *     it happens.
+ *     it happens. A question already ANSWERED stays open too: the choice is
+ *     what the human told the agent.
  *
  * Kept free of React so it unit-tests under bun:test.
  */
@@ -67,6 +68,10 @@ export function isMachineWork(msg: ChatMessage): boolean {
   for (const tc of tools) {
     if (isAwaitingHuman(tc.status)) return false;
     if (isActiveTool(tc)) return false;
+    // An answered question (or a decided plan) is not machinery: it is what
+    // the human already told the agent, one of the four things the reader of
+    // a task chat is looking for. Folded, the choice went out of sight (04/10).
+    if (tc.userResponse) return false;
   }
   return true;
 }

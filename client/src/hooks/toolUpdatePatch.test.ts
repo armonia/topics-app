@@ -100,10 +100,26 @@ describe('a stale answer does not reopen a tool that returned', () => {
 
   test('a second submission after the result leaves the row settled', () => {
     // The phone reconnects with its form still open and answers again; the
-    // route broadcasts `running` although the tool has already returned.
-    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running', userResponse: { answers: {} } as never })!;
-    expect(withToolUpdate(ask('success'), patch)).toEqual(ask('success'));
-    expect(withToolUpdate(ask('error'), patch)).toEqual(ask('error'));
+    // route broadcasts `running` although the tool has already returned. The
+    // row already carries the first answer, and keeps it.
+    const first = { kind: 'questions', answers: { q: 'first' }, submittedAt: 't1' } as const;
+    const answered = (status: ToolCall['status']): ToolCall => ({ ...ask(status), userResponse: first });
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running', userResponse: { kind: 'questions', answers: { q: 'second' }, submittedAt: 't2' } })!;
+    expect(withToolUpdate(answered('success'), patch)).toEqual(answered('success'));
+    expect(withToolUpdate(answered('error'), patch)).toEqual(answered('error'));
+    // An announcement with nothing but the status leaves the row untouched.
+    const bare = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running' })!;
+    const settled = ask('success');
+    expect(withToolUpdate(settled, bare)).toBe(settled);
+  });
+
+  test('the first answer arriving AFTER the result is kept, and the row stays settled', () => {
+    // The model's result (SSE) overtook the answer route's broadcast (WS): the
+    // answer is not stale, it is late, and dropping it hid the choice until a
+    // reload.
+    const answer = { kind: 'questions', answers: { q: 'OAuth' }, submittedAt: 't1' } as const;
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running', userResponse: answer })!;
+    expect(withToolUpdate(ask('success'), patch)).toEqual({ ...ask('success'), userResponse: answer });
   });
 
   test('the first answer still moves a waiting row back to running', () => {

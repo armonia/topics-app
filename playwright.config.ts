@@ -595,6 +595,11 @@ export default defineConfig({
         // A question waits for its person across a reload and the death of its
         // asker, and the answer reaches the model: read in the engine that ships.
         "**/question-survives-reload.spec.ts",
+        // The answer given stays readable on the closed row, question by
+        // question, whatever road it took (panel, composer, another client):
+        // a line of text truncated against its neighbours, read where it ships.
+        "**/ask-user-question.spec.ts",
+        "**/answer-question-from-composer.spec.ts",
         // A turn silent in a tool keeps its Stop in a viewer: a real server
         // turn from a fake CLI, filmed on the engine that ships.
         "**/chat-silent-tool-live.spec.ts",

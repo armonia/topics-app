@@ -10,6 +10,8 @@ import { spawnRefusal } from './subagentResult';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
 import { ToolPermissionRow } from './ToolPermissionRow';
+import { QuestionAnswerCard, QuestionAnswerRecap } from './QuestionAnswer';
+import type { AskedQuestion } from './questionAnswers';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
 import { editedPlanFrom, planDecisionFrom } from '../../../../shared/plan-decision';
@@ -225,6 +227,16 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     : toolCall.askEnded === 'cancelled' ? tr('chat.question.ended.cancelled')
       : toolCall.askEnded === 'superseded' ? tr('chat.question.ended.superseded')
         : tr('chat.question.ended.other');
+  // THE ANSWER GIVEN stays readable on the closed row. It used to live only
+  // inside the collapsible body, which closes when the tool finishes: once
+  // answered, nothing of the choice was left on screen (reported 04/10). It
+  // holds for every row that asked something (the question, its MCP twin, a
+  // plan to approve), so it does not hang on `isQuestionTool`. The options come
+  // from the persisted schema; old rows without one fall back to `detail`.
+  const answer = toolCall.userResponse && status !== 'waiting_for_input' ? toolCall.userResponse : null;
+  const askedQuestions: readonly AskedQuestion[] = toolCall.userInputSchema?.kind === 'questions'
+    ? toolCall.userInputSchema.questions
+    : detail.type === 'ask_user' ? detail.questions : [];
 
   // Auto-open rows that NEED to be open: sub-agent (action log is the
   // primary signal), waiting_for_input (the form is the row's whole
@@ -555,6 +567,19 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {questionEndedText}
         </div>
       )}
+      {/* Outside the collapsible body for the same reason: the choice reads
+          without opening the row, one line per question. Only while the row
+          is closed: open, the card below says the same with every option, and
+          with both the question read three times and the answer twice. */}
+      {answer && !effectiveOpen && (
+        <QuestionAnswerRecap
+          toolCallId={toolCall.id}
+          asked={askedQuestions}
+          response={answer}
+          schema={toolCall.userInputSchema}
+          headerQuestion={detail.type === 'ask_user' ? display.summary : undefined}
+        />
+      )}
       {/* An answer whose asker was gone, saved and waiting for the chat to be
           free: the panel is closed, and it says the answer is on its way. */}
       {isQuestionTool && toolCall.answerRelay === 'queued' && (
@@ -619,22 +644,21 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <div className="text-mini text-amber-600 bg-amber-500/10 rounded px-2 py-1">
               {tr('chat.tool.noSessionContext')}
             </div>
+          ) : answer && isQuestionTool ? (
+            // An answered question: its options with the tick ARE the card. The
+            // question card (the same options without the choice) and the tool
+            // result (the same answer echoed by the bridge) would say it twice.
+            <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} schema={toolCall.userInputSchema} />
           ) : (
+            <>
             <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
+            {/* A tool that asked something mid-work (the plan on a `Write`, an
+                MCP elicitation) keeps its card, with the answer and the options
+                it was chosen from underneath. */}
+            {answer && <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} schema={toolCall.userInputSchema} />}
+            </>
           )}
           <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />
-          {toolCall.userResponse && status !== 'waiting_for_input' && (
-            <div className="mt-1.5 text-mini text-app-text-muted">
-              <span className="uppercase tracking-wide">Answered</span>
-              <span className="ml-1 font-mono">
-                {toolCall.userResponse.kind === 'questions'
-                  ? Object.values(toolCall.userResponse.answers).join(' · ')
-                  : toolCall.userResponse.kind === 'raw'
-                    ? toolCall.userResponse.text
-                    : JSON.stringify(toolCall.userResponse.value)}
-              </span>
-            </div>
-          )}
           {isWaiting && toolCall.askerGone && (
             <div data-testid={`question-asker-gone-${toolCall.id}`} className="mt-1.5 text-mini text-app-text-muted">
               {tr('chat.question.askerGone')}
