@@ -1776,6 +1776,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // full-PATH dev shell still works, and so a machine without claude installed
     // surfaces a clear "command not found" rather than nothing. Mirrors codex.
     file = resolveClaudeBin() ?? 'claude';
+    // No `--disallowed-tools Agent,Workflow` here, unlike a chat or a card
+    // (`NATIVE_DELEGATION_TOOLS`): in its TUI the person drives the CLI and sees its sub-agents.
+    // Hence `topicsAgentSystemPrompt()` without `headless`: no spawn_agent nudge.
     args = [];
     if (claudeSessionId) {
       args.push('--resume', claudeSessionId);

@@ -2720,7 +2720,8 @@ export class ClaudeCodeProvider implements AIProvider {
       // Porta anche la direttiva di lingua: risolta QUI, allo spawn, così un
       // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
       // A board card's agent waits for its `run_command` inside the turn.
-      appendSystemPrompt: topicsAgentSystemPrompt(undefined, undefined, overrides.dispatched),
+      // `headless`: no native Agent/Workflow here, the prompt names spawn_agent.
+      appendSystemPrompt: topicsAgentSystemPrompt(undefined, undefined, overrides.dispatched, true),
       // Il deferral degli schemi MCP, IMPOSTO alla sessione. Vale per ogni
       // chat, non solo per i topic bridge-only: era già l'intenzione (vedi
       // l'env qui sotto) ma passava da un canale che perde contro

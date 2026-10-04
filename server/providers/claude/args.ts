@@ -193,6 +193,10 @@ export interface ClaudeSpawnArgsOptions {
    * `"chat"` taglia le tre voci irraggiungibili ovunque, `"dispatched"` ci
    * aggiunge `Workflow`. `null`/assente non taglia niente (la via d'uscita è
    * `TOPICS_TOOL_TRIM=off`).
+    *
+   * Since 04/10 `Workflow` is off in a chat as well, for a different reason
+   * than the trim: it launches native sub-agents Topics cannot see, see
+   * `NATIVE_DELEGATION_TOOLS`. The two trim lists keep their own criterion.
    */
   toolTrim?: ToolTrim | null;
   /**
@@ -284,6 +288,33 @@ export const TRIMMED_TOOLS_DISPATCHED = ["Workflow", ...TRIMMED_TOOLS_CHAT] as c
  */
 export const HEADLESS_DISALLOWED_TOOLS = ["AskUserQuestion"] as const;
 
+/**
+ * The CLI's native sub-agent tool, removed from every session the Topics engine
+ * launches (chat and board card), whatever the trim.
+ *
+ * Not "a tool no session can use" (the trim's criterion): it is a delegation,
+ * and in Topics delegation goes through `mcp__topics__spawn_agent`, which gives
+ * the child a pane the user sees, `list_agents`/`read_agent`, the per-machine
+ * cap and a wake of the parent. A native `Agent` child has none of that: topic
+ * d740f8ae (pop-demo) made 11 native `Agent` calls between 02/10 and 03/10,
+ * plus `SendMessage` to their native ids, and Topics saw none of them.
+ *
+ * Measured on CLI 2.1.289 (04/10): `system/init` lists this tool under its
+ * legacy name `Task`, and `--disallowed-tools Agent` removes it (29 tools to
+ * 28), as `Task` does. `SendMessage` and `TaskStop` stay: the first also
+ * messages other sessions, the second stops background shells; `TaskOutput`
+ * is not registered at all. Interactive terminal panes keep it.
+ *
+ * `Workflow` goes too, chat included, overriding the trim's reason to keep it
+ * there (the person can give the consent its description asks for): a workflow
+ * script's `agent()` calls are native sub-agents as well. Measured on CLI
+ * 2.1.289 with a chat's list minus `Workflow`: one `Workflow` call started a
+ * `local_workflow` task whose child answered, and Topics saw none of it. In a
+ * card it is already in `TRIMMED_TOOLS_DISPATCHED`; `buildClaudeArgs` drops
+ * the duplicate.
+ */
+export const NATIVE_DELEGATION_TOOLS = ["Agent", "Workflow"] as const;
+
 /** La lista che corrisponde a un taglio. */
 export function trimmedTools(trim: ToolTrim): readonly string[] {
   return trim === "dispatched" ? TRIMMED_TOOLS_DISPATCHED : TRIMMED_TOOLS_CHAT;
@@ -354,7 +385,11 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // danno lo stesso taglio (−11.742 contro −11.743): la virgola non è
     // ignorata in silenzio. Il perché dei quattro nomi sta accanto a
     // `toolTrim` in `ClaudeSpawnArgsOptions`.
-    "--disallowed-tools", [...(opts.toolTrim ? trimmedTools(opts.toolTrim) : []), ...HEADLESS_DISALLOWED_TOOLS].join(","),
+    "--disallowed-tools", [...new Set([
+      ...(opts.toolTrim ? trimmedTools(opts.toolTrim) : []),
+      ...HEADLESS_DISALLOWED_TOOLS,
+      ...NATIVE_DELEGATION_TOOLS,
+    ])].join(","),
     // Gli schemi dei tool MCP viaggiano nel PREFISSO, cioè nella parte di prompt
     // che ogni richiesta del turno ripaga: un turno da 4 round-trip li paga 4
     // volte. Con il deferral la CLI manda i soli NOMI e carica lo schema quando

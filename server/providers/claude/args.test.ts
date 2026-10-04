@@ -12,7 +12,7 @@
   * @covers CCLI-07, CHAT-FORK-02
  */
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED, HEADLESS_DISALLOWED_TOOLS } from "./args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED, HEADLESS_DISALLOWED_TOOLS, NATIVE_DELEGATION_TOOLS } from "./args";
 import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
 
 const BASE = {
@@ -148,20 +148,19 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(i).toBeGreaterThan(-1);
     // Il valore è UNA stringa sola. `--disallowed-tools A B C` è variadico e in
     // mezzo all'argv si mangerebbe la flag successiva.
-    expect(args[i + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion");
+    expect(args[i + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent");
     expect(args[i + 2]).toStartWith("--");
   });
 
-  test("chat: le tre voci irraggiungibili, e `Workflow` NO", () => {
-    // Il criterio è lo stesso dei bracci del board — «questa sessione non lo
-    // può usare comunque» — ma su `Workflow` dà l'esito opposto: la sua
-    // descrizione lo vieta senza un consenso esplicito dell'umano, e in una
-    // chat l'umano c'è. Toglierlo non risparmierebbe, toglierebbe una leva.
+  test("chat: the trim keeps `Workflow`, the native delegation list drops it", () => {
+    // The trim's criterion still keeps it in a chat (the person can give the
+    // consent its description asks for): `TRIMMED_TOOLS_CHAT` has no
+    // `Workflow`. But a workflow's `agent()` calls are native sub-agents
+    // Topics cannot see, so `NATIVE_DELEGATION_TOOLS` takes it off anyway.
     const args = buildClaudeArgs({ ...BASE, toolTrim: "chat" } as never);
     const i = args.indexOf("--disallowed-tools");
     expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion");
-    expect(args[i + 1]).not.toContain("Workflow");
+    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent,Workflow");
     expect(args[i + 2]).toStartWith("--");
   });
 
@@ -177,10 +176,30 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(TRIMMED_TOOLS_CHAT).not.toContain("Workflow" as never);
   });
 
-  test("trim off: the registry stays whole, except the built-in question that cannot work headless", () => {
+  test("trim off: the registry stays whole, except the built-in question and the native delegation", () => {
     for (const args of [buildClaudeArgs({ ...BASE }), buildClaudeArgs({ ...BASE, toolTrim: null } as never)]) {
-      expect(args[args.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion");
+      expect(args[args.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion,Agent,Workflow");
     }
+  });
+
+  test("native Agent and Workflow are never offered: a chat or a card delegates through spawn_agent", () => {
+    // Topic d740f8ae (pop-demo, 02/10-03/10): 11 native `Agent` calls plus
+    // `SendMessage` to their native ids, none of them visible to Topics (no
+    // pane, no list_agents, no per-machine cap, no wake of the parent).
+    for (const toolTrim of ["chat", "dispatched", null]) {
+      const args = buildClaudeArgs({ ...BASE, toolTrim } as never);
+      // One flag only: the CLI is variadic here, and a second
+      // `--disallowed-tools` would not be the place to read the whole list.
+      expect(args.filter((a) => a === "--disallowed-tools")).toHaveLength(1);
+      const list = args[args.indexOf("--disallowed-tools") + 1]!.split(",");
+      expect(list).toContain("Agent");
+      expect(list).toContain("Workflow");
+      // A card has `Workflow` from the trim too: it is listed once.
+      expect(new Set(list).size).toBe(list.length);
+    }
+    expect([...NATIVE_DELEGATION_TOOLS]).toEqual(["Agent", "Workflow"]);
+    // Not part of the trim: `TOPICS_TOOL_TRIM=off` must not bring `Agent` back.
+    for (const lista of [TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED]) expect(lista).not.toContain("Agent" as never);
   });
 
   test("the built-in AskUserQuestion is never offered headless: 9 out of 9 died unanswered", () => {
@@ -214,17 +233,17 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     // L'assertion che chiude il giro: la stessa funzione che lo spawn chiama,
     // infilata nella stessa funzione che costruisce l'argv.
     const chat = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: false, env: {} }) } as never);
-    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion");
+    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent,Workflow");
     const agente = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: {} }) } as never);
-    expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion");
+    expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion,Agent");
     const spento = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } }) } as never);
-    expect(spento[spento.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion");
+    expect(spento[spento.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion,Agent,Workflow");
   });
 
-  test("`Task` e `Read` NON sono in nessuna delle due liste: sono ciò che rende capace l'agente", () => {
-    // Il criterio del taglio non è «pesa tanto» — `Task` vale quanto
-    // `Artifact` — è «l'agente non lo può usare comunque». Un agente del board
-    // i sotto-agenti li usa per le ricerche larghe.
+  test("`Read` is in neither trim list: the trim only drops what the session cannot use", () => {
+    // The criterion is not "it weighs a lot", it is "the agent cannot use it
+    // anyway". The native sub-agent goes for another reason, and sits in its
+    // own list (`NATIVE_DELEGATION_TOOLS`), not here.
     for (const lista of [TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED]) {
       expect(lista).not.toContain("Task" as never);
       expect(lista).not.toContain("Read" as never);
@@ -319,7 +338,7 @@ describe("buildClaudeArgs — la fotografia", () => {
       "--mcp-config", "/tmp/topics-mcp/topic-7.json",
       "--strict-mcp-config",
       "--permission-prompt-tool", "mcp__topics__approval_prompt",
-      "--disallowed-tools", "AskUserQuestion",
+      "--disallowed-tools", "AskUserQuestion,Agent,Workflow",
       "--append-system-prompt", "<prompt di sistema>",
       "--input-format", "stream-json",
       "--output-format", "stream-json",

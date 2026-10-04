@@ -34,7 +34,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { buildClaudeArgs, TRIMMED_TOOLS_DISPATCHED } from "../../server/providers/claude/args";
+import { buildClaudeArgs, TRIMMED_TOOLS_DISPATCHED, HEADLESS_DISALLOWED_TOOLS, NATIVE_DELEGATION_TOOLS } from "../../server/providers/claude/args";
 import { PAGES, BENCH_DIR, RESULTS_PATH, markerFor, MANIFEST_PATH } from "./pages";
 
 const argv = process.argv.slice(2);
@@ -101,6 +101,9 @@ const LEVER = (flag("--lever", "cap") as "cap" | "prefix");
  * soprattutto token letti dalla cache, che costano un decimo. Resta la leva
  * più grossa in token, e non è la più grossa in dollari.
  */
+// Stale since 04/10: `Workflow` is in `NATIVE_DELEGATION_TOOLS`, so both arms
+// drop it and the `prefix` lever no longer measures its share of this number
+// (7.856 tokens per request on opus). Pass `--atteso` until it is re-measured.
 const EXPECTED_PER_REQUEST = Number(flag("--atteso", "13176"));
 /** Le due pagine di cui si chiede il marcatore: una grande (versata su file) e una piccola. */
 const ASK = [4, 10];
@@ -468,6 +471,12 @@ if (off && on) {
     );
     console.log("    I due bracci non hanno lo stesso prefisso: il confronto non misura il tetto. Rigira.");
   }
+  // The tools both arms drop whatever the trim must be absent from both
+  // registries: a name the CLI ignored silently would still be listed there.
+  // `system/init` lists `Agent` under its legacy name `Task` (CLI 2.1.289).
+  const alwaysOff = [...HEADLESS_DISALLOWED_TOOLS, ...NATIVE_DELEGATION_TOOLS, "Task"] as string[];
+  const leaked = [...new Set([...off.toolsAtBoot, ...on.toolsAtBoot].filter((t) => alwaysOff.includes(t)))];
+  if (leaked.length) console.log(`\n  ⚠ TOOLS THE ARGV DROPS ARE STILL REGISTERED: ${leaked.join(", ")}`);
   const drop = 1 - on.promptTokens / off.promptTokens;
   const costDrop = off.costUsd > 0 ? 1 - on.costUsd / off.costUsd : 0;
 
@@ -493,9 +502,9 @@ if (off && on) {
     console.log(`  la previsione della scala regge (≥80%): ${dentro ? "sì" : "NO"}`);
     console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
     console.log(`  registro atteso nel braccio ON (OFF meno ${TRIMMED_TOOLS_DISPATCHED.join(", ")}): ${sameTools ? "sì" : "NO"}`);
-    pass = sameTools && dentro && on.markersCorrect;
+    pass = sameTools && !leaked.length && dentro && on.markersCorrect;
   } else {
-    pass = sameTools && drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
+    pass = sameTools && !leaked.length && drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
     console.log(`\n  token di prompt: ${(drop * 100).toFixed(1)}% in meno (barra ${TOKEN_BAR * 100}%)`);
     console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno (barra ${COST_BAR * 100}%)`);
     console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
