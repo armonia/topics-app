@@ -114,6 +114,7 @@ import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { turnEnded, turnStarted } from "../attention/store";
 import { planApprovalOpened } from "../attention/wire";
+import { withCommandTask } from "../attention/background-tasks";
 import { classifyTurnEnd } from "../push-triggers";
 import { runningTaskOwnsTopic } from "../lib/wake-adoption";
 import { sessionAttentionBackground } from "../providers/background-probes";
@@ -373,9 +374,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     try { b = own ? own.call(provider, sessionKey) : sessionAttentionBackground(sessionKey); } catch { b = null; }
     const command = commandWakeState(sessionKey, ownWake);
     if (command === "none") return b;
-    const tasks: AttentionTaskMap = { ...(b?.tasks ?? {}), command: { kind: "command", label: "run_command", startedAt: new Date().toISOString() } };
-    const counting = Object.values(tasks).filter((t) => !t.recurring);
-    return { tasks, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
+    return withCommandTask(b?.tasks ?? {}, command, new Date().toISOString());
   };
 
   // Deps for the SDK-passthrough control tools (open/create-project, switch/new-

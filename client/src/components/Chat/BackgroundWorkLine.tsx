@@ -70,7 +70,10 @@ import { OPEN_PROCESS_LOG_EVENT } from '../Layout/fileOpenScope';
 export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, projectPath, isMobile }: { topicId: string; projectPath?: string; isMobile: boolean }) {
   const tasks = useTopicBackgroundTasks(topicId);
   const detail = useTopicBackgroundDetail(topicId);
-  const work = tasks.length > 0 ? lineWork(tasks, detail) : undefined;
+  // A command that wakes nobody is no task of the attention state, and still
+  // runs: the poll lists it, and the line names it (BGVIS-07).
+  const hasCommands = !!detail?.tasks.some((t) => t.type === 'command');
+  const work = tasks.length > 0 || hasCommands ? lineWork(tasks, detail) : undefined;
   const turnOpen = useTopicLoading(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
   return work ? (
@@ -84,20 +87,25 @@ export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, pr
  * What the line names: the attention state's tasks, in its order, with the
  * poll's detail where it has one. A `command` of the attention state stands
  * for every `run_command` of the chat: the poll lists them one by one, with
- * the process the click opens. A Monitor is a `monitor` here and in the poll.
+ * the process the click opens, and lists too the ones that wake nobody, which
+ * the attention state does not carry. A Monitor is a `monitor` here and in
+ * the poll.
  */
 function lineWork(tasks: readonly AttentionTask[], detail: TopicBackgroundWork | undefined): TopicBackgroundWork {
   const commands = (detail?.tasks ?? []).filter((t) => t.type === 'command');
   const named: BackgroundTaskSummary[] = [];
+  let commandsNamed = false;
   for (const t of tasks) {
     // A queued wake is no work: it is the CLI about to answer a report. It
     // keeps the line up and is named by «about to resume» (n = 0 below), the
     // branch that otherwise no attention state could reach.
     if (t.kind === 'wake') continue;
-    if (t.kind === 'command' && commands.length > 0) { named.push(...commands); continue; }
+    if (t.kind === 'command' && commands.length > 0) { named.push(...commands); commandsNamed = true; continue; }
     const startedAt = Date.parse(t.startedAt);
     named.push({ type: t.kind, description: t.label, ...(Number.isFinite(startedAt) ? { startedAt } : {}) });
   }
+  // The commands that owe no wake are not in the attention state's map.
+  if (!commandsNamed) named.push(...commands);
   return { sessionKey: detail?.sessionKey ?? '', tasks: named, lastSignalAt: detail?.lastSignalAt ?? 0 };
 }
 

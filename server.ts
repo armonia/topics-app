@@ -180,7 +180,9 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { attentionInitFrame, forgetSocket, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { attentionInitFrame, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { withCommandTask } from "./server/attention/background-tasks";
+import { observeCommandChanged } from "./server/lib/command-background";
 import { attentionBootReader } from "./server/attention/boot-reader";
 import { chatBackgroundChanged, chatSubjectOfSession, configureAttentionWire, wireHumanHolds } from "./server/attention/wire";
 import { closeSystemCycle, openSystemCycle, recordSystemNotice } from "./server/attention/system-notices";
@@ -823,15 +825,30 @@ ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why, cron) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why, cron });
 });
+/**
+ * A chat's task map for the attention state, rewritten whole: the CLI's
+ * snapshot (or, when no provider can tell, what the map already held) with the
+ * session's Topics commands folded in as one `command` task
+ * (`withCommandTask`). The CLI's changes and the commands' go through here, so
+ * neither drops the other's tasks.
+ */
+function syncChatBackgroundTasks(sessionKey: string): void {
+  const subject = chatSubjectOfSession(sessionKey);
+  if (!subject) return;
+  const work = sessionAttentionBackground(sessionKey);
+  const base = work?.tasks ?? Object.fromEntries(getAttention(subject).background.map(({ id, ...t }) => [id, t]));
+  chatBackgroundChanged(sessionKey, withCommandTask(base, commandWakeState(sessionKey), new Date().toISOString()).tasks);
+}
 // A task listed or gone, a Monitor recognised: every window refetches the
 // status route now instead of at its next 15 s poll (BGVIS-06).
 ClaudeCodeProvider.observeBackgroundChanged((sessionKey) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) ctx.broadcastToAll({ type: "background:changed", topicId: topic.id, sessionKey });
   // The same change, for the attention state: the chat's task map is the CLI's snapshot.
-  const work = sessionAttentionBackground(sessionKey);
-  if (work) chatBackgroundChanged(sessionKey, work.tasks);
+  syncChatBackgroundTasks(sessionKey);
 });
+// A Topics command of a chat started or ended: the same map, with the command folded in.
+observeCommandChanged(syncChatBackgroundTasks);
 // The CLI is gone: what the chat waited on will never answer (ATTN-15). The
 // open turn is the route's to close, with the error it caught.
 ClaudeCodeProvider.observeProcessEnded((sessionKey, cause, byPerson) => {

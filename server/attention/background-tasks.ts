@@ -179,3 +179,25 @@ export function finishedTasksOfTranscriptLine(line: string, kindOf: (id: string)
   }
   return out;
 }
+
+/** What `commandWakeState` (`routes/processes.ts`) says of a session's Topics commands. */
+export type CommandOwed = "running" | "wake-queued" | "none";
+
+/**
+ * A chat's task map with its Topics `run_command`s folded in as ONE task
+ * (`command`, design section 5.2): the CLI's snapshot does not know them, the
+ * process registry does. Every place that writes a chat's map goes through
+ * here, the turn's end and the changes in between (a command started or
+ * ended, a CLI task listed or gone), so none of them drops what another put.
+ */
+export function withCommandTask(
+  tasks: Readonly<Record<string, TaskInfo>>,
+  owed: CommandOwed,
+  startedAt: string,
+): { tasks: Record<string, TaskInfo>; count: number; kinds: string[] } {
+  const out: Record<string, TaskInfo> = {};
+  for (const [id, t] of Object.entries(tasks)) if (id !== "command") out[id] = t;
+  if (owed !== "none") out.command = { kind: "command", label: "run_command", startedAt: tasks.command?.startedAt ?? startedAt };
+  const counting = Object.values(out).filter((t) => !t.recurring);
+  return { tasks: out, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
+}
