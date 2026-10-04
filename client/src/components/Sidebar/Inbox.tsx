@@ -235,7 +235,7 @@ function InboxPanel({ model, onWSMessage, onClose }: {
               tabIndex={tab === t ? 0 : -1}
               onClick={() => setTab(t)}
               data-testid={`inbox-tab-${t}`}
-              className={`px-2.5 ${isTouch ? 'h-9' : 'h-6'} rounded text-mini font-medium transition-colors ${
+              className={`px-2.5 ${isTouch ? 'h-11 min-w-11' : 'h-6'} rounded text-mini font-medium transition-colors ${
                 tab === t ? 'bg-app-bg text-app-text shadow-sm' : 'text-app-text-secondary hover:text-app-text'
               }`}
             >
@@ -302,7 +302,7 @@ function InboxPanel({ model, onWSMessage, onClose }: {
 function Section({ title, tone, testId, children }: { title: string; tone: 'needs-you' | 'done'; testId: string; children: React.ReactNode }) {
   return (
     <section className="py-1" data-testid={testId}>
-      <h3 className={`px-3 pt-1.5 pb-1 text-micro font-semibold uppercase tracking-wide ${tone === 'needs-you' ? WARNING_TEXT : 'text-app-text-muted'}`}>
+      <h3 className={`px-3 pt-1.5 pb-1 text-mini font-semibold uppercase tracking-wide ${tone === 'needs-you' ? WARNING_TEXT : 'text-app-text-muted'}`}>
         {title}
       </h3>
       <ul>{children}</ul>
@@ -365,8 +365,8 @@ function Row({ item, first, onOpen, onMarkSeen }: { item: InboxItem; first: bool
               <span className="text-compact font-medium text-app-text truncate min-w-0">{item.title}</span>
               {/* The project gives way to the title only past 40%: a short
                   name stays whole instead of shrinking to one letter. */}
-              {item.project && <span className="text-micro text-app-text-muted truncate flex-shrink-0 max-w-[40%]">{item.project}</span>}
-              <RelativeTime at={item.since} className="text-micro text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
+              {item.project && <span className="text-mini text-app-text-muted truncate flex-shrink-0 max-w-[40%]">{item.project}</span>}
+              <RelativeTime at={item.since} className="text-mini text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
             </span>
             <span className="block text-mini text-app-text-secondary truncate">{second}</span>
           </span>
@@ -439,7 +439,7 @@ function QuietLine({ background, working }: { background: InboxQuietItem[]; work
                 >
                   <Icon size={13} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
                   <span className="text-mini text-app-text truncate">{q.title}</span>
-                  <span className="text-micro text-app-text-muted truncate ml-auto flex-shrink min-w-0">
+                  <span className="text-mini text-app-text-muted truncate ml-auto flex-shrink min-w-0">
                     {bg && q.firstTask
                       ? KNOWN_TASK_KINDS.has(q.firstTask.kind) ? `${tr(`inbox.task.${q.firstTask.kind}`)}: ${q.firstTask.label}` : q.firstTask.label
                       : tr(bg ? 'inbox.quiet.inBackground' : 'inbox.quiet.atWork')}
@@ -485,7 +485,7 @@ function History({ rows, loading, hasMore, loadingMore, loadMore, onClose }: {
     <div data-testid="inbox-history">
       {days.map((d) => (
         <section key={d.key} className="py-1">
-          <h3 className="px-3 pt-1.5 pb-1 text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+          <h3 className="px-3 pt-1.5 pb-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
             {d.key === 'today' ? tr('inbox.day.today') : d.key === 'yesterday' ? tr('inbox.day.yesterday') : new Date(`${d.key}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
           </h3>
           <ul>
@@ -509,7 +509,7 @@ function History({ rows, loading, hasMore, loadingMore, loadMore, onClose }: {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline gap-2">
                         <span className="text-compact font-medium text-app-text truncate">{system ? tr('inbox.system') : row.title}</span>
-                        <RelativeTime at={row.createdAt} className="text-micro text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
+                        <RelativeTime at={row.createdAt} className="text-mini text-app-text-muted tabular-nums flex-shrink-0 ml-auto" />
                       </span>
                       <span className="block text-mini text-app-text-secondary truncate">{system ? row.title : row.body}</span>
                     </span>

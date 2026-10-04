@@ -229,7 +229,7 @@ export function PairingApproval() {
               {tr('pair.someoneElse')}
             </button>
           )}
-          <p className="mt-1.5 text-micro leading-snug text-app-text-muted">
+          <p className="mt-1.5 text-mini leading-snug text-app-text-muted">
             {tr('pair.guestBlurb')}
           </p>
         </div>

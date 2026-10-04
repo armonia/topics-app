@@ -1,6 +1,6 @@
 import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useT } from '../../hooks/useT';
-import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, Hourglass, Loader2, PenLine, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
@@ -62,7 +62,7 @@ export function ElapsedTimer({ since, tone, title }: { since: number; tone?: str
   if (ms < 900) return null;
   return (
     <span
-      className={`text-micro tabular-nums ${tone ?? 'text-app-text-muted'}`}
+      className={`text-mini tabular-nums ${tone ?? 'text-app-text-muted'}`}
       data-testid="tool-elapsed"
       title={title}
     >
@@ -198,7 +198,13 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const display = buildToolDisplayLabel(detail, toolCall.name);
   const Icon = iconForDetail(detail);
   const status = toolCall.status ?? 'pending';
-  const isRunning = status === 'pending' || status === 'running';
+  // A call the server marked `pending` has NOT started: the native runtime
+  // announces it while the model writes it and runs it after the calls before
+  // it in the round. It gets no spinner, no stopwatch and no live body, or a
+  // call queued behind a long shell reads as stuck on a command that never
+  // ran. A row with no status at all (old rows) keeps reading as running.
+  const isQueued = toolCall.status === 'pending';
+  const isRunning = status === 'running' || toolCall.status === undefined;
   const isWaiting = status === 'waiting_for_input';
   // Un PERMESSO non è una domanda: stato suo, pannello suo, decisione
   // tipizzata. Ma per tutto ciò che chiede «la palla è dell'umano?» — la
@@ -460,8 +466,19 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {isRunning && typeof toolCall.startedAt === 'number' && (
             <ElapsedTimer since={toolCall.startedAt} />
           )}
+          {/* Not started yet: what it is waiting for, in words, and no clock. */}
+          {isQueued && (
+            <span
+              data-testid="tool-queued"
+              data-phase={toolCall.inputStreaming ? 'writing' : 'queued'}
+              className="inline-flex items-center gap-1 text-mini text-app-text-muted"
+            >
+              {toolCall.inputStreaming ? <PenLine size={11} aria-hidden="true" /> : <Hourglass size={11} aria-hidden="true" />}
+              {tr(toolCall.inputStreaming ? 'tool.writingInput' : 'tool.queued')}
+            </span>
+          )}
           {!isRunning && !isHumanTurn && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
-            <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
+            <span className={`text-mini tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
             </span>
           )}
@@ -469,7 +486,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               decisa, non il totale del turno. Prezzo se il modello è noto,
               altrimenti i token. Assente sui messaggi vecchi. */}
           {costLabel && (
-            <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
+            <span className={`text-mini tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
               {costLabel}
             </span>
           )}
@@ -530,7 +547,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           onPointerDown={onPointerDown}
           aria-expanded={effectiveOpen}
           aria-busy={revealing || undefined}
-          className="group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+          className="group/tool w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors coarse:min-h-11"
         >
           {headerInner}
         </button>

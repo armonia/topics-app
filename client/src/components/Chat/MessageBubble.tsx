@@ -393,7 +393,7 @@ export const MessageBubble = memo(function MessageBubble({
         {msg.role === 'user' && promptNumber != null && (
           <span
             data-testid="prompt-number"
-            className="self-start mt-2 mr-1.5 flex-shrink-0 select-none text-micro tabular-nums text-app-text-muted"
+            className="self-start mt-2 mr-1.5 flex-shrink-0 select-none text-mini tabular-nums text-app-text-muted"
             title={tr('chat.message.promptNumber', { n: promptNumber })}
           >
             #{promptNumber}

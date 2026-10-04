@@ -154,7 +154,7 @@ function Line({ work, turnOpen, projectPath }: { work: TopicBackgroundWork; turn
           </span>
         )}
         {isStale && (
-          <span className="flex-shrink-0 text-micro tabular-nums text-amber-600 dark:text-amber-400">
+          <span className="flex-shrink-0 text-mini tabular-nums text-amber-600 dark:text-amber-400">
             {tr('chat.background.stale', { t: formatElapsedCompact(elapsedMs) })}
           </span>
         )}

@@ -208,7 +208,7 @@ export function UpdaterToast() {
             const api = getUpdaterApi();
             await (api?.downloadUpdate ? api.downloadUpdate() : api?.quitAndInstall());
           }}
-          className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
+          className="tap-expand-y mt-1 text-app-text underline underline-offset-2 hover:no-underline"
         >
           {/* The verb is what tells the two sidebar notices apart: this one
               updates the shell, the other reloads the client bundle. The
@@ -223,7 +223,7 @@ export function UpdaterToast() {
             const api = getUpdaterApi();
             if (api) await api.quitAndInstall();
           }}
-          className="mt-1 text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:no-underline"
+          className="tap-expand-y mt-1 text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:no-underline"
         >
           {tr('update.restartInstall')}
         </button>

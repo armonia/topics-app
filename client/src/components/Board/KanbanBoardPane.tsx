@@ -253,7 +253,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
               chiuso il cui lavoro non risulta da nessuna parte. */}
           {unlanded.length > 0 && (
             <div className="border-b border-app-border pb-1">
-              <div className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-rose-300/90">
+              <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-rose-300/90">
                 {tr('board.unlanded.title')}
               </div>
               {unlanded.map((t) => (
@@ -273,7 +273,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
             </div>
           )}
           {/* GRADINO 2 — su main, ma non ancora fuori. */}
-          <div className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+          <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
           {/* COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic e non in un
               tooltip: su questo repo main e' spedito, quindi «Pubblica» non e'
               un salvataggio — fa uscire una release che arriva all'auto-updater
@@ -322,12 +322,12 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                           <span className="shrink-0 text-app-text-faint">{c.author} · {c.when}</span>
                         </li>
                       ))}
-                      {p.commits.length >= 50 && <li className="text-micro text-app-text-faint">{tr('board.publish.truncated')}</li>}
+                      {p.commits.length >= 50 && <li className="text-mini text-app-text-faint">{tr('board.publish.truncated')}</li>}
                     </ul>
                   )}
                   {isOpen && (
                     <div className="mb-1.5 ml-4 border-l border-app-border pl-2">
-                      <div className="mb-0.5 text-nano uppercase tracking-wide text-app-text-faint">{tr('board.publish.diffTitle')}</div>
+                      <div className="mb-0.5 text-mini uppercase tracking-wide text-app-text-faint">{tr('board.publish.diffTitle')}</div>
                       {diffs[p.projectId] === 'loading' && <div className="text-mini text-app-text-muted">{tr('board.publish.loadingDiff')}</div>}
                       {diffs[p.projectId] === 'error' && <div className="text-mini text-red-400">{tr('board.publish.diffError')}</div>}
                       {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
@@ -410,7 +410,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
             className="shrink-0 rounded bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
           >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
-          <span className="text-micro leading-snug text-app-text-muted">
+          <span className="text-mini leading-snug text-app-text-muted">
             {tr('board.worktree.gcHint')}
           </span>
         </div>
@@ -532,7 +532,7 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
-        <div className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+        <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
           {tr('board.mission.toProject')}
         </div>
         {MISSIONS.map((m) => (
@@ -1876,7 +1876,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           data-testid="board-layout-toggle"
           aria-pressed={boardLayout === 'list'}
           onClick={() => setBoardLayout((v) => (v === 'list' ? 'grid' : 'list'))}
-          className={`grid ${TOOLBAR_CONTROL_H} w-6 shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+          className={`tap-expand grid ${TOOLBAR_CONTROL_H} w-6 shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
           title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
         >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
         <div className="ml-auto flex items-center gap-2">
@@ -1905,7 +1905,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               disabled={openingOrchestrator}
               title={tr('board.orchestrator.openTitle')}
               aria-label={tr('board.orchestrator.open')}
-              className={`flex items-center gap-1 rounded px-2 py-0.5 text-mini disabled:cursor-wait disabled:opacity-60 ${
+              className={`tap-expand-y flex items-center gap-1 rounded px-2 py-0.5 text-mini disabled:cursor-wait disabled:opacity-60 ${
                 orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
               }`}
             >
@@ -2120,7 +2120,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-micro text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}

@@ -181,9 +181,9 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-2">
                 <span data-testid="resume-row-title" className="text-compact text-app-text truncate">{s.title ?? tr('chat.resume.untitled')}</span>
-                <span className="ml-auto text-micro text-app-text-tertiary tabular-nums shrink-0">{when(s.lastActivityAt)}</span>
+                <span className="ml-auto text-mini text-app-text-tertiary tabular-nums shrink-0">{when(s.lastActivityAt)}</span>
               </span>
-              <span className="flex items-center gap-2 text-micro text-app-text-muted">
+              <span className="flex items-center gap-2 text-mini text-app-text-muted">
                 {s.branch && <span className="font-mono truncate">{s.branch}</span>}
                 {s.active && <span data-testid="resume-row-active" className="text-emerald-600 dark:text-emerald-400 shrink-0">{tr('chat.resume.activeNow')}</span>}
                 {adopting === s.sessionId && <span className="shrink-0">{tr('chat.resume.adopting')}</span>}

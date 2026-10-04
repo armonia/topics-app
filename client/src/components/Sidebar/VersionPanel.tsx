@@ -105,7 +105,7 @@ export function VersionPanel({
         <span className="flex items-center gap-1.5">
           <span className="text-compact tabular-nums text-app-text-secondary">v{appVersion}</span>
           {isDev && (
-            <span className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-nano leading-tight">dev</span>
+            <span className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-mini leading-tight">dev</span>
           )}
         </span>
       </div>
@@ -178,7 +178,7 @@ export function VersionPanel({
 
       {/* Auto-update box */}
       <div className="border-t border-app-border pt-2.5">
-        <div className="text-nano uppercase tracking-wide text-app-text-muted mb-1.5">{tr('version.updates')}</div>
+        <div className="text-mini uppercase tracking-wide text-app-text-muted mb-1.5">{tr('version.updates')}</div>
         <UpdateBox
           available={available}
           state={status.state}

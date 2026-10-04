@@ -283,7 +283,7 @@ function ModelRow({ row, value, scope, variant, disabled, onPick, onFix }: RowPr
           }}
           className="absolute top-0.5 flex h-6 min-w-7 items-center justify-center coarse:top-0 coarse:h-11 coarse:min-w-11"
         >
-          <span className={`rounded px-1 text-micro font-semibold tabular-nums ${long ? 'bg-primary/15 text-app-text' : 'bg-app-hover text-app-text-secondary'}`}>1M</span>
+          <span className={`rounded px-1 text-mini font-semibold tabular-nums ${long ? 'bg-primary/15 text-app-text' : 'bg-app-hover text-app-text-secondary'}`}>1M</span>
         </button>
       )}
       {!usable && !row.automatic && (
@@ -344,7 +344,7 @@ function ConnectBox({ group, disabled, onHide, onClose, onOpenProviders }: {
             data-provider={entry.name}
             data-action={entry.action}
             onClick={() => act(entry)}
-            className={`rounded px-1.5 py-0.5 font-semibold coarse:min-h-11 hover:bg-app-hover ${ACTIVE_INK}`}
+            className={`min-h-6 rounded px-1.5 py-0.5 font-semibold coarse:min-h-11 hover:bg-app-hover ${ACTIVE_INK}`}
           >
             {tr(`ai.selector.action.${entry.action}`)}
           </button>
@@ -355,7 +355,7 @@ function ConnectBox({ group, disabled, onHide, onClose, onOpenProviders }: {
         disabled={disabled}
         data-testid="model-connect-hide"
         onClick={onHide}
-        className="mt-1.5 rounded px-1.5 py-0.5 text-app-text-secondary coarse:min-h-11 hover:bg-app-hover"
+        className="mt-1.5 min-h-6 rounded px-1.5 py-0.5 text-app-text-secondary coarse:min-h-11 hover:bg-app-hover"
       >
         {tr('ai.selector.connect.hide')}
       </button>
@@ -402,7 +402,7 @@ function GroupHeading({ group, headingId, list, open, onToggle, planWarning }: {
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <StatusDot status={group.status} />
-        <span id={headingId} className="truncate text-micro font-semibold uppercase leading-4 tracking-wide text-app-text-secondary">{group.label}</span>
+        <span id={headingId} className="truncate text-mini font-semibold uppercase leading-4 tracking-wide text-app-text-secondary">{group.label}</span>
         {planWarning && (
           <span data-testid="model-plan-warning" className={`ml-auto shrink-0 text-mini leading-4 tabular-nums ${SEGNALE_ATTESA}`}>{planWarning}</span>
         )}

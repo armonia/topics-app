@@ -46,11 +46,35 @@ import { spawnSync } from "node:child_process";
 const ROOT = resolve(import.meta.dir, "..");
 const THEME_FILE = "client/src/index.css";
 
-/** The smallest size this UI is allowed to render. Under it, text is decoration. */
-const FLOOR_PX = 9;
+/**
+ * The smallest size this UI is allowed to render for text a person READS.
+ * It was 9 until 04/10: the usability audit (`tests/e2e/usability-audit.spec.ts`)
+ * found 49 texts at 9-10px on the daily surfaces, and the project standard has
+ * always been 11 (`--text-mini`, "THE default of this UI").
+ */
+const FLOOR_PX = 11;
+
+/**
+ * A step under the floor that survives, and the ONLY files allowed to use it.
+ * `nano` is a glyph that has to fit a box that does not grow: a three-figure
+ * count in the 20px tab badge, a monogram in a 14px avatar. A new use is a new
+ * line here, which is the point: it cannot happen by copying a neighbour.
+ */
+export const RESERVED_UNDER_FLOOR: Record<string, readonly string[]> = {
+  nano: [
+    "client/src/components/Shared/NotificationBadge.tsx",
+    "client/src/components/Layout/TabSlot.tsx",
+    "client/src/components/Sidebar/IdentityBlock.tsx",
+    "client/src/components/Sidebar/IdentityMenuItems.tsx",
+    "client/src/components/Sidebar/PresenceList.tsx",
+  ],
+};
 
 /** Tailwind's own font-size steps, which the `@theme` reset deletes. */
 const TAILWIND_STEPS = ["xs", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl", "5xl", "6xl", "7xl", "8xl", "9xl"];
+
+/** Steps this scale used to have: their class generates nothing any more. */
+const RETIRED_STEPS = ["micro"];
 
 export interface Step {
   name: string;
@@ -134,7 +158,7 @@ export function badSteps(steps: Step[]): Problem[] {
     const px = Number(m[1]);
     if (!Number.isInteger(px)) {
       out.push({ file: THEME_FILE, line: 0, found: `--text-${s.name}: ${s.value}`, why: "half a pixel is not a size: the rasteriser rounds it, and which way depends on the platform and the zoom" });
-    } else if (px < FLOOR_PX) {
+    } else if (px < FLOOR_PX && !(s.name in RESERVED_UNDER_FLOOR)) {
       out.push({ file: THEME_FILE, line: 0, found: `--text-${s.name}: ${s.value}`, why: `under ${FLOOR_PX}px text stops being readable` });
     }
   }
@@ -151,11 +175,18 @@ export function findOffScale(src: string, file: string, steps: Step[]): Problem[
     for (const m of line.matchAll(/text-\[(-?\d*\.?\d+)(px|pt|rem|cm|mm|in|pc)\]/g)) {
       out.push({ file, line: i + 1, found: m[0]!, why: `an absolute size outside the scale (declare a step in ${THEME_FILE}, or use the nearest one)` });
     }
-    for (const step of TAILWIND_STEPS) {
+    for (const step of [...TAILWIND_STEPS, ...RETIRED_STEPS]) {
       if (known.has(step)) continue;
       const re = new RegExp(`(?:^|[\\s"'\`{(\\[])(?:[^\\s"'\`]*:)?text-${step}\\b(?![-\\w])`, "g");
       for (const m of line.matchAll(re)) {
         out.push({ file, line: i + 1, found: m[0]!.trim(), why: "Tailwind's own scale is switched off, so this class generates nothing and the text falls back to the inherited size" });
+      }
+    }
+    for (const [step, allowed] of Object.entries(RESERVED_UNDER_FLOOR)) {
+      if (!known.has(step) || allowed.includes(file)) continue;
+      const re = new RegExp(`(?:^|[\\s"'\`{(\\[])(?:[^\\s"'\`]*:)?text-${step}\\b(?![-\\w])`, "g");
+      for (const m of line.matchAll(re)) {
+        out.push({ file, line: i + 1, found: m[0]!.trim(), why: `text-${step} is under the ${FLOOR_PX}px floor and reserved to the files listed in RESERVED_UNDER_FLOOR: use text-mini` });
       }
     }
   }
@@ -180,7 +211,7 @@ if (import.meta.main) {
     const fakeScale: Step[] = [{ name: "mini", value: "11px" }, { name: "body", value: "13px" }];
     const bad = findOffScale('<p className="text-[12.5px] text-xs">x</p>', "fake.tsx", fakeScale);
     const good = findOffScale('<p className="text-mini text-app-text-muted text-center text-[0.92em]">x</p>', "fake.tsx", fakeScale);
-    const steps = badSteps([{ name: "half", value: "10.5px" }, { name: "tiny", value: "7px" }, { name: "ok", value: "11px" }]);
+    const steps = badSteps([{ name: "half", value: "10.5px" }, { name: "tiny", value: "10px" }, { name: "ok", value: "11px" }]);
     const ok = bad.length === 2 && good.length === 0 && steps.length === 2;
     console.log(ok
       ? "[typography] self-test OK: catches the arbitrary size and the dead class, spares colours and relative sizes."
@@ -211,7 +242,7 @@ if (import.meta.main) {
   }
   if (problems.length > 40) console.error(`  ... and ${problems.length - 40} more`);
   console.error(
-    `\nThe scale is the twelve named steps in ${THEME_FILE} (text-nano ... text-display-xl),\n` +
+    `\nThe scale is the named steps in ${THEME_FILE} (text-mini ... text-display-xl),\n` +
       "font-size only: a line box goes on an explicit `leading-*` next to it.\n" +
       "A size the scale does not have is a DECISION: add the step there, with the line\n" +
       "saying what it is for, and every surface gets it.",

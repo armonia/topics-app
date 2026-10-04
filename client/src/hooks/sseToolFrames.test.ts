@@ -26,6 +26,14 @@ describe("toolCallFromSse", () => {
     expect(toolCallFromSse({ function: { name: "Read" } }, newId)).toEqual({ id: "generated", name: "Read", args: {}, status: "running", contentOffset: undefined });
   });
 
+  test("a queued native call stays pending with no clock, and keeps its writing mark and its question", () => {
+    const schema = { type: "object", properties: {} } as unknown as NonNullable<ToolCall["userInputSchema"]>;
+    expect(toolCallFromSse({ id: "t", function: { name: "Bash" }, status: "pending", inputStreaming: true }, newId))
+      .toEqual({ id: "t", name: "Bash", args: {}, status: "pending", contentOffset: undefined, inputStreaming: true });
+    expect(toolCallFromSse({ id: "t", function: { name: "AskUser" }, status: "waiting_for_input", userInputSchema: schema }, newId))
+      .toMatchObject({ status: "waiting_for_input", userInputSchema: schema });
+  });
+
   test("an entry with no tool name makes no row", () => {
     expect(toolCallFromSse({ id: "x" }, newId)).toBeNull();
   });

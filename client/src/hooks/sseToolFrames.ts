@@ -19,6 +19,10 @@ export interface SseToolCallDelta {
   status?: ToolCall['status'];
   startedAt?: number;
   detail?: ToolCall['detail'];
+  /** True while the model is still writing the call (the native runtime's partial updates). */
+  inputStreaming?: boolean;
+  /** The question a `waiting_for_input` call asks. */
+  userInputSchema?: ToolCall['userInputSchema'];
 }
 
 /** `delta.tool_result`, as `server/routes/chat.ts` writes it. */
@@ -43,6 +47,10 @@ export function toolCallFromSse(tc: SseToolCallDelta, newId: () => string): Tool
     contentOffset: tc.contentOffset,
     ...(typeof tc.startedAt === 'number' ? { startedAt: tc.startedAt } : {}),
     ...(tc.detail ? { detail: tc.detail } : {}),
+    // Absent keys stay absent, so the merge by id keeps what the row already had.
+    ...(typeof tc.inputStreaming === 'boolean' ? { inputStreaming: tc.inputStreaming } : {}),
+    // A question the call asks travels here too, in order with the row.
+    ...(tc.status === 'waiting_for_input' && tc.userInputSchema ? { userInputSchema: tc.userInputSchema } : {}),
   };
 }
 

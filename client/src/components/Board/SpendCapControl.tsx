@@ -73,7 +73,7 @@ export function SpendCapControl() {
 
   return (
     <div className="space-y-1" data-testid="spend-cap-control">
-      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+      <p className="text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.spend.title')}
       </p>
 
@@ -107,7 +107,7 @@ export function SpendCapControl() {
             onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, task: v })); }}
             onBlur={(e) => commit('task', e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commit('task', (e.target as HTMLInputElement).value); }}
-            className="w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
+            className="h-6 w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none coarse:h-11"
           />
         </label>
         <label className="flex items-center justify-between gap-3">
@@ -122,7 +122,7 @@ export function SpendCapControl() {
             onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, day: v })); }}
             onBlur={(e) => commit('day', e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commit('day', (e.target as HTMLInputElement).value); }}
-            className="w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
+            className="h-6 w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none coarse:h-11"
           />
         </label>
       </div>

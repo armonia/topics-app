@@ -52,6 +52,9 @@ export function TaskIdChip({ id, className = '' }: { id: string; className?: str
         });
       }}
       title={copied ? tr('task.id.copied') : tr('task.id.copyHint', { short: memorableId(id), full: id })}
+      // `tap-expand` projects 24x24 with the mouse and 44x44 under a finger
+      // around the 18px box (index.css): the box itself stays inside the title
+      // line (IDCHIP-01).
       className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'} ${className}`}
     ><Glyph className="h-3.5 w-3.5" aria-hidden /></button>
   );
@@ -312,7 +315,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
 export function ProjectTaskCounts({ counts }: { counts: ProjectCounts }) {
   if (counts.open === 0) return null;
   return (
-    <span data-testid="project-task-counts" className="flex shrink-0 items-center gap-1 tabular-nums text-micro leading-none text-app-text-secondary">
+    <span data-testid="project-task-counts" className="flex shrink-0 items-center gap-1 tabular-nums text-mini leading-none text-app-text-secondary">
       {counts.review > 0 && (
         <span className="flex items-center gap-0.5"><StatusIcon status="review" className="h-3 w-3" />{counts.review}</span>
       )}

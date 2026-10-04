@@ -46,7 +46,7 @@ function RowFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) 
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
       className="w-full flex items-center gap-1.5 px-3 py-[3px] text-left hover:bg-app-hover transition-colors"
     >
-      <span className={`${stateColor(file.status)} text-nano font-bold w-[14px] text-center flex-shrink-0`}>
+      <span className={`${stateColor(file.status)} text-mini font-bold w-[14px] text-center flex-shrink-0`}>
         {file.status}
       </span>
       <span className="truncate text-app-text-body min-w-0">
@@ -58,7 +58,7 @@ function RowFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) 
         {nome}
         {dir && <span className="text-app-text-muted ml-1 text-mini">{dir}</span>}
       </span>
-      <span className="ml-auto text-micro tabular-nums flex-shrink-0 leading-none">
+      <span className="ml-auto text-mini tabular-nums flex-shrink-0 leading-none">
         {file.binary
           ? <span className="text-app-text-muted">bin</span>
           : <>
@@ -224,7 +224,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
                 >
                   <GitCommit size={10} className="flex-shrink-0 text-app-text-tertiary" />
                   <span className="truncate text-app-text-body min-w-0">{c.message}</span>
-                  <span className="ml-auto flex items-center gap-1.5 flex-shrink-0 text-micro text-app-text-muted">
+                  <span className="ml-auto flex items-center gap-1.5 flex-shrink-0 text-mini text-app-text-muted">
                     <span className="font-mono">{c.shortHash || c.hash.slice(0, 7)}</span>
                     <span>{c.ago}</span>
                   </span>

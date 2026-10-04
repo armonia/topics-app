@@ -204,7 +204,7 @@ function SlotView({
               data-testid={attentionTestId}
               // "99+" at the micro step is 20.1px, a hair wider than the ring:
               // three figures drop to nano, as they do in the badge.
-              className={`relative ${display.length > 2 ? 'text-nano tracking-tight' : 'text-micro'} font-semibold leading-none tabular-nums cap-box ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text'}`}
+              className={`relative ${display.length > 2 ? 'text-nano tracking-tight' : 'text-mini'} font-semibold leading-none tabular-nums cap-box ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text'}`}
               aria-label={`${signal.count} unread`}
             >
               {display}

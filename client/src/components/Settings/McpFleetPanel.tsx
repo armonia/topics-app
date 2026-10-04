@@ -257,11 +257,11 @@ function McpServerRow({
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-mono text-compact text-app-text">{server.name}</span>
-        <span className={`rounded border px-1 py-px text-micro ${STATE_TONE[server.state]}`}>
+        <span className={`rounded border px-1 py-px text-mini ${STATE_TONE[server.state]}`}>
           {t(`mcp.state.${server.state}`)}
         </span>
         {server.transport && (
-          <span className="rounded border border-app-border px-1 py-px font-mono text-micro text-app-text-muted">
+          <span className="rounded border border-app-border px-1 py-px font-mono text-mini text-app-text-muted">
             {server.transport}
           </span>
         )}

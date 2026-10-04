@@ -43,6 +43,7 @@ export const NO_PROJECT_BROWSER_PANES: readonly ProjectBrowserPaneEntry[] = Obje
 
 const published = new Map<string, Published>();
 const listeners = new Set<() => void>();
+const restoredListeners = new Set<(contextIds: string[]) => void>();
 
 function notify(): void {
   for (const l of listeners) l();
@@ -54,15 +55,25 @@ function notify(): void {
  * Returns the un-publish, for the effect that called it. Publishing the same
  * list again is cheap but NOT free: it notifies, so call it from an effect
  * that depends on the panes, not on every render.
+ *
+ * `restored` marks the first list a project window publishes after mounting:
+ * those panes come from this device's own memory of the project, which may be
+ * older than what the other records say (see `subscribeRestoredProjectBrowserPanes`).
+ * Every later list is the layout following live edits and frames.
  */
 export function publishProjectBrowserPanes(
   projectPath: string,
   entries: ProjectBrowserPaneEntry[],
   reclaim: (contextId: string) => void,
+  restored = false,
 ): () => void {
   if (!projectPath) return () => {};
   published.set(projectPath, { entries, reclaim });
   notify();
+  if (restored && entries.length) {
+    const ids = entries.map((e) => e.contextId);
+    for (const l of restoredListeners) l(ids);
+  }
   let released = false;
   return () => {
     if (released) return;
@@ -117,3 +128,20 @@ export function subscribeProjectBrowserPanes(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/**
+ * Be told which pages a project window brought back from this device's memory
+ * when it mounted.
+ *
+ * A device that was away while another one took a page back into a topic's
+ * window still lists that page in its saved project tabs, and nothing live will
+ * tell it otherwise: the frame of the return went out while it was gone. If the
+ * window record was already read when the project mounts, its own read has
+ * nothing left to announce, so it is this moment that has to be checked against
+ * it. Only the restored list, never a live one: on a promotion made by another
+ * device the project's tab frame can land before the window's, and in that gap
+ * the page is legitimately a pane here and still a sheet in the cached record.
+ */
+export function subscribeRestoredProjectBrowserPanes(listener: (contextIds: string[]) => void): () => void {
+  restoredListeners.add(listener);
+  return () => { restoredListeners.delete(listener); };
+}
