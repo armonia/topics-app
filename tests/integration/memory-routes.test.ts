@@ -16,11 +16,10 @@
  *  - A REFUSED APPEND LEAVES THE FILE ALONE. The size check happens after the
  *    read and before the write, and returns 413. If it ever moves below the
  *    write, the request that is refused is also the request that truncates.
- *  - THE TWO SCOPES ARE SEPARATE. Global memory and topic memory are two files
- *    and two deletes. Clearing one must not clear the other — and since both
- *    live in the same directory and are addressed by paths that overlap
- *    (`/api/memory/global` vs `/api/memory/:topicId`), a routing change is
- *    enough to make one swallow the other.
+ *  - TOPICS ARE SEPARATE. Clearing one topic's memory must not clear another's.
+ *  - THE GLOBAL ONE IS RETIRED (02/10/2026, change `contesto-dall-hub`): its
+ *    routes answer 410 and write nothing. It had carried a test string into
+ *    every session for five weeks; shared rules now come from `~/.agents`.
  *
  * @covers CTX-01
  */
@@ -66,9 +65,6 @@ async function banco(...topicIds: string[]): Promise<Router> {
 
 const readTopic = async (router: Router, id: string) =>
   ((await (await call(router, "GET", `/api/memory/${id}`)).json()) as { topicContent: string }).topicContent;
-
-const readGlobal = async (router: Router) =>
-  ((await (await call(router, "GET", "/api/memory")).json()) as { content: string }).content;
 
 describe("aggiungere alla memoria di un topic", () => {
   test("l'aggiunta si aggiunge: quello che c'era resta", async () => {
@@ -125,25 +121,24 @@ describe("aggiungere alla memoria di un topic", () => {
   });
 });
 
-describe("le due memorie sono due cose separate", () => {
-  test("cancellare la globale non tocca quella del topic", async () => {
-    const id = `t-scope-a-${Date.now()}`;
+describe("la memoria globale e' ritirata", () => {
+  // Change `contesto-dall-hub`: the shared rules live in the hub `~/.agents`.
+  // 410 and not 404, and above all NOTHING written: an old client that PUTs
+  // must not bring back to life the file nobody reads any more.
+  test("GET, PUT e DELETE della globale rispondono 410 e non scrivono", async () => {
+    const id = `t-ritiro-${Date.now()}`;
     const router = await banco(id);
-    await call(router, "PUT", "/api/memory", { content: "memoria globale" });
-    await call(router, "PUT", `/api/memory/${id}`, { content: "memoria del topic" });
-
-    const res = await call(router, "DELETE", "/api/memory/global");
-    expect(res.status).toBe(200);
-
-    expect(await readGlobal(router)).toBe("");
-    expect(await readTopic(router, id), "la cancellazione globale si e' portata via il topic").toBe("memoria del topic");
+    expect((await call(router, "GET", "/api/memory")).status).toBe(410);
+    expect((await call(router, "PUT", "/api/memory", { content: "globale" })).status).toBe(410);
+    expect((await call(router, "DELETE", "/api/memory/global")).status).toBe(410);
+    const body = (await (await call(router, "GET", `/api/memory/${id}`)).json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("globalContent");
   });
 
-  test("cancellare quella di un topic non tocca la globale ne' gli altri topic", async () => {
+  test("cancellare la memoria di un topic non tocca gli altri topic", async () => {
     const first = `t-scope-b-${Date.now()}`;
     const second = `t-scope-c-${Date.now()}`;
     const router = await banco(first, second);
-    await call(router, "PUT", "/api/memory", { content: "globale intatta" });
     await call(router, "PUT", `/api/memory/${first}`, { content: "primo topic" });
     await call(router, "PUT", `/api/memory/${second}`, { content: "secondo topic" });
 
@@ -152,7 +147,6 @@ describe("le due memorie sono due cose separate", () => {
 
     expect(await readTopic(router, first)).toBe("");
     expect(await readTopic(router, second), "cancellato il topic sbagliato").toBe("secondo topic");
-    expect(await readGlobal(router), "la cancellazione di un topic si e' portata via la globale").toBe("globale intatta");
   });
 
   test("`/append` non viene inghiottita dalla rotta del singolo topic", async () => {

@@ -683,21 +683,41 @@ pub fn reload(wv: &tauri::Webview) -> Result<(), String> {
     with_core(wv, |c| unsafe { c.Reload() }.map_err(|e| e.to_string()))
 }
 
-/// WebView2 **non espone la lista** della history: ha `CanGoBack`/`CanGoForward`
-/// e basta, nessun equivalente di `WKBackForwardList`. Quindi qui non c'e niente
-/// da restituire, e inventare voci finte sarebbe peggio del vuoto: il menu di
-/// navigazione le mostrerebbe e cliccarle non porterebbe da nessuna parte.
+/// WebView2 has no history LIST, only `CanGoBack` / `CanGoForward`: nothing
+/// like `WKBackForwardList`. Fake entries would be worse than none (the history
+/// menu would show them and clicking one would go nowhere), so the list is
+/// empty, which the client reads as "no entry to jump to".
 ///
-/// Si restituisce una lista vuota, che e la forma che il client legge gia come
-/// «nessuna cronologia disponibile». Back e forward continuano a funzionare: e
-/// solo il salto diretto a una voce che non c'e.
-///
-/// La chiave e `activeIndex` come sul ramo macOS, anche se qui la lista e vuota
-/// e il valore non lo guarda nessuno. Vale la pena scriverla giusta lo stesso:
-/// il giorno che WebView2 esponesse la cronologia, un `index` rimasto li si
-/// leggerebbe come 0 invece che come l'indice vero.
-pub fn nav_entries(_wv: &tauri::Webview) -> Result<String, String> {
-    Ok("{\"entries\":[],\"activeIndex\":0}".to_string())
+/// The two flags travel with it as `canGoBack` / `canGoForward`, and the client
+/// reads the arrows from them (`parseNavHistory`): derived from the empty list,
+/// ‹ and › were disabled for good on Windows. `activeIndex` keeps the macOS key,
+/// so a list WebView2 might expose one day reads with its real index.
+pub fn nav_entries(wv: &tauri::Webview) -> Result<String, String> {
+    let (tx, rx) = mpsc::channel::<(bool, bool)>();
+    wv.with_webview(move |platform| {
+        let flags = match core(&platform) {
+            Ok(c) => {
+                let mut back = BOOL(0);
+                let mut forward = BOOL(0);
+                let back_ok = unsafe { c.CanGoBack(&mut back) }.is_ok();
+                let forward_ok = unsafe { c.CanGoForward(&mut forward) }.is_ok();
+                (back_ok && back.as_bool(), forward_ok && forward.as_bool())
+            }
+            Err(_) => (false, false),
+        };
+        let _ = tx.send(flags);
+    })
+    .map_err(|e| e.to_string())?;
+    let (can_go_back, can_go_forward) = rx
+        .recv_timeout(OP_TIMEOUT)
+        .map_err(|_| "nav_entries timeout".to_string())?;
+    Ok(serde_json::json!({
+        "entries": [],
+        "activeIndex": 0,
+        "canGoBack": can_go_back,
+        "canGoForward": can_go_forward,
+    })
+    .to_string())
 }
 
 /// Lo user-agent di serie di ogni pane, memorizzato la prima volta che lo si

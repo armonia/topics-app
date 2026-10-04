@@ -1,6 +1,6 @@
 /**
  * Memory routes require a real Topic, refuse the coordinator, and stay inside the memory dir.
- * @covers GLOBAL-ORCHESTRATOR-ISOLATION-01
+ * @covers GLOBAL-ORCHESTRATOR-ISOLATION-01, CTX-HUB-02
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -111,7 +111,6 @@ describe("memory route topic isolation", () => {
     expect(await get.json()).toMatchObject({
       topicId: normal.id,
       topicContent: "saved note",
-      globalContent: "",
     });
 
     const append = await h.call("POST", "/api/memory/ordinary-topic/append", { content: "later note" });
@@ -128,14 +127,14 @@ describe("memory route topic isolation", () => {
     ]);
   });
 
-  test("keeps the standalone global-memory routes working", async () => {
+  test("the retired global-memory routes answer 410 and write nothing", async () => {
     const h = makeHarness();
 
-    expect((await h.call("PUT", "/api/memory", { content: "global note" })).status).toBe(200);
-    const get = await h.call("GET", "/api/memory");
-    expect(await get.json()).toMatchObject({ type: "global", content: "global note" });
-    expect((await h.call("DELETE", "/api/memory/global")).status).toBe(200);
-    expect((await (await h.call("GET", "/api/memory")).json()).content).toBe("");
+    expect((await h.call("PUT", "/api/memory", { content: "global note" })).status).toBe(410);
+    expect((await h.call("GET", "/api/memory")).status).toBe(410);
+    expect((await h.call("DELETE", "/api/memory/global")).status).toBe(410);
+    expect(existsSync(join(h.memoryDir, "_global.md"))).toBe(false);
+    expect(h.broadcasts).toEqual([]);
     expect(h.lookups).toEqual([]);
   });
 

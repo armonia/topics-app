@@ -40,8 +40,10 @@ describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
     expect(resolveStateDir(ROOT, { DATA_DIR: dedicated } as NodeJS.ProcessEnv)).toBe(dedicated);
   });
 
-  test("IL DIFETTO: senza NESSUNA delle due lo stato cade sul REPO", () => {
-    expect(resolveStateDir(ROOT, {} as NodeJS.ProcessEnv)).toBe(ROOT);
+  test("IL DIFETTO, chiuso: senza NESSUNA delle due un test non apre il REPO, esplode", () => {
+    // It used to fall silently onto the live state; now `resolveStateDir` itself
+    // recognises `bun test` (even with NODE_ENV empty) and refuses.
+    expect(() => resolveStateDir(ROOT, {} as NodeJS.ProcessEnv)).toThrow(/live state dir/);
   });
 
   test("la radice dati del banco e' CANONICA da entrambe le porte d'ingresso", () => {

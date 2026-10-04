@@ -5535,6 +5535,21 @@ Il runtime nativo annuncia una chiamata quando il modello comincia a scriverla
   fino al byte dopo, e il frame WS arriva prima che la riga esista). Un annuncio
   `waiting_for_input` NON SHALL riaprire una riga che ha già `userResponse` o è
   chiusa.
+- La copia SSE della domanda non basta: è l'ultimo byte prima che il turno si
+  fermi, e WebKit la trattiene (misurato il 04/10: 18 corse su 20). Un frame WS
+  `stream:tool_user_input_required` o `stream:tool_permission_required` che
+  arriva quando la riga non esiste ancora nella finestra SHALL essere tenuto da
+  parte (per sessione e id, `heldToolFacts.ts`) e applicato quando la riga
+  nasce, in qualunque ordine arrivino gli annunci SSE; si scarta a fine turno.
+- Il frame che CHIUDE quel pannello può arrivare anch'esso prima della riga:
+  chi risponde o decide da un'altra finestra lo fa mentre l'SSE del mittente è
+  ancora trattenuto. Ogni frame per una riga non ancora nata che ha già un fatto
+  tenuto da parte (`stream:tool_update` con la risposta,
+  `stream:tool_permission_resolved`, l'output dal vivo, il risultato) SHALL
+  accodarsi a quel fatto, così la riga nasce con la storia intera e non sul
+  pannello già chiuso. Una domanda o un permesso NON SHALL riaprire una riga già
+  chiusa, né una domanda una riga che ha già `userResponse`; una decisione su
+  una riga chiusa ne scrive l'esito e lascia lo stato.
 
 #### Scenario: la seconda chiamata di un giro aspetta la prima
 - **GIVEN** un turno nativo il cui giro chiede `sleep 5; echo first` e poi `echo second`
@@ -5549,6 +5564,18 @@ Il runtime nativo annuncia una chiamata quando il modello comincia a scriverla
 - **WHEN** la shell finisce e la domanda parte
 - **THEN** nella finestra da cui si è scritto la riga della domanda resta `data-status="waiting_for_input"` per almeno 3 s, con il form, senza `tool-elapsed`, e il composer dice «Rispondi alla domanda…»
 - **AND** la risposta data da quella finestra fa finire il turno
+
+#### Scenario: la domanda arriva alla finestra prima della sua riga
+- **GIVEN** lo stesso turno, con l'SSE del mittente trattenuto finché la domanda non è arrivata su WS e senza la copia SSE della domanda (l'ordine dei giri rossi del 04/10)
+- **WHEN** la riga nasce dopo il frame WS e passa da `pending` a `running`
+- **THEN** la riga della domanda è `data-status="waiting_for_input"` con il form, senza `tool-elapsed`
+- **AND** la risposta data da quella finestra fa finire il turno
+
+#### Scenario: la domanda risposta da un'altra finestra prima che la riga arrivi al mittente
+- **GIVEN** lo stesso turno, con l'SSE del mittente trattenuto finché la risposta data da un'altra finestra non è arrivata su WS, e il risultato della domanda trattenuto ancora qualche secondo
+- **WHEN** la riga nasce nel mittente dopo il frame WS della risposta
+- **THEN** la riga della domanda è `data-status="running"` senza form, e non passa mai da `waiting_for_input`
+- **AND** diventa `success` quando arriva il risultato
 
 #### Scenario: un provider senza fasi resta com'era
 - **GIVEN** un provider che non dichiara `tool-phases`

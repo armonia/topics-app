@@ -72,7 +72,8 @@ import {
 } from '../state/messageResidency';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
 import { toolCallFromSse, withSseToolResult, type SseToolCallDelta, type SseToolResultDelta } from './sseToolFrames';
-import { toolUpdatePatch, withPartialResult, withToolAnnouncement, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
+import { HeldToolFacts, patchToolCallOrFollow, patchToolCallOrHold, withAnnouncedToolCall, withPermissionAsked, withPermissionResolved, withQuestionAsked } from './heldToolFacts';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -520,47 +521,6 @@ const messagesRef = {
   },
 };
 
-/**
- * Applica una patch a UNA riga di tool sull'ultimo messaggio assistant che la
- * contiene, in ENTRAMBI i posti dove può vivere.
- *
- * Il difetto che chiude: i gestori scritti prima cercavano la riga dentro
- * `msgs[i].toolCalls` e patchavano i blocchi solo dopo averla trovata lì. Ma un
- * messaggio caricato dall'API può avere i `blocks` e non `toolCalls` — e in quel
- * caso il ciclo non entrava nemmeno, quindi l'evento arrivava, il gestore girava
- * e non succedeva niente. Visto il 7 agosto sul permesso: il frame nella spia
- * del WebSocket, il pannello ancora a schermo.
- */
-function patchToolCallInMessages(
-  msgs: ChatMessage[],
-  toolCallId: string,
-  patch: (tc: ToolCall) => ToolCall,
-): ChatMessage[] {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (m.role !== 'assistant') continue;
-    const inCalls = (m.toolCalls ?? []).some((t) => t.id === toolCallId);
-    const inBlocks = (m.blocks ?? []).some((b) => b.kind === 'tool' && b.toolCall.id === toolCallId);
-    if (!inCalls && !inBlocks) continue;
-    // Una sola applicazione della patch: i due contenitori devono finire con lo
-    // STESSO oggetto, o si rimette in piedi la divergenza che stiamo chiudendo.
-    const source =
-      (m.toolCalls ?? []).find((t) => t.id === toolCallId) ??
-      (m.blocks ?? []).flatMap((b) => (b.kind === 'tool' && b.toolCall.id === toolCallId ? [b.toolCall] : []))[0];
-    if (!source) continue;
-    const next = patch(source);
-    if (next === source) return msgs; // a patch that changed nothing (a late partial) redraws nothing
-    const nextCalls = m.toolCalls?.map((t) => (t.id === toolCallId ? next : t));
-    const nextBlocks = m.blocks?.map((b) =>
-      b.kind === 'tool' && b.toolCall.id === toolCallId ? { kind: 'tool' as const, toolCall: next } : b,
-    );
-    const out = msgs.slice();
-    out[i] = { ...m, ...(nextCalls ? { toolCalls: nextCalls } : {}), ...(nextBlocks ? { blocks: nextBlocks } : {}) };
-    return out;
-  }
-  return msgs;
-}
-
 export function useChat() {
   // I messaggi NON sono piu' stato di questo hook, e quindi non sono piu' stato
   // di `App`, che e' dove `useChat` viene chiamato. Vivono in uno store di
@@ -715,6 +675,8 @@ export function useChat() {
   // turn. The reply carries nothing more by then, and the reload's snapshot can
   // predate the frame: if the turn is still live, the frame is in neither.
   const ownReplyClosedRef = useRef<Set<string>>(new Set());
+  // Question and permission frames that reached this window before their row (`heldToolFacts.ts`).
+  const heldToolFactsRef = useRef(new HeldToolFacts());
   const swallowedAfterReplyRef = useRef<Set<string>>(new Set());
   // Rows a `message:new` added while this window's own SSE held the session,
   // by id: written beside the turn (a stopped-by-parent card), they can be
@@ -1178,33 +1140,13 @@ export function useChat() {
 
         // Defensive dedup (mirror of server-side `addToolCallToLastMessage`).
         // Cumulative-snapshot providers (Claude CLI) re-announce the same
-        // tool_use block multiple times; without this guard each
-        // re-announcement appends a fresh duplicate entry, and only the
-        // FIRST one ever flips to 'success' when stream:tool_result arrives —
-        // the rest stay in `running` and the spinner never clears.
-        const existingIdx = (lastMsg.toolCalls ?? []).findIndex(t => t.id === toolCall.id);
-        let nextToolCalls: typeof lastMsg.toolCalls;
-        let nextBlocks = lastMsg.blocks;
-        if (existingIdx >= 0) {
-          // Update in place — preserve any state the existing entry already
-          // accumulated (e.g. result if a re-announce raced after the first
-          // settle). The new payload's args usually win, its status only
-          // when it moves the row forward (`withToolAnnouncement`).
-          nextToolCalls = lastMsg.toolCalls!.slice();
-          nextToolCalls[existingIdx] = withToolAnnouncement(lastMsg.toolCalls![existingIdx]!, toolCall);
-          if (nextBlocks) {
-            nextBlocks = nextBlocks.map(b =>
-              b.kind === 'tool' && b.toolCall.id === toolCall.id
-                ? { kind: 'tool' as const, toolCall: nextToolCalls![existingIdx] }
-                : b,
-            );
-          }
-        } else {
-          nextToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls, toolCall] : [toolCall];
-          nextBlocks = appendBlock(lastMsg.blocks, { kind: 'tool', toolCall });
-        }
-
-        updatedMessages[lastMessageIndex] = { ...lastMsg, toolCalls: nextToolCalls, blocks: nextBlocks };
+        // tool_use block multiple times; without the merge by id each
+        // re-announcement would append a fresh duplicate entry, and only the
+        // FIRST one would ever flip to 'success' when stream:tool_result
+        // arrives. The new payload's args usually win, its status only when it
+        // moves the row forward (`withToolAnnouncement`); a NEW row is born
+        // with the facts WS brought before it (`heldToolFacts.ts`).
+        updatedMessages[lastMessageIndex] = withAnnouncedToolCall(lastMsg, toolCall, heldToolFactsRef.current, sessionKey);
 
         return {
           ...prev,
@@ -1284,11 +1226,11 @@ export function useChat() {
    * dei token. `patchToolCallInMessages` restituisce l'array com'era quando non
    * trova niente: qui quel «com'era» diventa un `prev` che React salta.
    */
+  // A frame for a row not born yet follows the panel held for it (`heldToolFacts.ts`).
   const applyToolPatch = useCallback((sessionKey: string, toolCallId: string, patch: (tc: ToolCall) => ToolCall) => {
     setMessages(prev => {
-      const cur = prev[sessionKey];
-      if (!cur || cur.length === 0) return prev;
-      const next = patchToolCallInMessages(cur, toolCallId, patch);
+      const cur = prev[sessionKey] ?? [];
+      const next = patchToolCallOrFollow(cur, heldToolFactsRef.current, sessionKey, toolCallId, patch);
       return next === cur ? prev : { ...prev, [sessionKey]: next };
     });
   }, []);
@@ -1325,11 +1267,10 @@ export function useChat() {
     setMessages(prev => {
       let next = prev;
       for (const [sk, perTool] of pending) {
-        const cur = next[sk];
-        if (!cur || cur.length === 0) continue;
+        const cur = next[sk] ?? [];
         let msgs = cur;
         for (const [toolCallId, partialResult] of perTool) {
-          msgs = patchToolCallInMessages(msgs, toolCallId, tc => withPartialResult(tc, partialResult));
+          msgs = patchToolCallOrFollow(msgs, heldToolFactsRef.current, sk, toolCallId, tc => withPartialResult(tc, partialResult));
         }
         if (msgs !== cur) next = { ...next, [sk]: msgs };
       }
@@ -1648,12 +1589,7 @@ export function useChat() {
         // spariva e della decisione non restava traccia fino al reload,
         // perché `stream:tool_update` porta solo `partialResult`.
         if (event.toolCallId) {
-          const outcome = event.outcome;
-          applyToolPatch(sessionKey, event.toolCallId, (tc) => ({
-            ...tc,
-            status: 'running',
-            permissionOutcome: outcome,
-          }));
+          applyToolPatch(sessionKey, event.toolCallId, withPermissionResolved(event.outcome));
         }
         break;
 
@@ -1664,13 +1600,14 @@ export function useChat() {
         // riga: `awaiting_permission` + una richiesta tipizzata.
         if (event.toolCallId) {
           resetStreamTimeout(sessionKey);
-          const request = event.request;
-          applyToolPatch(sessionKey, event.toolCallId, (tc) => ({
-            ...tc,
-            status: 'awaiting_permission',
-            permissionRequest: request,
-            permissionOutcome: undefined,
-          }));
+          // Held when the row is not born yet: the panel travels only on WS (`heldToolFacts.ts`).
+          const asked = withPermissionAsked(event.request);
+          const toolCallId = event.toolCallId;
+          setMessages(prev => {
+            const cur = prev[sessionKey] ?? [];
+            const next = patchToolCallOrHold(cur, heldToolFactsRef.current, sessionKey, toolCallId, asked);
+            return next === cur ? prev : { ...prev, [sessionKey]: next };
+          });
         }
         break;
 
@@ -1685,12 +1622,15 @@ export function useChat() {
         // provider, but it won't fire as long as a tool is open.
         if (event.toolCallId) {
           resetStreamTimeout(sessionKey);
-          const schema = event.schema;
-          applyToolPatch(sessionKey, event.toolCallId, oldTc => ({
-            ...oldTc,
-            status: 'waiting_for_input',
-            userInputSchema: schema,
-          }));
+          // When the row is not born yet in this window (its SSE burst still
+          // held by WebKit), the question waits for it (`heldToolFacts.ts`).
+          const asked = withQuestionAsked(event.schema);
+          const toolCallId = event.toolCallId;
+          setMessages(prev => {
+            const cur = prev[sessionKey] ?? [];
+            const next = patchToolCallOrHold(cur, heldToolFactsRef.current, sessionKey, toolCallId, asked);
+            return next === cur ? prev : { ...prev, [sessionKey]: next };
+          });
         }
         break;
 
@@ -1731,6 +1671,7 @@ export function useChat() {
       }
 
       case 'stream:error':
+        heldToolFactsRef.current.clear(sessionKey);
         finishStreamTokenRate(sessionKey);
         clearStreamTimeout(sessionKey);
         streamMessageIdRef.current.end(sessionKey);
@@ -1742,6 +1683,7 @@ export function useChat() {
         break;
 
       case 'stream:end':
+        heldToolFactsRef.current.clear(sessionKey);
         turnEndsRef.current.set(sessionKey, (turnEndsRef.current.get(sessionKey) ?? 0) + 1);
         finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
         clearStreamTimeout(sessionKey); // Clear watchdog
@@ -2261,6 +2203,8 @@ export function useChat() {
         flushLiveDeltas(sessionKey);
         reader.releaseLock();
         ownReplyClosedRef.current.add(sessionKey);
+        // Whatever row never came on this reply comes with the history reload below.
+        heldToolFactsRef.current.clear(sessionKey);
       }
 
       // Reload full history to sync server-generated IDs and branching metadata

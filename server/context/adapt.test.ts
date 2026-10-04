@@ -6,7 +6,7 @@
  *
  * The tests pin the contract that `adaptEnvelope`'s output is byte-for-byte
  * identical to the legacy inline path in `streamEditResponse`.
-  * @covers CTX-ADAPT-01
+  * @covers CTX-ADAPT-01, CTX-HUB-01
  */
 
 import { describe, expect, it } from "bun:test";
@@ -142,36 +142,30 @@ describe("composeSystemMessages", () => {
     expect(out).toEqual([{ role: "system", content: 'You are working in the project "P" at /p.' }]);
   });
 
-  it("memory aggregate: global only", () => {
+  it("memory aggregate: the topic memory, under its own header", () => {
     const out = composeSystemMessages([
-      block({ id: "memory:global", category: "memory", content: "global notes" }),
-    ]);
-    expect(out.length).toBe(1);
-    expect(out[0].content).toBe(
-      "\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Global Memory\nglobal notes",
-    );
-  });
-
-  it("memory aggregate: global + topic", () => {
-    const out = composeSystemMessages([
-      block({ id: "memory:global", category: "memory", content: "global notes" }),
-      block({ id: "memory:topic", category: "memory", content: "topic notes" }),
-    ]);
-    expect(out.length).toBe(1);
-    expect(out[0].content).toBe(
-      "\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Global Memory\nglobal notes\n\n### Topic Memory\ntopic notes",
-    );
-  });
-
-  it("memory aggregate: respects toggle (global disabled → only topic emitted)", () => {
-    const out = composeSystemMessages([
-      block({ id: "memory:global", category: "memory", content: "global notes", enabled: false }),
       block({ id: "memory:topic", category: "memory", content: "topic notes" }),
     ]);
     expect(out.length).toBe(1);
     expect(out[0].content).toBe(
       "\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Topic Memory\ntopic notes",
     );
+  });
+
+  it("user rules: the model is told the real source, the hub, not a fixed CLAUDE.md", () => {
+    const out = composeSystemMessages([
+      block({ id: "user:CLAUDE.md", label: "~/.agents/AGENTS.md", category: "template", content: "usa trash" }),
+    ]);
+    expect(out.length).toBe(1);
+    expect(out[0].content).toContain("from ~/.agents/AGENTS.md.");
+    expect(out[0].content).not.toContain("~/.claude/CLAUDE.md");
+  });
+
+  it("memory aggregate: a stale memory:global block (retired) is never emitted", () => {
+    const out = composeSystemMessages([
+      block({ id: "memory:global", category: "memory", content: "global notes" }),
+    ]);
+    expect(out).toEqual([]);
   });
 
   it("pinned aggregate has the conversation header", () => {

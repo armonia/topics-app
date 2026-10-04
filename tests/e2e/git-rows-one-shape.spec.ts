@@ -17,7 +17,7 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
+import { createTopic, deleteTask, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { seedMessage } from './helpers/seed-messages';
 import { projectRow } from './helpers/project-row';
 import { E2E_BASE } from './helpers/test-server';
@@ -125,6 +125,9 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.afterAll(async ({ request }) => {
+  // The card goes too: a `review` card left on the shared server is counted by
+  // every later spec that reads the board's totals (TILE-15, NH-01).
+  if (taskId) await deleteTask(request, PROJECT_ID, taskId);
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
   removeTmpDir(PROJECT_PATH);
 });

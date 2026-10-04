@@ -239,6 +239,7 @@ const EN = {
   'ctxInspector.section.openclaw': 'OpenClaw base',
   'ctxInspector.section.memory': 'Memory',
   'ctxInspector.section.prompt': 'System prompt',
+  'ctxInspector.section.rules': 'Global rules',
   'ctxInspector.section.template': 'Project templates',
   'ctxInspector.section.files': 'Attached files',
   'ctxInspector.section.pinned': 'Pinned messages',

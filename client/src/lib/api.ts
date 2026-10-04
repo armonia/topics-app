@@ -1136,7 +1136,6 @@ export const commandApi = {
 // Memory API
 export interface MemoryData {
   topicContent: string;
-  globalContent: string;
   topicId: string;
 }
 
@@ -1217,25 +1216,8 @@ export const memoryApi = {
     });
   },
 
-  async getGlobal(): Promise<{ content: string }> {
-    return request<{ content: string }>('/memory');
-  },
-
-  async updateGlobal(content: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('/memory', {
-      method: 'PUT',
-      body: JSON.stringify({ content }),
-    });
-  },
-
   async deleteTopic(topicId: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/memory/topic/${topicId}`, {
-      method: 'DELETE',
-    });
-  },
-
-  async deleteGlobal(): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('/memory/global', {
       method: 'DELETE',
     });
   },

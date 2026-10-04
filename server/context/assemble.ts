@@ -21,6 +21,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
@@ -31,7 +32,8 @@ import {
 } from "../services/global-orchestrator-session";
 import { globalOrchestratorBoardSnapshot } from "../services/global-orchestrator-board-context";
 import { languageDirective } from "../lib/topics-agent-prompt";
-import { readUserRules, skillsBlock } from "../lib/native-parity";
+import { readUserRulesSource, skillsBlock } from "../lib/native-parity";
+import { skillDirs } from "../lib/slash-command-source";
 
 import { contextWindowFor } from "../usage/context-window";
 import type {
@@ -780,33 +782,23 @@ function pushTopicSwitchDirectoryBlock(
   });
 }
 
+/**
+ * The topic's memory. Topics' «global» one is retired (change
+ * `contesto-dall-hub`): it was a store no other harness read, and from 25/08 to
+ * 02/10 it carried a test string into every session without anyone noticing.
+ * What holds for every agent lives in the hub and arrives with the rules block.
+ */
 function pushMemoryBlocks(
   blocks: SystemBlock[],
   topic: Topic,
   ctx: AppContext,
   isEnabled: (id: string) => boolean,
 ): void {
-  const MEMORY_DIR = join(ctx.BASE_DIR, "memory");
-  const globalPath = join(MEMORY_DIR, "_global.md");
-  const topicPath = join(MEMORY_DIR, `${topic.id}.md`);
-  const globalContent = readSafe(globalPath) ?? "";
+  // STATE_DIR, not BASE_DIR: it is the root the memory route writes to. In the
+  // dev layout they coincide; in the downloaded app they do not, and the block
+  // read a folder nobody writes to.
+  const topicPath = join(ctx.STATE_DIR, "memory", `${topic.id}.md`);
   const topicContent = readSafe(topicPath) ?? "";
-
-  if (globalContent.trim().length > 0) {
-    const id = "memory:global";
-    blocks.push({
-      id,
-      label: "Global Memory",
-      category: "memory",
-      content: globalContent,
-      tokens: estimateTokens(globalContent),
-      enabled: isEnabled(id),
-      countInBudget: true,
-      sourceUri: globalPath,
-      editable: true,
-      injectedByTopicsApp: true,
-    });
-  }
   if (topicContent.trim().length > 0) {
     const id = "memory:topic";
     blocks.push({
@@ -939,18 +931,31 @@ function pushGoalHintBlock(
   });
 }
 
-/** `~/.claude/CLAUDE.md`: le regole che l'utente da' a OGNI agente. */
+/** The path as the user writes it: `~/.agents/AGENTS.md`, not the home spelled out. */
+function tildePath(p: string): string {
+  const home = homedir();
+  return p === home || p.startsWith(home + "/") ? "~" + p.slice(home.length) : p;
+}
+
+/**
+ * The rules the user gives EVERY agent, from the hub `~/.agents/AGENTS.md` (or
+ * from `~/.claude/CLAUDE.md` where there is no hub). The id stays
+ * `user:CLAUDE.md`: it is the one saved in the `disabledContextSources` of
+ * whoever turned it off.
+ */
 function pushUserRulesBlock(blocks: SystemBlock[], isEnabled: (id: string) => boolean): void {
-  const content = readUserRules();
-  if (!content?.trim()) return;
+  const rules = readUserRulesSource();
+  if (!rules?.content.trim()) return;
+  const { content, path } = rules;
   blocks.push({
     id: "user:CLAUDE.md",
-    label: "~/.claude/CLAUDE.md",
+    label: tildePath(path),
     category: "template",
     content,
     tokens: estimateTokens(content),
     enabled: isEnabled("user:CLAUDE.md"),
     countInBudget: true,
+    sourceUri: path,
     editable: false,
     injectedByTopicsApp: true,
   });
@@ -968,6 +973,7 @@ function pushSkillsBlock(blocks: SystemBlock[], isEnabled: (id: string) => boole
     tokens: estimateTokens(content),
     enabled: isEnabled("synthetic:skills"),
     countInBudget: true,
+    sourceUri: skillDirs()[0],
     editable: false,
     injectedByTopicsApp: true,
   });

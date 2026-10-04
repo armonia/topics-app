@@ -46,11 +46,120 @@ const RELEASE_GRACE_MS = 350;
  *  enough that the unmount/mount pair of a cross-group move never shows a gap. */
 const HIDE_GRACE_MS = 48;
 
+/**
+ * THE FRAME'S OWN STEPS, the part of the tab's history the server never sees.
+ *
+ * The pane's ‹ and › move the server-side browser's history, and the frame
+ * follows the address the server announces. A link clicked INSIDE the framed
+ * page is a navigation of a cross-origin document: the server does not hear of
+ * it, so moving the server's history from there jumps to whatever the server
+ * had before - measured, ‹ after a link showed the page before the one the link
+ * left. What the user expects is the page the link left.
+ *
+ * The frame's `history` is not readable from here (cross-origin), but the
+ * browser keeps ONE session history for the document and its frames, so
+ * `window.history.back()` takes the frame back when the newest entry is the
+ * frame's. These counters say how many such entries are behind and ahead.
+ *
+ * - `back` / `forward`: in-page steps that ‹ / › can still undo or redo.
+ * - `expect`: the next `load` is one we started (our own address, or a step
+ *   taken through the session history) and must not be counted as a new step.
+ * - `seenLength`: `history.length` at the last load we looked at. A load that
+ *   made it grow added an entry: that is a link, not a reload or a
+ *   `location.replace` redirect, which add nothing.
+ * - `appHref`: the app's own address when the steps were counted. If the app
+ *   has pushed a route since (a /task/ permalink), the newest entries are the
+ *   app's and `history.back()` would close the drawer instead of moving the
+ *   page, so the steps are dropped and ‹ goes back to the server's history.
+ */
+interface FrameSteps {
+  back: number;
+  forward: number;
+  expect: boolean;
+  seenLength: number;
+  appHref: string;
+}
+
 interface Hosted {
   readonly wrapper: HTMLDivElement;
   readonly iframe: HTMLIFrameElement;
   refs: number;
   url: string;
+  steps: FrameSteps;
+}
+
+/** Fresh counters for a frame about to load an address WE chose. */
+function ownLoad(): FrameSteps {
+  return {
+    back: 0,
+    forward: 0,
+    expect: true,
+    seenLength: window.history.length,
+    appHref: window.location.href,
+  };
+}
+
+/** Counts the frame's loads: ours are skipped, a link adds a step. */
+function onFrameLoad(entry: Hosted): void {
+  const s = entry.steps;
+  const length = window.history.length;
+  const grew = length > s.seenLength;
+  s.seenLength = length;
+  if (s.expect) {
+    s.expect = false;
+    return;
+  }
+  // A link after a ‹ replaces the entries ahead without growing the history:
+  // still a new step, and the old ones ahead are gone.
+  if (grew || s.forward > 0) {
+    s.back += 1;
+    s.forward = 0;
+    s.appHref = window.location.href;
+  }
+}
+
+/**
+ * Takes one of the frame's own steps, if it has one: `true` when ‹/› was
+ * handled here, `false` when the server's history is the one to move.
+ */
+export function stepHostedFrame(contextId: string, direction: 'back' | 'forward'): boolean {
+  const entry = hosted.get(contextId);
+  if (!entry) return false;
+  const s = entry.steps;
+  if (s.appHref !== window.location.href) {
+    s.back = 0;
+    s.forward = 0;
+    return false;
+  }
+  if (direction === 'back' ? s.back < 1 : s.forward < 1) return false;
+  if (direction === 'back') {
+    s.back -= 1;
+    s.forward += 1;
+  } else {
+    s.forward -= 1;
+    s.back += 1;
+  }
+  s.expect = true;
+  s.seenLength = window.history.length;
+  if (direction === 'back') window.history.back();
+  else window.history.forward();
+  return true;
+}
+
+/**
+ * Sends an existing frame to `url` WITHOUT adding an entry to the session
+ * history. Assigning `src` to a frame already in the document is a 'push'
+ * navigation: every address typed in the sheet and every ‹/› of the tab added
+ * an entry to the APP's history, so the browser's Back after a ‹ took the frame
+ * to the page the tab had just left (label and page disagreeing) and buried the
+ * app's own entries. `location.replace` is callable on a cross-origin frame.
+ */
+function navigateFrame(entry: Hosted, url: string): void {
+  entry.url = url;
+  entry.steps = ownLoad();
+  const win = entry.iframe.contentWindow;
+  if (win) win.location.replace(url);
+  else entry.iframe.src = url;
 }
 
 const hosted = new Map<string, Hosted>();
@@ -112,12 +221,31 @@ function hostLayer(): HTMLDivElement {
   return el;
 }
 
+/** Two spellings of one address (`https://a.b` and `https://a.b/`) are the
+ *  same page: comparing the parsed form keeps a remount from reloading it. */
+function sameAddress(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The frame for `contextId`, created on first use and reused afterwards.
  *
- * `src` is written ONCE, at creation. Assigning it again - even the same string -
- * is a navigation, which is the reload this module exists to avoid; in-pane
- * navigation goes through the frame's own history, not through this function.
+ * `src` is written once, at creation. The frame is navigated again only when
+ * the pane's address becomes a DIFFERENT one, and then with `location.replace`
+ * (`navigateFrame`). Any navigation is the reload this module exists to avoid,
+ * so a remount that hands back the address the frame already has (a
+ * cross-group move) leaves it alone.
+ *
+ * A different address is a navigation the pane asked for: an address typed in
+ * the tab's sheet, its ‹ and ›. Until 2026-10-04 the frame was never navigated
+ * after creation, so after the first page every one of those changed the tab's
+ * label and nothing else: the frame kept showing the first page, and ‹ looked
+ * dead (`tests/e2e/browser-back.spec.ts`).
  */
 export function retainHostedFrame(contextId: string, url: string): HTMLIFrameElement {
   for (const timers of [pendingRelease, pendingHide]) {
@@ -130,6 +258,7 @@ export function retainHostedFrame(contextId: string, url: string): HTMLIFrameEle
   const existing = hosted.get(contextId);
   if (existing) {
     existing.refs += 1;
+    if (!sameAddress(existing.url, url)) navigateFrame(existing, url);
     return existing.iframe;
   }
 
@@ -152,9 +281,11 @@ export function retainHostedFrame(contextId: string, url: string): HTMLIFrameEle
   iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   iframe.src = url;
 
+  const entry: Hosted = { wrapper, iframe, refs: 1, url, steps: ownLoad() };
+  iframe.addEventListener('load', () => onFrameLoad(entry));
   wrapper.appendChild(iframe);
   hostLayer().appendChild(wrapper);
-  hosted.set(contextId, { wrapper, iframe, refs: 1, url });
+  hosted.set(contextId, entry);
   return iframe;
 }
 
