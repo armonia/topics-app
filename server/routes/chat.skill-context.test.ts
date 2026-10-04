@@ -1,6 +1,6 @@
 /**
  * A SKILL INVOCATION LEAVES THE ROUTE BARE, WITH ITS CONTEXT BESIDE IT.
- * @covers SKILL-03
+ * @covers SKILL-03, CMDUI-09
  *
  * The adapter decides the shape (`payload.slashContext`) and the provider writes
  * it; this file proves the wiring in between, through the real `POST /api/chat`
