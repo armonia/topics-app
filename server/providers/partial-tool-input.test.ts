@@ -8,9 +8,9 @@ import { extractPrimaryToolArg } from "./partial-tool-input";
 
 describe("extractPrimaryToolArg", () => {
   test("a complete value is read in both modes", () => {
-    const buf = '{"command":"ls -la","cwd":"sub';
-    expect(extractPrimaryToolArg(buf)).toEqual({ key: "command", value: "ls -la" });
-    expect(extractPrimaryToolArg(buf, { open: true })).toEqual({ key: "command", value: "ls -la" });
+    const buffer = '{"command":"ls -la","cwd":"sub';
+    expect(extractPrimaryToolArg(buffer)).toEqual({ key: "command", value: "ls -la" });
+    expect(extractPrimaryToolArg(buffer, { open: true })).toEqual({ key: "command", value: "ls -la" });
   });
 
   test("a value still being written is skipped by default (the CLI contract)", () => {
@@ -34,8 +34,8 @@ describe("extractPrimaryToolArg", () => {
   });
 
   test("a complete higher-priority key wins over an open lower one", () => {
-    const buf = '{"file_path":"/tmp/x.ts","content":"export const';
-    expect(extractPrimaryToolArg(buf, { open: true })).toEqual({ key: "file_path", value: "/tmp/x.ts" });
+    const buffer = '{"file_path":"/tmp/x.ts","content":"export const';
+    expect(extractPrimaryToolArg(buffer, { open: true })).toEqual({ key: "file_path", value: "/tmp/x.ts" });
   });
 
   test("the value grows as chunks arrive", () => {

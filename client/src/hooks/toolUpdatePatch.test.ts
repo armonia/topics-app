@@ -30,10 +30,10 @@
  * The other half of the event, the partial output, has its own guard at the
  * bottom (CHAT-TOOL-09): in the window you sent from the result arrives on the
  * SSE and the partial on WS, two channels with no order between them.
- * @covers ASK-09, CHAT-TOOL-09
+ * @covers ASK-09, CHAT-TOOL-09, CHAT-NTOOL-05
  */
 import { describe, expect, test } from 'bun:test';
-import { toolUpdatePatch, withPartialResult, withToolUpdate } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolAnnouncement, withToolUpdate } from './toolUpdatePatch';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { ToolCall } from '@/types';
@@ -137,5 +137,63 @@ describe('a stale answer does not reopen a tool that returned', () => {
   test('the stream handler goes through the guard', () => {
     const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
     expect(src).toContain('(tc) => withToolUpdate(tc, patch)');
+  });
+});
+
+describe('an announcement does not move a row back', () => {
+  const row = (status: ToolCall['status'], extra: Partial<ToolCall> = {}): ToolCall =>
+    ({ id: 'tu_q', name: 'ask_user_question', args: {}, status, ...extra });
+  const announced = (status: ToolCall['status']): ToolCall =>
+    ({ id: 'tu_q', name: 'ask_user_question', args: { questions: [] }, status, startedAt: 1000 });
+
+  test('a running announcement landing after the form keeps the form', () => {
+    // The native runtime starts the call and asks in the same tick: `running`
+    // on the SSE, the form on WS, and the SSE came second.
+    const schema = { kind: 'questions', questions: [] } as unknown as ToolCall['userInputSchema'];
+    const merged = withToolAnnouncement(row('waiting_for_input', { userInputSchema: schema }), announced('running'));
+    expect(merged.status).toBe('waiting_for_input');
+    expect(merged.userInputSchema).toBe(schema);
+    // The rest of the announcement is still taken.
+    expect(merged.startedAt).toBe(1000);
+    expect(merged.args).toEqual({ questions: [] });
+  });
+
+  test('a permission prompt and a closed row keep their status too', () => {
+    for (const status of ['awaiting_permission', 'success', 'error'] as const) {
+      expect(withToolAnnouncement(row(status), announced('running')).status).toBe(status);
+      expect(withToolAnnouncement(row(status), announced('pending')).status).toBe(status);
+    }
+  });
+
+  test('a started call does not go back to queued', () => {
+    expect(withToolAnnouncement(row('running'), announced('pending')).status).toBe('running');
+  });
+
+  test('a step forward is taken', () => {
+    expect(withToolAnnouncement(row('pending'), announced('running')).status).toBe('running');
+    expect(withToolAnnouncement(row(undefined), announced('pending')).status).toBe('pending');
+    expect(withToolAnnouncement(row('running'), announced('running')).status).toBe('running');
+  });
+
+  test('the question on the SSE opens the form on a row the WS frame missed', () => {
+    // WebKit held the SSE burst, so the WS form frame came before the row
+    // existed and patched nothing; the SSE now carries the question in order.
+    const schema = { kind: 'questions', questions: [] } as unknown as ToolCall['userInputSchema'];
+    const merged = withToolAnnouncement(row('running'), { ...announced('waiting_for_input'), userInputSchema: schema });
+    expect(merged.status).toBe('waiting_for_input');
+    expect(merged.userInputSchema).toBe(schema);
+  });
+
+  test('a question already answered or closed is not asked again', () => {
+    const answer = { kind: 'questions', answers: { q: 'One' }, submittedAt: 't1' } as const;
+    const asked = { ...announced('waiting_for_input'), userInputSchema: { kind: 'questions', questions: [] } as unknown as ToolCall['userInputSchema'] };
+    expect(withToolAnnouncement(row('running', { userResponse: answer }), asked).status).toBe('running');
+    expect(withToolAnnouncement(row('success'), asked).status).toBe('success');
+    expect(withToolAnnouncement(row('error'), asked).status).toBe('error');
+  });
+
+  test('the announcement handler goes through the guard', () => {
+    const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
+    expect(src).toContain('withToolAnnouncement(lastMsg.toolCalls![existingIdx]!, toolCall)');
   });
 });

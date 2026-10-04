@@ -71,7 +71,7 @@ import {
   type MessageResidencyInput,
 } from '../state/messageResidency';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
-import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolAnnouncement, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -1187,9 +1187,10 @@ export function useChat() {
         if (existingIdx >= 0) {
           // Update in place — preserve any state the existing entry already
           // accumulated (e.g. result if a re-announce raced after the first
-          // settle). The new payload's args usually win.
+          // settle). The new payload's args usually win, its status only
+          // when it moves the row forward (`withToolAnnouncement`).
           nextToolCalls = lastMsg.toolCalls!.slice();
-          nextToolCalls[existingIdx] = { ...lastMsg.toolCalls![existingIdx], ...toolCall };
+          nextToolCalls[existingIdx] = withToolAnnouncement(lastMsg.toolCalls![existingIdx]!, toolCall);
           if (nextBlocks) {
             nextBlocks = nextBlocks.map(b =>
               b.kind === 'tool' && b.toolCall.id === toolCall.id
@@ -2191,6 +2192,9 @@ export function useChat() {
                       contentOffset: tc.contentOffset,
                       ...(typeof tc.startedAt === 'number' ? { startedAt: tc.startedAt } : {}),
                       ...(typeof tc.inputStreaming === 'boolean' ? { inputStreaming: tc.inputStreaming } : {}),
+                      // A question the call asks travels here too, in order
+                      // with the row (`onUserInputRequired` on the server).
+                      ...(tc.status === 'waiting_for_input' && tc.userInputSchema ? { userInputSchema: tc.userInputSchema } : {}),
                     };
                     addToolCallToLastMessage(sessionKey, toolCall);
                   }

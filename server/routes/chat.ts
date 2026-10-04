@@ -1447,6 +1447,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             ...(tc.status ? { status: tc.status } : {}),
             ...(typeof tc.startedAt === "number" ? { startedAt: tc.startedAt } : {}),
             ...(typeof tc.inputStreaming === "boolean" ? { inputStreaming: tc.inputStreaming } : {}),
+            ...(tc.status === "waiting_for_input" && tc.userInputSchema ? { userInputSchema: tc.userInputSchema } : {}),
           }] } }] });
           // Captured at stream-end if the provider's final message includes
           // usage (claude-code SDK does; codex turn.completed will too).
@@ -3169,6 +3170,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 toolCallId,
                 schema,
               });
+              // THE SENDER GETS IT ON ITS SSE TOO, in order with the rest of the
+              // row. The WS frame alone has no order with the SSE: WebKit can
+              // hold an SSE burst until the next byte, so the frame may land
+              // before the row it patches exists there (and is lost), or before
+              // the `running` announcement written just above it. Measured on
+              // 04/10: 4 runs out of 6 left the sender on a spinner.
+              const asking = findToolBlock(toolCallId);
+              if (asking) writeSSE(sseToolCallDelta(asking.toolCall));
             },
 
             onSubAgentUpdate: (parentToolCallId, snapshot) => {

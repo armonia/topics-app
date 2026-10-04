@@ -5359,13 +5359,35 @@ Il runtime nativo annuncia una chiamata quando il modello comincia a scriverla
   modello scrive ancora gli argomenti (`inputStreaming: true`), «sta scrivendo
   il comando…». Il gruppo di azioni conta le chiamate in coda fra quelle non
   concluse, ma il suo cronometro parte dalla prima chiamata davvero partita.
+- Un annuncio (`stream:tool_call` su WS, delta `tool_calls` su SSE) SHALL
+  fondersi sulla riga per id senza farla tornare indietro
+  (`withToolAnnouncement`): una riga `waiting_for_input`,
+  `awaiting_permission`, `success` o `error` SHALL tenere il suo stato, e una
+  riga `running` non SHALL tornare `pending`; gli altri campi (argomenti,
+  `startedAt`, `inputStreaming`) si prendono. Il runtime nativo fa partire la
+  chiamata e pone la domanda nello stesso istante: l'annuncio `running` viaggia
+  sull'SSE del mittente, il form su WS, senza ordine fra i due canali.
+- Su `onUserInputRequired` la route SHALL mandare, oltre al frame WS
+  `stream:tool_user_input_required`, anche il delta SSE `tool_calls` della riga
+  con `status: 'waiting_for_input'` e `userInputSchema`, così il mittente riceve
+  la domanda in ordine con la riga (WebKit può trattenere un blocco dell'SSE
+  fino al byte dopo, e il frame WS arriva prima che la riga esista). Un annuncio
+  `waiting_for_input` NON SHALL riaprire una riga che ha già `userResponse` o è
+  chiusa.
 
 #### Scenario: la seconda chiamata di un giro aspetta la prima
 - **GIVEN** un turno nativo il cui giro chiede `sleep 5; echo first` e poi `echo second`
 - **WHEN** la prima shell dorme
 - **THEN** la seconda riga ha `data-status="pending"`, la scritta «in coda» e nessun `tool-elapsed`
+- **AND** nella finestra da cui si è scritto la seconda riga non si mostra partita prima che la prima sia finita
 - **AND** a turno finito, nella storia salvata, `startedAt` della seconda è ≥ `endedAt` della prima
 - **AND** la durata salvata della seconda è sotto i 3 s
+
+#### Scenario: una domanda in coda dietro una shell tiene il form nella finestra da cui si è scritto
+- **GIVEN** un turno nativo il cui giro chiede `sleep 2; echo first` e poi `ask_user_question`
+- **WHEN** la shell finisce e la domanda parte
+- **THEN** nella finestra da cui si è scritto la riga della domanda resta `data-status="waiting_for_input"` per almeno 3 s, con il form, senza `tool-elapsed`, e il composer dice «Rispondi alla domanda…»
+- **AND** la risposta data da quella finestra fa finire il turno
 
 #### Scenario: un provider senza fasi resta com'era
 - **GIVEN** un provider che non dichiara `tool-phases`
