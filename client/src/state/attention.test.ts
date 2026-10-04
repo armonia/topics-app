@@ -7,8 +7,8 @@
  *
  * @covers ATTN-01, ATTN-06, ATTN-07, ATTN-12, MUTE-01, PARITY-01
  */
-import { describe, test, expect, beforeEach } from "bun:test";
-import { attentionActions, attentionOf, attentionOfRow, needsSeen, rollupAttention, sendAttentionSeenItems, useAttentionStore } from "./attention";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { attentionActions, attentionOf, attentionOfRow, needsSeen, rollupAttention, sendAttentionSeen, sendAttentionSeenItems, useAttentionStore } from "./attention";
 import { attentionTierForPhase, derivePhaseTerminals, deriveSessionActivity } from "./signals";
 import type { AttentionSnapshot } from "../../../shared/attention";
 import type { Topic, ClaudeSessionState } from "../types";
@@ -124,6 +124,38 @@ describe("the seen of this window: optimistic, for one epoch", () => {
     sendAttentionSeenItems([{ subject: "topic:a", epoch: 4, turnAt: "2026-10-03T10:00:00.000Z" }, { subject: "topic:b", epoch: 1, turnAt: null }]);
     expect(attentionOf(rows(), "topic:a").lit).toBe(true);
     expect(attentionOf(rows(), "topic:b").lit).toBe(false);
+  });
+});
+
+describe("a seen the server never got (ATTN-07: the snapshot replaces the store)", () => {
+  const server = snap("topic:A", { state: "finished", outcome: "done", detail: "ok", epoch: 3, seenEpoch: 2, lit: true, unread: 1, turnUnseen: true, lastTurnAt: "2026-10-03T10:00:00.000Z" });
+  const realFetch = globalThis.fetch;
+  let posts = 0;
+  beforeEach(() => {
+    posts = 0;
+    // The server is down (a restart, the laptop asleep): the POST never arrives.
+    globalThis.fetch = (() => { posts++; return Promise.reject(new TypeError("Failed to fetch")); }) as unknown as typeof fetch;
+  });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  test("the reconnect's attention:init lights the subject again, as on every other window, and the dwell would resend", async () => {
+    attentionActions.applyFrame({ type: "attention:init", rows: [server] });
+    attentionActions.seeLocally("topic:A");
+    expect(attentionOf(rows(), "topic:A").lit).toBe(false);
+    // The socket comes back before the failure is known: the snapshot alone corrects the window.
+    attentionActions.applyFrame({ type: "attention:init", rows: [server] });
+    const mine = attentionOf(rows(), "topic:A");
+    expect(mine).toMatchObject({ lit: true, count: 1 });
+    expect(needsSeen(mine)).toBe(true);
+  });
+
+  test("a failed POST of the seen gives back the server's row", async () => {
+    attentionActions.applyFrame({ type: "attention:init", rows: [server] });
+    sendAttentionSeen(["topic:A"]);
+    expect(attentionOf(rows(), "topic:A").lit).toBe(false);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(posts).toBe(1);
+    expect(attentionOf(rows(), "topic:A")).toMatchObject({ lit: true, count: 1 });
   });
 });
 

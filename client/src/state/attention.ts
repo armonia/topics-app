@@ -16,7 +16,9 @@
  * (the fill goes out under the eyes of the person who looked, not one round
  * trip later) and the server's frame confirms or corrects it. It covers only
  * the epoch and the turn it was sent for: a newer epoch arriving meanwhile
- * stays lit (ATTN-06, "the epoch protects the new").
+ * stays lit (ATTN-06, "the epoch protects the new"). A seen the server did not
+ * take (the POST failed) and every `attention:init` drop it: the server's row
+ * stands again.
  */
 import { useMemo } from 'react';
 import { create } from 'zustand';
@@ -154,6 +156,8 @@ export const useAttentionStore = create<AttentionStoreState>(() => ({
 
 /** The seens this window sent and the server has not confirmed yet. */
 const localSeen = new Map<string, LocalSeen>();
+/** The last row the server sent for each subject, before this window's seen: what a failed seen falls back to. */
+const serverRows = new Map<string, AttentionSnapshot>();
 
 /** The row as this window shows it: the server's, with this window's pending seen on top. */
 function withLocalSeen(row: AttentionSnapshot): AttentionSnapshot {
@@ -217,16 +221,42 @@ function asSnapshot(raw: unknown): AttentionSnapshot | null {
   };
 }
 
-/** Every row of an `attention:init`, keeping the identity of each one that did not change. */
+/**
+ * Every row of an `attention:init`, keeping the identity of each one that did
+ * not change. The snapshot is the server's whole truth (ATTN-07): no pending
+ * seen of this window survives it, so a seen the server never got (its POST
+ * failed while the socket was down) lights the subject again and the dwell
+ * sends it again.
+ */
 function replaceRows(prev: AttentionRows, incoming: AttentionSnapshot[]): AttentionRows {
   const next = new Map<string, AttentionSnapshot>();
-  for (const raw of incoming) {
-    const row = withLocalSeen(raw);
+  localSeen.clear();
+  serverRows.clear();
+  for (const row of incoming) {
+    serverRows.set(row.subject, row);
     if (isQuiet(row)) continue;
     const old = prev.get(row.subject);
     next.set(row.subject, old && sameRow(old, row) ? old : row);
   }
   return next;
+}
+
+/** One server row into the store, with this window's pending seen on top. */
+function applyRow(server: AttentionSnapshot): void {
+  const row = withLocalSeen(server);
+  useAttentionStore.setState((s) => {
+    const old = s.rows.get(row.subject);
+    if (isQuiet(row)) {
+      if (!old) return s;
+      const next = new Map(s.rows);
+      next.delete(row.subject);
+      return { rows: next };
+    }
+    if (old && sameRow(old, row)) return s;
+    const next = new Map(s.rows);
+    next.set(row.subject, row);
+    return { rows: next };
+  });
 }
 
 export const attentionActions = {
@@ -239,20 +269,8 @@ export const attentionActions = {
   applyUpdated(raw: unknown): void {
     const parsed = asSnapshot(raw);
     if (!parsed) return;
-    const row = withLocalSeen(parsed);
-    useAttentionStore.setState((s) => {
-      const old = s.rows.get(row.subject);
-      if (isQuiet(row)) {
-        if (!old) return s;
-        const next = new Map(s.rows);
-        next.delete(row.subject);
-        return { rows: next };
-      }
-      if (old && sameRow(old, row)) return s;
-      const next = new Map(s.rows);
-      next.set(row.subject, row);
-      return { rows: next };
-    });
+    serverRows.set(parsed.subject, parsed);
+    applyRow(parsed);
   },
   /** Either frame, from the socket. Returns whether it was one of them. */
   applyFrame(raw: object): boolean {
@@ -276,12 +294,26 @@ export const attentionActions = {
     if (!row) return null;
     const item: AttentionSeenItem = { subject, epoch: row.epoch, turnAt: row.lastTurnAt };
     localSeen.set(subject, { epoch: row.epoch, turnAt: row.lastTurnAt });
-    attentionActions.applyUpdated(row);
+    applyRow(serverRows.get(subject) ?? row);
     return item;
+  },
+  /**
+   * The seen never reached the server: drop this window's pending seen, so the
+   * subject shows what the server holds (lit, for the dwell to send it again).
+   */
+  forgetLocalSeen(items: readonly AttentionSeenItem[]): void {
+    for (const item of items) {
+      const mine = localSeen.get(item.subject);
+      if (!mine || mine.epoch !== item.epoch) continue;
+      localSeen.delete(item.subject);
+      const server = serverRows.get(item.subject);
+      if (server) applyRow(server);
+    }
   },
   /** Tests only: an empty store. */
   reset(): void {
     localSeen.clear();
+    serverRows.clear();
     useAttentionStore.setState({ rows: new Map(), ready: false });
   },
 };
@@ -322,14 +354,18 @@ export function sendAttentionSeenItems(items: readonly AttentionSeenItem[]): voi
 
 function postSeen(items: readonly AttentionSeenItem[]): void {
   if (items.length === 0) return;
+  // A door that did not take the seen (server restarting, laptop asleep) must
+  // not leave this window dark while every other one is lit: the pending seen
+  // goes, the subject shows the server's row again, and the dwell resends.
+  const failed = () => attentionActions.forgetLocalSeen(items);
   try {
     void apiFetch('/api/attention/seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items }),
       keepalive: true,
-    }).catch(() => {});
-  } catch { /* the seen is a gesture: a failed door must not break the click */ }
+    }).then((res) => { if (!res.ok) failed(); }, failed);
+  } catch { failed(); }
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
