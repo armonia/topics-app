@@ -124,6 +124,16 @@ test.describe.serial("a question survives a reload", () => {
       expect(result.cancelled).toBeFalsy();
       expect(result.answers).toEqual({ [question]: "Beta" });
       await expect(form).toBeHidden({ timeout: 10_000 });
+
+      // The choice stays on screen with its question, and the server kept it:
+      // after a reload it comes back from the history, not from this tab.
+      const recap = page.getByTestId(`question-answer-${toolCallId}`);
+      await expect(recap).toContainText(question);
+      await expect(recap.getByTestId("question-answer-value")).toHaveText("Beta");
+      await page.reload();
+      await openChat(page, chatPage);
+      await expect(recap.getByTestId("question-answer-value"), "the choice survives the reload").toHaveText("Beta", { timeout: 15_000 });
+      await expect(form).toHaveCount(0);
     } finally {
       stop = true;
     }
@@ -152,6 +162,7 @@ test.describe.serial("a question survives a reload", () => {
     // On screen: the question closes as answered, and the answer goes out as a
     // message quoting it.
     await expect(form).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-value")).toHaveText("Alpha");
     await expect(page.getByText("Answer to the question you asked earlier", { exact: false }).first()).toBeVisible({ timeout: 15_000 });
 
     // The model's side: the message it was sent carries the question and the
@@ -178,5 +189,53 @@ test.describe.serial("a question survives a reload", () => {
     await page.reload();
     await openChat(page, chatPage);
     await expect(note, "the note survives the reload").toBeVisible({ timeout: 15_000 });
+    // And it says WHAT was answered, not only that something was.
+    await expect(page.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-value")).toHaveText("Beta");
+  });
+
+  test("an answered multi-select with free text reads right across a reload, closed and open", async ({ page, chatPage, request }) => {
+    // The row as the answer route persists it: a multi-select where the person
+    // ticked two options and wrote one of their own, with commas in it.
+    const toolCallId = "toolu_reload_multi";
+    const question = "Which checks do we run before the push?";
+    const questions = [{
+      question, header: "Checks", multiSelect: true,
+      options: [{ label: "Lint" }, { label: "Typecheck (Recommended)" }, { label: "E2E" }],
+    }];
+    await seedMessage(request, { sessionKey, role: "user", content: "what do we run?" });
+    await seedMessage(request, {
+      sessionKey, role: "assistant", content: "Pick the checks:",
+      toolCalls: [{
+        id: toolCallId, name: "AskUserQuestion", args: { questions },
+        status: "success", startedAt: Date.now() - 9_000, endedAt: Date.now() - 2_000,
+        userInputSchema: { kind: "questions", questions },
+        userResponse: {
+          kind: "questions",
+          answers: { [question]: "Lint, Typecheck (Recommended), the copy check, only on landing" },
+          submittedAt: new Date().toISOString(),
+        },
+      }],
+    });
+
+    await openChat(page, chatPage);
+    await page.reload();
+    await openChat(page, chatPage);
+
+    // Closed: one line, options as a list, the written text in quotes.
+    const recap = page.getByTestId(`question-answer-${toolCallId}`);
+    await expect(recap).toBeVisible({ timeout: 15_000 });
+    await expect(recap).toContainText(question);
+    await expect(recap.getByTestId("question-answer-value"))
+      .toHaveText("Lint, Typecheck, «the copy check, only on landing»");
+
+    // Open: every option offered, the chosen ones ticked, the free text too.
+    const row = page.getByTestId(`tool-call-row-${toolCallId}`);
+    await row.locator("button[aria-expanded]").first().click();
+    const card = page.getByTestId(`question-answer-card-${toolCallId}`);
+    await expect(card).toBeVisible();
+    const chosen = card.locator('[data-testid="question-answer-option"][data-chosen="true"]');
+    await expect(chosen).toHaveText(["Lint", "Typecheck", "Altro: «the copy check, only on landing»"]);
+    await expect(chosen.locator("svg")).toHaveCount(3);
+    await expect(card.locator('[data-testid="question-answer-option"]:not([data-chosen])')).toHaveText(["E2E"]);
   });
 });

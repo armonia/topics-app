@@ -183,6 +183,10 @@ const CHAT_IT: Dict = {
   'chat.question.ended.other': 'Domanda chiusa senza risposta.',
   'chat.question.askerGone': 'Il turno che l\'ha chiesta si è fermato. La tua risposta gli arriverà come nuovo messaggio.',
   'chat.question.answerQueued': 'Risposta salvata. Arriva all\'agente come nuovo messaggio appena la chat è libera, prima di quello che scrivi dopo.',
+  // The answer given to a question, as it stays in the thread (QuestionAnswer.tsx).
+  'chat.question.answer.freeText': '«{text}»',
+  'chat.question.answer.srLabel': 'risposta:',
+  'chat.question.answer.chosen': 'scelta',
   'chat.tool.detailLoading': "Carico l'output completo…",
   'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
   'toolgroup.jumpToFailure': 'Apri il gruppo sulla prima azione fallita',

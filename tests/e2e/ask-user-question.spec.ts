@@ -208,9 +208,35 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
 
     // The panel is gone — the turn moved on.
     await expect(form).toBeHidden({ timeout: 10_000 });
+
+    // AND THE CHOICE STAYS ON SCREEN. Reported on 04/10: the tool row did not
+    // show the answer that had been picked. It lived only in the collapsible
+    // body, which closes when the tool finishes. Now the closed row says
+    // "question -> choice" without opening anything.
+    const header = row.locator("button[aria-expanded]").first();
+    await expect(header, "finito, il tool si richiude").toHaveAttribute("aria-expanded", "false", { timeout: 10_000 });
+    const recap = page.getByTestId(`question-answer-${toolCallId}`);
+    await expect(recap).toBeVisible();
+    await expect(recap.getByTestId("question-answer-line")).toHaveCount(1);
+    await expect(recap).toContainText(question);
+    await expect(recap.getByTestId("question-answer-value")).toHaveText("OAuth");
+    await row.screenshot({ path: test.info().outputPath("answer-recap-closed.png") });
+
+    // Open, the card shows what the choice was made from: the pick ticked, the
+    // other one dimmed and without a tick.
+    await header.click();
+    const card = page.getByTestId(`question-answer-card-${toolCallId}`);
+    await expect(card).toBeVisible();
+    const chosen = card.locator('[data-testid="question-answer-option"][data-chosen="true"]');
+    await expect(chosen).toHaveCount(1);
+    await expect(chosen).toHaveText("OAuth");
+    await expect(chosen.locator("svg")).toHaveCount(1);
+    const notChosen = card.locator('[data-testid="question-answer-option"]:not([data-chosen])');
+    await expect(notChosen).toHaveText(["JWT"]);
+    await expect(notChosen.locator("svg")).toHaveCount(0);
     // DELIBERATE FIXED WAIT: the .webm is the deliverable for this behaviour, and
-    // this is the tail frame that shows the chat moving on. Nothing is asserted
-    // after it.
+    // this is the tail frame that shows the answer kept in the thread. Nothing
+    // is asserted after it.
     await page.waitForTimeout(800);
   });
 
@@ -325,6 +351,17 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
       "Quale database?": "SQLite",
       "Quale deploy?": "Cloud",
     });
+
+    // Answered, each question keeps ITS answer, one line each. The row used to
+    // say "Node · SQLite · Cloud" and the pairing was lost.
+    const lines = page.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-line");
+    await expect(lines).toHaveCount(3, { timeout: 10_000 });
+    await expect(lines.nth(0)).toContainText("Quale runtime?");
+    await expect(lines.nth(0).getByTestId("question-answer-value")).toHaveText("Node");
+    await expect(lines.nth(1)).toContainText("Quale database?");
+    await expect(lines.nth(1).getByTestId("question-answer-value")).toHaveText("SQLite");
+    await expect(lines.nth(2)).toContainText("Quale deploy?");
+    await expect(lines.nth(2).getByTestId("question-answer-value")).toHaveText("Cloud");
   });
 
   test('"Other": il testo libero torna al bridge come risposta', async ({ page, chatPage, request }) => {
@@ -356,6 +393,11 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     const result = await bridge;
     expect(result.cancelled).toBeFalsy();
     expect(result.answers).toEqual({ [question]: "DuckDB, per l'analitica" });
+
+    // Written text reads as written text, in quotes, not as an option the
+    // question never offered.
+    await expect(page.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-value"))
+      .toHaveText("«DuckDB, per l'analitica»", { timeout: 10_000 });
   });
 
   test("l'umano si alza dalla scrivania: il pannello sopravvive a decine di gambe scadute", async ({ page, chatPage, request }) => {
@@ -421,6 +463,16 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
     await expect(form).toBeVisible({ timeout: 15_000 });
 
+    // A second client on the same chat (another window, the phone): the answer
+    // given here must reach it from the server and read there too.
+    const other = await page.context().newPage();
+    await goToApp(other);
+    await other.keyboard.press("Escape");
+    await openTopic(other, new RegExp(topicName));
+    const otherForm = other.getByTestId(`tool-input-form-${toolCallId}`);
+    await expect(otherForm).toBeVisible({ timeout: 15_000 });
+    await page.bringToFront();
+
     await form.locator('input[type="radio"][value="Bun"]').check();
     await form.getByTestId("ask-submit").click();
 
@@ -433,6 +485,13 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     // A few seconds, no reload, nobody remounting the pane.
     await expect(form.getByTestId("ask-submit")).toHaveCount(0, { timeout: 8_000 });
     await expect(form).toHaveCount(0);
+    await expect(page.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-value")).toHaveText("Bun");
+
+    // The other client: its panel switches off and the choice made here reads.
+    await expect(otherForm).toHaveCount(0, { timeout: 8_000 });
+    await expect(other.getByTestId(`question-answer-${toolCallId}`)).toContainText(question);
+    await expect(other.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-value")).toHaveText("Bun");
+    await other.close();
 
     // WHAT THIS TEST DELIBERATELY DOES NOT ASSERT, and why the note is here
     // rather than in a commit nobody will read again.

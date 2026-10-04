@@ -30,6 +30,17 @@ describe('isSoloTool / isActiveTool', () => {
     expect(isSoloTool(tc({ name: 'AskUserQuestion', status: 'waiting_for_input' }))).toBe(true);
   });
 
+  test('an answered question is solo: the choice stays in sight, not folded into a group', () => {
+    const answered = tc({
+      name: 'AskUserQuestion',
+      status: 'success',
+      userResponse: { kind: 'questions', answers: { 'Runtime?': 'Bun' }, submittedAt: '2026-10-04T10:00:00Z' },
+    });
+    expect(isSoloTool(answered)).toBe(true);
+    expect(partitionToolGroup([tc({ name: 'Read' }), answered, tc({ name: 'Read' })]).map((s) => s.kind))
+      .toEqual(['aggregate', 'solo', 'aggregate']);
+  });
+
   test('sub-agent (Task) is solo', () => {
     expect(isSoloTool(tc({ name: 'Task', args: { subagent_type: 'Explore' } }))).toBe(true);
   });

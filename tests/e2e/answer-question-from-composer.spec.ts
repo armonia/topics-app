@@ -140,5 +140,22 @@ test.describe("Domanda a schermo · si risponde dal composer", () => {
     await expect(page.getByTestId("queued-bubble")).toHaveCount(0);
     // Il campo si svuota come dopo un invio: il testo è partito.
     await expect(chatPage.messageInput).toHaveValue("");
+
+    // Once the answer is recorded the server announces it to every client with
+    // the new status (`stream:tool_update` from `/api/chat/tool-response`). The
+    // route is faked here, so the test sends the same announcement. From there
+    // the row says what you answered, even when you wrote it in the composer:
+    // your own text, so it reads in quotes.
+    ws.send({
+      type: "stream:tool_update",
+      sessionKey,
+      topicId,
+      toolCallId,
+      status: "running",
+      userResponse: { kind: "questions", answers: { [QUESTION]: "la seconda, quella pulita" }, submittedAt: new Date().toISOString() },
+    });
+    const recap = page.getByTestId(`question-answer-${toolCallId}`);
+    await expect(recap).toContainText(QUESTION, { timeout: 10_000 });
+    await expect(recap.getByTestId("question-answer-value")).toHaveText("«la seconda, quella pulita»");
   });
 });

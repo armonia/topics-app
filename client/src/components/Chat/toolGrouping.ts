@@ -24,11 +24,16 @@ export type ToolGroupSegment =
 /**
  * Calls that must NEVER fold into an aggregate:
  *  - `waiting_for_input` — the inline form is the row's whole reason to exist;
- *  - sub-agents (Task) — the live action log is the primary signal.
+ *  - sub-agents (Task) — the live action log is the primary signal;
+ *  - an ANSWERED question (or plan): the choice the person made is a fact of
+ *    the conversation, and its row says it closed (`QuestionAnswerRecap`).
+ *    Folded into "N actions" it was out of sight again, the same complaint of
+ *    04/10 one level up.
  * Errors stay IN the aggregate; the summary surfaces their count instead.
  */
 export function isSoloTool(tc: ToolCall): boolean {
   if (isAwaitingHuman(tc.status)) return true;
+  if (tc.userResponse) return true;
   return resolveToolDetail(tc).type === 'sub_agent';
 }
 
