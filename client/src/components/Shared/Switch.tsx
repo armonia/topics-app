@@ -46,7 +46,11 @@ export function Switch({ checked, onChange, label, disabled, className = '', tes
       // impostazioni che guadagnava 4px di scorrimento orizzontale. Qui lo
       // spazio per crescere c'è (l'interruttore sta in fondo a una riga larga),
       // quindi la scatola si prende davvero invece di proiettarsi.
-      className={`shrink-0 rounded-full disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center ${className}`}
+      //
+      // With the mouse the same reasoning gives 24 tall (`h-6`, the track
+      // stays 20 in the middle): WCAG 2.5.8 asks 24x24, and the usability
+      // audit (04/10) measured every settings switch at 36x20.
+      className={`flex h-6 shrink-0 items-center rounded-full disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:h-11 coarse:w-11 coarse:justify-center ${className}`}
     >
       <SwitchTrack checked={checked} />
     </button>

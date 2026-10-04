@@ -138,7 +138,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
           if (catSources.length === 0) return null;
           const catTokens = catSources.reduce((sum, s) => sum + s.tokens, 0);
           return (
-            <div key={cat} className="flex items-center gap-1 text-micro text-app-text-muted">
+            <div key={cat} className="flex items-center gap-1 text-mini text-app-text-muted">
               <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
               <span className="capitalize">{cat === 'openclaw' ? 'OpenClaw' : cat}</span>
               <span className="tabular-nums">{formatTokens(catTokens)}</span>

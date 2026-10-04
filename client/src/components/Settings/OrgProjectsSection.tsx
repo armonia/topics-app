@@ -114,7 +114,7 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
             >
               <Folder size={13} className="flex-shrink-0 text-app-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-app-text">{p.name}</span>
-              <span className="flex-shrink-0 text-micro text-app-text-muted truncate max-w-[120px]" title={p.path}>
+              <span className="flex-shrink-0 text-mini text-app-text-muted truncate max-w-[120px]" title={p.path}>
                 {p.path.split('/').slice(-2).join('/')}
               </span>
               {/* Same control the sidebar already offers on a project: a
@@ -170,7 +170,7 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
             <span><strong className="font-medium text-app-text">{t('settings.org.guide.authorizeTitle')}</strong> {t('settings.org.guide.machine')}</span>
           </li>
         </ol>
-        <p className="mt-2 text-micro leading-snug text-app-text-muted">{t('settings.org.guide.ownership')}</p>
+        <p className="mt-2 text-mini leading-snug text-app-text-muted">{t('settings.org.guide.ownership')}</p>
         {inviteUrl && (
           <button
             type="button"
@@ -182,7 +182,7 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
             {copied ? t('settings.org.guide.linkCopied') : t('settings.org.guide.copyLink')}
           </button>
         )}
-        <p className="mt-2 text-micro leading-snug text-app-text-muted">{t('settings.org.guide.pairing')}</p>
+        <p className="mt-2 text-mini leading-snug text-app-text-muted">{t('settings.org.guide.pairing')}</p>
       </div>
     </div>
   );

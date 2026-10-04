@@ -619,11 +619,22 @@ export default defineConfig({
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
+        // A native-runtime call queued behind another, or still being written
+        // by the model, is not shown running: real server turns on the native
+        // runtime with a fake model API, read on the engine that ships.
+        "**/chat-native-tool-phases.spec.ts",
         "**/turn-fold.spec.ts",
         // The page the agent opened stays in sight in the turn and brings the
         // page back from the topic's window: filmed on the engine that ships.
         "**/chat-browser-open-marker.spec.ts",
+        // A page taken back by the topic window on another device leaves this
+        // device's project layout too: two clients, the native view is WebKit.
+        "**/topic-browser-window-remote-return.spec.ts",
         "**/board-conversation-details.spec.ts",
+        // "Recapture evidence" boots a worktree and photographs it. The server
+        // takes that photo with its own WebKit (KANBAN-95), so the whole
+        // delivery-preview path runs on this Mac without a Chromium.
+        "**/board-recapture-preview.spec.ts",
         "**/chat-compact-command.spec.ts",
         "**/chat-compact-drain.spec.ts",
         "**/chat-compaction-fold.spec.ts",
@@ -665,6 +676,9 @@ export default defineConfig({
         // Phone push enrolment: the service worker on a non-localhost origin
         // and the Settings toggle, on the engine iOS ships (stubbed PushManager).
         "**/push-phone-enroll.spec.ts",
+        // Target size, text size and contrast on every main surface, measured
+        // in the engine that ships (WebKit), two viewports, two themes.
+        "**/usability-audit.spec.ts",
       ],
       use: {
         browserName: "webkit",

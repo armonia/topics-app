@@ -249,7 +249,7 @@ export function GuestCard({ task, onChanged }: {
             <p role="alert" className="text-mini text-red-500">{startFeedback || tr('guest.start.failed')}</p>
           )}
           {task.agentStart && (
-            <span className="ml-auto text-micro text-app-text-muted">
+            <span className="ml-auto text-mini text-app-text-muted">
               {tr('guest.start.policy', { computer: task.agentStart.computerName ?? task.agentStart.machineName ?? tr('guest.start.authorizedComputer') })}
             </span>
           )}

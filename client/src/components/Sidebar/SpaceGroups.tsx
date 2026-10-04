@@ -233,7 +233,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         </button>
         {card.detachedLabel && (
           <span
-            className="flex flex-shrink-0 items-center gap-1 rounded px-1 text-micro text-app-text-tertiary"
+            className="flex flex-shrink-0 items-center gap-1 rounded px-1 text-mini text-app-text-tertiary"
             data-testid="space-detached"
             aria-label={tr('space.detachedLabel')}
             title={tr('space.detachedOwnWindow', { name: card.name })}

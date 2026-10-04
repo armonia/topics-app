@@ -42,7 +42,8 @@ export function Stepper({
     e.stopPropagation();
     set(next);
   };
-  const button = 'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-30 coarse:h-11 coarse:w-11';
+  // 24 with the mouse, not 20: WCAG 2.5.8's floor (usability audit, 04/10).
+  const button = 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-30 coarse:h-11 coarse:w-11';
   const text = format(value);
 
   return (
@@ -69,7 +70,7 @@ export function Stepper({
         aria-valuetext={text}
         data-testid={testId}
         onKeyDown={onKeyDown}
-        className="min-w-[4.5rem] rounded px-1 text-center text-mini tabular-nums text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:flex coarse:min-h-11 coarse:items-center coarse:justify-center coarse:text-compact"
+        className="flex min-h-6 min-w-[4.5rem] items-center justify-center rounded px-1 text-center text-mini tabular-nums text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:min-h-11 coarse:text-compact"
       >
         {text}
       </span>

@@ -139,11 +139,11 @@ export function ChangelogModal({
                   >
                     <span className="text-compact tabular-nums font-medium">v{v.version}</span>
                     {isCurrent && (
-                      <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-nano font-semibold leading-tight">
+                      <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-mini font-semibold leading-tight">
                         in uso
                       </span>
                     )}
-                    <span className="ml-auto text-nano text-app-text-muted tabular-nums">{v.date}</span>
+                    <span className="ml-auto text-mini text-app-text-muted tabular-nums">{v.date}</span>
                   </button>
                 );
               })}
@@ -156,7 +156,7 @@ export function ChangelogModal({
                   <div className="flex items-baseline gap-2 mb-3">
                     <h2 className="text-title font-semibold text-app-text tabular-nums">v{active.version}</h2>
                     {active.version === currentVersion && (
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-nano font-semibold">
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-mini font-semibold">
                         versione in uso
                       </span>
                     )}
@@ -170,7 +170,7 @@ export function ChangelogModal({
                       <section key={key} className="mb-4">
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <Icon size={12} className="text-app-text-muted" />
-                          <h3 className="text-micro uppercase tracking-wide text-app-text-muted font-semibold">{label}</h3>
+                          <h3 className="text-mini uppercase tracking-wide text-app-text-muted font-semibold">{label}</h3>
                         </div>
                         <ul className="space-y-1">
                           {items.map((e, i) => (
@@ -181,7 +181,7 @@ export function ChangelogModal({
                                 {e.scope && ' · '}
                                 {e.it}
                                 {e.breaking && (
-                                  <span className="ml-1.5 px-1 rounded bg-amber-500/15 text-amber-500 text-nano font-semibold uppercase">
+                                  <span className="ml-1.5 px-1 rounded bg-amber-500/15 text-amber-500 text-mini font-semibold uppercase">
                                     breaking
                                   </span>
                                 )}
@@ -198,7 +198,7 @@ export function ChangelogModal({
                     <div className="mt-2 border-t border-app-border pt-2">
                       <button
                         onClick={() => setShowInternal((s) => !s)}
-                        className="flex items-center gap-1 text-micro uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary transition-colors"
+                        className="flex items-center gap-1 text-mini uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary transition-colors"
                       >
                         <ChevronRight size={11} className={`transition-transform ${showInternal ? 'rotate-90' : ''}`} />
                         <Cog size={11} />

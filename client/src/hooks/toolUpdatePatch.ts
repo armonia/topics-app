@@ -117,3 +117,38 @@ export function withToolUpdate(tc: ToolCall, patch: ToolUpdatePatch): ToolCall {
   }
   return { ...tc, ...patch };
 }
+
+/** Statuses an announcement can never take a row out of. */
+const PAST_ANNOUNCEMENT: ReadonlySet<ToolCall['status']> = new Set(['waiting_for_input', 'awaiting_permission', 'success', 'error']);
+
+/**
+ * The row with a re-announcement (`stream:tool_call` on WS, a `tool_calls`
+ * delta on the SSE) merged in by id, without letting it move the row BACK.
+ *
+ * An announcement says the call is queued (`pending`), has started
+ * (`running`) or, on the SSE, is asking the person (`waiting_for_input`). It
+ * carries newer arguments, a `startedAt`, an `inputStreaming` mark, and those
+ * are taken; its status is taken only when it is a step forward. A row asking
+ * the person, waiting for a permission or already closed keeps its status, a
+ * started call does not go back to queued, and a question already answered or
+ * closed is not asked again.
+ *
+ * The native runtime starts a call and asks its question in the same tick
+ * (`agent-loop.ts`): the `running` announcement leaves on the sender's SSE, the
+ * form on WS, two channels with no order between them. When the SSE came
+ * second, the plain spread put the row back to `running`, and the window the
+ * message was sent from showed a spinner and a growing clock instead of the
+ * form, while the other windows and the database said "waiting for you"
+ * (reported 04/10, 4 runs out of 4; `chat-native-tool-phases.spec.ts`).
+ */
+export function withToolAnnouncement(tc: ToolCall, announced: ToolCall): ToolCall {
+  // The question itself rides the SSE too, and it is a step forward, unless
+  // the row already carries the answer that the WS brought first.
+  if (announced.status === 'waiting_for_input') {
+    const reopens = tc.userResponse != null || tc.status === 'success' || tc.status === 'error';
+    return reopens ? { ...tc, ...announced, status: tc.status, userInputSchema: tc.userInputSchema } : { ...tc, ...announced };
+  }
+  const keepStatus = PAST_ANNOUNCEMENT.has(tc.status)
+    || (tc.status === 'running' && announced.status === 'pending');
+  return keepStatus ? { ...tc, ...announced, status: tc.status } : { ...tc, ...announced };
+}

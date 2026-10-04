@@ -25,7 +25,7 @@ import { Spinner } from '../Shared/Spinner';
  * copie e una che divergeva già.
  */
 const SECTION_HEADER =
-  'flex items-center px-4 py-1 text-micro font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2';
+  'flex items-center px-4 py-1 text-mini font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2';
 
 /** Extract a human-readable message from an unknown thrown value. */
 function errMessage(err: unknown): string {
@@ -329,7 +329,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             <div>
               <div className={SECTION_HEADER}>
                 <span className="flex-1">{tr('ctxInspector.section.files')}</span>
-                <label className="flex items-center gap-1 px-1.5 py-0.5 rounded text-micro text-primary hover:bg-primary/10 cursor-pointer transition-colors normal-case tracking-normal">
+                <label className="flex items-center gap-1 px-1.5 py-0.5 rounded text-mini text-primary hover:bg-primary/10 cursor-pointer transition-colors normal-case tracking-normal">
                   <Upload size={10} />
                   <span>{tr('ctxInspector.addFile')}</span>
                   <input

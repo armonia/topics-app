@@ -55,7 +55,7 @@ export function PresenceList({ people, empty, hint }: {
       {away.length > 0 && (
         <>
           {here.length > 0 && (
-            <div className="px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide text-app-text-muted">
+            <div className="px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide text-app-text-muted">
               {tr('statusBar.presence.offlineGroup')}
             </div>
           )}
@@ -87,7 +87,7 @@ export function PresencePerson({ p }: { p: PresenceRow }) {
       <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full ${p.presente ? '' : 'opacity-50'}`}>
         {p.avatarUrl
           ? <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-nano font-semibold leading-none text-app-text">
+          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-mini font-semibold leading-none text-app-text">
               {p.iniziali}
             </span>}
       </span>
