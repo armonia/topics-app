@@ -51,6 +51,7 @@ import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
 import { httpLogLine } from "./lib/http-log";
+import { keepFirstTimes } from "./lib/tool-call-times";
 import {
   listGlobalOrchestratorTopicIds,
   presentGlobalOrchestratorTopic,
@@ -2032,9 +2033,8 @@ export function createAppContext(baseDir: string): AppContext {
     // upstream provider is meant to dedup too — this is belt-and-braces.
     const existingIdx = msg.toolCalls.findIndex(t => t.id === toolCall.id);
     if (existingIdx >= 0) {
-      // Update in place so a re-announcement with newer args doesn't lose
-      // the work tracked under the same id.
-      msg.toolCalls[existingIdx] = { ...msg.toolCalls[existingIdx], ...toolCall };
+      // In place, newer args win; the first times stay (lib/tool-call-times.ts).
+      msg.toolCalls[existingIdx] = keepFirstTimes(msg.toolCalls[existingIdx], { ...msg.toolCalls[existingIdx], ...toolCall });
     } else {
       msg.toolCalls.push(toolCall);
     }

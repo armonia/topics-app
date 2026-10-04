@@ -1,5 +1,5 @@
 import type { ChatMessage } from '../types';
-import { isClientGeneratedMessageId } from './streamCatchupMerge';
+import { isClientGeneratedMessageId, withLocalLiveOutput } from './streamCatchupMerge';
 
 /**
  * Riconciliazione per IDENTITÀ della storia di una chat.
@@ -146,7 +146,12 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
   // when it extends the server's text from its first character, or when the
   // turn ended here while the answer was in flight and the end closed it.
   const liveAhead = codaInVolo ? localAheadOf(existing, coda, opts.endedMeanwhile === true) : null;
-  const base = liveAhead ? [...fetched.slice(0, -1), liveAhead] : fetched;
+  // Otherwise the server's copy stands, but not without the running tools'
+  // output this window shows: during a silent command the text does not grow,
+  // so the copy that arrives is never "ahead", and a copy without the tail
+  // wiped it from the screen (CHAT-TOOL-11).
+  const tail = liveAhead ?? (codaInVolo ? withLocalLiveOutput(coda, localCopyOf(existing, coda)) : coda);
+  const base = tail !== coda ? [...fetched.slice(0, -1), tail] : fetched;
 
   const localOnly = existing.filter((m) => {
     if (!m.id || fetchedIds.has(m.id)) return false;
@@ -195,6 +200,17 @@ function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage, endedMea
   const theirs = serverTail.content ?? '';
   if (!(mine.length > theirs.length && mine.startsWith(theirs))) return null;
   return withServerBanners(local, serverTail);
+}
+
+/**
+ * The bubble this window holds for the server's live row: the one with its id,
+ * or failing that the one still under a local name (the same turn, its row's
+ * announcement not yet seen here).
+ */
+function localCopyOf(existing: ChatMessage[], serverTail: ChatMessage): ChatMessage | undefined {
+  const byId = serverTail.id ? existing.find((m) => m.id === serverTail.id) : undefined;
+  if (byId) return byId.role === 'assistant' && byId.partial === true ? byId : undefined;
+  return existing.find((m) => m.role === 'assistant' && m.partial === true && isClientGeneratedMessageId(m.id));
 }
 
 /**

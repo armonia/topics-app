@@ -20,7 +20,8 @@
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { E2E_HOME } from "./test-server";
+import { request as playwrightRequest } from "@playwright/test";
+import { E2E_BASE, E2E_HOME } from "./test-server";
 
 const VERSIONS_DIR = join(E2E_HOME, ".local", "share", "claude", "versions");
 const IS_WINDOWS = process.platform === "win32";
@@ -115,4 +116,38 @@ const REPLAY_SCRIPT = resolve(__dirname, "fake-claude-replay.ts");
  */
 export function installReplayCli(logPath: string): () => void {
   return install(REPLAY_SCRIPT, { FAKE_CLI_LOG: logPath });
+}
+
+/**
+ * Installs `script` (a bun script) as the test server's CODEX CLI; returns its
+ * removal.
+ *
+ * Not through a folder the probe walks: the codex resolver memoizes the first
+ * binary it finds, and a real `codex` on PATH would win. The path goes through
+ * the route Settings uses to point at a CLI by hand
+ * (`POST /api/providers/cli/configure`), which stores it, forgets the memoized
+ * answers and registers the provider in one call. The removal clears it the
+ * same way, so the probe answers again for the specs after. Its own request
+ * context: a `request` fixture from `beforeAll` cannot be used in `afterAll`.
+ */
+export async function installFakeCodex(script: string, env: Record<string, string> = {}): Promise<() => Promise<void>> {
+  const dir = join(E2E_HOME, "fake-codex");
+  const entry = join(dir, IS_WINDOWS ? "codex.cmd" : "codex");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(entry, fakeCliEntry(process.platform, bunPath(), script, env));
+  if (!IS_WINDOWS) chmodSync(entry, 0o755);
+  const configure = async (path: string | null) => {
+    const request = await playwrightRequest.newContext();
+    try {
+      const res = await request.post(`${E2E_BASE}/api/providers/cli/configure`, { data: { agent: "codex", path } });
+      if (!res.ok()) throw new Error(`codex configure ${path ?? "(clear)"}: HTTP ${res.status()} ${await res.text()}`);
+    } finally {
+      await request.dispose();
+    }
+  };
+  await configure(entry);
+  return async () => {
+    await configure(null);
+    rmSync(dir, { recursive: true, force: true });
+  };
 }
