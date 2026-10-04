@@ -31,6 +31,7 @@
 //    hasn't received its first delta yet).
 
 import type { ChatMessage, ContentBlock, ToolCall } from '../types';
+import { isActiveTool } from '../components/Chat/toolGrouping';
 
 /**
  * Il prefisso degli id CONIATI DAL CLIENT.
@@ -93,6 +94,47 @@ export interface CatchupPayload {
   blocks?: ContentBlock[];
 }
 
+const hasLiveOutput = (tc: ToolCall | undefined): boolean =>
+  !!tc && isActiveTool(tc) && typeof tc.result === 'string' && tc.result !== '';
+
+/**
+ * A call still running keeps the live output this window already shows when
+ * the catch-up brings none for it (CHAT-TOOL-11).
+ *
+ * The server puts each running call's last tail in the catch-up
+ * (`server/lib/live-tool-tail.ts`), but a frame built before the first tail,
+ * or by a server older than that, carries the call without output. The blocks
+ * of the catch-up REPLACE the local ones, so that call wiped the lines on
+ * screen until the command printed again, and for good if it never did. A
+ * catch-up that does carry a tail wins: it is the newer one.
+ */
+function keepLiveOutput<T>(
+  items: readonly T[] | undefined,
+  local: ReadonlyMap<string, ToolCall>,
+  pick: (item: T) => ToolCall | undefined,
+  put: (item: T, tc: ToolCall) => T,
+): T[] | undefined {
+  if (!items || local.size === 0) return items as T[] | undefined;
+  let changed = false;
+  const out = items.map((item) => {
+    const tc = pick(item);
+    if (!tc || !isActiveTool(tc) || hasLiveOutput(tc)) return item;
+    const mine = local.get(tc.id);
+    if (!mine || !hasLiveOutput(mine)) return item;
+    changed = true;
+    return put(item, { ...tc, result: mine.result });
+  });
+  return changed ? out : (items as T[]);
+}
+
+/** The running calls of the local partial that show live output, by id. */
+function liveOutputById(message: ChatMessage): Map<string, ToolCall> {
+  const out = new Map<string, ToolCall>();
+  for (const tc of message.toolCalls ?? []) if (hasLiveOutput(tc)) out.set(tc.id, tc);
+  for (const b of message.blocks ?? []) if (b.kind === 'tool' && hasLiveOutput(b.toolCall)) out.set(b.toolCall.id, b.toolCall);
+  return out;
+}
+
 /**
  * Compute the next assistant message for a session given the incoming
  * catchup payload and the current last message (may be undefined).
@@ -111,6 +153,14 @@ export function mergeCatchupIntoPartial(
     // Merging INTO the local partial: prefer server-truth tool/block lists when
     // the catchup carries them; otherwise keep the partial's own so a tool_call
     // event that arrived between WS open and catchup delivery isn't lost.
+    const live = liveOutputById(lastMessage);
+    const toolCalls = keepLiveOutput(payload.toolCalls, live, (tc) => tc, (_tc, next) => next);
+    const blocks = keepLiveOutput(
+      payload.blocks,
+      live,
+      (b) => (b.kind === 'tool' ? b.toolCall : undefined),
+      (b, next) => ({ ...b, toolCall: next }) as ContentBlock,
+    );
     return {
       ...lastMessage,
       // L'id durevole si ADOTTA, ma solo sopra un segnaposto coniato qui. Un id
@@ -123,8 +173,8 @@ export function mergeCatchupIntoPartial(
         : {}),
       content: payload.content || lastMessage.content || '',
       thinking: payload.thinking || lastMessage.thinking,
-      toolCalls: payload.toolCalls ?? lastMessage.toolCalls,
-      blocks: payload.blocks ?? lastMessage.blocks,
+      toolCalls: toolCalls ?? lastMessage.toolCalls,
+      blocks: blocks ?? lastMessage.blocks,
     };
   }
 

@@ -5402,6 +5402,107 @@ dell'evento (`toolUpdatePatch`) resta com'è.
 - **THEN** `result` resta quello finale
 - **AND** sulla chat di `:13334`, con la riga senza `detail` tipizzato (come arriva dall'SSE nella finestra mittente), `tool-call-result` mostra ancora l'output finale
 
+### Requirement: CHAT-TOOL-10 — La finestra da cui hai scritto riceve lo stesso tool call delle altre
+
+La finestra che ha mandato il messaggio legge il turno dal proprio SSE e, finché
+la risposta è aperta, scarta i frame WS della sessione (`senderAlsoSees.ts`).
+Il server SHALL quindi scrivere sull'SSE lo stesso `ToolCall` del frame WS:
+
+- la voce di `delta.tool_calls` SHALL portare `status`, `startedAt` e `detail`
+  oltre a `id`, `function` e `contentOffset` (annuncio e argomenti completi);
+- `delta.tool_result` SHALL portare `endedAt`, e `error` e `detail` quando il
+  frame WS li porta (esito del tool, tool eseguiti dalla route, chiusura dei
+  tool aperti a fine turno).
+
+Il client (`client/src/hooks/sseToolFrames.ts`) SHALL leggerli con le stesse
+regole di `stream:tool_result` su WS. Una riga `shell` in `error` senza output
+SHALL mostrare il testo di `error` (`tool-call-error`): prima la X rossa non
+diceva il perché.
+
+#### Scenario: il cronometro c'è anche nella finestra che scrive
+- **GIVEN** una chat `claude-code` su `:13334` con la CLI finta che lancia `Bash` `sleep 30`
+- **WHEN** il messaggio parte da questa finestra
+- **THEN** la riga del tool mostra `tool-elapsed` entro 2 s da quando compare
+- **AND** a tool chiuso, prima che la storia sia riletta, mostra `tool-duration`
+
+#### Scenario: un turno tagliato dice perché
+- **GIVEN** la stessa chat, con la CLI che muore mentre il `Bash` gira
+- **WHEN** il turno si chiude e la storia non è ancora stata riletta
+- **THEN** la riga è in `error` e `tool-call-error` contiene il motivo
+
+#### Scenario: i frame SSE della route portano i tempi
+- **GIVEN** un provider che annuncia un tool, ne aggiorna l'output e lo chiude con un errore
+- **WHEN** la route scrive l'SSE
+- **THEN** la voce `tool_calls` ha `startedAt` e `detail`, il `tool_result` ha `endedAt` ed `error`
+
+### Requirement: CHAT-TOOL-11 — La coda viva di un comando in corso sopravvive al catch-up
+
+L'ultimo `stream:tool_update` di ogni tool ancora in corso SHALL restare in
+memoria sulla voce del turno (`ActiveStream.liveToolTails`,
+`server/lib/live-tool-tail.ts`), tagliato agli ultimi 16 KB in byte come la
+coda della shell nativa, MAI scritto sul DB, e SHALL sparire quando il tool ha
+il suo esito. `buildStreamCatchupFrame` SHALL mettere quella coda come `result`
+del tool in corso, nei blocchi e nel bucket `toolCalls` quando viaggia.
+
+Il client (`mergeCatchupIntoPartial`) SHALL tenere l'output vivo che mostra già
+per un tool in corso quando il catch-up lo porta senza: i blocchi del catch-up
+sostituiscono quelli locali, e senza questa regola la shell tornava vuota a
+ogni ricollegamento, montaggio della pane o ricarica. Un catch-up che porta una
+coda vince.
+
+#### Scenario: il catch-up porta la coda
+- **GIVEN** un turno in volo con un `Bash` in corso e una coda di 20 KB in memoria
+- **WHEN** si costruisce il frame di catch-up
+- **THEN** il tool porta come `result` gli ultimi 16 KB della coda
+- **AND** i tool chiusi restano senza coda e il frame resta sotto il budget di peso
+
+#### Scenario: la coda resta a schermo dopo il catch-up
+- **GIVEN** la chat su `:13334` con un `Bash` in `running` che mostra tre righe in `shell-running-tail`
+- **WHEN** arriva un `stream:catchup` che porta lo stesso tool senza output
+- **THEN** le tre righe restano
+- **AND** un catch-up successivo con una coda nuova la mostra
+
+### Requirement: CHAT-TOOL-12 — Un tool riannunciato tiene i suoi primi orari
+
+Un tool call già visto SHALL tenere il primo `startedAt` e il primo `endedAt`
+(`server/lib/tool-call-times.ts`): nella fusione di `addToolCallToLastMessage`
+(`server/utils.ts`) e nell'annuncio e nell'esito della route, dove contano gli
+orari della timeline del turno e poi quelli della riga riadottata. Il replay di
+una riadozione dopo un riavvio ri-emette tutti i tool: con `Date.now()` ogni
+tool di prima del riavvio veniva riscritto con durata zero (21% dei tool di
+topic d740f8ae il 03/10).
+
+#### Scenario: la fusione non ritimbra
+- **GIVEN** una riga con un tool `t1` che ha `startedAt` e `endedAt`
+- **WHEN** lo stesso id viene riannunciato con orari nuovi
+- **THEN** `startedAt` ed `endedAt` restano quelli di prima
+
+#### Scenario: il replay della riadozione non ritimbra
+- **GIVEN** una riga in volo con un tool chiuso e uno ancora in corso, ciascuno col suo `startedAt`
+- **WHEN** la route riadotta il turno (`mode: "reattach"`) e il replay riannuncia e chiude entrambi
+- **THEN** nella riga e nei frame i due tool hanno ancora il `startedAt` di prima, e quello già chiuso il suo `endedAt`
+
+### Requirement: CHAT-TOOL-13 — Una shell in corso senza output dice da quanto gira
+
+Una riga `shell` in corso con `startedAt`, senza coda viva e senza output,
+SHALL mostrare nel corpo `shell-silent-status`: «In esecuzione da {tempo} ·
+nessun output finora», aggiornato ogni secondo e nascosto nel primo secondo.
+Se il comando comincia con `sleep N` (secondi, o suffisso `s`/`m`/`h`) seguito
+dalla fine del comando, da `;`, `&&`, `||` o da un a capo, SHALL mostrare anche
+`shell-sleep-countdown`: quanto manca alla fine di quella attesa, in secondi
+interi arrotondati per eccesso. Niente PTY: è una scelta di presentazione, i
+comandi muti restano muti. I testi passano dall'i18n.
+
+#### Scenario: un sleep si conta alla rovescia
+- **GIVEN** la chat su `:13334` con la CLI finta che lancia `Bash` `sleep 30`
+- **WHEN** il tool gira
+- **THEN** la riga dice da quanto è in esecuzione e che non c'è output
+- **AND** il conto alla rovescia scende
+
+#### Scenario: solo uno sleep in testa conta
+- **WHEN** si legge la durata di `sleep 30; echo ok`, `sleep 2m`, `make && sleep 5` e `sleepy 3`
+- **THEN** valgono 30 s, 120 s, nessuna e nessuna
+
 ### Requirement: CHAT-RUN-01 — Il blocco shell di una risposta finita offre Esegui, e niente gira da solo
 
 Un blocco di codice SHALL offrire «Esegui» e «Apri nel terminale», accanto a

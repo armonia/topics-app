@@ -5,6 +5,7 @@ import type { ToolCall, ToolUserResponse } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { runningShellOutput } from './runningShellTail';
+import { SilentShellStatus } from './SilentShellStatus';
 import { ToolCardBody } from './ToolCards';
 import { spawnRefusal } from './subagentResult';
 import { toolCardHasBody } from './toolCardBody';
@@ -652,6 +653,10 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           ) : (
             <>
             <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
+            {/* CHAT-TOOL-13: a running command with nothing printed yet says for how long. */}
+            {detail.type === 'shell' && isRunning && !detail.output && !runningShellOutput(toolCall) && typeof toolCall.startedAt === 'number' && (
+              <SilentShellStatus since={toolCall.startedAt} command={detail.command} />
+            )}
             {/* A tool that asked something mid-work (the plan on a `Write`, an
                 MCP elicitation) keeps its card, with the answer and the options
                 it was chosen from underneath. */}
@@ -664,7 +669,9 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               {tr('chat.question.askerGone')}
             </div>
           )}
-          {toolCall.error && status === 'error' && detail.type !== 'shell' && !questionEndedText && !refusedSpawn && (
+          {/* A shell shows its failure in its own red output; one cut before it
+              printed anything has only the error to say why (CHAT-TOOL-10). */}
+          {toolCall.error && status === 'error' && (detail.type !== 'shell' || !detail.output) && !questionEndedText && !refusedSpawn && (
             <div className="mt-1.5">
               <div className="text-mini uppercase tracking-wide text-red-500 mb-0.5">Error</div>
               <pre data-testid="tool-call-error" className="text-mini font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-40 bg-red-500/5 rounded px-2 py-1.5">

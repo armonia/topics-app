@@ -32,6 +32,11 @@
  * Not a lean of the whole partial message: `content` and `thinking` are the
  * text of the turn as it is being written and there is nothing else carrying
  * them.
+ *
+ * And one addition, the opposite of a cut: a tool still running travels with
+ * its live output (`ActiveStream.liveToolTails`, at most 16 KB each) as its
+ * `result`. The row on disk never has it, so without this every reopen wiped
+ * the running shell's output from the screen (lib/live-tool-tail.ts).
  */
 import { stripArgsText, stripDetailText } from "../../shared/lean-tool-call";
 import type { ActiveStream, StoredMessage } from "../types";
@@ -73,6 +78,28 @@ function leanFinishedToolCalls(calls: readonly ToolCall[]): readonly ToolCall[] 
   return changed ? out : calls;
 }
 
+/** A running call with a live tail gets it as `result`; anything else, the same reference. */
+function withLiveTail<T extends ToolCall>(tc: T, tails: ReadonlyMap<string, string> | undefined): T {
+  if (!tc || !tails || isFinished(tc.status)) return tc;
+  const tail = tails.get(tc.id);
+  return tail ? { ...tc, result: tail } : tc;
+}
+
+/** The blocks with every running call's live tail on it; same reference if none had one. */
+function withLiveTailBlocks(blocks: readonly ContentBlock[] | undefined, tails: ReadonlyMap<string, string> | undefined): readonly ContentBlock[] | undefined {
+  if (!blocks || !tails?.size) return blocks;
+  let changed = false;
+  const out = blocks.map((b) => {
+    const block = b as { toolCall?: ToolCall };
+    if (!b || typeof b !== "object" || !block.toolCall) return b;
+    const live = withLiveTail(block.toolCall, tails);
+    if (live === block.toolCall) return b;
+    changed = true;
+    return { ...b, toolCall: live } as ContentBlock;
+  });
+  return changed ? out : blocks;
+}
+
 /** What the frame carries of the partial message, once trimmed. */
 export interface CatchupMessagePayload {
   toolCalls?: readonly ToolCall[];
@@ -94,7 +121,7 @@ export function leanCatchupMessage(partial: Pick<StoredMessage, "toolCalls" | "b
 }
 
 /** The stream state the frame is built from: the registry entry, minus what it does not ship. */
-export type CatchupStreamState = Pick<ActiveStream, "content" | "thinking" | "isThinking" | "messageId" | "retry" | "slow">;
+export type CatchupStreamState = Pick<ActiveStream, "content" | "thinking" | "isThinking" | "messageId" | "retry" | "slow" | "liveToolTails">;
 
 /**
  * The whole `stream:catchup` frame for one active stream.
@@ -109,7 +136,10 @@ export function buildStreamCatchupFrame(args: {
   partial: Pick<StoredMessage, "toolCalls" | "blocks">;
 }): Record<string, unknown> {
   const { sessionKey, topicId, stream, partial } = args;
-  const { toolCalls, blocks } = leanCatchupMessage(partial);
+  const lean = leanCatchupMessage(partial);
+  const tails = stream.liveToolTails;
+  const blocks = withLiveTailBlocks(lean.blocks, tails);
+  const toolCalls = lean.toolCalls && tails?.size ? lean.toolCalls.map((tc) => withLiveTail(tc, tails)) : lean.toolCalls;
   return {
     type: "stream:catchup",
     sessionKey,

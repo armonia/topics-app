@@ -162,6 +162,8 @@ const EN = {
   'ctx.removeFile': 'Remove the file',
   'tool.logTruncated': '[… {n} lines dropped: the log buffer is full]',
   'tool.runningTail.more': 'More output above',
+  'tool.shell.silent': 'Running for {elapsed} · no output yet',
+  'tool.shell.sleepLeft': ' · sleep: {left} left',
   'tool.result.showAll': 'Show all ({size})',
   'tool.result.showLess': 'Show less',
   'kpi.noSource': 'Data unavailable: no source for this metric',
