@@ -17,7 +17,12 @@
  * repository: they are the endpoint's answer, and asserting them through the
  * browser would test git twice and the chip once.
  *
- * @covers CHAT-CHANGES-01
+ * THE DIFF INSIDE THE STRIP (CHGSET-03). On a repository the strip draws the
+ * topic's changeset with the board's own panel: a row expands in place into
+ * its `-`/`+` lines, a rewritten picture into its Before/After pair, and no
+ * editor pane opens. Walked here on a real throwaway repository, on WebKit.
+ *
+ * @covers CHAT-CHANGES-01, CHGSET-03
  */
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
@@ -28,8 +33,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { join } from "path";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 hermetic(test);
 
@@ -132,6 +139,9 @@ test.describe("I file che questa conversazione ha toccato", () => {
     // Two mounted transcripts, a dedicated browser and three read beats: the
     // 30s default is the suite's, not this test's.
     test.setTimeout(120_000);
+    // `clipDiConsegna` launches its own Chromium: under the webkit project it
+    // would be the Chromium this Mac refuses, and the chromium project runs it.
+    test.skip(test.info().project.name === "webkit", "the clip launches Chromium: the chromium project runs it");
 
     const stamp = Date.now();
     const written = await createTopic(request, `strip-written-${stamp}`);
@@ -237,5 +247,108 @@ test.describe("I file che questa conversazione ha toccato", () => {
     });
 
     if (clip) console.log(`clip: ${clip.path} (${clip.durataMs} ms)`);
+  });
+
+});
+
+/** Two 1x1 pictures, red then blue: the Before and the After of a rewritten PNG. */
+const RED_PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63b82327070002f2011973440bcb0000000049454e44ae426082", "hex");
+const BLUE_PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c639093bb030001760119dbebbf3b0000000049454e44ae426082", "hex");
+
+test.describe("the strip opens the chat's changeset with the board's diff panel", () => {
+  const topics: string[] = [];
+  const repos: string[] = [];
+
+  test.afterAll(async ({ request }) => {
+    for (const id of topics) await deleteTopic(request, id).catch(() => {});
+    for (const dir of repos) removeTmpDir(dir);
+  });
+
+  /** A throwaway repository with `files` committed, in a folder of its own for this run. */
+  function makeRepo(label: string, files: Record<string, string | Buffer>): { dir: string; git: (...args: string[]) => string } {
+    const dir = join(canonicalTmpRoot(), `e2e-chgset-${label}-${Date.now()}`);
+    repos.push(dir);
+    const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
+    mkdirSync(dir, { recursive: true });
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "t@t.t");
+    git("config", "user.name", "t");
+    for (const [path, body] of Object.entries(files)) {
+      mkdirSync(join(dir, path, ".."), { recursive: true });
+      writeFileSync(join(dir, path), body);
+    }
+    git("add", "-A");
+    git("commit", "-q", "-m", "base");
+    return { dir, git };
+  }
+
+  /** A topic on `dir` whose conversation wrote `writes` (repo-relative), opened by permalink. */
+  async function chatOn(page: Page, dir: string, writes: Array<{ path: string; tool: "Write" | "Edit" }>): Promise<string> {
+    const topic = await createTopic(page.request, `chgset-${Date.now()}`, { projectPath: dir });
+    topics.push(topic.id);
+    await seedMessage(page.request, {
+      sessionKey: await sessionKeyOf(page.request, topic.id),
+      role: "assistant",
+      content: "fatto",
+      toolCalls: writes.map((w, i) => ({ id: `w${i}-${topic.id}`, name: w.tool, args: { file_path: join(dir, w.path) }, status: "success" })),
+    });
+    // By permalink: a topic bound to a project has no top-level sidebar row.
+    await resetPaneStore(page.request, [topic.id]);
+    const opened = await page.goto(`/tab/chat/${topic.id}`);
+    expect(opened?.status()).toBe(200);
+    return topic.id;
+  }
+
+  test("two files changed: two rows, and a row opens its own -/+ lines inside the strip", async ({ page }) => {
+    test.setTimeout(90_000);
+    const { dir } = makeRepo("two", { "a.txt": "uno\ndue\n" });
+    writeFileSync(join(dir, "a.txt"), "uno\nDUE\n");
+    writeFileSync(join(dir, "b.txt"), "nuovo\n");
+    // Somebody else's dirt in the same checkout: not this chat's.
+    writeFileSync(join(dir, "c.txt"), "altrui\n");
+    await chatOn(page, dir, [{ path: "a.txt", tool: "Edit" }, { path: "b.txt", tool: "Write" }]);
+
+    const chip = page.getByTestId("chat-changes-chip");
+    await expect(chip).toBeVisible({ timeout: 20_000 });
+    await expect(chip).toContainText("2");
+    await beat(page, 600);
+    await chip.click();
+
+    const diff = page.getByTestId("chat-changes-diff");
+    const files = diff.getByTestId("diff-file");
+    await expect(files).toHaveCount(2, { timeout: 15_000 });
+    await expect(files.nth(0)).toHaveAttribute("data-path", /^(a|b)\.txt$/);
+    await expect(diff.locator('[data-testid="diff-file"][data-path="c.txt"]')).toHaveCount(0);
+    await beat(page, 800);
+
+    const a = diff.locator('[data-testid="diff-file"][data-path="a.txt"]');
+    await a.getByRole("button", { name: /a\.txt/ }).click();
+    await expect(a).toContainText("-due");
+    await expect(a).toContainText("+DUE");
+    // b.txt stays closed: the click opened ITS file, not every file.
+    await expect(diff.locator('[data-testid="diff-file"][data-path="b.txt"]')).not.toContainText("+nuovo");
+    // In the strip, not in the editor.
+    await expect(page.getByTestId("file-pane")).toHaveCount(0);
+    await beat(page, 1500);
+  });
+
+  test("a rewritten picture opens as its Before/After pair", async ({ page }) => {
+    test.setTimeout(90_000);
+    const { dir, git } = makeRepo("png", { "docs/shot.png": RED_PNG });
+    const head = git("rev-parse", "HEAD");
+    writeFileSync(join(dir, "docs/shot.png"), BLUE_PNG);
+    await chatOn(page, dir, [{ path: "docs/shot.png", tool: "Write" }]);
+
+    await page.getByTestId("chat-changes-chip").click({ timeout: 20_000 });
+    const file = page.getByTestId("chat-changes-diff").locator('[data-testid="diff-file"][data-path="docs/shot.png"]');
+    await file.getByRole("button", { name: /shot\.png/ }).click();
+    const before = file.getByTestId("diff-image-before");
+    const after = file.getByTestId("diff-image-after");
+    await expect(before).toHaveAttribute("src", new RegExp(`/api/topics/[^/]+/changes/diff\\?file=docs%2Fshot\\.png&blob=${head}`));
+    await expect(after).toHaveAttribute("src", /blob=worktree/);
+    // Both pictures actually arrived: a broken <img> has no natural width.
+    await expect.poll(() => before.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
+    await expect.poll(() => after.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
+    await beat(page, 1200);
   });
 });
