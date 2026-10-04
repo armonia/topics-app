@@ -9,10 +9,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Domanda in coda dietro un'altra chiamata: il form resta nella finestra da cui si è scritto
 - Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato
 - Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava
+- Porta in inglese il commento italiano di tool-live-tail-reopen
+- NOTIF-ONE misura cio' che accendono le sue chat, non il totale del server
 
 ## 2.2.445 — 2026-10-04
 
 ### Sotto il cofano
+- Porta la coda viva anche nella storia e non dire «nessun output finora»
 - Togli i furti delle aree proiettate e porta i comandi della tab a 24
 - Chiudi i tre buchi della guardia di usabilità
 
@@ -35,6 +38,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Isola DATA_DIR in topics.streaming.test.ts
 - Libera la pane anche sul dispositivo che torna dopo il ritorno, e scrivi la finestra prima del progetto
 - Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219
+- Porta lo stesso tool call su SSE e WS, tieni la coda viva nel catchup, non ritimbrare al replay
 - Rendi la X del banner di aggiornamento un bersaglio vero
 - Porta bersagli, testo e contrasto alla soglia nelle radici condivise
 - Aggiungi la guardia di usabilità: bersagli, testo e contrasto misurati
