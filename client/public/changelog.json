@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.444",
+    "date": "2026-10-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Parcheggia il piano dei nodi cloud: VPS come nodi di Topics per il lavoro pesante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinumera i requisiti del piano cloud dopo KANBAN-95 della PR #219",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.442",
     "date": "2026-10-04",
     "sections": {

@@ -11,7 +11,9 @@
  * @covers BGSHELL-02
  */
 
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
+import { join } from "path";
+import { setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { shellProcessKey } from "../../shared/background-shell-registry";
 import {
   closeBackgroundShell,
@@ -20,6 +22,11 @@ import {
   registerBackgroundShell,
   getScriptsSnapshot,
 } from "./processes";
+
+// The registry writes its logs and `scripts.json` under the state folder: a
+// temporary one, or it falls on the working directory, the live one in the repo.
+const ROOT = testTmpDir("processes-shell");
+beforeAll(() => setupTestDataDir(join(ROOT, "data")));
 
 let n = 0;
 function freshSession(): string {

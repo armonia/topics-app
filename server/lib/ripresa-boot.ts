@@ -561,12 +561,11 @@ export function outageResendAttempt(
   return next;
 }
 
-/** Quel poco del contesto del server che serve al giro. */
 /**
- * IL TURNO TAGLIATO AVEVA GIÀ FATTO QUALCOSA? Almeno un tool arrivato a un
- * esito (`success` o `error`) nelle righe dell'assistente dopo l'ultimo
- * messaggio dell'utente: quel lavoro è nella storia che il turno ripreso
- * rilegge (`native/history-rehydrate.ts`), quindi riprendere non è ripetere.
+ * HAD THE CUT TURN ALREADY DONE SOMETHING? At least one tool that reached an
+ * outcome (`success` or `error`) in the assistant rows after the user's last
+ * message: that work is in the history the resumed turn reads back
+ * (`native/history-rehydrate.ts`), so resuming is not repeating.
  */
 export function cutTurnProgressed(rows: ReadonlyArray<ContentBlock[] | null>): boolean {
   return rows.some((blocks) => Array.isArray(blocks) && blocks.some((b) => {
@@ -605,12 +604,12 @@ function continuationsInARow(db: Pick<Database, "query">, sessionKey: string): n
 }
 
 /**
- * Cosa si manda al posto della domanda quando il turno tagliato da un riavvio
- * aveva già lavorato. Rimandare la domanda originale faceva ripartire il
- * modello da capo, con le sue chiamate di prima sopra e nessuno che gli dicesse
- * perché la stessa domanda era arrivata due volte. In inglese come gli altri
- * avvisi di Topics nel turno utente: la direttiva di lingua dice al modello che
- * non cambiano la lingua della risposta.
+ * What is sent instead of the question when the turn cut by a restart had
+ * already done work. Resending the original question made the model start
+ * over, with its earlier calls above and nobody telling it why the same
+ * question had arrived twice. In English like Topics' other notices in the
+ * user turn: the language directive tells the model they do not change the
+ * language of the answer.
  */
 export function restartContinuationNote(commands: ReadonlyArray<{ description: string; processId: string }>): string {
   const running = commands.length
@@ -630,6 +629,7 @@ function cutByRestart(cut: { cause?: unknown; text?: string } | undefined): bool
   return !!cut && (isRestartNotice(cut.text) || cut.cause === "server-shutdown");
 }
 
+/** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
   getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number; provider?: string | null } | undefined | null;

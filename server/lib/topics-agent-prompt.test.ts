@@ -237,9 +237,9 @@ describe('resolveMcpOutputTokens — il tetto ai risultati dei tool MCP', () => 
 });
 
 describe('languageDirective', () => {
-  // topic:d740f8ae: con la stringa vuota il modello seguiva l'ultimo messaggio
-  // del turno, cioè l'avviso inglese del goal, e ha risposto in inglese a una
-  // chat italiana per ore.
+  // topic:d740f8ae: with the empty string the model followed the last message
+  // of the turn, that is the English goal notice, and answered an Italian chat
+  // in English for hours.
   test("'auto' non sceglie una lingua: segue la persona, non gli avvisi di Topics", () => {
     const auto = languageDirective('auto');
     expect(auto).toContain('the language the person writes in');

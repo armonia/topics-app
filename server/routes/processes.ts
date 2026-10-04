@@ -377,8 +377,9 @@ function loadState() {
 /**
  * `ps -o lstart=` per un pid, sincrono. `undefined` se il pid non c'e' piu'.
  *
- * Sincrono perche' `loadState()` gira all'import, prima che esista un event
- * loop a cui appendere una promise, ed e' un solo `ps` per script riadottato.
+ * Synchronous because `loadState()` runs inside synchronous callers (the
+ * boot, and any export that reads the registry first), with no promise to
+ * wait on, and it is one `ps` per re-adopted script.
  * `getPidStartTimes` e' il gemello asincrono e in blocco della strada di kill.
  */
 function pidStartTime(pid: number): string | undefined {
@@ -704,11 +705,11 @@ const commandServiceWatch = serviceWatch({
   onChange: (row) => { if (_broadcastCtx && row.cmd) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, row.cmd); } },
   servesHtml,
 });
-export const commandBackgroundWork = commandWorkOver(() => runningScripts.values(), commandServiceWatch.listenOf); // the chat's background line (BGVIS-07)
+export const commandBackgroundWork = commandWorkOver(() => (loadProcessRegistry(), runningScripts.values()), commandServiceWatch.listenOf); // the chat's background line (BGVIS-07)
 /** Every chat's servers, running or just ended: the `services` of `GET /api/topics/streaming`. */
-export const commandServices = () => servicesOver(runningScripts.values(), recentScripts, commandServiceWatch.listenOf, Date.now());
+export const commandServices = () => (loadProcessRegistry(), servicesOver(runningScripts.values(), recentScripts, commandServiceWatch.listenOf, Date.now()));
 /** A chat's `run_command` processes, for `GET /api/processes`. */
-export const topicCommandProcesses = (topicId: string) => commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf);
+export const topicCommandProcesses = (topicId: string) => (loadProcessRegistry(), commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf));
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
@@ -727,6 +728,7 @@ export const topicCommandProcesses = (topicId: string) => commandProcessesOf([..
  */
 export type CommandWakeState = "running" | "wake-queued" | "none";
 export function commandWakeState(sessionKey: string, ownWake?: string): CommandWakeState {
+  loadProcessRegistry();
   for (const sp of runningScripts.values()) if (sp.cmd?.wake && sp.cmd.sessionKey === sessionKey) return "running";
   return recentScripts.some((sp) => sp.cmd?.wake && !sp.wakeFailed && sp.cmd.sessionKey === sessionKey && sp.processId !== ownWake)
     ? "wake-queued" : "none";
@@ -734,6 +736,7 @@ export function commandWakeState(sessionKey: string, ownWake?: string): CommandW
 
 /** Every session a command still owes a wake: the goals that wait again after a restart. */
 export function sessionsAwaitingCommandWake(): string[] {
+  loadProcessRegistry();
   const keys = new Set<string>();
   for (const sp of [...runningScripts.values(), ...recentScripts]) if (sp.cmd?.wake && !sp.wakeFailed) keys.add(sp.cmd.sessionKey);
   return [...keys];
@@ -827,21 +830,55 @@ function startCommandProcess(o: {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
-loadState();
-// Runs at MODULE IMPORT (before createAppContext / Bun.serve). getPersistDir()
-// now resolves a writable dir, but keep this defensive so a persist-dir failure
-// can never abort server boot and hang the "Launching the local engine" splash.
-try {
-  mkdirSync(join(getPersistDir(), "scripts"), { recursive: true });
-} catch (e) {
-  console.error("[processes] persist dir init failed (non-fatal):", e);
+/**
+ * Whether this process has read its persisted registry. Set before the read,
+ * not after: `loadState` closes a command found dead, closing saves, and a
+ * save from inside the load must not start a second one.
+ */
+let registryLoaded = false;
+
+/**
+ * Read the registry persisted under the state folder, once per process: the
+ * runs of the previous life re-adopted, the ones that ended while the server
+ * was down closed and their wakes requested. `server.ts` calls it at boot,
+ * after the daemon lock and before `createAppContext`; every export that reads
+ * or changes the registry calls it too, so whoever comes first loads it and
+ * nobody sees an empty registry that has a file on disk.
+ *
+ * WHY NOT AT IMPORT, where it used to run. The state folder is a function of
+ * the environment (`stateDirTarget`), and at import the environment is not yet
+ * the caller's. A test file imports `./chat` at its top, `chat.ts` imports this
+ * module, and ES imports run before the file's `beforeAll` can point DATA_DIR
+ * at a temporary folder: 64 test files run from the repo resolved the folder
+ * to the working directory, created `.state/scripts/` there and read the LIVE
+ * `scripts.json`, re-adopting the running server's commands and rewriting the
+ * file when one of them had ended (04/10/2026). The same import also made a
+ * server that loses the daemon lock rewrite that file before exiting, which
+ * `server.ts` says a losing boot must not do. Guard:
+ * `processes.import-touches-nothing.test.ts`.
+ *
+ * Production resolves the same folder as before: the variables are the same
+ * and nothing between the imports and this call changes them.
+ */
+export function loadProcessRegistry(): void {
+  if (registryLoaded) return;
+  registryLoaded = true;
+  loadState();
+  // getPersistDir() resolves a writable dir, but keep this defensive so a
+  // persist-dir failure can never abort server boot and hang the "Launching
+  // the local engine" splash.
+  try {
+    mkdirSync(join(getPersistDir(), "scripts"), { recursive: true });
+  } catch (e) {
+    console.error("[processes] persist dir init failed (non-fatal):", e);
+  }
 }
 
 // ── Router ───────────────────────────────────────────────────────────────────
 
 // ── Scripts response cache (2s TTL, invalidated on state change) ─────────
-// (The cache itself is declared at the top: `loadState` runs at import and
-// can close a command's row, which saves, which invalidates it.)
+// (The cache itself is declared at the top: `loadState` can close a
+// command's row, which saves, which invalidates it.)
 const SCRIPTS_CACHE_TTL = 2000;
 
 function invalidateScriptsCache() {
@@ -858,6 +895,7 @@ function invalidateScriptsCache() {
  * e3240a22), the GC's «something alive inside» (point 3) and the ghost reaper.
  */
 export function listOwnedScripts(): OwnedScript[] {
+  loadProcessRegistry();
   return Array.from(runningScripts.values())
     .filter(sp => isTopicsSpawned(sp.source) && sp.status === "running" && sp.pid)
     .map(sp => ({
@@ -889,6 +927,7 @@ function publicRow(sp: ScriptProcess) {
 }
 
 export function getScriptsSnapshot(): any[] {
+  loadProcessRegistry();
   return [...runningScripts.values(), ...recentScripts].map(sp => ({ ...publicRow(sp), ports: [] as number[] }));
 }
 
@@ -929,6 +968,7 @@ const previewProcessPrefix = (taskId: string) => `preview:${taskId.slice(0, 8)}:
 const previewProcessKey = (taskId: string, port: number) => `${previewProcessPrefix(taskId)}${port}`;
 
 export function registerPreviewProcess(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void {
+  loadProcessRegistry();
   const processId = previewProcessKey(entry.taskId, entry.port);
   runningScripts.set(processId, {
     processId,
@@ -966,6 +1006,7 @@ export function registerPreviewProcess(entry: { taskId: string; port: number; pi
  * raccogliere, e proteggerle vorrebbe dire non spazzare mai.
  */
 export async function trackedScriptPidTrees(): Promise<Set<number>> {
+  loadProcessRegistry();
   const out = new Set<number>();
   for (const [processId, sp] of runningScripts) {
     if (processId.startsWith("preview:")) continue;
@@ -978,6 +1019,7 @@ export async function trackedScriptPidTrees(): Promise<Set<number>> {
 }
 
 export function unregisterPreviewProcess(taskId: string): void {
+  loadProcessRegistry();
   // OGNI accensione del task, non solo l'ultima: la chiave porta la porta, e una
   // riga rimasta indietro sarebbe un processo vivo che nessuno ritira.
   const prefix = previewProcessPrefix(taskId);
@@ -1025,6 +1067,7 @@ export function registerBackgroundShell(entry: {
   /** The file the CLI writes the shell's output to (BGSHELL-05). */
   outputPath?: string;
 }): void {
+  loadProcessRegistry();
   const processId = shellProcessKey(entry.sessionKey, entry.shellId);
   // Ri-registrare la stessa shell non deve azzerarne l'output: l'agente può
   // rilanciare lo stesso id dopo un reattach.
@@ -1064,6 +1107,7 @@ export function noteBackgroundShellOutput(
   shellId: string,
   patch: { output?: string; status?: "running" | "completed" | "failed" | "killed"; exitCode?: number },
 ): void {
+  loadProcessRegistry();
   const sp = runningScripts.get(shellProcessKey(sessionKey, shellId));
   if (!sp || sp.source !== "shell") return;
   // With a file, the file is the output: a `BashOutput` read would repeat it.
@@ -1082,6 +1126,7 @@ export function closeBackgroundShell(
   status: "completed" | "failed" | "killed",
   exitCode?: number,
 ): void {
+  loadProcessRegistry();
   const sp = runningScripts.get(shellProcessKey(sessionKey, shellId));
   if (!sp || sp.source !== "shell") return;
   finishBackgroundShell(sp, status, exitCode);
@@ -1098,6 +1143,7 @@ export function listBackgroundShells(): Array<{
   exitCode?: number;
   output: string[];
 }> {
+  loadProcessRegistry();
   const out: ReturnType<typeof listBackgroundShells> = [];
   for (const sp of [...runningScripts.values(), ...recentScripts]) {
     if (sp.source !== "shell" || !sp.shell) continue;
@@ -1392,6 +1438,7 @@ export function nextDetectionDelay(currentMs: number, changed: boolean): number 
 /** Wire the source of active Claude sessions and start the detection loop.
  *  Called once from server.ts after the terminal + processes routers exist. */
 export function startProcessDetection(ctx: AppContext, getSessions: DetectionSource): void {
+  loadProcessRegistry();
   _detectionSource = getSessions;
   // Set before the first async cycle: a second start while it is running must
   // not create a second loop just because the first timer is not armed yet.
@@ -1682,6 +1729,7 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
 }
 
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
+  loadProcessRegistry();
   const { json } = ctx;
   _broadcastCtx = ctx; // store for pollPidExit callbacks
   // The people's runs that ended before there was a database to close their row in (boot):

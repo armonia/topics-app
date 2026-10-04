@@ -2419,7 +2419,7 @@ async function seedAgentPrompt(childId: string, prompt: string, acceptSnippet?: 
     await sleep(200);
     if (!sessions.has(childId)) { console.warn(`[Terminal] seedAgentPrompt: ${childId} exited before its composer appeared`); return; }
     const buf = await getTerminalBuffer(childId);
-    // Prima dei READY_HINTS: i bordi `╭─` del dialogo li soddisfano (lib/subagent-seed.ts).
+    // Before READY_HINTS: the dialog's `╭─` borders satisfy them too (lib/subagent-seed.ts).
     if (buf && trustDialogShowing(buf)) {
       if (!(await acceptTrustDialog(childId))) return;
       lastLen = -1; stableCount = 0;

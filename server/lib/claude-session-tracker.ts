@@ -449,12 +449,12 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   }
 
   /**
-   * Il path che SessionStart dichiara puo' non esistere: una `--resume` da
-   * un'altra cwd (chat spostata di progetto) fa dichiarare alla CLI la cartella
-   * NUOVA mentre continua ad appendere al file dove la sessione e' nata
-   * (misurato su 2.1.287, topic:d740f8ae, 03/10). Se il file dichiarato non c'e'
-   * e il transcript con quell'id esiste altrove, si segue quello. Una sessione
-   * appena nata (nessun file da nessuna parte) tiene il path dichiarato.
+   * The path SessionStart declares may not exist: a `--resume` from another
+   * cwd (a chat moved to another project) makes the CLI declare the NEW folder
+   * while it keeps appending to the file where the session was born
+   * (measured on 2.1.287, topic:d740f8ae, 03/10). If the declared file is
+   * missing and a transcript with that id exists elsewhere, follow that one. A
+   * session just born (no file anywhere) keeps the declared path.
    */
   function withLiveTranscript(payload: HookPayload): HookPayload {
     const declared = payload.transcript_path;

@@ -4,6 +4,8 @@
  * after the chat cap instead of deferring the restart for hours
  * (`turnSurvivesRestart`, topic:d740f8ae on 03/10), so this is what keeps a
  * long chat from hitting the resume cap after four planned restarts.
+ *
+ * @covers RESUME-01, RGATE-01
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

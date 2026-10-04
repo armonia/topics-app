@@ -554,8 +554,8 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
 describe('ClaudeSessionTracker — transcript dichiarato inesistente (cwd spostata)', () => {
   const line = JSON.stringify({ type: 'user', timestamp: new Date(T0).toISOString(), message: { role: 'user', content: 'hi' } }) + '\n';
   it('SessionStart con un path che non esiste segue il file vero della sessione', () => {
-    // topic:d740f8ae: nata in ~ (-Users-zorahrel), riaperta dalla cartella del progetto;
-    // la CLI dichiara la cartella nuova e continua ad appendere a quella vecchia.
+    // topic:d740f8ae: born in ~ (-Users-zorahrel), reopened from the project folder;
+    // the CLI declares the new folder and keeps appending to the old one.
     const home = mkdtempSync(join(tmpdir(), 'tracker-moved-'));
     const born = join(home, '.claude', 'projects', '-Users-x');
     mkdirSync(born, { recursive: true });
