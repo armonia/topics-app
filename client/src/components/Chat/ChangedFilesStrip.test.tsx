@@ -43,6 +43,7 @@ const rangeSet: ChangeSet = {
 };
 
 let changes: TopicChanges = landed;
+let changeSet: ChangeSet = rangeSet;
 const asked: string[] = [];
 
 beforeEach(() => {
@@ -64,11 +65,12 @@ beforeEach(() => {
     },
   };
   changes = landed;
+  changeSet = rangeSet;
   asked.length = 0;
   g.fetch = async (input: unknown) => {
     const url = String(input);
     asked.push(url);
-    return new Response(JSON.stringify(url.includes('/changes/diff') ? rangeSet : changes));
+    return new Response(JSON.stringify(url.includes('/changes/diff') ? changeSet : changes));
   };
 });
 
@@ -146,5 +148,60 @@ describe('the panel of the changed-files strip', () => {
     const h = await openList();
     expect(host(h, 'chat-changes-diff')).toBeDefined();
     expect(host(h, 'chat-changes-open-card')).toBeUndefined();
+  });
+
+  // CHGSET-03: the list's counts do not say the content moved. Against HEAD a
+  // line rewritten twice (`two` -> `TWO` -> `THREE`) is +1/-1 both times, and
+  // the revisions stay `HEAD`/worktree until someone commits: a panel that
+  // re-read only on other counts kept drawing the first rewrite.
+  describe('what it draws is what is on disk', () => {
+    const base = 'c'.repeat(40);
+    const rewrite = (line: string, turn: number): void => {
+      changes = {
+        files: [{ path: 'a.txt', kind: 'modified', turns: turn, lastAt: `2026-10-04T10:0${turn}:00.000Z`, added: 1, removed: 1 }],
+        git: { root: '/repo', branch: 'main' },
+        revs: { base, head: null },
+      };
+      changeSet = {
+        stat: [{ path: 'a.txt', additions: 1, deletions: 1, status: 'M' }],
+        patch: `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-two\n+${line}\n`,
+        truncated: false,
+        revs: { base, head: null },
+      };
+    };
+    const diffReads = (): number => asked.filter((u) => u.includes('/changes/diff')).length;
+    const settle = async (): Promise<void> => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 1)); };
+
+    test('a turn that rewrites a line with the same counts re-reads the open panel', async () => {
+      rewrite('TWO', 1);
+      let send: ((msg: { type: string; topicId?: string }) => void) | null = null;
+      const h = mount(createElement(ChangedFilesStrip, {
+        topic: { id: 'topic-1', projectPath: '/project', worktreeId: null },
+        onWSMessage: (fn) => { send = fn as typeof send; return () => {}; },
+      }));
+      harness = h;
+      for (let i = 0; i < 100 && !host(h, 'chat-changes-chip'); i++) await new Promise((r) => setTimeout(r, 1));
+      click(host(h, 'chat-changes-chip'));
+      await settle();
+      expect(diffReads()).toBe(1);
+
+      rewrite('THREE', 2);
+      send!({ type: 'stream:end', topicId: 'topic-1' });
+      await settle();
+      expect(diffReads()).toBe(2);
+    });
+
+    test('reopening the panel reads the changeset again, whatever the list says', async () => {
+      rewrite('TWO', 1);
+      const h = await openList();
+      expect(diffReads()).toBe(1);
+      click(host(h, 'chat-changes-chip'));
+      await settle();
+      // A write the list cannot see (an editor, a shell) leaves every count as it was.
+      rewrite('THREE', 1);
+      click(host(h, 'chat-changes-chip'));
+      await settle();
+      expect(diffReads()).toBe(2);
+    });
   });
 });

@@ -594,9 +594,12 @@ coppia Prima/Dopo di un'immagine, «Anteprima» di un `.md` o `.svg`, «File int
 - `UnifiedDiff` SHALL tenere stabile anche la sorgente `topic`: oggi
   (`client/src/components/Board/UnifiedDiff.tsx:584-590`) ricostruisce la sorgente con due
   soli rami, e un terzo tipo diventerebbe in silenzio una pubblicazione.
-- Il changeset SHALL essere chiesto solo quando la tendina si apre; a tendina aperta SHALL
-  rileggersi a fine turno solo se `GET /api/topics/:id/changes` riporta altre `revs` o altri
-  conteggi, e una risposta arrivata dopo una piu' recente SHALL essere scartata.
+- Il changeset SHALL essere chiesto solo a tendina aperta: a ogni apertura, e a tendina aperta
+  a ogni nuova lettura di `GET /api/topics/:id/changes` (cioe' a ogni fine turno). Non solo
+  quando `revs` o conteggi cambiano: contro `HEAD` una riga riscritta due volte e' +1/-1
+  entrambe le volte, e in una chat senza card le `revs` restano `HEAD`/worktree fino a un
+  commit, quindi la tendina disegnava il diff di prima. Una risposta arrivata dopo una piu'
+  recente SHALL essere scartata.
 - Un `409 stale_rev` dalla rotta dei byte SHALL rileggere il changeset, come nella card.
 - Nella chat il diff SHALL essere in sola lettura: `UnifiedDiff` senza `review`.
 - Sul topic di un task il pannello SHALL portare un collegamento che apre il drawer del task
@@ -620,6 +623,14 @@ coppia Prima/Dopo di un'immagine, «Anteprima» di un `.md` o `.svg`, «File int
 - **GIVEN** una conversazione che ha riscritto `docs/shot.png` in un repository
 - **WHEN** l'utente apre quel file nella striscia
 - **THEN** compare la coppia Prima/Dopo, con `blob=<revs.base>` e `blob=worktree`
+
+#### Scenario: stessi conteggi, contenuto diverso
+- **GIVEN** un topic senza task con la striscia aperta su `a.txt`, la cui riga `due` e' diventata
+  `DUE` (+1/-1 contro `HEAD`)
+- **WHEN** un turno la riscrive in `TRE` (ancora +1/-1, stesse `revs`) e finisce
+- **THEN** la tendina rilegge il changeset e mostra `TRE`
+- **WHEN** l'utente chiude e riapre la tendina
+- **THEN** il changeset viene riletto di nuovo
 
 #### Scenario: il collegamento compare solo sul topic di una card
 - **GIVEN** un topic senza task e il topic di un task, ognuno con la striscia aperta su un file
