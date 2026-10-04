@@ -223,7 +223,7 @@ export function TopicStreamingSpinner({
   // No turn open: the grey glyph of the work left running (or the amber over
   // it), never the labeled clock, which times a turn.
   if (!streaming) {
-    const tip = state === 'background' ? backgroundTip(tr, tasks.length) : undefined;
+    const tip = state === 'background' ? backgroundTip(tr, workCount(tasks)) : undefined;
     return <LoaderSlot title={title ?? tip} className={className} size={size} state={state} onFill={onFill} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
@@ -246,6 +246,11 @@ export function TopicStreamingSpinner({
 }
 
 /** How much runs, and that the chat is free: the one thing the grey glyph cannot say on its own. */
+/** The tasks that are work: a queued wake is the CLI about to answer, said as «resuming». */
+function workCount(tasks: readonly { kind: string }[]): number {
+  return tasks.filter((t) => t.kind !== 'wake').length;
+}
+
 function backgroundTip(tr: ReturnType<typeof useT>, n: number): string {
   if (n === 0) return tr('topic.backgroundResuming');
   return n === 1 ? tr('topic.backgroundOne') : tr('topic.backgroundMany', { n });
@@ -379,7 +384,7 @@ export function TerminalStreamingSpinner({
   const tr = useT();
   const state = loaderStateFor({ loading: active && !background, waiting: false, background });
   if (!state) return null;
-  const tip = state === 'background' ? backgroundTip(tr, tasks.length) : 'Terminal is producing output';
+  const tip = state === 'background' ? backgroundTip(tr, workCount(tasks)) : 'Terminal is producing output';
   return <LoaderSlot title={title ?? tip} className={className} state={state} />;
 }
 

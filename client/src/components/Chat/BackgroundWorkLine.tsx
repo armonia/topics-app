@@ -90,6 +90,10 @@ function lineWork(tasks: readonly AttentionTask[], detail: TopicBackgroundWork |
   const commands = (detail?.tasks ?? []).filter((t) => t.type === 'command');
   const named: BackgroundTaskSummary[] = [];
   for (const t of tasks) {
+    // A queued wake is no work: it is the CLI about to answer a report. It
+    // keeps the line up and is named by «about to resume» (n = 0 below), the
+    // branch that otherwise no attention state could reach.
+    if (t.kind === 'wake') continue;
     if (t.kind === 'command' && commands.length > 0) { named.push(...commands); continue; }
     const startedAt = Date.parse(t.startedAt);
     named.push({ type: t.kind, description: t.label, ...(Number.isFinite(startedAt) ? { startedAt } : {}) });
