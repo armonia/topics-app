@@ -91,7 +91,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
     <div className={`fixed inset-0 ${MODAL_LAYER} overflow-y-auto bg-app-bg`}>
       <header className="sticky top-0 flex items-center gap-2 border-b border-app-border bg-app-bg px-4 py-3">
         <span className="text-title font-semibold text-app-text">Topics</span>
-        <span className="rounded bg-app-hover px-1.5 py-px text-micro text-app-text-secondary">
+        <span className="rounded bg-app-hover px-1.5 py-px text-mini text-app-text-secondary">
           ospite · {deviceName}
         </span>
         <button

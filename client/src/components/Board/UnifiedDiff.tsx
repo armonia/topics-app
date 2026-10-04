@@ -55,7 +55,7 @@ export interface DiffReview {
 }
 
 /** Sticky gutter: two numbers and the hook. It stays on the left while the line scrolls. */
-const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-micro tabular-nums text-app-text-faint';
+const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-mini tabular-nums text-app-text-faint';
 
 /**
  * Composer and pending notes live INSIDE the horizontally scrolling container,
@@ -93,7 +93,7 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-mini text-app-text-secondary hover:text-app-text">
           {tr('common.cancel')}
         </button>
-        <span className="ml-auto font-sans text-micro text-app-text-faint">{shortcut('↵')}</span>
+        <span className="ml-auto font-sans text-mini text-app-text-faint">{shortcut('↵')}</span>
       </div>
     </div>
   );
@@ -209,7 +209,7 @@ export function DiffLines({ path, body, review }: { path: string; body: string; 
       {overflow > 0 && (
         <button
           onClick={() => setShowAll(true)}
-          className="w-full px-2 py-1 text-left font-sans text-micro text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
+          className="w-full px-2 py-1 text-left font-sans text-mini text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
         >
           {tr('diff.showAll', { total: rows.length, more: overflow })}
         </button>
@@ -241,7 +241,7 @@ function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: File
           data-testid={`diff-view-${v}`}
           aria-pressed={value === v}
           onClick={() => onChange(v)}
-          className={`rounded px-1.5 py-0.5 text-micro ${value === v ? 'bg-indigo-500/20 text-indigo-200' : 'text-app-text-muted hover:text-app-text'}`}
+          className={`rounded px-1.5 py-0.5 text-mini ${value === v ? 'bg-indigo-500/20 text-indigo-200' : 'text-app-text-muted hover:text-app-text'}`}
         >
           {tr(VIEW_LABEL[v])}
         </button>
@@ -273,7 +273,7 @@ function ImageSide({ label, testId, side, source, onStale }: {
   }, [source, side, onStale]);
   return (
     <figure className="min-w-0 space-y-1">
-      <figcaption className="flex items-baseline gap-1.5 text-micro text-app-text-muted">
+      <figcaption className="flex items-baseline gap-1.5 text-mini text-app-text-muted">
         <span className="font-medium text-app-text-secondary">{label}</span>
         {size && <span className="tabular-nums">{size.w} × {size.h} px</span>}
       </figcaption>
@@ -478,7 +478,7 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   }, [focused, bundled, sides, source, path, origPath]);
 
   const note = (text: string) => <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{text}</div>;
-  const cut = <div className="px-2 py-0.5 font-sans text-micro text-amber-400/80">{tr('diff.cutHere')}</div>;
+  const cut = <div className="px-2 py-0.5 font-sans text-mini text-amber-400/80">{tr('diff.cutHere')}</div>;
 
   let body: ReactNode;
   if (sides) {
@@ -550,7 +550,7 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
           <ChangedFileEntry
             row={row}
             trailing={noteCount > 0 ? (
-              <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-nano text-indigo-300" title={tr('diff.pendingNotes', { n: String(noteCount) })}>
+              <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-mini text-indigo-300" title={tr('diff.pendingNotes', { n: String(noteCount) })}>
                 {noteCount}
               </span>
             ) : undefined}
@@ -616,7 +616,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPat
         />
       ))}
       {bundle.truncated && (
-        <div className="px-1 py-0.5 text-micro text-amber-400/80">
+        <div className="px-1 py-0.5 text-mini text-amber-400/80">
           {/* The way to the rest is on each file, not in another app: the note
               says so instead of sending you away. */}
           {tr('diff.truncated.loadable', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}

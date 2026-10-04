@@ -197,7 +197,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-busy={loadState === 'loading' || undefined}
-        className={`inline-flex h-8 flex-shrink-0 items-center gap-1 rounded-lg px-2 text-mini font-medium transition-colors hover:bg-app-hover hover:text-app-text ${
+        className={`inline-flex h-8 coarse:h-11 flex-shrink-0 items-center gap-1 rounded-lg px-2 text-mini font-medium transition-colors hover:bg-app-hover hover:text-app-text ${
           failed ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-muted'
         }`}
         title={chipTitle}

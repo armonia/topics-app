@@ -177,7 +177,7 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
                 <div key={d.id} data-testid="device-revoked-row" className={`${ROW} text-app-text-muted`}>
                   <Smartphone size={12} className="flex-shrink-0 opacity-50" />
                   <span className="min-w-0 flex-1 truncate line-through">{d.name}</span>
-                  <span data-testid="device-revoked-when" className="flex-shrink-0 text-micro">{deviceRevokedLine(d, tr, locale)}</span>
+                  <span data-testid="device-revoked-when" className="flex-shrink-0 text-mini">{deviceRevokedLine(d, tr, locale)}</span>
                 </div>
               ))}
             </div>
@@ -320,12 +320,12 @@ function DeviceRow({ device: d, people, locale, run }: {
         <span className="flex items-center gap-1">
           <span data-testid="device-name" className="truncate text-app-text">{d.name}</span>
           {d.role === 'guest' && (
-            <span className="flex-shrink-0 rounded bg-app-hover px-1 text-micro text-app-text-secondary" title={tr('devices.guestTitle')}>
+            <span className="flex-shrink-0 rounded bg-app-hover px-1 text-mini text-app-text-secondary" title={tr('devices.guestTitle')}>
               {tr('devices.guest')}
             </span>
           )}
         </span>
-        <span className="block truncate text-micro text-app-text-muted">
+        <span className="block truncate text-mini text-app-text-muted">
           <span data-testid="device-seen">{deviceSeenLine(d, tr, locale)}</span>
           {owner && <> · <span data-testid="device-owner">{tr('devices.ofPerson', { nome: owner.name })}</span></>}
         </span>

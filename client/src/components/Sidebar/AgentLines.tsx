@@ -38,7 +38,7 @@ export function AgentLines() {
           is free, and this row is what says which one to stop. */}
       {background.length > 0 && (
         <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${CHIP_INK_DIM}`}>
+          <div className={`px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide ${CHIP_INK_DIM}`}>
             {tr('statusBar.agents.backgroundHeading')}
           </div>
           {background.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="background-agent-row" tone={CHIP_INK_DIM} />)}
@@ -46,7 +46,7 @@ export function AgentLines() {
       )}
       {awaitingInput.length > 0 && (
         <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${SEGNALE_ATTESA}`}>
+          <div className={`px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide ${SEGNALE_ATTESA}`}>
             {tr('statusBar.agents.awaitingHeading')}
           </div>
           {awaitingInput.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="awaiting-agent-row" />)}
@@ -60,7 +60,7 @@ export function AgentLines() {
           rule: the number on the card is the length of these rows. */}
       {finished.length > 0 && (
         <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${CHIP_INK_DIM}`}>
+          <div className={`px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide ${CHIP_INK_DIM}`}>
             {tr('statusBar.agents.finishedHeading')}
           </div>
           {finished.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="finished-agent-row" tone={CHIP_INK_DIM} />)}

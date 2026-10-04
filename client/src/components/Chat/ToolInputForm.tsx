@@ -374,7 +374,7 @@ function QuestionsForm({
                       <span
                         data-testid="ask-recommended"
                         title={tr('ask.recommended.hint')}
-                        className="text-micro leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
+                        className="text-mini leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
                       >
                         {tr('ask.recommended')}
                       </span>

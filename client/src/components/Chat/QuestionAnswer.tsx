@@ -134,7 +134,7 @@ export function QuestionAnswerCard({ toolCallId, asked, response, schema }: {
         const free = q.parts.filter((p) => p.free);
         return (
           <div key={`${toolCallId}-q-${i}`} className="space-y-1">
-            {q.header && <div className="text-micro uppercase tracking-wide text-app-text-muted">{q.header}</div>}
+            {q.header && <div className="text-mini uppercase tracking-wide text-app-text-muted">{q.header}</div>}
             <div className="text-mini text-app-text whitespace-pre-wrap break-words">{q.question}</div>
             <ul className="space-y-0.5">
               {q.options.map((o, j) => (

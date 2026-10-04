@@ -173,7 +173,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
         {rows.length > 0 && (
           <ul className="space-y-0.5 px-2.5 py-1.5">
             {!own && (
-              <li className="pb-0.5 text-micro uppercase tracking-wide text-app-text-muted">
+              <li className="pb-0.5 text-mini uppercase tracking-wide text-app-text-muted">
                 {tr('goal.notCompacted')}
               </li>
             )}
@@ -233,7 +233,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
           {byAgent && (
             <span
               data-testid="goal-by-agent"
-              className="flex-shrink-0 rounded border border-app-border px-1 py-px text-micro uppercase tracking-wide text-app-text-muted"
+              className="flex-shrink-0 rounded border border-app-border px-1 py-px text-mini uppercase tracking-wide text-app-text-muted"
             >
               {tr('goal.byAgent')}
             </span>

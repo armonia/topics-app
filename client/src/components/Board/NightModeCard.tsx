@@ -158,11 +158,11 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
                   as the board's gauge, so night mode and the board never say
                   two different things about the same machine. */}
               <div className="mt-2" data-testid="night-mode-busy">
-                <div className="text-micro text-app-text-muted">{tr('board.night.load')}</div>
+                <div className="text-mini text-app-text-muted">{tr('board.night.load')}</div>
                 <MachineBusyLine shares={machine} />
               </div>
 
-              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-micro text-app-text-muted">
+              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-mini text-app-text-muted">
                 <span>
                   {st.busySessions === 0
                     ? tr('board.night.nobodyAttached')

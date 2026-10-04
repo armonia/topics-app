@@ -230,13 +230,13 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
         {p.path ? (
           // Monospace and wrapping on the path: a long path on one single line
           // becomes unreadable, and it is exactly the datum you come looking for.
-          <div className="break-all font-mono text-micro text-app-text-muted">{homeTilde(p.path)}</div>
+          <div className="break-all font-mono text-mini text-app-text-muted">{homeTilde(p.path)}</div>
         ) : (
           // Why it is not there: without this line the tooltip of a vanished
           // project just looks like a tooltip with a piece missing.
-          <div className="text-micro text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
+          <div className="text-mini text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
         )}
-        {c && <div className="text-micro text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
+        {c && <div className="text-mini text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
       </div>
     );
   };
@@ -278,7 +278,7 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
         ref={btnRef} onClick={() => setOpen(true)}
         data-testid="filter-project-chip"
         title={soleProject ? tr('board.filter.projectNamed', { name: soleProject.name }) : tr('board.filter.projectTitle')}
-        className={`${filterFieldClass(selectedFilterIds.length > 0)} min-w-0 ${CHIP_MAX}`}
+        className={`tap-expand-y ${filterFieldClass(selectedFilterIds.length > 0)} min-w-0 ${CHIP_MAX}`}
       >
         {soleProject && <ChipIcon path={soleProject.path} />}
         <span className="min-w-0 truncate">{soleProject ? soleProject.name : tr('common.project')}</span>

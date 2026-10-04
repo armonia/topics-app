@@ -96,7 +96,7 @@ export function VersionChip({
       {badge && (
         <span
           data-testid="version-install-badge"
-          className={`px-1 rounded bg-amber-500/15 ${SEGNALE_ATTESA} font-medium text-micro leading-tight tabular-nums`}
+          className={`px-1 rounded bg-amber-500/15 ${SEGNALE_ATTESA} font-medium text-mini leading-tight tabular-nums`}
           title={badgeTitle}
         >
           {badge}

@@ -212,6 +212,7 @@ const IT: Dict = {
   'update.updateApp': 'Aggiorna l\'app',
   'banner.eyebrow.build': 'Bundle del client',
   'banner.eyebrow.release': 'Guscio dell\'app',
+  'banner.dismiss': 'Ignora',
   'update.err.network': 'Server degli aggiornamenti irraggiungibile',
   'update.err.endpoint': 'Nessun aggiornamento pubblicato per questa build',
   'update.err.generic': 'Aggiornamento fallito',

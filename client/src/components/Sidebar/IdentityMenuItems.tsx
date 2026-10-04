@@ -135,7 +135,7 @@ function FriendsSection({ friends, width, onClose }: {
     >
       {pending > 0 && (
         <div data-testid="friends-requests" className="border-b border-app-border py-1">
-          <div className="px-3 pb-0.5 pt-1 text-micro uppercase tracking-wide text-app-text-muted">
+          <div className="px-3 pb-0.5 pt-1 text-mini uppercase tracking-wide text-app-text-muted">
             {tr('profile.friend.incoming')}
           </div>
           {incoming.map((p) => (
@@ -143,7 +143,7 @@ function FriendsSection({ friends, width, onClose }: {
               <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
                 {p.github?.avatarUrl
                   ? <img src={p.github.avatarUrl} alt="" className="h-full w-full object-cover" />
-                  : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-nano font-semibold leading-none text-app-text">
+                  : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-mini font-semibold leading-none text-app-text">
                       {p.displayName.slice(0, 1).toUpperCase()}
                     </span>}
               </span>
@@ -226,7 +226,7 @@ function OrgsSection({ orgs, width, onClose }: {
         <div className="max-h-[240px] overflow-y-auto">
           {orgs.map((o) => (
             <div key={o.id} data-testid="org-section">
-              <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide text-app-text-muted">
+              <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide text-app-text-muted">
                 <OrgLogo org={o} />
                 <span className="min-w-0 flex-1 truncate normal-case">{o.nome}</span>
                 <FaceStack faces={o.faces} max={ORG_MARKS_IN_CHIP} total={o.online} />
