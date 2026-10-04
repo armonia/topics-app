@@ -72,7 +72,7 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     await expect(popover.getByTestId("model-row-automatic")).toBeFocused();
 
     // The rows the isolated test server makes ready (its `claude` stub).
-    const enabledRows = popover.locator('[data-testid="model-row"][data-provider="claude-code"]:not([aria-disabled="true"])');
+    const enabledRows = popover.locator('[data-testid="model-row"][data-provider="claude-code"]:not([disabled])');
     await expect(enabledRows.first()).toBeVisible();
     const enabledCount = await enabledRows.count();
     if (enabledCount < 2) {
@@ -80,7 +80,11 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     }
     // The model identity is read from `data-model`, never from the row text.
     const firstModel = await enabledRows.nth(0).getAttribute("data-model");
-    await page.keyboard.press("ArrowDown");
+    // ↓ also stops on the engine button of a heading served by two engines
+    // (revision 2026-10-04 §4.7), so the walk goes on until the first row.
+    for (let i = 0; i < 4 && !(await enabledRows.nth(0).evaluate((el) => el === document.activeElement)); i++) {
+      await page.keyboard.press("ArrowDown");
+    }
     await expect(enabledRows.nth(0)).toBeFocused();
     await page.keyboard.press("ArrowDown");
     const secondRow = enabledRows.nth(1);
@@ -161,13 +165,12 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     // Niente effort nel picker: né sulla riga del gruppo…
     await expect(popover.getByTestId("effort-tier-claude-code")).toHaveCount(0);
     // ...but the picker still says which provider is the default: that was a
-    // different fact and it did not leave together with the tier badge. Task
-    // 05807e8e moved it from a "Default" pill on the provider group to the hint
-    // of the Automatic row, which is where the shared selector keeps it.
-    await expect(popover.getByTestId("model-row-automatic")).toHaveAttribute(
-      "title",
-      `Default: ${claudeCode?.label ?? "claude-code"}`,
-    );
+    // different fact and it did not leave together with the tier badge. The
+    // Automatic button names it, «Automatico · Claude Code», and its long
+    // sentence is its description (revision 2026-10-04 §3.7).
+    const automatic = popover.getByTestId("model-row-automatic");
+    await expect(automatic).toContainText(`Automatico · ${claudeCode?.label ?? "claude-code"}`);
+    await expect(automatic).toHaveAccessibleDescription(`Usa il predefinito: ${claudeCode?.label ?? "claude-code"}`);
 
     await page.keyboard.press("Escape");
     await expect(popover).toHaveCount(0, { timeout: 5_000 });

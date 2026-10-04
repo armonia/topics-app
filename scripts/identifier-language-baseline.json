@@ -281,9 +281,6 @@
       "costo",
       "parti"
     ],
-    "client/src/components/Chat/ProviderModelPicker.tsx": [
-      "matchesProv"
-    ],
     "client/src/components/Chat/ToolCards.tsx": [
       "ArgsPre",
       "ClampedPre",
@@ -1606,9 +1603,6 @@
     "client/src/lib/path-utils.ts": [
       "basename",
       "tryHostname"
-    ],
-    "client/src/lib/popoverPosition.ts": [
-      "spazio"
     ],
     "client/src/lib/popoverRegistry.test.ts": [
       "unregister",

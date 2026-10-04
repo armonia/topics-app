@@ -64,6 +64,7 @@ import {
   autonomyKey,
   effortKey,
   isDraftTopicId,
+  providerOnlyKey,
   providerOverrideKey,
   rememberAutonomySelection,
   rememberEffort,
@@ -72,6 +73,7 @@ import {
   sameSelection,
   seedAutonomy,
   seedEffort,
+  seedProviderOnly,
   seedProviderOverride,
 } from '../../lib/composerMemory';
 import { usePaneHold } from '../../state/pane/residency/holds';
@@ -615,6 +617,14 @@ function ChatPaneComponent({
   // time the user picks a model — the opposite of what we want).
   const providerOverrideRef = useRef(providerOverride);
   useEffect(() => { providerOverrideRef.current = providerOverride; }, [providerOverride]);
+  // The engine this chat runs with no model of its own (revision 2026-10-04
+  // §3.7, «Automatico» within an engine that lists none): a topic's
+  // `{provider, model: null}`, or what a draft chose before it exists.
+  const [providerOnly, setProviderOnly] = useState<string | null>(
+    () => seedProviderOnly({ topicId: topic.id, topicProvider: topic.provider, topicModel: topic.model, store: safeStore() }),
+  );
+  const providerOnlyRef = useRef(providerOnly);
+  useEffect(() => { providerOnlyRef.current = providerOnly; }, [providerOnly]);
 
   // Per-topic effort-tier override (migration 033). Same draft-aware pattern as
   // the provider/model override above: real topics read `topic.effort` (kept in
@@ -684,12 +694,15 @@ function ChatPaneComponent({
       const pick = providerOverrideRef.current;
       if (pick) {
         void onUpdateTopic(topic.id, { provider: pick.provider, model: pick.model });
+      } else if (providerOnlyRef.current) {
+        void onUpdateTopic(topic.id, { provider: providerOnlyRef.current, model: null });
       }
       // The draft pick was persisted under the draft id (see
       // handleProviderOverrideChange); the real topic now carries it on the
       // server, so drop the stale draft key (mirrors the fastMode migration
       // below).
       safeStore().removeItem(providerOverrideKey(prevId));
+      safeStore().removeItem(providerOnlyKey(prevId));
       // Same story for Fast Mode (openspec change `chat-fast-mode`). The
       // composer toggle wrote to `fastMode:draft:abc` and skipped the PUT
       // (drafts have no server-side row to PUT to). Now that the real topic
@@ -743,11 +756,13 @@ function ChatPaneComponent({
     // Stesso valore, oggetto nuovo: assegnarlo sarebbe un render in più per
     // niente (e con una dipendenza instabile, un render a ogni render).
     setProviderOverride((prev) => (sameSelection(prev, seeded) ? prev : seeded));
+    setProviderOnly(seedProviderOnly({ topicId: topic.id, topicProvider: topic.provider, topicModel: topic.model, store: safeStore() }));
   }, [topic.sessionKey, topic.id, topic.provider, topic.model, onUpdateTopic]);
 
   const isDraftTopic = isDraftTopicId(topic.id);
   const handleProviderOverrideChange = useCallback((next: { provider: string; model: string } | null) => {
     setProviderOverride(next);
+    setProviderOnly(null);
     // Aggiorna la "memoria globale" dell'ultima selezione: le chat nuove la
     // leggono in inizializzazione e partono gia' con il modello giusto. Tornare
     // al default dell'app la CANCELLA — è una scelta anche quella, e tenersi il
@@ -759,6 +774,7 @@ function ChatPaneComponent({
       // draft is promoted on send. The promotion effect above migrates it to
       // the real topic id + the server and clears this key.
       const store = safeStore();
+      store.removeItem(providerOnlyKey(topic.id));
       if (next) store.setItem(providerOverrideKey(topic.id), JSON.stringify(next));
       else store.removeItem(providerOverrideKey(topic.id));
       return;
@@ -770,6 +786,24 @@ function ChatPaneComponent({
       provider: next?.provider ?? null,
       model: next?.model ?? null,
     });
+  }, [isDraftTopic, onUpdateTopic, topic.id]);
+
+  // «Automatico» within one engine (revision 2026-10-04 §3.7): the chat keeps
+  // that provider and no model of its own; the override goes, since it always
+  // names a model. One PATCH, so the two fields cannot land out of order. A
+  // draft keeps the engine on this device until the promotion carries it to
+  // the topic, as it does for a complete choice.
+  const handleProviderOnlyChange = useCallback((provider: string) => {
+    setProviderOverride(null);
+    setProviderOnly(provider);
+    rememberProviderSelection(safeStore(), null);
+    if (isDraftTopic) {
+      const store = safeStore();
+      store.removeItem(providerOverrideKey(topic.id));
+      store.setItem(providerOnlyKey(topic.id), provider);
+      return;
+    }
+    void onUpdateTopic(topic.id, { provider, model: null });
   }, [isDraftTopic, onUpdateTopic, topic.id]);
 
   const handleEffortChange = useCallback((next: string | null) => {
@@ -804,7 +838,9 @@ function ChatPaneComponent({
   // la stessa informazione presa due volte, al prezzo di un abbonamento allo
   // snapshot dentro ChatPane — che si ridisegnerebbe a ogni push (lo stato
   // della fast mode ne manda uno a ogni inizio e fine turno).
-  const defaultProviderLabel = topic.provider ?? undefined;
+  // The engine pinned without a model is held locally too, so a draft (no
+  // topic row) and a saved chat (before the `topic:updated` echo) agree.
+  const defaultProviderLabel = (providerOverride ? topic.provider : providerOnly) ?? undefined;
   // MSEL-06: with no runtime pinned the server judges the route on the
   // topic's model (`/model`), so the chip and the band are given it too.
   const pinnedModel = topic.provider ? null : topic.model ?? null;
@@ -1596,6 +1632,11 @@ function ChatPaneComponent({
     if (providerOverride) {
       opts.provider = providerOverride.provider;
       opts.model = providerOverride.model;
+    } else if (isDraftTopic && providerOnly) {
+      // A draft's first turn creates the topic with no engine: the engine it
+      // chose goes with the turn (the server takes a provider alone), and the
+      // promotion writes it on the topic.
+      opts.provider = providerOnly;
     }
     return Object.keys(opts).length ? opts : undefined;
   };
@@ -2026,7 +2067,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} pinnedModel={pinnedModel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} onProviderOnlyChange={handleProviderOnlyChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} pinnedModel={pinnedModel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} controlsRef={composerControlsRef} />
         {/* The phone's button row, when this chat owns its band (`bandOwned` in
             App): a box at the foot of the block and not a padding, because the
             block's height is read from `contentRect`, which leaves padding out.

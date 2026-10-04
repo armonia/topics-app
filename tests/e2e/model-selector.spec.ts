@@ -158,35 +158,41 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(page.getByTestId("model-selector-routing-line")).toContainText("Codex");
     await expect(band).toBeEnabled();
     // Back to Opus: through Topics, and the chip shows the mark.
-    await modelRow(page, "claude-opus-5-5").click();
+    // On the label: the middle of a narrow row is the 1M switch, a sibling.
+    await modelRow(page, "claude-opus-5-5").click({ position: { x: 12, y: 10 } });
     await expect(picker.getByTestId("model-route-mark")).toBeVisible();
     await picker.click();
     await expect(band).toHaveAttribute("data-route", "topics");
     await page.keyboard.press("Escape");
   });
 
-  test("four companies in a 900px window: inside the viewport, columns scroll under fixed headings", async ({ page, request }) => {
+  // Revision 2026-10-04 §3.4: no catch-all; OpenClaw's llama and qwen are
+  // Meta and Qwen, stacked in the fourth column after the three fixed ones.
+  test("five companies in a 900px window: inside the viewport, columns scroll under fixed headings", async ({ page, request }) => {
     const picker = await openChat(page, request);
     await picker.click();
     const box = await panel(page).boundingBox();
     expect(box).not.toBeNull();
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.y + box!.height).toBeLessThanOrEqual(900);
-    for (const maker of ["anthropic", "openai", "google", "other"]) {
+    await expect(panel(page).getByTestId("model-section-other")).toHaveCount(0);
+    for (const maker of ["anthropic", "openai", "google", "meta", "qwen"]) {
       const section = panel(page).getByTestId(`model-section-${maker}`);
+      await expect(section).toHaveAttribute("data-maker", maker);
       await expect(section.getByTestId("model-section-heading")).toBeInViewport();
-      await expect(section.locator('[role="option"]').first()).toBeInViewport();
+      await expect(section.getByTestId("model-row").first()).toBeInViewport();
     }
     // Open every fold: the Anthropic column grows past its height and scrolls by itself.
     for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
     const anthropic = panel(page).getByTestId("model-section-anthropic");
-    const scroll = await anthropic.evaluate((el) => ({ overflowY: getComputedStyle(el).overflowY }));
+    const column = panel(page).getByTestId("model-column").first();
+    const scroll = await column.evaluate((el) => ({ overflowY: getComputedStyle(el).overflowY }));
     expect(["auto", "scroll"]).toContain(scroll.overflowY);
     const heading = anthropic.getByTestId("model-section-heading");
     await expect(heading).toHaveCSS("position", "sticky");
     // The band and the search do not move when a column scrolls.
     const searchBefore = await page.getByTestId("model-selector-search").boundingBox();
-    await anthropic.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await column.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     expect(await page.getByTestId("model-selector-search").boundingBox()).toEqual(searchBefore);
     await expect(heading).toBeInViewport();
     await page.keyboard.press("Escape");

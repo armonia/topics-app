@@ -596,3 +596,265 @@ Scarti, uno per riga, col motivo:
   interruttore solo se sono cambiati (niente respawn per un valore uguale).
 - **La misura di §2.5** è stata fatta senza chiamare un modello (vedi l'esito
   sopra): il 200 attraverso il proxy vero non è verificato.
+
+### 9.1 Revisione del 04/10 (`revision-2026-10-04.md`): dove il design si scosta
+
+La revisione dei pannelli di scelta del modello, dopo l'audit visivo, è in
+`revision-2026-10-04.md`. Il mockup e gli screenshot sono in `screenshots/revision-*`. La sessione
+del maintainer ha deciso l'asse il 04/10: «le metti in colonna Anthropic, OpenAI... il resto sono
+altri? Non mi sembra così ben fatto». Il risultato è un solo asse, l'azienda, a ogni livello, e
+nessun gruppo di ripiego. Gli scenari toccati sono corretti nelle spec e gli id restano.
+
+**Ribaltamento 1: il motore si sceglie dal titolo del gruppo d'azienda, non dalla riga.**
+- Cambia MSEL-05 («la riga SHALL permettere di cambiarlo sul posto»), MSEL-04 (la strada su ogni
+  riga), MSEL-08 (`→` `←` aprono il motore sulla riga), AICTRL-02 e MP-TASK-04 (il motore scritto e
+  cambiato sulla riga).
+- Il titolo di ogni gruppo dice «via <chi esegue>». La ⌄ apre sul posto un `radiogroup` coi motori,
+  e la riga scrive «via X» solo quando per lei è diverso.
+- Motivo: col motore su ogni riga, le righe salgono a due linee (MS-01), il «via» cambia forma da
+  riga a riga (MS-02) e ogni riga annida un pulsante (A11Y-01, 6 per pannello).
+- La regola di MSEL-05 (salvato, default, preferenza) resta, e decide il motore del gruppo.
+
+**Ribaltamento 2: «Provider e chiavi» è un livello dello stesso pannello, non un pannello da
+420 px accanto al selettore.**
+- Cambia SETHOME-01 e USERMENU-10 di `sidebar-menu-settings`: pannello ancorato e largo circa 420 px;
+  riga del piano sotto Claude Code e accanto ai modelli; abbonamento in cima al pannello.
+- Motivo: 704 + 420 px non stanno a 1024, e un pannello che cambia forma senza ritorno è il difetto
+  PK-03. La riga del piano su due righe ambra, in tre punti, è MS-05; resta un avviso corto nel
+  titolo Anthropic, da `PLAN_USAGE_WARN_AT` in su.
+
+Gli altri scostamenti, uno per riga:
+- **Niente «Altri».** Ogni azienda ha un gruppo col suo nome, e quelle oltre le prime tre stanno
+  impilate nella quarta colonna. Un'azienda sconosciuta prende il nome del provider. Cambiano
+  MSEL-02 e il §3.1 qui sopra.
+- **Il livello Provider è una lista** in ordine fisso (`PROVIDER_ORDER`), senza gruppi né per
+  azienda né per tipo di connessione. Ogni scheda dice quali aziende serve.
+- **Le colonne hanno un ordine fisso** (Anthropic, OpenAI, Google): l'azienda del valore salvato non
+  passa in testa (§4.1, punto 4).
+- **Gruppi di bottoni invece di `listbox`/`option`** (§7 e la voce «Il pannello è `role=dialog`»
+  qui sopra). Motivo: A11Y-01, perché 1M, «Precedenti» e il motore non possono stare dentro un
+  `option`.
+- **Automatico sta nella riga della ricerca** su desktop (§4.1, punto 3), perché sono 48 px di
+  parte fissa in meno (MS-01). Sul telefono resta la prima riga.
+- **Generazione degli id non dichiarati.** È corrente la versione più alta di ogni famiglia della
+  stessa azienda, mentre il §4.3 diceva «tutti correnti». Motivo: col jcode vero OpenAI avrebbe 34
+  righe correnti invece di 16.
+- **Un provider non pronto** è una riga del riquadro «collega» della sua azienda (solo se è nello
+  snapshot, e si nasconde con «Non mi serve») e una scheda della lista. Non lo rappresentano più
+  righe di modelli disabilitate (AICTRL-02).
+- **Testo della fascia**: «Gli altri vanno diretti» invece di «GPT e Gemini restano diretti»
+  (MSEL-07), perché ora la fascia sta sopra anche Meta, Mistral e gli altri.
+- **Trigger chiuso**: «etichetta · chi esegue» su ogni superficie, senza la finestra di contesto. Il
+  segno `Route` del §5.3 resta.
+- **«Apri impostazioni» diventa «Sistema ›»** e apre il dettaglio del motore. Le azioni che chiedono
+  di scrivere qualcosa portano la › («Aggiungi chiave ›», «Configura ›»); «Accedi» agisce con un
+  tocco.
+
+Non sono scostamenti, e la revisione li ha tolti dalla bozza:
+- la scheda «Topics» non ha «Predefinito»: AICTRL-01 resta com'è, e Topics è il motore della fascia,
+  non un provider da scegliere;
+- ↓ ↑ attraversano tutte le sezioni, come vuole MSEL-08;
+- il checkpoint a ogni turno e il motore degli agenti restano in «Provider e chiavi», nel dettaglio
+  di Topics sotto «Per tutte le chat» (SETHOME-01), e non vanno nel popover della sessione.
+
+La scheda Topics si scosta solo dal filtro del codice `AGENT_RUNTIMES` (`AIProvidersSection.tsx:40-43`),
+che oggi nasconde le schede di Topics e jcode (IA-06).
+
+### 9.2 Implementazione del selettore (04/10): dove il codice si scosta dalla revisione
+
+Il selettore della revisione è nel codice (`shared/modelMaker.ts`, `shared/modelMergeKey.ts`,
+`client/src/lib/modelLabel.ts`, `ModelSelector/useModelCatalog.ts`, `ModelSelector/ModelList.tsx`,
+`client/src/lib/popoverPosition.ts`). Il livello «Provider e chiavi» e il dettaglio di un account
+arrivano con la tappa dei provider. Fino ad allora, scarti, uno per riga, col motivo:
+
+- **Le porte verso un account aprono il pannello dei provider di oggi.** Il piede, «Sistema ›»,
+  «Aggiungi chiave ›» e «Configura ›» chiamano `openHome('providers')`. Il livello dello stesso
+  pannello (Ribaltamento 2) non c'è ancora. «Accedi» invece agisce già con un tocco: emette
+  `topics:open-terminal-with-command` con `codex login` scritto e non eseguito, e senza `sessionKey`
+  il terminale si apre nella home (`App.tsx`).
+- **Conti delle generazioni sul jcode vero.** OpenAI ha 16 correnti e 15 precedenti, Anthropic 4 e
+  10, invece dei 16/18 e 4/11 del §3.4 della revisione. Il motivo è la chiave di unione: le misure
+  della revisione contavano gli id datati a parte (`claude-haiku-4-5-20251001` e
+  `claude-haiku-4-5` sono una riga sola). Google resta 22 e 8.
+- **Titolo del gruppo alto 44 px** (`h-11`) e non 43: la stessa altezza su desktop e telefono, dove
+  la riga unica del titolo deve essere un bersaglio da 44.
+- **Righe alte 28 px, 44 con «via X»**: interlinea di 16 px su entrambe le righe. Fascia e piede
+  sono più bassi del mockup (24 e 25 px), perché il pannello misurato si apre sopra un composer a
+  metà schermo: a 1024×768 l'area colonne resta ≥ 280 px e ≥ 70% del pannello
+  (AC-08, `model-selector-revision.spec.ts`).
+- **Inchiostro attivo**: `blue-800` in chiaro e `blue-300` in scuro (non `#8cb8ff`), classi della
+  palette invece di un colore scritto a mano. axe-core non trova violazioni di contrasto in nessuno
+  dei due temi.
+- **«Automatico» di un motore senza modelli nel composer.** Lo scostamento non tocca il §3.7. La
+  scelta del composer nomina sempre un modello, quindi la riga Automatico di Gemini CLI scrive sul
+  topic `{provider: 'gemini', model: null}` con una PATCH sola
+  (`ChatPane.handleProviderOnlyChange`) e toglie la scelta del composer. Il motore senza modello
+  resta però il valore del selettore e del chip (§9.5).
+- **Il chip del composer senza scelta** dice «Automatico · <predefinito>» e non più il nome del
+  modello effettivo, come vuole la tabella del §3.8 della revisione. `data-model` porta ancora l'id
+  effettivo.
+- **EFFORTUI-01** («la finestra in un distintivo»): il distintivo esce dal chip chiuso (§3.8 della
+  revisione) e resta nella riga aperta, cioè la pillola 1M e la colonna della finestra. La spec e2e
+  `effort-single-surface.spec.ts` è riscritta su questo contratto.
+- **La riga del piano Claude non c'è più nel selettore.** C'è l'avviso corto nel titolo Anthropic
+  (`claudePlanWarning`). La lettura intera resta nel pannello dei provider finché arriva il
+  dettaglio di Claude Code, e le spec `plan-usage-meter` e `settings-homes` sono riscritte di
+  conseguenza.
+- **Esc sul `radiogroup` del motore** è ascoltato su `window` in fase di cattura. Il popover ascolta
+  Escape su `document` nella stessa fase, quindi solo così Esc chiude il gruppo e non il pannello.
+
+### 9.3 Implementazione di «Provider e chiavi» (04/10): dove il codice si scosta dalla revisione
+
+Il livello Provider e il dettaglio di un account sono nel codice: `Settings/providersModel.ts`
+(ordine, schede, aziende servite, azione, conto), `Settings/ProvidersView.tsx` (la lista),
+`Settings/ProviderDetail.tsx` (il dettaglio), `Settings/AIProvidersSection.tsx` (i livelli e il loro
+stato), `ModelSelector.tsx` (il livello dentro lo stesso pannello), `HomePanelHost.tsx` e
+`HomePanel.tsx` (le porte e il foglio senza chip). Il primo scarto del §9.2 («le porte verso un
+account aprono il pannello dei provider di oggi») è chiuso: piede, «Sistema ›», «Aggiungi chiave ›» e
+«Configura ›» aprono il livello nello stesso pannello. Scarti, uno per riga, col motivo:
+
+- **Il livello copre i modelli, che restano montati sotto**, invisibili e inerti (`inert`), nella
+  stessa scatola: per questo ricerca, pieghe e `scrollTop` di ogni colonna tornano come erano senza
+  doverli salvare. Il livello prende almeno l'altezza massima del pannello: con un catalogo corto il
+  pannello cresce, dal bordo del chip, invece di stringere la lista (AC-20 chiede «altezza non
+  minore»). Col fixture «con chiavi» l'altezza non cambia.
+- **‹ ed Esc dal dettaglio tornano sempre alla lista**, anche quando una porta ha aperto direttamente
+  il dettaglio (`/usage`, l'avviso di limite): è lo schema del §1. Da `/usage` servono quindi tre Esc
+  per chiudere (dettaglio, lista, modelli), e il fuoco torna al campo in cui si scriveva.
+- **Il piede del livello ha anche «+ Programma»**, oltre a «+ Chiave API» e «+ Endpoint». Motivo:
+  CLIADD-01 vuole che ogni programma che Topics conosce abbia una riga con il comando d'installazione
+  e il campo del percorso, e un programma non installato non è un account da mettere fra le schede.
+  Uno installato ma non registrato è una scheda «Da collegare» con «Configura ›» (§5.6); uno
+  registrato ha la sua riga nel dettaglio, alla voce «Programma».
+- **«+ Chiave API» offre Claude API e OpenAI API, non Gemini**: il server sa salvare e verificare
+  solo quelle due chiavi (`configureClaude`, `configureOpenAI`), e Gemini CLI è un programma.
+- **La scheda Topics resta anche quando il motore non è registrato**, come scheda «Da collegare»
+  senza azione: tiene «Motore degli agenti» e «Checkpoint a ogni turno» per tutte le chat
+  (SETHOME-01), che altrimenti sparirebbero proprio quando il motore manca. Non entra nel conto,
+  perché non è mai pronta né in errore. È l'unica eccezione, con i programmi installati e non
+  registrati, ad AC-06 («ogni voce è un provider dello snapshot»).
+- **«Riprova» sulla scheda prova il provider sul posto** (`refresh(name)` col cane da guardia di
+  15 s) e la lista resta; nel dettaglio la stessa azione è la prima riga, e «Prova» sta
+  nell'intestazione.
+- **«Predefinito» nel dettaglio compare solo per un provider pronto o già predefinito**, e «Fissa come
+  predefinito» solo se è pronto: il server rifiuta un predefinito non pronto.
+- **Modello di default in linea: la variante 1M è una radio sua** («Opus 5.5 · 1M»), non un
+  interruttore dentro la riga, perché in un `radiogroup` un secondo controllo nella riga sarebbe
+  annidato.
+- **I nomi canonici** (Claude API, OpenAI API, Gemini CLI, jcode, Topics) sono in
+  `shared/provider-labels.ts`, l'unica modifica lato server prevista dal §9 della revisione: il
+  selettore e il livello scrivono lo stesso nome perché leggono la stessa `label` dello snapshot.
+- **Parole**: «Runtime degli agenti» diventa «Motore degli agenti», «Checkpoint automatico a ogni
+  turno» diventa «Checkpoint a ogni turno», «Reasoning effort» diventa «Ragionamento»; le tendine
+  dicono «Automatico» invece di «Auto (env/default)», e l'approvazione «Automatica» o «Accesso
+  completo» invece degli id. La freschezza è `Intl.RelativeTimeFormat` stretto («aggiornato 12 s
+  fa», «ora» sotto il secondo).
+- **AC-06 e AC-28 letti come li scrive la revisione stessa**: i titoli vietati di AC-01 si cercano
+  come titoli, quindi «Endpoint» al singolare nel fatto della scheda («Endpoint · openrouter.ai · 6
+  modelli», §5.2) e «API» dentro un nome («Claude API») passano; le parole inglesi di AC-28 si
+  cercano col maiuscolo, altrimenti «Modello di default», che AC-28 dichiara valido, non passerebbe.
+- **Il foglio senza chip non usa la cornice dei moduli** (`FormPanelFrame`): ha il titolo del livello,
+  il conto e una chiusura sua (`home-panel-providers-close`), largo 44rem e alto al massimo come il
+  selettore.
+- **Alla chiusura del selettore il fuoco va al grilletto** anche quando WebKit lo lascerebbe al
+  contenitore che lo ospita (le impostazioni della board, la finestra delle impostazioni della
+  chat): WebKit non mette il fuoco su un bottone al clic, e il menu lo restituiva al contenitore
+  (MSEL-08). Non lo riprende da un controllo su cui la persona si è spostata.
+- **Le spec e2e** che aprivano il pannello da 420 px (`settings-api-providers`, `settings-homes`,
+  `settings-cli-agents`, `settings-direct-endpoints`, `settings-mobile`, `plan-usage-meter`,
+  `provider-limit-notice`, `user-menu-forms`, `chat-slash-local-answers`, `context-settings`) sono
+  riscritte sul contratto nuovo; i criteri del livello e del dettaglio sono in
+  `model-panels-providers.spec.ts`.
+
+### 9.4 Spec e2e della revisione (04/10): dove il codice si scosta, e cosa le spec hanno trovato
+
+I criteri della revisione sono in `model-selector-revision.spec.ts` (selettore) e
+`model-panels-providers.spec.ts` (livello Provider), rossi su `origin/main` e verdi sul ramo in
+WebKit. Scritte e lanciate, le spec hanno trovato cinque difetti, corretti qui:
+
+- **I divisori fra le colonne erano invisibili** (AC-38): usavano `--border`, che sul fondo del
+  popover fa 1,09:1 in chiaro e circa 1:1 in scuro. Ora hanno i colori che il §4.4 della revisione
+  scrive, `#d3d5d9` e `#3d4044` (`COLUMN_DIVIDER` in `ModelList.tsx`), sia fra le colonne sia sopra
+  la griglia. Non è uno scarto, è il design applicato.
+- **La riga della fascia sul telefono faceva 4,48:1** (AC-34, axe): sotto i 768 px il fondo del foglio
+  è più scuro (`--popover-bg` all'88%), e il testo secondario sul blu della fascia scendeva sotto
+  4,5:1. Scarto dal §4.4 («i testi secondari usano `--text-secondary`»): sotto i 768 px la riga usa
+  `--text`. Sul desktop resta secondaria.
+- **Sul telefono le impostazioni della chat non avevano una porta** (AC-39, la causa che la revisione
+  non aveva diagnosticato): sotto i 768 px la striscia delle tab è sostituita dal nome della
+  superficie (`mobile-pane-title`), e con la striscia spariva il menu della tab, l'unica strada per
+  «Impostazioni della chat». Scarto dal §6 della revisione, che diceva «tenendo premuta la scheda
+  della chat»: sul telefono la scheda non c'è, quindi si tiene premuto il nome della chat in cima,
+  che apre un menu con quella voce (`StandaloneChatGroup.tsx`). Emendato lo scenario di MSEL-08.
+- **La riga del vuoto della chat scriveva gli id grezzi** («modello claude-opus-5-5 · via
+  claude-code») un centimetro sopra il chip che scrive «Automatico · Claude Code». Ora scrive i nomi
+  del selettore (`catalogModelLabel` e l'etichetta dello snapshot). AC-28 vieta gli id grezzi in
+  selettore, livello e dettaglio; la riga del vuoto non è fra queste superfici, ma è la stessa
+  informazione.
+- **Il pannello cambiava posto mentre si cercava**: `Menu` lo rimette a posto a ogni cambio di
+  misura, e una ricerca che lasciava cinque righe lo accorciava; sopra il chip restava appeso 150 px
+  più in alto, e tornando dal livello Provider saltava sotto il chip (496 px più giù, misurato in
+  WebKit). Sul desktop il pannello ora non si accorcia finché è aperto (`SelectorBody` in
+  `ModelSelector.tsx`); cresce ancora, fino al tetto, quando si apre una piega. Coperto dal gesto
+  intero di `model-panels-providers.spec.ts`. Il pavimento resta sotto il tetto (§9.5).
+
+### 9.5 Verifica del ramo (04/10): cosa ha trovato e dove il codice si scosta
+
+La verifica del ramo ha trovato quattro difetti, corretti qui, con le spec in
+`model-selector-revision.spec.ts` (rosse prima della correzione, verdi dopo, in WebKit):
+
+- **«Automatico» nominava il motore attuale della chat, ma salvava il predefinito dell'app.** In
+  una chat su Codex il bottone diceva «Automatico · Codex» e la frase «Usa il predefinito: Codex»,
+  e al clic la chat passava a Claude Code. Ora il chip del composer e le impostazioni della chat
+  nominano il predefinito dell'app (`snapshot.defaultProvider`), come scrive la tabella del §3.7
+  della revisione («Automatico · Claude Code (il predefinito)»). Non è uno scarto, è il design
+  applicato.
+- **«Automatico» dentro un motore arriva intatto all'andata e al ritorno.** Il valore del selettore
+  e del chip è il motore della chat anche senza modello (`{provider: 'gemini', model: null}`): il
+  chip scrive «Automatico · Gemini CLI» (§3.8) e, riaprendo, è premuta la riga di Gemini e non
+  l'Automatico in alto. In una chat nuova (bozza) la scelta sta su questo dispositivo
+  (`providerOnly:<bozza>` in `composerMemory.ts`), il primo turno manda il provider da solo (il
+  server lo accetta come override del messaggio) e la promozione lo scrive sul topic con
+  `{provider, model: null}`. Una bozza con quella scelta non eredita più l'ultima scelta fatta
+  altrove. Scarto, col motivo: una chat il cui motore elenca modelli ma che non ne ha uno suo (la
+  scrivono il dispatcher e il ponte MCP) non ha nessuna riga premuta, e il chip dice «Automatico ·
+  <motore>»; prima risultava premuto l'Automatico in alto, che però salva un'altra cosa.
+- **La scelta del motore nel titolo si usa da tastiera.** Scarto da MSEL-08 («↓ ↑ attraversano
+  tutte le sezioni»): con il `radiogroup` del motore aperto, le frecce (↓ ↑ ← →, Home, End) si
+  muovono fra i suoi motori, e Invio o Spazio sceglie. È lo schema del gruppo di radio: le frecce
+  del pannello saltano apposta le radio non scelte (il gruppo è una fermata sola), quindi senza
+  questo i motori non scelti non si raggiungevano mai. Dopo la scelta il fuoco torna al bottone del
+  motore, non al campo della chat. Chiuso il gruppo, ↓ ↑ attraversano di nuovo tutte le sezioni.
+  Emendato lo scenario di MSEL-08.
+- **Il pavimento del pannello non supera il tetto.** Il pavimento del §9.4 prendeva la più grande
+  altezza vista, anche quella misurata prima che il tetto si applicasse (il catalogo intero: 519 px
+  col fixture, 3009 px coi 134 id di jcode), e in CSS `min-height` vince su `max-height`: nelle
+  impostazioni della chat a 1024×768 il pannello copriva il trigger o usciva dalla finestra (6
+  aperture su 7). Lo stesso succedeva rimpicciolendo la finestra col pannello aperto. Ora il
+  pavimento è tenuto sotto il tetto (`SelectorBody` in `ModelSelector.tsx`).
+
+Correzioni minori, una per riga:
+- Sulle superfici delle card (cassetto, composer della card, impostazioni della board) la scelta del
+  motore nel titolo lascia il pannello aperto (`keepOpen`): il loro `onSelect` lo chiudeva, mentre
+  le altre scelte lo chiudono già da sé.
+- Una chat senza motore con un modello fissato da `/model` scrive sul chip quel modello, «Opus 4.5 ·
+  via Claude Code», invece di «Automatico · Claude Code».
+
+### 9.6 CI della PR (04/10): cosa ha trovato e dove il codice si scosta
+
+- **La regola del lato del §4.2 mandava fuori finestra i pannelli che non applicano il tetto.**
+  `computeMenuPosition` ora apre sotto quando il pannello non ci sta da nessuna parte e sotto c'è
+  più spazio, e affida il tetto (`maxHeight`) al chiamante. `Menu` però non lo applica: ogni
+  pannello tiene il suo `max-h`. Il pannello Modifiche del cassetto della card (`max-h-[70vh]`, 560
+  px a 1280×800) si apriva sotto il trigger a y≈400 e finiva 160 px oltre il bordo, e
+  `changed-files-complete.spec.ts` e CHANGES-04 di `board-task-changes-panel.spec.ts` erano rosse in
+  Chromium e in WebKit (verdi su `main`). Ora `Menu` fa risalire dentro la finestra un pannello che
+  uscirebbe dal fondo, dov'era prima di questa regola. Il selettore si dimensiona sul lato più
+  capiente e non arriva mai a quel ramo, quindi AC-10 non cambia.
+- **AC-08 si misura sul pannello vero, non su 400 px fissi.** I 280 px dell'AC valgono per un
+  pannello di 400 (tabella del §4.3 della revisione). Il pannello misurato si apre sopra il composer
+  a metà di una chat vuota, ed è alto quanto lo spazio sopra il chip, che dipende dai font della
+  chat vuota: 398 px in WebKit sul Mac, 384 in Chromium su Linux (chip 14 px più in alto), dove
+  l'area colonne faceva 279. La spec ora chiede che il pannello prenda tutto lo spazio del suo lato
+  (§4.2: `min(456, spazio − 16)`) e che la cornice fissa non superi 120 px, cioè 280 su 400; resta
+  il ≥ 70%. Con la mutazione che accorcia il pannello di 24 px la spec torna rossa.

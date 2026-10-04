@@ -55,7 +55,9 @@ describe('il filo fra le due superfici e la cascata', () => {
   });
 
   test('il cassetto chiama la stessa, con il task al posto del locale', () => {
-    expect(drawer).toContain('surfaceTopicsRoutingEnabled(task.topicsRouting, boardTopicsRoutingDefault, task.model, boardDispatchModel)');
+    // Computed once, before the drawer's early returns, for the switch and the
+    // chip's closed text alike (model selector revision §3.8): `task?.`.
+    expect(drawer).toContain('surfaceTopicsRoutingEnabled(task?.topicsRouting, boardTopicsRoutingDefault, task?.model, boardDispatchModel)');
     expect(drawer.includes('enabled: !!task.topicsRouting')).toBe(false);
   });
 });

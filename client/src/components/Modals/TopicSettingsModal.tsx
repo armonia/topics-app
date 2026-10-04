@@ -15,7 +15,7 @@ import { ShareControl } from '../Share/ShareControl';
 import { buildTabLinkForTarget } from '../../lib/tabLink';
 import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { catalogModelLabel } from '../../lib/modelLabel';
+import { modelTriggerText, triggerLine } from '../../lib/modelLabel';
 import { chatRouteTarget, chatTopicsRoute } from '../../lib/topicsRoutingGate';
 import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
@@ -160,6 +160,12 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [saved, setSaved] = useState(false);
   const toast = useToast();
   const tr = useT();
+  // The model trigger, in the one closed format (revision 2026-10-04 §3.8).
+  const viaTopics = chatTopicsRoute(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot, provider ? null : model).via === 'topics';
+  // Automatico saves no engine, so it is named with the app's default, not
+  // with the engine this chat is on (revision §3.7).
+  const defaultName = snapshot?.defaultProvider ?? null;
+  const defaultLabel = defaultName ? snapshot?.providers.find((entry) => entry.name === defaultName)?.label ?? defaultName : '';
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);
 
@@ -708,12 +714,11 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               onClick={() => setModelOpen((open) => !open)}
               className="flex w-full items-center gap-2 rounded-lg border border-app-border bg-app-inset px-3 py-2 coarse:min-h-11 text-left text-prose text-app-text hover:bg-app-hover"
             >
-              {chatTopicsRoute(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot, provider ? null : model).via === 'topics' && (
+              {viaTopics && (
                 <Route className="h-3.5 w-3.5 shrink-0 text-primary" aria-label={tr('ai.selector.route.topics')} />
               )}
               <span className="min-w-0 flex-1 truncate">
-                {model ? catalogModelLabel(snapshot, provider, model) : tr('topic.settings.modelDefault')}
-                {provider && <span className="text-app-text-muted"> · {snapshot?.providers.find((entry) => entry.name === provider)?.label ?? provider}</span>}
+                {triggerLine(modelTriggerText({ provider, model }, { snapshot, tr, surface: 'chat', viaTopics, automaticWho: defaultLabel }))}
               </span>
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
             </button>
@@ -728,7 +733,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               value={{ provider, model }}
               routingTarget={chatRouteTarget(topicsRouting, provider && model ? { provider, model } : null, provider ?? undefined, snapshot, provider ? null : model)}
               onSelect={(next) => { setProvider(next.provider); setModel(next.model); }}
-              automatic={{ label: tr('topic.settings.modelDefault'), hint: tr('topic.settings.modelDefaultHint') }}
+              automatic={{ who: defaultLabel, hint: tr('ai.selector.auto.usesDefault', { name: defaultLabel }) }}
               topicsRouting={{ enabled: effectiveTopicsRouting(topicsRouting, null, 'chat'), onToggle: setTopicsRouting }}
             />
           </div>

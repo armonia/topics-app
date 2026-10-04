@@ -1,43 +1,28 @@
 /**
- * THE AI PROVIDERS PANEL: the Claude plan and how much of it is spent, then the
- * providers form. It opens beside the model selector (SETHOME-01).
+ * THE CLAUDE PLAN AND HOW MUCH OF IT IS SPENT, in the «Abbonamento» line of
+ * Claude Code's detail (model selector revision 2026-10-04, §5.5; USERMENU-10).
  *
- * The line on top answers what a person checks most often here: which Claude
- * subscription this machine is signed in with, and how full its five-hour
- * window is. They read together because they are one fact: «Max 20x, 42% of
- * the window, resets at 20:49». The plan comes from the providers snapshot
- * (two labels the server reads from the CLI, never the credential), the window
- * from the same reading the plan-limit notice in the column uses.
+ * They read together because they are one fact: «Max 20x, 42% of the window,
+ * resets at 20:49». The plan comes from the providers snapshot (two labels the
+ * server reads from the CLI, never the credential), the windows from the same
+ * reading the plan-limit notice in the column uses. The selector keeps only a
+ * short warning in the Anthropic heading.
  */
-import { AIProvidersSection } from '../Settings/AIProvidersSection';
-import { claudeSubscription, subscriptionLabel, usageLine, weekUsageLine } from './formLevelTails';
-import { SEGNALE_ATTESA } from './chromeSignals';
+import { claudeSubscription, subscriptionLabel, usageLine, weekUsageLine } from '../Sidebar/formLevelTails';
+import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import { usePlanUsage } from '@/state/planUsage';
 import { useLocale, useT } from '@/hooks/useT';
 
-export function ProvidersLevelBody() {
-  return (
-    <div className="space-y-4">
-      <ClaudePlanLine />
-      <AIProvidersSection />
-    </div>
-  );
-}
-
-function ClaudePlanLine() {
+export function ClaudePlanUsage() {
   const tr = useT();
   const locale = useLocale();
   const { snapshot } = useProvidersSnapshot();
   const usage = usePlanUsage();
-  const subscription = claudeSubscription(snapshot);
-  const plan = subscriptionLabel(subscription);
+  const plan = subscriptionLabel(claudeSubscription(snapshot));
   const fiveHour = usage?.fiveHour ?? null;
   const sevenDay = usage?.sevenDay ?? null;
-  // Only where there is a subscription to speak of: an API key or no login,
-  // with no reading, has nothing to say here.
-  if (!subscription && !fiveHour && !sevenDay) return null;
   const line = usageLine(
     fiveHour,
     (ms) => new Date(ms).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -49,8 +34,8 @@ function ClaudePlanLine() {
     tr,
   );
   return (
-    <div data-testid="providers-claude-plan" className="space-y-1.5 rounded-lg border border-app-border px-3 py-2.5">
-      <div className="text-compact font-medium text-app-text">
+    <div data-testid="providers-claude-plan" className="space-y-1.5">
+      <div className="text-compact text-app-text">
         {plan ? tr('userMenu.subscription', { plan }) : tr('userMenu.subscriptionUnknown')}
       </div>
       {fiveHour || sevenDay ? (
@@ -60,7 +45,7 @@ function ClaudePlanLine() {
           {sevenDay && <UsageBar window={sevenDay} line={weekLine} testId="providers-claude-week" />}
         </>
       ) : (
-        <div data-testid="providers-claude-usage-none" className="text-mini text-app-text-tertiary">{tr('userMenu.usage.none')}</div>
+        <div data-testid="providers-claude-usage-none" className="text-mini text-app-text-secondary">{tr('userMenu.usage.none')}</div>
       )}
     </div>
   );

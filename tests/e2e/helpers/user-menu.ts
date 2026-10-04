@@ -104,9 +104,14 @@ export type HomePanelName = "providers" | "tools" | "calendar";
  * because the host listens only once the app has mounted. Hands back the panel.
  * The real doors (the selector's footer, the «+», the tile's menu) have specs
  * of their own (`settings-homes.spec.ts`).
+ *
+ * Providers and keys is a level of the model selector (model selector
+ * revision 2026-10-04, §5.1): with a model chip on screen it opens inside that
+ * chip's selector, with none as a centred sheet. Either way the levels are
+ * `ai-providers-settings`, and that is what comes back.
  */
 export async function openHomePanel(page: Page, home: HomePanelName): Promise<Locator> {
-  const panel = page.getByTestId(`home-panel-${home}`);
+  const panel = home === "providers" ? page.getByTestId("ai-providers-settings") : page.getByTestId(`home-panel-${home}`);
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   await expect(async () => {
     if (await panel.isVisible()) return;

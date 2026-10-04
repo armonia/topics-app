@@ -1,33 +1,41 @@
 /**
- * THE BODY OF THE MODEL SELECTOR: band, search, Automatic, one section per
- * company (MSEL-02..08). Every surface that picks a model draws this, through
- * `ModelSelector`, which owns the popover around it.
+ * THE BODY OF THE MODEL SELECTOR (MSEL-02..08, revision 2026-10-04 §4): the
+ * Run-in-Topics band, the search with Automatic beside it, the companies in
+ * columns (Anthropic, OpenAI, Google fixed, the others stacked in the fourth),
+ * and the providers at the foot. Every surface that picks a model draws this,
+ * through `ModelSelector`, which owns the popover around it.
+ *
+ * The body is not a listbox: it is a dialog of company groups (`role=group`)
+ * of buttons, with nothing interactive inside anything interactive. The engine
+ * of a group is written once, in its heading, and chosen there (⌄) when two
+ * engines run it; a row names its engine only when it runs elsewhere.
  *
  * Its own chunk (`modelListLazy.ts`): it is the content of a popover, nothing
  * of it is on screen at first paint.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, KeyRound, Route, Search, Settings2, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, ChevronRight, KeyRound, Route, Search, Sparkles } from 'lucide-react';
 import type { ProvidersSnapshot } from '../../../types';
-import type { ModelMaker } from '../../../../../shared/modelMaker';
+import type { ProvidersTarget } from '../../Settings/AIProvidersSection';
 import { topicsRoute, type TopicsRoute, type TopicsRouteScope } from '../../../../../shared/task-coding-models';
 import { contextWindowFor, formatContextWindow } from '../../../../../shared/context-window';
 import { POPOVER_ITEM } from '../../../lib/popoverStyles';
-import { openHome } from '../../../lib/openHome';
 import { usePlanUsage } from '../../../state/planUsage';
 import { useT } from '../../../hooks/useT';
-import { useMenuAnchor } from '../menuAnchor';
+import { isTypingSurface } from '../../../hooks/useMenuKeyboard';
 import { SEGNALE_ATTESA } from '../../Sidebar/chromeSignals';
-import { claudePlanCompact, claudeSubscription, providersReadyTail } from '../../Sidebar/formLevelTails';
+import { claudePlanWarning, providersCountTail } from '../../Sidebar/formLevelTails';
 import {
+  catalogColumns,
   filterModelCatalog,
-  rowEngine,
   rowSelected,
+  signInCommand,
   useModelCatalog,
   type AiExecutionSelection,
-  type CatalogEngine,
+  type CatalogGroup,
   type CatalogRow,
-  type CatalogSection,
+  type ConnectEntry,
+  type GroupStatus,
 } from './useModelCatalog';
 
 export interface ModelListProps {
@@ -38,34 +46,58 @@ export interface ModelListProps {
   /** What the band judges when it differs from `value` (Automatic on a card
    *  runs the board default; a chat with no override runs its pin). */
   routingTarget?: AiExecutionSelection;
-  onSelect: (selection: AiExecutionSelection) => void;
-  automatic: { label: string; hint: string };
+  /** `keepOpen`: a choice made from a heading's engine, the panel stays. */
+  onSelect: (selection: AiExecutionSelection, options?: { keepOpen?: boolean }) => void;
+  /** Automatic (revision §3.7): `who` is the short part, always visible
+   *  («Claude Code», «segue la board»); `hint` the long sentence. */
+  automatic: { who: string; hint: string };
   /** The Run-in-Topics band. Absent = no band (the default model of one provider). */
   topicsRouting?: { enabled: boolean; onToggle: (next: boolean) => void };
   /** Only this provider's models (the default model of one provider). */
   onlyProvider?: string;
   disabled?: boolean;
   onClose: () => void;
+  /** Providers and keys, a level of the same panel (revision §5.1): the foot
+   *  opens the list, «Sistema ›» and the connect boxes an account's detail. */
+  onOpenProviders: (target: ProvidersTarget) => void;
   /** Focus the search on open: desktop only, the phone keyboard would cover the sheet. */
   focusSearch: boolean;
   /** Deterministic catalog for render tests; live callers omit it. */
   snapshot?: ProvidersSnapshot | null;
 }
 
-const MAKER_KEY: Record<ModelMaker, string> = {
-  anthropic: 'ai.selector.maker.anthropic',
-  openai: 'ai.selector.maker.openai',
-  google: 'ai.selector.maker.google',
-  other: 'ai.selector.maker.other',
+/** Where the dismiss button remembers the hidden connect boxes, on this device. */
+export const HIDDEN_CONNECT_KEY = 'topics.modelSelector.hiddenConnect';
+/** The active ink: 4.5:1 on the popover in both themes (revision §4.4). */
+const ACTIVE_INK = 'text-blue-800 dark:text-blue-300';
+/** The column dividers, `#d3d5d9` / `#3d4044` as the revision draws them (§4.4). */
+const COLUMN_DIVIDER = 'border-[#d3d5d9] dark:border-[#3d4044]';
+const STATUS_DOT: Record<GroupStatus, string> = {
+  ready: 'bg-emerald-600 dark:bg-emerald-400',
+  unavailable: 'bg-zinc-400 dark:bg-zinc-500',
+  error: 'bg-red-600 dark:bg-red-400',
+  loading: 'bg-blue-600 dark:bg-blue-400 animate-pulse motion-reduce:animate-none',
 };
+const NAVIGABLE = 'button:not([disabled]):not([data-roving-skip]):not([role="radio"][aria-checked="false"])';
+
+function readHidden(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(HIDDEN_CONNECT_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 function routeOf(enabled: boolean, selection: AiExecutionSelection, snapshot: ProvidersSnapshot | null, scope: TopicsRouteScope): TopicsRoute {
   return topicsRoute(enabled, { provider: selection.provider ?? snapshot?.defaultProvider ?? null, model: selection.model }, snapshot, scope);
 }
 
+const domId = (text: string) => text.replace(/[^a-z0-9]/gi, '-');
+
 /** The Run-in-Topics band: a real switch, the whole band clicks, never disabled
- *  (neither position blocks anything), and the line under the title says what
- *  happens to the CURRENT choice, readable without hovering (MSEL-07). */
+ *  (neither position blocks anything), and the line says what happens to the
+ *  CURRENT choice, readable without hovering (MSEL-07). One line on desktop. */
 function RoutingBand({ enabled, route, engineLabel, onToggle }: {
   enabled: boolean;
   route: TopicsRoute;
@@ -88,16 +120,18 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
       data-testid="model-selector-routing"
       data-route={!enabled ? 'off' : through ? 'topics' : 'direct'}
       onClick={onToggle}
-      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors ${
+      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-start gap-2 rounded-md px-2.5 py-1 coarse:py-3 text-left transition-colors ${
         through ? 'border-l-2 border-primary bg-primary/10' : 'border-l-2 border-transparent bg-app-inset'
       }`}
     >
-      <Route className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${through ? 'text-primary' : 'text-app-text-muted'}`} aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-mini font-semibold text-app-text">{tr('ai.selector.routing')}</span>
+      <Route className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${through ? ACTIVE_INK : 'text-app-text-secondary'}`} aria-hidden="true" />
+      <span className="min-w-0 flex-1 text-mini leading-4">
+        <span className="font-semibold text-app-text">{tr('ai.selector.routing')}</span>{' '}
         <span
           data-testid="model-selector-routing-line"
-          className={`mt-0.5 block text-micro leading-snug ${direct ? SEGNALE_ATTESA : enabled ? 'text-app-text-secondary' : 'text-app-text-muted'}`}
+          // Under 768px the sheet's popover is darker (`--popover-bg` 88%), and
+          // the secondary ink on the blue band fell to 4.48:1 (AC-34, axe).
+          className={direct ? SEGNALE_ATTESA : 'text-app-text-secondary max-md:text-app-text'}
         >
           {line}
         </span>
@@ -109,55 +143,37 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
   );
 }
 
-/** The providers and their keys, at the foot of every selector (SETHOME-01). */
-function ProvidersFooterRow({ snapshot, chosen, disabled, onClose }: {
+/** The providers row, the count and the chevron: the foot of every selector (SETHOME-01). */
+function ProvidersFooterRow({ snapshot, disabled, onOpen }: {
   snapshot: ProvidersSnapshot | null;
-  chosen: string | null;
   disabled?: boolean;
-  onClose: () => void;
+  onOpen: () => void;
 }) {
   const tr = useT();
-  const anchor = useMenuAnchor();
-  const tail = providersReadyTail(snapshot, chosen, tr);
+  const tail = providersCountTail(snapshot, tr);
   return (
-    <div className="mt-1 shrink-0 border-t border-app-border pt-1">
+    <div className="shrink-0 border-t border-app-border pt-0.5">
       <button
         type="button"
         disabled={disabled}
         data-testid="ai-selector-providers"
-        className={`${POPOVER_ITEM} disabled:opacity-40`}
-        onClick={() => { const el = anchor?.current ?? null; onClose(); openHome('providers', el); }}
+        className={`${POPOVER_ITEM} !py-1 coarse:!py-3 disabled:opacity-40`}
+        onClick={onOpen}
       >
-        <KeyRound className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+        <KeyRound className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{tr('home.providers')}</span>
         {tail && (
           <span
             data-testid="ai-selector-providers-tail"
             data-warn={tail.warn ? 'true' : undefined}
-            className={`shrink-0 text-micro tabular-nums ${tail.warn ? SEGNALE_ATTESA : 'text-app-text-muted'}`}
+            className={`shrink-0 text-mini tabular-nums ${tail.warn ? SEGNALE_ATTESA : 'text-app-text-secondary'}`}
           >
             {tail.text}
           </span>
         )}
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
       </button>
     </div>
-  );
-}
-
-/** The Claude plan in one line, under the Anthropic heading. */
-function ClaudePlanCompactLine({ snapshot }: { snapshot: ProvidersSnapshot | null }) {
-  const tr = useT();
-  const usage = usePlanUsage();
-  const line = claudePlanCompact(claudeSubscription(snapshot), usage?.fiveHour ?? null, tr, usage?.sevenDay ?? null);
-  if (!line) return null;
-  return (
-    <p
-      data-testid="ai-selector-claude-plan"
-      data-warn={line.warn ? 'true' : undefined}
-      className={`px-3 pb-1 text-micro tabular-nums ${line.warn ? SEGNALE_ATTESA : 'text-app-text-muted'}`}
-    >
-      {line.text}
-    </p>
   );
 }
 
@@ -167,270 +183,346 @@ function retireDate(iso: string): string {
   return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-interface RowProps {
-  row: CatalogRow;
-  column: number;
-  index: number;
-  value: AiExecutionSelection;
-  snapshot: ProvidersSnapshot | null;
-  scope: TopicsRouteScope;
-  variant: 'compact' | 'full';
-  layout: 'columns' | 'list';
-  routingEnabled: boolean;
-  disabled?: boolean;
-  onPick: (selection: AiExecutionSelection) => void;
-  onClose: () => void;
+function StatusDot({ status }: { status: GroupStatus }) {
+  const tr = useT();
+  const word = tr(`ai.selector.status.${status}`);
+  return <span role="img" aria-label={word} title={word} data-status={status} className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[status]}`} />;
 }
 
-function ModelRow({ row, column, index, value, snapshot, scope, variant, layout, routingEnabled, disabled, onPick, onClose }: RowProps) {
+interface RowProps {
+  row: CatalogRow;
+  value: AiExecutionSelection;
+  scope: TopicsRouteScope;
+  variant: 'compact' | 'full';
+  disabled?: boolean;
+  onPick: (selection: AiExecutionSelection) => void;
+  onFix: (engine: string | undefined) => void;
+}
+
+/**
+ * One model: a button (`aria-pressed`) laid out as `label (2 lines at most) ·
+ * [1M] · window · check`. The 1M switch is a SIBLING of the button, not inside
+ * it. The second line is there only for «via X», a retirement, the description
+ * (`full`) or why the row cannot run.
+ */
+function ModelRow({ row, value, scope, variant, disabled, onPick, onFix }: RowProps) {
   const tr = useT();
-  const anchor = useMenuAnchor();
   const selected = rowSelected(row, value);
-  const engine = rowEngine(row, value, snapshot?.defaultProvider);
-  const readyEngines = row.engines.filter((candidate) => candidate.ready);
-  const usable = !row.stale && !!engine?.ready;
+  const usable = !row.stale && !!row.engine?.ready;
   const [long, setLong] = useState(() => !!row.longModel && value.model === row.longModel);
-  const [segment, setSegment] = useState(false);
-  const rowRef = useRef<HTMLDivElement>(null);
-  const id = long && row.longModel ? row.longModel : row.model;
-  const route = engine ? routeOf(routingEnabled, { provider: engine.name, model: id }, snapshot, scope) : null;
-  const via = route?.via === 'topics' ? tr('ai.selector.route.topics') : engine ? tr('ai.selector.route.via', { engine: engine.label }) : '';
-  const win = contextWindowFor(id, row.windows[id]);
-  const describedBy = `model-row-desc-${row.key.replace(/[^a-z0-9]/gi, '-')}`;
-  const pick = (provider: string | undefined, model = id) => {
-    if (!provider || disabled || !usable) return;
-    onPick({ provider, model });
-  };
-  const moveColumn = (delta: number) => {
-    const panel = rowRef.current?.closest('[data-model-selector-panel]');
-    if (!panel) return;
-    const target = [...panel.querySelectorAll<HTMLElement>(`[data-column="${column + delta}"][role="option"]:not([aria-disabled="true"])`)];
-    (target[Math.min(index, target.length - 1)] ?? null)?.focus();
-  };
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.target !== rowRef.current) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      pick(engine?.name);
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      if (readyEngines.length > 1) {
-        setSegment(true);
-        requestAnimationFrame(() => rowRef.current?.querySelector<HTMLElement>('[data-engine-choice]')?.focus());
-      } else if (layout === 'columns') moveColumn(1);
-    } else if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      if (segment) setSegment(false);
-      else if (layout === 'columns') moveColumn(-1);
-    }
-  };
-  // The window, in chat: it is what tells two similar rows apart, so it is
-  // there on every row, the unavailable stored one included (EFFORTUI-01).
-  const windowText = scope === 'chat' ? `${win.known ? '' : '≈'}${formatContextWindow(win.tokens)}` : null;
+  const id = row.automatic ? null : long && row.longModel ? row.longModel : row.model;
+  const label = row.automatic ? tr('ai.selector.auto') : row.label;
+  const win = id ? contextWindowFor(id, row.windows[id]) : null;
+  // A window is shown only when it is known: never «≈1M» (revision §3.6, AC-12).
+  const windowText = scope === 'chat' && win?.known ? formatContextWindow(win.tokens) : null;
+  const describedBy = `model-row-desc-${domId(row.key)}`;
+  const name = [label, windowText, row.engine?.label, row.viaTopics ? tr('ai.selector.route.topics') : null].filter(Boolean).join(', ');
+  const second = !!row.via || !!row.retiresAt || (variant === 'full' && !!row.description) || !usable;
+  // The 1M switch sits over the spacer of the first line: right padding (12),
+  // check (12) and its gap (8), plus the window column and its gap.
+  const switchRight = 32 + (windowText ? 44 : 0);
   return (
-    <div
-      ref={rowRef}
-      role="option"
-      tabIndex={-1}
-      aria-selected={selected}
-      aria-disabled={!usable || disabled ? true : undefined}
-      aria-describedby={row.description || row.retiresAt || !usable ? describedBy : undefined}
-      data-testid="model-row"
-      data-model={id}
-      data-provider={engine?.name}
-      data-route={route?.via}
-      data-column={column}
-      data-index={index}
-      onClick={() => pick(engine?.name)}
-      onKeyDown={onKeyDown}
-      className={`${POPOVER_ITEM} !items-start cursor-default flex-col !gap-0.5 outline-none focus-visible:bg-app-hover ${
-        selected ? 'bg-primary/5' : ''
-      } ${!usable || disabled ? 'opacity-60' : 'cursor-pointer'}`}
-    >
-      <span className="flex w-full min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate" data-testid="model-row-label">{row.label}</span>
-        {row.longModel && (
-          <button
-            type="button"
-            data-roving-skip=""
-            role="switch"
-            aria-checked={long}
-            aria-label={tr('ai.selector.longWindow')}
-            title={tr('ai.selector.longWindow')}
-            data-testid="model-row-1m"
-            disabled={disabled || !usable}
-            onClick={(event) => {
-              event.stopPropagation();
-              const next = !long;
-              setLong(next);
-              if (selected && engine) onPick({ provider: engine.name, model: next ? row.longModel! : row.model });
-            }}
-            className={`shrink-0 rounded px-1 text-nano font-semibold tabular-nums ${long ? 'bg-primary/15 text-primary' : 'bg-app-hover text-app-text-muted'}`}
-          >
-            1M
-          </button>
-        )}
-        {windowText && (
-          <span
-            data-testid={`model-window-${id}`}
-            data-context-tokens={win.tokens}
-            data-context-known={win.known ? 'true' : 'false'}
-            title={win.known ? tr('model.ctxWindow', { n: win.tokens.toLocaleString('it-IT') }) : tr('model.ctxWindow.guess', { n: win.tokens.toLocaleString('it-IT') })}
-            className="shrink-0 text-micro tabular-nums text-app-text-muted"
-          >
-            {windowText}
-          </span>
-        )}
-        {layout === 'list' && usable && <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} disabled={disabled} onToggle={() => setSegment((v) => !v)} />}
-        <span className="flex w-3 shrink-0 justify-center" aria-hidden="true">
-          {selected && <Check className={`h-3 w-3 ${usable ? 'text-emerald-400' : 'text-amber-300'}`} />}
-        </span>
-      </span>
-      {layout === 'columns' && usable && (
-        <span className="flex w-full min-w-0 items-center gap-1.5 text-micro text-app-text-muted">
-          <ViaLabel via={via} route={route} multi={readyEngines.length > 1} open={segment} disabled={disabled} onToggle={() => setSegment((v) => !v)} />
-        </span>
-      )}
-      {(row.retiresAt || (variant === 'full' && row.description) || !usable) && (
-        <span id={describedBy} className="block w-full text-micro leading-snug text-app-text-muted">
-          {row.retiresAt && <span className={`block ${SEGNALE_ATTESA}`} data-testid="model-row-retires">{tr('ai.selector.retires', { date: retireDate(row.retiresAt) })}</span>}
-          {variant === 'full' && row.description && <span className="block" data-testid="model-row-description">{row.description}</span>}
-          {!usable && (
-            <span className="flex items-center gap-1.5">
-              <span className={SEGNALE_ATTESA}>{row.stale ? tr('ai.selector.noLongerAvailable') : engine?.reason || tr('ai.selector.unavailable')}</span>
-              <button
-                type="button"
-                data-testid="model-row-settings"
-                disabled={disabled}
-                onClick={(event) => { event.stopPropagation(); const el = anchor?.current ?? null; onClose(); openHome('providers', el); }}
-                className="inline-flex items-center gap-1 rounded px-1 text-primary hover:bg-app-hover"
-              >
-                <Settings2 className="h-3 w-3" aria-hidden="true" />{tr('chat.picker.openSettings')}
-              </button>
+    <div className="relative" data-testid="model-row-wrap">
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={name}
+        aria-describedby={second ? describedBy : undefined}
+        title={row.automatic ? undefined : row.label}
+        disabled={disabled || !usable}
+        data-testid={row.automatic ? 'model-row-automatic-within' : 'model-row'}
+        data-model={id ?? undefined}
+        data-provider={row.engine?.name}
+        data-route={row.viaTopics ? 'topics' : 'direct'}
+        onClick={() => { if (usable && row.engine) onPick({ provider: row.engine.name, model: id }); }}
+        className={`${POPOVER_ITEM} !items-start flex-col !gap-0 leading-4 coarse:leading-5 outline-none focus-visible:bg-app-hover disabled:cursor-default ${
+          selected ? 'bg-primary/5' : ''
+        } ${!usable ? 'opacity-70' : ''}`}
+      >
+        <span className="flex w-full min-w-0 items-start gap-2">
+          {row.automatic && <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />}
+          <span className="line-clamp-2 min-w-0 flex-1 break-words" data-testid="model-row-label">{label}</span>
+          {row.longModel && <span className="w-7 shrink-0 coarse:w-11" aria-hidden="true" />}
+          {windowText && (
+            <span
+              data-testid={`model-window-${id}`}
+              data-context-tokens={win!.tokens}
+              className="w-9 shrink-0 text-right text-mini tabular-nums text-app-text-secondary"
+            >
+              {windowText}
             </span>
           )}
+          <span className="flex w-3 shrink-0 justify-center self-center" aria-hidden="true">
+            {selected && <Check className={`h-3 w-3 ${usable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-300'}`} />}
+          </span>
         </span>
+        {second && (
+          <span id={describedBy} className="block w-full text-mini leading-4 text-app-text-secondary">
+            {row.via && <span className="block" data-testid="model-row-via">{tr('ai.selector.route.via', { engine: row.via })}</span>}
+            {row.retiresAt && <span className={`block ${SEGNALE_ATTESA}`} data-testid="model-row-retires">{tr('ai.selector.retires', { date: retireDate(row.retiresAt) })}</span>}
+            {variant === 'full' && row.description && <span className="block" data-testid="model-row-description">{row.description}</span>}
+            {!usable && <span className={`block ${SEGNALE_ATTESA}`}>{tr('ai.selector.noLongerAvailable')}</span>}
+          </span>
+        )}
+      </button>
+      {row.longModel && (
+        <button
+          type="button"
+          data-roving-skip=""
+          role="switch"
+          aria-checked={long}
+          aria-label={tr('ai.selector.longWindow')}
+          title={tr('ai.selector.longWindow')}
+          data-testid="model-row-1m"
+          disabled={disabled || !usable}
+          style={{ right: switchRight }}
+          onClick={() => {
+            const next = !long;
+            setLong(next);
+            if (selected && row.engine) onPick({ provider: row.engine.name, model: next ? row.longModel! : row.model });
+          }}
+          className="absolute top-0.5 flex h-6 min-w-7 items-center justify-center coarse:top-0 coarse:h-11 coarse:min-w-11"
+        >
+          <span className={`rounded px-1 text-micro font-semibold tabular-nums ${long ? 'bg-primary/15 text-app-text' : 'bg-app-hover text-app-text-secondary'}`}>1M</span>
+        </button>
       )}
-      {segment && readyEngines.length > 1 && (
-        <span role="radiogroup" aria-label={tr('ai.selector.engine')} className="flex w-full flex-wrap gap-1 pt-0.5" data-testid="model-row-engines">
-          {readyEngines.map((candidate: CatalogEngine) => (
-            <button
-              key={candidate.name}
-              type="button"
-              role="radio"
-              aria-checked={candidate.name === engine?.name}
-              data-engine-choice={candidate.name}
-              disabled={disabled}
-              data-roving-skip=""
-              onClick={(event) => { event.stopPropagation(); setSegment(false); pick(candidate.name); }}
-              onKeyDown={(event) => {
-                if (event.key === 'ArrowLeft' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setSegment(false); rowRef.current?.focus(); }
-              }}
-              className={`rounded px-1.5 py-0.5 text-micro ${candidate.name === engine?.name ? 'bg-primary/15 text-primary' : 'bg-app-hover text-app-text-secondary'}`}
-            >
-              {candidate.label}
-            </button>
-          ))}
-        </span>
+      {!usable && !row.automatic && (
+        <button
+          type="button"
+          data-testid="model-row-settings"
+          disabled={disabled}
+          onClick={() => onFix(row.engine?.name)}
+          className={`mx-3 mb-1 rounded px-1 text-mini coarse:min-h-11 hover:bg-app-hover ${ACTIVE_INK}`}
+        >
+          {tr('ai.selector.action.fix')}
+        </button>
       )}
     </div>
   );
 }
 
-/** «via Topics» / «via Codex»: a small button when more than one engine runs the model. */
-function ViaLabel({ via, route, multi, open, disabled, onToggle }: { via: string; route: TopicsRoute | null; multi: boolean; open: boolean; disabled?: boolean; onToggle: () => void }) {
+/** A company with no ready engine but a provider of the snapshot that is not
+ *  ready (revision §4.6): what is missing, one action per provider, and the
+ *  button that hides the box. Never a shell command in the text. */
+function ConnectBox({ group, disabled, onHide, onClose, onOpenProviders }: {
+  group: CatalogGroup;
+  disabled?: boolean;
+  onHide: () => void;
+  onClose: () => void;
+  onOpenProviders: (target: ProvidersTarget) => void;
+}) {
   const tr = useT();
-  const tone = route?.via === 'topics' ? 'text-primary' : 'text-app-text-muted';
-  if (!multi) return <span data-testid="model-row-via" className={`shrink-0 truncate text-micro ${tone}`}>{via}</span>;
+  const first = group.connect[0]!;
+  const sentence = first.status === 'error'
+    ? tr('ai.selector.connect.error', { name: first.label })
+    : tr(`ai.selector.connect.${first.action}`, { name: first.label });
+  const act = (entry: ConnectEntry) => {
+    const command = entry.action === 'signIn' ? signInCommand(entry.name) : null;
+    // «Accedi» acts on the first press: a Topics terminal with the command
+    // typed, not run. The other two are navigations to the account's detail,
+    // with its field focused, and the › says so.
+    if (command) {
+      onClose();
+      window.dispatchEvent(new CustomEvent('topics:open-terminal-with-command', { detail: { command } }));
+    } else {
+      onOpenProviders({ account: entry.name, focus: entry.action === 'addKey' ? 'key' : 'path' });
+    }
+  };
   return (
-    <button
-      type="button"
-      data-roving-skip=""
-      data-testid="model-row-via"
-      disabled={disabled}
-      aria-expanded={open}
-      title={tr('ai.selector.engine')}
-      onClick={(event) => { event.stopPropagation(); onToggle(); }}
-      className={`shrink-0 truncate rounded px-1 text-micro underline decoration-dotted underline-offset-2 hover:bg-app-hover ${tone}`}
-    >
-      {via}
-    </button>
+    <div data-testid="model-section-connect" className="mx-2 my-1 rounded-md bg-app-inset px-2.5 py-2 text-mini text-app-text">
+      <p className="leading-snug">{sentence}</p>
+      {group.connect.map((entry) => (
+        <div key={entry.name} data-testid={`model-connect-${entry.name}`} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <StatusDot status={entry.status} />
+          <span className="min-w-0 flex-1 text-app-text-secondary">
+            {entry.label} · {tr(`ai.selector.status.${entry.status}`)} · {tr(`ai.selector.connect.fact.${entry.action}`)}
+          </span>
+          <button
+            type="button"
+            disabled={disabled}
+            data-testid="model-connect-action"
+            data-provider={entry.name}
+            data-action={entry.action}
+            onClick={() => act(entry)}
+            className={`rounded px-1.5 py-0.5 font-semibold coarse:min-h-11 hover:bg-app-hover ${ACTIVE_INK}`}
+          >
+            {tr(`ai.selector.action.${entry.action}`)}
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        disabled={disabled}
+        data-testid="model-connect-hide"
+        onClick={onHide}
+        className="mt-1.5 rounded px-1.5 py-0.5 text-app-text-secondary coarse:min-h-11 hover:bg-app-hover"
+      >
+        {tr('ai.selector.connect.hide')}
+      </button>
+    </div>
   );
 }
 
-function SectionView({ section, column, props, expanded, onExpand, snapshot, routingEnabled }: {
-  section: CatalogSection;
-  column: number;
-  props: ModelListProps;
-  expanded: boolean;
-  onExpand: () => void;
-  snapshot: ProvidersSnapshot | null;
-  routingEnabled: boolean;
+/**
+ * The heading of a group, the same two lines on every group, stacked ones
+ * included: the status dot and the COMPANY (plus the plan warning on
+ * Anthropic), then «via <who runs it>» with ⌄ when two engines run the
+ * group. On a list (phone) both sit on one 44px row.
+ */
+function GroupHeading({ group, headingId, list, open, onToggle, planWarning }: {
+  group: CatalogGroup;
+  headingId: string;
+  list: boolean;
+  open: boolean;
+  onToggle: () => void;
+  planWarning: string | null;
 }) {
   const tr = useT();
-  const label = tr(MAKER_KEY[section.maker]);
-  const rows = expanded ? [...section.rows, ...section.older] : section.rows;
-  const anyReady = [...section.rows, ...section.older].some((row) => row.engines.some((engine) => engine.ready));
-  const columns = props.layout === 'columns';
+  const who = group.who ? tr('ai.selector.route.via', { engine: group.who }) : null;
+  const hasChoice = group.engines.length > 1;
+  const engineLine = hasChoice ? (
+    <button
+      type="button"
+      data-testid="model-group-engine"
+      aria-expanded={open}
+      aria-label={`${tr('ai.selector.engine', { maker: group.label })}: ${group.engine?.label ?? ''}`}
+      onClick={onToggle}
+      className={`inline-flex min-w-0 items-center gap-0.5 rounded px-1 -mx-1 text-mini font-normal normal-case tracking-normal hover:bg-app-hover coarse:min-h-11 coarse:min-w-11 ${group.viaTopics ? ACTIVE_INK : 'text-app-text-secondary'}`}
+    >
+      <span className="truncate">{who}</span>
+      <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+    </button>
+  ) : who ? (
+    <span data-testid="model-group-who" className={`truncate text-mini font-normal normal-case tracking-normal ${group.viaTopics ? ACTIVE_INK : 'text-app-text-secondary'}`}>{who}</span>
+  ) : null;
   return (
     <div
-      role="group"
-      aria-label={label}
-      data-testid={`model-section-${section.maker}`}
-      className={columns ? 'flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-l border-app-border first:border-l-0' : ''}
+      data-testid="model-section-heading"
+      className={`sticky top-0 z-10 flex h-11 bg-[var(--popover-bg)] px-3 ${list ? 'items-center justify-between gap-2' : 'flex-col justify-center gap-0.5'}`}
     >
-      <div
-        role="presentation"
-        data-testid="model-section-heading"
-        className="sticky top-0 z-10 flex items-center gap-1.5 bg-[var(--popover-bg)] px-3 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted"
-      >
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${anyReady ? 'bg-emerald-400' : 'bg-amber-400'}`} aria-hidden="true" />
-        <span className="truncate">{label}</span>
-      </div>
-      {section.maker === 'anthropic' && <ClaudePlanCompactLine snapshot={snapshot} />}
-      {section.automatic.map((engine) => {
-        const selected = props.value.provider === engine.name && props.value.model === null;
-        return (
-          <button
-            key={`auto-${engine.name}`}
-            type="button"
-            role="option"
-            aria-selected={selected}
-            disabled={props.disabled}
-            data-testid="model-row-automatic-within"
-            data-provider={engine.name}
-            data-column={column}
-            onClick={() => props.onSelect({ provider: engine.name, model: null })}
-            className={`${POPOVER_ITEM} disabled:opacity-40`}
-          >
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">{tr('ai.selector.autoWithin', { runtime: engine.label })}</span>
-            {selected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-          </button>
-        );
-      })}
-      {rows.map((row, index) => (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <StatusDot status={group.status} />
+        <span id={headingId} className="truncate text-micro font-semibold uppercase leading-4 tracking-wide text-app-text-secondary">{group.label}</span>
+        {planWarning && (
+          <span data-testid="model-plan-warning" className={`ml-auto shrink-0 text-mini leading-4 tabular-nums ${SEGNALE_ATTESA}`}>{planWarning}</span>
+        )}
+      </span>
+      {engineLine && <span className="flex min-w-0 items-center leading-4">{engineLine}</span>}
+    </div>
+  );
+}
+
+function GroupView({ group, column, props, list, expanded, onExpand, engineOpen, onEngineOpen, onEngine, onHide, planWarning }: {
+  group: CatalogGroup;
+  column: number;
+  props: ModelListProps;
+  list: boolean;
+  expanded: boolean;
+  onExpand: () => void;
+  engineOpen: boolean;
+  onEngineOpen: (open: boolean) => void;
+  onEngine: (name: string) => void;
+  onHide: () => void;
+  planWarning: string | null;
+}) {
+  const tr = useT();
+  const headingId = `model-group-${domId(group.maker)}`;
+  const rows = expanded ? [...group.rows, ...group.older] : group.rows;
+  const radiosRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
+  const routing = props.topicsRouting?.enabled ?? false;
+  const focusEngineButton = useCallback(
+    () => groupRef.current?.querySelector<HTMLElement>('[data-testid="model-group-engine"]')?.focus({ preventScroll: true }),
+    [],
+  );
+  // Inside the open engine choice the arrows move between its radios (the
+  // radio group pattern: the group is one stop of the panel, its radios are
+  // reached from within) and Enter or Space picks the one with the focus.
+  // The panel's own arrows skip the radios that are not checked, so without
+  // this the other engines could not be reached from the keyboard.
+  const onRadiosKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const radios = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]:not([disabled])')];
+    if (radios.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = radios.indexOf(document.activeElement as HTMLElement);
+    const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight';
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? radios.length - 1
+        : forward ? (index + 1) % radios.length
+          : (index - 1 + radios.length) % radios.length;
+    radios[next]?.focus();
+  };
+
+  // Esc closes only the engine choice. The panel's own Escape listens on the
+  // document in the capture phase, so this one listens on the window, earlier.
+  useEffect(() => {
+    if (!engineOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      event.preventDefault();
+      onEngineOpen(false);
+      focusEngineButton();
+    };
+    window.addEventListener('keydown', onKey, true);
+    requestAnimationFrame(() => radiosRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus());
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [engineOpen, onEngineOpen, focusEngineButton]);
+
+  return (
+    <div ref={groupRef} role="group" aria-labelledby={headingId} data-testid={`model-section-${group.maker}`} data-maker={group.maker} data-column={column}>
+      <GroupHeading group={group} headingId={headingId} list={list} open={engineOpen} onToggle={() => onEngineOpen(!engineOpen)} planWarning={planWarning} />
+      {engineOpen && (
+        <div
+          ref={radiosRef}
+          role="radiogroup"
+          aria-label={tr('ai.selector.engine', { maker: group.label })}
+          data-testid="model-group-engines"
+          onKeyDown={onRadiosKey}
+          className="mx-2 mb-1 flex flex-col rounded-md bg-app-inset py-0.5"
+        >
+          {group.engines.map((engine) => {
+            const checked = engine.name === group.engine?.name;
+            const inTopics = routing && engine.name === 'claude-code' && group.maker === 'anthropic';
+            return (
+              <button
+                key={engine.name}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                data-engine-choice={engine.name}
+                disabled={props.disabled}
+                // The radio goes with the choice: the focus goes back to the
+                // engine's button, not to the page.
+                onClick={() => { onEngine(engine.name); onEngineOpen(false); requestAnimationFrame(focusEngineButton); }}
+                className={`${POPOVER_ITEM} !py-1 coarse:!py-3 text-mini ${checked ? ACTIVE_INK : ''}`}
+              >
+                <span className="min-w-0 flex-1 truncate">{inTopics ? tr('ai.selector.engineInTopics', { engine: engine.label }) : engine.label}</span>
+                {checked && <Check className="h-3 w-3 shrink-0" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {rows.map((row) => (
         <ModelRow
-          key={row.key} row={row} column={column} index={index} value={props.value} snapshot={snapshot} scope={props.scope}
-          variant={props.variant} layout={props.layout} routingEnabled={routingEnabled}
-          disabled={props.disabled} onPick={props.onSelect} onClose={props.onClose}
+          key={row.key} row={row} value={props.value} scope={props.scope} variant={props.variant}
+          disabled={props.disabled} onPick={props.onSelect}
+          onFix={(engine) => props.onOpenProviders(engine ? { account: engine } : {})}
         />
       ))}
-      {section.notReady.map((engine) => (
-        <div key={`down-${engine.name}`} data-testid="model-section-not-ready" className="mx-2 my-1 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-micro text-app-text-secondary">
-          <p><span className="font-semibold">{engine.label}</span>: {engine.reason || tr('ai.selector.unavailable')}</p>
-        </div>
-      ))}
-      {section.older.length > 0 && (
+      {group.connect.length > 0 && <ConnectBox group={group} disabled={props.disabled} onHide={onHide} onClose={props.onClose} onOpenProviders={props.onOpenProviders} />}
+      {group.older.length > 0 && (
         <button
           type="button"
           aria-expanded={expanded}
           data-testid="model-section-older"
-          data-column={column}
           onClick={onExpand}
-          className={`${POPOVER_ITEM} text-app-text-muted`}
+          className={`${POPOVER_ITEM} text-app-text-secondary`}
         >
-          <span className="min-w-0 flex-1 truncate">{expanded ? tr('ai.selector.olderHide') : tr('ai.selector.older', { n: section.older.length })}</span>
+          <span className="min-w-0 flex-1 truncate">{expanded ? tr('ai.selector.olderHide') : tr('ai.selector.older', { n: group.older.length })}</span>
         </button>
       )}
     </div>
@@ -440,29 +532,46 @@ function SectionView({ section, column, props, expanded, onExpand, snapshot, rou
 export function ModelList(props: ModelListProps) {
   const tr = useT();
   const { scope, value, layout, onSelect, onClose } = props;
-  const { snapshot, sections: all } = useModelCatalog(scope, value, props.snapshot);
+  const routingEnabled = props.topicsRouting?.enabled ?? false;
+  const [hidden, setHidden] = useState<string[]>(readHidden);
+  const [groupEngines, setGroupEngines] = useState<Record<string, string>>({});
+  const options = useMemo(
+    () => ({ routing: routingEnabled, hidden, groupEngines, onlyProvider: props.onlyProvider }),
+    [routingEnabled, hidden, groupEngines, props.onlyProvider],
+  );
+  const { snapshot, groups: all } = useModelCatalog(scope, value, options, props.snapshot);
   const [query, setQuery] = useState('');
-  const [expanded, setExpanded] = useState<Partial<Record<ModelMaker, boolean>>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [engineOpen, setEngineOpen] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const routingEnabled = props.topicsRouting?.enabled ?? false;
-  const scoped = useMemo(() => props.onlyProvider
-    ? all.map((section) => ({
-      ...section,
-      rows: section.rows.filter((row) => row.engines.some((engine) => engine.name === props.onlyProvider)),
-      older: section.older.filter((row) => row.engines.some((engine) => engine.name === props.onlyProvider)),
-      notReady: [], automatic: [],
-    })).filter((section) => section.rows.length || section.older.length)
-    : all, [all, props.onlyProvider]);
-  const sections = useMemo(
-    () => filterModelCatalog(scoped, query, (maker) => tr(MAKER_KEY[maker])),
-    [scoped, query, tr],
-  );
+  const groups = useMemo(() => filterModelCatalog(all, query, tr('ai.selector.auto')), [all, query, tr]);
+  const columns = useMemo(() => catalogColumns(groups), [groups]);
   const target = props.routingTarget ?? value;
   const route = routeOf(routingEnabled, target, snapshot, scope);
   const targetProvider = target.provider ?? snapshot?.defaultProvider ?? null;
   const engineLabel = snapshot?.providers.find((entry) => entry.name === targetProvider)?.label ?? targetProvider ?? '';
-  const pick = (selection: AiExecutionSelection) => { onSelect(selection); onClose(); };
+  const usage = usePlanUsage();
+  const planWarning = claudePlanWarning(usage?.fiveHour ?? null, usage?.sevenDay ?? null, tr);
+  const pick = useCallback((selection: AiExecutionSelection) => { onSelect(selection); onClose(); }, [onSelect, onClose]);
+
+  const hideConnect = (group: CatalogGroup) => {
+    const next = [...new Set([...hidden, ...group.connect.map((entry) => entry.name)])];
+    setHidden(next);
+    try { window.localStorage.setItem(HIDDEN_CONNECT_KEY, JSON.stringify(next)); } catch { /* private mode: this opening only */ }
+  };
+
+  // ⌄ in a heading: the group's engine for this opening. When the saved row
+  // is in the group and the new engine serves it, it is saved again on it.
+  const chooseEngine = (group: CatalogGroup, name: string) => {
+    setGroupEngines((current) => ({ ...current, [group.maker]: name }));
+    const saved = [...group.rows, ...group.older].find((row) => !row.automatic && rowSelected(row, value));
+    const ids = saved?.ids[name];
+    if (saved && ids && value.provider !== name) {
+      const long = value.model === saved.longModel && ids.longModel;
+      onSelect({ provider: name, model: long ? ids.longModel : ids.model }, { keepOpen: true });
+    }
+  };
 
   // The search takes the focus once the popover is placed and visible (a
   // hidden element refuses `focus()`), after `Menu` has focused its panel. It
@@ -487,9 +596,99 @@ export function ModelList(props: ModelListProps) {
     return () => cancelAnimationFrame(handle);
   }, [props.focusSearch]);
 
-  const firstItem = () => panelRef.current?.querySelector<HTMLElement>('[data-model-list-body] [role="option"]:not([aria-disabled="true"])');
-  const columns = layout === 'columns';
+  // Tab stops once per column (roving tabindex): the chosen row of the column
+  // or its first stop. Every scrolling column so holds one focusable element.
+  const layoutKey = `${layout}|${query}|${JSON.stringify(expanded)}|${engineOpen}|${columns.map((column) => column.map((g) => g.maker).join(',')).join('/')}`;
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const containers = [...panel.querySelectorAll<HTMLElement>('[data-model-column]')];
+    for (const container of containers) {
+      const items = [...container.querySelectorAll<HTMLElement>(NAVIGABLE)];
+      const keep = items.find((item) => item.getAttribute('aria-pressed') === 'true') ?? items[0];
+      for (const item of items) item.tabIndex = item === keep ? 0 : -1;
+    }
+    const onFocus = (event: FocusEvent) => {
+      const item = event.target as HTMLElement;
+      const container = item.closest<HTMLElement>('[data-model-column]');
+      if (!container || !item.matches(NAVIGABLE)) return;
+      for (const other of container.querySelectorAll<HTMLElement>(NAVIGABLE)) other.tabIndex = other === item ? 0 : -1;
+    };
+    panel.addEventListener('focusin', onFocus);
+    return () => panel.removeEventListener('focusin', onFocus);
+  }, [layoutKey]);
+
+  // On open the chosen row is brought into view inside its own column.
+  useEffect(() => {
+    const row = panelRef.current?.querySelector<HTMLElement>('[data-model-column] [aria-pressed="true"]');
+    const container = row?.closest<HTMLElement>('[data-model-column]');
+    if (!row || !container) return;
+    const rowBox = row.getBoundingClientRect();
+    const box = container.getBoundingClientRect();
+    if (rowBox.bottom > box.bottom) container.scrollTop += rowBox.bottom - box.bottom + 8;
+    else if (rowBox.top < box.top + 44) container.scrollTop -= box.top + 44 - rowBox.top;
+  }, []);
+
+  // ← → go to the next column, onto the stop nearest in height (§4.7).
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (layout !== 'columns' || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+    if (isTypingSurface(event.target)) return;
+    const item = event.target as HTMLElement;
+    const container = item.closest<HTMLElement>('[data-model-column]');
+    if (!container || item.closest('[role="radiogroup"]')) return;
+    const index = Number(container.dataset.modelColumn) + (event.key === 'ArrowRight' ? 1 : -1);
+    const next = panelRef.current?.querySelector<HTMLElement>(`[data-model-column="${index}"]`);
+    if (!next) return;
+    event.preventDefault();
+    const y = item.getBoundingClientRect().top;
+    const stops = [...next.querySelectorAll<HTMLElement>(NAVIGABLE)];
+    const nearest = stops.reduce<HTMLElement | null>((best, stop) => {
+      if (!best) return stop;
+      return Math.abs(stop.getBoundingClientRect().top - y) < Math.abs(best.getBoundingClientRect().top - y) ? stop : best;
+    }, null);
+    nearest?.focus();
+  };
+
+  const isColumns = layout === 'columns';
   const automaticSelected = value.provider === null && value.model === null;
+  const automaticHintId = `model-auto-hint-${domId(scope)}-${props.variant}`;
+  const hintVisible = !isColumns || props.variant === 'full';
+  const automaticButton = (
+    <button
+      type="button"
+      aria-pressed={automaticSelected}
+      aria-describedby={automaticHintId}
+      disabled={props.disabled}
+      data-testid="model-row-automatic"
+      onClick={() => pick({ provider: null, model: null })}
+      className={isColumns
+        ? `flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-compact text-app-text hover:bg-app-hover disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`
+        : `${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`}
+    >
+      <Sparkles className={`h-3.5 w-3.5 shrink-0 text-app-text-secondary ${isColumns ? '' : 'mt-0.5'}`} aria-hidden="true" />
+      <span className={isColumns ? 'whitespace-nowrap' : 'min-w-0 flex-1'}>
+        <span className="block">{props.automatic.who ? `${tr('ai.selector.auto')} · ${props.automatic.who}` : tr('ai.selector.auto')}</span>
+        {!isColumns && <span id={automaticHintId} className="block text-mini leading-snug text-app-text-secondary">{props.automatic.hint}</span>}
+      </span>
+      {automaticSelected && <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
+    </button>
+  );
+  const groupView = (group: CatalogGroup, column: number) => (
+    <GroupView
+      key={group.maker}
+      group={group}
+      column={column}
+      props={{ ...props, onSelect: pick }}
+      list={!isColumns}
+      expanded={!!expanded[group.maker]}
+      onExpand={() => setExpanded((current) => ({ ...current, [group.maker]: !current[group.maker] }))}
+      engineOpen={engineOpen === group.maker}
+      onEngineOpen={(open) => setEngineOpen(open ? group.maker : null)}
+      onEngine={(name) => chooseEngine(group, name)}
+      onHide={() => hideConnect(group)}
+      planWarning={group.maker === 'anthropic' ? planWarning : null}
+    />
+  );
   return (
     <div
       ref={panelRef}
@@ -498,6 +697,7 @@ export function ModelList(props: ModelListProps) {
       data-variant={props.variant}
       data-layout={layout}
       data-scope={scope}
+      onKeyDown={onKeyDown}
       className="flex min-h-0 flex-1 flex-col"
     >
       {props.topicsRouting && (
@@ -508,73 +708,69 @@ export function ModelList(props: ModelListProps) {
           onToggle={() => props.topicsRouting!.onToggle(!routingEnabled)}
         />
       )}
-      <label className="mx-1 mb-1 flex shrink-0 items-center gap-2 rounded-md bg-app-inset px-2.5">
-        <Search className="h-3.5 w-3.5 shrink-0 text-app-text-muted" aria-hidden="true" />
-        <input
-          ref={searchRef}
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown') { event.preventDefault(); firstItem()?.focus(); }
-            else if (event.key === 'Enter') {
-              event.preventDefault();
-              const first = panelRef.current?.querySelector<HTMLElement>('[data-model-list-sections] [role="option"]:not([aria-disabled="true"])');
-              first?.click();
-            }
-          }}
-          placeholder={tr('ai.selector.search')}
-          aria-label={tr('ai.selector.search')}
-          data-testid="model-selector-search"
-          className="h-8 min-w-0 flex-1 bg-transparent text-compact text-app-text outline-none placeholder:text-app-text-faint"
-        />
-      </label>
-      <div role="listbox" aria-label={tr('chat.picker.title')} data-model-list-body="" className="flex min-h-0 flex-1 flex-col">
-        <button
-          type="button"
-          role="option"
-          aria-selected={automaticSelected}
-          disabled={props.disabled}
-          data-testid="model-row-automatic"
-          title={props.automatic.hint}
-          onClick={() => pick({ provider: null, model: null })}
-          className={`${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40`}
-        >
-          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-app-text-muted" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate">{props.automatic.label}</span>
-            <span className="block text-micro leading-snug text-app-text-muted">{props.automatic.hint}</span>
-          </span>
-          {automaticSelected && <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />}
-        </button>
+      <div className="mx-1 mb-1 flex shrink-0 items-center gap-1">
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-app-inset px-2.5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                panelRef.current?.querySelector<HTMLElement>('[data-testid="model-row-automatic"]:not([disabled])')?.focus();
+              } else if (event.key === 'Enter') {
+                event.preventDefault();
+                panelRef.current?.querySelector<HTMLElement>('[data-model-list-sections] [data-testid="model-row"]:not([disabled])')?.click();
+              }
+            }}
+            placeholder={tr('ai.selector.search')}
+            aria-label={tr('ai.selector.search')}
+            data-testid="model-selector-search"
+            className="h-8 coarse:h-11 min-w-0 flex-1 bg-transparent text-compact text-app-text outline-none placeholder:text-app-text-faint"
+          />
+        </label>
+        {isColumns && automaticButton}
+      </div>
+      {isColumns && (
+        <p id={automaticHintId} className={hintVisible ? 'mx-3 mb-1 shrink-0 text-mini leading-snug text-app-text-secondary' : 'sr-only'}>
+          {props.automatic.hint}
+        </p>
+      )}
+      <div data-model-list-body="" className="flex min-h-0 flex-1 flex-col">
         <div
           data-model-list-sections=""
           data-testid="model-selector-sections"
-          className={columns
-            ? 'grid min-h-0 flex-1 border-t border-app-border'
+          className={isColumns
+            // The dividers of the columns are the design's own (revision §4.4,
+            // AC-38): `--border` is 1.09:1 on the popover in light and about
+            // 1:1 in dark, so the columns read as one block.
+            ? `grid min-h-0 flex-1 border-t ${COLUMN_DIVIDER}`
             : 'min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-app-border'}
-          style={columns ? { gridTemplateColumns: `repeat(${Math.max(1, sections.length)}, minmax(10rem, 1fr))` } : undefined}
+          style={isColumns ? { gridTemplateColumns: `repeat(${Math.max(1, columns.length)}, minmax(0, 1fr))` } : undefined}
         >
-          {sections.map((section, column) => (
-            <SectionView
-              key={section.maker}
-              section={section}
-              column={column}
-              props={{ ...props, onSelect: pick }}
-              expanded={!!expanded[section.maker]}
-              onExpand={() => setExpanded((current) => ({ ...current, [section.maker]: !current[section.maker] }))}
-              snapshot={snapshot}
-              routingEnabled={routingEnabled}
-            />
-          ))}
-          {sections.length === 0 && (
-            <p className="px-3 py-4 text-center text-mini text-app-text-muted" data-testid="model-selector-empty">
+          {!isColumns && automaticButton}
+          {isColumns
+            ? columns.map((column, index) => (
+              <div
+                key={column.map((group) => group.maker).join(',')}
+                data-model-column={index}
+                data-testid="model-column"
+                className={`flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-l first:border-l-0 ${COLUMN_DIVIDER}`}
+              >
+                {column.map((group) => groupView(group, index))}
+              </div>
+            ))
+            : columns.flat().map((group) => groupView(group, 0))}
+          {groups.length === 0 && (
+            <p className="px-3 py-4 text-center text-mini text-app-text-secondary" data-testid="model-selector-empty">
               {query ? tr('chat.picker.noMatches') : tr('ai.selector.none')}
             </p>
           )}
         </div>
       </div>
-      <ProvidersFooterRow snapshot={snapshot} chosen={value.provider} disabled={props.disabled} onClose={onClose} />
+      <ProvidersFooterRow snapshot={snapshot} disabled={props.disabled} onOpen={() => props.onOpenProviders({})} />
     </div>
   );
 }

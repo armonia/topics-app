@@ -405,7 +405,10 @@ describe("`/mcp` and `/config` open where Topics keeps those things (SETHOME-01)
     const input = read("client/src/components/Chat/ChatInput.tsx");
     expect(input).toContain("openProvidersRef={openProvidersRef}");
     expect(input).toMatch(/openProviders: \(\) => \{[^}]*openProvidersRef\.current\(field\)/);
+    // «Provider e chiavi» is a level of the chip's own selector (model-selector
+    // design §9.3): `/usage` opens Claude Code's detail there, and the focus
+    // goes back to the field on close.
     const picker = read("client/src/components/Chat/ProviderModelPicker.tsx");
-    expect(picker).toContain("openHome('providers', buttonRef.current, returnFocus)");
+    expect(picker).toContain("openProvidersRef.current = (returnFocus) => openOnLevel.current({ account: 'claude-code' }, returnFocus ?? null)");
   });
 });

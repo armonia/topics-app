@@ -11,10 +11,16 @@
  */
 const PROVIDER_LABELS: Record<string, string> = {
   openclaw: "OpenClaw",
-  claude: "Claude (API)",
+  // The canonical names of the model selector revision of 2026-10-04 (§7):
+  // the selector's headings and the providers level write the same name,
+  // and «OpenAI» alone is the company, not the key.
+  claude: "Claude API",
   "claude-code": "Claude Code",
   codex: "Codex",
-  openai: "OpenAI",
+  openai: "OpenAI API",
+  gemini: "Gemini CLI",
+  jcode: "jcode",
+  topics: "Topics",
 };
 
 export function providerLabel(name: string): string {

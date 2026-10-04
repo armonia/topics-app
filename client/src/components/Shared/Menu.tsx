@@ -5,7 +5,6 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { useSheetDrag } from '../../hooks/useSheetDrag';
 import { SheetGrabber } from './SheetGrabber';
-import { MenuAnchorContext } from './menuAnchor';
 // Import RELATIVI e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no. Da
 // quando `Shared/Select` (che passa di qui) è usato dalle Impostazioni e dai
 // modali, questo file entra nel grafo che i test unitari importano davvero —
@@ -15,6 +14,9 @@ import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { keepSystemMenuOffPanel } from '../../lib/contextMenuOrigin';
+
+/** The window margin `computeMenuPosition` keeps by default. */
+const MENU_EDGE_PX = 8;
 
 /**
  * Menu — the ONE anchored-popover primitive. Every custom menu / dropdown in the
@@ -129,7 +131,16 @@ export function Menu({
     const a = anchor.getBoundingClientRect();
     const p = panel.getBoundingClientRect();
     const next = computeMenuPosition(a, { width: p.width, height: p.height }, { align, side, gap });
-    setPos({ top: next.top, left: next.left });
+    // `Menu` applies no ceiling: the panel keeps its own `max-h`. A panel that
+    // fits on neither side and opens below the trigger (the roomier side, model
+    // selector revision 2026-10-04 §4.2) would then run off the bottom edge,
+    // as the task drawer's changes panel did. It slides up into the window
+    // instead, where it stayed before that rule. The model selector sizes
+    // itself to the roomier side, so it never gets here.
+    const vh = window.innerHeight;
+    const runsOffBottom = next.placement === 'below' && next.top + p.height > vh - MENU_EDGE_PX;
+    const top = runsOffBottom ? Math.max(MENU_EDGE_PX, vh - MENU_EDGE_PX - p.height) : next.top;
+    setPos({ top, left: next.left });
   }, [anchorRef, align, side, gap]);
 
   // Measure the real panel and place it BEFORE paint; keep it placed while open.
@@ -265,7 +276,7 @@ export function Menu({
         }
       >
         {isMobile && <SheetGrabber />}
-        <MenuAnchorContext.Provider value={anchorRef}>{children}</MenuAnchorContext.Provider>
+        {children}
       </div>
     </>,
     document.body,

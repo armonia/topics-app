@@ -62,14 +62,16 @@ const SHEET_ID: Record<Level, string> = {
  * transform back to the identity.
  */
 async function openFormLevel(page: Page, level: Level) {
-  const sheet = level === "plan" || level === "nodes"
+  const opened = level === "plan" || level === "nodes"
     ? await openUserMenuLevel(page, level)
     : await openHomePanel(page, level);
+  // «Provider e chiavi» hands back its levels: the sheet is the panel around them.
+  const sheet = level === "providers" ? page.getByTestId(SHEET_ID.providers) : opened;
   await expect
     .poll(() => sheet.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
     .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
   // The form is a chunk of its own: measure it, not its loading placeholder.
-  await expect(sheet.getByTestId(`${SHEET_ID[level]}-form`)).toBeVisible();
+  await expect(level === "providers" ? sheet.getByTestId("providers-level") : sheet.getByTestId(`${SHEET_ID[level]}-form`)).toBeVisible();
   await page.waitForTimeout(300);
   return sheet;
 }

@@ -8,6 +8,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   autonomyKey,
   effortKey,
+  providerOnlyKey,
   providerOverrideKey,
   readLastProviderSelection,
   rememberAutonomySelection,
@@ -16,6 +17,7 @@ import {
   sameSelection,
   seedAutonomy,
   seedEffort,
+  seedProviderOnly,
   seedProviderOverride,
   type KeyValueStore,
 } from './composerMemory';
@@ -68,6 +70,21 @@ describe('seedProviderOverride', () => {
     expect(seedProviderOverride({ topicId: 'draft:c', store: fakeStore({ 'providerOverride:last': '{oops' }) })).toBeNull();
     expect(seedProviderOverride({ topicId: 'draft:c', store: fakeStore({ 'providerOverride:last': '{"provider":"codex"}' }) })).toBeNull();
     expect(seedProviderOverride({ topicId: 'draft:c', store: fakeStore({ 'providerOverride:last': '{"provider":"","model":""}' }) })).toBeNull();
+  });
+});
+
+describe('seedProviderOnly', () => {
+  it('reads the engine a saved topic runs with no model', () => {
+    expect(seedProviderOnly({ topicId: 't1', topicProvider: 'gemini', topicModel: null, store: fakeStore() })).toBe('gemini');
+    expect(seedProviderOnly({ topicId: 't1', topicProvider: 'codex', topicModel: 'gpt-5.5', store: fakeStore() })).toBeNull();
+    expect(seedProviderOnly({ topicId: 't1', store: fakeStore({ [providerOnlyKey('t1')]: 'gemini' }) })).toBeNull();
+  });
+
+  it('a draft keeps the engine it chose, and does not inherit the last model chosen elsewhere', () => {
+    const store = fakeStore({ [providerOnlyKey('draft:g')]: 'gemini', 'providerOverride:last': JSON.stringify(CODEX) });
+    expect(seedProviderOnly({ topicId: 'draft:g', store })).toBe('gemini');
+    expect(seedProviderOverride({ topicId: 'draft:g', store })).toBeNull();
+    expect(seedProviderOnly({ topicId: 'draft:h', store })).toBeNull();
   });
 });
 

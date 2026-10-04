@@ -2,16 +2,16 @@
  * Adding, testing and removing an endpoint somebody runs themselves, with
  * every request intercepted: no real endpoint, no token, no generation.
  *
- * Which provider the composer offers is NOT asserted here: the page hydrates
- * its snapshot from the live WebSocket as well as from HTTP, so a stubbed
- * /providers/snapshot gets overwritten and the row appears only when the
- * ordering happens to favour it. That half lives in
- * shared/direct-endpoints-boundaries.test.ts, where the rule is a pure
- * function and can actually break.
+ * A saved endpoint is a provider (`direct-<id>`), so it is a card of
+ * Providers and keys and its detail removes it (model selector revision
+ * 2026-10-04, §5.5): the snapshot here is served from memory over both the
+ * HTTP route and the WebSocket push, and a save or a removal pushes it again,
+ * as the server does. Which provider the composer offers is not asserted here:
+ * that half lives in shared/direct-endpoints-boundaries.test.ts.
  *
  * @covers MP-DIRECT-01
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from '../../shared/types';
 import { hermetic } from './fixtures/hermetic';
 import { goToApp } from './helpers';
@@ -51,11 +51,29 @@ async function mockEndpoints(page: Page, options: { reachable?: boolean; provide
   const reachable = options.reachable ?? true;
   const saved: Array<typeof ENDPOINT> = [];
   const sentTokens: Array<string | undefined> = [];
-  const snapshot: ProvidersSnapshot = {
-    providers: options.providers ?? [nativeEntry()],
-    defaultProvider: 'topics',
-    generatedAt: new Date().toISOString(),
-  } as ProvidersSnapshot;
+  const base = options.providers ?? [nativeEntry()];
+  let snapshot: ProvidersSnapshot = { providers: base, defaultProvider: 'topics', generatedAt: new Date().toISOString() } as ProvidersSnapshot;
+  const sockets: WebSocketRoute[] = [];
+  // What the server does after a save or a removal: the endpoint becomes (or
+  // stops being) a provider, and the snapshot is pushed to every window.
+  const publish = () => {
+    snapshot = {
+      ...snapshot,
+      generatedAt: new Date().toISOString(),
+      providers: [...base, ...saved.map((endpoint) => ({
+        name: `direct-${endpoint.id}`, label: endpoint.label, status: 'ready' as const, isDefault: false,
+        models: ['qwen38-27b-200k'], capabilities: ['streaming'], requirements: [], fetchedAt: new Date().toISOString(),
+      }))],
+    };
+    for (const socket of sockets) socket.send(JSON.stringify({ type: 'providers:snapshot', snapshot }));
+  };
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    sockets.push(socket);
+    const server = socket.connectToServer();
+    server.onMessage((message) => socket.send(typeof message === 'string' && message.includes('"providers:snapshot"')
+      ? JSON.stringify({ type: 'providers:snapshot', snapshot }) : message));
+    socket.onMessage((message) => server.send(message));
+  });
 
   await page.route('**/api/providers/snapshot', (route) => route.fulfill({ json: snapshot }));
   await page.route('**/api/providers/snapshot/refresh', (route) => route.fulfill({ json: { ok: true } }));
@@ -84,6 +102,7 @@ async function mockEndpoints(page: Page, options: { reachable?: boolean; provide
       const stored = { ...ENDPOINT, label: body.label, baseUrl: body.baseUrl, hasToken: Boolean(body.token) };
       saved.splice(0, saved.length, stored);
       await route.fulfill({ json: { ok: true, endpoint: stored, models: ['qwen38-27b-200k'] } });
+      publish();
       return;
     }
     await route.fulfill({ json: { endpoints: saved } });
@@ -96,26 +115,30 @@ async function mockEndpoints(page: Page, options: { reachable?: boolean; provide
     }
     saved.splice(0, saved.length);
     await route.fulfill({ json: { ok: true } });
+    publish();
   });
 
   return { saved, sentTokens };
 }
 
-/** The AI providers form is a panel of its own (SETHOME-01). */
+/** Providers and keys with no chat open: a sheet of its own. */
 async function openProviders(page: Page) {
   await page.goto('/');
   const level = await openHomePanel(page, 'providers');
-  await expect(page.getByTestId('ai-providers-settings')).toBeVisible({ timeout: 15_000 });
-  await expect.poll(() => level.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
+  await expect(level.getByTestId('providers-level')).toBeVisible({ timeout: 15_000 });
 }
 
+/** «+ Endpoint» opens the form. */
 async function fillEndpoint(page: Page, values: { label: string; url: string; token?: string }) {
-  await page.getByTestId('direct-endpoint-add').click();
+  await page.getByTestId('providers-add-endpoint').click();
   await expect(page.getByTestId('direct-endpoint-form')).toBeVisible();
+  await expect(page.getByTestId('direct-endpoint-label')).toBeFocused();
   await page.getByTestId('direct-endpoint-label').fill(values.label);
   await page.getByTestId('direct-endpoint-url').fill(values.url);
   if (values.token) await page.getByTestId('direct-endpoint-token').fill(values.token);
 }
+
+const endpointCard = (page: Page) => page.getByTestId(`provider-card-direct-${ENDPOINT.id}`);
 
 test.describe('Settings · endpoints you run yourself', () => {
   test.use({ viewport: { width: 1280, height: 900 } });
@@ -125,9 +148,6 @@ test.describe('Settings · endpoints you run yourself', () => {
     const mock = await mockEndpoints(page);
     await openProviders(page);
 
-    const panel = page.getByTestId('direct-endpoints-panel');
-    await expect(panel).toBeVisible();
-
     await fillEndpoint(page, { label: 'Local llama', url: ENDPOINT.baseUrl });
 
     // Test first: the reachable endpoint reports its models without saving.
@@ -135,12 +155,19 @@ test.describe('Settings · endpoints you run yourself', () => {
     await expect(page.getByTestId('direct-endpoint-models')).toBeVisible();
     expect(mock.saved).toHaveLength(0);
 
+    // Saved: back on the list, where the endpoint is a card of its own.
     await page.getByTestId('direct-endpoint-save').click();
-    await expect(page.getByTestId(`direct-endpoint-${ENDPOINT.id}`)).toBeVisible();
+    await expect(endpointCard(page)).toBeVisible();
+    await expect(endpointCard(page)).toContainText('Endpoint · 127.0.0.1:18080 · 1 modello');
     expect(mock.saved).toHaveLength(1);
 
-    await page.getByTestId(`direct-endpoint-delete-${ENDPOINT.id}`).click();
-    await expect(page.getByTestId(`direct-endpoint-${ENDPOINT.id}`)).toHaveCount(0);
+    // Its detail says where it is, and removes it.
+    await endpointCard(page).getByTestId('provider-card-open').click();
+    const detail = page.getByTestId(`provider-detail-direct-${ENDPOINT.id}`);
+    await expect(detail.getByTestId('provider-detail-endpoint')).toContainText(ENDPOINT.baseUrl);
+    await detail.getByTestId('provider-detail-endpoint-remove').click();
+    await expect(page.getByTestId('providers-level')).toBeVisible();
+    await expect(endpointCard(page)).toHaveCount(0);
     expect(mock.saved).toHaveLength(0);
   });
 
@@ -163,11 +190,12 @@ test.describe('Settings · endpoints you run yourself', () => {
 
     await fillEndpoint(page, { label: 'Gateway', url: 'http://10.0.0.5:8080/v1', token: 'tok-e2e-secret' });
     await page.getByTestId('direct-endpoint-save').click();
-    await expect(page.getByTestId(`direct-endpoint-${ENDPOINT.id}`)).toBeVisible();
+    await expect(endpointCard(page)).toBeVisible();
 
     expect(mock.sentTokens).toContain('tok-e2e-secret');
-    // The row says a token is set; the secret itself is nowhere in the DOM.
-    await expect(page.getByTestId(`direct-endpoint-${ENDPOINT.id}`)).toContainText('token');
+    // The detail says a token is set; the secret itself is nowhere in the DOM.
+    await endpointCard(page).getByTestId('provider-card-open').click();
+    await expect(page.getByTestId('provider-detail-endpoint')).toContainText('token impostato');
     expect(await page.content()).not.toContain('tok-e2e-secret');
   });
 });

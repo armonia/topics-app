@@ -82,7 +82,7 @@ test.describe("the plan meter", () => {
     if (topicId) await deleteTopic(request, topicId);
   });
 
-  test("with a reading: /usage opens the panel beside the selector, two bars with day and hour, the week amber; the selector's line adds the week; /cost opens the same, and the CLI hears nothing", async ({ page, request, chatPage }) => {
+  test("with a reading: /usage opens Claude Code's detail in the selector, two bars with day and hour, the week amber; the selector's line adds the week; /cost opens the same, and the CLI hears nothing", async ({ page, request, chatPage }) => {
     await claudeMaxMachine(page);
     const fiveReset = Date.now() + 2 * 3_600_000;
     const weekReset = Date.now() + 3 * 86_400_000;
@@ -94,9 +94,12 @@ test.describe("the plan meter", () => {
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
 
     await send(chatPage, page, "/usage");
-    const panel = page.getByTestId("home-panel-providers");
+    // Claude Code's detail, inside this chat's model selector (revision
+    // 2026-10-04, §5.1): the plan lives there now.
+    const selector = page.getByTestId("provider-model-popover");
+    const panel = selector.getByTestId("provider-detail-claude-code");
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    const [p, chip] = [await panel.boundingBox(), await page.getByTestId("provider-model-picker").boundingBox()];
+    const [p, chip] = [await selector.boundingBox(), await page.getByTestId("provider-model-picker").boundingBox()];
     expect(Math.abs(p!.y + p!.height - chip!.y) < 40 || Math.abs(p!.y - (chip!.y + chip!.height)) < 40).toBe(true);
     await expect(panel.getByTestId("providers-claude-usage")).toContainText("38%", { timeout: 15_000 });
     const week = panel.getByTestId("providers-claude-week");
@@ -105,15 +108,19 @@ test.describe("the plan meter", () => {
     await expect(week).toContainText(when);
     await expect(week).toHaveAttribute("data-warn", "true");
     await expect(panel.getByTestId("providers-claude-week-bar")).toHaveAttribute("aria-valuenow", "78");
-    await page.keyboard.press("Escape");
+    // Each Escape goes back one level, the last one closes.
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+    await expect(selector).toHaveCount(0);
 
     await page.getByTestId("provider-model-picker").click();
-    await expect(page.getByTestId("provider-model-popover").getByTestId("ai-selector-claude-plan").first()).toHaveText("Max 20x · 5 h al 38% · sett. 78%", { timeout: 15_000 });
+    // Revision 2026-10-04 §4.5: one short warning on the Anthropic heading, the
+    // window over PLAN_USAGE_WARN_AT; the full reading is in the providers panel.
+    await expect(page.getByTestId("provider-model-popover").getByTestId("model-section-anthropic").getByTestId("model-plan-warning")).toHaveText("sett. 78%", { timeout: 15_000 });
     await page.keyboard.press("Escape");
 
     await send(chatPage, page, "/cost");
-    await expect(page.getByTestId("home-panel-providers")).toBeVisible({ timeout: 10_000 });
-    await page.keyboard.press("Escape");
+    await expect(selector.getByTestId("provider-detail-claude-code")).toBeVisible({ timeout: 10_000 });
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
     expect(received()).toEqual([]);
   });
 
@@ -126,7 +133,7 @@ test.describe("the plan meter", () => {
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
     await send(chatPage, page, "/usage");
-    const panel = page.getByTestId("home-panel-providers");
+    const panel = page.getByTestId("provider-model-popover").getByTestId("provider-detail-claude-code");
     await expect(panel).toBeVisible({ timeout: 10_000 });
     await expect(panel.getByTestId("providers-claude-usage-none")).toHaveText("Nessuna lettura ancora: arriva col primo turno di Claude Code", { timeout: 15_000 });
   });

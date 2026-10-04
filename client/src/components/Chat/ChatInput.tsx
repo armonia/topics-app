@@ -346,6 +346,8 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
   onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  /** «Automatico» within one engine: the chat's provider with no model. */
+  onProviderOnlyChange?: (provider: string) => void;
   /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
   topicsRouting?: boolean | null;
   onTopicsRoutingChange?: (next: boolean) => void;
@@ -437,6 +439,7 @@ export function ChatInput({
   onCancelEdit,
   providerOverride,
   onProviderOverrideChange,
+  onProviderOnlyChange,
   topicsRouting,
   onTopicsRoutingChange,
   autonomy,
@@ -642,11 +645,11 @@ export function ChatInput({
       // it was typed in, so the next words land in the composer.
       openTools: () => openToolsRef.current?.(textareaRef.current),
       // No chip in this composer (no provider override here): the host still
-      // opens the panel, beside a chip on screen or as a sheet.
+      // opens Claude Code's detail, in a chip on screen or as a sheet.
       openProviders: () => {
         const field = textareaRef.current;
         if (openProvidersRef.current) openProvidersRef.current(field);
-        else openHome('providers', null, field);
+        else openHome('providers', null, field, 'claude-code');
       },
     };
     return () => { controlsRef.current = null; };
@@ -1917,6 +1920,7 @@ export function ChatInput({
                   defaultProviderLabel={defaultProviderLabel}
                   pinnedModel={pinnedModel}
                   onChange={onProviderOverrideChange}
+                  onProviderOnly={onProviderOnlyChange}
                   topicsRouting={topicsRouting ?? null}
                   onTopicsRoutingChange={onTopicsRoutingChange}
                   openRef={openModelRef}

@@ -145,7 +145,7 @@ test.describe.serial("Kanban in inglese", () => {
     await expect(composer).toBeVisible({ timeout: 10000 });
     await composer.locator("textarea").click();
     await expect(composer.getByPlaceholder("Describe a task for the agent…")).toBeVisible();
-    await expect(page.getByTestId("composer-model-chip")).toContainText("Auto model");
+    await expect(page.getByTestId("composer-model-chip")).toContainText("Automatic · follows the board");
     await expect(page.getByTestId("composer-priority-chip")).toContainText("Auto priority");
     await page.getByTestId("composer-start-chip").click();
     await expect(page.getByText("It starts right away: an agent picks it off the queue.")).toBeVisible({ timeout: 5000 });

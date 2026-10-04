@@ -25,6 +25,7 @@ import { questionToProse } from '../../../../shared/question-prose';
 import { pendingQuestionComment } from '../../../../shared/board';
 import { ThreadRuns } from './ThreadRuns';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
+import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { copyText } from '../../lib/clipboard';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { buildTaskLink } from '../../lib/openTaskLink';
@@ -54,7 +55,7 @@ import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, diffFocusPath, type TaskSurface } from './constants';
-import { fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
+import { commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import { MessageContent } from '../MessageContent';
@@ -1385,6 +1386,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
   // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const drawerRouting = surfaceTopicsRoutingEnabled(task?.topicsRouting, boardTopicsRoutingDefault, task?.model, boardDispatchModel);
+  const modelTrigger = useTaskModelTrigger(task?.model || null, drawerRouting, 'task', boardDispatchModel);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
   // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).
@@ -1404,8 +1407,9 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
     finally { setBusy(false); }
   };
 
+  // The selector closes itself after a choice; a heading's engine keeps it
+  // open (`keepOpen`), so closing here would undo that.
   const changeModel = async (model: string | null) => {
-    setModelMenuOpen(false);
     if (!task || task.assignedTopicId || (task.model ?? null) === model || busy) return;
     setBusy(true);
     try { await boardApi.update(projectId, taskId, { model }); setError(null); await load(); onChanged(); }
@@ -2282,19 +2286,19 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               onClick={() => { if (!task.assignedTopicId) setModelMenuOpen(true); }}
               aria-disabled={!!task.assignedTopicId}
               data-testid="task-model-chip"
-              title={task.assignedTopicId ? tr('task.model.sessionFixed', { model: fmtModel(task.model) }) : (task.agentMs > 0 || task.agentTokens > 0)
+              title={task.assignedTopicId ? tr('task.model.sessionFixed', { model: modelTrigger.line }) : (task.agentMs > 0 || task.agentTokens > 0)
                 ? tr('task.model.stats', {
-                    model: task.model ? fmtModel(task.model) : 'Auto',
+                    model: modelTrigger.line,
                     effort: task.effort ? tr('task.model.effortPart', { effort: task.effort }) : '',
                     time: fmtMs(task.agentMs),
                     tokens: task.agentTokens ? tr('task.model.tokensPart', { n: task.agentTokens.toLocaleString('it-IT') }) : '',
                     cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
                   })
-                : `${task.model ? `${fmtModel(task.model)}. ` : ''}${tr('task.model.hint')}`}
+                : `${modelTrigger.line}. ${tr('task.model.hint')}`}
               className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-              <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+              <span className="truncate">{modelTrigger.line}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
             </button>
             <TaskModelSelector
@@ -2308,9 +2312,9 @@ export function TaskDetail({ projectId, taskId, initialStatus, bump, onClose, on
               boardValue={boardDispatchModel}
               onSelect={changeModel}
               disabled={busy}
-              automatic={{ label: tr('board.task.modelAutoOption'), hint: tr('board.composer.modelAutoOptionTitle') }}
+              automatic={modelTrigger.automatic}
               topicsRouting={{
-                enabled: surfaceTopicsRoutingEnabled(task.topicsRouting, boardTopicsRoutingDefault, task.model, boardDispatchModel),
+                enabled: drawerRouting,
                 onToggle: changeTopicsRouting,
               }}
             />

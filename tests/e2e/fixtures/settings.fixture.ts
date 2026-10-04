@@ -1,4 +1,4 @@
-import { test as base, type Page } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { closeProfileMenu } from "../helpers/open-perf-panel";
 import { openHomePanel, openUserMenuLevel } from "../helpers/user-menu";
 
@@ -9,12 +9,12 @@ export class SettingsPage {
 
   /**
    * Open the AI providers, the form a person comes for first. Since the
-   * 03/10/2026 change it lives where it is used, beside the model selector,
-   * and one host draws it (`openHomePanel`, SETHOME-01).
+   * 04/10/2026 revision it is a level of the model selector (a centred sheet
+   * with no chat open), opened by one host (`openHomePanel`, SETHOME-01).
    */
   async openSettings() {
     await openHomePanel(this.page, "providers");
-    await this.page.getByTestId("ai-providers-settings").waitFor({ state: "visible", timeout: 15_000 });
+    await this.page.getByTestId("providers-level").waitFor({ state: "visible", timeout: 15_000 });
   }
 
   // --- Mock Helpers ---
@@ -70,15 +70,20 @@ export class SettingsPage {
 
   // --- Locator Getters ---
 
-  /** The AI providers panel. */
+  /** The AI providers' levels, in the selector or in the sheet. */
   get panel() {
-    return this.page.getByTestId("home-panel-providers");
+    return this.page.getByTestId("ai-providers-settings");
   }
 
-  /** Closes the providers panel: one Escape. */
+  /** Closes the providers, and the selector they opened in: one Escape per
+   *  level until nothing of them is left. */
   async closeSettings() {
-    await this.page.keyboard.press("Escape");
-    await this.panel.waitFor({ state: "hidden", timeout: 10_000 });
+    const open = this.page.locator('[data-testid="ai-providers-settings"], [data-testid="provider-model-popover"], [data-testid="home-panel-providers"]');
+    await expect(async () => {
+      if (await open.count() === 0) return;
+      await this.page.keyboard.press("Escape");
+      await expect(open).toHaveCount(0, { timeout: 500 });
+    }).toPass({ timeout: 10_000 });
   }
 
   // --- The appearance controls, which live in the user menu now ---

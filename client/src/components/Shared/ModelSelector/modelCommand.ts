@@ -4,8 +4,7 @@
  * completion would cost every session the selector's bytes.
  */
 import type { ProvidersSnapshot } from '../../../types';
-import { modelMaker } from '../../../../../shared/modelMaker';
-import { friendlyModelLabel } from '../../../lib/modelLabel';
+import { modelDisplayLabel, splitModelId } from '../../../lib/modelLabel';
 
 /** Lowercase, accents gone: an accented letter matches its plain twin. */
 export function fold(text: string): string {
@@ -27,6 +26,12 @@ export function modelCommandSuggestions(
   if (!entry) return [];
   const words = fold(query).split(/\s+/).filter(Boolean);
   return entry.models
-    .map((id) => ({ id, label: modelMaker(id) === 'anthropic' || modelMaker(id) === 'openai' ? (entry.modelInfo?.[id]?.label ?? friendlyModelLabel(id)) : id }))
+    .map((id) => {
+      // The selector's label; the `[1m]` mode is said after it, since `/model`
+      // lists both variants as their own ids.
+      const { name, longContext } = splitModelId(id);
+      const label = modelDisplayLabel(name, entry.modelInfo?.[id] ?? entry.modelInfo?.[name]);
+      return { id, label: longContext ? `${label} · 1M` : label };
+    })
     .filter((model) => words.every((word) => fold(`${model.id} ${model.label}`).includes(word)));
 }

@@ -134,16 +134,20 @@ for (const mobile of [false, true]) {
         const defaultBefore = (await (await request.get('/api/providers/snapshot')).json()).defaultProvider;
         await details.getByRole('menuitem', { name: 'Provider e chiavi' }).click();
         await expect(details).toHaveCount(0);
-        // The door lands on the AI providers panel, beside the notice itself
-        // (SETHOME-01): no user menu in between.
-        const providers = page.getByTestId('home-panel-providers');
-        await expect(providers.getByTestId('ai-providers-settings')).toBeVisible();
+        // The door lands on Claude Code's detail (SETHOME-01, revision
+        // 2026-10-04 §5.1): in the model selector of the chat on screen, or in
+        // the sheet without one; no user menu in between.
+        const surfaces = page.locator('[data-testid="provider-model-popover"], [data-testid="home-panel-providers"]');
+        await expect(page.getByTestId('provider-detail-claude-code')).toBeVisible();
         await expect(page.getByTestId('profile-menu')).toHaveCount(0);
         const defaultAfter = (await (await request.get('/api/providers/snapshot')).json()).defaultProvider;
         expect(defaultAfter).toBe(defaultBefore);
-        // One Escape closes the panel, and the focus is back on the notice.
-        await page.keyboard.press('Escape');
-        await expect(providers).toHaveCount(0);
+        // Escape all the way down (detail, list, models) closes it, and the
+        // focus is back on the notice.
+        await expect(async () => {
+          await page.keyboard.press('Escape');
+          await expect(surfaces).toHaveCount(0, { timeout: 500 });
+        }).toPass({ timeout: 10_000 });
         if (!mobile) await expect(notice).toBeFocused();
         await expect(page.getByTestId('settings-panel')).toHaveCount(0);
 

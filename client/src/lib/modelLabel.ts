@@ -15,6 +15,10 @@
  * "GPT-5.4-mini" render the same way here as on the board.
  */
 
+import { bareModelId } from '../../../shared/modelMaker';
+import { providerLabel } from '../../../shared/provider-labels';
+import { taskModelSelection } from '../../../shared/task-coding-models';
+
 export interface ModelIdParts {
   /** L'id senza il suffisso di modalità — resta la stringa esatta della CLI. */
   name: string;
@@ -69,7 +73,7 @@ export function friendlyModelLabel(modelId: string): string {
 
 /**
  * The label a trigger shows for a choice: the provider's own catalog name when
- * the snapshot carries one (MSEL-09, «GPT-6.1-Sol»), else the friendly label.
+ * the snapshot carries one (MSEL-09, «GPT-6.1-Sol»), else `modelDisplayLabel`.
  * The rows of the selector and the trigger that opened it then say the same.
  */
 export function catalogModelLabel(
@@ -80,5 +84,125 @@ export function catalogModelLabel(
   const entries = snapshot?.providers ?? [];
   const own = entries.find((entry) => entry.name === provider)?.modelInfo?.[modelId]?.label;
   const any = own ?? entries.map((entry) => entry.modelInfo?.[modelId]?.label).find(Boolean);
-  return any ?? friendlyModelLabel(modelId);
+  return any ?? modelDisplayLabel(modelId);
+}
+
+const DATE8 = /^\d{8}$/;
+const MONTH_DAY = /^(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/;
+/** Tokens that are acronyms, upper-case whole. */
+const ACRONYMS = new Set(['glm', 'it', 'moe', 'xs', 'er', 'dbrx', 'oss']);
+/** First tokens that are a company's own spelling. */
+const PROPER = new Map([['deepseek', 'DeepSeek'], ['qwen', 'Qwen'], ['nvidia', 'NVIDIA'], ['ibm', 'IBM']]);
+
+function claudeVersionLabel(bare: string): string | null {
+  const m = bare.replace(/-\d{8}$/, '').replace(/\./g, '-');
+  const parts = /^claude-([a-z]+)-(\d+)(?:-(\d+))?$/.exec(m);
+  if (!parts) return null;
+  return `${parts[1]![0]!.toUpperCase()}${parts[1]!.slice(1)} ${parts[2]}${parts[3] ? `.${parts[3]}` : ''}`;
+}
+
+function sizeToken(word: string): boolean {
+  return /^\d+(\.\d+)?[bmk]$/i.test(word) || /^a\d+(\.\d+)?[bm]$/i.test(word) || /^\d+x\d+[bm]$/i.test(word);
+}
+
+/**
+ * THE LABEL OF A MODEL, one function for rows, closed triggers, `/model`, the
+ * empty chat and the board (revision 2026-10-04 §3.6): the catalog's own label
+ * when it has one; Anthropic keeps today's rule (`Opus 5.5`); every other id
+ * loses its `vendor/`, its dates and a first token that repeats the company,
+ * sizes go upper-case (30B, A3B, 8x22B), acronyms whole, words capitalised.
+ * The `[1m]` mode is never part of the name: it is the row's 1M switch.
+ */
+export function modelDisplayLabel(id: string, info?: { label?: string } | null): string {
+  if (info?.label) return info.label;
+  let m = bareModelId(id).replace(/\[1m\]$/i, '');
+  const slash = m.indexOf('/');
+  const hadVendor = slash > 0;
+  if (hadVendor) m = m.slice(slash + 1);
+  if (m.startsWith('claude-')) {
+    const claude = claudeVersionLabel(m);
+    if (claude) return claude;
+  }
+  let suffix = '';
+  m = m.replace(/\[([a-z0-9]+)\]$/i, (_all, tag: string) => { suffix = ` (${tag})`; return ''; });
+  let tag = '';
+  const colon = m.indexOf(':');
+  if (colon > 0) { tag = m.slice(colon + 1); m = m.slice(0, colon); }
+  const words = m.split('-').filter(Boolean);
+  if (tag && tag !== 'latest') words.push(tag);
+  while (words.length > 1 && (DATE8.test(words[words.length - 1]!) || MONTH_DAY.test(words[words.length - 1]!))) words.pop();
+  if (words.length > 2 && /^\d{4}$/.test(words[words.length - 1]!) && /^(0[1-9]|1[0-2])$/.test(words[words.length - 2]!)) words.splice(-2, 2);
+  if (!hadVendor && words.length > 1 && words[0] === 'zai') words.shift();
+  if (!words.length) return id;
+  if (/^o\d/.test(words[0]!)) return words.join('-') + suffix;
+  const openAiPrefix = words[0] === 'gpt';
+  if (openAiPrefix) words.shift();
+  const out = words.map((word, index) => {
+    if (sizeToken(word)) return word.toUpperCase().replace('X', 'x');
+    if (/^v\d/.test(word)) return word;
+    if (index === 0 && PROPER.has(word)) return PROPER.get(word)!;
+    if (ACRONYMS.has(word)) return word.toUpperCase();
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  });
+  if (openAiPrefix) return `GPT-${out[0] ?? ''}${out.length > 1 ? ` ${out.slice(1).join(' ')}` : ''}${suffix}`;
+  return out.join(' ') + suffix;
+}
+
+/** Who decides on Automatic, per surface (revision §3.7). */
+export type TriggerSurface = 'chat' | 'task' | 'board' | 'provider';
+
+export interface TriggerText {
+  label: string;
+  /** «via Topics», «via Codex», or who decides on Automatic; '' when nobody is named. */
+  who: string;
+}
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+type LabelSnapshot = { providers: Array<{ name: string; label?: string; modelInfo?: Record<string, { label?: string }> }> } | null | undefined;
+
+/**
+ * THE CLOSED TEXT OF EVERY MODEL TRIGGER (revision §3.8): `{ label, who }`,
+ * written «label · who» by `triggerLine` on the composer chip, the chat
+ * settings, the card chip, the card composer, the drawer and the board
+ * settings. No context window: that is on the open row.
+ */
+export function modelTriggerText(
+  value: { provider: string | null | undefined; model: string | null | undefined },
+  ctx: { snapshot: LabelSnapshot; tr: Translate; surface: TriggerSurface; viaTopics?: boolean; automaticWho?: string | null },
+): TriggerText {
+  const { snapshot, tr } = ctx;
+  const engineLabel = (name: string) => snapshot?.providers.find((entry) => entry.name === name)?.label ?? providerLabel(name);
+  if (!value.model) {
+    const label = tr('ai.selector.auto');
+    if (value.provider) return { label, who: engineLabel(value.provider) };
+    const who = ctx.surface === 'chat' ? ctx.automaticWho ?? ''
+      : ctx.surface === 'task' ? tr('ai.selector.auto.followsBoard')
+        : ctx.surface === 'board' ? tr('ai.selector.auto.topicsPicks') : '';
+    return { label, who };
+  }
+  const { name } = splitModelId(value.model);
+  const label = catalogModelLabel(snapshot, value.provider, name);
+  const who = ctx.viaTopics ? tr('ai.selector.route.topics')
+    : value.provider ? tr('ai.selector.route.via', { engine: engineLabel(value.provider) }) : '';
+  return { label, who };
+}
+
+export function triggerLine(text: TriggerText): string {
+  return text.who ? `${text.label} · ${text.who}` : text.label;
+}
+
+/**
+ * The closed text of a CARD's model (`provider:model`, a bare legacy model,
+ * `null`/`auto` = Automatic): the same «label · who» as every trigger. A bare
+ * Claude id runs on Claude Code, as `cardRunsThroughTopics` reads it.
+ */
+export function taskTriggerLine(
+  value: string | null | undefined,
+  ctx: { snapshot: LabelSnapshot; tr: Translate; surface: 'task' | 'board'; viaTopics?: boolean },
+): string {
+  const selection = taskModelSelection(value);
+  const provider = selection.provider && selection.provider !== 'topics'
+    ? selection.provider
+    : selection.model?.startsWith('claude-') ? 'claude-code' : null;
+  return triggerLine(modelTriggerText({ provider, model: selection.model ?? null }, ctx));
 }

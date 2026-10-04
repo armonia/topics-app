@@ -36,6 +36,7 @@ import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
+import { taskTriggerLine } from '../../lib/modelLabel';
 import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { EASE, MOTION } from '../../lib/motion';
@@ -44,7 +45,7 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { SwapIce } from '../Shared/SwapIce';
@@ -364,6 +365,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const runsThroughTopics = useSyncExternalStore(subscribeProvidersSnapshot, () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot));
+  // The chip's model in the one closed format, «label · who» (model selector
+  // revision §3.8): a string, so the card re-renders only when it changes.
+  const tm = useT();
+  const modelLine = useSyncExternalStore(subscribeProvidersSnapshot, () => taskTriggerLine(task.model, {
+    snapshot: getProvidersSnapshotState().snapshot, tr: tm, surface: 'task', viaTopics: runsThroughTopics,
+  }));
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
   // the pointer, so dropping "between two cards" reads as such. The ACTIVE
@@ -1682,11 +1689,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 cache: task.agentCacheReadTokens > 0
                   ? tr('board.card.effortCache', { context: fmtTok(contesto), cache: fmtTok(task.agentCacheReadTokens) })
                   : '',
-                model: fmtModel(task.model),
+                model: modelLine,
               })
-              : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
+              : tr('board.card.modelTitle', { model: modelLine })}
             className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
-          >{fmtModel(task.model)}{runsThroughTopics && <span data-testid="card-route"> · {tr('ai.selector.route.topics')}</span>}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+          >{modelLine}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when

@@ -79,11 +79,12 @@ describe("registro con più agenti ACP", () => {
 describe("labelFor", () => {
   test("i nomi noti restano quelli scritti a mano", () => {
     expect(labelFor("claude-code")).toBe("Claude Code");
-    expect(labelFor("openai")).toBe("OpenAI");
+    expect(labelFor("openai")).toBe("OpenAI API");
+    expect(labelFor("claude")).toBe("Claude API");
   });
 
   test("un agente ACP si presenta capitalizzato, non tutto minuscolo", () => {
-    expect(labelFor("gemini")).toBe("Gemini");
+    expect(labelFor("gemini")).toBe("Gemini CLI");
     expect(labelFor("goose")).toBe("Goose");
   });
 

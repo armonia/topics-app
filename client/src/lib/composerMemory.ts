@@ -34,6 +34,13 @@ export function providerOverrideKey(topicId: string): string {
   return `providerOverride:${topicId}`;
 }
 
+/** A draft's «Automatico» within one engine: the provider alone, no model
+ *  (model-selector revision §3.7). Kept apart from the override, which is
+ *  always complete. */
+export function providerOnlyKey(topicId: string): string {
+  return `providerOnly:${topicId}`;
+}
+
 export function effortKey(topicId: string): string {
   return `effort:${topicId}`;
 }
@@ -125,8 +132,24 @@ export function seedProviderOverride(args: {
   const { topicId, topicProvider, topicModel, store } = args;
   if (topicProvider && topicModel) return { provider: topicProvider, model: topicModel };
   if (!isDraftTopicId(topicId)) return null;
+  // A draft that chose an engine with no model of its own does not inherit
+  // the last choice made elsewhere: it made one.
+  if (store.getItem(providerOnlyKey(topicId))) return null;
   return parseSelection(store.getItem(providerOverrideKey(topicId)))
     ?? readLastProviderSelection(store);
+}
+
+/** The engine a chat runs with no model of its own (`{provider, model: null}`):
+ *  what the topic persists, else what this draft chose. */
+export function seedProviderOnly(args: {
+  topicId: string;
+  topicProvider?: string | null;
+  topicModel?: string | null;
+  store: KeyValueStore;
+}): string | null {
+  const { topicId, topicProvider, topicModel, store } = args;
+  if (!isDraftTopicId(topicId)) return topicProvider && !topicModel ? topicProvider : null;
+  return store.getItem(providerOnlyKey(topicId)) || null;
 }
 
 /** Stesso ordine per il tier di effort. */

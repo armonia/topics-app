@@ -8,7 +8,8 @@
  * the thing it configures:
  *
  *  · AI providers, from the foot of the model selector, with how many are ready
- *    in the tail and the Claude plan beside the Claude models;
+ *    in the tail: a level of the same panel (model selector revision
+ *    2026-10-04, §5.1), with the Claude plan in Claude Code's detail;
  *  · MCP tools, from the composer's «+», with how many answer, read without
  *    mounting the fleet;
  *  · the calendar feed, from the menu of the pinned calendar tile;
@@ -115,7 +116,7 @@ test.describe("ogni modulo vive dove si usa", () => {
     await request.post("/api/test/plan-usage", { data: { clear: true } });
   });
 
-  test("SETHOME-01a: Provider e chiavi si apre dal piede del selettore del modello, accanto al selettore", async ({ page, request }) => {
+  test("SETHOME-01a: Provider e chiavi si apre dal piede del selettore del modello, nello stesso pannello", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     await claudeMaxMachine(page);
     await request.post("/api/test/plan-usage", { data: { fiveHour: { utilization: 42, resetsAtMs: Date.now() + 2 * 3_600_000 } } });
@@ -138,38 +139,40 @@ test.describe("ogni modulo vive dove si usa", () => {
       const footer = selector.getByTestId("ai-selector-providers");
       await expect(footer).toBeVisible({ timeout: 15_000 });
       await expect(footer).toContainText("Provider e chiavi");
-      await expect(selector.getByTestId("ai-selector-providers-tail")).toHaveText(/^\d+ pront[oi]$/, { timeout: 20_000 });
+      await expect(selector.getByTestId("ai-selector-providers-tail")).toHaveText(/^(\d+ pront[oi]|Nessuno pronto)( · (1 errore|\d+ errori))?$/, { timeout: 20_000 });
       // A FOOTER: the last row of the selector.
       const last = await selector.locator("button").last().getAttribute("data-testid");
       expect(last).toBe("ai-selector-providers");
-      // The Claude plan beside the Claude models, under the Anthropic heading
-      // of the one panel (MSEL-02): read without opening anything more.
-      await expect(selector.getByTestId("model-section-anthropic").getByTestId("ai-selector-claude-plan"))
-        .toHaveText("Max 20x · 5 h al 42%");
-      await expect(selector.getByTestId("ai-selector-providers")).toBeVisible();
+      // The plan is read in Claude Code's detail; the Anthropic heading warns
+      // only from PLAN_USAGE_WARN_AT, and 42% is under it (revision §4.5).
+      await expect(selector.getByTestId("model-section-anthropic").getByTestId("model-section-heading")).toBeVisible();
+      await expect(selector.getByTestId("model-plan-warning")).toHaveCount(0);
+      const before = await selector.boundingBox();
 
-      await selector.getByTestId("ai-selector-providers").click();
-      await expect(selector).toHaveCount(0);
-      const panel = page.getByTestId("home-panel-providers");
-      await expect(panel).toBeVisible();
-      await expect(panel).toHaveAttribute("role", "dialog");
-      const box = await expectBeside(panel, picker);
-      expect(Math.round(box.width)).toBeGreaterThanOrEqual(400);
-      expect(Math.round(box.width)).toBeLessThanOrEqual(440);
-      expect(box.bottom).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight) + 1);
-      // The plan at the top of the panel, with its five hours.
-      await expect(panel.getByTestId("providers-claude-plan")).toContainText("Abbonamento Claude Max 20x", { timeout: 15_000 });
-      await expect(panel.getByTestId("providers-claude-usage")).toContainText("42%");
-      // THE FIRST TAB, from where the panel put the focus on opening, lands on
-      // one of its controls and stays there (WebKit's own Tab skipped the
-      // buttons and left for the page on the first press).
-      await expect.poll(() => panel.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-      await expectTabStaysIn(page, panel, ["Tab", "Tab", "Shift+Tab", "Shift+Tab"]);
+      // THE LEVEL TAKES THE MODELS' PLACE, in the same panel.
+      await footer.click();
+      const level = selector.getByTestId("ai-providers-settings");
+      await expect(level.getByTestId("providers-level")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
+      await expect(selector).toHaveAttribute("role", "dialog");
+      const after = await selector.boundingBox();
+      expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(after!.width - before!.width)).toBeLessThanOrEqual(1);
+      // The plan, on Claude Code's card and, with its five hours, in its detail.
+      await expect(level.getByTestId("provider-card-claude-code")).toContainText("Max 20x");
+      await level.getByTestId("provider-card-claude-code").getByTestId("provider-card-open").click();
+      await expect(level.getByTestId("providers-claude-plan")).toContainText("Abbonamento Claude Max 20x", { timeout: 15_000 });
+      await expect(level.getByTestId("providers-claude-usage")).toContainText("42%");
+      // THE FIRST TAB, from where the level put the focus, lands on one of its
+      // controls and stays there (WebKit's own Tab skips buttons).
+      await expect.poll(() => selector.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      await expectTabStaysIn(page, selector, ["Tab", "Tab", "Shift+Tab", "Shift+Tab"]);
+      await page.keyboard.press("Escape");
+      await expect(level.getByTestId("providers-level")).toBeVisible();
 
       // A form: typed, saved, answered.
-      const setup = panel.getByTestId("api-provider-setup-openai");
-      await setup.getByRole("button").first().click();
-      const field = panel.getByTestId("api-key-form-openai").locator("input");
+      await level.getByTestId("providers-add-key").click();
+      const field = level.getByTestId("api-key-form-openai").locator("input");
       await field.click();
       await page.keyboard.type("sk-home AbC");
       for (const key of ["Home", "End", "ArrowLeft", "ArrowRight", "ArrowDown", "ArrowUp"]) {
@@ -179,21 +182,27 @@ test.describe("ogni modulo vive dove si usa", () => {
       await field.evaluate((el) => { const input = el as HTMLInputElement; input.setSelectionRange(input.value.length, input.value.length); });
       await page.keyboard.type("-1");
       await page.keyboard.press("Enter");
-      // The key reached the server, and the refusal is read in the panel.
+      // The key reached the server, and the refusal is read in the level.
       await expect.poll(() => sent, { timeout: 10_000 }).toEqual(["sk-home AbC-1"]);
-      await expect(panel.getByTestId("api-key-form-openai").getByRole("alert")).toBeVisible({ timeout: 10_000 });
+      await expect(level.getByTestId("api-key-form-openai").getByRole("alert")).toBeVisible({ timeout: 10_000 });
+      await page.keyboard.press("Escape");
 
-      // A list inside the panel closes first; Escape then closes the panel and
-      // only the panel, and the focus is back on the selector.
-      await panel.getByTestId("ai-providers-advanced-toggle").click();
-      await panel.getByRole("combobox", { name: "Runtime degli agenti", exact: true }).click();
+      // A list inside a detail closes first; then each Escape goes back one
+      // level, to the list and to the models; the last one closes, and the
+      // focus is back on the chip.
+      await level.getByTestId("provider-card-topics").getByTestId("provider-card-open").click();
+      await level.getByRole("combobox", { name: "Motore degli agenti", exact: true }).click();
       const listbox = page.getByRole("listbox").last();
       await expect(listbox).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(listbox).toHaveCount(0);
-      await expect(panel).toBeVisible();
+      await expect(level.getByTestId("provider-detail-topics")).toBeVisible();
       await page.keyboard.press("Escape");
-      await expect(panel).toHaveCount(0);
+      await expect(level.getByTestId("providers-level")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(selector.getByTestId("model-selector-panel")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(selector).toHaveCount(0);
       await expect(picker).toBeFocused();
     } finally {
       await deleteTopic(request, topic.id);
@@ -542,7 +551,7 @@ test.describe("il calendario si apre dalla sua tessera", () => {
 test.describe("sul telefono il modulo dei provider è un foglio dal basso", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test("SETHOME-01g: a 390 il piede del selettore apre Provider e chiavi a tutta larghezza", async ({ page, request }) => {
+  test("SETHOME-01g: a 390 il piede del selettore apre Provider e chiavi nello stesso foglio", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     const topic = await createTopic(request, `Homes phone ${Date.now()}`);
     try {
@@ -552,25 +561,27 @@ test.describe("sul telefono il modulo dei provider è un foglio dal basso", () =
       const picker = page.getByTestId("provider-model-picker");
       await expect(picker).toBeVisible({ timeout: 15_000 });
       await picker.tap();
-      const footer = page.getByTestId("provider-model-popover").getByTestId("ai-selector-providers");
+      const sheet = page.getByTestId("provider-model-popover");
+      const footer = sheet.getByTestId("ai-selector-providers");
       await expect(footer).toBeVisible();
       await footer.tap();
-      const panel = page.getByTestId("home-panel-providers");
-      await expect(panel).toBeVisible();
-      await expect.poll(() => panel.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
+      await expect(sheet.getByTestId("ai-providers-settings")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
+      await expect.poll(() => sheet.evaluate((el) => getComputedStyle(el).transform), { timeout: 5_000 })
         .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
-      const box = await panel.evaluate((el) => {
+      const box = await sheet.evaluate((el) => {
         const b = el.getBoundingClientRect();
         return { left: Math.round(b.left), width: Math.round(b.width), bottom: Math.round(b.bottom), vw: window.innerWidth, vh: window.innerHeight };
       });
       expect(box.left).toBe(0);
       expect(box.width).toBe(box.vw);
       expect(box.bottom).toBeGreaterThanOrEqual(box.vh - 1);
-      await expect(panel.getByTestId("ai-providers-settings")).toBeVisible({ timeout: 15_000 });
-      const close = panel.getByTestId("home-panel-providers-close");
-      expect(await close.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
-      await close.tap();
-      await expect(panel).toHaveCount(0);
+      // ‹ back to the models, a target a finger can hit.
+      const back = sheet.getByTestId("level-back");
+      expect(await back.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+      await back.tap();
+      await expect(sheet.getByTestId("model-selector-panel")).toBeVisible();
+      await expect(sheet.getByTestId("ai-providers-settings")).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id);
     }
@@ -662,7 +673,7 @@ const BOARD_DIR = `${BOARD_ROOT}/${BOARD_NAME}`;
 test.describe("i predefiniti della board aprono i provider accanto al loro selettore", () => {
   test.afterAll(() => removeTmpDir(BOARD_ROOT));
 
-  test("SETHOME-01h: il piede del selettore nei predefiniti della board apre il pannello accanto al selettore, e le impostazioni della board restano", async ({ page, request }) => {
+  test("SETHOME-01h: il piede del selettore nei predefiniti della board apre il livello nello stesso pannello, e le impostazioni della board restano", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "SETHOME-01" });
     test.setTimeout(90_000);
     mkdirSync(BOARD_DIR, { recursive: true });
@@ -706,15 +717,18 @@ test.describe("i predefiniti della board aprono i provider accanto al loro selet
       await expect(footer).toBeVisible({ timeout: 15_000 });
       await footer.click();
 
-      const panel = page.getByTestId("home-panel-providers");
-      await expect(panel).toBeVisible();
-      // The board settings hold the selector: they stay, and the panel hangs
-      // from the selector, not from a detached element in the corner.
+      // The level opens in the selector's own panel; the board settings that
+      // hold the selector stay.
+      const panel = page.getByTestId("board-model-popover");
+      await expect(page.getByTestId("providers-level")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("home-panel-providers")).toHaveCount(0);
       await expect(settings).toBeVisible();
-      await expectBeside(panel, selector);
-      await expect(panel.getByTestId("ai-providers-settings")).toBeVisible({ timeout: 15_000 });
 
-      // Escape closes the panel only, and the focus is back on the selector.
+      // Escape goes back to the models only; the next closes the selector, and
+      // the focus is back on it; the board settings are still there.
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("model-selector-panel")).toBeVisible();
+      await expect(settings).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(panel).toHaveCount(0);
       await expect(settings).toBeVisible();

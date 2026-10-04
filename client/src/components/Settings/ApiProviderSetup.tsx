@@ -1,40 +1,29 @@
-import { useId, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ApiError, providersApi } from '../../lib/api';
 import { API_PROVIDERS, type ApiProviderName } from './providerFormat';
 
-/** An absent provider has a setup card, without invented status or models. */
-export function ApiProviderSetup({ provider, expanded, onToggle, onSaved }: {
-  provider: ApiProviderName;
-  expanded: boolean;
-  onToggle: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const tr = useT();
-  return (
-    <div data-testid={`api-provider-setup-${provider}`} className="rounded-lg border border-app-border bg-app-hover/40">
-      <button type="button" onClick={onToggle} aria-expanded={expanded}
-        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left">
-        {expanded ? <ChevronDown size={13} className="shrink-0 text-app-text-secondary" /> : <ChevronRight size={13} className="shrink-0 text-app-text-secondary" />}
-        <span className="flex-1 text-compact font-semibold text-app-text">{API_PROVIDERS[provider].label}</span>
-        <span className="text-mini text-app-text-secondary">{tr('ai.api.notConnected')}</span>
-      </button>
-      {expanded && <div className="space-y-2 border-t border-app-border px-3 pb-3 pt-2">
-        <p className="text-compact text-app-text-secondary">{tr('ai.api.chat')}</p>
-        <ApiKeyForm provider={provider} replacing={false} onSaved={onSaved} />
-      </div>}
-    </div>
-  );
-}
-
-export function ApiKeyForm({ provider, replacing, onSaved }: {
+/**
+ * The key field of an API provider: typed, verified by the server, saved. It
+ * sits in the account's detail (model selector revision 2026-10-04, §5.5) and
+ * in "+ API key"; "Add key ›" opens it with the focus on the field.
+ */
+export function ApiKeyForm({ provider, replacing, onSaved, autoFocus = false }: {
   provider: ApiProviderName;
   replacing: boolean;
   onSaved: () => Promise<void>;
+  /** Take the focus once mounted: the door that opened the detail asked for the key. */
+  autoFocus?: boolean;
 }) {
   const tr = useT();
   const id = useId();
+  const fieldRef = useRef<HTMLInputElement>(null);
+  // One frame later: the level that holds the form is placed (and visible) then.
+  useEffect(() => {
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => fieldRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +54,7 @@ export function ApiKeyForm({ provider, replacing, onSaved }: {
       </label>
       <div className="flex flex-wrap gap-2">
         <input
+          ref={fieldRef}
           id={id}
           type="password"
           autoComplete="new-password"

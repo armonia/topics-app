@@ -14,7 +14,7 @@
 import { describe, expect, test } from 'bun:test';
 import { t, missingKeys, ensureLocaleLoaded, type Locale } from '../../lib/i18n';
 import {
-  calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersReadyTail, runsOnClaudePlan,
+  calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planTail, providersCountTail, claudePlanWarning, runsOnClaudePlan,
   subscriptionLabel, toolsTail, usageLine, weekUsageLine,
 } from './formLevelTails';
 import type { ProvidersSnapshot } from '../../types';
@@ -98,35 +98,43 @@ describe('claudeSubscription', () => {
   });
 });
 
-describe('providersReadyTail', () => {
+describe('providersCountTail (model selector revision §5.3, AC-22)', () => {
   /** The same snapshot with one row's status changed. */
-  const withStatus = (name: string, status: 'ready' | 'unavailable') => {
+  const withStatus = (name: string, status: 'ready' | 'unavailable' | 'error') => {
     const base = snapshot('claude-code');
     return { ...base, providers: base.providers.map((p) => (p.name === name ? { ...p, status } : p)) };
   };
 
-  test('how many providers can run a turn; topics, the routing switch, is not one of them', () => {
-    expect(providersReadyTail(snapshot('claude-code'), null, it)).toEqual({ text: '2 pronti', warn: false });
-    expect(providersReadyTail(withStatus('codex', 'unavailable'), null, it)).toEqual({ text: '1 pronto', warn: false });
+  test('the ready providers, topics included: it is a card of the providers level', () => {
+    expect(providersCountTail(snapshot('claude-code'), it)).toEqual({ text: '3 pronti', warn: false });
+    expect(providersCountTail(withStatus('codex', 'unavailable'), it)).toEqual({ text: '2 pronti', warn: false });
   });
 
-  test('the chosen provider not ready is the one thing the row says, in the warning tone', () => {
-    expect(providersReadyTail(withStatus('codex', 'unavailable'), 'codex', it)).toEqual({ text: 'Codex non pronto', warn: true });
-    // A ready choice does not change the count.
-    expect(providersReadyTail(snapshot('claude-code'), 'codex', it)).toEqual({ text: '2 pronti', warn: false });
+  test('the errors are added, in the warning tone', () => {
+    expect(providersCountTail(withStatus('codex', 'error'), it)).toEqual({ text: '2 pronti · 1 errore', warn: true });
   });
 
   test('nothing ready is a warning; no snapshot yet is silence', () => {
     const none = { ...snapshot('claude-code'), providers: snapshot('claude-code').providers.map((p) => ({ ...p, status: 'unavailable' as const })) };
-    expect(providersReadyTail(none, null, it)).toEqual({ text: 'Nessuno pronto', warn: true });
-    expect(providersReadyTail(null, null, it)).toBeNull();
+    expect(providersCountTail(none, it)).toEqual({ text: 'Nessuno pronto', warn: true });
+    expect(providersCountTail(null, it)).toBeNull();
   });
 
   test('in english too', async () => {
     await ensureLocaleLoaded('en');
     const en = (key: string, vars?: Record<string, string | number>) => t(key, 'en', vars);
-    expect(providersReadyTail(snapshot('claude-code'), null, en)?.text).toBe('2 ready');
-    expect(providersReadyTail(withStatus('codex', 'unavailable'), 'codex', en)?.text).toBe('Codex not ready');
+    expect(providersCountTail(withStatus('codex', 'error'), en)?.text).toBe('2 ready · 1 error');
+  });
+});
+
+describe('claudePlanWarning (model selector revision §4.5, AC-33)', () => {
+  test('nothing under the threshold', () => {
+    expect(claudePlanWarning({ utilization: 42 }, { utilization: 49 }, it)).toBeNull();
+    expect(claudePlanWarning(null, null, it)).toBeNull();
+  });
+  test('the higher window at or over the threshold, in one short reading', () => {
+    expect(claudePlanWarning({ utilization: 42 }, { utilization: 67 }, it)).toBe('sett. 67%');
+    expect(claudePlanWarning({ utilization: 88 }, { utilization: 67 }, it)).toBe('5 h 88%');
   });
 });
 
@@ -201,7 +209,8 @@ describe('every word of the tails exists in both languages', () => {
     'userMenu.calendar.on', 'userMenu.calendar.paused', 'userMenu.calendar.none', 'userMenu.nodes.one', 'userMenu.nodes.many',
     'userMenu.nodes.requests', 'userMenu.subscription', 'userMenu.usage.fiveHours', 'userMenu.usage.fiveHoursReset',
     'userMenu.level.close', 'userMenu.subscriptionUnknown', 'userMenu.usage.none',
-    'home.providers.ready', 'home.providers.readyOne', 'home.providers.noneReady', 'home.providers.notReady',
+    'home.providers.ready', 'home.providers.readyOne', 'home.providers.noneReady',
+    'ai.selector.providers.errors', 'ai.selector.providers.errorOne', 'ai.selector.plan.fiveHour',
     'home.claudeUsage', 'home.providers', 'home.tools', 'home.calendar', 'home.machines',
   ];
 

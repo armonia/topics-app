@@ -20,9 +20,9 @@ import { Select } from '../Shared/Select';
 import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
-import { friendlyModelLabel } from './format';
+import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
-import { boardTopicsRoutingSwitch } from '../../lib/topicsRoutingGate';
+import { boardTopicsRoutingEnabled, boardTopicsRoutingSwitch } from '../../lib/topicsRoutingGate';
 import {
   GlobalSettingsSection,
   SettingsPanelHead,
@@ -50,6 +50,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
     try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
   };
+  // Before the early return: a hook is called on every render.
+  const boardTrigger = useTaskModelTrigger(s?.dispatchModel ?? null, s ? boardTopicsRoutingEnabled(s.dispatchTopicsRouting, s.dispatchModel) : false, 'board');
   if (!s) return null;
   const topicsRoutingSwitch = boardTopicsRoutingSwitch(s, (p) => { void patch(p); });
   return (
@@ -116,10 +118,10 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           aria-expanded={modelOpen}
           data-testid="board-model-selector"
           onClick={() => setModelOpen((open) => !open)}
-          className="flex min-w-0 max-w-[62%] items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/10"
+          className="flex h-8 min-w-0 max-w-[62%] items-center gap-1 rounded-md bg-white/5 px-2 text-mini text-app-text-secondary coarse:min-h-11 hover:bg-white/10"
         >
           <Sparkles className="h-3 w-3 shrink-0" />
-          <span className="truncate">{s.dispatchModel && s.dispatchModel !== 'auto' ? friendlyModelLabel(s.dispatchModel) : tr('board.settings.modelAuto')}</span>
+          <span className="truncate">{boardTrigger.line}</span>
           <ChevronDown className="h-3 w-3 shrink-0" />
         </button>
         {/* AICTRL-05: stesso selettore del composer e del cassetto, ma un asse
@@ -135,8 +137,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           ariaLabel={tr('board.settings.model')}
           variant="full"
           value={!s.dispatchModel || s.dispatchModel === 'auto' ? null : s.dispatchModel}
-          onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); setModelOpen(false); }}
-          automatic={{ label: tr('board.settings.modelAuto'), hint: tr('board.settings.modelTitle') }}
+          onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); }}
+          automatic={boardTrigger.automatic}
           topicsRouting={topicsRoutingSwitch}
         />
       </div>

@@ -1,0 +1,1428 @@
+{
+ "at456": [
+  {
+   "id": "sel-keys-light",
+   "w": 704,
+   "h": 456,
+   "bodyH": 344,
+   "bodyShare": 0.754,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 9,
+     "visible": 8,
+     "clientH": 343,
+     "scrollH": 356,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      217.5
+     ]
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 4,
+     "visible": 4,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      393
+     ]
+    },
+    {
+     "makers": [
+      "Meta",
+      "DeepSeek",
+      "Mistral",
+      "Qwen",
+      "xAI"
+     ],
+     "items": 6,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 398,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      568.5
+     ]
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 30,
+    "11px": 28,
+    "10px": 10
+   },
+   "banned": []
+  },
+  {
+   "id": "acc-keys-light",
+   "w": 704,
+   "h": 456,
+   "bodyH": 379,
+   "bodyShare": 0.831,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 25,
+    "12px": 10
+   },
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 378,
+    "scrollH": 378,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-light",
+   "w": 704,
+   "h": 456,
+   "bodyH": 414,
+   "bodyShare": 0.908,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 15,
+    "12px": 16,
+    "10px": 2
+   },
+   "banned": [],
+   "det": {
+    "clientH": 413,
+    "scrollH": 499
+   }
+  },
+  {
+   "id": "sel-nokeys-light",
+   "w": 704,
+   "h": 456,
+   "bodyH": 344,
+   "bodyShare": 0.754,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 13,
+    "11px": 17,
+    "10px": 5
+   },
+   "banned": []
+  },
+  {
+   "id": "det-codex-light",
+   "w": 704,
+   "h": 456,
+   "bodyH": 414,
+   "bodyShare": 0.908,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 9,
+    "12px": 4
+   },
+   "banned": [],
+   "det": {
+    "clientH": 413,
+    "scrollH": 413,
+    "primaryOffset": 12
+   }
+  },
+  {
+   "id": "trig-light",
+   "w": 704,
+   "h": 311,
+   "bodyH": null,
+   "bodyShare": null,
+   "clamped": [],
+   "sizes": {
+    "12px": 21
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 27,
+    "12px": 18,
+    "15px": 1,
+    "11px": 10,
+    "13px": 10
+   },
+   "small": [],
+   "banned": []
+  },
+  {
+   "id": "acc-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 643,
+   "bodyShare": 0.824,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 22,
+    "15px": 10,
+    "14px": 3
+   },
+   "small": [],
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 642,
+    "scrollH": 643,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 679,
+   "bodyShare": 0.871,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 5,
+    "14px": 18,
+    "11px": 5,
+    "12px": 4
+   },
+   "small": [],
+   "banned": [],
+   "det": {
+    "clientH": 678,
+    "scrollH": 962
+   }
+  },
+  {
+   "id": "sel-nokeys-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 12,
+    "12px": 6,
+    "15px": 3,
+    "11px": 5,
+    "13px": 7
+   },
+   "small": [],
+   "banned": []
+  },
+  {
+   "id": "det-topics",
+   "w": 704,
+   "h": 456,
+   "bodyH": 414,
+   "bodyShare": 0.908,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 10,
+    "12px": 9
+   },
+   "banned": [],
+   "det": {
+    "clientH": 413,
+    "scrollH": 413
+   }
+  },
+  {
+   "id": "settings-phone",
+   "w": 390,
+   "h": 520,
+   "bodyH": 446,
+   "bodyShare": 0.858,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "14px": 6,
+    "12px": 1,
+    "13px": 1
+   },
+   "small": [],
+   "banned": [],
+   "det": {
+    "clientH": 445,
+    "scrollH": 445
+   }
+  },
+  {
+   "id": "mid",
+   "w": 512,
+   "h": 384,
+   "bodyH": null,
+   "bodyShare": null,
+   "clamped": [],
+   "sizes": {
+    "10px": 6
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-jcode",
+   "w": 704,
+   "h": 456,
+   "bodyH": 344,
+   "bodyShare": 0.754,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 17,
+     "visible": 8,
+     "clientH": 343,
+     "scrollH": 780,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      780.5
+     ]
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 23,
+     "visible": 7,
+     "clientH": 343,
+     "scrollH": 848,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "NVIDIA",
+      "Mistral",
+      "Meta",
+      "IBM",
+      "Writer",
+      "DeepSeek",
+      "Z.ai",
+      "Microsoft",
+      "Moonshot",
+      "Qwen",
+      "01.AI",
+      "AI Singapore",
+      "AI21 Labs",
+      "BigCode",
+      "Databricks",
+      "Poolside",
+      "Zyphra"
+     ],
+     "items": 53,
+     "visible": 7,
+     "clientH": 343,
+     "scrollH": 2664,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    }
+   ],
+   "clamped": [
+    {
+     "t": "Mistral Nemo Minitron 8B 8K Instruct",
+     "title": "Mistral Nemo Minitron 8B 8K Instruct",
+     "aria": "Mistral Nemo Minitron 8B 8K Instruct, via jcode"
+    },
+    {
+     "t": "Nemotron 3 Nano Omni 30B A3B Reasoning",
+     "title": "Nemotron 3 Nano Omni 30B A3B Reasoning",
+     "aria": "Nemotron 3 Nano Omni 30B A3B Reasoning, via jcode"
+    }
+   ],
+   "sizes": {
+    "12px": 104,
+    "11px": 53,
+    "10px": 22
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-keys-dark",
+   "w": 704,
+   "h": 456,
+   "bodyH": 344,
+   "bodyShare": 0.754,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 9,
+     "visible": 8,
+     "clientH": 343,
+     "scrollH": 356,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      41
+     ]
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 9,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 486,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      217.5
+     ]
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 4,
+     "visible": 4,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      393
+     ]
+    },
+    {
+     "makers": [
+      "Meta",
+      "DeepSeek",
+      "Mistral",
+      "Qwen",
+      "xAI"
+     ],
+     "items": 6,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 398,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      568.5
+     ]
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 38,
+    "11px": 40,
+    "10px": 12
+   },
+   "banned": []
+  },
+  {
+   "id": "acc-keys-dark",
+   "w": 704,
+   "h": 456,
+   "bodyH": 379,
+   "bodyShare": 0.831,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 25,
+    "12px": 10
+   },
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 378,
+    "scrollH": 378,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-dark",
+   "w": 704,
+   "h": 456,
+   "bodyH": 414,
+   "bodyShare": 0.908,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 15,
+    "12px": 16,
+    "10px": 2
+   },
+   "banned": [],
+   "det": {
+    "clientH": 413,
+    "scrollH": 499
+   }
+  },
+  {
+   "id": "sel-nokeys-dark",
+   "w": 704,
+   "h": 456,
+   "bodyH": 344,
+   "bodyShare": 0.754,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 343,
+     "scrollH": 343,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 13,
+    "11px": 17,
+    "10px": 5
+   },
+   "banned": []
+  },
+  {
+   "id": "det-codex-dark",
+   "w": 704,
+   "h": 456,
+   "bodyH": 414,
+   "bodyShare": 0.908,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 9,
+    "12px": 4
+   },
+   "banned": [],
+   "det": {
+    "clientH": 413,
+    "scrollH": 413,
+    "primaryOffset": 12
+   }
+  },
+  {
+   "id": "trig-dark",
+   "w": 704,
+   "h": 311,
+   "bodyH": null,
+   "bodyShare": null,
+   "clamped": [],
+   "sizes": {
+    "12px": 21
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 27,
+    "12px": 18,
+    "15px": 1,
+    "11px": 10,
+    "13px": 10
+   },
+   "small": [],
+   "banned": []
+  },
+  {
+   "id": "acc-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 643,
+   "bodyShare": 0.824,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 22,
+    "15px": 10,
+    "14px": 3
+   },
+   "small": [],
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 642,
+    "scrollH": 643,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 679,
+   "bodyShare": 0.871,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 5,
+    "14px": 18,
+    "11px": 5,
+    "12px": 4
+   },
+   "small": [],
+   "banned": [],
+   "det": {
+    "clientH": 678,
+    "scrollH": 962
+   }
+  },
+  {
+   "id": "sel-nokeys-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 12,
+    "12px": 6,
+    "15px": 3,
+    "11px": 5,
+    "13px": 7
+   },
+   "small": [],
+   "banned": []
+  }
+ ],
+ "at400": [
+  {
+   "id": "sel-keys-light",
+   "w": 704,
+   "h": 400,
+   "bodyH": 288,
+   "bodyShare": 0.72,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 9,
+     "visible": 7,
+     "clientH": 287,
+     "scrollH": 356,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      217.5
+     ]
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 4,
+     "visible": 4,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      393
+     ]
+    },
+    {
+     "makers": [
+      "Meta",
+      "DeepSeek",
+      "Mistral",
+      "Qwen",
+      "xAI"
+     ],
+     "items": 6,
+     "visible": 4,
+     "clientH": 287,
+     "scrollH": 398,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      568.5
+     ]
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 30,
+    "11px": 28,
+    "10px": 10
+   },
+   "banned": []
+  },
+  {
+   "id": "acc-keys-light",
+   "w": 704,
+   "h": 400,
+   "bodyH": 323,
+   "bodyShare": 0.807,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 25,
+    "12px": 10
+   },
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 322,
+    "scrollH": 322,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-light",
+   "w": 704,
+   "h": 400,
+   "bodyH": 358,
+   "bodyShare": 0.895,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 15,
+    "12px": 16,
+    "10px": 2
+   },
+   "banned": [],
+   "det": {
+    "clientH": 357,
+    "scrollH": 499
+   }
+  },
+  {
+   "id": "sel-nokeys-light",
+   "w": 704,
+   "h": 400,
+   "bodyH": 288,
+   "bodyShare": 0.72,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 13,
+    "11px": 17,
+    "10px": 5
+   },
+   "banned": []
+  },
+  {
+   "id": "det-codex-light",
+   "w": 704,
+   "h": 400,
+   "bodyH": 358,
+   "bodyShare": 0.895,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 9,
+    "12px": 4
+   },
+   "banned": [],
+   "det": {
+    "clientH": 357,
+    "scrollH": 357,
+    "primaryOffset": 12
+   }
+  },
+  {
+   "id": "trig-light",
+   "w": 704,
+   "h": 311,
+   "bodyH": null,
+   "bodyShare": null,
+   "clamped": [],
+   "sizes": {
+    "12px": 21
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 27,
+    "12px": 18,
+    "15px": 1,
+    "11px": 10,
+    "13px": 10
+   },
+   "small": [],
+   "banned": []
+  },
+  {
+   "id": "acc-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 643,
+   "bodyShare": 0.824,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 22,
+    "15px": 10,
+    "14px": 3
+   },
+   "small": [],
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 642,
+    "scrollH": 643,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 679,
+   "bodyShare": 0.871,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 5,
+    "14px": 18,
+    "11px": 5,
+    "12px": 4
+   },
+   "small": [],
+   "banned": [],
+   "det": {
+    "clientH": 678,
+    "scrollH": 962
+   }
+  },
+  {
+   "id": "sel-nokeys-phone-light",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 12,
+    "12px": 6,
+    "15px": 3,
+    "11px": 5,
+    "13px": 7
+   },
+   "small": [],
+   "banned": []
+  },
+  {
+   "id": "det-topics",
+   "w": 704,
+   "h": 400,
+   "bodyH": 358,
+   "bodyShare": 0.895,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 10,
+    "12px": 9
+   },
+   "banned": [],
+   "det": {
+    "clientH": 357,
+    "scrollH": 357
+   }
+  },
+  {
+   "id": "settings-phone",
+   "w": 390,
+   "h": 520,
+   "bodyH": 446,
+   "bodyShare": 0.858,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "14px": 6,
+    "12px": 1,
+    "13px": 1
+   },
+   "small": [],
+   "banned": [],
+   "det": {
+    "clientH": 445,
+    "scrollH": 445
+   }
+  },
+  {
+   "id": "mid",
+   "w": 512,
+   "h": 384,
+   "bodyH": null,
+   "bodyShare": null,
+   "clamped": [],
+   "sizes": {
+    "10px": 6
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-jcode",
+   "w": 704,
+   "h": 400,
+   "bodyH": 288,
+   "bodyShare": 0.72,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 17,
+     "visible": 6,
+     "clientH": 287,
+     "scrollH": 780,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      780.5
+     ]
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 23,
+     "visible": 5,
+     "clientH": 287,
+     "scrollH": 848,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "NVIDIA",
+      "Mistral",
+      "Meta",
+      "IBM",
+      "Writer",
+      "DeepSeek",
+      "Z.ai",
+      "Microsoft",
+      "Moonshot",
+      "Qwen",
+      "01.AI",
+      "AI Singapore",
+      "AI21 Labs",
+      "BigCode",
+      "Databricks",
+      "Poolside",
+      "Zyphra"
+     ],
+     "items": 53,
+     "visible": 6,
+     "clientH": 287,
+     "scrollH": 2664,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    }
+   ],
+   "clamped": [
+    {
+     "t": "Mistral Nemo Minitron 8B 8K Instruct",
+     "title": "Mistral Nemo Minitron 8B 8K Instruct",
+     "aria": "Mistral Nemo Minitron 8B 8K Instruct, via jcode"
+    },
+    {
+     "t": "Nemotron 3 Nano Omni 30B A3B Reasoning",
+     "title": "Nemotron 3 Nano Omni 30B A3B Reasoning",
+     "aria": "Nemotron 3 Nano Omni 30B A3B Reasoning, via jcode"
+    }
+   ],
+   "sizes": {
+    "12px": 104,
+    "11px": 53,
+    "10px": 22
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-keys-dark",
+   "w": 704,
+   "h": 400,
+   "bodyH": 288,
+   "bodyShare": 0.72,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 9,
+     "visible": 7,
+     "clientH": 287,
+     "scrollH": 356,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      41
+     ]
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 9,
+     "visible": 4,
+     "clientH": 287,
+     "scrollH": 486,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      217.5
+     ]
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 4,
+     "visible": 4,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      393
+     ]
+    },
+    {
+     "makers": [
+      "Meta",
+      "DeepSeek",
+      "Mistral",
+      "Qwen",
+      "xAI"
+     ],
+     "items": 6,
+     "visible": 4,
+     "clientH": 287,
+     "scrollH": 398,
+     "headH": [
+      43
+     ],
+     "viaX": [
+      568.5
+     ]
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 38,
+    "11px": 40,
+    "10px": 12
+   },
+   "banned": []
+  },
+  {
+   "id": "acc-keys-dark",
+   "w": 704,
+   "h": 400,
+   "bodyH": 323,
+   "bodyShare": 0.807,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 25,
+    "12px": 10
+   },
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 322,
+    "scrollH": 322,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-dark",
+   "w": 704,
+   "h": 400,
+   "bodyH": 358,
+   "bodyShare": 0.895,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 15,
+    "12px": 16,
+    "10px": 2
+   },
+   "banned": [],
+   "det": {
+    "clientH": 357,
+    "scrollH": 499
+   }
+  },
+  {
+   "id": "sel-nokeys-dark",
+   "w": 704,
+   "h": 400,
+   "bodyH": 288,
+   "bodyShare": 0.72,
+   "cols": [
+    {
+     "makers": [
+      "Anthropic"
+     ],
+     "items": 5,
+     "visible": 5,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      43
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "OpenAI"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    },
+    {
+     "makers": [
+      "Google"
+     ],
+     "items": 1,
+     "visible": 1,
+     "clientH": 287,
+     "scrollH": 287,
+     "headH": [
+      42
+     ],
+     "viaX": []
+    }
+   ],
+   "clamped": [],
+   "sizes": {
+    "12px": 13,
+    "11px": 17,
+    "10px": 5
+   },
+   "banned": []
+  },
+  {
+   "id": "det-codex-dark",
+   "w": 704,
+   "h": 400,
+   "bodyH": 358,
+   "bodyShare": 0.895,
+   "clamped": [],
+   "sizes": {
+    "13px": 1,
+    "11px": 9,
+    "12px": 4
+   },
+   "banned": [],
+   "det": {
+    "clientH": 357,
+    "scrollH": 357,
+    "primaryOffset": 12
+   }
+  },
+  {
+   "id": "trig-dark",
+   "w": 704,
+   "h": 311,
+   "bodyH": null,
+   "bodyShare": null,
+   "clamped": [],
+   "sizes": {
+    "12px": 21
+   },
+   "banned": []
+  },
+  {
+   "id": "sel-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 27,
+    "12px": 18,
+    "15px": 1,
+    "11px": 10,
+    "13px": 10
+   },
+   "small": [],
+   "banned": []
+  },
+  {
+   "id": "acc-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 643,
+   "bodyShare": 0.824,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 22,
+    "15px": 10,
+    "14px": 3
+   },
+   "small": [],
+   "banned": [],
+   "groupsInProviders": 0,
+   "plist": {
+    "clientH": 642,
+    "scrollH": 643,
+    "cards": 10
+   }
+  },
+  {
+   "id": "det-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 679,
+   "bodyShare": 0.871,
+   "clamped": [],
+   "sizes": {
+    "16px": 1,
+    "13px": 5,
+    "14px": 18,
+    "11px": 5,
+    "12px": 4
+   },
+   "small": [],
+   "banned": [],
+   "det": {
+    "clientH": 678,
+    "scrollH": 962
+   }
+  },
+  {
+   "id": "sel-nokeys-phone-dark",
+   "w": 390,
+   "h": 780,
+   "bodyH": 556,
+   "bodyShare": 0.712,
+   "clamped": [],
+   "sizes": {
+    "14px": 12,
+    "12px": 6,
+    "15px": 3,
+    "11px": 5,
+    "13px": 7
+   },
+   "small": [],
+   "banned": []
+  }
+ ],
+ "axe": {
+  "light": [],
+  "dark": []
+ }
+}

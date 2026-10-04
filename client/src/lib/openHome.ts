@@ -12,7 +12,12 @@
  * (`Settings/HomePanelHost`): anchored to the element that asked, or to the
  * home's own element when one is mounted (`data-home-anchor`), or, with neither,
  * as a centred sheet. Every door (the palette's commands, the plan-limit
- * notice, the selector's footer) sends the same event and lets the host decide.
+ * notice) sends the same event and lets the host decide.
+ *
+ * Providers and keys is a level of the model selector (revision 2026-10-04,
+ * §5.1): the host hands such a request to the model chip of the focused pane
+ * (`OPEN_MODEL_SELECTOR_EVENT`, on the chip itself), which opens its selector
+ * on that level; only with no chip on screen does it draw a centred sheet.
  */
 
 /** The event the host listens to. */
@@ -35,14 +40,29 @@ export interface OpenHomeDetail {
    * the model chip the next words typed went nowhere.
    */
   returnFocus?: HTMLElement | null;
+  /** Providers and keys only: open on this account's detail. */
+  account?: string;
 }
 
 /** Open `home`, hung from `anchor` when given; on close the focus goes back to
  *  `returnFocus` when given, to the anchor otherwise. */
-export function openHome(home: SettingHome, anchor?: HTMLElement | null, returnFocus?: HTMLElement | null): void {
+export function openHome(home: SettingHome, anchor?: HTMLElement | null, returnFocus?: HTMLElement | null, account?: string): void {
   window.dispatchEvent(new CustomEvent<OpenHomeDetail>(OPEN_HOME_EVENT, {
-    detail: { home, anchor: anchor ?? null, returnFocus: returnFocus ?? null },
+    detail: { home, anchor: anchor ?? null, returnFocus: returnFocus ?? null, account },
   }));
+}
+
+/**
+ * The event a model chip listens to ON ITSELF: open your selector on the
+ * providers level, or on one account's detail. Dispatched by the host, which
+ * reads `defaultPrevented` to know a chip took it.
+ */
+export const OPEN_MODEL_SELECTOR_EVENT = 'topics:open-model-selector';
+
+export interface OpenModelSelectorDetail {
+  level: 'providers' | 'account';
+  account?: string;
+  returnFocus?: HTMLElement | null;
 }
 
 /**
