@@ -45,7 +45,8 @@ afterAll(async () => {
   __resetAiBridgeClientForTests();
   const { cleanupMcpConfigForSession } = await import("./claude-code");
   cleanupMcpConfigForSession(SK);
-  try { (await import("../db")).closeDatabase(); } catch { /* never opened */ }
+  const { closeDatabase } = await import("../db");
+  try { closeDatabase(); } catch { /* never opened */ }
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
