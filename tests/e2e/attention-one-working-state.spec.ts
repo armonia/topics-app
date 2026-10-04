@@ -16,7 +16,7 @@
  *
  * Real server turns throughout, from fake CLIs that do what Claude Code does:
  * `helpers/fake-claude-background-job.ts` launches a background Bash and ends
- * its turn, `helpers/fake-claude-service.ts` runs the project's `serve` script
+ * its turn, `helpers/fake-claude-service.ts` runs the project's dev-server script
  * through the bridge's own `run_script` code. What is faked is the OS banner
  * and the window being behind another app.
  */
@@ -27,10 +27,11 @@ import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { expectAttention, recordAttentionFrames, runChatTurn, stubBannersAndWindow } from "./helpers/attention";
+import { createTopic, deleteTerminalSession, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
+import { createClaudeTerminal, expectAttention, postHook, recordAttentionFrames, runChatTurn, stubBannersAndWindow } from "./helpers/attention";
 import { bunPath, installFakeCli } from "./helpers/fake-claude-cli";
-import { topicSubject } from "../../shared/attention";
+import { E2E_BASE } from "./helpers/test-server";
+import { terminalSubject, topicSubject } from "../../shared/attention";
 
 hermetic(test);
 
@@ -94,6 +95,38 @@ test.describe("one state for work in progress, a sign apart for a server", () =>
     }
   });
 
+  test("a terminal turn stopped with Esc, which sends no Stop, is no longer in progress once the reaper puts it to rest", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "ATTN-12" });
+    const name = `esc-turn-${Date.now()}`;
+    const term = await createClaudeTerminal(request, name);
+    const subject = terminalSubject(term.id);
+    try {
+      await resetPaneStore(request, [`terminal:${term.id}`]);
+      await stubBannersAndWindow(page);
+      const frames = recordAttentionFrames(page);
+      await goToApp(page);
+      const tab = page.locator('[role="tab"][data-pane-id]', { hasText: name });
+      await expect(tab).toBeVisible({ timeout: 15_000 });
+
+      // The prompt opens the turn: the tab is at work.
+      await postHook(request, "UserPromptSubmit", { session_id: term.claudeSessionId, cwd: term.cwd, prompt: "refactor the parser" });
+      await expectAttention(frames, subject, { state: "working" }, "the prompt did not put the terminal to work");
+      await expect(tab.locator('[data-loader-state="working"]'), "the terminal at work has no ring").toBeVisible({ timeout: 10_000 });
+
+      // Esc: Claude Code sends no Stop. The reaper finds the turn silent and demotes it.
+      const reap = await request.post(`${E2E_BASE}/api/test/claude-sessions/reap`, { data: { aheadMs: 2 * 60 * 60 * 1000 } });
+      expect(reap.ok(), "the reaper pass was refused").toBe(true);
+      expect(((await reap.json()) as { changed: number }).changed, "the reaper demoted nothing").toBeGreaterThan(0);
+
+      // Nothing is in progress any more: no ring on the tab, nothing at work anywhere.
+      await expectAttention(frames, subject, { state: "idle", lit: false }, "the turn put to rest is still «working»");
+      await expect(tab.locator("[data-loader-state]"), "the tab of the stopped turn still says «in progress»").toHaveCount(0, { timeout: 10_000 });
+      await page.screenshot({ path: test.info().outputPath("esc-turn-at-rest.png") });
+    } finally {
+      await deleteTerminalSession(request, term.id);
+    }
+  });
+
   test("a chat whose agent started a dev server with run_script shows the server's sign, and is not in progress", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-08" }, { type: "spec", description: "ATTN-01" });
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "devsrv-")));
@@ -106,7 +139,7 @@ test.describe("one state for work in progress, a sign apart for a server", () =>
       `Bun.serve({ hostname: "127.0.0.1", port: Number(process.argv[2]), fetch: () => new Response("DEVSRV-OK") });`,
       `setInterval(() => { if (!existsSync(${JSON.stringify(dir)})) process.exit(0); }, 200);`,
     ].join("\n"));
-    // The manifest `run_script` reads: a Bun project with a `serve` script.
+    // The manifest `run_script` reads: a Bun project with a dev-server script.
     writeFileSync(join(project, "package.json"), JSON.stringify({ scripts: { serve: `'${bunPath()}' '${join(dir, "srv.ts")}' ${port}` } }));
     writeFileSync(join(project, "bun.lock"), "");
     const removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-service.ts"), { SRVCARD_DIR: dir, SRVCARD_CWD: project });

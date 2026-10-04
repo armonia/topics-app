@@ -49,11 +49,20 @@ export function syncAttention(subject: string | null, prev: ClaudeSessionState, 
       turnEnded(subject, { turnId: `stop:${next.claudeSessionId}:${t}`, outcome: 'done', at: new Date(t).toISOString() });
     } else if (event === 'SessionEnd') {
       processEnded(subject, { cause: 'session-end', byPerson: true });
+    } else if (isTurnWorkPhaseOf(prev) && TURN_AT_REST_PHASES.has(next.phase)) {
+      // The turn went to rest with no Stop: Claude Code fires none on an Esc
+      // interrupt, so the reaper's demotion of the silent turn is what ends
+      // it. Left open, the terminal would read «working» until its next prompt.
+      // Nothing to announce: the person stopped it, or nobody knows how it ended.
+      turnEnded(subject, { outcome: null });
     }
   } catch (err) {
     console.warn('[claude-session-tracker] attention sync failed', err);
   }
 }
+
+/** Phases a turn rests at: not at work, and no wait on the person (`paused` is one). */
+const TURN_AT_REST_PHASES: ReadonlySet<ClaudeSessionState['phase']> = new Set(['awaiting-user', 'dormant', 'completed', 'error']);
 
 function isTurnWorkPhaseOf(s: ClaudeSessionState): boolean {
   return s.phase === 'running' || s.phase === 'tool-running' || s.phase === 'awaiting-approval';

@@ -691,6 +691,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       const next = reapStaleSession(prev, t, reaperConfig, idle);
       if (next !== prev) {
         commitTerminal(prev, next);
+        syncAttention(subjectOf(next), prev, next, null, true, t); // a turn put to rest ends for attention too
         changed += 1;
       }
     }
