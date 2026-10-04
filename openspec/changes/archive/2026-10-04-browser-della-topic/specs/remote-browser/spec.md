@@ -277,6 +277,11 @@ project windows, task drawers, and every origin on a narrower viewport.
 - **WHEN** a link in that chat is opened
 - **THEN** a browser pane appears in the project's layout and no sheet is added to the topic's window
 
+#### Scenario: The first link splits a browser out beside the chat
+- **GIVEN** a window narrower than 768 px whose focused group holds a chat and a terminal, and no browser pane
+- **WHEN** a link is opened
+- **THEN** the target is that same group, split, anchored right after the pane in focus
+
 #### Scenario: The first link from a terminal splits a browser out beside it
 - **GIVEN** a window whose focused group holds a chat and a terminal, and no browser pane
 - **WHEN** a link is opened from the terminal
