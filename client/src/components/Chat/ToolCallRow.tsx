@@ -568,8 +568,18 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         </div>
       )}
       {/* Outside the collapsible body for the same reason: the choice reads
-          without opening the row, one line per question. */}
-      {answer && <QuestionAnswerRecap toolCallId={toolCall.id} asked={askedQuestions} response={answer} />}
+          without opening the row, one line per question. Only while the row
+          is closed: open, the card below says the same with every option, and
+          with both the question read three times and the answer twice. */}
+      {answer && !effectiveOpen && (
+        <QuestionAnswerRecap
+          toolCallId={toolCall.id}
+          asked={askedQuestions}
+          response={answer}
+          schema={toolCall.userInputSchema}
+          headerQuestion={detail.type === 'ask_user' ? display.summary : undefined}
+        />
+      )}
       {/* An answer whose asker was gone, saved and waiting for the chat to be
           free: the panel is closed, and it says the answer is on its way. */}
       {isQuestionTool && toolCall.answerRelay === 'queued' && (
@@ -638,14 +648,14 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             // An answered question: its options with the tick ARE the card. The
             // question card (the same options without the choice) and the tool
             // result (the same answer echoed by the bridge) would say it twice.
-            <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} />
+            <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} schema={toolCall.userInputSchema} />
           ) : (
             <>
             <ToolCardBody detail={detail} isError={isError} error={toolCall.error} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
             {/* A tool that asked something mid-work (the plan on a `Write`, an
                 MCP elicitation) keeps its card, with the answer and the options
                 it was chosen from underneath. */}
-            {answer && <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} />}
+            {answer && <QuestionAnswerCard toolCallId={toolCall.id} asked={askedQuestions} response={answer} schema={toolCall.userInputSchema} />}
             </>
           )}
           <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />

@@ -11,8 +11,15 @@
  */
 import { ArrowRight, Check, CornerDownRight } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import type { ToolUserResponse } from '../../types';
-import { readAnsweredQuestions, type AnswerPart, type AskedQuestion } from './questionAnswers';
+import type { ToolUserResponse, UserInputSchema } from '../../types';
+import {
+  readAnsweredQuestions,
+  readElicitationAnswer,
+  type AnswerPart,
+  type AskedQuestion,
+  type ElicitationAnswer,
+  type ElicitationValue,
+} from './questionAnswers';
 
 type Translate = ReturnType<typeof useT>;
 
@@ -21,72 +28,106 @@ function answerText(parts: readonly AnswerPart[], tr: Translate): string {
   return parts.map((p) => (p.free ? tr('chat.question.answer.freeText', { text: p.text }) : p.text)).join(', ');
 }
 
-/** The line of an answer with no questions (raw text or an elicitation form). */
-function bareAnswer(response: ToolUserResponse, tr: Translate): string | null {
-  if (response.kind === 'raw') return response.text.trim() ? tr('chat.question.answer.freeText', { text: response.text.trim() }) : null;
-  if (response.kind === 'elicitation') return response.value === undefined ? null : JSON.stringify(response.value);
-  return null;
+/** A field of an elicitation form as it reads: yes/no in the reader's language, a list with commas. */
+function fieldText(value: ElicitationValue, tr: Translate): string {
+  const one = (v: string | number | boolean) => (typeof v === 'boolean' ? tr(v ? 'chat.question.answer.yes' : 'chat.question.answer.no') : String(v));
+  return Array.isArray(value) ? value.map(one).join(', ') : one(value);
 }
 
+/** The elicitation answer, field by field; null for any other kind. */
+function elicitationOf(response: ToolUserResponse, schema: UserInputSchema | undefined): ElicitationAnswer | null {
+  if (response.kind !== 'elicitation') return null;
+  const form = schema?.kind === 'elicitation' ? schema : undefined;
+  return readElicitationAnswer(form?.requestedSchema, form?.message, response.value);
+}
+
+/** The free text of a raw answer, in quotes; null when there is none. */
+function rawAnswer(response: ToolUserResponse, tr: Translate): string | null {
+  if (response.kind !== 'raw' || !response.text.trim()) return null;
+  return tr('chat.question.answer.freeText', { text: response.text.trim() });
+}
+
+/**
+ * One line of the closed row. The ANSWER IS NEVER CUT: it is what the person
+ * picked or wrote, and on a 320 px pane `truncate` left «the copy ch…» with no
+ * way to read the rest on touch, where `title` does not exist. The value wraps
+ * instead. The question gives way: one line with an ellipsis, and when the
+ * value does not fit beside it, the value goes under it at full width.
+ */
 function RecapLine({ question, answer, testId }: { question?: string; answer: string; testId: string }) {
   const tr = useT();
   // A question can span lines (context under its title): the closed row needs
   // only the first.
   const firstLine = question?.split('\n')[0];
   return (
-    <div data-testid={testId} className="flex items-center gap-1.5 min-w-0 leading-snug">
-      <CornerDownRight size={11} className="flex-shrink-0 text-app-text-muted" aria-hidden="true" />
-      {firstLine && (
-        <>
-          {/* The question gives way first: cut with an ellipsis, whole in the title. */}
-          <span className="min-w-0 truncate text-app-text-muted" title={question}>{firstLine}</span>
-          <ArrowRight size={11} className="flex-shrink-0 text-app-text-muted" aria-hidden="true" />
-        </>
-      )}
-      <span className="sr-only">{tr('chat.question.answer.srLabel')}</span>
-      <span
-        data-testid="question-answer-value"
-        className={`min-w-0 truncate font-medium text-app-text ${firstLine ? 'flex-shrink-0 max-w-[65%]' : ''}`}
-        title={answer}
-      >
-        {answer}
-      </span>
+    <div data-testid={testId} className="flex items-start gap-1.5 min-w-0 leading-snug">
+      <CornerDownRight size={11} className="mt-[3px] flex-shrink-0 text-app-text-muted" aria-hidden="true" />
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
+        {firstLine && (
+          <span className="flex min-w-0 max-w-full items-center gap-1.5 text-app-text-muted">
+            <span data-testid="question-answer-question" className="min-w-0 truncate" title={question}>{firstLine}</span>
+            <ArrowRight size={11} className="flex-shrink-0" aria-hidden="true" />
+          </span>
+        )}
+        <span className="sr-only">{tr('chat.question.answer.srLabel')}</span>
+        <span data-testid="question-answer-value" className="min-w-0 max-w-full whitespace-pre-wrap break-words font-medium text-app-text">
+          {answer}
+        </span>
+      </div>
     </div>
   );
 }
 
-/** Closed: one line per question, "question -> choice". */
-export function QuestionAnswerRecap({ toolCallId, asked, response }: {
+/**
+ * Closed: one line per question, "question -> choice".
+ *
+ * A single question that the tool header already prints (`AskUserQuestion`
+ * shows its first question there) is not written again: on a narrow pane the
+ * same text twice took the room the answer needed. The line then says the
+ * choice alone, under the question it answers.
+ */
+export function QuestionAnswerRecap({ toolCallId, asked, response, schema, headerQuestion }: {
   toolCallId: string;
   asked: readonly AskedQuestion[];
   response: ToolUserResponse;
+  schema?: UserInputSchema;
+  /** The question the row header already shows, if it shows one. */
+  headerQuestion?: string;
 }) {
   const tr = useT();
-  const bare = bareAnswer(response, tr);
-  const lines = response.kind === 'questions'
+  const raw = rawAnswer(response, tr);
+  const form = elicitationOf(response, schema);
+  const answered = response.kind === 'questions'
     ? readAnsweredQuestions(asked, response.answers).filter((q) => q.parts.length > 0)
     : [];
-  if (lines.length === 0 && !bare) return null;
+  const saidInHeader = answered.length === 1 && !!headerQuestion && answered[0]!.question === headerQuestion;
+  const lines = [
+    ...answered.map((q) => ({ question: saidInHeader ? undefined : q.question, answer: answerText(q.parts, tr) })),
+    ...(form?.fields ?? []).map((f) => ({ question: f.label, answer: fieldText(f.value, tr) })),
+    ...(raw ? [{ question: undefined, answer: raw }] : []),
+  ];
+  if (lines.length === 0) return null;
   return (
     <div data-testid={`question-answer-${toolCallId}`} className="ml-5 mb-1 space-y-0.5 text-mini">
-      {lines.map((q, i) => (
-        <RecapLine key={`${toolCallId}-a-${i}`} testId="question-answer-line" question={q.question} answer={answerText(q.parts, tr)} />
+      {lines.map((l, i) => (
+        <RecapLine key={`${toolCallId}-a-${i}`} testId="question-answer-line" question={l.question} answer={l.answer} />
       ))}
-      {bare && <RecapLine testId="question-answer-line" answer={bare} />}
     </div>
   );
 }
 
 /** Open: each question with the options offered, the pick ticked. */
-export function QuestionAnswerCard({ toolCallId, asked, response }: {
+export function QuestionAnswerCard({ toolCallId, asked, response, schema }: {
   toolCallId: string;
   asked: readonly AskedQuestion[];
   response: ToolUserResponse;
+  schema?: UserInputSchema;
 }) {
   const tr = useT();
-  const bare = bareAnswer(response, tr);
+  const raw = rawAnswer(response, tr);
+  const form = elicitationOf(response, schema);
   const questions = response.kind === 'questions' ? readAnsweredQuestions(asked, response.answers) : [];
-  if (questions.length === 0 && !bare) return null;
+  if (questions.length === 0 && !raw && !form?.fields.length) return null;
   return (
     <div data-testid={`question-answer-card-${toolCallId}`} className="mt-1.5 space-y-2">
       {questions.map((q, i) => {
@@ -129,10 +170,32 @@ export function QuestionAnswerCard({ toolCallId, asked, response }: {
           </div>
         );
       })}
-      {bare && (
+      {/* An MCP form: what it asked, then each field as the person filled it,
+          named as the form named it. Never the JSON on the wire. */}
+      {form && form.fields.length > 0 && (
+        <div className="space-y-1">
+          {form.message && <div className="text-mini text-app-text whitespace-pre-wrap break-words">{form.message}</div>}
+          <ul className="space-y-0.5">
+            {form.fields.map((f, j) => (
+              <li
+                key={`${toolCallId}-f-${j}`}
+                data-testid="question-answer-field"
+                className="flex items-start gap-1.5 text-mini font-medium text-app-text"
+              >
+                <Check size={12} className="mt-[2px] flex-shrink-0 text-primary" aria-hidden="true" />
+                <span className="min-w-0 whitespace-pre-wrap break-words">
+                  {f.label && <span className="font-normal text-app-text-muted">{f.label}: </span>}
+                  {fieldText(f.value, tr)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {raw && (
         <div className="flex items-start gap-1.5 text-mini font-medium text-app-text">
           <Check size={12} className="mt-[2px] flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
-          <span className="min-w-0 break-words">{bare}</span>
+          <span className="min-w-0 whitespace-pre-wrap break-words">{raw}</span>
         </div>
       )}
     </div>

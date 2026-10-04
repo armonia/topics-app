@@ -211,14 +211,16 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
 
     // AND THE CHOICE STAYS ON SCREEN. Reported on 04/10: the tool row did not
     // show the answer that had been picked. It lived only in the collapsible
-    // body, which closes when the tool finishes. Now the closed row says
-    // "question -> choice" without opening anything.
+    // body, which closes when the tool finishes. Now the closed row says the
+    // choice without opening anything. One question, already printed by the
+    // header: the line under it is the choice alone, not the question again.
     const header = row.locator("button[aria-expanded]").first();
     await expect(header, "finito, il tool si richiude").toHaveAttribute("aria-expanded", "false", { timeout: 10_000 });
+    await expect(header).toContainText(question);
     const recap = page.getByTestId(`question-answer-${toolCallId}`);
     await expect(recap).toBeVisible();
     await expect(recap.getByTestId("question-answer-line")).toHaveCount(1);
-    await expect(recap).toContainText(question);
+    await expect(recap.getByTestId("question-answer-question")).toHaveCount(0);
     await expect(recap.getByTestId("question-answer-value")).toHaveText("OAuth");
     await row.screenshot({ path: test.info().outputPath("answer-recap-closed.png") });
 
@@ -227,6 +229,8 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await header.click();
     const card = page.getByTestId(`question-answer-card-${toolCallId}`);
     await expect(card).toBeVisible();
+    // Open, the card is the one place that says it: the closed line goes.
+    await expect(recap).toBeHidden();
     const chosen = card.locator('[data-testid="question-answer-option"][data-chosen="true"]');
     await expect(chosen).toHaveCount(1);
     await expect(chosen).toHaveText("OAuth");
@@ -489,7 +493,7 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
 
     // The other client: its panel switches off and the choice made here reads.
     await expect(otherForm).toHaveCount(0, { timeout: 8_000 });
-    await expect(other.getByTestId(`question-answer-${toolCallId}`)).toContainText(question);
+    await expect(other.getByTestId(`tool-call-row-${toolCallId}`)).toContainText(question);
     await expect(other.getByTestId(`question-answer-${toolCallId}`).getByTestId("question-answer-value")).toHaveText("Bun");
     await other.close();
 

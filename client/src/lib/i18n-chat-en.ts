@@ -166,6 +166,8 @@ const CHAT_EN: Dict = {
   'chat.question.answer.freeText': '“{text}”',
   'chat.question.answer.srLabel': 'answer:',
   'chat.question.answer.chosen': 'chosen',
+  'chat.question.answer.yes': 'Yes',
+  'chat.question.answer.no': 'No',
   'chat.tool.detailLoading': 'Loading the full output…',
   'chat.tool.detailFailed': 'Could not load the full output.',
   'toolgroup.jumpToFailure': 'Open the group on the first failed action',

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readAnsweredQuestions, readRecommendation, splitAnswer } from './questionAnswers';
+import { readAnsweredQuestions, readElicitationAnswer, readRecommendation, splitAnswer } from './questionAnswers';
 
 describe('splitAnswer', () => {
   test('a single choice is the option, without the recommended word', () => {
@@ -63,4 +63,38 @@ test('readRecommendation reads the field and the word, and strips the word from 
   expect(readRecommendation({ label: 'Bun (consigliato)' })).toEqual({ isRecommended: true, label: 'Bun' });
   expect(readRecommendation({ label: 'Node', recommended: true })).toEqual({ isRecommended: true, label: 'Node' });
   expect(readRecommendation({ label: 'Deno' })).toEqual({ isRecommended: false, label: 'Deno' });
+});
+
+describe('readElicitationAnswer', () => {
+  const schema = {
+    type: 'object',
+    properties: { confirm: { type: 'boolean', title: 'Confirm' }, title: { type: 'string', title: 'Title' }, labels: { type: 'string' } },
+    required: ['title'],
+  };
+
+  test('one field per property, named by its title, in the order the form asked', () => {
+    expect(readElicitationAnswer(schema, 'Create the issue?', { title: 'Fix the login bug', confirm: true })).toEqual({
+      message: 'Create the issue?',
+      fields: [{ label: 'Confirm', value: true }, { label: 'Title', value: 'Fix the login bug' }],
+    });
+  });
+
+  test('no title: the key; a field the schema does not know: after the known ones; empty: left out', () => {
+    expect(readElicitationAnswer(schema, undefined, { extra: 3, labels: 'bug', title: '  ' }).fields).toEqual([
+      { label: 'labels', value: 'bug' },
+      { label: 'extra', value: 3 },
+    ]);
+  });
+
+  test('never JSON: a nested object is spelled out, a list stays a list, a bare value has no label', () => {
+    expect(readElicitationAnswer({}, '', { repo: { owner: 'armonia', private: false }, tags: ['a', 'b'] })).toEqual({
+      fields: [
+        { label: 'repo › owner', value: 'armonia' },
+        { label: 'repo › private', value: false },
+        { label: 'tags', value: ['a', 'b'] },
+      ],
+    });
+    expect(readElicitationAnswer(undefined, undefined, 'yes please').fields).toEqual([{ value: 'yes please' }]);
+    expect(readElicitationAnswer(schema, undefined, null).fields).toEqual([]);
+  });
 });

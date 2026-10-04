@@ -187,6 +187,8 @@ const CHAT_IT: Dict = {
   'chat.question.answer.freeText': '«{text}»',
   'chat.question.answer.srLabel': 'risposta:',
   'chat.question.answer.chosen': 'scelta',
+  'chat.question.answer.yes': 'Sì',
+  'chat.question.answer.no': 'No',
   'chat.tool.detailLoading': "Carico l'output completo…",
   'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
   'toolgroup.jumpToFailure': 'Apri il gruppo sulla prima azione fallita',

@@ -17,6 +17,11 @@
  *    shown as it always was;
  *  - media drawn in the work stays out of the fold: an image is a result, and
  *    so is a page the agent opened (CHAT-BROWSER-01);
+ *  - so is a question the person already ANSWERED (or a plan they decided):
+ *    the choice is a fact of the conversation, not machinery. The agent that
+ *    asks mid-turn, works on and closes with a text is the common shape, and
+ *    folded, the choice was out of sight again after a reload (04/10). The
+ *    call is lifted out of its run alone; the rest of the run still folds;
  *  - a turn with no work, or with no answer, is not folded: there is nothing to
  *    hide, or nothing to show instead.
  *
@@ -75,17 +80,40 @@ export function foldFinishedTurn<G extends FoldableGroup>(groups: readonly G[], 
   // The answer is the LAST text; what follows it (a trailing tool, an image
   // the answer points at) is shown too, never folded behind the answer.
   const before = tail.slice(0, answerAt);
-  const tools = before.flatMap((g) => (g.kind === 'tools' ? g.tools : []));
   for (const g of groups) {
     if (g.kind !== 'tools') continue;
     if (g.tools.some((tc) => isAwaitingHuman(tc.status) || isActiveTool(tc))) return null;
   }
-  if (tools.length < FOLD_MIN_TOOLS) return null;
-  const isResult = (g: G): boolean => g.kind === 'media' || g.kind === 'browser';
-  const work = before.filter((g) => !isResult(g));
-  const kept = before.filter(isResult);
-  return { head, work, shown: [...kept, ...tail.slice(answerAt)], tools };
+  // The run is split around each answered call: the call stands alone among
+  // what stays in sight, its neighbours go on folding. The key of a split run
+  // is its start plus the offset inside it, which stays between that run's
+  // first block and the next run's, so no two runs share one.
+  const work: G[] = [];
+  const kept: G[] = [];
+  for (const g of before) {
+    if (g.kind === 'media' || g.kind === 'browser') { kept.push(g); continue; }
+    if (g.kind !== 'tools' || !g.tools.some(isAnswered)) { work.push(g); continue; }
+    let run: ToolCall[] = [];
+    let runStart = 0;
+    g.tools.forEach((tc, i) => {
+      if (!isAnswered(tc)) {
+        if (run.length === 0) runStart = i;
+        run.push(tc);
+        return;
+      }
+      if (run.length > 0) work.push({ ...g, startIdx: g.startIdx + runStart, tools: run } as G);
+      run = [];
+      kept.push({ ...g, startIdx: g.startIdx + i, tools: [tc] } as G);
+    });
+    if (run.length > 0) work.push({ ...g, startIdx: g.startIdx + runStart, tools: run } as G);
+  }
+  const folded = work.flatMap((g) => (g.kind === 'tools' ? g.tools : []));
+  if (folded.length < FOLD_MIN_TOOLS) return null;
+  return { head, work, shown: [...kept, ...tail.slice(answerAt)], tools: folded };
 }
+
+/** A call that asked the person something and got the answer. */
+const isAnswered = (tc: ToolCall): boolean => !!tc.userResponse;
 
 /**
  * The turns this page watched stream. They stay spread out when they end:

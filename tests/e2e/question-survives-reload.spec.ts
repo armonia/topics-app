@@ -128,7 +128,7 @@ test.describe.serial("a question survives a reload", () => {
       // The choice stays on screen with its question, and the server kept it:
       // after a reload it comes back from the history, not from this tab.
       const recap = page.getByTestId(`question-answer-${toolCallId}`);
-      await expect(recap).toContainText(question);
+      await expect(page.getByTestId(`tool-call-row-${toolCallId}`)).toContainText(question);
       await expect(recap.getByTestId("question-answer-value")).toHaveText("Beta");
       await page.reload();
       await openChat(page, chatPage);
@@ -224,7 +224,6 @@ test.describe.serial("a question survives a reload", () => {
     // Closed: one line, options as a list, the written text in quotes.
     const recap = page.getByTestId(`question-answer-${toolCallId}`);
     await expect(recap).toBeVisible({ timeout: 15_000 });
-    await expect(recap).toContainText(question);
     await expect(recap.getByTestId("question-answer-value"))
       .toHaveText("Lint, Typecheck, «the copy check, only on landing»");
 
@@ -233,9 +232,138 @@ test.describe.serial("a question survives a reload", () => {
     await row.locator("button[aria-expanded]").first().click();
     const card = page.getByTestId(`question-answer-card-${toolCallId}`);
     await expect(card).toBeVisible();
+    await expect(recap, "open, the card says it once").toBeHidden();
     const chosen = card.locator('[data-testid="question-answer-option"][data-chosen="true"]');
     await expect(chosen).toHaveText(["Lint", "Typecheck", "Altro: «the copy check, only on landing»"]);
     await expect(chosen.locator("svg")).toHaveCount(3);
     await expect(card.locator('[data-testid="question-answer-option"]:not([data-chosen])')).toHaveText(["E2E"]);
+  });
+
+  test("an answered question stays out of the folded turn: [tool, answered question, tool, text] after a reload", async ({ page, chatPage, request }) => {
+    // The common shape (04/10): the agent asks mid-turn, works on and closes
+    // with a text. The finished turn folds into «N actions», and the question
+    // with its answer went into the fold with the rest.
+    const askId = "toolu_fold_ask";
+    const question = "Which database for the cache?";
+    const questions = [{ question, header: "Database", multiSelect: false, options: [{ label: "SQLite" }, { label: "Redis" }] }];
+    const now = Date.now();
+    const read = { id: "toolu_fold_read", name: "Read", args: { file_path: "/tmp/fold/config.ts" }, status: "success" as const, result: "export {}", startedAt: now - 9_000, endedAt: now - 8_500 };
+    const ask = {
+      id: askId, name: "AskUserQuestion", args: { questions }, status: "success" as const, startedAt: now - 8_000, endedAt: now - 6_000,
+      userInputSchema: { kind: "questions", questions },
+      userResponse: { kind: "questions", answers: { [question]: "SQLite" }, submittedAt: new Date().toISOString() },
+    };
+    const bash = { id: "toolu_fold_bash", name: "Bash", args: { command: "bun test cache" }, status: "success" as const, result: "ok", startedAt: now - 5_000, endedAt: now - 4_000 };
+    const answer = "Done: the cache now runs on SQLite.";
+    await seedMessage(request, { sessionKey, role: "user", content: "set up the cache" });
+    await seedMessage(request, {
+      sessionKey, role: "assistant", content: answer,
+      toolCalls: [read, ask, bash],
+      blocks: [{ kind: "tool", toolCall: read }, { kind: "tool", toolCall: ask }, { kind: "tool", toolCall: bash }, { kind: "text", text: answer }],
+    });
+
+    await openChat(page, chatPage);
+    await page.reload();
+    await openChat(page, chatPage);
+
+    // The work still folds, counted without the question; the question and
+    // its answer stay in sight, above the closing text.
+    const bubble = page.getByTestId("message-content-assistant").filter({ hasText: answer }).last();
+    const fold = bubble.getByTestId("turn-work-fold");
+    await expect(fold).toBeVisible({ timeout: 15_000 });
+    await expect(fold).toHaveAttribute("data-open", "false");
+    await expect(fold).toHaveAttribute("data-actions", "2");
+    await expect(page.getByTestId("tool-call-row-toolu_fold_bash")).toHaveCount(0);
+    await expect(fold.getByTestId(`tool-call-row-${askId}`)).toHaveCount(0);
+    await expect(bubble.getByTestId(`question-answer-${askId}`).getByTestId("question-answer-value")).toHaveText("SQLite");
+    await expect(bubble.getByText(answer)).toBeVisible();
+    await bubble.screenshot({ path: test.info().outputPath("answer-outside-fold.png") });
+  });
+
+  test("on a 320 px pane the answer is never cut: it wraps, and the open row says it once", async ({ page, chatPage, request }) => {
+    const toolCallId = "toolu_narrow_multi";
+    const qChecks = "Which checks do we run before every push to main?";
+    const qDb = "Quale database usiamo per la cache locale?";
+    const questions = [
+      { question: qChecks, header: "Checks", multiSelect: true, options: [{ label: "Lint" }, { label: "Typecheck" }, { label: "E2E" }] },
+      { question: qDb, header: "Database", multiSelect: false, options: [{ label: "SQLite" }, { label: "Redis" }] },
+    ];
+    const freeChecks = "the copy check, only on landing pages";
+    const freeDb = "DuckDB, per l'analitica in locale";
+    await seedMessage(request, { sessionKey, role: "user", content: "decide for me" });
+    await seedMessage(request, {
+      sessionKey, role: "assistant", content: "Two things to decide:",
+      toolCalls: [{
+        id: toolCallId, name: "AskUserQuestion", args: { questions },
+        status: "success", startedAt: Date.now() - 9_000, endedAt: Date.now() - 2_000,
+        userInputSchema: { kind: "questions", questions },
+        userResponse: {
+          kind: "questions",
+          answers: { [qChecks]: `Lint, Typecheck, ${freeChecks}`, [qDb]: freeDb },
+          submittedAt: new Date().toISOString(),
+        },
+      }],
+    });
+
+    await openChat(page, chatPage);
+    await page.setViewportSize({ width: 320, height: 760 });
+    const row = page.getByTestId(`tool-call-row-${toolCallId}`);
+    await row.scrollIntoViewIfNeeded();
+    const recap = page.getByTestId(`question-answer-${toolCallId}`);
+    const values = recap.getByTestId("question-answer-value");
+    await expect(values).toHaveText([`Lint, Typecheck, «${freeChecks}»`, `«${freeDb}»`], { timeout: 15_000 });
+    const rowWidth = await row.evaluate((el) => el.getBoundingClientRect().width);
+    expect(rowWidth, "the row is as narrow as the pane").toBeLessThanOrEqual(320);
+    for (const v of await values.all()) {
+      const m = await v.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      expect(m.scroll, "the answer is not cut").toBeLessThanOrEqual(m.client);
+    }
+    expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth), "nothing spills sideways").toBe(true);
+    // Two questions: each line keeps its own, the header shows only the first.
+    await expect(recap.getByTestId("question-answer-question")).toHaveCount(2);
+    await row.screenshot({ path: test.info().outputPath("answer-recap-320.png") });
+
+    // Open: the card with every option; the closed lines are gone, not repeated.
+    await row.locator("button[aria-expanded]").first().click();
+    await expect(page.getByTestId(`question-answer-card-${toolCallId}`)).toBeVisible();
+    await expect(recap).toBeHidden();
+  });
+
+  test("an MCP form answer reads field by field, named as the form named them, never as JSON", async ({ page, chatPage, request }) => {
+    const toolCallId = "toolu_elicit_issue";
+    const message = "Create this issue on armonia/topics-app?";
+    await seedMessage(request, { sessionKey, role: "user", content: "open an issue for the login bug" });
+    await seedMessage(request, {
+      sessionKey, role: "assistant", content: "Opening it:",
+      toolCalls: [{
+        id: toolCallId, name: "mcp__github__create_issue", args: { repo: "armonia/topics-app" },
+        status: "success", startedAt: Date.now() - 9_000, endedAt: Date.now() - 2_000,
+        userInputSchema: {
+          kind: "elicitation", message,
+          requestedSchema: { type: "object", properties: { title: { type: "string", title: "Title" }, confirm: { type: "boolean", title: "Confirm" } }, required: ["title"] },
+        },
+        userResponse: { kind: "elicitation", value: { title: "Fix the login bug", confirm: true }, submittedAt: new Date().toISOString() },
+      }],
+    });
+
+    await openChat(page, chatPage);
+    const row = page.getByTestId(`tool-call-row-${toolCallId}`);
+    const recap = page.getByTestId(`question-answer-${toolCallId}`);
+    const lines = recap.getByTestId("question-answer-line");
+    await expect(lines).toHaveCount(2, { timeout: 15_000 });
+    await expect(lines.nth(0).getByTestId("question-answer-question")).toHaveText("Title");
+    await expect(lines.nth(0).getByTestId("question-answer-value")).toHaveText("Fix the login bug");
+    await expect(lines.nth(1).getByTestId("question-answer-question")).toHaveText("Confirm");
+    await expect(lines.nth(1).getByTestId("question-answer-value")).toHaveText("Sì");
+    expect(await recap.innerText(), "no JSON on the closed row").not.toMatch(/[{}"]/);
+    await row.screenshot({ path: test.info().outputPath("elicitation-recap-closed.png") });
+
+    await row.locator("button[aria-expanded]").first().click();
+    const card = page.getByTestId(`question-answer-card-${toolCallId}`);
+    await expect(card).toBeVisible();
+    await expect(recap).toBeHidden();
+    await expect(card).toContainText(message);
+    await expect(card.getByTestId("question-answer-field")).toHaveText(["Title: Fix the login bug", "Confirm: Sì"]);
+    expect(await card.innerText(), "no JSON in the card").not.toMatch(/[{}"]/);
   });
 });

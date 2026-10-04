@@ -65,7 +65,7 @@ export interface AnsweredQuestion {
 }
 
 /** The separator the panel joins the picks of a multiple question with. */
-const MULTI_SEPARATOR = ', ';
+const CHOICE_SEPARATOR = ', ';
 
 /**
  * The value of one question, split into picked options and free text.
@@ -85,18 +85,18 @@ export function splitAnswer(answer: string, labels: readonly string[], multiSele
   const display = (raw: string) => readRecommendation({ label: raw }).label;
   if (labels.includes(value)) return [{ text: display(value), free: false }];
   if (!multiSelect) return [{ text: value, free: true }];
-  const tokens = value.split(MULTI_SEPARATOR);
+  const tokens = value.split(CHOICE_SEPARATOR);
   const parts: AnswerPart[] = [];
   let free: string[] = [];
   const flushFree = () => {
-    if (free.length) parts.push({ text: free.join(MULTI_SEPARATOR), free: true });
+    if (free.length) parts.push({ text: free.join(CHOICE_SEPARATOR), free: true });
     free = [];
   };
   let i = 0;
   while (i < tokens.length) {
     let matched = 0;
     for (let j = tokens.length; j > i; j--) {
-      if (labels.includes(tokens.slice(i, j).join(MULTI_SEPARATOR))) { matched = j - i; break; }
+      if (labels.includes(tokens.slice(i, j).join(CHOICE_SEPARATOR))) { matched = j - i; break; }
     }
     if (matched === 0) {
       free.push(tokens[i]!);
@@ -104,7 +104,7 @@ export function splitAnswer(answer: string, labels: readonly string[], multiSele
       continue;
     }
     flushFree();
-    parts.push({ text: display(tokens.slice(i, i + matched).join(MULTI_SEPARATOR)), free: false });
+    parts.push({ text: display(tokens.slice(i, i + matched).join(CHOICE_SEPARATOR)), free: false });
     i += matched;
   }
   flushFree();
@@ -145,4 +145,70 @@ export function readAnsweredQuestions(asked: readonly AskedQuestion[], answers: 
     out.push({ question, options: [], parts: splitAnswer(value, [], false) });
   }
   return out;
+}
+
+/** A value of an MCP elicitation form, as the person filled it in. */
+export type ElicitationValue = string | number | boolean | Array<string | number | boolean>;
+
+export interface ElicitationField {
+  /** The field's `title` from the schema, its key without one; absent for a bare value. */
+  label?: string;
+  value: ElicitationValue;
+}
+
+export interface ElicitationAnswer {
+  /** What the form asked, as the server wrote it above the fields. */
+  message?: string;
+  fields: ElicitationField[];
+}
+
+/**
+ * The answer to an MCP elicitation, field by field, named as the form named them.
+ *
+ * On the wire it is the object the form submitted, `{ key: value }`. Shown as
+ * `JSON.stringify` it read `{"title":"Fix the login bug","confirm":true}` on the
+ * closed row: keys instead of the names the person saw, braces and quotes. Here
+ * each field takes its `title` from `requestedSchema.properties` (the key when
+ * there is none), in the order the form asked them; fields the schema does not
+ * know follow, a nested object is spelled out as "parent › child", and an empty
+ * field is left out. Booleans stay booleans: the words for them are the
+ * renderer's, in the reader's language.
+ */
+export function readElicitationAnswer(requestedSchema: unknown, message: string | undefined, value: unknown): ElicitationAnswer {
+  const props = schemaFieldsOf(requestedSchema);
+  const fields: ElicitationField[] = [];
+  const push = (label: string | undefined, v: unknown) => {
+    if (v === null || v === undefined) return;
+    if (typeof v === 'string') { if (v.trim()) fields.push({ ...(label ? { label } : {}), value: v }); return; }
+    if (typeof v === 'number' || typeof v === 'boolean') { fields.push({ ...(label ? { label } : {}), value: v }); return; }
+    if (Array.isArray(v)) {
+      const flat = v.filter((x): x is string | number | boolean => typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean');
+      if (flat.length) fields.push({ ...(label ? { label } : {}), value: flat });
+      return;
+    }
+    if (typeof v === 'object') {
+      for (const [k, inner] of Object.entries(v as Record<string, unknown>)) push(label ? `${label} › ${k}` : k, inner);
+    }
+  };
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const keys = [...Object.keys(props).filter((k) => k in record), ...Object.keys(record).filter((k) => !(k in props))];
+    for (const key of keys) push(titleOf(props[key]) ?? key, record[key]);
+  } else {
+    push(undefined, value);
+  }
+  const msg = message?.trim();
+  return { ...(msg ? { message: msg } : {}), fields };
+}
+
+function schemaFieldsOf(schema: unknown): Record<string, unknown> {
+  if (!schema || typeof schema !== 'object') return {};
+  const props = (schema as { properties?: unknown }).properties;
+  return props && typeof props === 'object' ? (props as Record<string, unknown>) : {};
+}
+
+function titleOf(prop: unknown): string | undefined {
+  if (!prop || typeof prop !== 'object') return undefined;
+  const title = (prop as { title?: unknown }).title;
+  return typeof title === 'string' && title.trim() ? title.trim() : undefined;
 }
