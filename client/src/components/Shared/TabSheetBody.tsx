@@ -211,17 +211,20 @@ export function TabSheetBody({
   const storedUrl = isBrowser && !chrome
     ? (isRealUrl(pane.url) ? pane.url : getBrowserPaneUrl(pane.id))
     : undefined;
-  const address = prettyUrl(chrome ? chrome.url : (storedUrl ?? ''));
+  // Shown short, copied whole: a pasted address without its scheme is a
+  // different address (http and https), and the old tab menu copied it whole.
+  const fullAddress = chrome ? chrome.url : (storedUrl ?? '');
+  const address = prettyUrl(fullAddress);
   const copyAddress = useCallback(() => {
-    if (!address) return;
+    if (!fullAddress) return;
     // `copyText` answers with a boolean: outside a secure context nothing is
     // copied, and saying "Copied" there would be a lie.
-    void copyText(address).then((ok) => {
+    void copyText(fullAddress).then((ok) => {
       if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
-  }, [address]);
+  }, [fullAddress]);
 
   const storedSites = useSyncExternalStore(subscribeSites, sitesSnapshot, sitesSnapshot);
   const sites = useMemo(() => (isBrowser ? rankSites(storedSites, SUGGESTIONS) : []), [storedSites, isBrowser]);
