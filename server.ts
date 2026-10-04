@@ -171,7 +171,7 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatServerTask, loadProcessRegistry, sessionsAwaitingCommandWake, settleEndedShells, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
@@ -181,7 +181,7 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { attentionInitFrame, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { attentionInitFrame, configureAttentionStore, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
 import { withCommandTask } from "./server/attention/background-tasks";
 import { observeCommandChanged } from "./server/lib/command-background";
 import { attentionBootReader } from "./server/attention/boot-reader";
@@ -850,11 +850,16 @@ function syncChatBackgroundTasks(sessionKey: string): void {
 ClaudeCodeProvider.observeBackgroundChanged((sessionKey) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) ctx.broadcastToAll({ type: "background:changed", topicId: topic.id, sessionKey });
+  // A shell the CLI no longer lists may have exited: its row closes now, and a server's sign with it.
+  void settleEndedShells(sessionKey);
   // The same change, for the attention state: the chat's task map is the CLI's snapshot.
   syncChatBackgroundTasks(sessionKey);
 });
 // A Topics command of a chat started or ended: the same map, with the command folded in.
+// A chat's server (a port seen or gone) goes through here too, and leaves or rejoins the map.
 observeCommandChanged(syncChatBackgroundTasks);
+// A background Bash of a chat that listens on a port is its server, never a task it waits for (BGVIS-09).
+configureAttentionStore({ isServerTask: isChatServerTask });
 // The CLI is gone: what the chat waited on will never answer (ATTN-15). The
 // open turn is the route's to close, with the error it caught.
 ClaudeCodeProvider.observeProcessEnded((sessionKey, cause, byPerson) => {

@@ -691,6 +691,10 @@ export default defineConfig({
         // The ‹ of a browser tab moves the page shown in the hosted frame, not
         // only the tab's label (reported 04/10), read on the engine that ships.
         "**/browser-back.spec.ts",
+        // A dev server started with a background Bash is the chat's server, not
+        // work in progress: the sidebar row's sign and ring, from real server
+        // turns on a fake CLI, read on the engine that ships.
+        "**/chat-bash-server.spec.ts",
         // Target size, text size and contrast on every main surface, measured
         // in the engine that ships (WebKit), two viewports, two themes.
         "**/usability-audit.spec.ts",

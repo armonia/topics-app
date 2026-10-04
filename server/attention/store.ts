@@ -98,6 +98,8 @@ export interface AttentionStoreDeps {
   describe: (subject: string) => SubjectDescription | null;
   /** How long a background that just emptied waits for the wake's turn (T7). */
   graceMs: number;
+  /** A chat's server right now (BGVIS-09, `isChatServerTask`): never in its map, whoever writes it. */
+  isServerTask: (subject: string, taskId: string) => boolean;
 }
 
 function defaultDb(): Database | null {
@@ -119,6 +121,7 @@ const DEFAULT_DEPS: AttentionStoreDeps = {
   sendPush: (payload) => { sendPushToAll(payload).catch((err) => console.warn("[attention] push failed:", err?.message || err)); },
   describe: () => null,
   graceMs: 5_000,
+  isServerTask: () => false,
 };
 
 let deps: AttentionStoreDeps = { ...DEFAULT_DEPS };
@@ -614,10 +617,19 @@ export interface TurnEnd {
   at?: string;
 }
 
+/** The map without the subject's servers (`isServerTask`); a predicate that throws claims nothing. */
+function withoutServers(subject: string, tasks: AttentionTaskMap): AttentionTaskMap {
+  const servers = Object.keys(tasks).filter((id) => { try { return deps.isServerTask(subject, id); } catch { return false; } });
+  if (servers.length === 0) return tasks;
+  const out = { ...tasks };
+  for (const id of servers) delete out[id];
+  return out;
+}
+
 /** T2, T3, T5, T6, T10, T12, T17: a turn closes. */
 export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
   const e = entryOf(subject);
-  if (end.background !== undefined) e.row.background = { ...end.background };
+  if (end.background !== undefined) e.row.background = withoutServers(subject, { ...end.background });
   if (end.resumes) {
     // The resend reopens the turn: until then the subject stays at work.
     e.live.turnOpen = true;
@@ -640,8 +652,10 @@ export function turnEnded(subject: string, end: TurnEnd): AttentionSnapshot {
 /** The whole task map of a subject, as its source knows it now (the CLI's snapshot). */
 export function setBackgroundTasks(subject: string, tasks: AttentionTaskMap): AttentionSnapshot {
   const e = entryOf(subject);
-  const before = e.row.background;
-  e.row.background = { ...tasks };
+  // A task that just became a server did not return: no report and no wake
+  // follow it, so it arms no grace (T7 decides at once, as for a `run_script`).
+  const before = withoutServers(subject, e.row.background);
+  e.row.background = withoutServers(subject, { ...tasks });
   armGraceOnLastTask(subject, e, before);
   return recompose(subject, { live: true });
 }
@@ -666,8 +680,8 @@ export function removeBackgroundTask(subject: string, id: string): boolean {
 export function applyTaskChanges(subject: string, changes: readonly TaskChange[]): boolean {
   if (changes.length === 0) return false;
   const e = entryOf(subject);
-  const before = e.row.background;
-  const next: AttentionTaskMap = { ...e.row.background };
+  const before = withoutServers(subject, e.row.background);
+  let next: AttentionTaskMap = { ...e.row.background };
   for (const c of changes) {
     if (c.op === "clear") for (const k of Object.keys(next)) delete next[k];
     else if (c.op === "remove") delete next[c.id];
@@ -679,6 +693,8 @@ export function applyTaskChanges(subject: string, changes: readonly TaskChange[]
       next[c.id] = { ...c.task, startedAt: prev?.startedAt ?? next[c.id]?.startedAt ?? c.task.startedAt };
     }
   }
+  // A late `PostToolUse` re-keying a Bash that already listens does not bring it back.
+  next = withoutServers(subject, next);
   if (JSON.stringify(next) === JSON.stringify(e.row.background)) return false;
   e.row.background = next;
   if (countingTaskCount(next) > 0) clearGrace(e);

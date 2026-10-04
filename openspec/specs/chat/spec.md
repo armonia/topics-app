@@ -5434,6 +5434,70 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **THEN** la riga `background-work-line` lo nomina con «sveglia la chat» e non
   c'è nessuna `running-service-row`
 
+### Requirement: BGVIS-09 — Un server avviato con `Bash` in background è un server della chat
+
+Un `Bash` con `run_in_background` lanciato dall'agente di una chat, il cui
+albero di processi ascolta su almeno una porta TCP, SHALL essere un **server**
+della chat come quelli di BGVIS-08: fuori dalla mappa dei compiti dello stato
+di attenzione, quindi non tiene la chat `working` («in corso»), e fra i suoi
+`services`, quindi la riga della sidebar porta `row-server-sign` e la chat la
+riga `running-service-row`. Un `Bash` in background che non ascolta su niente
+(una build, una suite di test) SHALL restare lavoro che la chat aspetta.
+
+Il caso da cui nasce: #236 ha tenuto a parte solo il server, ma un dev server
+avviato con `bun run dev` in background, il modo più comune con cui un agente
+Claude Code lo avvia, restava un compito della CLI, e la chat restava «in corso»
+per tutta la vita del server.
+
+- Il legame, misurato e non indovinato: l'id con cui la CLI risponde al `Bash`
+  (`Command running in background with ID: <id>`), che fa da chiave alla riga
+  `source: 'shell'` del registro, è lo stesso `backgroundTaskId` dell'hook e lo
+  stesso `task_id` di `background_tasks_changed`, cioè la chiave della mappa dei
+  compiti (`tests/fixtures/claude-cli-2.1.282-background-work.ndjson`). Il pid
+  della shell si trova fra i discendenti della CLI con il comando nella sua riga
+  di `ps`: la CLI la avvia come `zsh -c … eval '<comando>' …` e il server è suo
+  figlio (misurato su Claude Code il 05/10).
+- La shell SHALL essere cercata subito alla registrazione, su una tabella dei
+  processi fresca, e non solo al giro del rilevatore (fino a 32 s). Le porte le
+  guarda il timer di BGVIS-08: nessun polling nuovo.
+- Lo stato di attenzione SHALL tenere fuori quel compito chiunque scriva la
+  mappa (lo snapshot della CLI, un hook anche in ritardo, la fine del turno:
+  `isServerTask` in `server/attention/store.ts`), e la sua uscita dalla mappa
+  NON SHALL armare l'attesa di T7: nessun report e nessuna sveglia ne seguono.
+- Fine: se l'albero smette di ascoltare con la shell ancora viva, il compito
+  torna nella mappa. Se la shell esce, la sua riga SHALL chiudersi quando la CLI
+  cambia la lista dei suoi compiti, non al giro del rilevatore, con
+  `background:changed`: il segno sparisce. Fermata dal pannello, dalla riga del
+  server o con `KillShell`, la fine si legge `ended.stopped`.
+
+#### Scenario: il registro e lo stato di attenzione vedono il server di una shell in background
+- **GIVEN** una chat la cui mappa dei compiti ha il `bash` della sua shell in
+  background, registrata e figlia della CLI, che avvia un vero server HTTP
+- **WHEN** il timer vede la porta
+- **THEN** la shell è fra i `services` della chat con `listen: [{host:
+  "127.0.0.1", port}]`
+- **AND** la mappa, riscritta dallo stesso snapshot della CLI, non ha più quel
+  compito e la chat non è `working`
+- **WHEN** il server esce e la CLI lo toglie dalla sua lista
+- **THEN** la riga della shell è chiusa subito e i `services` dicono che è finito
+
+#### Scenario: nessuno scrittore riporta il server fra i compiti
+- **GIVEN** un compito che `isServerTask` dice server
+- **WHEN** arriva in uno snapshot, in un `PostToolUse` in ritardo o con la fine
+  del turno
+- **THEN** la mappa non lo ha, la chat non è `working` e nessuna attesa di T7 è
+  armata; un `bash` che non è server resta e la chat è `working`
+
+#### Scenario: una chat vera avvia un dev server con Bash in background
+- **GIVEN** due chat su una CLI finta che lancia `Bash` in background come
+  Claude Code (`helpers/fake-claude-bash-server.ts`): una avvia un vero server
+  HTTP, l'altra un lavoro che non ascolta
+- **THEN** la riga della prima ha `row-server-sign` con il suo indirizzo e
+  nessun `[data-loader-state="working"]`
+- **AND** la riga della seconda ha `[data-loader-state="working"]` e nessun segno
+- **WHEN** il server esce
+- **THEN** il segno sparisce
+
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 
 Il runtime nativo SHALL rendere visibile l'output di un `bash` mentre il comando
