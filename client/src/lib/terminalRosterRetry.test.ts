@@ -23,7 +23,7 @@
  *      build the sentence for the toast.
  */
 import { describe, expect, test, afterEach, beforeEach } from 'bun:test';
-import { fetchWhileRosterWarms, SHORT_ROSTER_RETRIES } from './terminalRosterRetry';
+import { deleteTerminalSession, fetchWhileRosterWarms, SHORT_ROSTER_RETRIES } from './terminalRosterRetry';
 import { STANDALONE_NO_PTY_CODE, TERMINAL_ROSTER_WARMING_CODE } from '../../../shared/terminal-messages';
 
 const realFetch = globalThis.fetch;
@@ -60,10 +60,11 @@ function warming(): Response {
 }
 
 /** Queue of canned answers; records how many times the network was asked. */
-function stubFetch(answers: (() => Response)[]) {
+function stubFetch(answers: (() => Response)[], inits: (RequestInit | undefined)[] = []) {
   const calls: string[] = [];
-  globalThis.fetch = ((input: string) => {
+  globalThis.fetch = ((input: string, init?: RequestInit) => {
     calls.push(String(input));
+    inits.push(init);
     const next = answers[Math.min(calls.length - 1, answers.length - 1)];
     return Promise.resolve(next());
   }) as typeof fetch;
@@ -143,5 +144,40 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     expect(own.length).toBe(SHORT_ROSTER_RETRIES);
     const waited = own.reduce((sum, ms) => sum + ms, 0);
     expect(waited).toBeLessThan(15_000);
+  });
+});
+
+/**
+ * The DELETE of a closed terminal can be the last thing the page sends.
+ *
+ * Closing a terminal from its sidebar row is a 3 s countdown, and a reload
+ * inside it commits the close from the exit handler: `deleteTerminalSession`
+ * runs while the document is going away. A plain fetch there may be cancelled
+ * with the page, and the PTY stays up on the server. `keepalive` is what lets
+ * the request outlive the document, and it has to be on EVERY attempt: a retry
+ * after a warming 503 is sent by the same page, possibly as it unloads.
+ */
+describe('the terminal DELETE outlives the page', () => {
+  test('the DELETE carries keepalive', async () => {
+    const inits: (RequestInit | undefined)[] = [];
+    const calls = stubFetch([() => new Response(null, { status: 204 })], inits);
+    deleteTerminalSession('sess-a');
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+    expect(calls).toEqual(['/api/terminal/sessions/sess-a']);
+    expect(inits[0]?.method).toBe('DELETE');
+    expect(inits[0]?.keepalive).toBe(true);
+  });
+
+  test('the retry after a warming 503 carries keepalive too', async () => {
+    const inits: (RequestInit | undefined)[] = [];
+    const calls = stubFetch([warming, () => new Response(null, { status: 204 })], inits);
+    deleteTerminalSession('sess-b');
+    // The retry waits on the fake clock above, which grants each wait at once.
+    for (let i = 0; i < 20 && calls.length < 2; i++) {
+      await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+    }
+    expect(calls.length).toBe(2);
+    expect(inits.map(i => i?.keepalive)).toEqual([true, true]);
+    expect(inits.map(i => i?.method)).toEqual(['DELETE', 'DELETE']);
   });
 });
