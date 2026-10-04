@@ -5733,7 +5733,7 @@ fn browser_animate_bounds(
 /// (review of card e0821533); `wkzprobe z` checks it as
 /// `first-responder-survives-the-raise`.
 // ENGINES: wkwebview, webview2 - both measured with tools/wkzprobe, one backend each, same six verdicts. AppKit (card e0821533): subview order, raised in place with addSubview:positioned:above:. Win32 (card 2e7e769c): z order of the WRY_WEBVIEW container HWNDs, raised in place with SetWindowPos HWND_TOP plus SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE, and falsified, since commenting out that one call flips raise-wins to false.
-// ENGINES-GAP: webkitgtk - the arm is wired (browser_linux::raise: GdkWindow::raise), but nothing has probed whether a WebKitWebView owns its GdkWindow, and without that the call is a no-op rather than a raise.
+// ENGINES-GAP: webkitgtk - panes are pack_start-ed into one GtkBox and never overlap, so there is no z order to raise; browser_linux::raise is a no-op on purpose, since the GdkWindow::raise it used to make changed no verdict of the GTK probe (sonda-gtk.yml run 37168587456: raise-wins=false with and without it).
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {
