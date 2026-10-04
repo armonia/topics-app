@@ -12,7 +12,13 @@
  *            2.5.8) and >= 44x44 at a phone 390x844 with touch;
  *   text     every visible text node >= 11px (`--text-mini`, the project floor);
  *   contrast axe-core `color-contrast` (plus `target-size`, `button-name`,
- *            `link-name`) in the light AND the dark theme.
+ *            `link-name`) in the light AND the dark theme; the nodes axe
+ *            leaves `incomplete` are computed by the helper and judged too;
+ *   steals   a projected area (`.tap-expand`) must not answer where another
+ *            clickable element answers without it.
+ *
+ * Commands that show under the pointer only are measured with the pointer on
+ * their row or tab (desktop), and at rest whenever they keep `pointer-events`.
  *
  * Surfaces: the sidebar with the two update banners (bundle rebuilt, and the
  * shell updater in `update-available` and `error`), the user menu with its
@@ -33,6 +39,13 @@
  * `.tap-expand` utility, `Switch`, `Segmented`, `Stepper`, the composer and
  * strip constants), and this spec is the guard that keeps them: green on the
  * branch, red on the commit before it.
+ *
+ * Review of that branch (04/10): the guard was green while two projected
+ * areas stole taps on the phone (the task drawer's project chip over the
+ * title, «open a tab» over the workspace button), one chip read 4.15:1 inside
+ * a node axe had left `incomplete`, and the browser tab's Reload and dots were
+ * 16x16 and never measured because they only show on hover. The steal probe,
+ * the incomplete verdict and the hovered passes are the three holes closed.
  *
  * Runs in the `webkit` project: WebKit is the engine Topics ships.
  *
@@ -78,6 +91,7 @@ const EXCEPTIONS: Exception[] = [
   { kind: "axe:target-size", selector: /group\\\/proj > \.w-3/, why: "same chevron as above, seen by axe on its box" },
   { kind: "axe:target-size", selector: /testid=task-id-chip$/, why: "the task id chip (atoms.tsx): axe reads the 18px BOX, the area that answers is the 24x24 `.tap-expand` projection, which the hit probe above measures and holds to the threshold" },
   { kind: "target-size", selector: /topic-row-archive|span\.row-actions/, viewport: "phone", floor: { w: 36, h: 44 }, why: "the command rail at the end of a row: two 36px commands side by side, a 44px area each would overlap and the last in the DOM would take the other's taps (index.css, `.tap-expand-y`)" },
+  { kind: "target-size", selector: /topic-row-archive/, viewport: "desktop", floor: { w: 22, h: 28 }, why: "the sidebar resize handle (App.tsx, `left: sidebarWidth - 8`) covers the last 6px of the row's archive: its band sits INSIDE the sidebar because a native WKWebView pane flush on the content side eats every pixel past the edge, so moving it out would leave nothing to grab next to a browser pane (pre-existing on main, seen once rows were measured hovered)" },
   { kind: "target-size", selector: /mobile-pane-find|sidebar-reopen/, viewport: "phone", floor: { w: 36, h: 36 }, why: "the pane's chrome row is 40 tall (CHROME-METRIC-01): a 44 box does not fit in it, and its overflow clips the projected area" },
   { kind: "target-size", selector: /filter-token-input/, viewport: "phone", floor: { w: 44, h: 24 }, why: "an <input> cannot carry the ::after that projects 44; it fills its 24px shell (TOOLBAR_CONTROL_H) on the board's one toolbar row" },
   { kind: "target-size", selector: /board-layout-toggle|filter-project-chip/, viewport: "phone", floor: { w: 36, h: 36 }, why: "the board toolbar is ONE row of 24px controls, 36 tall (TOOLBAR_CONTROL_H, board-topbar-height.spec.ts): the projected 44 is clipped by the row to its 36" },
@@ -305,10 +319,25 @@ class Recorder {
     for (const { surface, theme, audit } of this.report.audits) {
       for (const t of audit.targets) {
         if (!t.ownsCentre) add(surface, theme, "target-covered", t.selector, `centre answered by ${t.coveredBy}; box ${t.box.w}x${t.box.h}`, t.testid);
-        else add(surface, theme, "target-size", t.selector, `hit ${t.hit.w}x${t.hit.h} < ${audit.minTap} (box ${t.box.w}x${t.box.h}${t.spacingOk ? ", WCAG spacing ok" : ""}) "${t.label}"`, t.testid, t.hit);
+        else {
+          // The neighbour that takes the missing pixels, on the short axis.
+          const e = t.edges;
+          const by = !e ? "" : t.hit.w < audit.minTap && t.hit.h < audit.minTap ? `; past the band: ${e.left} | ${e.right} | ${e.top} | ${e.bottom}`
+            : t.hit.w < audit.minTap ? `; past the band: ${e.left} | ${e.right}` : `; past the band: ${e.top} | ${e.bottom}`;
+          add(surface, theme, "target-size", t.selector, `hit ${t.hit.w}x${t.hit.h} < ${audit.minTap} (box ${t.box.w}x${t.box.h}${t.spacingOk ? ", WCAG spacing ok" : ""}) "${t.label}"${by}`, t.testid, t.hit);
+        }
       }
+      for (const s of audit.steals) add(surface, theme, "target-steal", s.thief, `projected area takes ${s.px}px of ${s.victim} (testid ${s.victimTestid ?? "none"}), e.g. at ${s.sample}`, s.thiefTestid);
       for (const s of audit.smallText) add(surface, theme, "text-size", s.selector, `${s.fontSize}px < 11 "${s.sample}"`, s.testid);
       for (const v of audit.axe) for (const n of v.nodes) add(surface, theme, `axe:${v.id}`, n.target, n.summary, n.testid);
+      // What axe left undecided is decided by the helper; a ground it cannot
+      // composite either (an image) stays a finding until an exception rules on it.
+      for (const c of audit.contrastDecided) {
+        if (c.exempt) continue;
+        if (c.ratio === null) add(surface, theme, "contrast-undecided", c.target, `node gone before it could be measured (axe: ${c.reason})`, c.testid);
+        else if (c.undecided) add(surface, theme, "contrast-undecided", c.target, `${c.undecided}; ${c.ratio}:1 on the colours alone (axe: ${c.reason}) "${c.text}"`, c.testid);
+        else if (c.ratio < c.needed!) add(surface, theme, "contrast", c.target, `${c.ratio}:1 < ${c.needed}:1 (axe incomplete: ${c.reason}) "${c.text}"`, c.testid);
+      }
       const ox = (audit.uiAudit as { overflowX?: { present: boolean; docWidth: number; viewport: number } } | null)?.overflowX;
       if (ox?.present) add(surface, theme, "overflow-x", audit.scope, `document ${ox.docWidth}px wide on a ${ox.viewport}px viewport`, null);
     }
@@ -404,6 +433,22 @@ function groups(vp: Viewport) {
     await openApp(page, vp);
     await recorder.step("sidebar", () => recorder.measure("sidebar", '[aria-label="Topics sidebar"]'));
     if (isPhone(vp)) await recorder.step("mobile chrome bar", () => recorder.measure("mobile chrome bar", '[data-testid="mobile-chrome-bar"]'));
+    // A row's command rail (archive, the dots) shows under the pointer only:
+    // measured once more with the pointer on a row. No hover on a phone.
+    // Two rows: the Board row (its hover ground took the «+N» chip under AA)
+    // and a chat row, the one that carries the archive command.
+    if (!isPhone(vp)) {
+      for (const [surface, name] of [["sidebar (board row hovered)", /^Board/], ["sidebar (chat row hovered)", new RegExp(CHAT_NAME)]] as const) {
+        await recorder.step(surface, async () => {
+          const row = page.locator('[aria-label="Topics sidebar"]').getByRole("treeitem", { name }).first();
+          await expect(row).toBeVisible({ timeout: 10_000 });
+          await row.hover();
+          await twoFrames(page);
+          await recorder.measure(surface, '[aria-label="Topics sidebar"]');
+          await page.mouse.move(0, 0);
+        });
+      }
+    }
     await recorder.step("inbox popover", async () => {
       await page.getByTestId("inbox-button").first().click();
       const row = page.getByTestId("inbox-row").or(page.getByTestId("inbox-empty")).first();
@@ -611,6 +656,18 @@ function groups(vp: Viewport) {
       await twoFrames(page);
       await recorder.measure("browser pane (address typed)", ".content-flip-layer");
     });
+    // The tab's own commands (Reload on the favicon, the dots) exist under the
+    // pointer only: at rest they are opacity 0, so the strip is measured once
+    // more with the pointer on the tab, where a person actually meets them.
+    // A phone has no hover: there the active tab shows them at rest.
+    if (!isPhone(vp)) {
+      await recorder.step("browser pane (tab hovered)", async () => {
+        const tab = page.locator('[role="tab"][data-tab-extras]').first();
+        await tab.hover();
+        await expect(tab.locator(".tab-extras")).toHaveCSS("opacity", "1", { timeout: 5_000 });
+        await recorder.measure("browser pane (tab hovered)", ".content-flip-layer");
+      });
+    }
     recorder.assertClean();
   });
 }
