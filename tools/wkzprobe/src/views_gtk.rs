@@ -136,22 +136,24 @@ pub fn top_at(window: &tao::window::Window, point: (f64, f64)) -> String {
     "none".to_string()
 }
 
-/// Ask the widget of `which` to come forward.
+/// Ask the widget of `which` to come forward, the way the shell does it.
 ///
-/// Three candidates, tried in order, because the card asks which call - if any -
-/// reorders two packed webviews WITHOUT reloading them:
+/// `browser_linux::raise` makes NO call under GTK, and this step mirrors it, so
+/// a call that reappears in the shell has to reappear here to be measured.
+/// Two calls were measured on this road before that, and both are out:
 ///
-/// 1. `GdkWindow::raise` on the widget's own gdk window. This is the call
-///    `browser_linux::raise` makes in the shell, behind its `has_window` guard,
-///    and it is the one whose usefulness has never been measured. Under
-///    `pack_start` the widget usually has no window of its own, in which case
-///    the guard is false and the call never happens: that alone is worth
-///    reporting.
-/// 2. `reorder_child` to the last position in the box. This is the GTK way to
-///    change packing order, and it is NOT what the shell does today.
-/// 3. nothing else: if neither moves the pixels, the arm reports a no.
+/// 1. `GdkWindow::raise` behind `has_window`, what the shell used to make.
+///    `sonda-gtk.yml` puts it back in its falsified pass, verbatim, so every
+///    run still shows what that call does next to the shell's no-op. Run
+///    37168587456: the guard is true and every verdict is identical, the call
+///    changes nothing.
+/// 2. `reorder_child` to the last position in the box, the GTK way to change
+///    packing order, which the shell never made. Run 37168332624 measured it
+///    alone: `raise-wins=false` (the allocations do not move) and
+///    `first-responder-survives-the-raise=false` (the view loses the keyboard),
+///    `true` once it was taken out.
 pub fn raise_role(window: &tao::window::Window, which: &str) {
-    let Some(target) = packed(window)
+    let Some(_target) = packed(window)
         .into_iter()
         .enumerate()
         .find(|(i, _)| role_at(*i) == which)
@@ -160,28 +162,8 @@ pub fn raise_role(window: &tao::window::Window, which: &str) {
         println!("   raise: no widget for role {which}");
         return;
     };
-
-    // 1. The production call, with the same guard the shell applies.
-    match target.window() {
-        Some(gdk_window) => {
-            gdk_window.raise();
-            println!("   raise: GdkWindow::raise called (the widget HAS its own window)");
-        }
-        None => {
-            println!(
-                "   raise: the widget has NO gdk window of its own, so the shell's \
-                 `has_window` guard is false and browser_linux::raise is a no-op here"
-            );
-        }
-    }
-
-    // 2. The packing-order move, reported separately so the two are not
-    //    confused in the verdict.
-    if let Some(vbox) = window.default_vbox() {
-        let n = vbox.children().len() as i32;
-        vbox.reorder_child(&target, n - 1);
-        println!("   raise: reorder_child to position {} also applied", n - 1);
-    }
+    // PRODUCTION CALL: none, browser_linux::raise is a no-op under GTK.
+    println!("   raise: browser_linux::raise makes no call under GTK");
 }
 
 /// Give the keyboard to a view. Returns whether the widget accepted it.
