@@ -2310,9 +2310,6 @@
       "esito",
       "pausa"
     ],
-    "scripts/install-claude-hooks.ts": [
-      "__dirname"
-    ],
     "scripts/job-quota-live-demo.ts": [
       "AMBIENTE",
       "RADICE",

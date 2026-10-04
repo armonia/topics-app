@@ -16,7 +16,12 @@
  *     CLI no longer emits;
  *  5. the legacy unmarked entries (the live shape before `topics_app`) are
  *     repaired in place by install and removed by uninstall, one Topics hook
- *     per event.
+ *     per event;
+ *  6. the script lives under TOPICS_HOME, next to the token, and no longer in
+ *     `~/.claude/topics-hooks/`: install points every entry there and removes
+ *     the old copy, uninstall leaves the TOPICS_HOME one to the server;
+ *  7. the entries are the ones of `server/lib/topics-hooks.ts`, the same
+ *     definition the spawns pass through `--settings`.
  *
  * @covers CCS-06
  *
@@ -25,18 +30,24 @@
  * on the uninstall branch.
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { TOPICS_HOOK_EVENTS, topicsHookEntry } from "../../server/lib/topics-hooks";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/install-claude-hooks.ts");
 
 let home = "";
 const settingsPath = () => join(home, ".claude", "settings.json");
+// Where the script lives now, and where an older version copied it.
+const wrapper = () => join(home, ".topics", "claude-hooks", "post-hook.sh");
+const legacyWrapper = () => `${home}/.claude/topics-hooks/post-hook.sh`;
 
 function run(cmd: "install" | "uninstall") {
   const r = Bun.spawnSync(["bun", SCRIPT, cmd], {
-    env: { ...process.env, HOME: home },
+    // TOPICS_HOME pinned too: inherited from the shell running the suite, it
+    // would send the script into the real Topics home.
+    env: { ...process.env, HOME: home, TOPICS_HOME: join(home, ".topics") },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -69,7 +80,7 @@ describe("install-claude-hooks", () => {
     const entries = ourEntries(readSettings(), "SessionStart");
     expect(entries.length).toBe(1);
     // Il cuore del fix: senza apici, `/bin/sh -c` spezza una home con lo spazio.
-    expect(entries[0].command).toBe(`"${home}/.claude/topics-hooks/post-hook.sh" SessionStart`);
+    expect(entries[0].command).toBe(`"${wrapper()}" SessionStart`);
     expect(entries[0].topics_app).toBe(true);
   });
 
@@ -83,7 +94,7 @@ describe("install-claude-hooks", () => {
 
   test("RIPARA una entry nostra rimasta col path non quotato", () => {
     // Esattamente ciò che ha scritto la versione precedente dello script.
-    const vecchio = `${home}/.claude/topics-hooks/post-hook.sh SessionStart`;
+    const vecchio = `${wrapper()} SessionStart`;
     writeFileSync(
       settingsPath(),
       JSON.stringify({
@@ -99,7 +110,7 @@ describe("install-claude-hooks", () => {
 
     const entries = ourEntries(readSettings(), "SessionStart");
     expect(entries.length).toBe(1); // riscritta, non affiancata da un duplicato
-    expect(entries[0].command).toBe(`"${home}/.claude/topics-hooks/post-hook.sh" SessionStart`);
+    expect(entries[0].command).toBe(`"${wrapper()}" SessionStart`);
   });
 
   test("le entry di altri sopravvivono a install e a uninstall", () => {
@@ -121,13 +132,31 @@ describe("install-claude-hooks", () => {
     expect(existsSync(join(home, ".claude", "topics-hooks"))).toBe(false);
   });
 
+  test("a user's own post-hook.sh in a claude-hooks/ folder is not ours, on install or uninstall", () => {
+    // Same file name and folder name as our new home, unmarked: only the
+    // marker says an entry under `${TOPICS_HOME}/claude-hooks/` is ours, since
+    // this installer never wrote one there without it.
+    const userScript = { type: "command", command: "/Users/me/dotfiles/claude-hooks/post-hook.sh Stop" };
+    const narrowed = { matcher: "Edit", hooks: [{ type: "command", command: "~/claude-hooks/post-hook.sh PostToolUse" }] };
+    const before = { hooks: { Stop: [{ hooks: [userScript] }], PostToolUse: [narrowed] } };
+    writeFileSync(settingsPath(), JSON.stringify(before));
+
+    run("install");
+    const s = readSettings();
+    expect(s.hooks.Stop).toEqual([{ hooks: [userScript, topicsHookEntry(wrapper(), "Stop")] }]);
+    expect(s.hooks.PostToolUse).toEqual([narrowed, { hooks: [topicsHookEntry(wrapper(), "PostToolUse")] }]);
+
+    expect(run("uninstall")).toContain("Removed 7 Topics App hook entries");
+    expect(readSettings()).toEqual(before);
+  });
+
   // The live settings.json of the person who installed Topics before the
   // `topics_app` marker existed: seven entries, no marker, path NOT quoted,
   // each one sitting next to hooks that belong to other tools. Stop's entry is
   // the third hook of its matcher, the same place it occupies on the real file.
   function legacyLiveShape(quoted: boolean) {
     const ours = (event: string) => {
-      const path = `${home}/.claude/topics-hooks/post-hook.sh`;
+      const path = legacyWrapper();
       return { type: "command", command: quoted ? `"${path}" ${event}` : `${path} ${event}`, timeout: 5 };
     };
     const foreign = (name: string) => ({ type: "command", command: `/usr/local/bin/${name}.sh`, timeout: 5 });
@@ -154,7 +183,7 @@ describe("install-claude-hooks", () => {
   /** Every Topics wrapper entry of an event, marked or not. */
   function wrapperEntries(s: any, event: string): any[] {
     const matchers = s.hooks?.[event] ?? [];
-    return matchers.flatMap((m: any) => m.hooks.filter((h: any) => String(h.command).includes("topics-hooks/post-hook.sh")));
+    return matchers.flatMap((m: any) => m.hooks.filter((h: any) => /(topics|claude)-hooks\/post-hook\.sh/.test(String(h.command))));
   }
 
   test("async only on UserPromptSubmit, Stop and Notification, timeout 5 everywhere", () => {
@@ -189,7 +218,7 @@ describe("install-claude-hooks", () => {
       const s = readSettings();
       const canonical = (event: string) => ({
         type: "command",
-        command: `"${home}/.claude/topics-hooks/post-hook.sh" ${event}`,
+        command: `"${wrapper()}" ${event}`,
         timeout: 5,
         ...(ASYNC_EVENTS.includes(event) ? { async: true } : {}),
         topics_app: true,
@@ -204,7 +233,7 @@ describe("install-claude-hooks", () => {
       expect(s.hooks.Stop[0].hooks.map((h: any) => h.command)).toEqual([
         "/usr/local/bin/finish-time.sh",
         "/usr/local/bin/notify.sh",
-        `"${home}/.claude/topics-hooks/post-hook.sh" Stop`,
+        `"${wrapper()}" Stop`,
       ]);
       expect(s.hooks.SessionEnd[0].hooks[1]).toEqual(canonical("SessionEnd"));
       // Foreign matchers and hooks are byte-identical.
@@ -221,7 +250,7 @@ describe("install-claude-hooks", () => {
     const legacy = legacyLiveShape(false);
     legacy.hooks.Stop[0].hooks.push({
       type: "command",
-      command: `"${home}/.claude/topics-hooks/post-hook.sh" Stop`,
+      command: `"${legacyWrapper()}" Stop`,
       timeout: 5,
       topics_app: true,
     } as any);
@@ -265,7 +294,6 @@ describe("install-claude-hooks", () => {
     expect(s.hooks.PermissionRequest).toEqual(before.hooks.PermissionRequest);
   });
 
-  const wrapper = () => `${home}/.claude/topics-hooks/post-hook.sh`;
   const marked = (event: string) => ({
     type: "command",
     command: `"${wrapper()}" ${event}`,
@@ -292,7 +320,7 @@ describe("install-claude-hooks", () => {
   });
 
   test("the Topics entry ends up in a wildcard matcher, never in a narrowed one", () => {
-    const legacy = { type: "command", command: `${wrapper()} PreToolUse`, timeout: 5 };
+    const legacy = { type: "command", command: `${legacyWrapper()} PreToolUse`, timeout: 5 };
     writeFileSync(
       settingsPath(),
       JSON.stringify({
@@ -317,7 +345,7 @@ describe("install-claude-hooks", () => {
   });
 
   test("a Topics entry found only in a narrowed matcher moves to a wildcard one", () => {
-    const legacy = { type: "command", command: `${wrapper()} PreToolUse`, timeout: 5 };
+    const legacy = { type: "command", command: `${legacyWrapper()} PreToolUse`, timeout: 5 };
     writeFileSync(
       settingsPath(),
       JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [guard, legacy] }] } }),
@@ -363,5 +391,31 @@ describe("install-claude-hooks", () => {
     writeFileSync(settingsPath(), JSON.stringify(shape, null, 2));
     run("install");
     expect(readSettings().hooks.Stop).toEqual([{ hooks: [foreign, marked("Stop")] }]);
+  });
+  test("the script goes under TOPICS_HOME, 0755, with the text of scripts/claude-hooks/post-hook.sh", () => {
+    run("install");
+    const source = readFileSync(join(import.meta.dir, "../../scripts/claude-hooks/post-hook.sh"), "utf-8");
+    expect(readFileSync(wrapper(), "utf-8")).toBe(source);
+    expect(statSync(wrapper()).mode & 0o777).toBe(0o755);
+    // In ~/.claude only the settings file: no script copy any more.
+    expect(readdirSync(join(home, ".claude"))).toEqual(["settings.json"]);
+  });
+
+  test("install removes the old copy under ~/.claude/topics-hooks, uninstall keeps the TOPICS_HOME one", () => {
+    mkdirSync(join(home, ".claude", "topics-hooks"), { recursive: true });
+    writeFileSync(legacyWrapper(), "#!/bin/sh\nexit 0\n");
+
+    run("install");
+    expect(existsSync(join(home, ".claude", "topics-hooks"))).toBe(false);
+
+    run("uninstall");
+    // The server's own spawns still name it in their `--settings`.
+    expect(existsSync(wrapper())).toBe(true);
+  });
+
+  test("the entries are the shared definition the spawns pass through --settings", () => {
+    run("install");
+    const s = readSettings();
+    for (const event of TOPICS_HOOK_EVENTS) expect(ourEntries(s, event)).toEqual([topicsHookEntry(wrapper(), event)]);
   });
 });
