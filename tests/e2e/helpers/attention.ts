@@ -255,3 +255,16 @@ export function attentionUpdated(
   };
   return { type: "attention:updated", row, live: true, ...extra };
 }
+
+/**
+ * Stages an `attention:updated` on an intercepted socket, after the socket's
+ * own `attention:init`: the snapshot REPLACES the store, so a frame sent
+ * before it would be wiped and the test would measure the race.
+ */
+export async function stageAttention(
+  ws: { getByType(type: string): unknown[]; send(data: { type: string; [key: string]: unknown } | string): void },
+  frame: ReturnType<typeof attentionUpdated>,
+): Promise<void> {
+  await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15_000, message: "the socket got no attention:init" }).toBeGreaterThan(0);
+  ws.send(frame);
+}

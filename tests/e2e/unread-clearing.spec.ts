@@ -1,13 +1,18 @@
 /**
- * The unread badge of a topic in the sidebar: it appears while the topic is not
- * focused, it clears when the topic is opened, and it SURVIVES a selection that only
- * passed through — below the dwell threshold nothing was actually seen.
+ * The badge of a topic in the sidebar: it appears while the topic is LIT and
+ * not focused (a turn finished and not seen: since notifications-redesign an
+ * unread count alone, a system message, paints nothing, TAB-BADGE-01
+ * modified), it clears when the topic is opened, and it SURVIVES a selection
+ * that only passed through: below the dwell threshold nothing was seen. The
+ * turns are real, on the chat route with a fake CLI.
  *
  * @covers TOPIC-02
  */
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { runChatTurn, setAwake, stubBannersAndWindow } from "./helpers/attention";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -30,84 +35,75 @@ test.describe("Unread badge clearing", () => {
   // e la soglia scatterebbe come deve.
   let otherId: string;
   let otherName: string;
+  let removeCli: (() => void) | null = null;
 
   test.beforeAll(async ({ request }) => {
+    removeCli = installSlowTurnCli();
     topicName = `unread-test-${Date.now()}`;
-    const topic = await createTopic(request, topicName);
+    const topic = await createTopic(request, topicName, { provider: "claude-code" });
     topicId = topic.id;
     otherName = `unread-altrove-${Date.now()}`;
-    const other = await createTopic(request, otherName);
+    const other = await createTopic(request, otherName, { provider: "claude-code" });
     otherId = other.id;
   });
 
   test.afterAll(async ({ request }) => {
+    removeCli?.();
     if (topicId) await deleteTopic(request, topicId);
     if (otherId) await deleteTopic(request, otherId);
   });
 
-  // Il badge di non-letto si conta sul tab APERTO del topic: il pane-store è
-  // condiviso da tutta la suite seriale, quindi qui riportiamo lo stato al solo
-  // tab seminato da createTopic — né più (pane altrui) né meno (il tab serve).
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId, otherId]);
   });
 
-  test("unread badge appears when message arrives for unfocused topic", async ({ page, request }) => {
+  const badgeOf = (page: import("@playwright/test").Page, name: string) =>
+    page.getByRole("treeitem", { name: new RegExp(name) }).locator("[data-notification-count]");
+
+  test("the badge appears when a turn finishes on an unfocused topic, and a system message alone paints none", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-01" });
+    await stubBannersAndWindow(page);
     await goToApp(page);
+    await expect(page.getByRole("treeitem", { name: new RegExp(topicName) })).toBeVisible({ timeout: 10000 });
 
-    // Send a message to the topic via API (simulating an external message)
-    await request.post(`${BASE}/api/topics/${topicId}/read`, {
-      ignoreHTTPSErrors: true,
-    });
+    // A system message raises the unread count, and lights nothing.
+    await request.post(`${BASE}/api/topics/${topicId}/system-message`, { data: { content: "Test unread message" }, ignoreHTTPSErrors: true });
+    // The sentinel: the other chat's turn, finished after it, lights its row,
+    // so the message before it has been applied when the check below runs.
+    await runChatTurn(request, otherId, "sentinel");
+    await expect(badgeOf(page, otherName)).toBeVisible({ timeout: 10000 });
+    await expect(badgeOf(page, topicName)).toHaveCount(0);
 
-    // Inject an unread count by posting a system message while topic is not focused
-    await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
-      data: { content: "Test unread message" },
-      ignoreHTTPSErrors: true,
-    });
-
-    // Wait for unread badge to appear on the topic in the sidebar
-    const topicItem = page.getByRole("treeitem", { name: new RegExp(topicName) });
-    await expect(topicItem).toBeVisible({ timeout: 10000 });
-
-    // Check for unread badge (a span with bg-primary class inside the topic item)
-    const badge = topicItem.locator("span.bg-primary");
-    await expect(badge).toBeVisible({ timeout: 10000 });
+    // A turn that finishes while nobody looks: the badge.
+    await runChatTurn(request, topicId, "finish");
+    await expect(badgeOf(page, topicName)).toBeVisible({ timeout: 10000 });
   });
 
-  test("unread badge clears when topic is clicked", async ({ page }) => {
+  test("unread badge clears when topic is clicked", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-01" });
+    await stubBannersAndWindow(page);
     await goToApp(page);
+    await runChatTurn(request, topicId, "finish again");
+    await expect(badgeOf(page, topicName)).toBeVisible({ timeout: 10000 });
 
-    // Open the topic. Il markRead NON parte più a questo istante: parte quando la
-    // soglia di "visto" scatta (SEEN_DWELL_MS di permanenza a finestra sveglia).
+    // Open the topic with the window awake: the seen threshold fires.
+    await setAwake(page, true);
     await openTopic(page, new RegExp(topicName));
-
-    // La topic RESTA a fuoco, quindi la soglia scatta: l'asserzione qui sotto
-    // riprova finché il badge sparisce, e il margine copre la soglia + la POST.
-    const topicItem = page.getByRole("treeitem", { name: new RegExp(topicName) });
-    const badge = topicItem.locator("span.bg-primary");
-    await expect(badge).not.toBeVisible({ timeout: SEEN_DWELL_MS + 5000 });
+    await expect(badgeOf(page, topicName)).toHaveCount(0, { timeout: SEEN_DWELL_MS + 5000 });
   });
 
   // La soglia, dal lato che conta: selezionare NON è guardare.
-  //
-  // Prima questo test non poteva esistere, perché il comportamento era l'opposto:
-  // `clearUnreadFor` era agganciato al frame `focus` uscente, quindi un clic di
-  // passaggio — mentre cerchi un'altra tab — azzerava l'unread di una chat che non
-  // avevi letto. È il sintomo "la tab non resta blu finché non la visualizzo".
   test("il badge SOPRAVVIVE a una selezione di passaggio (soglia di 'visto')", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-01" });
+    await stubBannersAndWindow(page, { awake: true });
     await goToApp(page);
 
-    // Porta il fuoco ALTROVE, così il messaggio seguente conta come non-letto
-    // (il server sopprime l'incremento per la topic a fuoco).
+    // Porta il fuoco ALTROVE, così il turno seguente non nasce visto.
     await openTopic(page, new RegExp(otherName));
-    await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
-      data: { content: "messaggio da non leggere" },
-      ignoreHTTPSErrors: true,
-    });
+    await runChatTurn(request, topicId, "da non leggere");
 
     const target = page.getByRole("treeitem", { name: new RegExp(topicName) });
-    const badge = target.locator("span.bg-primary");
+    const badge = target.locator("[data-notification-count]");
     await expect(badge).toBeVisible({ timeout: 10000 });
 
     // Clic di passaggio: entra e esce ben sotto la soglia. Due click consecutivi

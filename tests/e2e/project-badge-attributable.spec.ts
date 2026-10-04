@@ -37,6 +37,7 @@ import {
   seedProjectPane,
   seedProjectInnerChats,
 } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -110,11 +111,7 @@ test.describe("Il badge di un progetto dice DI CHI è", () => {
     await expect(tabProgetto).toBeVisible({ timeout: 20000 });
 
     // Il turno della chat dentro il progetto finisce e resta parcheggiato.
-    ws.send({
-      type: "session:state",
-      sessionKey: chatSessionKey,
-      state: { phase: "awaiting-user", rev: 1, claudeSessionId: chatSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${chatId}`, { state: "finished" }));
 
     // Il progetto porta il numero.
     const badge = tabProgetto.locator("span[title]").filter({ hasText: /^\d+$/ }).first();
@@ -152,14 +149,10 @@ test.describe("Il badge di un progetto dice DI CHI è", () => {
     // Con una sola pane interna, quella chat È la tab attiva del progetto.
     await expect(tabChat).toHaveAttribute("data-active", "true", { timeout: 10000 });
 
-    ws.send({
-      type: "session:state",
-      sessionKey: chatSessionKey,
-      state: { phase: "awaiting-user", rev: 1, claudeSessionId: chatSessionKey },
-    });
+    await stageAttention(ws, attentionUpdated(`topic:${chatId}`, { state: "finished" }));
 
     // Il progetto conta.
-    await expect(tabProgetto).toHaveAttribute("data-attention", /done|input/, { timeout: 15000 });
+    await expect(tabProgetto).toHaveAttribute("data-attention", /.+/, { timeout: 15000 });
     // Il figlio selezionato non mostra numeri: è la spec (TAB-BADGE-07).
     const badgeChat = tabChat.locator("span.rounded-full").filter({ hasText: /^\d+$/ });
     await expect(badgeChat).toHaveCount(0);

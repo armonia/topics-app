@@ -28,6 +28,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -75,7 +76,10 @@ async function tabCarica(page: Page, { unread = true, stream = true }: { unread?
   await openTopic(page, new RegExp(b.name));
   const tab = page.locator(`[data-pane-id="${a.id}"]`);
   await expect(tab).toBeVisible({ timeout: 15000 });
-  if (unread) ws.send({ type: "unread:updated", topicId: a.id, unreadCount: 3 });
+  // A finished chat is not working (notifications-redesign: one state per
+  // subject), so the number and the ring together are a turn still open that
+  // waits for you: `needs-you`, which keeps its number while the turn runs.
+  if (unread) await stageAttention(ws, attentionUpdated(`topic:${a.id}`, stream ? { state: "needs-you", reason: "question", unread: 3 } : { state: "finished", unread: 3 }));
   if (stream) ws.send({ type: "stream:start", sessionKey: sessionKeyA, topicId: a.id, messageId: "geo_probe" });
   if (unread) await expect(tab.locator("span").filter({ hasText: /^3$/ })).toBeVisible({ timeout: 8000 });
   if (stream) await expect(tab.locator("[data-loader-state]")).toBeVisible({ timeout: 8000 });
@@ -141,7 +145,9 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
       };
     };
     const loader = tab.querySelector("[data-loader-state]");
-    const badge = tab.querySelector("span.rounded-full.bg-primary");
+    // The pill by its attribute, not its colour class: a lit tab paints its
+    // fill and the pill takes the on-fill variant, which is not `bg-primary`.
+    const badge = tab.querySelector("span[data-notification-count]");
     return {
       tab: { w: r2(rt.width), h: r2(rt.height) },
       label: box(tab.querySelector('[data-testid="pane-tab-label"]')),
@@ -294,7 +300,7 @@ test.describe("I widget in coda a una tab", () => {
     const CANDIDATI = ["sans-serif", "serif", "monospace", "DejaVu Sans", "Liberation Sans", "Arial", "Verdana"];
     const previsione = async (): Promise<number> => page.evaluate((id) => {
       const el = document.querySelector(`[data-pane-id="${CSS.escape(id)}"]`)!
-        .querySelector("span.rounded-full.bg-primary") as HTMLElement;
+        .querySelector("span[data-notification-count]") as HTMLElement;
       const cs = getComputedStyle(el);
       const ctx = document.createElement("canvas").getContext("2d")!;
       ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`;

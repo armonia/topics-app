@@ -15,15 +15,37 @@
  * transcript, appended to the file the server tails. What is faked is the OS
  * banner and the window being behind another app.
  */
-import { expect, test } from "@playwright/test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTerminalSession, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import {
   appendTranscriptLine, bannerLog, createClaudeTerminal, expectAttention, postHook,
-  recordAttentionFrames, stubBannersAndWindow, taskNotificationLine,
+  recordAttentionFrames, runChatTurn, stubBannersAndWindow, taskNotificationLine,
 } from "./helpers/attention";
-import { terminalSubject } from "../../shared/attention";
+import { installFakeCli } from "./helpers/fake-claude-cli";
+import { E2E_BASE } from "./helpers/test-server";
+import { terminalSubject, topicSubject } from "../../shared/attention";
+
+/** The phone, on the same server: a context of its own at 390 px. */
+async function phoneScreenshots(browser: Browser, open: (page: Page) => Promise<void>, file: string): Promise<void> {
+  const ctx = await browser.newContext({ baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "it-IT", reducedMotion: "reduce" });
+  try {
+    const page = await ctx.newPage();
+    await stubBannersAndWindow(page);
+    await goToApp(page);
+    await open(page);
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.screenshot({ path: test.info().outputPath(`${file}-phone-${scheme}.png`) });
+    }
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
 
 hermetic(test);
 
@@ -96,6 +118,55 @@ test.describe("background work: no alert while it runs, one when it returns", ()
     } finally {
       await deleteTerminalSession(request, term.id);
       await deleteTopic(request, front.id);
+    }
+  });
+
+  test("a chat whose turn leaves a background job shows the grey glyph and the line, and alerts once when the job returns", async ({ page, request, browser }) => {
+    test.info().annotations.push({ type: "spec", description: "ATTN-02" });
+    const dir = mkdtempSync(join(tmpdir(), "bgwait-chat-"));
+    const removeCli = installFakeCli(resolve(__dirname, "helpers/fake-claude-background-job.ts"), { BGKEEP_DIR: dir });
+    const stamp = Date.now();
+    const chat = await createTopic(request, `Build Chat ${stamp}`, { provider: "claude-code" });
+    const subject = topicSubject(chat.id);
+    try {
+      await resetPaneStore(request, [chat.id]);
+      await stubBannersAndWindow(page);
+      const frames = recordAttentionFrames(page);
+      await goToApp(page);
+      const tab = page.locator('[role="tab"][data-pane-id]', { hasText: chat.name });
+      await expect(tab).toBeVisible({ timeout: 15_000 });
+      await tab.click();
+
+      // The turn launches a background Bash and ends: background, not finished.
+      await runChatTurn(request, chat.id, "bgkeep-start");
+      await expectAttention(frames, subject, { state: "background", lit: false }, "the turn that left the job running did not go to background");
+      const line = page.getByTestId("background-work-line");
+      await expect(line).toContainText("BGKEEP-JOB", { timeout: 20_000 });
+      await expect(tab.locator('[data-loader-state="background"]'), "the chat tab has no grey glyph").toBeVisible({ timeout: 10_000 });
+      await expect(tab).not.toHaveAttribute("data-attention", /.+/);
+      await expect(page.getByTestId("inbox-count")).toHaveCount(0);
+      expect(await bannerLog(page), "a banner rang while the job was running").toEqual([]);
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.screenshot({ path: test.info().outputPath(`pane-background-desktop-${scheme}.png`) });
+      }
+      await page.emulateMedia({ colorScheme: "light" });
+      await phoneScreenshots(browser, async (p) => {
+        await p.getByRole("treeitem", { name: new RegExp(chat.name) }).first().tap();
+        await expect(p.getByTestId("background-work-line")).toContainText("BGKEEP-JOB", { timeout: 20_000 });
+      }, "pane-background");
+
+      // The job ends: the CLI reports it and wakes with a turn of its own.
+      writeFileSync(join(dir, "end-job"), "");
+      await expect(page.getByText("BG-JOB-REPORTED").first()).toBeVisible({ timeout: 30_000 });
+      await expectAttention(frames, subject, { state: "finished", outcome: "done", lit: true }, "the real end did not light the chat");
+      await expect(line).toHaveCount(0, { timeout: 30_000 });
+      await expect.poll(async () => (await bannerLog(page)).length, { timeout: 10_000, message: "the real end raised no banner" }).toBe(1);
+      expect(frames.announces().filter((x) => x === subject), "the wait was announced more than once").toEqual([subject]);
+    } finally {
+      removeCli();
+      rmSync(dir, { recursive: true, force: true });
+      await deleteTopic(request, chat.id);
     }
   });
 });

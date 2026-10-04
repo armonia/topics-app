@@ -1,5 +1,12 @@
 /**
- * UN MESSAGGIO, UN BANNER — anche con due finestre aperte.
+ * UN ANNUNCIO, UN BANNER — anche con due finestre aperte.
+ *
+ * Da notifications-redesign il banner non nasce più da `message:new` (quel
+ * ramo è tolto, design §10.2): nasce dall'`announce` che il server mette
+ * nell'`attention:updated` di un'epoca nuova, e le finestre se lo contendono
+ * con la claim su `soggetto#epoca` (ATTN-11). Il turno qui è VERO: la rotta
+ * della chat lo fa girare su una CLI finta. Il resto sotto racconta il difetto
+ * di allora, che resta la ragione di questa spec.
  *
  * Il banner di `message:new` nasce da un frame che il server manda in
  * BROADCAST: ogni finestra connessa lo riceve, e l'effetto che lo ascoltava era
@@ -24,6 +31,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { runChatTurn } from "./helpers/attention";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -140,21 +149,24 @@ function bannerCount(page: Page): Promise<number> {
 // (il silenzio della finestra che perde la claim, e il silenzio di un topic in
 // mute) e un'attesa non si può accorciare senza smettere di misurarla. Più il
 // fermo immagine che rende guardabile la clip di consegna.
-test.describe.serial("message:new — una consegna per messaggio, non per finestra", () => {
+test.describe.serial("un annuncio — una consegna per epoca, non per finestra", () => {
   test.describe.configure({ timeout: 90_000 });
+  let removeCli: (() => void) | null = null;
+  test.beforeAll(() => { removeCli = installSlowTurnCli(); });
+  test.afterAll(() => { removeCli?.(); removeCli = null; });
 
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, []);
   });
 
-  test("due finestre nascoste, un messaggio → un banner solo", async ({ browser, request }) => {
+  test("due finestre nascoste, un turno finito → un banner solo", async ({ browser, request }) => {
 
     test.info().annotations.push({ type: "spec", description: "CHAT-BANNER-01" });
     const ctx = await browser.newContext({
       recordVideo: { dir: VIDEO_DIR, size: { width: 1280, height: 800 } },
     });
     const topicName = `Banner Once ${Date.now()}`;
-    const topic = await createTopic(request, topicName);
+    const topic = await createTopic(request, topicName, { provider: "claude-code" });
 
     try {
       // DUE pagine nello STESSO contesto: stessa origine, quindi lo stesso
@@ -192,16 +204,8 @@ test.describe.serial("message:new — una consegna per messaggio, non per finest
 
       // UN messaggio dell'assistente. Il server lo manda in broadcast: lo
       // ricevono tutte e due.
-      const marker = `banner-once-${Date.now()}`;
-      const res = await request.post(`${E2E_BASE}/api/topics/${topic.id}/system-message`, {
-        data: { content: `Ho finito: ${marker}` },
-        ignoreHTTPSErrors: true,
-      });
-      expect(res.ok()).toBeTruthy();
+      await runChatTurn(request, topic.id, "banner once");
 
-      // Una sola finestra deve consegnare. L'attesa è generosa di proposito: la
-      // claim passa da un lock asincrono, e un test che misura "quanti" non deve
-      // poter vincere solo perché ha guardato presto.
       await expect
         .poll(async () => (await bannerCount(pageA)) + (await bannerCount(pageB)), {
           timeout: 10000,
@@ -218,8 +222,8 @@ test.describe.serial("message:new — una consegna per messaggio, non per finest
       const winner = a === 1 ? pageA : pageB;
       const loser = a === 1 ? pageB : pageA;
       const [banner] = await winner.evaluate(() => window.__bannerLog ?? []);
-      expect(banner.title).toBe(topicName);
-      expect(banner.body).toContain(marker);
+      // The server's words (PUSH-04): the chat's name in the title.
+      expect(banner.title).toContain(topicName);
 
       // Lo stesso fatto, ma nel DOM: è ciò che il video INQUADRA. Senza questo,
       // il conteggio vive in una variabile che la clip non può mostrare, e
@@ -242,7 +246,7 @@ test.describe.serial("message:new — una consegna per messaggio, non per finest
     // fuori dall'unica porta, quindi un topic in mute suonava lo stesso.
     const ctx = await browser.newContext();
     const topicName = `Banner Muted ${Date.now()}`;
-    const topic = await createTopic(request, topicName);
+    const topic = await createTopic(request, topicName, { provider: "claude-code" });
 
     try {
       const muted = await request.patch(`${E2E_BASE}/api/topics/${topic.id}`, {
@@ -265,11 +269,7 @@ test.describe.serial("message:new — una consegna per messaggio, non per finest
       await hide(pageA);
       await hide(pageB);
 
-      const res = await request.post(`${E2E_BASE}/api/topics/${topic.id}/system-message`, {
-        data: { content: "questo non deve suonare" },
-        ignoreHTTPSErrors: true,
-      });
-      expect(res.ok()).toBeTruthy();
+      await runChatTurn(request, topic.id, "questo non deve suonare");
 
       // Non c'è un evento da attendere: si aspetta e si constata il silenzio.
       await pageA.waitForTimeout(4000);

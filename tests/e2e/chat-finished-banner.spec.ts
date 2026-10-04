@@ -27,6 +27,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { attentionUpdated, recordAttentionFrames, runChatTurn } from "./helpers/attention";
+import IT from "../../client/src/lib/i18n-it";
 
 hermetic(test);
 
@@ -187,7 +188,8 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       // The mark, on both surfaces, through the tier a finished terminal uses.
       await expect(tabA, "the finished chat's tab carries no 'done' mark").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
       await expect(rowA, "the finished chat's sidebar row carries no 'done' mark").toHaveAttribute("data-attention", "done");
-      await expect(page.getByRole("tab", { name: new RegExp(`${nameA}.*turno finito`) })).toBeVisible();
+      // The state is said in words too, through the catalogue (never a literal).
+      await expect(page.getByRole("tab", { name: new RegExp(`${nameA}.*${IT["attention.state.done"]}`) })).toBeVisible();
       // And the banner, in the same breath.
       await expect.poll(async () => (await bannerLog(page)).map((b) => b.title), { timeout: 10_000 }).toEqual([`💬 ${nameA}`]);
 

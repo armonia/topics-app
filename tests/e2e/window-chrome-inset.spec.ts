@@ -54,7 +54,7 @@ const SHOT_NAME = "sidebar-header-traffic-lights-annotated.png";
 const SIDEBAR = '[aria-label="Topics sidebar"]';
 const BOX = '[data-testid="traffic-lights-box"]';
 const TITLE_LABEL = '[data-testid="sidebar-topics-title"]';
-const BELL = '[data-testid="notification-history-button"]';
+const BELL = '[data-testid="inbox-button"]';
 const SEARCH = `${SIDEBAR} [aria-label="Search, open the command palette"]`;
 const ADD = `${SIDEBAR} [data-testid="pane-add-menu-trigger"]`;
 const BAR = ".pane-chrome-bar";

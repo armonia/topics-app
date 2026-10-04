@@ -51,7 +51,7 @@ const count = (page: Page) => page.getByTestId("inbox-count");
 test.describe("a wait in the middle of a turn, a card in review, a chat read elsewhere", () => {
   test.describe.configure({ timeout: 120_000 });
 
-  test("a permission asked in the middle of a turn is «waiting for you» on the tab and in the inbox, and the answer switches it off", async ({ page, request }) => {
+  test("a permission asked in the middle of a turn is «waiting for you» on the tab and in the inbox, and the answer switches it off", async ({ page, request, browser }) => {
     test.info().annotations.push({ type: "spec", description: "ATTN-04" });
     const stamp = Date.now();
     const chat = await createTopic(request, `Asking Chat ${stamp}`, { provider: "claude-code" });
@@ -84,7 +84,31 @@ test.describe("a wait in the middle of a turn, a card in review, a chat read els
       const waiting = page.getByTestId("inbox-panel").getByTestId("inbox-waiting").getByTestId("inbox-row");
       await expect(waiting).toHaveCount(1);
       await expect(waiting.first()).toHaveAttribute("data-subject", topicSubject(chat.id));
-      await page.screenshot({ path: test.info().outputPath("needs-you-permission.png") });
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.screenshot({ path: test.info().outputPath(`needs-you-desktop-${scheme}.png`) });
+      }
+      await page.emulateMedia({ colorScheme: "light" });
+      // The phone, on the same server: the amber row in the list and in the sheet.
+      const phone = await browser.newContext({ baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "it-IT", reducedMotion: "reduce" });
+      try {
+        const p = await phone.newPage();
+        await stubBannersAndWindow(p);
+        await goToApp(p);
+        await expect(p.getByRole("treeitem", { name: chat.name, exact: true })).toHaveAttribute("data-attention", "needs-you", { timeout: 15_000 });
+        for (const scheme of ["light", "dark"] as const) {
+          await p.emulateMedia({ colorScheme: scheme });
+          await p.screenshot({ path: test.info().outputPath(`needs-you-phone-list-${scheme}.png`) });
+        }
+        await p.getByTestId("inbox-button").tap();
+        await expect(p.getByTestId("inbox-panel").getByTestId("inbox-waiting")).toBeVisible();
+        for (const scheme of ["light", "dark"] as const) {
+          await p.emulateMedia({ colorScheme: scheme });
+          await p.screenshot({ path: test.info().outputPath(`needs-you-phone-${scheme}.png`) });
+        }
+      } finally {
+        await phone.close().catch(() => {});
+      }
       // The row opens the chat where it waits: the panel of the permission.
       await setAwake(page, true);
       await waiting.first().locator("[data-inbox-row]").click();

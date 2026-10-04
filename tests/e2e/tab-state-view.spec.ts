@@ -21,6 +21,8 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
+import { attentionUpdated } from "./helpers/attention";
+import IT from "../../client/src/lib/i18n-it";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -87,29 +89,28 @@ test.describe("Stato delle tab: i tre stati e il raggruppamento", () => {
     const tabs = page.locator('[role="tab"][data-pane-id]');
     await expect(tabs.first()).toBeVisible({ timeout: 15000 });
 
-    const fase = (sessionKey: string, phase: string, rev: number) =>
-      ws.send({ type: "session:state", sessionKey, state: { phase, rev, claudeSessionId: sessionKey } });
-
-    fase(attende.sessionKey, "awaiting-approval", 1);
-    fase(finito.sessionKey, "awaiting-user", 1);
-    fase(lavora.sessionKey, "running", 1);
+    await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15000 }).toBeGreaterThan(0);
+    ws.send(attentionUpdated(`topic:${attende.id}`, { state: "needs-you", reason: "permission" }));
+    ws.send(attentionUpdated(`topic:${finito.id}`, { state: "finished" }));
+    ws.send(attentionUpdated(`topic:${lavora.id}`, { state: "working" }));
 
     // `data-attention` è l'appiglio dichiarato dello stato (le classi Tailwind non
     // lo sono: rinominarne una faceva passare i vecchi locator a verde-vuoto).
-    const tabAttende = page.locator('[role="tab"][data-attention="input"]');
+    const tabAttende = page.locator('[role="tab"][data-attention="needs-you"]');
     const tabFinito = page.locator('[role="tab"][data-attention="done"]');
     await expect(tabAttende.first()).toBeVisible({ timeout: 15000 });
     await expect(tabFinito.first()).toBeVisible({ timeout: 15000 });
 
     // Lo stato si dice anche a PAROLE — prima non era detto da nessuna parte, e
     // per chi non vede il colore la tab era muta.
-    await expect(page.getByRole("tab", { name: /attende una tua risposta/ }).first()).toBeVisible();
-    await expect(page.getByRole("tab", { name: /turno finito/ }).first()).toBeVisible();
+    // Through the catalogue, never a literal (tests/e2e/CONVENTIONS.md).
+    await expect(page.getByRole("tab", { name: new RegExp(IT["attention.state.needsYou"]) }).first()).toBeVisible();
+    await expect(page.getByRole("tab", { name: new RegExp(IT["attention.state.done"]) }).first()).toBeVisible();
 
     // "Al lavoro" NON è un tier: nessun fondo colorato, quindi nessun
     // data-attention. È la distinzione fra i due assi.
     const tabLavora = page.locator(`[role="tab"]`, { hasText: new RegExp(lavora.name) });
-    await expect(tabLavora.first()).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(tabLavora.first()).not.toHaveAttribute("data-attention", /.+/);
   });
 
   test("la vista per stato raggruppa in Attende te / Al lavoro / Il resto", async ({ page }) => {
@@ -128,22 +129,20 @@ test.describe("Stato delle tab: i tre stati e il raggruppamento", () => {
     await goToApp(page);
     await expect(page.locator('[role="tab"][data-pane-id]').first()).toBeVisible({ timeout: 15000 });
 
-    ws.send({ type: "session:state", sessionKey: attende.sessionKey, state: { phase: "awaiting-approval", rev: 1, claudeSessionId: attende.sessionKey } });
-    ws.send({ type: "session:state", sessionKey: finito.sessionKey, state: { phase: "awaiting-user", rev: 1, claudeSessionId: finito.sessionKey } });
-    await expect(page.locator('[role="tab"][data-attention="input"]').first()).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => ws.getByType("attention:init").length, { timeout: 15000 }).toBeGreaterThan(0);
+    ws.send(attentionUpdated(`topic:${attende.id}`, { state: "needs-you", reason: "permission" }));
+    ws.send(attentionUpdated(`topic:${finito.id}`, { state: "finished" }));
+    ws.send(attentionUpdated(`topic:${lavora.id}`, { state: "working" }));
+    await expect(page.locator('[role="tab"][data-attention="needs-you"]').first()).toBeVisible({ timeout: 15000 });
 
-    // Le sezioni: "Attende te" con le due in attesa, e le altre due esistono o no
-    // secondo il contenuto (una sezione vuota non si disegna).
-    const attesa = page.locator('[data-testid="sidebar-state-section-awaiting"]');
+    // Le sezioni, dallo stesso tier (ATTN-12): «Ti aspetta», «Finite», «Al
+    // lavoro»; una sezione vuota non si disegna.
+    const attesa = page.locator('[data-testid="sidebar-state-section-needs-you"]');
     await expect(attesa).toBeVisible({ timeout: 10000 });
-    await expect(attesa).toContainText("Attende te");
     await expect(attesa).toContainText(attende.name);
-    await expect(attesa).toContainText(finito.name);
-
-    // La terza topic, senza fase, sta nel resto.
-    const resto = page.locator('[data-testid="sidebar-state-section-rest"]');
-    await expect(resto).toBeVisible();
-    await expect(resto).toContainText(lavora.name);
+    await expect(attesa).not.toContainText(finito.name);
+    await expect(page.locator('[data-testid="sidebar-state-section-finished"]')).toContainText(finito.name);
+    await expect(page.locator('[data-testid="sidebar-state-section-working"]')).toContainText(lavora.name);
   });
 
   test("una domanda dentro l'app sta in Attende te, non in Al lavoro", async ({ page, request }) => {
@@ -181,10 +180,23 @@ test.describe("Stato delle tab: i tre stati e il raggruppamento", () => {
           window.localStorage.setItem('topics-sidebar-state', JSON.stringify({ ...prev, viewMode: 'state' }));
         } catch { /* no storage: the assertion below says so */ }
       });
+      // The question held by the ask bridge, legged as the Topics tool does
+      // until the test ends: that wait is what makes the chat `needs-you`.
+      let stopped = false;
+      const legs = (async () => {
+        while (!stopped) {
+          const r = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, {
+            data: { questions: [{ question, header: "Via", options, multiSelect: false }], legMs: 1000 }, timeout: 30_000,
+          }).catch(() => null);
+          if (!r || !((await r.json().catch(() => ({}))) as { pending?: boolean }).pending) return;
+        }
+      })();
       await goToApp(page);
 
-      await expect(page.locator('[data-testid="sidebar-state-section-awaiting"]')).toContainText(name, { timeout: 20_000 });
+      await expect(page.locator('[data-testid="sidebar-state-section-needs-you"]')).toContainText(name, { timeout: 20_000 });
       await expect(page.locator('[data-testid="sidebar-state-section-working"] [data-row-name="chat"]', { hasText: name })).toHaveCount(0);
+      stopped = true;
+      await legs;
     } finally {
       await deleteTopic(request, t.id).catch(() => {});
     }

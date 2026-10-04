@@ -132,6 +132,7 @@ test.describe("the inbox: opening marks nothing, the keyboard does the rest", ()
       await page.keyboard.press("Meta+Shift+I");
       await expect(panel(page)).toBeVisible();
       await expect(finished).toHaveCount(FINISHED.length);
+      await expect.poll(() => focusedSubject(page), { message: "the reopened panel did not take the focus" }).toBe(terminalSubject(scene.question.id));
 
       // ↓ to the first «Finite» row (the most recent), Enter: it opens and is seen.
       await page.keyboard.press("ArrowDown");
@@ -150,8 +151,10 @@ test.describe("the inbox: opening marks nothing, the keyboard does the rest", ()
       await page.keyboard.press("Meta+Shift+I");
       await expect(panel(page)).toBeVisible();
       await expect(finished).toHaveCount(FINISHED.length - 1);
+      await expect.poll(() => focusedSubject(page), { message: "the reopened panel did not take the focus" }).toBe(terminalSubject(scene.question.id));
       await page.keyboard.press("ArrowDown");
       const marked = await focusedSubject(page);
+      expect(marked, "the arrow did not land on a finished row").not.toBe(terminalSubject(scene.question.id));
       await page.keyboard.press("e");
       await expect(panel(page).locator(`[data-testid="inbox-row"][data-subject="${marked}"]`)).toHaveCount(0, { timeout: 10_000 });
       await expect(count(page)).toHaveAttribute("data-notification-count", String(total - 2), { timeout: 10_000 });
