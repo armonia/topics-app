@@ -6453,10 +6453,6 @@
       "giriAllInizio",
       "giriDelPoll"
     ],
-    "tests/e2e/notification-history.spec.ts": [
-      "dopo",
-      "testo"
-    ],
     "tests/e2e/org-presence.spec.ts": [
       "membro"
     ],
@@ -6998,10 +6994,8 @@
     "tests/e2e/tab-state-view.spec.ts": [
       "attende",
       "attesa",
-      "fase",
       "finito",
       "lavora",
-      "resto",
       "tabAttende",
       "tabFinito",
       "tabLavora"

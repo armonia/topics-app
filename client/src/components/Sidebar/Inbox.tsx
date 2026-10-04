@@ -170,15 +170,15 @@ function InboxPanel({ model, onWSMessage, onClose }: {
   // there reads as pressed.
   useEffect(() => {
     if (isTouch) return;
-    let raf = 0;
+    let frame = 0;
     let tries = 0;
     const attempt = () => {
       const target = listRef.current?.querySelector<HTMLElement>('[data-inbox-row]') ?? listRef.current;
       target?.focus({ preventScroll: true });
-      if (target && document.activeElement !== target && tries++ < 10) raf = requestAnimationFrame(attempt);
+      if (target && document.activeElement !== target && tries++ < 10) frame = requestAnimationFrame(attempt);
     };
     attempt();
-    return () => cancelAnimationFrame(raf);
+    return () => cancelAnimationFrame(frame);
   }, [tab, isTouch]);
 
   const openItem = useCallback((item: InboxItem) => {

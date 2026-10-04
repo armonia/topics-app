@@ -1,12 +1,12 @@
 /**
- * UN ANNUNCIO, UN BANNER — anche con due finestre aperte.
+ * ONE ANNOUNCE, ONE BANNER, even with two windows open.
  *
- * Da notifications-redesign il banner non nasce più da `message:new` (quel
- * ramo è tolto, design §10.2): nasce dall'`announce` che il server mette
- * nell'`attention:updated` di un'epoca nuova, e le finestre se lo contendono
- * con la claim su `soggetto#epoca` (ATTN-11). Il turno qui è VERO: la rotta
- * della chat lo fa girare su una CLI finta. Il resto sotto racconta il difetto
- * di allora, che resta la ragione di questa spec.
+ * Since notifications-redesign the banner no longer comes from `message:new`
+ * (that branch is gone, design 10.2): it comes from the `announce` the server
+ * puts in the `attention:updated` of a new epoch, and the windows claim it on
+ * `subject#epoch` (ATTN-11). The turn here is REAL: the chat route runs it on a
+ * fake CLI. The rest below tells the defect of then, still the reason for this
+ * spec.
  *
  * Il banner di `message:new` nasce da un frame che il server manda in
  * BROADCAST: ogni finestra connessa lo riceve, e l'effetto che lo ascoltava era

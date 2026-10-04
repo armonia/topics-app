@@ -53,30 +53,30 @@ test.describe("closing a finished chat, requeueing a parked card", () => {
     test.info().annotations.push({ type: "spec", description: "ATTN-13" });
     const removeCli = installSlowTurnCli();
     const stamp = Date.now();
-    const closing = await createTopic(request, `Closing Chat ${stamp}`, { provider: "claude-code" });
+    const toClose = await createTopic(request, `Closing Chat ${stamp}`, { provider: "claude-code" });
     const staying = await createTopic(request, `Staying Chat ${stamp}`, { provider: "claude-code" });
     const front = await createTopic(request, `Front Chat ${stamp}`, { provider: "topics" });
     try {
-      await resetPaneStore(request, [front.id, closing.id, staying.id]);
+      await resetPaneStore(request, [front.id, toClose.id, staying.id]);
       await stubBannersAndWindow(page);
       const badge = await recordBadge(page);
       const frames = recordAttentionFrames(page);
       await goToApp(page);
       const tab = (name: string) => page.locator('[role="tab"][data-pane-id]', { hasText: name });
-      await expect(tab(closing.name)).toBeVisible({ timeout: 15_000 });
+      await expect(tab(toClose.name)).toBeVisible({ timeout: 15_000 });
       await tab(front.name).click();
 
-      await runChatTurn(request, closing.id, "finish one");
+      await runChatTurn(request, toClose.id, "finish one");
       await runChatTurn(request, staying.id, "finish two");
-      await expect(tab(closing.name)).toHaveAttribute("data-attention", "done", { timeout: 15_000 });
+      await expect(tab(toClose.name)).toHaveAttribute("data-attention", "done", { timeout: 15_000 });
       await expect(tab(staying.name)).toHaveAttribute("data-attention", "done", { timeout: 15_000 });
       await expect(count(page)).toHaveAttribute("data-notification-count", "2");
       await expect.poll(badge, { timeout: 10_000, message: "the PWA badge does not count the two chats" }).toBe(2);
 
       // Closed before it was read: the chat archives, and it stops counting everywhere.
-      await closeTabViaX(page, closing.id);
-      await expect(tab(closing.name)).toHaveCount(0, { timeout: 15_000 });
-      await expect.poll(() => frames.rows().get(topicSubject(closing.id))?.lit ?? false, { timeout: 15_000, message: "the closed chat is still lit on the server" }).toBe(false);
+      await closeTabViaX(page, toClose.id);
+      await expect(tab(toClose.name)).toHaveCount(0, { timeout: 15_000 });
+      await expect.poll(() => frames.rows().get(topicSubject(toClose.id))?.lit ?? false, { timeout: 15_000, message: "the closed chat is still lit on the server" }).toBe(false);
       await expect(count(page)).toHaveAttribute("data-notification-count", "1", { timeout: 10_000 });
       await expect.poll(badge, { timeout: 10_000 }).toBe(1);
       await page.getByTestId("inbox-button").click();
@@ -86,7 +86,7 @@ test.describe("closing a finished chat, requeueing a parked card", () => {
       await page.keyboard.press("Escape");
     } finally {
       removeCli();
-      await deleteTopic(request, closing.id);
+      await deleteTopic(request, toClose.id);
       await deleteTopic(request, staying.id);
       await deleteTopic(request, front.id);
     }
@@ -124,9 +124,9 @@ test.describe("closing a finished chat, requeueing a parked card", () => {
       await page.keyboard.press("Escape");
 
       // Put back in the queue: the wait is over, the row goes, the bell is empty.
-      const requeued = await request.patch(`${E2E_BASE}/api/boards/${projectId}/tasks/${taskId}`, { data: { status: "todo" } });
-      expect(requeued.ok(), await requeued.text()).toBe(true);
-      await expect.poll(() => frames.rows().get(taskSubject(taskId))?.lit ?? false, { timeout: 15_000, message: "the requeued card is still lit" }).toBe(false);
+      const backInQueue = await request.patch(`${E2E_BASE}/api/boards/${projectId}/tasks/${taskId}`, { data: { status: "todo" } });
+      expect(backInQueue.ok(), await backInQueue.text()).toBe(true);
+      await expect.poll(() => frames.rows().get(taskSubject(taskId))?.lit ?? false, { timeout: 15_000, message: "the backInQueue card is still lit" }).toBe(false);
       await expect(count(page)).toHaveCount(0, { timeout: 10_000 });
       await page.getByTestId("inbox-button").click();
       await expect(page.getByTestId("inbox-panel").getByTestId("inbox-row")).toHaveCount(0);

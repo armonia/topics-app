@@ -175,11 +175,11 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
       const tabProgetto = page.locator(`[role="tab"][data-pane-id="${PROJECT_PANE_ID}"]`);
       await expect(tabProgetto).toBeVisible({ timeout: 20000 });
 
-      // Il turno della chat CHIUSA finisce. Non deve dire niente al progetto:
-      // `archived` è un ingresso della composizione (ATTN-13), e il server
-      // manda per lei uno stato spento, che è ciò che si mette in scena qui.
-      // Che il server non la accenda davvero lo provano
-      // `server/services/archive-topic.attention.test.ts` e
+      // The CLOSED chat's turn ends. It must say nothing to the project:
+      // `archived` is an input of the composition (ATTN-13), and the server
+      // sends a switched-off state for it, which is what is staged here. That
+      // the server really does not light it is proven by
+      // `server/services/archive-topic.attention.test.ts` and
       // `attention-archive-park.spec.ts`.
       await stageAttention(ws, attentionUpdated(`topic:${chiusa.id}`, { state: "idle" }));
       await page.waitForTimeout(2000);
