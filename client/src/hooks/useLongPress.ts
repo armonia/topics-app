@@ -115,6 +115,19 @@ export function openContextMenuAt({ element, x, y }: LongPressTarget): void {
   }));
 }
 
+/**
+ * A touch that started inside a PORTAL rendered under this element is not a
+ * press on it: React walks touch events up the component tree, not the DOM, so
+ * a finger held on the address field of a tab's sheet (portalled to <body>)
+ * reached the long press of the tab, the phone title or a tab of the topic's
+ * window and reopened the sheet, throwing away what was typed. And its
+ * `touchend` would find the flag of the hold that opened the sheet still up
+ * and cancel the tap's click. Only touches inside the element's own DOM count.
+ */
+function fromThisElement(e: React.TouchEvent): boolean {
+  return (e.currentTarget as Node).contains(e.target as Node);
+}
+
 export function useLongPress(
   onLongPress: (target: LongPressTarget) => void,
   { enabled = true, ms = LONG_PRESS_MS, slopPx = LONG_PRESS_SLOP_PX }: LongPressOptions = {},
@@ -144,7 +157,7 @@ export function useLongPress(
   useEffect(() => clear, [clear]);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!enabled) return;
+    if (!enabled || !fromThisElement(e)) return;
     // Due dita = pinch/scroll, non una pressione.
     if (e.touches.length !== 1) { clear(); return; }
     const touch = e.touches[0];
@@ -165,7 +178,7 @@ export function useLongPress(
   }, [enabled, ms, clear]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!timerRef.current || !originRef.current) return;
+    if (!timerRef.current || !originRef.current || !fromThisElement(e)) return;
     const touch = e.touches[0];
     if (!touch) { clear(); return; }
     const dx = touch.clientX - originRef.current.x;
@@ -175,6 +188,7 @@ export function useLongPress(
   }, [slopPx, clear]);
 
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!fromThisElement(e)) return;
     // Il gesto è andato a segno: il tocco è NOSTRO e non risale (vedi lo swipe
     // di chiusura della sidebar mobile, agganciato al contenitore).
     if (firedRef.current) {
@@ -184,7 +198,8 @@ export function useLongPress(
     clear();
   }, [clear]);
 
-  const onTouchCancel = useCallback(() => {
+  const onTouchCancel = useCallback((e: React.TouchEvent) => {
+    if (!fromThisElement(e)) return;
     firedRef.current = false;
     clear();
   }, [clear]);

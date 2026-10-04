@@ -54,8 +54,48 @@ async function holdOrRightClick(page: Page, selector: string, until: Locator): P
   await expect(until).toBeVisible();
 }
 
-/** Two chats and a browser pane on `url`, in one group, the browser in front. */
-async function seedBar(request: APIRequestContext, chatA: string, chatB: string, browserId: string, url: string): Promise<void> {
+/**
+ * Hold `target` down for `ms` with a touch WebKit on the desktop can build: it
+ * has no `Touch` constructor, but React's `onTouchStart` only reads the event's
+ * `touches`, so a plain event that carries them walks the same path. Used to
+ * ask whether a long press INSIDE an open sheet reaches a surface it must not.
+ */
+async function holdInside(target: Locator, ms = 900): Promise<void> {
+  await target.evaluate(async (el, hold) => {
+    const r = el.getBoundingClientRect();
+    const point = { clientX: r.left + 10, clientY: r.top + r.height / 2, identifier: 1, target: el };
+    const fire = (type: string, touches: unknown[]) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "touches", { value: touches });
+      Object.defineProperty(e, "targetTouches", { value: touches });
+      Object.defineProperty(e, "changedTouches", { value: [point] });
+      el.dispatchEvent(e);
+    };
+    fire("touchstart", [point]);
+    await new Promise((done) => setTimeout(done, hold));
+    fire("touchend", []);
+  }, ms);
+}
+
+/** A clipboard that remembers what it was given (`window.__copied`). */
+async function recordClipboard(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const store: string[] = [];
+    (window as unknown as { __copied: string[] }).__copied = store;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => { store.push(text); } },
+    });
+  });
+}
+
+function copied(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
+}
+
+/** Two chats and a browser pane on `url`, in one group, the browser in front
+ *  unless `activePaneId` says otherwise. */
+async function seedBar(request: APIRequestContext, chatA: string, chatB: string, browserId: string, url: string, activePaneId?: string): Promise<void> {
   const openedAt = Date.now();
   await seedPaneStore(request, () => ({
     panes: {
@@ -64,7 +104,10 @@ async function seedBar(request: APIRequestContext, chatA: string, chatB: string,
       [browserId]: { id: browserId, type: "browser", url, openedAt },
     },
     groups: {
-      "group:default": { id: "group:default", paneIds: [chatA, chatB, browserId], splitRatio: 1, splitAxis: "horizontal" },
+      "group:default": {
+        id: "group:default", paneIds: [chatA, chatB, browserId], splitRatio: 1, splitAxis: "horizontal",
+        ...(activePaneId ? { activePaneId } : {}),
+      },
     },
     projects: {},
     groupOrder: ["group:default"],
@@ -283,6 +326,47 @@ test.describe("TABSHEET: the tab is the command surface", () => {
     await expect(sheet).toHaveCount(0);
   });
 
+  test("nothing is lost (TABSHEET-03): a browser tab never brought to the front still shows its address and copies it", async ({ page, request }) => {
+    const a = await createTopic(request, `E2E-TABSHEET-A-cold-${Date.now()}`);
+    const b = await createTopic(request, `E2E-TABSHEET-B-cold-${Date.now()}`);
+    topics.push(a.id, b.id);
+    const browserId = `browser:tabsheet-cold-${Date.now()}`;
+    // The chat is in front: the browser pane is never mounted, so it never
+    // publishes its chrome. The address is still known (the store has it).
+    await seedBar(request, a.id, b.id, browserId, "http://tabsheet.test/a", a.id);
+    await noServerBrowser(page);
+    await recordClipboard(page);
+    await goToApp(page);
+    await waitForTopicVisible(page, a.id);
+    const browserTab = page.locator(`[data-testid="pane-tab-${browserId}"]`);
+    await expect(browserTab).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(`[data-browser-pane="${browserId}"]`), "the browser pane was never mounted").toHaveCount(0);
+
+    const sheet = await openTabSheet(page, browserTab);
+    await expect(sheet).toHaveAttribute("data-pane-type", "browser");
+    await expect(sheet.getByTestId("tab-sheet-address"), "the address is shown").toHaveText("http://tabsheet.test/a");
+    await sheet.getByTestId("browser-tab-copy-url").click();
+    await expect.poll(() => copied(page), { message: "the copy icon copies the page address" }).toEqual(["http://tabsheet.test/a"]);
+  });
+
+  test("one surface (TABSHEET-01): with a level open, a command of the sheet's header still runs", async ({ page, request }) => {
+    await recordClipboard(page);
+    const { browserTab } = await scene(page, request, "header");
+    const sheet = tabSheet(page);
+
+    // Copy, with the Layout level open: the address reaches the clipboard.
+    await openTabSheet(page, browserTab);
+    await openSheetLevel(page, "layout");
+    await sheet.getByTestId("browser-tab-copy-url").click();
+    await expect.poll(() => copied(page), { message: "Copy ran with a level open" }).toEqual(["http://tabsheet.test/a"]);
+
+    // Reload, with the Layout level open: the command runs, and an action
+    // closes the sheet, as it does with no level open.
+    await openSheetLevel(page, "layout");
+    await sheet.getByTestId("tab-sheet-reload").click();
+    await expect(sheet, "Reload ran and closed the sheet").toHaveCount(0);
+  });
+
   test("a level carries out its command: Layout splits a browser tab, Tab renames a chat", async ({ page, request }) => {
     const { browserTab, chatTab, chatId } = await scene(page, request, "levels");
     const sheet = tabSheet(page);
@@ -400,8 +484,87 @@ test.describe("TABSHEET-04: the topic's window and the phone title open the same
     await expect(win.locator(`[data-testid="topic-browser-tab"][data-context-id="${ctxA}"]`)).toBeVisible();
   });
 
+  test.describe("the topic's window, with a finger", () => {
+    test.use({ viewport: { width: 1280, height: 800 }, hasTouch: true });
+
+    test("the window's sheet (TABSHEET-04): a finger held inside it does not reopen it", async ({ page, request }) => {
+      const topic = await createTopic(request, `E2E-TABSHEET-WINTOUCH-${Date.now()}`);
+      topicId = topic.id;
+      const ctxA = `tabsheet-wint-a-${Date.now()}`;
+      await seedPaneStore(request, () => ({
+        panes: { [topic.id]: { id: topic.id, type: "chat", topicId: topic.id, title: "Chat", openedAt: Date.now() } },
+        groups: { "group:default": { id: "group:default", paneIds: [topic.id], splitRatio: 1, splitAxis: "horizontal" } },
+        projects: {}, groupOrder: ["group:default"], closedStack: [],
+      }));
+      const res = await request.put(`${E2E_BASE}/api/ui-state/topic-browser:${topic.id}`, {
+        data: {
+          mode: "min", minPos: { right: 24, bottom: 24 }, expandedWidth: null,
+          tabs: [{ contextId: ctxA, url: "http://tabsheet.test/uno", title: "Uno", openedBy: "user" }],
+          activeContextId: ctxA, promoted: [],
+        },
+        ignoreHTTPSErrors: true,
+      });
+      expect(res.ok()).toBeTruthy();
+      await noServerBrowser(page);
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await page.locator(`[data-pane-id="${topic.id}"]`).first().click();
+      const win = page.getByTestId("topic-browser-window");
+      await expect(win).toBeVisible({ timeout: 15_000 });
+
+      // The active window tab opens its sheet on the address.
+      await win.locator(`[data-testid="topic-browser-tab"][data-context-id="${ctxA}"]`).click();
+      const sheet = tabSheet(page);
+      await expect(sheet).toHaveAttribute("data-door", "address");
+      const address = sheet.getByTestId("browser-tab-address-input");
+      await address.fill("typed-by-me");
+      await holdInside(address);
+      await expect(address, "what was typed is still there").toHaveValue("typed-by-me");
+      await expect(sheet, "the sheet was not reopened on the commands").toHaveAttribute("data-door", "address");
+    });
+  });
+
   test.describe("on a phone", () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+    test("the phone title (TABSHEET-04): with three tabs Close others is offered, and a finger held inside the sheet does not reopen it", async ({ page, request }) => {
+      const a = await createTopic(request, `E2E-TABSHEET-PH3-A-${Date.now()}`);
+      const b = await createTopic(request, `E2E-TABSHEET-PH3-B-${Date.now()}`);
+      topicId = a.id;
+      const browserId = `browser:tabsheet-ph3-${Date.now()}`;
+      await seedBar(request, a.id, b.id, browserId, "http://tabsheet.test/a", browserId);
+      await noServerBrowser(page);
+      await goToApp(page);
+      // The phone opens on the list: the browser is chosen from it.
+      const drawer = page.locator('[data-sidebar][data-drawer="open"]');
+      const row = drawer.getByText("Browser", { exact: true }).first();
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.click();
+      const title = page.getByTestId("mobile-pane-title");
+      await expect(title).toBeVisible({ timeout: 30_000 });
+      await holdOrRightClick(page, '[data-testid="mobile-pane-title"]', tabSheet(page));
+      const sheet = tabSheet(page);
+      await expect(sheet).toHaveAttribute("data-surface", "title");
+      await expect(sheet).toHaveAttribute("data-pane-type", "browser");
+
+      // 1. A FINGER HELD ON THE ADDRESS (to paste, to move the caret) keeps
+      //    what was typed: the hold belongs to the field, not to the title.
+      const address = sheet.getByTestId("browser-tab-address-input");
+      await address.fill("typed-by-me");
+      await holdInside(address);
+      await expect(address, "what was typed is still there").toHaveValue("typed-by-me");
+      await expect(sheet, "the sheet was not reopened on the commands").toHaveAttribute("data-door", "commands");
+      await expect(address).toBeFocused();
+
+      // 2. CLOSE OTHERS, as on every tab of a group with more than one.
+      const closeOthers = sheet.getByTestId("tab-sheet-close-others");
+      await expect(closeOthers).toBeVisible();
+      await closeOthers.click();
+      await expect(sheet).toHaveCount(0);
+      await title.click({ button: "right" });
+      await expect(tabSheet(page)).toBeVisible();
+      await expect(tabSheet(page).getByTestId("tab-sheet-close-others"), "one tab left: nothing else to close").toHaveCount(0);
+    });
 
     test("holding the title opens the chat's sheet from the bottom, finger-sized and without layout", async ({ page, request }) => {
       const name = `E2E-TABSHEET-PHONE-${Date.now()}`;

@@ -1031,6 +1031,7 @@ export function StandaloneChatGroup({
                     actions: {
                       panes, activePaneId, onActivate: onFocusPanel,
                       onClose: handleClosePane, onCloseImmediate: onClosePanelImmediate,
+                      onCloseOthers: handleCloseOthers,
                       onSettings: handleSettings, onStopStreaming: handleStopStreaming,
                       onRenameChat: renameChat, onRenameBrowser: renameBrowser,
                       onToggleFissato, isFissato,

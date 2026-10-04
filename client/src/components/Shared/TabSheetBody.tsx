@@ -53,6 +53,7 @@ import {
   getTerminalSessionFromPaneId, isDraftPaneId, isTerminalPaneId, pinKeyForPane, tabTargetForPane,
 } from '../../state/pane/adapters';
 import { createSpaceId, isDetachedWindow, liveSpacesOrdered, movePaneToSpace, nextSpaceName } from '../Layout/spaceHelpers';
+import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { restartTerminalSession } from '../../lib/terminalReload';
 import { menuRowClass } from '../Sidebar/menuRow';
 import { TopicColorDot } from './TopicColorDot';
@@ -203,7 +204,14 @@ export function TabSheetBody({
   const run = useCallback((fn?: () => void) => () => { onClose(); fn?.(); }, [onClose]);
   const onKeyDown = useMenuKeyboard({ panelRef: listRef });
 
-  const address = chrome ? prettyUrl(chrome.url) : '';
+  // A BROWSER TAB NEVER BROUGHT TO THE FRONT has no chrome (its pane is not
+  // mounted, so it published nothing), and its address is still known: the
+  // pane carries it, or the store does. The old tab menu copied it from there,
+  // and the sheet must not lose that (TABSHEET-03).
+  const storedUrl = isBrowser && !chrome
+    ? (isRealUrl(pane.url) ? pane.url : getBrowserPaneUrl(pane.id))
+    : undefined;
+  const address = prettyUrl(chrome ? chrome.url : (storedUrl ?? ''));
   const copyAddress = useCallback(() => {
     if (!address) return;
     // `copyText` answers with a boolean: outside a secure context nothing is
@@ -232,6 +240,14 @@ export function TabSheetBody({
   const entries = useMemo(() => buildTabSheetEntries(model), [model]);
 
   const c = chrome?.commands;
+  const copyButton = (
+    <NavButton
+      icon={copied ? <Check size={14} className="text-green-600 dark:text-green-400" /> : <Copy size={14} />}
+      label={copied ? t('browser.tab.copied') : t('browser.tab.copyAddress')}
+      onClick={address ? copyAddress : undefined}
+      testId="browser-tab-copy-url"
+    />
+  );
   const header = isBrowser && chrome && c ? (
     <>
       <div className="px-2 pt-1 pb-1.5 flex items-center gap-2">
@@ -262,15 +278,24 @@ export function TabSheetBody({
         <NavButton icon={<ArrowRight size={14} />} label={t('browser.tab.forward')} onClick={c.forward && chrome.canGoForward ? run(c.forward) : undefined} disabled={!chrome.canGoForward} testId="browser-tab-forward" />
         <NavButton icon={<RotateCw size={14} className={chrome.loading ? 'animate-spin' : ''} />} label={t('browser.tab.reload')} onClick={run(c.reload)} testId="tab-sheet-reload" />
         <div className="flex-1" />
-        <NavButton
-          icon={copied ? <Check size={14} className="text-green-600 dark:text-green-400" /> : <Copy size={14} />}
-          label={copied ? t('browser.tab.copied') : t('browser.tab.copyAddress')}
-          onClick={chrome.url ? copyAddress : undefined}
-          testId="browser-tab-copy-url"
-        />
+        {copyButton}
         <NavButton icon={<ExternalLink size={14} />} label={t('browser.openSystem')} onClick={c.openExternal ? run(c.openExternal) : undefined} testId="tab-sheet-open-external" />
       </div>
     </>
+  ) : isBrowser && storedUrl ? (
+    // No page to drive yet: the address is read, not edited, and its copy
+    // icon is the same one the live header has.
+    <div className="px-2 pt-1 pb-1.5 flex items-center gap-2 min-w-0">
+      <BrowserFavicon url={storedUrl} size={14} className="shrink-0 ml-1" />
+      <span
+        data-testid="tab-sheet-address"
+        title={displayUrl(storedUrl)}
+        className="flex-1 min-w-0 truncate text-compact coarse:text-body-lg text-app-text-secondary select-text"
+      >
+        {address}
+      </span>
+      {copyButton}
+    </div>
   ) : (
     <div className="px-3 pt-1.5 pb-1.5 flex items-center gap-2 min-w-0" data-testid="tab-sheet-title">
       {pane.type === 'chat' && pane.topicId && <TopicColorDot color={topics[pane.topicId]?.color} />}
@@ -362,7 +387,10 @@ export function TabSheetBody({
         )}
         {/* The scroll lives inside, so the seam above is not clipped by it. */}
         <div className="min-h-0 overflow-y-auto overscroll-contain">
-          <SubmenuOwnerProvider owner={owner} panelRef={listRef}>
+          {/* The WHOLE panel hosts the levels, not only the list: a press on
+              the header (Reload, Copy, the address) with a level open is a
+              choice made in the sheet, and must not be eaten by the level. */}
+          <SubmenuOwnerProvider owner={owner} panelRef={panelRef}>
             {header}
             {suggestions}
             <div className={POPOVER_DIVIDER} />
@@ -559,7 +587,9 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
         if (inWindow) target.window?.close();
         else (a.onCloseImmediate ?? a.onClose)?.(id);
       } : undefined,
-      closeOthers: inBar && a.panes.length > 1 ? () => {
+      // On the phone title too: its group can hold more than one tab, and
+      // «Close others» is a command of every type (TABSHEET-03, -04).
+      closeOthers: !inWindow && a.panes.length > 1 ? () => {
         if (a.onCloseOthers) a.onCloseOthers(id);
         else a.panes.forEach((p) => { if (p.id !== id) a.onClose?.(p.id); });
       } : undefined,
