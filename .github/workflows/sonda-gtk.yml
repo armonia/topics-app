@@ -77,17 +77,21 @@ jobs:
             ./target/release/wkzprobe ${{ inputs.arm }} 2>&1 | tee ../../wkzprobe-gtk.txt || true
 
       # IL FALSIFICATO, e non e' cerimonia: una sonda che stampa «no» senza
-      # guardare stampa lo stesso «no» di una che guarda. Qui la chiamata di
-      # raise viene tolta e la misura rifatta: sotto GTK il verdetto deve
-      # restare IDENTICO (la chiamata non faceva niente), e se cambia il
-      # risultato di sopra e' da buttare.
-      - name: Falsificato (raise tolto)
+      # guardare stampa lo stesso «no» di una che guarda.
+      # Since browser_linux::raise became a no-op the measured pass mirrors it
+      # (no call), so the falsified pass PUTS BACK the call the shell used to
+      # make, verbatim (has_window guard, then GdkWindow::raise), and the two are
+      # compared line by line. Identical lines mean the call changed nothing, so
+      # dropping it lost nothing (run 37168587456). That an identical line is a
+      # measurement and not a blind probe was shown by reorder_child, which did
+      # flip first-responder-survives-the-raise (run 37168332624).
+      - name: Falsificato (raise di prima rimesso)
         working-directory: tools/wkzprobe
         run: |
           set -o pipefail
           cp src/views_gtk.rs /tmp/views_gtk.bak
-          perl -0pi -e 's/            gdk_window\.raise\(\);/            \/\/ falsificato: chiamata tolta/' src/views_gtk.rs
-          perl -0pi -e 's/        vbox\.reorder_child\(&target, n - 1\);/        \/\/ falsificato: reorder tolto/' src/views_gtk.rs
+          perl -0pi -e 's/    println!\("   raise: browser_linux::raise makes no call under GTK"\);/    if _target.has_window() { if let Some(w) = _target.window() { w.raise(); } }\n    println!("   raise: falsified, GdkWindow::raise put back (has_window={})", _target.has_window());/' src/views_gtk.rs
+          grep -q 'GdkWindow::raise put back' src/views_gtk.rs || { echo "the falsified substitution matched nothing"; exit 1; }
           cargo build --release
           xvfb-run -a --server-args="-screen 0 1280x900x24" \
             ./target/release/wkzprobe ${{ inputs.arm }} 2>&1 | tee ../../wkzprobe-gtk-falsificato.txt || true
@@ -113,11 +117,12 @@ jobs:
             if [ "$a" = "$b" ]; then
               echo "  =  $riga: identico con e senza raise"
             else
-              echo "  != $riga: con raise ->$a | senza ->$b"
+              echo "  != $riga: senza raise (shell di oggi) ->$a | con il raise di prima ->$b"
             fi
           done
           echo
-          rw=$(grep -E '^   raise-wins=' wkzprobe-gtk.txt | head -1)
+          # raise-wins is read on the falsified pass: it is the only one that calls raise.
+          rw=$(grep -E '^   raise-wins=' wkzprobe-gtk-falsificato.txt | head -1)
           if [ "$rw" = "   raise-wins=false" ]; then
             echo "VERDETTO: sotto GTK il raise NON alza niente."
             echo "Le webview sono impilate da pack_start e non si sovrappongono:"
