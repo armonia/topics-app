@@ -470,7 +470,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <span
               data-testid="tool-queued"
               data-phase={toolCall.inputStreaming ? 'writing' : 'queued'}
-              className="inline-flex items-center gap-1 text-micro text-app-text-muted"
+              className="inline-flex items-center gap-1 text-mini text-app-text-muted"
             >
               {toolCall.inputStreaming ? <PenLine size={11} aria-hidden="true" /> : <Hourglass size={11} aria-hidden="true" />}
               {tr(toolCall.inputStreaming ? 'tool.writingInput' : 'tool.queued')}
