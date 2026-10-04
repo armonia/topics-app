@@ -15,7 +15,7 @@ import { createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import type { AppContext, Topic } from "../../server/types";
 
 const ROOT = testTmpDir("command-service");
-// Before the registry is imported: its boot reads the state folder named then.
+// Before the registry is first used: its load reads the state folder named then.
 setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
 

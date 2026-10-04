@@ -5,8 +5,8 @@
  * survive a reload of the server.
  *
  * The reload is two processes on one state folder
- * (`helpers/process-registry-life.ts`): the registry is module state and its
- * boot is its import, so that is what a restart is.
+ * (`helpers/process-registry-life.ts`): the registry is module state, loaded
+ * once per process, so that is what a restart is.
  *
  * @covers CMDRUN-01, CMDRUN-03, CMDRUN-04
  */
@@ -21,7 +21,7 @@ import type { TurnEndInfo } from "../../server/services/goal-continuation";
 import type { TurnEndInfo as TurnEnd } from "../../server/providers/stop-reason";
 
 const ROOT = testTmpDir("process-run-command");
-// Before the registry is imported: its boot reads the state folder named then.
+// Before the registry is first used: its load reads the state folder named then.
 setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
 // The live core quota of a card's command writes its number and its shims here,
