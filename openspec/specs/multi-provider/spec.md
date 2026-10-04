@@ -100,3 +100,97 @@ When dispatch resolves a model, task details and board cards SHALL retain its re
 - **WHEN** a user opens the task model selector before assignment
 - **THEN** Auto and available explicit models remain selectable
 - **AND** an assigned session keeps its model selector locked.
+
+### Requirement: MP-TASK-04 — Execution first, then compatible models
+
+Every AI input SHALL use the same accessible, responsive model selector
+(`ModelSelector`, MSEL-01). One panel shows Automatic and the current models of
+every ready engine in the server snapshot, grouped by model maker. There is no
+intermediate engine step. Each maker group names, in its heading, the engine
+that executes its rows, and lets the user switch engine in place when more than
+one engine serves the group; a row repeats its engine only when it differs from
+the heading, and its accessible name always contains it (amended 2026-10-04: the
+row used to carry the engine and the switch).
+
+A row offers only models its engine can actually execute on that surface.
+Coding-task surfaces SHALL exclude API chat transports. Topics native SHALL
+execute only its supported Claude coding models. GPT coding models SHALL be
+executed by Codex. No unavailable engine or model SHALL silently fall back to a
+different engine: a direct route taken because Topics routing cannot reach the
+target is declared on the row and on the turn (AICTRL-01).
+
+#### Scenario: A coding task chooses a Codex model
+- **WHEN** the user picks GPT-6.1-Sol before starting a task
+- **THEN** the OpenAI group heading names Codex as its engine, and the row's accessible name contains Codex
+- **AND** dispatch persists and runs Codex with that model.
+
+#### Scenario: Normal chat uses the same presentation
+- **WHEN** the same control is opened in a normal chat
+- **THEN** models from every ready chat provider in the server snapshot are visible together
+- **AND** each group heading names the provider that runs its rows, and a row that runs elsewhere names its own.
+
+### Requirement: MP-TASK-05 — Explicit automatic and project-default scopes
+
+General Automatic SHALL consider ready, compatible providers that are not in an
+exhausted quota window. A project default SHALL be labelled and stored as a
+separate scope, not as Automatic, an account, a model, or a runtime. Automatic
+inside an explicitly selected execution engine SHALL remain constrained to that
+engine. The concrete resolved model SHALL stay visible after dispatch without
+rewriting labels on historical turns.
+
+#### Scenario: Project default and general Automatic differ
+- **WHEN** a task has no override and its project has an explicit default
+- **THEN** the UI identifies that inherited project default
+- **AND** general Automatic remains a separate selectable value.
+
+### Requirement: MP-TASK-06 — Persistence, unavailability and compatibility
+
+Runtime and model choices SHALL survive task creation, editing, dispatch and
+resume. Existing model-only values SHALL remain readable and executable under
+their legacy routing rules. An explicit stored value that is no longer
+available SHALL remain visible with its reason and a Settings action; it SHALL
+not be rewritten. Existing effort choices, manual provider/model overrides and
+already-running session bindings SHALL remain authoritative.
+
+#### Scenario: A selected runtime becomes unavailable
+- **WHEN** the server snapshot reports the explicitly selected runtime as
+  unavailable
+- **THEN** the control retains the runtime and model with the reported reason
+- **AND** dispatch stops with an actionable error instead of switching runtime.
+
+#### Scenario: A saved model leaves a ready catalog
+- **WHEN** a saved prefixed or legacy model is absent from its runtime's latest catalog
+- **THEN** it remains the selected manual value in a disabled unavailable row
+- **AND** the reason and Settings recovery action remain visible without selecting project Auto.
+
+#### Scenario: A task-capable ACP runtime
+- **WHEN** an ACP adapter advertises coding-task capability
+- **THEN** its compatible models may appear for explicit task selection
+- **AND** an ACP adapter without that capability remains chat-only.
+
+#### Scenario: A resumed session is already bound
+- **WHEN** a task resumes or reuses an existing session
+- **THEN** its provider, model and effort remain unchanged
+- **AND** the selector cannot reclassify that historical binding.
+
+### Requirement: MP-TASK-07 — Interaction and localization
+
+The shared control SHALL:
+- use existing application tokens and popover primitives;
+- provide Italian and English copy;
+- support keyboard traversal and selection across every maker section;
+- restore focus to its trigger after closing;
+- remain within a small viewport as a full-width bottom sheet.
+
+Unavailable choices SHALL expose a reason and recovery action, with sufficient
+token-based contrast. The change SHALL add no dependency, and SHALL not promote
+the model tier solely to render the UI.
+
+#### Scenario: Keyboard traversal across makers
+- **WHEN** the user opens the selector and presses ArrowDown repeatedly
+- **THEN** focus moves from the search field through the routing band, Automatic and every model row of every maker, skipping section header labels (a header's engine button is a stop only when it offers a choice)
+- **AND** Enter selects the focused row and returns focus to the trigger.
+
+#### Scenario: A selector is disabled
+- **WHEN** a surface locks the selector during a write or assigned session
+- **THEN** every model, Automatic, engine and recovery action is disabled.

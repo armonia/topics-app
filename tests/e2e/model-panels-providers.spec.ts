@@ -1,7 +1,7 @@
 /**
  * PROVIDERS AND KEYS INSIDE THE MODEL SELECTOR, ON THE AUDIT FLEET.
  *
- * openspec/changes/model-selector/revision-2026-10-04.md §5, AC-06, AC-07,
+ * openspec/changes/archive/2026-10-04-model-selector/revision-2026-10-04.md §5, AC-06, AC-07,
  * AC-18..AC-29, AC-34, AC-37, AC-40: the providers level opens in the same
  * panel as the models (same x, y, width), ‹ and Escape go back with the search,
  * the open sections and the scroll as they were, a second Escape closes and
@@ -99,7 +99,7 @@ async function axeViolations(page: Page, include: string) {
   }, include);
 }
 
-/** The evidence for the maintainer, when `MSEL_SHOTS_DIR` is set (openspec/changes/model-selector/screenshots). */
+/** The evidence for the maintainer, when `MSEL_SHOTS_DIR` is set (openspec/changes/archive/2026-10-04-model-selector/screenshots). */
 async function shot(page: Page, name: string) {
   const dir = process.env.MSEL_SHOTS_DIR;
   if (dir) await page.screenshot({ path: join(dir, `revision-impl-${name}.png`) });
