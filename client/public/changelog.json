@@ -43,7 +43,22 @@
           "scope": null
         },
         {
+          "it": "Archivia model-selector con le due change da cui dipende",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Destruttura l'import del db nel test dello spawn: knip lo vedeva opaco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli il tool Agent nativo dalle chat e dalle card: la delega passa da spawn_agent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra la risposta data a una domanda anche a riga chiusa",
           "en": "",
           "scope": null
         },
@@ -52,6 +67,36 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Togli anche Workflow dalle chat e lascia invariato il prompt delle pane terminale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni Workflow nelle chat: parte solo su richiesta della persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli Workflow anche dalle chat: lo sceglie da solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni la risposta in vista anche nel turno piegato e su un pannello stretto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara chi copre AICTRL-03 e AICTRL-04, entrati con l'archivio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi ASK-12 e dichiara chi lo copre",
+          "en": "",
+          "scope": null
         }
       ]
     }
