@@ -49,10 +49,28 @@ const globalNumber = (page: Page) => page.evaluate(() => (window as unknown as {
 const bellCount = (page: Page) => page.getByTestId("inbox-count");
 const bellNumber = async (page: Page): Promise<number> =>
   (await bellCount(page).count()) ? Number(await bellCount(page).getAttribute("data-notification-count")) : 0;
-/** Both surfaces at once: the dock and the bell must say the same thing. */
-async function expectBoth(page: Page, n: number): Promise<void> {
-  await expect.poll(() => globalNumber(page), { timeout: 10_000 }).toBe(n);
-  await expect.poll(() => bellNumber(page), { timeout: 10_000 }).toBe(n);
+/**
+ * What the spec's own chats add to both surfaces: the dock and the bell must
+ * say the same thing.
+ *
+ * The number counts what is lit on the whole test server, and a spec that ran
+ * earlier in the shard can leave something lit (a card in review, a question):
+ * on PR #224 the board tab carried a review badge before this spec created
+ * anything, and both surfaces said 1 where 0 was expected. The contract is what
+ * THESE chats do to the number, so each reading is taken against `before`,
+ * the number the app painted before they finished anything.
+ */
+async function expectBoth(page: Page, before: number, n: number): Promise<void> {
+  await expect.poll(async () => (await globalNumber(page)) - before, { timeout: 10_000 }).toBe(n);
+  await expect.poll(async () => (await bellNumber(page)) - before, { timeout: 10_000 }).toBe(n);
+}
+
+/** The number the app painted once its attention state arrived, before the spec lights anything. */
+async function paintedBefore(page: Page): Promise<number> {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __appBadgePainted?: boolean }).__appBadgePainted === true), { timeout: 15_000 }).toBe(true);
+  const before = await globalNumber(page);
+  await expect.poll(() => bellNumber(page), { timeout: 10_000 }).toBe(before);
+  return before;
 }
 const rowBadge = (page: Page, name: string) =>
   page.getByRole("treeitem", { name: new RegExp(name) }).first().locator("[data-notification-count]");
@@ -61,11 +79,12 @@ const tabBadge = (page: Page, topicId: string) => page.locator(`[data-pane-id="$
 /** The OS badge, recorded where the app paints it. */
 async function stubAppBadge(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const w = window as unknown as { __appBadge: number };
+    const w = window as unknown as { __appBadge: number; __appBadgePainted: boolean };
     w.__appBadge = 0;
+    w.__appBadgePainted = false;
     const nav = navigator as unknown as { setAppBadge: (n?: number) => Promise<void>; clearAppBadge: () => Promise<void> };
-    nav.setAppBadge = (n?: number) => { w.__appBadge = n ?? 0; return Promise.resolve(); };
-    nav.clearAppBadge = () => { w.__appBadge = 0; return Promise.resolve(); };
+    nav.setAppBadge = (n?: number) => { w.__appBadge = n ?? 0; w.__appBadgePainted = true; return Promise.resolve(); };
+    nav.clearAppBadge = () => { w.__appBadge = 0; w.__appBadgePainted = true; return Promise.resolve(); };
   });
 }
 
@@ -90,7 +109,7 @@ test.describe("one number, one seen", () => {
       await page.goto("/");
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15_000 });
       await page.locator(`[data-pane-id="${BOARD}"]`).click();
-      await expectBoth(page, 0);
+      const before = await paintedBefore(page);
 
       // Two chats finish: one with three messages before its answer, one with one.
       await messages(request, many.id, 3);
@@ -100,16 +119,18 @@ test.describe("one number, one seen", () => {
       expect(await unreadOf(request, many.id), "the first chat holds several unread").toBeGreaterThan(1);
 
       // Subjects, not messages: two.
-      await expectBoth(page, 2);
+      await expectBoth(page, before, 2);
       await page.getByTestId("inbox-button").click();
-      await expect(page.getByTestId("inbox-panel").getByTestId("inbox-row")).toHaveCount(2);
+      for (const subject of [`topic:${many.id}`, `topic:${few.id}`]) {
+        await expect(page.getByTestId("inbox-panel").locator(`[data-testid="inbox-row"][data-subject="${subject}"]`)).toHaveCount(1);
+      }
       // The row and the tab may show the chat's own messages.
       await expect(tabBadge(page, many.id)).toHaveAttribute("data-notification-count", String(await unreadOf(request, many.id)));
 
       // Opening it from the inbox is seeing it: everything drops together.
       await setAwake(page, true);
       await page.getByTestId("inbox-panel").locator(`[data-testid="inbox-row"][data-subject="topic:${many.id}"] [data-inbox-row]`).click();
-      await expectBoth(page, 1);
+      await expectBoth(page, before, 1);
       await expect.poll(() => unreadOf(request, many.id), { timeout: 10_000 }).toBe(0);
       await expect(rowBadge(page, many.name)).toHaveCount(0);
       await expect(tabBadge(page, many.id)).toHaveCount(0);
@@ -130,6 +151,7 @@ test.describe("one number, one seen", () => {
       await page.goto("/");
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15_000 });
       await page.locator(`[data-pane-id="${BOARD}"]`).click();
+      const before = await paintedBefore(page);
 
       // The turn ends, and its CLI's hook says so too: the phase is
       // `awaiting-user`, which used to count until the next turn.
@@ -142,12 +164,12 @@ test.describe("one number, one seen", () => {
         return cli;
       }, { timeout: 10_000 }).not.toBe("");
       await postHook(request, "Stop", { session_id: cli });
-      await expectBoth(page, 1);
+      await expectBoth(page, before, 1);
 
       // Read: nothing counts, though the phase is still awaiting-user.
       await setAwake(page, true);
       await page.locator(`[data-pane-id="${chat.id}"]`).click();
-      await expectBoth(page, 0);
+      await expectBoth(page, before, 0);
       await expect(rowBadge(page, chat.name)).toHaveCount(0);
     } finally {
       await deleteTopic(request, chat.id);
