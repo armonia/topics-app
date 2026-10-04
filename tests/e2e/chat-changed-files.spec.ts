@@ -268,11 +268,9 @@ test.describe("the strip opens the chat's changeset with the board's diff panel"
   function makeRepo(label: string, files: Record<string, string | Buffer>): { dir: string; git: (...args: string[]) => string } {
     const dir = join(canonicalTmpRoot(), `e2e-chgset-${label}-${Date.now()}`);
     repos.push(dir);
-    const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
+    const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" }).trim();
     mkdirSync(dir, { recursive: true });
     git("init", "-q", "-b", "main");
-    git("config", "user.email", "t@t.t");
-    git("config", "user.name", "t");
     for (const [path, body] of Object.entries(files)) {
       mkdirSync(join(dir, path, ".."), { recursive: true });
       writeFileSync(join(dir, path), body);

@@ -211,12 +211,10 @@ async function seedBoard(request: APIRequestContext): Promise<void> {
  * card and draws the card's range with the board's diff panel.
  */
 async function seedStrip(request: APIRequestContext): Promise<void> {
-  const git = (...args: string[]) => execFileSync("git", ["-C", STRIP_PATH, ...args], { encoding: "utf8" }).trim();
+  const git = (...args: string[]) => execFileSync("git", ["-C", STRIP_PATH, "-c", "user.email=e2e@test", "-c", "user.name=e2e", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" }).trim();
   mkdirSync(`${STRIP_PATH}/src`, { recursive: true });
   writeFileSync(`${STRIP_PATH}/package.json`, JSON.stringify({ name: "e2e-usability-strip" }));
   git("init", "-q", "-b", "main");
-  git("config", "user.email", "t@t.t");
-  git("config", "user.name", "t");
   git("add", "-A");
   git("commit", "-q", "-m", "base");
   const topic = await createTopic(request, `usability-strip-${STAMP}`, { projectPath: STRIP_PATH });
