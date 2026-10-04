@@ -109,3 +109,26 @@ describe("a parked card", () => {
     expect(unseenRows(t.id)).toBe(0);
   });
 });
+
+describe("a step pulled out of review by a new session of its parent", () => {
+  test("bindTopic with a fresh session puts the step back in todo and switches its subject off (ATTN-04)", () => {
+    const db = freshDb();
+    db.run("INSERT INTO topics (id) VALUES ('old-topic'), ('new-topic')");
+    let n = 0; let clock = 0;
+    const s = createTaskService(db, { now: () => new Date(Date.UTC(2026, 9, 3, 9, clock++)).toISOString(), uuid: () => `bind-${++n}` });
+    const parent = s.create({ projectId: PID, text: "parent" });
+    s.bindTopic({ taskId: parent.id, topicId: "old-topic" });
+    const step = s.create({ projectId: PID, text: "step", parentTaskId: parent.id, createdByTopicId: "old-topic" });
+    const parked = s.create({ projectId: PID, text: "parked step", parentTaskId: parent.id, createdByTopicId: "old-topic" });
+    mv(s, step.id, "review");
+    mv(s, parked.id, "todo");
+    s.release({ taskId: parked.id, requeue: false, parkState: "failed", reason: "nessuna consegna" });
+    expect(getAttention(taskSubject(step.id))).toMatchObject({ state: "needs-you", reason: "review" });
+    expect(getAttention(taskSubject(parked.id))).toMatchObject({ state: "needs-you", reason: "parked" });
+    s.bindTopic({ taskId: parent.id, topicId: "new-topic", freshSession: true });
+    expect((db.query("SELECT status FROM tasks WHERE id = ?").get(step.id) as { status: string }).status).toBe("todo");
+    expect(getAttention(taskSubject(step.id)).lit).toBe(false);
+    expect(getAttention(taskSubject(parked.id)).lit).toBe(false);
+    expect(unseenRows(step.id)).toBe(0);
+  });
+});

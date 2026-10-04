@@ -25,7 +25,7 @@ import type { TaskService } from "../services/tasks";
 const CARD_MOVING_METHODS: ReadonlyArray<keyof TaskService> = [
   "create", "update", "reviewDecision", "merge", "archive", "restore", "moveToProject", "claim", "release",
   "deferForWait", "deliverToReviewBySystem", "askParkedChildren", "sweepParkedChildren", "waitedOutIfCapped",
-  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded",
+  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic",
 ];
 
 /** The dispatch states of a card parked in backlog that the person must look at (they announce `task:parked`). */
@@ -97,8 +97,10 @@ export function withCardAttention(db: Database, service: TaskService, commentAsk
       const ids = new Set<string>();
       idsOf(args[0], ids);
       idsOf(result, ids);
-      // Archiving a parent archives its descendants: every card in it leaves its wait.
-      if (name === "archive" || name === "merge" || name === "restore") {
+      // Archiving a parent archives its descendants: every card in it leaves
+      // its wait. A new session of a parent (`bindTopic`) puts the steps of
+      // the old one back in todo, out of review and out of their park.
+      if (name === "archive" || name === "merge" || name === "restore" || name === "bindTopic") {
         for (const id of [...ids]) { try { for (const r of db.query(descendantsSql).all(id) as Array<{ id: string }>) ids.add(r.id); } catch { /* no table to walk */ } }
       }
       for (const id of ids) sync(id);
