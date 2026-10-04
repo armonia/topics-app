@@ -91,12 +91,15 @@ describe("cablaggio reale", () => {
     expect(righe.map(r=>r.title)).toContain("stream aborted by user");
   });
 
-  test("survivesRestart: la mappa lo registra dal provider, non a caso", async () => {
+  test("survivesRestart: the map records it from turnSurvivesRestart, not at random", async () => {
     const a = await harness("topic:cli-like", true);   // ha reattach
     const b = await harness("topic:nativo-like", false); // non ce l'ha
     const sa = (a.ctx as any).activeStreams.get("topic:cli-like");
     const sb = (b.ctx as any).activeStreams.get("topic:nativo-like");
     expect(sa?.survivesRestart).toBe(true);
-    expect(sb?.survivesRestart).toBe(false);
+    // A chat without reattach survives too since 04/10: the boot resumes it
+    // (ripresa-boot). Only a card without reattach does not; that branch is
+    // covered by the turnSurvivesRestart tests in server/lib/quiescence.test.ts.
+    expect(sb?.survivesRestart).toBe(true);
   });
 });

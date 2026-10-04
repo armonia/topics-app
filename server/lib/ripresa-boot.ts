@@ -395,6 +395,7 @@ function nextResend(chain: ResendChain, blocks: ContentBlock[] | null, rowStartM
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, restartNotificationFrame, threadChangedFrame, type PartialSweepDb } from "./boot-partial-sweep";
+import { ORPHAN_ERRORS } from "./orphan-tool-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
@@ -560,6 +561,74 @@ export function outageResendAttempt(
   return next;
 }
 
+/**
+ * HAD THE CUT TURN ALREADY DONE SOMETHING? At least one tool that reached an
+ * outcome (`success` or `error`) in the assistant rows after the user's last
+ * message: that work is in the history the resumed turn reads back
+ * (`native/history-rehydrate.ts`), so resuming is not repeating.
+ */
+export function cutTurnProgressed(rows: ReadonlyArray<ContentBlock[] | null>): boolean {
+  return rows.some((blocks) => Array.isArray(blocks) && blocks.some((b) => {
+    if (b?.kind !== "tool") return false;
+    const call = (b as { toolCall?: { status?: unknown; error?: unknown } }).toolCall;
+    if (call?.status === "success") return true;
+    // A call the boot closed as orphan (`ORPHAN_ERRORS`) was cut, not done.
+    return call?.status === "error" && !ORPHAN_ERROR_TEXTS.includes(call.error as string);
+  }));
+}
+
+const ORPHAN_ERROR_TEXTS: readonly unknown[] = Object.values(ORPHAN_ERRORS);
+
+/**
+ * How many restarts in a row a turn at work is continued without spending an
+ * attempt. A turn that does a tool and is cut again, under a watcher that
+ * restarts the server every thirty seconds, would otherwise be continued for
+ * good: past this many continuation notes in a row the chain counts its
+ * attempts again (MAX_RESUME_ATTEMPTS), and then stops in the chat.
+ */
+export const MAX_RESTART_CONTINUATIONS = 10;
+
+const CONTINUATION_OPENING = "[Topics] The server restarted in the middle of your previous turn.";
+
+/** The chat's last user rows that are continuation notes, counted back to the first that is not. */
+function continuationsInARow(db: Pick<Database, "query">, sessionKey: string): number {
+  const rows = db.query(
+    `SELECT content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT ?`,
+  ).all(sessionKey, MAX_RESTART_CONTINUATIONS + 1) as Array<{ content: unknown }>;
+  let n = 0;
+  for (const row of rows) {
+    if (!(decodeCol(row.content as never) ?? "").startsWith(CONTINUATION_OPENING)) break;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * What is sent instead of the question when the turn cut by a restart had
+ * already done work. Resending the original question made the model start
+ * over, with its earlier calls above and nobody telling it why the same
+ * question had arrived twice. In English like Topics' other notices in the
+ * user turn: the language directive tells the model they do not change the
+ * language of the answer.
+ */
+export function restartContinuationNote(commands: ReadonlyArray<{ description: string; processId: string }>): string {
+  const running = commands.length
+    ? `Background commands still running: ${commands.map((c) => `${c.description} (${c.processId})`).join("; ")}.`
+    : "No background command of this chat is still running.";
+  return [
+    `${CONTINUATION_OPENING} Your history is intact:`,
+    "the tool calls you made before the restart are above with their results; a call with no recorded result was cut and must be checked or run again.",
+    running,
+    "Commands that ended while the server was down report as usual.",
+    "Continue the task from where you stopped, without redoing work already done.",
+  ].join(" ");
+}
+
+/** The cut was a restart of the server, by its notice's text or by its cause. */
+function cutByRestart(cut: { cause?: unknown; text?: string } | undefined): boolean {
+  return !!cut && (isRestartNotice(cut.text) || cut.cause === "server-shutdown");
+}
+
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
@@ -587,6 +656,21 @@ export interface CtxRipresa {
   decided?(resuming: string[]): void;
   /** Called when a resend's route has answered (or will not): from then on the route holds the turn, or nothing does. */
   resendStarted?(sessionKey: string): void;
+  /** The chat's `run_command`s still running (re-adopted at boot): named in the
+   *  continuation note. Absent: the note says nothing about them. */
+  backgroundCommands?(sessionKey: string): Array<{ description: string; processId: string }>;
+}
+
+/** The blocks of the assistant rows after the user row `lastUserId`: the turn that answered it. */
+function turnRowsAfter(db: Pick<Database, "query">, sessionKey: string, lastUserId: string): Array<ContentBlock[] | null> {
+  const rows = db.query(
+    `SELECT blocks FROM messages
+      WHERE session_key = ?1 AND role = 'assistant'
+        AND rowid > (SELECT rowid FROM messages WHERE id = ?2 AND session_key = ?1)`,
+  ).all(sessionKey, lastUserId) as Array<{ blocks: unknown }>;
+  return rows.map((row) => {
+    try { return JSON.parse(decodeCol(row.blocks as never) ?? "null") as ContentBlock[] | null; } catch { return null; }
+  });
 }
 
 /** The last interruption verdict of a row: the cut, with its cause and its text. */
@@ -802,7 +886,18 @@ export async function riprendiTurniInterrotti(
         `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
       ).get(r.sk) as { id: string; content: unknown } | undefined | null;
       if (!lastUser) continue;
-      const chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r.sk, { id: r.id, blocks }, lastUser.id);
+      let chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r.sk, { id: r.id, blocks }, lastUser.id);
+      // A RESTART THAT CUT A TURN AT WORK SPENDS NO ATTEMPT. The cap is for the
+      // message that crashes its turn every time; a turn that got through some
+      // tools and was then cut by a restart is work in progress. Counted, a long
+      // chat (topic:d740f8ae, hours per turn) would hit the cap after four
+      // planned restarts now that the gate cuts it instead of waiting. A new
+      // chain starts on the last user row, the same shape as a chain whose copy
+      // was answered (`resendChainOf`), and the resend says why it comes.
+      const continuation = r.ruolo === "assistant" && cutByRestart(lastInterruption(blocks))
+        && cutTurnProgressed(turnRowsAfter(ctx.db, r.sk, lastUser.id))
+        && continuationsInARow(ctx.db, r.sk) < MAX_RESTART_CONTINUATIONS;
+      if (continuation) chain = { messageId: lastUser.id, attempts: 0, freeProbes: 0 };
       const attempts = chain.attempts;
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
@@ -917,8 +1012,11 @@ export async function riprendiTurniInterrotti(
       // Il messaggio da rimandare è l'ultimo dell'utente: è ciò che farebbe il
       // bottone «Riprova» (`handleRetry`, ChatPane), e la stessa cosa fatta
       // senza aspettare che qualcuno se ne accorga.
-      const messaggio = (decodeCol(lastUser.content) ?? "").trim();
+      const messaggio = continuation
+        ? restartContinuationNote(ctx.backgroundCommands?.(r.sk) ?? [])
+        : (decodeCol(lastUser.content) ?? "").trim();
       if (!messaggio) continue;
+      if (continuation) console.log(`[ripresa] ${r.sk}: il riavvio ha tagliato un turno che aveva già lavorato, lo continuo con la nota invece di rimandare la domanda`);
       candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, chain: nextResend(chain, blocks, row.timestampMs), fresh });
     }
   } catch (err) {
