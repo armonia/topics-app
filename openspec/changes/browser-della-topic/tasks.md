@@ -63,7 +63,7 @@ video `.webm` degli spec, non resoconti.
       `page-survives-the-raise` tutti veri. Collegato in `TopicBrowserWindow`:
       un `browser_raise` sulla vista attiva a ogni cambio di rettangolo o di
       scheda, che e' anche il momento in cui puo' essere nata una vista dopo.
-- [ ] **`browser_raise` fuori da WKWebView: WebView2 chiuso, WebKitGTK aperto.**
+- [x] **`browser_raise` fuori da WKWebView: WebView2 chiuso, WebKitGTK aperto.**
       WebView2 (`browser_win::raise`): `SetWindowPos` sull'HWND contenitore che
       restituisce il controller, `HWND_TOP` più
       `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`. È lo stesso handle di
@@ -89,6 +89,14 @@ video `.webm` degli spec, non resoconti.
       innalzamento va scritto qui come buco aperto con la sua conseguenza a
       schermo: limitare la finestra a macOS è una scelta di scope che la change
       approvata non contiene, e passa da un sì.
+      **Chiuso il 04/10 (PR #208).** WebKitGTK: buco dichiarato, chiamata tolta.
+      Le pane sono impacchettate con `pack_start` in un GtkBox e non si
+      sovrappongono, quindi non c'è uno z order da alzare: `browser_linux::raise`
+      è un no-op. Misurato con `sonda-gtk.yml`: nella run 37168587456 il
+      falsificato rimette `GdkWindow::raise` dietro `has_window` e i sei verdetti
+      restano identici, `raise-wins=false` compreso; nella run 37168332624
+      `reorder_child` toglie la tastiera, e la sonda lo vede. La riga resta in
+      `PINNED_GAPS`, con il suo `ENGINES-GAP` in `lib.rs` che cita la run.
 - [x] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [x] Sotto 768 px la finestra non monta.
 - [x] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
