@@ -247,7 +247,12 @@
     "empty cache. Recorded by hand, this row only.",
     "05/10, tornata of #234 and #236. server/lib/claude-session-tracker.ts 961 -> 1082: +121 from two PRs each",
     "inside the ceiling alone: hooks made async and put back in order by when they fired (#234), and a",
-    "terminal's turn closed when the phase rests without a Stop, the Esc case (#236). Recorded by hand, this row only."
+    "terminal's turn closed when the phase rests without a Stop, the Esc case (#236). Recorded by hand, this row only.",
+    "05/10, a dev server started with a background Bash is the chat's server (BGVIS-09). server/routes/processes.ts",
+    "2305 on main -> 2365: +60 make a chat's background shell a service row the port watch reads, look its pid up",
+    "when the CLI announces it (not at the detector's next pass, up to 32 s), close it when the CLI drops it, and",
+    "answer the attention store whether a task id is a listening shell. The shells live in this registry's private",
+    "map, so the code sits where they are. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -420,7 +425,7 @@
 
     "server/routes/outbound.test.ts": 972,
 
-    "server/routes/processes.ts": 2213,
+    "server/routes/processes.ts": 2365,
 
     "server/routes/tasks-board.ts": 1197,
     "server/routes/tasks.test.ts": 2697,

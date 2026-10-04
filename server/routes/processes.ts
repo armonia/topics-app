@@ -36,6 +36,7 @@ import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
 import { getListeningPorts, listenersOf, readProcessProbe, servesHtml } from "../lib/listening-ports";
+import { topicIdOfSubject } from "../../shared/attention";
 
 interface ScriptProcess {
   processId: string;
@@ -108,6 +109,8 @@ interface ScriptProcess {
      *  lo start-time distingue la stessa incarnazione da un pid riciclato.
      *  Serve a spazzarli quando la riga sparisce, invece di lasciarli orfani. */
     tree?: Map<number, string>;
+    /** Ended by a Stop (the panel, the chat's server row, `KillShell`) or with its CLI: a server's end reads «stopped». */
+    stopped?: boolean;
   };
   /** Only for `source: 'command'` (`run_command`). Persisted. */
   cmd?: CommandMeta;
@@ -703,15 +706,19 @@ function finishCommand(sp: ScriptProcess, how: { foundDead?: boolean } = {}): vo
 function settlePersonRun(sp: ScriptProcess): void {
   if (_broadcastCtx && sp.status !== "running" && sp.cmd) closeRegistryRun(_broadcastCtx, { ...sp, stopped: !!sp.cmd.stopped });
 }
-/** The `run_command`s that serve a port without waking their chat, watched for their ports (BGVIS-08). */
 /**
- * The rows that can be a chat's server: every `run_command`, and a `run_script`
- * an agent started, read as a command that wakes nobody (it never does).
+ * The rows that can be a chat's server, watched for their ports: every
+ * `run_command` and an agent's `run_script` (BGVIS-08), and a chat's background
+ * Bash (BGVIS-09). The last two read as a command that wakes nobody.
  */
 function* serviceRows(rows: Iterable<ScriptProcess>): Generator<ServiceRowLike> {
   for (const sp of rows) {
     if (sp.cmd) yield sp;
     else if (sp.agentRun) yield { ...sp, cmd: { ...sp.agentRun, wake: false } };
+    else if (sp.shell?.topicId) {
+      const { sessionKey, topicId, stopped } = sp.shell;
+      yield { ...sp, cmd: { sessionKey, topicId, wake: false, ...(stopped ? { stopped } : {}) } };
+    }
   }
 }
 const commandServiceWatch = serviceWatch({
@@ -726,6 +733,22 @@ export const commandBackgroundWork = commandWorkOver(() => (loadProcessRegistry(
 export const commandServices = () => (loadProcessRegistry(), servicesOver(serviceRows(runningScripts.values()), serviceRows(recentScripts), commandServiceWatch.listenOf, Date.now()));
 /** A chat's `run_command` processes, for `GET /api/processes`. */
 export const topicCommandProcesses = (topicId: string) => (loadProcessRegistry(), commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf));
+
+/**
+ * Is this task of the attention subject a chat's server now (BGVIS-09): its
+ * shell runs and its tree listens. The CLI's id links them: the `ID:` its Bash
+ * answers with (the shell row's `shellId`) is the hook's `backgroundTaskId` and
+ * the `task_id` keying the chat's task map (`claude-cli-2.1.282-background-work.ndjson`).
+ * Shells are never persisted: a registry not yet loaded holds none.
+ */
+export function isChatServerTask(subject: string, taskId: string): boolean {
+  const topicId = topicIdOfSubject(subject);
+  if (!topicId) return false;
+  for (const sp of runningScripts.values()) {
+    if (sp.shell?.topicId === topicId && sp.shell.shellId === taskId) return sp.status === "running" && !!commandServiceWatch.listenOf(sp.processId)?.length;
+  }
+  return false;
+}
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
@@ -1115,6 +1138,35 @@ export function registerBackgroundShell(entry: {
   // Its log grows from that file, whether or not the agent ever reads it.
   if (entry.outputPath) followLog(runningScripts.get(processId)!, entry.outputPath, 0);
   if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  void resolveShellNow(runningScripts.get(processId)!);
+}
+
+/**
+ * The CLI announces a shell it has started: its process is there now, so it is
+ * looked up at once on a fresh table, not at the detector's next pass (up to
+ * 32 s), and a dev server is a server by the watch's first pass. Not found, the
+ * detector keeps looking.
+ */
+async function resolveShellNow(sp: ScriptProcess): Promise<void> {
+  const meta = sp.shell!;
+  const owner = getSessionCliPid(meta.sessionKey) ?? meta.ownerPid;
+  if (!owner || !isPidAlive(owner)) return;
+  const claimed = new Set<number>();
+  for (const row of runningScripts.values()) if (row.pid) claimed.add(row.pid);
+  const pid = await resolveShellPid(owner, sp.command, claimed, true).catch(() => null);
+  if (!pid || sp.pid || sp.status !== "running") return;
+  sp.pid = pid;
+  commandServiceWatch.kick(); // it may be a server: its port comes a moment later
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+}
+
+/** The CLI's task list changed: a shell of this session whose process exited closes now, orphans swept, not at the detector's next pass. */
+export async function settleEndedShells(sessionKey: string): Promise<void> {
+  for (const sp of [...runningScripts.values()]) {
+    if (sp.shell?.sessionKey !== sessionKey || sp.status !== "running" || !sp.pid || isPidAlive(sp.pid)) continue;
+    await sweepOrphanedShellTree(sp.shell);
+    finishBackgroundShell(sp, esitoShellMorta({ shellDead: true, ownerDead: false }));
+  }
 }
 
 /** Un `BashOutput` dell'agente: output nuovo e, se c'è, stato aggiornato. */
@@ -1192,10 +1244,16 @@ function finishBackgroundShell(
   if (exitCode != null) sp.exitCode = exitCode;
   else if (status === "killed") sp.exitCode = sp.exitCode ?? -1;
   appendOutput(sp, `\n[shell ${status === "killed" ? "terminata" : status === "failed" ? "fallita" : "conclusa"}]`, true);
+  if (status === "killed" && sp.shell) sp.shell.stopped = true;
   runningScripts.delete(sp.processId);
   addToRecent(sp);
   invalidateScriptsCache();
   if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  // A server that ended: its chat says so now, and its addresses go once that is said (BGVIS-09).
+  if (sp.shell && commandServiceWatch.listenOf(sp.processId)) {
+    if (_broadcastCtx) pushBackgroundChanged(_broadcastCtx, sp.shell);
+    setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
+  }
 }
 
 /**
@@ -1299,7 +1357,7 @@ async function reconcileBackgroundShells(): Promise<boolean> {
     if (meta.resolveAttempts >= SHELL_RESOLVE_MAX_ATTEMPTS) continue;
     meta.resolveAttempts++;
     const pid = await resolveShellPid(owner, sp.command, claimed);
-    if (pid) { sp.pid = pid; claimed.add(pid); changed = true; }
+    if (pid) { sp.pid = pid; claimed.add(pid); changed = true; commandServiceWatch.kick(); }
   }
   return changed;
 }
@@ -1318,10 +1376,12 @@ async function resolveShellPid(
   ownerPid: number,
   command: string,
   claimed: Set<number>,
+  /** Skip the cached process table, up to 2 s old: a shell started a moment ago is not in it. */
+  fresh = false,
 ): Promise<number | null> {
   const needle = normalizeCommandLine(command);
   if (needle.length < 3) return null;
-  const tree = await getDescendantPids(ownerPid);
+  const tree = await getDescendantPids(ownerPid, fresh ? { fresh: true } : undefined);
   tree.delete(ownerPid); // il CLI stesso non è mai la shell
   const candidates = [...tree].filter(p => !claimed.has(p));
   if (!candidates.length) return null;
