@@ -1,7 +1,7 @@
 /**
  * THE MODEL SELECTOR OF THE REVISION OF 2026-10-04, ON THE AUDIT FLEET.
  *
- * openspec/changes/model-selector/revision-2026-10-04.md §11: the fixture of
+ * openspec/changes/archive/2026-10-04-model-selector/revision-2026-10-04.md §11: the fixture of
  * the audit «with keys» (Claude Code, Claude API, Codex, OpenAI API, Gemini
  * CLI, jcode, an Ollama and an OpenRouter endpoint, goose in error) and
  * «without keys», plus the 134 ids jcode really lists. The snapshot is handed
@@ -90,7 +90,7 @@ async function seriousViolations(page: Page, include: string) {
   }, include);
 }
 
-/** The evidence for the maintainer, when `MSEL_SHOTS_DIR` is set (openspec/changes/model-selector/screenshots). */
+/** The evidence for the maintainer, when `MSEL_SHOTS_DIR` is set (openspec/changes/archive/2026-10-04-model-selector/screenshots). */
 async function shot(page: Page, name: string) {
   const dir = process.env.MSEL_SHOTS_DIR;
   if (dir) await page.screenshot({ path: join(dir, `revision-impl-${name}.png`) });

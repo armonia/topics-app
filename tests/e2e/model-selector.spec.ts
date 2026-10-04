@@ -7,7 +7,7 @@
  * asked anything: the only writes are the topic's own PATCHes.
  *
  * Screenshots and the video of the main flow are written for the maintainer
- * when `MSEL_SHOTS_DIR` is set (openspec/changes/model-selector/screenshots).
+ * when `MSEL_SHOTS_DIR` is set (openspec/changes/archive/2026-10-04-model-selector/screenshots).
  *
  * @covers MSEL-01 MSEL-02 MSEL-03 MSEL-07 MSEL-08 MSEL-10
  */
