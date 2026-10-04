@@ -132,6 +132,24 @@ describe("install-claude-hooks", () => {
     expect(existsSync(join(home, ".claude", "topics-hooks"))).toBe(false);
   });
 
+  test("a user's own post-hook.sh in a claude-hooks/ folder is not ours, on install or uninstall", () => {
+    // Same file name and folder name as our new home, unmarked: only the
+    // marker says an entry under `${TOPICS_HOME}/claude-hooks/` is ours, since
+    // this installer never wrote one there without it.
+    const userScript = { type: "command", command: "/Users/me/dotfiles/claude-hooks/post-hook.sh Stop" };
+    const narrowed = { matcher: "Edit", hooks: [{ type: "command", command: "~/claude-hooks/post-hook.sh PostToolUse" }] };
+    const before = { hooks: { Stop: [{ hooks: [userScript] }], PostToolUse: [narrowed] } };
+    writeFileSync(settingsPath(), JSON.stringify(before));
+
+    run("install");
+    const s = readSettings();
+    expect(s.hooks.Stop).toEqual([{ hooks: [userScript, topicsHookEntry(wrapper(), "Stop")] }]);
+    expect(s.hooks.PostToolUse).toEqual([narrowed, { hooks: [topicsHookEntry(wrapper(), "PostToolUse")] }]);
+
+    expect(run("uninstall")).toContain("Removed 7 Topics App hook entries");
+    expect(readSettings()).toEqual(before);
+  });
+
   // The live settings.json of the person who installed Topics before the
   // `topics_app` marker existed: seven entries, no marker, path NOT quoted,
   // each one sitting next to hooks that belong to other tools. Stop's entry is

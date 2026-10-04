@@ -37,8 +37,21 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { createClaudeSessionTracker, type ClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
 
 const ROOT = testTmpDir("claude-sessions-routes");
-beforeAll(() => setupTestDataDir(join(ROOT, "data")));
-afterAll(() => cleanupTestDataDir(ROOT));
+// The router writes the hook token AND the hook script under TOPICS_HOME when
+// it is built (`getOrCreateHookToken`). Left to its default that is the real
+// `~/.topics/claude-hooks/post-hook.sh`, the file every live session of the
+// production server runs: a test run of a branch would swap it under them.
+let previousTopicsHome: string | undefined;
+beforeAll(() => {
+  setupTestDataDir(join(ROOT, "data"));
+  previousTopicsHome = process.env.TOPICS_HOME;
+  process.env.TOPICS_HOME = join(ROOT, "topics-home");
+});
+afterAll(() => {
+  if (previousTopicsHome === undefined) delete process.env.TOPICS_HOME;
+  else process.env.TOPICS_HOME = previousTopicsHome;
+  cleanupTestDataDir(ROOT);
+});
 
 const T0 = 1_700_000_000_000;
 const REPO_ROOT = join(import.meta.dir, "..", "..");

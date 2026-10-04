@@ -11,9 +11,10 @@
  * sidecar has no `scripts/` dir to read it from. `scripts/claude-hooks/post-hook.sh`
  * stays the source.
  */
-import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { topicsHome } from "../services/daemon-state";
+import { writeFileAtomic } from "./atomic-write";
 import POST_HOOK_SCRIPT from "../../scripts/claude-hooks/post-hook.sh" with { type: "text" };
 
 export function hookScriptPath(home: string = topicsHome()): string {
@@ -34,9 +35,9 @@ export function writeHookScript(path: string, content: string = POST_HOOK_SCRIPT
   }
   if (same) return false;
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content, { mode: 0o755 });
-  // writeFileSync's `mode` applies only on CREATION: a file that was already
-  // there keeps its old permissions.
-  chmodSync(path, 0o755);
+  // Temp + rename, mode set on the temp: the live sessions run this file on
+  // every hook, and a plain write truncates it first. A hook starting in that
+  // window would run an empty or half-written script.
+  writeFileAtomic(path, content, { mode: 0o755 });
   return true;
 }

@@ -17,9 +17,11 @@
  *   - Localised marker: every entry we add carries `topics_app: true` in the
  *     hook object so the uninstaller can remove only our entries, under
  *     whatever event they sit. An entry
- *     written before the marker existed (same wrapper path, no marker, path
- *     quoted or not) is recognised too: install repairs it in place instead of
- *     appending a second Topics hook, and uninstall removes it.
+ *     written before the marker existed (the old `~/.claude/topics-hooks/`
+ *     wrapper path, no marker, path quoted or not) is recognised too: install
+ *     repairs it in place instead of appending a second Topics hook, and
+ *     uninstall removes it. An unmarked `claude-hooks/post-hook.sh` is never
+ *     ours: this script always marks what it writes there.
  *   - Topics hooks fire on every tool: our entry lives in a wildcard matcher
  *     (no `matcher`, `""` or `"*"`). A copy found in a narrowed matcher is
  *     removed from it, and the other hooks of that matcher stay.
@@ -91,9 +93,12 @@ function buildEntry(event: string): HookEntry {
 // The wrapper path followed by the event, quoted or not, whatever the home it
 // was written under. This is how an entry written before the `topics_app`
 // marker existed is recognised: the live file of the first users still has
-// seven of them, unmarked and with the path unquoted. Both homes of the script
-// count: `~/.claude/topics-hooks/` (before) and `${TOPICS_HOME}/claude-hooks/`.
-const WRAPPER_TAIL = /(?:^|\/)(?:topics|claude)-hooks\/post-hook\.sh["']?\s+(\S+)\s*$/;
+// seven of them, unmarked and with the path unquoted. Only the OLD home
+// (`~/.claude/topics-hooks/`) counts: under `${TOPICS_HOME}/claude-hooks/` this
+// script has always written the marker, and an unmarked `claude-hooks/post-hook.sh`
+// is somebody else's hook (a dotfiles folder of the same name), which install
+// would rewrite and uninstall delete.
+const WRAPPER_TAIL = /(?:^|\/)topics-hooks\/post-hook\.sh["']?\s+(\S+)\s*$/;
 
 /** Is this hook one of ours for `event`? A marked entry is ours wherever it
  *  sits, whatever its command says: the marker is written by this script only,

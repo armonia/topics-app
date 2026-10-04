@@ -128,6 +128,19 @@ idempotent and non-destructive: entries are marked `topics_app: true`, so
 uninstall removes only ours and your own hooks are preserved. Both commands
 remove the copy older versions left in `~/.claude/topics-hooks/`.
 
+Upgrading from a global install: run `hooks:uninstall` only once every Claude
+process started BEFORE the upgrade is gone. Those (a chat child the ai-bridge
+hands back as `resumed`, a `claude` pane the pty-bridge reattaches) carry no
+`--settings` and take their hooks from the global file, which the CLI re-reads
+live: uninstall silences them at once. Until then run `hooks:install` instead,
+which points the global entries at the same script the spawns use (identical
+commands, which the CLI runs once). The leftovers are the processes this
+prints, and an empty output means uninstall is safe:
+
+```bash
+ps -axww -o pid=,command= | grep -F 'topics-mcp/' | grep -v grep | grep -vF 'claude-hooks/post-hook.sh'
+```
+
 The wrapper POSTs each hook payload to the server's
 `/api/claude-hooks/:event` endpoint and is strictly fire-and-forget: it always
 exits 0 with a 2s request timeout, so a down or slow server never blocks
