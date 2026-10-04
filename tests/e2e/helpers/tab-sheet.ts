@@ -112,8 +112,8 @@ export async function closeTabSheet(page: Page): Promise<void> {
 }
 
 /**
- * Move `tab` to the group named `group` («Nuovo gruppo» makes one) from its
- * sheet: Layout level, then the «Sposta nel gruppo» level inside it.
+ * Move `tab` to the group named `group` (the new-group row makes one) from
+ * its sheet: the Layout level, then the move-to-group level inside it.
  */
 export async function moveTabToGroupViaSheet(page: Page, tab: Locator, group: string): Promise<void> {
   await openTabSheet(page, tab);

@@ -47,16 +47,16 @@ describe('tab sheet store', () => {
 
   test('the request that follows the closing press is dropped, the next gesture re-arms', () => {
     const host = fakeHost();
-    const closing = new Event('pointerdown');
+    const firstPress = new Event('pointerdown');
     openTabSheet('a', 'commands');
     closeTabSheet('a');
-    swallowNextOpen('a', host as unknown as Document, closing);
+    swallowNextOpen('a', host as unknown as Document, firstPress);
     // The same press, still being dispatched, does not disarm it.
-    host.press('pointerdown', closing);
+    host.press('pointerdown', firstPress);
     openTabSheet('a', 'commands');
     expect(getOpenTabSheet()).toBeNull();
     // A press that produced no request (a drag) disarms it for the next one.
-    swallowNextOpen('a', host as unknown as Document, closing);
+    swallowNextOpen('a', host as unknown as Document, firstPress);
     host.press('pointerdown');
     openTabSheet('a', 'commands');
     expect(getOpenTabSheet()?.key).toBe('a');

@@ -69,12 +69,12 @@ export function toggleTabSheet(key: string, door: TabSheetDoor): void {
  * The next request for `key` is the second half of the press that just closed
  * it, and is dropped. Disarmed by the next gesture that starts anywhere.
  */
-export function swallowNextOpen(key: string, host: Pick<Document, 'addEventListener' | 'removeEventListener'> | null = typeof document === 'undefined' ? null : document, closing?: Event): void {
+export function swallowNextOpen(key: string, host: Pick<Document, 'addEventListener' | 'removeEventListener'> | null = typeof document === 'undefined' ? null : document, firstPress?: Event): void {
   swallowKey = key;
   if (!host) return;
   const disarm = (e: Event) => {
     // The press that armed this is still being dispatched: it is not the next one.
-    if (e === closing) return;
+    if (e === firstPress) return;
     host.removeEventListener('pointerdown', disarm, true);
     host.removeEventListener('keydown', disarm, true);
     if (swallowKey === key) swallowKey = null;

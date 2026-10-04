@@ -139,6 +139,12 @@ export interface TabSheetModel {
   closeOthers?: () => void;
 }
 
+/** The name of each device mode, as a catalogue key: the mode is an identifier. */
+export const DEVICE_LABEL_KEY: Record<'desktop' | 'mobile' | 'tablet' | 'auto' | 'custom', string> = {
+  desktop: 'tabSheet.device.desktop', mobile: 'tabSheet.device.mobile', tablet: 'tabSheet.device.tablet',
+  auto: 'tabSheet.device.auto', custom: 'tabSheet.device.custom',
+};
+
 /** The first level may not grow past this many rows (TABSHEET-02). */
 export const FIRST_LEVEL_MAX_ROWS = 11;
 
