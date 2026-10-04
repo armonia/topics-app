@@ -310,6 +310,14 @@ describe('topicsAgentSystemPrompt', () => {
     const dopo = p.slice(p.indexOf('available to you'));
     expect(dopo).toContain('mcp__topics__wait_for_process');
   });
+
+  test('names spawn_agent as the way to delegate, on a chat and on a card', () => {
+    // A chat or a card has no native `Agent` (`NATIVE_DELEGATION_TOOLS`), and
+    // the bridge's tools are deferred: only the name reaches the model.
+    for (const board of [false, true]) {
+      expect(topicsAgentSystemPrompt('auto', 'darwin', board)).toContain('`mcp__topics__spawn_agent`');
+    }
+  });
 });
 
 /**

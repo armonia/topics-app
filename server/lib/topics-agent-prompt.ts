@@ -174,6 +174,7 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
   ...(board ? boardWaits(cmd) : chatWaits(cmd)),
+  'To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.',
   cmd
     ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
     : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',
