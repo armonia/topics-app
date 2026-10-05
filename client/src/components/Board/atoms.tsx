@@ -55,7 +55,7 @@ export function TaskIdChip({ id, className = '' }: { id: string; className?: str
       // `tap-expand` projects 24x24 with the mouse and 44x44 under a finger
       // around the 18px box (index.css): the box itself stays inside the title
       // line (IDCHIP-01).
-      className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'} ${className}`}
+      className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-600 dark:text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'} ${className}`}
     ><Glyph className="h-3.5 w-3.5" aria-hidden /></button>
   );
 }
@@ -216,8 +216,8 @@ export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { st
  */
 const QUEUE_TONE_CLS: Record<QueueTone, string> = {
   queued: 'bg-white/10 text-app-text-secondary',
-  waiting: 'bg-indigo-500/15 text-indigo-300',
-  stalled: 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30',
+  waiting: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
+  stalled: 'bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-400/30',
 };
 
 /**
@@ -269,11 +269,11 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
   // wire. Only the sentences around them are translated.
   const closer = label === 'visibile' || label === 'decisione' || label === 'invisibile'; // allow-italian: the closed label vocabulary, compared by value
   const cls = label === 'invisibile'
-    ? 'bg-slate-500/20 text-slate-300'
+    ? 'bg-slate-500/20 text-slate-800 dark:text-slate-300'
     : label === 'visibile'
-      ? 'bg-sky-500/15 text-sky-300'
+      ? 'bg-sky-500/15 text-sky-800 dark:text-sky-300'
       : label === 'decisione' // allow-italian: the closed label vocabulary, compared by value
-        ? 'bg-violet-500/15 text-violet-300'
+        ? 'bg-violet-500/15 text-violet-800 dark:text-violet-300'
         : 'bg-white/10 text-app-text-heading';
   const why = label === 'invisibile'
     ? tr('board.label.invisibleWhy')

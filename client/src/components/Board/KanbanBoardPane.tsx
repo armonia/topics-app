@@ -43,12 +43,13 @@ import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import { BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST } from './boardGeometry';
+import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
 import { runInitiatorName, taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
@@ -626,7 +627,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           // 16px target, the smallest on the row. Same inset ring as the
           // shells: being the smallest target, it is also the one the global
           // offset outline overflows worst.
-          className={`grid ${TOOLBAR_CONTROL_H} w-6 shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
+          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
         >
           <X className="h-3 w-3" />
         </button>
@@ -892,6 +893,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const {
     tasks: feedTasks, loading, refetch, patchTask, beginDrag, endDrag, flushDeferredRead,
   } = useBoardFeed({ mode, projectId, showArchived, onError: setError });
+  // The room under the last card, measured against the composer that floats
+  // over the columns (KANBAN-MOBILE-04, see `columnClearance.ts`).
+  useColumnClearance(columnsScrollRef, boardLayout, !loading);
 
   // LE SCRITTURE ANCORA IN VOLO, sopra qualunque lista atterri.
   //
@@ -1828,7 +1832,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           si vedeva gia' da solo. Le strisce che compaiono sotto (errore,
           archivio, impostazioni) portano il proprio bordo quando servono. */}
       <div className="relative shrink-0">
-      <div ref={toolbarScrollRef} data-testid="board-toolbar" className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
+      {/* `overflow-y-hidden`: a bar is fixed chrome and never scrolls vertically
+          (KANBAN-MOBILE-01). `overflow-x: auto` alone turns the other axis into
+          `auto` as well (CSS Overflow 3), so any child reaching past the 36px
+          row - the 44px area `.tap-expand` projected around a 24px glyph under
+          a finger - made the bar scroll up and down by 4px on a phone. */}
+      <div ref={toolbarScrollRef} data-testid="board-toolbar" className="flex items-center gap-1 overflow-x-auto overflow-y-hidden px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 coarse:py-1 sm:px-3">
         {/* Inside a project the two buttons are a CHOICE, so they stay. On the
             general board there used to be a static label here saying which board
             this is: the tab that carries the pane already says it, in the same
@@ -1876,7 +1885,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           data-testid="board-layout-toggle"
           aria-pressed={boardLayout === 'list'}
           onClick={() => setBoardLayout((v) => (v === 'list' ? 'grid' : 'list'))}
-          className={`tap-expand grid ${TOOLBAR_CONTROL_H} w-6 shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
           title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
         >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
         <div className="ml-auto flex items-center gap-2">
@@ -1905,7 +1914,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               disabled={openingOrchestrator}
               title={tr('board.orchestrator.openTitle')}
               aria-label={tr('board.orchestrator.open')}
-              className={`tap-expand-y flex items-center gap-1 rounded px-2 py-0.5 text-mini disabled:cursor-wait disabled:opacity-60 ${
+              // The row's height like every other control (KANBAN-12): with
+              // `py-0.5` it was 21px tall, and under a finger the 44px band its
+              // `.tap-expand-y` projected ran over the layout toggle beside it.
+              className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini disabled:cursor-wait disabled:opacity-60 ${
                 orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
               }`}
             >
@@ -1933,7 +1945,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               data-testid="board-archived-toggle"
               aria-pressed={showArchived}
               onClick={() => setShowArchived((v) => !v)}
-              className={`grid ${TOOLBAR_CONTROL_H} w-6 place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
@@ -1946,7 +1958,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClick={toggleSettings}
             aria-expanded={showSettings}
             aria-haspopup="menu"
-            className={`grid ${TOOLBAR_CONTROL_H} w-6 place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>

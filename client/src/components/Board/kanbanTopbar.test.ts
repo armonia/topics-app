@@ -322,7 +322,9 @@ describe("6. la barra ha una sola altezza, scritta una volta", () => {
   const CONSTANTS = readFileSync(join(DIR, "constants.ts"), "utf8");
 
   test("il numero e' dichiarato una volta sola, e nessuno lo riscrive a mano", () => {
-    expect(CONSTANTS, "il token dell'altezza non si trova piu'").toContain("export const TOOLBAR_CONTROL_H = 'h-6'");
+    // Two values in ONE declaration (KANBAN-12 modified on 05/10): 24 with a
+    // mouse, 44 under a finger. Still one place to change the row.
+    expect(CONSTANTS, "il token dell'altezza non si trova piu'").toContain("export const TOOLBAR_CONTROL_H = 'h-6 coarse:h-11'");
     // One literal in the whole family: the declaration itself. Comments are
     // stripped first, because the note that EXPLAINS the token necessarily
     // spells the class it holds.

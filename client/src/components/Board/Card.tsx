@@ -218,16 +218,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           so the column FRAME reaches the bottom of the pane, while a full column's
           last card can still scroll clear of the floating "Descrivi un task" box.
           On a short column it is invisible slack below the already-empty area.
-
-          MISURATO, non stimato: il composer è alto 110px e il suo bordo
-          superiore cade 129px sopra il fondo del corpo colonna. Con `pb-16`
-          (64px) la corsa NON bastava — nemmeno scrollando fino in fondo la
-          card ultima riusciva a uscire da sotto quel riquadro, e un task appena
-          creato (che prende `kanban_order = max + 1`, quindi atterra proprio
-          lì) restava dietro alla scatola in cui l'avevi scritto. `pb-36` =
-          144px: 129 di composer + un margine. Il valore qui dà la CORSA; a
-          decidere dove fermarsi è la misura del composer viva, in
-          KanbanBoardPane — perché quell'altezza cresce col testo. */}
+          How much is no longer a constant: see the note on the body below. */}
       {/* scrollbar-standard keeps the app's standard thin hover scrollbar as the
           single indicator and zeroes the legacy ::-webkit-scrollbar, so the
           native bar no longer renders ON TOP of it (the "double bar" on hover). */}
@@ -241,7 +232,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           KanbanBoardPane), not one per section — a section here is a slice of
           that page, not its own carousel slide, so it neither scrolls nor
           reserves the composer's clearance on its own. */}
-      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-36 scrollbar-standard'}>
+      {/* THE BOTTOM PADDING IS MEASURED (KANBAN-MOBILE-04): the board publishes
+          how far the floating composer reaches into the column plus a breath
+          (`columnClearance.ts`), and on a phone the button band under a hidden
+          composer is the floor. The fixed `pb-36` left the last card 3px above
+          the composer on a 390x844 phone. 9rem is the old value, kept only as
+          the fallback for the first frame before the measure lands. */}
+      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-[max(var(--board-bottom-clear,9rem),calc(var(--mobile-band-own-h,0px)+1rem))] scrollbar-standard'}>
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
             and at the top, where a new card lands. Outside the sortable list:
             it is not a card yet and nothing can drag it. */}
@@ -1062,7 +1059,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
-                task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
+                task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300' : 'bg-white/10 text-app-text-secondary'
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -1100,35 +1097,35 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-system-delivered"
               title={systemDelivered.title}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {systemDelivered.label}</span>
           )}
           {blockedChip && (
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
-              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
           )}
           {reopened && (
             <span
               data-testid="card-reopened"
               title={reopened.title}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><RotateCcw className="h-3 w-3 shrink-0" /> {reopened.label}</span>
           )}
           {waitingOnThis && (
             <span
               data-testid="card-waiting-on-this"
               title={waitingOnThis.title}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
           )}
           {task.parentTaskId && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
               title={parentTitle ? tr('board.card.openParentNamedTitle', { title: parentTitle }) : tr('board.task.openParentCardTitle')}
-              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300 hover:bg-violet-500/25"
+              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300 hover:bg-violet-500/25"
             >⤴ {parentTitle ?? tr('board.card.parent')}</button>
           )}
           {task.userCommentCount > 0 && (
@@ -1144,7 +1141,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 commit: task.deliveryCommit?.slice(0, 8) ?? '?',
                 branch: task.deliveryBranch ? tr('board.card.notLandedBranch', { branch: task.deliveryBranch }) : '',
               })}
-              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300"
+              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
               // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
               // esiste, e senza il nome la card dice che c'è un problema ma non
               // dove sta il lavoro. `max-w-full` più il `flex-wrap` della riga:
@@ -1179,7 +1176,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-uncommitted"
               title={tr('board.card.uncommittedTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {uncommittedCount > 0
               ? tr('board.card.uncommittedFiles', { n: uncommittedCount })
               : tr('board.card.uncommitted')}</span>
@@ -1188,7 +1185,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-nothing-delivered"
               title={tr('board.card.nothingDeliveredTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {tr('board.card.nothingDelivered')}</span>
           )}
           {lavoroInPlace && (
@@ -1220,7 +1217,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-checks-green"
               title={tr('board.card.checksGreenTitle')}
-              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-300"
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-800 dark:text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.checksGreen')}</span>
           )}
           {checksRunning && (
@@ -1278,19 +1275,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-checks-unknown"
               title={tr('board.card.checksUnknownTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
           )}
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300"
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
             ><AlertTriangle className="h-3 w-3 shrink-0" /> {tr('board.card.checksRed')}</span>
           )}
           {task.planFirst && (
             <span
               title={tr('board.card.planTitle')}
-              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300"
+              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300"
             >{tr('board.card.plan')}</span>
           )}
           {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
@@ -1302,21 +1299,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {task.lastActorPersonName && (
             <span
               title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
-              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-300"
+              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
           {runInitiator && (
             <span
               data-testid="card-run-initiator"
               title={tr('board.card.runInitiatorTitle', { name: runInitiator })}
-              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-700 dark:text-violet-300 md:text-mini"
+              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-800 dark:text-violet-300 md:text-mini"
             ><UserRound className="h-3 w-3 shrink-0" /> {tr('board.card.runInitiator', { name: runInitiator })}</span>
           )}
           {task.runComputerName && (
             <span
               data-testid="card-run-computer"
               title={tr('board.card.runComputerTitle', { name: task.runComputerName })}
-              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-700 dark:text-indigo-300 md:text-mini"
+              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-800 dark:text-indigo-300 md:text-mini"
             ><Server className="h-3 w-3 shrink-0" /> {task.runComputerName}</span>
           )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
@@ -1329,7 +1326,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-conductor-closes"
               title={tr('board.card.conductorClosesTitle')}
-              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-300"
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-800 dark:text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
           {/* I FILE MODIFICATI NON SONO PIU' UN CHIP QUI.
@@ -1391,7 +1388,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   data-testid={`card-subtask-work-${s.id}`}
                   data-kind="unattended"
                   title={work.title}
-                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
+                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-800 dark:text-rose-300"
                 ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
               ) : (
                 <span
@@ -1632,7 +1629,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
           // esiste per togliere.
           <span
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-300"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-800 dark:text-rose-300"
             // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
             // «il tab del task», che è l'altra superficie e non ha un campo
             // dove rispondere a un turno vivo.
@@ -1648,7 +1645,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
         ) : showsStoppedChip(task) ? (
           // Not on a done card: see `stoppedChip.ts`.
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
         ) : null}
         {/* Il primo tratto del turno, quello in cui la card sembra ferma:
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
@@ -1658,7 +1655,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <span
             data-testid="card-triage"
             title={tr('board.card.triageTitle')}
-            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300"
+            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300"
           >{tr('board.card.triage')}</span>
         )}
         {/* THE WAIT BEFORE A RETRY takes the live chip's place. The turn is
@@ -1912,7 +1909,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <div
           data-testid="card-action-error"
           onClick={(e) => e.stopPropagation()}
-          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-compact leading-snug text-rose-300"
+          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-compact leading-snug text-rose-800 dark:text-rose-300"
         >
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>
@@ -1972,7 +1969,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 onClick={(e) => { e.stopPropagation(); setCtxMenu(null); stop(); }}
                 title={stopWord.title}
                 className={POPOVER_ITEM}
-              ><Square className="h-3.5 w-3.5 fill-current text-rose-400" /> {stopWord.label}</button>
+              ><Square className="h-3.5 w-3.5 fill-current text-rose-600 dark:text-rose-400" /> {stopWord.label}</button>
             </>
           )}
           <div className={POPOVER_DIVIDER} />
