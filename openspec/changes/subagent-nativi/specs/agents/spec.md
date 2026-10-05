@@ -247,10 +247,21 @@ words behind: `end_turn` SHALL be `completed`; `cancelled` SHALL be `stopped`,
 with the reason `swept` when the machine cut it (a watchdog, the sweep, a
 stall); any other end, a turn with no end at all, or a chat route that refused
 the turn, SHALL be `failed` with the reason. A turn that did not complete SHALL
-NOT archive the child. The server's shutdown (`server-shutdown`) SHALL NOT be an
-outcome: the turn stays open, the row `running`, nothing is reported; the boot's
-resume sends it again and its one result comes when it really ends, or the
-adoption closes it once as `lost` if the resume does not come. The result SHALL go to the parent the
+NOT archive the child. A turn cut by the engine's tool-round cap SHALL be
+reported when it is cut, and the automatic resume that carries the work on
+SHALL be a new turn with its own result: two results, by design (decided on
+05/10). The server's shutdown (`server-shutdown`) SHALL NOT be an
+outcome: the turn stays open, the row `running`, nothing is reported. It gets
+ONE result: the resent turn's when the boot's resume sends it again, or `lost`
+once. While the resume can still send it (its verdict is a resend, deferred
+by a provider hold or left to a later sweep) the turn SHALL stay suspended,
+and nothing SHALL declare it `lost`; it is `lost` when the resume gives it up
+for good (capped, its chat archived, out of its window) or when a
+`send_to_agent` supersedes it. One question, «is this cut turn still
+resumable?» (`cutTurnResumable`), SHALL be answered in one place, the
+resume's own verdict, for the adoption and the resume alike. The resume SHALL
+NOT send any turn to a child that is not `running`. Removing the Topics engine (`DELETE /api/providers/topics`) is no
+shutdown: the turns it cuts SHALL end `failed`, the engine removed. The result SHALL go to the parent the
 way a CLI child's does (SUBAGENT-12, 13). At the end of its turn the row SHALL
 become `retired`: no process is left to park.
 
@@ -259,7 +270,12 @@ of SUBAGENT-14 and through the same limits; on a child whose turn is running
 it SHALL answer 409. Its answer SHALL wait for the chat route's: when another
 turn got to the chat first (409), the parent SHALL get that error, never `ok`
 for a turn that was not sent. The driven turn SHALL be recognised by the key
-its request carries (`clientMessageId`), never by being the next turn to open. `read_agent` SHALL read the child's chat, with a row
+its request carries (`clientMessageId`), never by being the next turn to open. Its text SHALL be the child's prompt: the chat route's
+commands (`/project …`) SHALL NOT run on a driven turn. A driven turn the
+chat route answered without opening one SHALL be an error for the parent,
+and the child SHALL be left as it was. A `send_to_agent` on a child whose
+turn a restart cut and the resume still holds SHALL close that turn once as
+`lost` before its own: the resume then has nothing to send. `read_agent` SHALL read the child's chat, with a row
 index as offset.
 
 `stop_agent` SHALL cancel the running turn through the chat's own Stop; the
@@ -295,8 +311,16 @@ A `send_to_agent` SHALL start a stopped child again, and so SHALL a person
 writing in its chat by hand: the child goes back to `running`, its chat back
 in view, and its results and its delegations work again. Nothing else SHALL:
 the chat route tells a person's message from the machine's (a wake, the boot's
-resume, a goal nudge, a turn the server sends itself), and the boot's resume
-and the goal loop SHALL NOT send a stopped child any turn. Editing or
+resume, a goal nudge, a turn the server sends itself) and from an agent's,
+reading the request's authentication, not its body alone: a request the
+server built, `fromAgent` (`send_chat_message`) or an agent credential (the
+daemon token, the gateway token) is no person. The boot's resume
+and the goal loop SHALL NOT send a stopped child any turn. An agent SHALL NOT
+write in a native sub-agent's chat at all: the chat route SHALL answer 409
+(`subagent_chat`) naming `send_to_agent(agent_id=…)`, before storing anything.
+Only its parent drives it, and one turn the parent never sent would be a
+result it never asked for (chosen over rerouting the call as a
+`send_to_agent`: the sender may not be the parent). Editing or
 regenerating a message in a sub-agent's chat SHALL be refused (409): that
 one-shot pass has no tools and is no turn its parent would hear of.
 
@@ -317,7 +341,11 @@ background work, and SHALL NOT send «Objective still open».
 
 After a restart, a native child still `running` SHALL be watched for a minute:
 a turn resumed with its chat SHALL be awaited and reported; one that does not
-come back SHALL be reported `lost` with what it had written. A child that had
+come back, and that the resume can no longer send, SHALL be reported `lost`
+with what it had written. A CLI child's phase that this process does not know
+yet SHALL be read off its transcript before a Stop decides it is at work. A
+Stop SHALL cut only the turn it was pressed on: a turn that opened on the chat
+while it was stopping the children is left alone. A child that had
 reported and was only waiting on its own work lost no turn: it SHALL NOT be
 reported `lost`, whether the adoption closes it or a `send_to_agent` arrives
 during that minute. Closing it, the boot SHALL read its last turn as the live
@@ -367,6 +395,21 @@ path did (the status written with its name), not the row's `endReason`:
 - **GIVEN** a native child mid-turn when the server shuts down
 - **THEN** no result SHALL go out before the boot
 - **AND** after the boot's resume the parent SHALL receive one result, the resumed turn's
+
+#### Scenario: a restart whose resume a provider hold defers
+- **GIVEN** a native child mid-turn when the server shuts down, and a boot under a provider hold longer than the adoption's minute
+- **THEN** no result SHALL go out while the hold lasts
+- **AND** when the hold lifts and the resume sends the turn, the parent SHALL receive one result, the resent turn's
+
+#### Scenario: an agent writes in a child's chat
+- **GIVEN** a native child, stopped by its parent
+- **WHEN** an agent calls `send_chat_message` on the child's chat
+- **THEN** the chat route SHALL answer 409 naming `send_to_agent`, and the child SHALL stay `stopped` with its one result
+
+#### Scenario: a chat command through send_to_agent
+- **GIVEN** a retired native child
+- **WHEN** its parent sends it `/project open …`
+- **THEN** the child SHALL run it as its prompt, one turn, one result
 
 #### Scenario: a send that loses the race
 - **GIVEN** a `send_to_agent` whose request reaches the chat after another turn opened there
