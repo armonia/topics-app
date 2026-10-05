@@ -64,7 +64,7 @@ import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../
 import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import type { ChangeSet } from "../../shared/change-set";
-import { archiveTopicFully } from "../services/archive-topic";
+import { archiveTopicFully, reopenTopicFully, type ReopenTopicDeps } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
@@ -389,6 +389,17 @@ function restoreTopicInUiState(
   topicId: string,
 ): void {
   mutateAllUiState(db, broadcastToAll, "restoreTopicInUiState", topicId, retractTopicTombstoneFromUiStateValue);
+}
+
+/** What `reopenTopicFully` needs, bound once: the unarchive route and a sub-agent's resume share it. */
+export function reopenDepsFor(ctx: Pick<AppContext, "db" | "getTopicById" | "saveSingleTopic">, broadcastToAll: ReopenTopicDeps["broadcastToAll"]): ReopenTopicDeps {
+  return {
+    getTopicById: ctx.getTopicById,
+    saveSingleTopic: ctx.saveSingleTopic,
+    broadcastToAll,
+    restoreInUiState: (topicId) => restoreTopicInUiState(ctx.db, broadcastToAll, topicId),
+    clearRetirement: (topicId) => { clearRetirement(ctx.db, "topic", topicId); },
+  };
 }
 
 /** Quanti caratteri grezzi leggere per ricavarne {@link PREVIEW_MAX_CHARS} puliti.
@@ -1928,19 +1939,10 @@ export function createTopicsRouter(
         // Unarchive is a REOPEN: retract the close markers the purge left, or
         // the client's hydrate strip would delete the tab on every load and
         // the chat would be permanently un-openable.
-        topic.archived = false;
-        topic.updatedAt = new Date().toISOString();
-        saveSingleTopic(topic);
-        broadcastToAll({ type: "topic:archived", topic });
-        restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
-        // Il fatto va ritrattato con gli altri due registri, o al riavvio
-        // successivo il riconcilio richiuderebbe la chat appena riaperta —
-        // con l'utente dentro.
-        clearRetirement(ctx.db, "topic", params.id);
-        // Reopening relights nothing of before (T18): the turn seen at the
-        // archiving makes no epoch.
-        setClosed(topicSubject(params.id), { archived: false });
-        return json(presentGlobalOrchestratorTopic(db, topic));
+        // The retirement fact goes with the flag and the ui_state markers, or
+        // the next boot's reconcile closes the chat again, person inside.
+        const reopened = reopenTopicFully(reopenDepsFor(ctx, broadcastToAll), params.id) ?? topic;
+        return json(presentGlobalOrchestratorTopic(db, reopened));
       }
     }
 
