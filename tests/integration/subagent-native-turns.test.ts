@@ -379,7 +379,8 @@ describe("nothing after a Stop wakes anyone (SUBAGENT-11)", () => {
 
   // Probe g: a person's Stop during the boot's adoption minute; the adoption
   // then reported the cut turn `lost`, which woke the root after the Stop.
-  test("a Stop during the boot's adoption: the cut turn says nothing", async () => {
+  // Review 7: the cut turn's one result is the Stop's, which wakes nobody.
+  test("a Stop during the boot's adoption: the cut turn's one result is the Stop's, and the root is not woken", async () => {
     const c = await spawn(ROOT_KEY, { name: "adopt-stop", prompt: "adopt stop child" });
     const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
     await until("turn 1", () => reportsFor(id)[0]);
@@ -387,7 +388,9 @@ describe("nothing after a Stop wakes anyone (SUBAGENT-11)", () => {
     // The process died during turn 2: row still running, its message in the chat.
     ctx.db.run("UPDATE subagents SET state = 'running', ended_at = NULL WHERE id = ?", [id]);
     await sleep(5);
-    ctx.appendLocalMessage(sk, "user", "turn 2, cut by the restart");
+    const cut = ctx.appendLocalMessage(sk, "user", "turn 2, cut by the restart") as { id: string };
+    const { recordTurnStarted } = await import("../../server/lib/subagent-store");
+    recordTurnStarted(ctx.db as never, id, cut.id);
     const { resetTurnEndRegistry } = await import("../../server/providers/turn-end-registry");
     resetTurnEndRegistry();
     const native = await import("../../server/lib/native-subagents");
@@ -398,7 +401,7 @@ describe("nothing after a Stop wakes anyone (SUBAGENT-11)", () => {
     expect(rowOf(id)?.state).toBe("stopped");
     await adoption;
     await sleep(1_500);
-    expect(statusesOf(id)).toEqual([[1, "completed", false]]);
+    expect(statusesOf(id)).toEqual([[1, "completed", false], [2, "stopped", true]]);
     expect(userTurns(ROOT_KEY) - rootUsersBefore).toBe(0);
   }, 30_000);
 

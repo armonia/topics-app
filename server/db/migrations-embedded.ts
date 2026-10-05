@@ -185,6 +185,7 @@ import m20261003214001_subject_attention from "./migrations/20261003214001-subje
 import m20261004180000_subagents_native_runtime from "./migrations/20261004180000-subagents-native-runtime.sql" with { type: "text" };
 import m20261005060000_subagents_runtime_reason_engaged from "./migrations/20261005060000-subagents-runtime-reason-engaged.sql" with { type: "text" };
 import m20261005140000_subagent_reported_turns from "./migrations/20261005140000-subagent-reported-turns.sql" with { type: "text" };
+import m20261005200000_subagent_started_turns from "./migrations/20261005200000-subagent-started-turns.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -374,4 +375,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20261004180000, name: "20261004180000-subagents-native-runtime.sql", sql: m20261004180000_subagents_native_runtime },
   { version: 20261005060000, name: "20261005060000-subagents-runtime-reason-engaged.sql", sql: m20261005060000_subagents_runtime_reason_engaged },
   { version: 20261005140000, name: "20261005140000-subagent-reported-turns.sql", sql: m20261005140000_subagent_reported_turns },
+  { version: 20261005200000, name: "20261005200000-subagent-started-turns.sql", sql: m20261005200000_subagent_started_turns },
 ];

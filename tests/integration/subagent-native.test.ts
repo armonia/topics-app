@@ -344,10 +344,13 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     await until("turn 1", () => reportsFor(id)[0]);
     // The process died during turn 2: the row is still `running`, nothing in
     // this process drives it, and the turn ends it knew are gone with it. Its
-    // message is in the chat: the route writes it before the turn runs.
+    // message is in the chat, and its start was written down when its stream
+    // opened (`recordTurnStarted`): that is what makes it a turn.
     ctx.db.run("UPDATE subagents SET state = 'running', ended_at = NULL WHERE id = ?", [id]);
     await new Promise((r) => setTimeout(r, 5));
-    ctx.appendLocalMessage(sk, "user", "turn 2, cut by the restart");
+    const cut = ctx.appendLocalMessage(sk, "user", "turn 2, cut by the restart") as { id: string };
+    const { recordTurnStarted } = await import("../../server/lib/subagent-store");
+    recordTurnStarted(ctx.db as never, id, cut.id);
     const { resetTurnEndRegistry } = await import("../../server/providers/turn-end-registry");
     resetTurnEndRegistry();
     const native = await import("../../server/lib/native-subagents");

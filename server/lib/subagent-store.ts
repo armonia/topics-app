@@ -218,6 +218,21 @@ export function claimTurnReport(db: Db, id: string, turnId: string, status: stri
   ).changes > 0);
 }
 
+/** A native child's chat opened the turn `turnId` (its stream started): from now on it is a turn. */
+export function recordTurnStarted(db: Db, id: string, turnId: string, at = new Date().toISOString()): void {
+  attempt(undefined, () => {
+    db.run("INSERT OR IGNORE INTO subagent_started_turns (subagent_id, turn_id, started_at) VALUES (?, ?, ?)", [id, turnId, at]);
+  });
+}
+
+/** The last turn the child's chat opened and its parent never heard of, or null. */
+export function lastUnreportedTurn(db: Db, id: string): string | null {
+  return attempt(null, () => {
+    const last = db.query("SELECT turn_id FROM subagent_started_turns WHERE subagent_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1").get(id) as { turn_id: string } | null;
+    return last && !turnWasReported(db, id, last.turn_id) ? last.turn_id : null;
+  });
+}
+
 /** Was this turn of the child reported already? */
 export function turnWasReported(db: Db, id: string, turnId: string): boolean {
   return attempt(false, () => db.query("SELECT 1 FROM subagent_reported_turns WHERE subagent_id = ? AND turn_id = ?").get(id, turnId) != null);

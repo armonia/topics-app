@@ -1,12 +1,11 @@
 /**
- * Who may turn a native sub-agent's chat, and how many results a cut turn
- * gives: an agent writing in the chat with send_chat_message, a chat command
- * sent with send_to_agent, a restart whose resume a provider hold defers, the
- * resume after the sweep cut a turn. On the REAL engine (the native provider
- * and the whole topics router) with only the network faked. Review 6 of PR 238
- * (05/10) pinned each defect with one of these repros; the assertions are the
- * behaviour it asked for. The rule they hold: one result per turn, and only
- * the parent (send_to_agent) or a person drives a child's chat.
+ * A native sub-agent's turn is one its chat really opened, never a user row:
+ * a row that opened no turn owes no `lost`; a chat command in a child's chat
+ * is its prompt, whoever sends it, the resume too; a resume the chat route
+ * refuses for good (no engine) is the cut turn's one `failed`. On the REAL
+ * engine (the native provider and the whole topics router) with only the
+ * network faked. Review 7 of PR 238 (05/10) pinned each defect with one of
+ * these repros; the assertions are the behaviour it asked for.
  * @covers SUBAGENT-11, SUBAGENT-19, SUBAGENT-22
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
@@ -17,12 +16,12 @@ import { startFakeClaudeBridge, type FakeBridge } from "./helpers/fake-claude-br
 import type { SubAgentExitInfo } from "../../server/routes/subagent-exit";
 import type { AppContext, Topic } from "../../server/types";
 
-const ROOT = testTmpDir("review6-repro");
+const ROOT = testTmpDir("review7-repro");
 const SOCKET_PATH = `${ROOT}/b.sock`;
 const PROJECT = `${ROOT}/proj`;
 const AGENTS_HOME = `${ROOT}/agents-home`;
 const TOKEN = "native-lifecycle-token";
-const ROOT_KEY = "topic:e6e6e6e6";
+const ROOT_KEY = "topic:e7e7e7e7";
 const REAL_HOME = process.env.HOME;
 const realFetch = globalThis.fetch;
 const DEBOUNCE_MS = 50;
@@ -188,7 +187,7 @@ beforeAll(async () => {
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
   topic(ROOT_KEY);
-  ctx.projectStore.create({ name: "proj", slug: "proj-review6", path: PROJECT });
+  ctx.projectStore.create({ name: "proj", slug: "proj-review7", path: PROJECT });
 
   // The engine, registered as the server registers it, and the whole topics router.
   const { registerProvider } = await import("../../server/providers");
@@ -396,18 +395,124 @@ async function restartUnderHold(name: string): Promise<{ id: string; sk: string 
   return { id, sk };
 }
 
-describe("one result per turn, and only the parent or a person drives a child's chat", () => {
-  test("the sweep cuts a driven turn (`swept`), and the resume does not send it again", async () => {
-    resumeReleased = false;
-    const c = await spawn(ROOT_KEY, { name: "rv6-f", prompt: "R5-TOOLTHENHANG rv6-f child works with a tool, then goes silent" });
+/**
+ * A retired child, then a turn of `text` sent with send_to_agent and held on
+ * `marker`, cut by a graceful restart; the new process boots with no hold.
+ * The chat's rows are aged three minutes, as after a real restart.
+ */
+async function restartMidSend(name: string, marker: string, text: string): Promise<{ id: string; sk: string }> {
+  const c = await spawn(ROOT_KEY, { name, prompt: `${name} quick first turn` });
+  const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+  await until("turn 1", () => reportsFor(id)[0]);
+  await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
+  hold(marker);
+  const res = await call(`${agents(ROOT_KEY)}/${id}/send`, "POST", { input: text });
+  expect(res.status).toBe(200);
+  await until("busy", () => busy(sk));
+  await sleep(500);
+  const providers = await import("../../server/providers");
+  (providers.tryGetProvider("topics") as { stop(): void }).stop();
+  await until("cut", () => !busy(sk));
+  await sleep(1_000);
+  expect(reportsFor(id)).toHaveLength(1);
+  const native = await import("../../server/lib/native-subagents");
+  native._resetNativeSubagents();
+  native.configureNativeSubagents(nativeDeps!);
+  providers.removeProvider("topics");
+  providers.registerProvider({ type: "native" } as never);
+  const { resetTurnEndRegistry } = await import("../../server/providers/turn-end-registry");
+  resetTurnEndRegistry();
+  release(marker);
+  const past = new Date(Date.now() - 3 * 60_000).toISOString();
+  ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [past, sk]);
+  return { id, sk };
+}
+
+describe("a turn is one the chat opened, never a user row", () => {
+  test("a `/project` prompt cut by a restart is resent as the child's prompt, never run as a chat command", async () => {
+    const { id, sk } = await restartMidSend("rv7-r1", "R7B3HOLD", "/project list R7B3HOLD then fix the failing test");
+    const { adoptNativeChildrenAtBoot } = await import("../../server/lib/native-subagents");
+    const adoption = adoptNativeChildrenAtBoot({ waitMs: 2_000, pollMs: 50 });
+    await resumeSweep();
+    await adoption;
+    await until("turn 2", () => reportsFor(id)[1], 15_000);
+    await until("free", () => !busy(sk));
+    await sleep(1_500);
+    expect(ctx.loadLocalMessages(sk).some((m) => m.role === "assistant" && m.content.includes("Current project"))).toBe(false);
+    expect(statusesOf(id)).toEqual([[1, "completed", false], [2, "completed", false]]);
+  }, 60_000);
+
+  test("a `/project open <dir>` prompt cut by a restart leaves the child's chat bound where it was", async () => {
+    const other = join(ROOT, "R7OPENHOLD");
+    fs.mkdirSync(other, { recursive: true });
+    const { id, sk } = await restartMidSend("rv7-r1b", "R7OPENHOLD", `/project open ${other}`);
+    const before = ctx.getTopicBySessionKey(sk)?.projectPath;
+    const { adoptNativeChildrenAtBoot } = await import("../../server/lib/native-subagents");
+    const adoption = adoptNativeChildrenAtBoot({ waitMs: 2_000, pollMs: 50 });
+    await resumeSweep();
+    await adoption;
+    await until("turn 2", () => reportsFor(id)[1], 15_000);
+    await sleep(1_000);
+    expect(ctx.getTopicBySessionKey(sk)?.projectPath).toBe(before);
+  }, 60_000);
+
+  test("a person's `/project` in a child's chat is the child's prompt: a turn, its own result", async () => {
+    const c = await spawn(ROOT_KEY, { name: "rv7-r2p", prompt: "rv7 r2p quick child" });
     const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    await until("turn 1", () => reportsFor(id)[0]);
+    await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
+    expect((await postChat(sk, "/project list")).status).toBe(200);
+    await until("turn 2", () => reportsFor(id)[1]);
+    await until("retired again", () => !busy(sk) && rowOf(id)?.state === "retired");
+    expect(statusesOf(id).map(([, s]) => s)).toEqual(["completed", "completed"]);
+    expect(ctx.loadLocalMessages(sk).some((m) => m.content.includes("Current project"))).toBe(false);
+  }, 30_000);
+
+  test("a user row that opened no turn, then send_to_agent: no `lost` for a turn that never was", async () => {
+    const c = await spawn(ROOT_KEY, { name: "rv7-r2", prompt: "rv7 r2 quick child" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    await until("turn 1", () => reportsFor(id)[0]);
+    await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
+    // Rows the route wrote without a stream (a request cut before its turn opened).
+    ctx.appendLocalMessage(sk, "user", "a message that opened no turn");
+    ctx.appendLocalMessage(sk, "assistant", "an answer the route wrote by itself");
+    const res = await call(`${agents(ROOT_KEY)}/${id}/send`, "POST", { input: "rv7 r2 next work" });
+    expect(res.status).toBe(200);
+    await until("its next result", () => reportsFor(id).length >= 2);
+    await until("free", () => !busy(sk));
+    await sleep(1_500);
+    expect(statusesOf(id).map(([, s]) => s)).toEqual(["completed", "completed"]);
+  }, 30_000);
+
+  test("a child waiting on its own work, a user row that opened no turn, the periodic resume: no `lost`", async () => {
+    const c = await spawn(ROOT_KEY, { name: "rv7-r3", prompt: "rv7 r3 quick child" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    // Its own background work: still running after its turn.
+    busyBackground.add(sk);
+    await until("turn 1", () => reportsFor(id)[0]);
+    await until("free", () => !busy(sk));
+    await sleep(500);
+    expect(rowOf(id)?.state).toBe("running");
+    ctx.appendLocalMessage(sk, "user", "a message that opened no turn");
+    ctx.appendLocalMessage(sk, "assistant", "an answer the route wrote by itself");
+    await resumeSweep();
+    await sleep(1_500);
+    expect(statusesOf(id).map(([, s]) => s)).toEqual(["completed"]);
+  }, 30_000);
+
+  test("the sweep cuts the turn of a child that waits on its own work (`swept`): the resume does not send it again", async () => {
+    resumeReleased = false;
+    const c = await spawn(ROOT_KEY, { name: "rv7-r4", prompt: "R5-TOOLTHENHANG rv7-r4 child works with a tool, then goes silent" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    // A command of its own still running: after its turn it waits for it.
+    busyBackground.add(sk);
     await until("busy", () => busy(sk));
     await sleep(2_000);
     await staleSweep();
     await until("its result", () => reportsFor(id)[0], 15_000);
     await sleep(1_500);
+    expect(rowOf(id)?.state).toBe("running");
     resumeReleased = true;
-    // Minutes pass: the resume sweep's own clock (resume-sweep-clock.ts).
     const past = new Date(Date.now() - 3 * 60_000).toISOString();
     ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [past, sk]);
     await resumeSweep();
@@ -417,212 +522,46 @@ describe("one result per turn, and only the parent or a person drives a child's 
     expect(statusesOf(id)).toEqual([[1, "stopped", false]]);
     expect(userTurns(sk)).toBe(1);
   }, 40_000);
+});
 
-  test("send_to_agent with a chat command's text: the child gets it as its prompt, one turn, one result", async () => {
-    const c = await spawn(ROOT_KEY, { name: "rv6-d", prompt: "rv6 d quick child" });
-    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
-    await until("turn 1", () => reportsFor(id)[0]);
-    await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
-    const res = await call(`${agents(ROOT_KEY)}/${id}/send`, "POST", { input: "/project open the-app-folder and then fix the failing test" });
-    expect(res.status).toBe(200);
-    await until("turn 2", () => reportsFor(id)[1]);
-    await until("retired again", () => !busy(sk) && rowOf(id)?.state === "retired");
-    expect(statusesOf(id)).toEqual([[1, "completed", false], [2, "completed", false]]);
-    // The model answered it: no chat command ran.
-    expect(ctx.loadLocalMessages(sk).some((m) => m.content.includes("Project not found"))).toBe(false);
-  }, 30_000);
-
-  test("a chat route that answers without opening a turn: the parent gets an error, the child stays as it was", async () => {
-    const c = await spawn(ROOT_KEY, { name: "rv6-d2", prompt: "rv6 d2 quick child" });
-    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
-    await until("turn 1", () => reportsFor(id)[0]);
-    await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
-    selfAnswer = "RV6-SELF-ANSWER";
-    const res = await call(`${agents(ROOT_KEY)}/${id}/send`, "POST", { input: "RV6-SELF-ANSWER do this" });
-    const body = await res.json() as { error?: string };
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(body.error).toContain("without opening a turn");
-    await sleep(1_500);
-    expect(rowOf(id)?.state).toBe("retired");
-    expect(statusesOf(id)).toEqual([[1, "completed", false]]);
-  }, 30_000);
-
-  test("an agent's send_chat_message in a stopped child's chat is refused, and the child stays stopped", async () => {
-    hold("TASK-RV6-A");
-    const c = await spawn(ROOT_KEY, { name: "rv6-a", prompt: "TASK-RV6-A" });
-    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
-    await until("busy", () => busy(sk));
-    const { getSubagent } = await import("../../server/lib/subagent-store");
-    const native = await import("../../server/lib/native-subagents");
-    // stop_agent, as the terminal route calls it
-    await native.stopNativeChild(getSubagent(ctx.db as never, id)!, { archive: true });
-    await until("free", () => !busy(sk));
-    await sleep(500);
-    // The exact request postChatReadSSE (topics-mcp-server.ts) sends.
-    const res = await postChat(sk, "another agent writes here", { headers: { "X-Gateway-Token": TOKEN }, fromAgent: true });
-    expect(res.status).toBe(409);
-    expect(res.body).toContain(`send_to_agent(agent_id=\\"${id}\\")`);
-    await sleep(1_000);
-    expect(rowOf(id)?.state).toBe("stopped");
-    expect(statusesOf(id)).toEqual([[1, "stopped", true]]);
-    expect(userTurns(sk)).toBe(1);
-  }, 30_000);
-
-  test("an agent's credential alone is an agent: refused in a child's chat, accepted in an ordinary one", async () => {
-    const c = await spawn(ROOT_KEY, { name: "rv6-a2", prompt: "rv6 a2 quick child" });
-    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
-    await until("turn 1", () => reportsFor(id)[0]);
-    await until("retired", () => !busy(sk) && rowOf(id)?.state === "retired");
-    expect((await postChat(sk, "no fromAgent, but the gateway token", { headers: { "X-Gateway-Token": TOKEN } })).status).toBe(409);
-    await sleep(500);
-    expect(statusesOf(id)).toEqual([[1, "completed", false]]);
-    const ORDINARY = "topic:a6a6a6a6";
-    topic(ORDINARY);
-    expect((await postChat(ORDINARY, "an agent writes in an ordinary chat", { headers: { "X-Gateway-Token": TOKEN }, fromAgent: true })).status).toBe(200);
-    await until("closed", () => !busy(ORDINARY));
-  }, 30_000);
-
-  test("a stopped child: a turn the server sends itself leaves it stopped, a person's message starts it again", async () => {
-    hold("TASK-RV6-P");
-    const c = await spawn(ROOT_KEY, { name: "rv6-p", prompt: "TASK-RV6-P" });
-    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
-    await until("busy", () => busy(sk));
-    const { getSubagent } = await import("../../server/lib/subagent-store");
-    const native = await import("../../server/lib/native-subagents");
-    await native.stopNativeChildrenOf(ROOT_KEY);
-    await until("free", () => !busy(sk));
-    release("TASK-RV6-P");
-    await sleep(500);
-    expect(getSubagent(ctx.db as never, id)?.state).toBe("stopped");
-    // A request the server built: no person behind it.
-    expect((await postChat(sk, "a turn the server sends", { internal: true })).status).toBe(200);
-    await until("free again", () => !busy(sk));
-    await sleep(800);
-    expect(rowOf(id)?.state).toBe("stopped");
-    expect(statusesOf(id)).toEqual([[1, "stopped", true]]);
-    // A person, writing in the child's chat.
-    expect((await postChat(sk, "the person takes it up")).status).toBe(200);
-    await until("its result", () => reportsFor(id)[1]);
-    expect(statusesOf(id)).toEqual([[1, "stopped", true], [2, "completed", false]]);
-    expect(rowOf(id)?.state).not.toBe("stopped");
-  }, 30_000);
-
-  test("a restart whose resume a provider hold defers past the adoption: no `lost`, one result when the resume sends it", async () => {
-    const { id, sk } = await restartUnderHold("rv6-c");
+describe("a resume the chat route refuses for good", () => {
+  test("DELETE /api/providers/topics while a cut turn waits for the resume: one `failed`, the engine removed", async () => {
+    const { id } = await restartUnderHold("rv7-r5");
     expect(reportsFor(id)).toHaveLength(0);
-    expect(rowOf(id)?.state).toBe("running");
-    // The hold lifts; the periodic sweep resends the cut turn.
-    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
-    await resumeSweep();
-    await until("its result", () => reportsFor(id)[0], 15_000);
-    await until("child free", () => !busy(sk));
-    await sleep(1_500);
-    expect(statusesOf(id).map(([, s]) => s)).toEqual(["completed"]);
-  }, 60_000);
-
-  test("a send_to_agent during the suspension supersedes the cut turn: one `lost`, then its own turn, and no resend", async () => {
-    const { id, sk } = await restartUnderHold("rv6-c2");
-    expect(reportsFor(id)).toHaveLength(0);
-    const res = await call(`${agents(ROOT_KEY)}/${id}/send`, "POST", { input: "rv6 c2 new work instead" });
-    expect(res.status).toBe(200);
-    await until("both results", () => reportsFor(id)[1], 15_000);
-    await until("child free", () => !busy(sk));
-    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
-    const past = new Date(Date.now() - 3 * 60_000).toISOString();
-    ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [past, sk]);
-    await resumeSweep();
-    await sleep(1_500);
-    expect(statusesOf(id).map(([, s]) => s)).toEqual(["lost", "completed"]);
-    expect(userTurns(sk)).toBe(2);
-  }, 60_000);
-
-  test("the resume gives the suspended turn up for good (its chat archived): one `lost`", async () => {
-    const { id, sk } = await restartUnderHold("rv6-c3");
-    expect(reportsFor(id)).toHaveLength(0);
-    const t = ctx.getTopicBySessionKey(sk)!;
-    ctx.saveSingleTopic({ ...t, archived: true });
-    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
-    await resumeSweep();
-    await until("its result", () => reportsFor(id)[0], 10_000);
-    await resumeSweep();
-    await sleep(1_000);
-    expect(statusesOf(id).map(([, s]) => s)).toEqual(["lost"]);
-    expect(userTurns(sk)).toBe(1);
-  }, 60_000);
-
-  test("a child stopped while its cut turn waits for the resume: the Stop's one result, and the resume sends it nothing", async () => {
-    const { id, sk } = await restartUnderHold("rv6-c4");
-    // The cut is one the resume would send: only the Stop below holds it back.
-    const { cutTurnResumable } = await import("../../server/lib/ripresa-boot");
-    expect(await cutTurnResumable(resumeCtx(), sk)).toBe(true);
-    const { getSubagent } = await import("../../server/lib/subagent-store");
-    const native = await import("../../server/lib/native-subagents");
-    await native.stopNativeChild(getSubagent(ctx.db as never, id)!, { archive: false });
-    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
-    await resumeSweep();
-    await sleep(1_500);
-    expect(busy(sk)).toBe(false);
-    expect(userTurns(sk)).toBe(1);
-    expect(rowOf(id)?.state).toBe("stopped");
-    expect(statusesOf(id)).toEqual([[1, "stopped", true]]);
-  }, 60_000);
-
-  test("removing the Topics engine is no shutdown: the child's turn ends `failed`, the engine removed", async () => {
-    hold("TASK-RV6-RM");
-    const c = await spawn(ROOT_KEY, { name: "rv6-rm", prompt: "TASK-RV6-RM" });
-    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
-    await until("busy", () => busy(sk));
     const { createProvidersRouter } = await import("../../server/routes/providers");
-    const providersRoute = createProvidersRouter(ctx);
     const url = new URL("http://localhost/api/providers/topics");
-    const res = await providersRoute(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
+    const res = await createProvidersRouter(ctx)(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
     expect(res?.status).toBe(200);
     try {
       await until("its result", () => reportsFor(id)[0], 10_000);
-      await until("free", () => !busy(sk));
-      expect(reportsFor(id)[0]!.outcome).toMatchObject({ status: "failed", reason: { code: "api-error", detail: "error: the Topics engine was removed" } });
+      await sleep(1_000);
+      expect(reportsFor(id).map((r) => r.outcome)).toEqual([expect.objectContaining({ status: "failed", reason: { code: "api-error", detail: "error: the Topics engine was removed" } })]);
       expect(rowOf(id)?.state).not.toBe("running");
     } finally {
-      const providers = await import("../../server/providers");
+      const { registerProvider } = await import("../../server/providers");
+      registerProvider({ type: "native" } as never);
+    }
+  }, 60_000);
+
+  test("the engine disconnected while a cut turn waits for the resume: the refused resend is one `failed`", async () => {
+    const { id, sk } = await restartUnderHold("rv7-r5b");
+    expect(reportsFor(id)).toHaveLength(0);
+    const providers = await import("../../server/providers");
+    // Stopped, not removed: still registered, no longer connected.
+    (providers.tryGetProvider("topics") as { stop(): void }).stop();
+    try {
+      { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
+      await resumeSweep();
+      await until("its result", () => reportsFor(id)[0], 10_000);
+      await resumeSweep();
+      await sleep(1_000);
+      expect(reportsFor(id).map((r) => r.outcome.status)).toEqual(["failed"]);
+      expect(JSON.stringify(reportsFor(id)[0]!.outcome.reason)).toContain("the resume was refused");
+      expect(rowOf(id)?.state).not.toBe("running");
+      expect(busy(sk)).toBe(false);
+    } finally {
+      providers.removeProvider("topics");
       providers.registerProvider({ type: "native" } as never);
     }
-  }, 30_000);
-
-  test("a person's Stop whose turn ends while it stops the children leaves the parent's next turn alone", async () => {
-    hold("TASK-RV6-S-CHILD");
-    const c = await spawn(ROOT_KEY, { name: "rv6-s", prompt: "TASK-RV6-S-CHILD" });
-    const sk = c.body.sessionKey as string;
-    await until("child busy", () => busy(sk));
-    await until("the root free", () => !busy(ROOT_KEY));
-    hold("RV6-PARENT-ONE");
-    expect(await chatTurn(ROOT_KEY, "RV6-PARENT-ONE")).toBe(200);
-    await until("parent turn one", () => busy(ROOT_KEY));
-    // While the Stop is busy with the child: the parent's turn ends, and a new one opens.
-    abortHook = { sk, fn: async () => {
-      release("RV6-PARENT-ONE");
-      await until("turn one over", () => !busy(ROOT_KEY));
-      hold("RV6-PARENT-TWO");
-      expect(await chatTurn(ROOT_KEY, "RV6-PARENT-TWO")).toBe(200);
-      await until("parent turn two", () => busy(ROOT_KEY));
-    } };
-    expect(await abortChat(ROOT_KEY)).toBe(200);
-    await sleep(800);
-    expect(busy(ROOT_KEY)).toBe(true);
-    release("RV6-PARENT-TWO");
-    await until("turn two over", () => !busy(ROOT_KEY));
-    const last = ctx.loadLocalMessages(ROOT_KEY).filter((m) => m.role === "assistant").at(-1)!;
-    expect(last.content).toMatch(/^answer \d+$/);
-  }, 30_000);
-
-  test("a normal chat: edit and regenerate are not refused", async () => {
-    const NORMAL = "topic:d6d6d6d6";
-    topic(NORMAL);
-    expect(await chatTurn(NORMAL, "hello normal")).toBe(200);
-    await until("closed", () => !busy(NORMAL));
-    await sleep(300);
-    const answer = ctx.loadLocalMessages(NORMAL).find((m) => m.role === "assistant")!;
-    const url = new URL(`http://localhost/api/messages/${answer.id}/regenerate`);
-    const res = await route(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }), url, url.pathname, "POST");
-    expect(res?.status).not.toBe(409);
-  }, 30_000);
+  }, 60_000);
 });

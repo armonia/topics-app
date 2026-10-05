@@ -661,8 +661,9 @@ export interface CtxRipresa {
    *  continuation note. Absent: the note says nothing about them. */
   backgroundCommands?(sessionKey: string): Array<{ description: string; processId: string }>;
   /** The sweep will never resend this chat's last turn (cap, archive, window,
-   *  a verdict of no): a native sub-agent's cut turn gets its one `lost` result. */
-  abandonCut?(sessionKey: string): void;
+   *  a verdict of no): a native sub-agent's cut turn gets its one result, `lost`,
+   *  or `failed` with `failure` when the route refused the resend for good. */
+  abandonCut?(sessionKey: string, failure?: string): void;
 }
 
 /** The blocks of the assistant rows after the user row `lastUserId`: the turn that answered it. */
@@ -1180,6 +1181,16 @@ export async function riprendiTurniInterrotti(
         console.warn(
           `[ripresa] ${c.sessionKey}: la route ha rifiutato il rimando (HTTP ${resp?.status ?? "nessuna risposta"}), il turno NON è ripreso`,
         );
+        // A refusal the route will give again (no engine, a routing it cannot
+        // do, the chat not the machine's to turn): the resume gives up for good.
+        // Only another turn holding the chat passes. A native sub-agent's cut
+        // turn then gets its one result, `failed` with the route's reason;
+        // without it the child stayed `running` for the 24-hour window.
+        const refusal = resp ? await resp.json().catch(() => null) as { error?: unknown; code?: unknown } | null : null;
+        if (resp && refusal?.code !== "stream_in_flight") {
+          const reason = typeof refusal?.error === "string" ? refusal.error : `HTTP ${resp.status}`;
+          ctx.abandonCut?.(c.sessionKey, `the resume was refused: ${reason}`);
+        }
         return;
       }
       // Lo stream si consuma fino in fondo: la route finalizza la riga quando
