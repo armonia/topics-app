@@ -253,7 +253,9 @@
     "and isSubagent for the quiet attention rule. server/providers/native/agent-loop.ts 922 -> 1049: +7 tools refused",
     "at execution by profile and depth. server/providers/native/provider.ts 869 -> 999: +35 the language directive in",
     "the native system prompt and the profile tool filter. The rest of each growth was already on main. Recorded by",
-    "hand, these three rows only."
+    "hand, these three rows only.",
+    "05/10, same PR, review fixes. server/attention/store.ts 894 (990 on main) -> 1036: +46 the engaged exception",
+    "made real, a focused sub-agent counts and is written down so a restart keeps it. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -375,7 +377,7 @@
 
     "server.ts": 6674,
 
-    "server/attention/store.ts": {"lines": 894, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
+    "server/attention/store.ts": {"lines": 1036, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
     "server/browser-service.ts": 2361,
 
     "server/browser-tools-handler.ts": 810,

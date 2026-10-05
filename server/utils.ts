@@ -28,6 +28,7 @@ import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
 import { isTopicSilenced } from "./push-triggers";
 import { configureAttentionStore } from "./attention/store";
+import { isSubagentEngaged, markSubagentEngaged } from "./lib/subagent-store";
 import { configureAttentionWire } from "./attention/wire";
 import { recordSystemNotice } from "./attention/system-notices";
 import { terminalIdOfSubject, topicIdOfSubject, topicSubject } from "../shared/attention";
@@ -1334,6 +1335,14 @@ export function createAppContext(baseDir: string): AppContext {
     isSubagent: (subject) => {
       const id = topicIdOfSubject(subject) ?? terminalIdOfSubject(subject);
       return !!id && attemptSubagentParents(`SELECT 1 FROM subagents WHERE id = ? LIMIT 1`, id).length > 0;
+    },
+    engageSubagent: (subject) => {
+      const id = topicIdOfSubject(subject) ?? terminalIdOfSubject(subject);
+      if (id) markSubagentEngaged(db, id);
+    },
+    subagentEngaged: (subject) => {
+      const id = topicIdOfSubject(subject) ?? terminalIdOfSubject(subject);
+      return !!id && isSubagentEngaged(db, id);
     },
   }, { fresh: true });
   // The chat behind a session key, for the waits and the background work that

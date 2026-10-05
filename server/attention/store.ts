@@ -100,6 +100,10 @@ export interface AttentionStoreDeps {
   graceMs: number;
   /** Is this subject a sub-agent (a row in `subagents`)? Its attention stays quiet until the person opens it. */
   isSubagent: (subject: string) => boolean;
+  /** Write down that a person engaged with this sub-agent: it survives a restart. */
+  engageSubagent: (subject: string) => void;
+  /** A person engaged with this sub-agent before (on record, any process). */
+  subagentEngaged: (subject: string) => boolean;
 }
 
 function defaultDb(): Database | null {
@@ -122,6 +126,8 @@ const DEFAULT_DEPS: AttentionStoreDeps = {
   describe: () => null,
   graceMs: 5_000,
   isSubagent: () => false,
+  engageSubagent: () => {},
+  subagentEngaged: () => false,
 };
 
 let deps: AttentionStoreDeps = { ...DEFAULT_DEPS };
@@ -324,12 +330,33 @@ function peek(subject: string): Entry | undefined {
 }
 
 function inputsOf(e: Entry): AttentionInputs {
-  const quiet = !e.engaged && isSubagentSubject(e.row.subject);
+  const quiet = isSubagentSubject(e.row.subject) && !isEngaged(e);
   return { ...e.live, lastTurn: e.row.lastTurn, seenAt: e.row.seenAt, background: e.row.background, ...(quiet ? { quiet } : {}) };
 }
 
 function isSubagentSubject(subject: string): boolean {
   try { return deps.isSubagent(subject); } catch { return false; }
+}
+
+function isEngaged(e: Entry): boolean {
+  if (e.engaged) return true;
+  try { e.engaged = deps.subagentEngaged(e.row.subject) || undefined; } catch { /* nothing on record */ }
+  return e.engaged === true;
+}
+
+/**
+ * A person engaged with this subject: they opened it (`seen`) or put it in
+ * front (`focus`). A quiet sub-agent is never lit, so its `seen` never came,
+ * and the seen alone never fired: the focus counts too, and a sub-agent's is
+ * written down, so its chat stays open across a restart.
+ */
+function engage(subject: string): Entry {
+  const e = entryOf(subject);
+  if (!e.engaged && isSubagentSubject(subject)) {
+    try { deps.engageSubagent(subject); } catch { /* best-effort: the process still knows */ }
+  }
+  e.engaged = true;
+  return e;
 }
 
 /**
@@ -874,8 +901,7 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
   const out: AttentionSnapshot[] = [];
   for (const item of items) {
     if (!item || typeof item.subject !== "string" || !item.subject) continue;
-    const e = entryOf(item.subject);
-    e.engaged = true;
+    const e = engage(item.subject);
     const row = e.row;
     const epoch = Number.isFinite(item.epoch) ? Math.max(0, Math.floor(item.epoch)) : 0;
     const covered = Math.min(epoch, row.epoch);
@@ -897,10 +923,6 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
 }
 
 /** Everything about this subject seen now: the aliases of the old doors. */
-/** True once a person opened this subject (`markAttentionSeen`): a sub-agent they engaged is theirs to close. */
-export function isAttentionEngaged(subject: string): boolean {
-  return entries.get(subject)?.engaged === true;
-}
 
 export function seenItemNow(subject: string): AttentionSeenItem {
   const s = getAttention(subject);
@@ -923,6 +945,11 @@ export function setSocketFocus(socketId: string, f: { subject: string | null; aw
   if (origin.guest) return;
   if (!f) focus.delete(socketId);
   else focus.set(socketId, { subject: f.subject, awake: !!f.awake });
+  // In front of an awake window: the person is looking at it.
+  if (f?.subject && f.awake && isSubagentSubject(f.subject) && !peek(f.subject)?.engaged) {
+    engage(f.subject);
+    recompose(f.subject, { live: true });
+  }
 }
 
 export function forgetSocket(socketId: string): void {

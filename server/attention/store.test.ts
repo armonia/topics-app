@@ -19,6 +19,7 @@ import {
   resetAttentionStore,
   setBackgroundTasks,
   setCard,
+  setSocketFocus,
   turnEnded,
   turnStarted,
 } from "./store";
@@ -177,5 +178,32 @@ describe("a sub-agent is quiet until the person opens it", () => {
     turnStarted("terminal:child");
     turnEnded("terminal:child", { turnId: "t2", outcome: "done" });
     expect(getAttention("terminal:child")).toMatchObject({ state: "finished", lit: true });
+  });
+
+  // Review of 05/10: a quiet child is never lit, so its `seen` never came and
+  // the exception never fired. Putting it in front counts, and it is written
+  // down, so a restart still knows.
+  it("a child put in front of an awake window is engaged, on record, across a restart", () => {
+    const engaged = new Set<string>();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child",
+      engageSubagent: (s) => { engaged.add(s); },
+      subagentEngaged: (s) => engaged.has(s),
+    });
+    setSocketFocus("sock-1", { subject: "topic:child", awake: false });
+    expect(engaged.size).toBe(0);
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    expect([...engaged]).toEqual(["topic:child"]);
+    // Looked at, then left: its next turn lights like any chat's.
+    setSocketFocus("sock-1", null);
+    turnStarted("topic:child");
+    turnEnded("topic:child", { turnId: "m1", outcome: "done" });
+    expect(getAttention("topic:child").lit).toBe(true);
+
+    resetAttentionStore();
+    turnStarted("topic:child");
+    turnEnded("topic:child", { turnId: "m2", outcome: "done" });
+    expect(getAttention("topic:child").lit).toBe(true);
+    configureAttentionStore({ isSubagent: () => false, engageSubagent: () => {}, subagentEngaged: () => false });
   });
 });
