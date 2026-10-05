@@ -136,10 +136,10 @@ beforeAll(async () => {
   terminal._setAgentProfilesHome(AGENTS_HOME);
   terminal._setTerminalTrackerForTests(null);
   // The parent's wake as server.ts starts it, with its verdict.
-  const { createSubagentWake } = await import("../../server/services/subagent-wake");
+  const { startSubagentWakes } = await import("../../server/services/subagent-wake");
   const { subAgentResultOf } = await import("../../server/routes/subagent-exit");
   const { runningTaskOwnsTopic, stoppedSubagentChat, wakeVerdict } = await import("../../server/lib/wake-adoption");
-  const wake = createSubagentWake({
+  const wake = startSubagentWakes({
     route, isBusy: busy,
     canWake: (sk) => {
       const t = ctx.getTopicBySessionKey(sk);
@@ -186,6 +186,8 @@ afterAll(async () => {
   for (const m of [...held.keys()]) release(m);
   const native = await import("../../server/lib/native-subagents");
   native._resetNativeSubagents();
+  const { _resetSubagentWakes } = await import("../../server/services/subagent-wake");
+  _resetSubagentWakes();
   const terminal = await import("../../server/routes/terminal");
   terminal.setSubAgentExitHandler(null);
   terminal._setAgentProfilesHome(null);

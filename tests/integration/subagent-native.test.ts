@@ -32,17 +32,19 @@ const spawned: Array<{ parent: string; agentId: string }> = [];
 /** What the fake engine was asked, and the turns it is holding open. */
 const turns: Array<{ sessionKey: string; text: string }> = [];
 const open = new Map<string, () => void>();
+/** The turn each chat has open, by the user row it answers: what the real route names it. */
+const openTurnIds = new Map<string, string>();
 /** `hold`: the next turn stays open until it is aborted. `fail`: the route answers 503. */
 let mode: "answer" | "hold" | "fail" = "answer";
 
 async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise<Response | null> {
-  const { recordTurnEnd } = await import("../../server/providers/turn-end-registry");
+  const { recordTurnEnd, recordTurnStart } = await import("../../server/providers/turn-end-registry");
   const body = await req.json() as { sessionKey: string; messages?: Array<{ content: string }>; cause?: string };
   const sessionKey = body.sessionKey;
   if (pathname === "/api/chat/abort") {
     const close = open.get(sessionKey);
     if (!close) return Response.json({ ok: false, reason: "no_active_stream" });
-    recordTurnEnd(sessionKey, { end: "cancelled", cause: "user" });
+    recordTurnEnd(sessionKey, { end: "cancelled", cause: "user", turnId: openTurnIds.get(sessionKey) });
     close();
     return Response.json({ ok: true });
   }
@@ -50,7 +52,9 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
   const text = body.messages?.at(-1)?.content ?? "";
   turns.push({ sessionKey, text });
   if (mode === "fail") return Response.json({ error: "Questa chat è legata al motore di Topics, che non è connesso." }, { status: 503 });
-  ctx.appendLocalMessage(sessionKey, "user", text);
+  const turnId = ctx.appendLocalMessage(sessionKey, "user", text).id;
+  openTurnIds.set(sessionKey, turnId);
+  recordTurnStart(sessionKey, turnId);
   const holding = mode === "hold";
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -61,7 +65,7 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
         return;
       }
       ctx.appendLocalMessage(sessionKey, "assistant", `done: ${text}`);
-      recordTurnEnd(sessionKey, { end: "end_turn" });
+      recordTurnEnd(sessionKey, { end: "end_turn", turnId });
       queueMicrotask(finish);
     },
   });

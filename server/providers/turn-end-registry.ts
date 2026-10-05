@@ -53,6 +53,27 @@ export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
   }
 }
 
+type TurnStartListener = (sessionKey: string, turnId: string) => void;
+const startListeners = new Set<TurnStartListener>();
+
+/**
+ * A turn opened on this session, named by `turnId`: the user row it answers.
+ * The chat route says it when its stream starts; the same id rides on the
+ * turn's end (`TurnEndInfo.turnId`), so whoever reports turns attributes each
+ * end to its own turn, not to whatever turn is open at that moment.
+ */
+export function recordTurnStart(sessionKey: string, turnId: string): void {
+  for (const fn of startListeners) {
+    try { fn(sessionKey, turnId); } catch { /* a failing listener must not break the turn */ }
+  }
+}
+
+/** Told of every turn as it opens. Returns the unsubscribe. */
+export function onTurnStart(fn: TurnStartListener): () => void {
+  startListeners.add(fn);
+  return () => { startListeners.delete(fn); };
+}
+
 type TurnEndListener = (sessionKey: string, info: TurnEndInfo) => void;
 const listeners = new Set<TurnEndListener>();
 

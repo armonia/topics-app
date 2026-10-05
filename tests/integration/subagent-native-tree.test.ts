@@ -32,24 +32,28 @@ const open = new Map<string, () => void>();
 const cut = new Map<string, () => void>();
 let mode: "answer" | "hold" = "answer";
 let route409 = 0;
+/** The turn each chat has open, by the user row it answers: what the real route names it. */
+const openTurnIds = new Map<string, string>();
 /** Background work the child chat's own process claims (a command, a CLI task). */
 const busyBackground = new Set<string>();
 
 async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise<Response | null> {
-  const { recordTurnEnd } = await import("../../server/providers/turn-end-registry");
+  const { recordTurnEnd, recordTurnStart } = await import("../../server/providers/turn-end-registry");
   const body = await req.json() as { sessionKey: string; messages?: Array<{ content: string }> };
   const sessionKey = body.sessionKey;
   if (pathname === "/api/chat/abort") {
     const stop = cut.get(sessionKey);
     if (!stop) return Response.json({ ok: false, reason: "no_active_stream" });
-    recordTurnEnd(sessionKey, { end: "cancelled", cause: "user" });
+    recordTurnEnd(sessionKey, { end: "cancelled", cause: "user", turnId: openTurnIds.get(sessionKey) });
     stop();
     return Response.json({ ok: true });
   }
   if (pathname !== "/api/chat") return null;
   if (open.has(sessionKey)) { route409++; return Response.json({ code: "stream_in_flight", error: "busy" }, { status: 409 }); }
   const text = body.messages?.at(-1)?.content ?? "";
-  ctx.appendLocalMessage(sessionKey, "user", text);
+  const turnId = ctx.appendLocalMessage(sessionKey, "user", text).id;
+  openTurnIds.set(sessionKey, turnId);
+  recordTurnStart(sessionKey, turnId);
   const holding = mode === "hold";
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -58,14 +62,14 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
       if (holding) {
         open.set(sessionKey, () => {
           ctx.appendLocalMessage(sessionKey, "assistant", `done: ${text}`);
-          recordTurnEnd(sessionKey, { end: "end_turn" });
+          recordTurnEnd(sessionKey, { end: "end_turn", turnId });
           finish();
         });
         return;
       }
       open.set(sessionKey, finish);
       ctx.appendLocalMessage(sessionKey, "assistant", `done: ${text}`);
-      recordTurnEnd(sessionKey, { end: "end_turn" });
+      recordTurnEnd(sessionKey, { end: "end_turn", turnId });
       queueMicrotask(finish);
     },
     cancel() { open.delete(sessionKey); cut.delete(sessionKey); },
@@ -343,10 +347,13 @@ describe("a Stop reaches the whole live tree (SUBAGENT-11)", () => {
     expect(open.has(grandKey)).toBe(false);
     const grand = await until("grand's stopped result", () => reportsFor(gid)[0]);
     expect(grand.stoppedByParent).toBe(true);
-    // Even a turn on the stopped child's chat reaches nobody.
-    await wakeTurn(childKey, "late");
+    // A late end of its turn, already reported, reaches nobody and relights nothing.
+    // A new turn on its chat is a person resuming it (SUBAGENT-22): wakes are refused.
+    const { recordTurnEnd } = await import("../../server/providers/turn-end-registry");
+    recordTurnEnd(childKey, { end: "end_turn", turnId: openTurnIds.get(childKey) });
     await sleep(800);
     expect(reportsFor(cid)).toHaveLength(1);
+    expect(rowOf(cid)?.state).toBe("stopped");
   }, 20_000);
 
   // Review 2, G: stop_agent on a waiting child stops the same tree, CLI included.

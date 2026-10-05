@@ -206,6 +206,28 @@ export function markTurnReported(db: Db, id: string, turn: number, at = new Date
   });
 }
 
+/**
+ * A native child's turn reaches its parent: written once, by the turn's name
+ * (the user row it answers). `false` = it was already reported, and this
+ * second result goes nowhere.
+ */
+export function claimTurnReport(db: Db, id: string, turnId: string, status: string, at = new Date().toISOString()): boolean {
+  return attempt(false, () => db.run(
+    "INSERT OR IGNORE INTO subagent_reported_turns (subagent_id, turn_id, status, reported_at) VALUES (?, ?, ?, ?)",
+    [id, turnId, status, at],
+  ).changes > 0);
+}
+
+/** Was this turn of the child reported already? */
+export function turnWasReported(db: Db, id: string, turnId: string): boolean {
+  return attempt(false, () => db.query("SELECT 1 FROM subagent_reported_turns WHERE subagent_id = ? AND turn_id = ?").get(id, turnId) != null);
+}
+
+/** How the child's last reported turn ended, or null when none is on record. */
+export function lastReportedTurnStatus(db: Db, id: string): string | null {
+  return attempt(null, () => (db.query("SELECT status FROM subagent_reported_turns WHERE subagent_id = ? ORDER BY reported_at DESC, rowid DESC LIMIT 1").get(id) as { status: string } | null)?.status ?? null);
+}
+
 /** Running children: of one parent, or of the whole machine. */
 export function runningSubagents(db: Db, parentSessionKey?: string): SubagentRow[] {
   return attempt([], () => {

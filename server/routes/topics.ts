@@ -58,7 +58,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicTo
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
-import { requestSubagentWake } from "../services/subagent-wake";
+import { requestSubagentWake, writeQueuedWakesAsRows } from "../services/subagent-wake";
 import { stopNativeChildrenOf } from "../lib/native-subagents";
 import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../lib/topic-changes";
 import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
@@ -2627,8 +2627,12 @@ export function createTopicsRouter(
 
       // A person's Stop reaches the sub-agents working for this chat too
       // (subagent-nativi): left running, a child woke the parent just stopped.
-      // «Send now» stops only the turn (`stopReachesSubagents`).
-      const stoppedChildren = stopReachesSubagents(req, body?.cause) ? await stopNativeChildrenOf(sessionKey) : 0;
+      // «Send now» stops only the turn (`stopReachesSubagents`). The results
+      // already queued to wake this chat land as rows: woken by them, the chat
+      // just stopped started again at once.
+      const fullStop = stopReachesSubagents(req, body?.cause);
+      if (fullStop) writeQueuedWakesAsRows(sessionKey);
+      const stoppedChildren = fullStop ? await stopNativeChildrenOf(sessionKey) : 0;
       if (!stream) {
         const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
         if (background) return json(background); // only background work was left: the Stop was for it
@@ -2662,7 +2666,8 @@ export function createTopicsRouter(
       // request from outside is the person; the server's own callers (the
       // stall judge, the board, the dispatcher's clocks) name theirs.
       const cause = stopCauseOf(req, body?.cause);
-      recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
+      // Named after the turn it stops (`recordTurnStart` in chat.ts): the user row it answers.
+      recordTurnEnd(sessionKey, { ...cancelled(cause, "POST /api/chat/abort"), turnId: (stream.messageId ? ctx.getMessageById(stream.messageId)?.parentId : null) ?? undefined });
       // Said BEFORE anything below can close the turn: the close of the ledger
       // (`endStream` here, the provider's own finalize, the CLI's exit) reaches
       // every window before this route's `stream:end`, and must itself say that

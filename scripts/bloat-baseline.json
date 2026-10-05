@@ -261,7 +261,10 @@
     "engine, one resume at a time, the CLI stop as a function the tree stop reuses); review 2 had it at 3940, the",
     "runtime choice, the profile launch, the move and the native list went to server/lib/native-subagents.ts.",
     "server/attention/store.ts 1036 -> 1072: +36 the engage dwell starts only on a frame the person chose, and a",
-    "re-announce of the same subject neither starts nor cuts it. Recorded by hand, these two rows only."
+    "re-announce of the same subject neither starts nor cuts it. Recorded by hand, these two rows only.",
+    "05/10, same PR, review 4. server/lib/native-subagents.ts new on this PR, 750 -> 844: +94 every turn of a native",
+    "child named by its user row and reported once by that name (start listener, report chain, claim), and the Stop",
+    "that marks the whole tree before its first await. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -399,6 +402,8 @@
     "server/lib/claude-session-tracker.test.ts": 1160,
 
     "server/lib/claude-session-tracker.ts": 1082,
+
+    "server/lib/native-subagents.ts": 844,
 
     "server/lib/ripresa-boot.test.ts": 847,
 

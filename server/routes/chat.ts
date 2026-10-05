@@ -43,7 +43,7 @@ import { backgroundOfTurn, goalContinuationForChatRoute, type ChatGoalLoop, type
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
-import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
+import { readTurnEnd, recordTurnEnd, recordTurnStart } from "../providers/turn-end-registry";
 import { outageCutPickedUp, resumeAttemptOf } from "../lib/ripresa-boot";
 import { noteResendCopy } from "../lib/resend-count";
 import { appendUsageRecord } from "../usage/store";
@@ -1605,6 +1605,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // una chat che il boot riprende da sola (`turnSurvivesRestart`). Si
           // chiede UNA volta, qui: non cambia mentre il turno gira.
           startStream(sessionKey, partialMsg.id, externalAbort, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
+          // The turn's name: the user row it answers. It rides on every end this
+          // route records, so a late end is never taken for the next turn's.
+          const turnId = partialMsg.parentId ?? undefined;
+          if (turnId) recordTurnStart(sessionKey, turnId);
           // From here the turn's end decides for the answers it carries, not the route's exit.
           if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
@@ -1859,7 +1863,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Il figlio è morto e nessuno ha parlato: è il watchdog a fermare il
             // turno. Senza questo, chi guida un turno headless leggerebbe la fine
             // di default (`end_turn`) e crederebbe a una consegna riuscita.
-            recordTurnEnd(sessionKey, cancelled("watchdog", "grace expired"));
+            recordTurnEnd(sessionKey, { ...cancelled("watchdog", "grace expired"), turnId });
             const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
             // Replace the soft annotation with the hard timeout marker.
             fullContent = stripSlowAnnotation(fullContent);
@@ -1917,7 +1921,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
             console.error(`[StreamWS] Hard cap (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached and provider process is DEAD on ${sessionKey} → finalize`);
             streamState = "finalized";
-            recordTurnEnd(sessionKey, cancelled("watchdog", "hard cap reached"));
+            recordTurnEnd(sessionKey, { ...cancelled("watchdog", "hard cap reached"), turnId });
             const msg = `⚠️ Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached. The provider stopped responding.`;
             fullContent = stripSlowAnnotation(fullContent);
             if (!fullContent.trim()) fullContent = msg;
@@ -2194,7 +2198,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 : { end: "end_turn" });
             // Depositata PRIMA di chiudere l'SSE: chi guida un turno headless la
             // ritira appena il drain finisce, e il drain finisce con `[DONE]`.
-            recordTurnEnd(sessionKey, endInfo);
+            recordTurnEnd(sessionKey, { ...endInfo, turnId });
             // A land, a delegation's deadline, the stall judge (lib/abort-cause.ts).
             // The silence cap shares `wall-clock` but ends through `onError`.
             const wantedByMachine = reason === "aborted" && isMachineStop(endInfo.cause);
