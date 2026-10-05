@@ -337,8 +337,11 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     const sk = body.sessionKey as string;
     await until("turn 1", () => reportsFor(id)[0]);
     // The process died during turn 2: the row is still `running`, nothing in
-    // this process drives it, and the turn ends it knew are gone with it.
+    // this process drives it, and the turn ends it knew are gone with it. Its
+    // message is in the chat: the route writes it before the turn runs.
     ctx.db.run("UPDATE subagents SET state = 'running', ended_at = NULL WHERE id = ?", [id]);
+    await new Promise((r) => setTimeout(r, 5));
+    ctx.appendLocalMessage(sk, "user", "turn 2, cut by the restart");
     const { resetTurnEndRegistry } = await import("../../server/providers/turn-end-registry");
     resetTurnEndRegistry();
     const native = await import("../../server/lib/native-subagents");
@@ -370,9 +373,9 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     await until("child's turn 1", () => reportsFor(childId)[0]);
     // Not done: still running, still in view, so its wake is allowed.
     expect(rowOf(childId)?.state).toBe("running");
-    const { wakeVerdict } = await import("../../server/lib/wake-adoption");
+    const { stoppedSubagentChat, wakeVerdict } = await import("../../server/lib/wake-adoption");
     const childTopic = ctx.getTopicBySessionKey(childSk)!;
-    expect(wakeVerdict({ id: childTopic.id, archived: childTopic.archived }, () => false)).toBe("adopt");
+    expect(wakeVerdict({ id: childTopic.id, archived: childTopic.archived }, () => false, (tid) => stoppedSubagentChat(ctx.db, tid))).toBe("adopt");
     // The grandchild finishes: its result goes to the child chat, which wakes.
     open.get(grandSk)!();
     const g = await until("grand's report", () => reportsFor(grand.body.agentId as string)[0]);

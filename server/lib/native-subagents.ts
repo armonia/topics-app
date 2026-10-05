@@ -26,7 +26,7 @@ import type { StoredMessage, Topic } from "../types";
 import type { SubAgentOutcome } from "./subagent-result";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { getSubagent, getSubagentBySessionKey, insertSubagent, isSubagentEngaged, moveSubagentToEngine, runningSubagents, setSubagentState, type SubagentRow } from "./subagent-store";
-import { noteChildSeeded, reportNativeChildTurn, runtimeOf, subagentWakeOwed } from "./subagent-runtime";
+import { childPhase, noteChildSeeded, reportNativeChildTurn, runtimeOf, subagentWakeOwed } from "./subagent-runtime";
 import { onTurnEnd, readTurnEnd } from "../providers/turn-end-registry";
 import { internalAbortRequest, internalRequest } from "./abort-cause";
 
@@ -54,6 +54,8 @@ export interface NativeSubagentDeps {
    * apart, from `subagents`.
    */
   backgroundWork?(sessionKey: string): boolean;
+  /** Stop the child chat's own commands that would wake it: its Stop leaves nothing to wake it. */
+  stopBackgroundWork?(sessionKey: string): void;
   /** How often a child waiting on its own work is looked at again (default 5 s). */
   waitPollMs?: number;
   log?(msg: string): void;
@@ -238,10 +240,12 @@ export function sendToNativeChild(row: SubagentRow, input: string): { ok: true; 
   }
   // A turn cut by a restart that the boot is still waiting for: close it now as
   // `lost`, then send. Left to the adoption, the new turn was taken for the
-  // old one, reported twice, and the cut turn never said it was lost.
+  // old one, reported twice, and the cut turn never said it was lost. A child
+  // that had reported and was only waiting on its own work lost nothing: the
+  // adoption's own reading (`hasUnreportedTurn`), or it was told `lost` falsely.
   const cutAt = adopting.get(row.id);
-  if (cutAt !== undefined) {
-    adopting.delete(row.id);
+  if (cutAt !== undefined) adopting.delete(row.id);
+  if (cutAt !== undefined && hasUnreportedTurn(row)) {
     driving.add(row.id);
     void reportTurn(row.id, cutAt, null, true)
       .catch((err) => deps?.log?.(`report ${row.id}: ${err instanceof Error ? err.message : String(err)}`))
@@ -261,19 +265,22 @@ export function sendToNativeChild(row: SubagentRow, input: string): { ok: true; 
 export async function stopNativeChild(row: SubagentRow, opts: { archive: boolean }): Promise<void> {
   if (!deps || !row.sessionKey) return;
   const sessionKey = row.sessionKey;
-  // Its own children first, the whole live tree: a child waiting on a
-  // grandchild has no turn to cancel, and the grandchild's result would have
-  // woken it, and through it the root, after the Stop.
+  const log = (err: unknown) => deps?.log?.(`stop ${row.id}: ${err instanceof Error ? err.message : String(err)}`);
+  // `stopped` first: a result queued for it, or one that lands while the tree
+  // below is being stopped, reads the row and wakes nothing (`wakeVerdict`).
+  setSubagentState(getDatabase(), row.id, "stopped");
+  stopWatchingChild(row.id);
+  // Its own children, the whole live tree: a child waiting on a grandchild has
+  // no turn to cancel, and the grandchild's result would have woken it, and
+  // through it the root, after the Stop. And its own commands that would.
   await stopTreeUnder(sessionKey);
-  stoppedByParent.add(row.id);
+  try { deps.stopBackgroundWork?.(sessionKey); } catch (err) { log(err); }
   if (driving.has(row.id) || deps.isBusy(sessionKey)) {
+    stoppedByParent.add(row.id);
     const req = internalAbortRequest(sessionKey, "user");
     const url = new URL(req.url);
-    await Promise.resolve(deps.route(req, url, url.pathname, "POST")).catch((err) => deps?.log?.(`stop ${row.id}: ${err instanceof Error ? err.message : String(err)}`));
-  } else {
-    stoppedByParent.delete(row.id);
+    await Promise.resolve(deps.route(req, url, url.pathname, "POST")).catch(log);
   }
-  setSubagentState(getDatabase(), row.id, "stopped");
   if (opts.archive) {
     const topic = deps.getTopicBySessionKey(sessionKey);
     if (topic && !topic.archived) {
@@ -284,18 +291,25 @@ export async function stopNativeChild(row: SubagentRow, opts: { archive: boolean
 }
 
 /**
- * Every live child of this session, native or CLI, and theirs below them. A
- * native child is stopped with its chat left open; a CLI child loses its PTY.
- * Every result this produces is `stopped` by the parent, which wakes nobody.
+ * Every live child of this session, native or CLI, and theirs below them,
+ * whatever the runtime of each node. A native child is stopped with its chat
+ * left open; a working CLI child loses its PTY. A parked CLI child (its turn
+ * over, its PTY kept for a resume) is doing nothing to stop: only the tree
+ * below it is. Every result this produces is `stopped` by the parent, which
+ * wakes nobody.
  */
 async function stopTreeUnder(sessionKey: string): Promise<number> {
   let stopped = 0;
   for (const row of runningSubagents(getDatabase(), sessionKey)) {
     if (row.runtime === "topics") {
       await stopNativeChild(row, { archive: false });
-    } else {
-      try { stopCliChild?.(row.id); } catch (err) { deps?.log?.(`stop ${row.id}: ${err instanceof Error ? err.message : String(err)}`); }
+      stopped++;
+      continue;
     }
+    // A CLI child's own children hang under its id.
+    await stopTreeUnder(row.id);
+    if (childPhase(row.id) === "finished") continue;
+    try { stopCliChild?.(row.id); } catch (err) { deps?.log?.(`stop ${row.id}: ${err instanceof Error ? err.message : String(err)}`); }
     stopped++;
   }
   return stopped;
@@ -320,6 +334,15 @@ function turnRows(sessionKey: string, sinceMs: number): StoredMessage[] {
   const rows = deps?.loadMessages(sessionKey) ?? [];
   // One second of slack: the row's timestamp is the server's clock, as ours.
   return rows.filter((m) => m.role === "assistant" && Date.parse(m.timestamp) >= sinceMs - 1_000);
+}
+
+/** The assistant rows of the turn the user row `openerId` opened: up to the next user row. */
+function rowsOfTurn(sessionKey: string, openerId: string): StoredMessage[] {
+  const rows = deps?.loadMessages(sessionKey) ?? [];
+  const at = rows.findIndex((m) => m.id === openerId);
+  if (at < 0) return [];
+  const next = rows.findIndex((m, i) => i > at && m.role === "user");
+  return rows.slice(at + 1, next < 0 ? undefined : next).filter((m) => m.role === "assistant");
 }
 
 /** How a turn of a child chat ended, read from the chat: its end, and its last words. */
@@ -392,22 +415,23 @@ async function driveTurn(id: string, text: string): Promise<void> {
 
 /**
  * Read the turn that started at `sentAt` off the child's chat and hand it to
- * the parent. `end` and `until` pin it to one turn when the next may already
- * have started: its own end, and only the rows written up to it.
+ * the parent. `end` and `openerId` pin it to one turn when the next may
+ * already have started: its own end, and the rows between the user row that
+ * opened it and the next one.
  */
 async function reportTurn(
   id: string,
   sentAt: number,
   routeError: string | null,
   lost = false,
-  pinned: { end?: TurnEndInfo; until?: number } = {},
+  pinned: { end?: TurnEndInfo; openerId?: string } = {},
 ): Promise<void> {
   const db = getDatabase();
   const row = getSubagent(db, id);
   if (!row?.sessionKey) return;
   const recorded = readTurnEnd(row.sessionKey);
   const end = pinned.end ?? (recorded && recorded.atMs >= sentAt - 1_000 ? recorded.info : null);
-  const rows = turnRows(row.sessionKey, sentAt).filter((m) => pinned.until === undefined || Date.parse(m.timestamp) <= pinned.until);
+  const rows = pinned.openerId ? rowsOfTurn(row.sessionKey, pinned.openerId) : turnRows(row.sessionKey, sentAt);
   const last = rows.at(-1);
   const byParent = stoppedByParent.delete(id);
   const outcome: SubAgentOutcome = lost && !end
@@ -425,12 +449,13 @@ async function reportTurn(
   // running is not done: its own wake turn reports again. Retired or archived
   // here, that wake was refused and the final result never reached the root
   // (SUBAGENT-19). Looked at again until the work is over (`watchWaitingChild`).
+  const completed = outcome.status === "completed";
   if (getSubagent(db, id)?.state === "running" && stillWorkingFor(row.sessionKey)) {
     runtimeOf(id).phase = "working";
-    watchWaitingChild(id);
+    watchWaitingChild(id, completed);
     return;
   }
-  closeTurn(id, outcome.status === "completed");
+  closeTurn(id, completed);
 }
 
 /**
@@ -475,9 +500,9 @@ const waitWatches = new Map<string, ReturnType<typeof setInterval>>();
  * if the work ends without one (a grandchild retired or lost, a wake the
  * route refused, a command whose wake an earlier turn already took), the
  * child is closed here instead of holding its slot and its parent's wait for
- * good.
+ * good, the way its last turn ended (`completed`) deciding the archive.
  */
-function watchWaitingChild(id: string): void {
+function watchWaitingChild(id: string, completed: boolean): void {
   if (waitWatches.has(id) || !deps) return;
   const timer = setInterval(() => {
     const d = deps;
@@ -488,7 +513,7 @@ function watchWaitingChild(id: string): void {
     if (stillWorkingFor(row.sessionKey)) return;
     stopWatchingChild(id);
     // Its last turn was reported already: nothing new to say, only the slot to free.
-    closeTurn(id, false);
+    closeTurn(id, completed);
   }, deps.waitPollMs ?? 5_000);
   (timer as { unref?: () => void }).unref?.();
   waitWatches.set(id, timer);
@@ -502,8 +527,8 @@ function stopWatchingChild(id: string): void {
 
 /** The reports of wake turns, one chain per child: each turn reported once, in order. */
 const wakeReports = new Map<string, Promise<void>>();
-/** Where the last wake turn of each child ended: the next one starts after it. */
-const lastWakeEnd = new Map<string, number>();
+/** The user row that opened the last wake turn reported of each child: a second end of it is ignored. */
+const lastWakeOpener = new Map<string, string>();
 
 /** A newer turn has opened on this chat since `atMs`: a person or wake message after it. */
 function laterTurnStarted(sessionKey: string, atMs: number): boolean {
@@ -516,10 +541,12 @@ function laterTurnStarted(sessionKey: string, atMs: number): boolean {
  * It is reported to the parent like a driven turn; before, the result of a
  * delegation two levels down stopped at the child (SUBAGENT-19).
  *
- * Each end is pinned when it is recorded (its end, the moment, the turn
- * before it), and reported in a chain: two wakes back to back used to be one
- * report, the first listener waiting through the second turn and sending its
- * text. A stopped child yields nothing: no result after a Stop wakes anyone.
+ * One turn, one result. A turn is named by the user row that opened it, not
+ * by a moment: the engine records each end twice (the provider, then the
+ * route's finalize), and two links in the chain for one turn reported it
+ * twice. The second end of a turn already in the chain is ignored. The chain
+ * keeps two wakes back to back apart, each read between its own opener and
+ * the next. A stopped child yields nothing: no result after a Stop wakes anyone.
  */
 export function onNativeChildChatTurnEnd(sessionKey: string, info: TurnEndInfo): void {
   const d = deps;
@@ -527,18 +554,19 @@ export function onNativeChildChatTurnEnd(sessionKey: string, info: TurnEndInfo):
   const db = getDatabase();
   const row = getSubagentBySessionKey(db, sessionKey);
   if (!row || row.runtime !== "topics" || row.state === "stopped" || driving.has(row.id) || adopting.has(row.id)) return;
-  const endAt = Date.now();
-  const since = Math.max(lastWakeEnd.get(row.id) ?? 0, Date.parse(row.reportedAt ?? row.createdAt) || 0);
-  lastWakeEnd.set(row.id, endAt);
+  const opener = d.loadMessages(sessionKey).findLast((m) => m.role === "user");
+  if (!opener || lastWakeOpener.get(row.id) === opener.id) return;
+  lastWakeOpener.set(row.id, opener.id);
+  const openedAt = Date.parse(opener.timestamp);
   const report = (wakeReports.get(row.id) ?? Promise.resolve()).then(async () => {
     // The end is recorded before the route writes the turn's last words: wait
     // for the session to let go, or for the next turn, which can only open
     // once this one has.
-    for (let i = 0; i < 120 && d.isBusy(sessionKey) && !laterTurnStarted(sessionKey, endAt); i++) await sleep(250);
+    for (let i = 0; i < 120 && d.isBusy(sessionKey) && !laterTurnStarted(sessionKey, openedAt); i++) await sleep(250);
     const cur = getSubagent(db, row.id);
     if (!cur || cur.state === "stopped") return;
     if (cur.state !== "running") setSubagentState(db, row.id, "running");
-    await reportTurn(row.id, since, null, false, { end: info, until: endAt });
+    await reportTurn(row.id, openedAt, null, false, { end: info, openerId: opener.id });
   }).catch((err) => d.log?.(`report ${row.id}: ${err instanceof Error ? err.message : String(err)}`))
     .finally(() => { if (wakeReports.get(row.id) === report) wakeReports.delete(row.id); });
   wakeReports.set(row.id, report);
@@ -580,8 +608,10 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
     if (!adopting.delete(row.id)) return; // a send took it over
     if (!d.isBusy(sessionKey)) {
       if (!hasUnreportedTurn(row)) {
-        if (stillWorkingFor(sessionKey)) watchWaitingChild(row.id);
-        else closeTurn(row.id, false);
+        // How its reported turn ended, from the chat: this process never saw it.
+        const completed = d.loadMessages(sessionKey).findLast((m) => m.role === "assistant")?.endReason === "done";
+        if (stillWorkingFor(sessionKey)) watchWaitingChild(row.id, completed);
+        else closeTurn(row.id, completed);
         return;
       }
       await reportTurn(row.id, since, null, true);
@@ -623,7 +653,7 @@ export function _resetNativeSubagents(): void {
   adopting.clear();
   for (const id of [...waitWatches.keys()]) stopWatchingChild(id);
   wakeReports.clear();
-  lastWakeEnd.clear();
+  lastWakeOpener.clear();
   stopListening?.();
   stopListening = null;
   deps = null;

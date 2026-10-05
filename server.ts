@@ -5,7 +5,7 @@ import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
 import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
-import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage, isProviderHeld } from "./server/lib/provider-hold";
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
@@ -171,7 +171,7 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
@@ -940,6 +940,7 @@ configureNativeSubagents({
   reopen: (topic) => { reopenTopicFully(reopenDepsFor(ctx, ctx.broadcastToAll), topic.id); },
   // Its own children are read by the module itself (`subagentWakeState`).
   backgroundWork: (sk) => commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
+  stopBackgroundWork: (sk) => { stopCommandWakesOf(sk); },
   log: (m) => console.log(`[subagent-native] ${m}`),
 });
 // Deleting a terminal session closes any browser it opened (contextId
@@ -5684,7 +5685,7 @@ function adottaTurniRisvegliati(): void {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     // A task agent's topic is born archived yet is alive while its task runs:
     // the rule, and the 8 wakes it used to drop, in `lib/wake-adoption.ts`.
-    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id));
+    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id));
     if (verdict !== "adopt") {
       // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
       // in un posto che l'utente non ha. `false` tells the provider to drop
@@ -5770,7 +5771,7 @@ void survivingTurnsAdopted
     isBusy: (sk) => activeStreams.has(sk),
     canWake: (sk) => {
       const topic = ctx.getTopicBySessionKey(sk);
-      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id)) !== "adopt") return "row";
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
       return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
     },
     log: (m) => console.log(`[subagent-wake] ${m}`),

@@ -190,8 +190,8 @@ describe("resume, wake and restart of a child in the middle of a tree", () => {
     reconcile(ctx.db, { archiveTopic: (tid) => { archiveTopicFully(archiveDeps, tid); }, retireTerminal: () => {} });
     const t = ctx.getTopicBySessionKey(sk)!;
     expect(t.archived).toBe(false);
-    const { wakeVerdict } = await import("../../server/lib/wake-adoption");
-    expect(wakeVerdict({ id: t.id, archived: t.archived }, () => false)).toBe("adopt");
+    const { stoppedSubagentChat, wakeVerdict } = await import("../../server/lib/wake-adoption");
+    expect(wakeVerdict({ id: t.id, archived: t.archived }, () => false, (tid) => stoppedSubagentChat(ctx.db, tid))).toBe("adopt");
   }, 20_000);
 
   // Review 2, B: a CLI grandchild stays `running` 15 minutes after its result;

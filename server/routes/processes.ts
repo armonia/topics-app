@@ -750,6 +750,33 @@ export function commandWakeState(sessionKey: string, ownWake?: string): CommandW
     ? "wake-queued" : "none";
 }
 
+/**
+ * Stop a `run_command`. Marked first, so whichever road sees the exit closes
+ * it as stopped and wakes nobody. The group too: late forks are in it, not in
+ * the descendants snapshot. `proc.exited` (or `pollPidExit`) closes the row.
+ */
+function stopCommand(sp: ScriptProcess): void {
+  if (!sp.cmd) return;
+  sp.cmd.stopped = true;
+  saveState();
+  if (!sp.pid || !isPidAlive(sp.pid)) finishCommand(sp);
+  else void killProcessTree(sp.pid, 5000, { group: true });
+}
+
+/**
+ * A stopped sub-agent's chat: the commands it left running that would wake it
+ * are stopped with it. A wake of one already over is refused at delivery
+ * (`wakeVerdict`). Returns how many it stopped.
+ */
+export function stopCommandWakesOf(sessionKey: string): number {
+  loadProcessRegistry();
+  let stopped = 0;
+  for (const sp of [...runningScripts.values()]) {
+    if (sp.cmd?.wake && sp.cmd.sessionKey === sessionKey) { stopCommand(sp); stopped++; }
+  }
+  return stopped;
+}
+
 /** Every session a command still owes a wake: the goals that wait again after a restart. */
 export function sessionsAwaitingCommandWake(): string[] {
   loadProcessRegistry();
@@ -1956,13 +1983,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
    */
   function killRunningScript(sp: ScriptProcess): boolean {
     if (sp.cmd) {
-      // Marked first, so whichever road sees the exit closes it as stopped
-      // and wakes nobody. The group too: late forks are in it, not in the
-      // descendants snapshot. `proc.exited` (or `pollPidExit`) closes the row.
-      sp.cmd.stopped = true;
-      saveState();
-      if (!sp.pid || !isPidAlive(sp.pid)) finishCommand(sp);
-      else void killProcessTree(sp.pid, 5000, { group: true });
+      stopCommand(sp);
       return true;
     }
     if (sp.source === "detected" || sp.source === "shell") {

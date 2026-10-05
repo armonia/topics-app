@@ -8,7 +8,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { wakeVerdict, runningTaskOwnsTopic } from "./wake-adoption";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat } from "./wake-adoption";
+
+const noStoppedChild = () => false;
 
 function taskDb(rows: Array<{ id: string; status: string; topic: string | null }>): Database {
   const db = new Database(":memory:");
@@ -19,13 +21,13 @@ function taskDb(rows: Array<{ id: string; status: string; topic: string | null }
 
 describe("wake adoption: which topic takes a spontaneous turn", () => {
   test("an open topic adopts", () => {
-    expect(wakeVerdict({ id: "t-open", archived: false }, () => false)).toBe("adopt");
+    expect(wakeVerdict({ id: "t-open", archived: false }, () => false, noStoppedChild)).toBe("adopt");
   });
 
   test("an archived topic owned by an in-progress task adopts: the agent is still working", () => {
     const db = taskDb([{ id: "k1", status: "in_progress", topic: "t-agent" }]);
     const topic = { id: "t-agent", archived: true };
-    expect(wakeVerdict(topic, (id) => runningTaskOwnsTopic(db, id))).toBe("adopt");
+    expect(wakeVerdict(topic, (id) => runningTaskOwnsTopic(db, id), noStoppedChild)).toBe("adopt");
   });
 
   test("an archived topic with no task in progress is still refused", () => {
@@ -34,11 +36,11 @@ describe("wake adoption: which topic takes a spontaneous turn", () => {
       { id: "k2", status: "in_progress", topic: "t-other" },
     ]);
     const topic = { id: "t-old", archived: true };
-    expect(wakeVerdict(topic, (id) => runningTaskOwnsTopic(db, id))).toBe("archived");
+    expect(wakeVerdict(topic, (id) => runningTaskOwnsTopic(db, id), noStoppedChild)).toBe("archived");
   });
 
   test("no topic at all is refused", () => {
-    expect(wakeVerdict(null, () => true)).toBe("no-topic");
+    expect(wakeVerdict(null, () => true, noStoppedChild)).toBe("no-topic");
   });
 
   test("a failing ownership lookup refuses instead of guessing", () => {
@@ -58,17 +60,40 @@ describe("wake adoption: which topic takes a spontaneous turn", () => {
 
   test("a running fan-out attempt of an in-progress task adopts, not only attempt 1", () => {
     const db = fanOutDb();
-    expect(wakeVerdict({ id: "t-att2", archived: true }, (id) => runningTaskOwnsTopic(db, id))).toBe("adopt");
+    expect(wakeVerdict({ id: "t-att2", archived: true }, (id) => runningTaskOwnsTopic(db, id), noStoppedChild)).toBe("adopt");
   });
 
   test("an attempt that already ended is refused like any archived topic", () => {
     const db = fanOutDb();
-    expect(wakeVerdict({ id: "t-att3", archived: true }, (id) => runningTaskOwnsTopic(db, id))).toBe("archived");
+    expect(wakeVerdict({ id: "t-att3", archived: true }, (id) => runningTaskOwnsTopic(db, id), noStoppedChild)).toBe("archived");
   });
 
   test("a running attempt of a task no longer in progress is refused", () => {
     const db = fanOutDb();
     db.run("UPDATE tasks SET status = 'done' WHERE id = 'k1'");
-    expect(wakeVerdict({ id: "t-att2", archived: true }, (id) => runningTaskOwnsTopic(db, id))).toBe("archived");
+    expect(wakeVerdict({ id: "t-att2", archived: true }, (id) => runningTaskOwnsTopic(db, id), noStoppedChild)).toBe("archived");
+  });
+
+  // Review 3 of PR 238: a native sub-agent stopped by its parent or a person
+  // was woken by a result queued before the Stop, its chat being open.
+  function subagentDb(state: string, runtime = "topics"): Database {
+    const db = taskDb([]);
+    db.run("CREATE TABLE subagents (id TEXT PRIMARY KEY, runtime TEXT, state TEXT)");
+    db.run("INSERT INTO subagents VALUES ('t-child', ?, ?)", [runtime, state]);
+    return db;
+  }
+
+  test("a stopped native child is never woken, open or archived", () => {
+    const db = subagentDb("stopped");
+    const stopped = (id: string) => stoppedSubagentChat(db, id);
+    expect(wakeVerdict({ id: "t-child", archived: false }, () => true, stopped)).toBe("stopped");
+    expect(wakeVerdict({ id: "t-child", archived: true }, () => true, stopped)).toBe("stopped");
+  });
+
+  test("a running or retired native child is woken as before", () => {
+    for (const state of ["running", "retired"]) {
+      const db = subagentDb(state);
+      expect(wakeVerdict({ id: "t-child", archived: false }, () => false, (id) => stoppedSubagentChat(db, id))).toBe("adopt");
+    }
   });
 });
