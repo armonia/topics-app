@@ -244,17 +244,35 @@ index as offset.
 result SHALL be `stopped` by the parent, which wakes nobody, and the child's
 chat SHALL be archived. A person's Stop on the parent chat SHALL also stop
 its live children, without archiving their chats. Both stops SHALL reach the
-whole live tree: children waiting on their own children, and those children,
-native or CLI. No result produced after the Stop SHALL wake the parent, and a
-stopped child's chat SHALL report nothing until `send_to_agent` resumes it.
+whole live tree, whatever the runtime of each node: children waiting on their
+own children, and those children, under a native child or under a CLI one.
+They SHALL stop only the nodes at work: a CLI child parked after its turn
+keeps its PTY, while the tree under it is stopped. A stopped child's chat
+SHALL also lose the commands it left running that would wake it.
+
+«Send now» on a queued message SHALL NOT stop the children: it interrupts the
+parent's turn only, to send the correction, and the work it delegated goes
+on. The client says it on `/api/chat/abort` with `cause: "send-now"`; the stop
+is still the person's for the turn (its durable Stop, its notice). Only the
+explicit Stop or `stop_agent` SHALL stop the tree.
+
+No result produced after the Stop SHALL wake the parent. A `stopped` child
+SHALL never be woken by a result (a grandchild's, a command's): the wake's
+verdict reads the row's state, not whether the chat is archived, and a result
+queued for it before the Stop SHALL land as a plain row in its chat. Only an
+explicit `send_to_agent` SHALL start it again; until then its chat SHALL
+report nothing.
 
 A child whose turn ends while work it started will still wake it (a child not
 seen finished, a result not yet delivered, a command or background task of
 its chat) SHALL stay `running` and in view. Every turn of its chat that the
 server did not send (the wake) SHALL be reported once, as the next turn, with
-its own last words. When that work is over without a wake turn (a grandchild
-retired or lost, a wake the route refused), the child SHALL be closed, not
-left running. Resuming an archived child SHALL undo the archive whole (flag,
+its own last words: a turn is named by the user row that opened it, and a
+second end recorded for the same turn (the engine records one from the
+provider and one from the route's finalize) SHALL be ignored. When that work
+is over without a wake turn (a grandchild retired or lost, a wake the route
+refused), the child SHALL be closed, not left running, and archived like any
+child whose last turn was `completed` (SUBAGENT-22). Resuming an archived child SHALL undo the archive whole (flag,
 `ui_state` markers, retirement fact), through the unarchive's own door.
 
 While a native child's turn runs, the parent's goal loop SHALL read it as
@@ -264,7 +282,8 @@ After a restart, a native child still `running` SHALL be watched for a minute:
 a turn resumed with its chat SHALL be awaited and reported; one that does not
 come back SHALL be reported `lost` with what it had written. A child that had
 reported and was only waiting on its own work lost no turn: it SHALL NOT be
-reported `lost`.
+reported `lost`, whether the adoption closes it or a `send_to_agent` arrives
+during that minute.
 
 #### Scenario: one turn, one result, slot freed
 - **GIVEN** a native child whose chat answers and ends with `end_turn`
@@ -281,6 +300,18 @@ reported `lost`.
 - **GIVEN** a native child in the middle of its turn
 - **WHEN** a person presses Stop on the parent chat
 - **THEN** the child's turn SHALL end `stopped`, and its chat SHALL stay unarchived
+
+#### Scenario: «Send now» leaves the children working
+- **GIVEN** a parent turn in flight, a native child working, a message queued
+- **WHEN** the person presses «Send now»
+- **THEN** the parent's turn SHALL stop and the queue SHALL go out
+- **AND** the child SHALL still be `running`, its turn going on
+
+#### Scenario: a result queued before the Stop does not wake the stopped child
+- **GIVEN** a native child in its turn, and its grandchild's result waiting for that turn to end
+- **WHEN** a person presses Stop on the root
+- **THEN** the child SHALL be `stopped` and its chat SHALL run no new turn
+- **AND** the grandchild's result SHALL be written in the child's chat as a row
 
 ### Requirement: SUBAGENT-20 — Stopping work another session started asks first
 

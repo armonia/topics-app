@@ -14,6 +14,7 @@ import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting } from './historyPaging';
 import { HISTORY_FETCH_ALL, HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
+import { SEND_NOW_STOP_CAUSE } from '../../../shared/types';
 import {
   getHistoryCompleteness,
   markHistoryComplete,
@@ -182,6 +183,11 @@ export interface LoadHistoryOptions {
   fresh?: boolean;
   /** The turn is known live here: it stays lit until the answer says otherwise. */
   keepLit?: boolean;
+}
+
+export interface StopSessionOptions {
+  /** «Send now»: stop the turn to send the queue, leave its sub-agents working. */
+  sendNow?: boolean;
 }
 
 export interface SendMessageOptions {
@@ -2544,8 +2550,11 @@ export function useChat() {
    * minuti ha svuotato la pagina e chiuso la pane mentre il server rifiutava
    * («il turno aveva già prodotto lavoro») e teneva tutto su disco. Vedi
    * `stopSessionPolicy.ts` e `shared/clear-messages-policy.ts`.
+   *
+   * `sendNow`: «Send now» on a queued message. The turn stops the same way,
+   * but the sub-agents it delegated to keep working (SEND_NOW_STOP_CAUSE).
    */
-  const stopSession = useCallback(async (sessionKey: string): Promise<boolean> => {
+  const stopSession = useCallback(async (sessionKey: string, opts?: StopSessionOptions): Promise<boolean> => {
     // PRIMA di tutto il resto: «ferma» vuol dire fermo. L'abort qui sotto fa
     // finire lo stream, e la fine di uno stream è ciò che fa partire la coda —
     // per questo il freno si alza per primo e in modo DUREVOLE (le altre
@@ -2580,7 +2589,7 @@ export function useChat() {
     // Tell the server to abort — also clear server-side messages if first message
     let clearedByServer = false;
     try {
-      const res = await chatApi.abort(sessionKey, proposeWipe);
+      const res = await chatApi.abort(sessionKey, proposeWipe, opts?.sendNow ? SEND_NOW_STOP_CAUSE : undefined);
       // `cleared` è l'unica parola che conta: il server ricontrolla sul DB e
       // vede anche le righe fuori dal ramo attivo, che qui non si vedono.
       // Assente (server vecchio, richiesta fallita) ⇒ non si butta niente.

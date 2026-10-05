@@ -319,6 +319,38 @@ describe("native sub-agents on the real engine", () => {
     expect(bridge.received.some((m) => m.type === "kill" && (m as { id?: string }).id === cliId)).toBe(false);
   }, 30_000);
 
+  // Point 5: «Send now» on a queued message aborts the parent's turn to send
+  // the correction; it stopped every child with it, as a Stop does.
+  test("«Send now» stops the parent's turn only; the person's Stop stops the tree", async () => {
+    hold("TASK-KEEPS-WORKING");
+    const c = await spawn(ROOT_KEY, { name: "keeps-working", prompt: "TASK-KEEPS-WORKING" });
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child turn open", () => busy(childKey));
+    await until("the parent free", () => !busy(ROOT_KEY));
+    hold("TASK-PARENT-TURN");
+    const chatUrl = new URL("http://localhost/api/chat");
+    const turn = await route(new Request(chatUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionKey: ROOT_KEY, messages: [{ role: "user", content: "TASK-PARENT-TURN" }] }) }), chatUrl, "/api/chat", "POST");
+    expect(turn?.status).toBe(200);
+    await until("the parent's turn open", () => busy(ROOT_KEY));
+    // Sent by the client, as the client sends it: not a request the server built.
+    const abort = (cause?: string) => {
+      const url = new URL("http://localhost/api/chat/abort");
+      return route(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionKey: ROOT_KEY, ...(cause ? { cause } : {}) }) }), url, url.pathname, "POST");
+    };
+    const { SEND_NOW_STOP_CAUSE } = await import("../../shared/types");
+    expect((await abort(SEND_NOW_STOP_CAUSE))?.status).toBe(200);
+    const reader = turn!.body!.getReader();
+    while (!(await reader.read()).done) { /* drain */ }
+    await until("the parent's turn closed", () => !busy(ROOT_KEY));
+    await sleep(300);
+    expect(rowOf(cid)?.state).toBe("running");
+    expect(busy(childKey)).toBe(true);
+    // The person's Stop: the parent has no turn left, the tree stops all the same.
+    expect((await abort())?.status).toBe(200);
+    expect(rowOf(cid)?.state).toBe("stopped");
+    await until("child turn closed", () => !busy(childKey));
+  }, 30_000);
+
   // Point 7: closed by the re-check (its work over, no wake turn), a child
   // whose last turn completed left the view like any other.
   test("a child closed by the re-check after a completed turn is archived", async () => {

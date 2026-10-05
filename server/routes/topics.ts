@@ -37,7 +37,7 @@ import { markTopicSeen } from "../subject-seen";
 import { markAttentionSeen, seenItemNow, setClosed, turnEnded } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
-import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
+import { isMachineStop, machineStopToolError, stopCauseOf, stopReachesSubagents } from "../lib/abort-cause";
 import { leaveMachineStopNotice } from "../lib/machine-stop-notice";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
@@ -2625,9 +2625,10 @@ export function createTopicsRouter(
         return true;
       };
 
-      // A person's Stop reaches the native sub-agents working for this chat too
+      // A person's Stop reaches the sub-agents working for this chat too
       // (subagent-nativi): left running, a child woke the parent just stopped.
-      const stoppedChildren = stopCauseOf(req, body?.cause) === "user" ? await stopNativeChildrenOf(sessionKey) : 0;
+      // «Send now» stops only the turn (`stopReachesSubagents`).
+      const stoppedChildren = stopReachesSubagents(req, body?.cause) ? await stopNativeChildrenOf(sessionKey) : 0;
       if (!stream) {
         const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
         if (background) return json(background); // only background work was left: the Stop was for it

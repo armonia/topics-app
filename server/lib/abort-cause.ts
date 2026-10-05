@@ -21,7 +21,7 @@
  * lives on the Request object, which a client cannot forge. Anything else is
  * the person, whatever its body or headers claim.
  */
-import type { MachineStopCause } from "../../shared/types";
+import { SEND_NOW_STOP_CAUSE, type MachineStopCause } from "../../shared/types";
 export type { MachineStopCause } from "../../shared/types";
 export type StopCause = "user" | MachineStopCause;
 
@@ -70,6 +70,17 @@ export function stopCauseOf(req: Request, declared: unknown): StopCause {
   return internalRequests.has(req) && typeof declared === "string" && MACHINE_STOP_CAUSES.has(declared)
     ? (declared as MachineStopCause)
     : "user";
+}
+
+/**
+ * Does this stop reach the sub-agents the chat delegated to? A person's Stop
+ * does; «Send now» does not: it is the person's stop of the turn all the same
+ * (the cause above stays `user`), only to send the correction, and the
+ * children keep working. Whoever forges the client's cause stops less, never
+ * more. A machine stop recycles the turn, not the work under it.
+ */
+export function stopReachesSubagents(req: Request, declared: unknown): boolean {
+  return stopCauseOf(req, declared) === "user" && declared !== SEND_NOW_STOP_CAUSE;
 }
 
 /** The request a caller inside the server sends to `/api/chat/abort`. */
