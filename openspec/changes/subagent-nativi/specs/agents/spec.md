@@ -229,23 +229,37 @@ nativo per tutti) di `subagent-nativi`; dove si vede, questo requisito.
 
 The end of every turn of a native child SHALL produce one result (SUBAGENT-11)
 read from its chat: the last assistant row of the turn, and the turn's end in
-the turn-end registry. Every turn SHALL have a name, the id of the user row it
-answers: the chat route says it when the turn opens and puts it on every end it
-records (its finalize, its watchdog, the abort route). A result SHALL be read
-and attributed by that name alone: the turn's rows are those between its user
-row and the next one, its end the one that names it. An end with no name (the
-provider's own) or naming a turn already reported SHALL be ignored, and the
-names reported SHALL be written down (`subagent_reported_turns`), so a second
-result never goes out, after a restart either. An end SHALL never put a child
-back to `running`: only a turn opening on its chat does. `end_turn` SHALL be `completed`;
-`cancelled` SHALL be `stopped`; any other end, or a chat route that refused the
-turn, SHALL be `failed` with the reason. The result SHALL go to the parent the
+the turn-end registry. A child's chat SHALL have at most ONE open turn, from
+its start to the first end recorded on the chat. A turn's name is the id of
+the user row it answers: the chat route says it when the turn opens and puts
+it on the ends it records (its finalize, its watchdog, the abort route), and
+the engine puts it on its own. ANY end on the chat SHALL close the open turn,
+named or not, whatever its cause (the turn's own end, a watchdog, the
+stale-stream sweep, an abort, an error). An end with no open turn SHALL be
+ignored, and so SHALL an end naming another turn (a cut turn slow to unwind),
+with a log line. The turn's rows are those between its user row and the next
+one. The names reported SHALL be written down (`subagent_reported_turns`), so a
+second result never goes out, after a restart either. An end SHALL never put a
+child back to `running`: only a turn opening on its chat does.
+
+The outcome SHALL come from the end's cause, never from whether the turn left
+words behind: `end_turn` SHALL be `completed`; `cancelled` SHALL be `stopped`,
+with the reason `swept` when the machine cut it (a watchdog, the sweep, a
+stall); any other end, a turn with no end at all, or a chat route that refused
+the turn, SHALL be `failed` with the reason. A turn that did not complete SHALL
+NOT archive the child. The server's shutdown (`server-shutdown`) SHALL NOT be an
+outcome: the turn stays open, the row `running`, nothing is reported; the boot's
+resume sends it again and its one result comes when it really ends, or the
+adoption closes it once as `lost` if the resume does not come. The result SHALL go to the parent the
 way a CLI child's does (SUBAGENT-12, 13). At the end of its turn the row SHALL
 become `retired`: no process is left to park.
 
 `send_to_agent` SHALL be the child chat's next turn, within the 24-hour window
 of SUBAGENT-14 and through the same limits; on a child whose turn is running
-it SHALL answer 409. `read_agent` SHALL read the child's chat, with a row
+it SHALL answer 409. Its answer SHALL wait for the chat route's: when another
+turn got to the chat first (409), the parent SHALL get that error, never `ok`
+for a turn that was not sent. The driven turn SHALL be recognised by the key
+its request carries (`clientMessageId`), never by being the next turn to open. `read_agent` SHALL read the child's chat, with a row
 index as offset.
 
 `stop_agent` SHALL cancel the running turn through the chat's own Stop; the
@@ -279,7 +293,12 @@ says nothing after a Stop.
 
 A `send_to_agent` SHALL start a stopped child again, and so SHALL a person
 writing in its chat by hand: the child goes back to `running`, its chat back
-in view, and its results and its delegations work again.
+in view, and its results and its delegations work again. Nothing else SHALL:
+the chat route tells a person's message from the machine's (a wake, the boot's
+resume, a goal nudge, a turn the server sends itself), and the boot's resume
+and the goal loop SHALL NOT send a stopped child any turn. Editing or
+regenerating a message in a sub-agent's chat SHALL be refused (409): that
+one-shot pass has no tools and is no turn its parent would hear of.
 
 A child whose turn ends while work it started will still wake it (a child not
 seen finished, a result not yet delivered, a command or background task of
@@ -339,6 +358,19 @@ path did (the status written with its name), not the row's `endReason`:
 - **GIVEN** a child stopped by the person's Stop on the root
 - **WHEN** the person writes in the child's chat
 - **THEN** the child SHALL be `running`, its turn SHALL be reported, and a helper it spawns SHALL wake it
+
+#### Scenario: the sweep closes a child's turn
+- **GIVEN** a native child's turn frozen until the stale-stream sweep cuts it
+- **THEN** the parent SHALL receive one result `stopped` with the reason `swept`, and the child SHALL stay in view, not `running`
+
+#### Scenario: a planned restart is no outcome
+- **GIVEN** a native child mid-turn when the server shuts down
+- **THEN** no result SHALL go out before the boot
+- **AND** after the boot's resume the parent SHALL receive one result, the resumed turn's
+
+#### Scenario: a send that loses the race
+- **GIVEN** a `send_to_agent` whose request reaches the chat after another turn opened there
+- **THEN** the parent SHALL get a 409, and the other turn SHALL be reported as itself
 
 #### Scenario: a result queued before the Stop does not wake the stopped child
 - **GIVEN** a native child in its turn, and its grandchild's result waiting for that turn to end
