@@ -4,8 +4,8 @@
 
 ```bash
 bun run build:client
-E2E_PORT=14701 ANTHROPIC_BASE_URL= E2E_EVIDENCE=1 E2E_VIDEO=1 \
-  npx playwright test tests/e2e/board-mobile-phone.spec.ts --project=webkit
+E2E_PORT=14701 ANTHROPIC_BASE_URL= TOPICS_E2E_BUNDLE_DIR=$PWD/public \
+  npx playwright test tests/e2e/board-mobile-phone.spec.ts --project=webkit --workers=1
 bun test client/src/components/Board/columnClearance.test.ts client/src/components/Board/kanbanTopbar.test.ts
 ```
 
@@ -34,7 +34,12 @@ l'ultimo test di `columnClearance.test.ts`.
 ## Video
 
 I `.webm` della spec, uno per test, in
-`scratchpad/kanban-videos/` (percorsi nel corpo della PR).
+`scratchpad/kanban-videos/` (percorsi nel corpo della PR), registrati con una
+config locale temporanea che estende quella del repo con `video: "on"` e
+nient'altro. Non con `E2E_EVIDENCE=1 E2E_VIDEO=1`: il 05/10, con lo swap al 93%,
+KANBAN-MOBILE-05 passava in 3 s e poi andava in timeout a 30 s dopo l'`afterAll`,
+col `trace.zip` troncato (104 KB, senza directory centrale), in 3 giri su 4;
+senza trace 7 su 7.
 
 ## Ciò che è verde resta verde
 

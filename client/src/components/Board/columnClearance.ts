@@ -1,8 +1,8 @@
 /**
  * THE ROOM UNDER THE LAST CARD OF A COLUMN, measured instead of guessed.
  *
- * Asked on 05/10 (KANBAN-MOBILE-04): «pur poi scrollando, alla fine l'ultima
- * card dovrebbe preservare lo spazio sotto». The column body used to reserve a
+ * Asked on 05/10 (KANBAN-MOBILE-04): scrolled to its end, a column's last card
+ * must keep room below it. The column body used to reserve a
  * fixed `pb-36` (144px) for the floating composer that sits over the bottom of
  * the board. On a 390x844 phone the band that composer and the button row cover
  * was 141px, so a column scrolled to its end parked its last card 3px above the
@@ -12,14 +12,14 @@
  *
  * So the board measures the covered band - how far the composer's top edge
  * reaches into the scroller - and publishes it plus a fixed breath as
- * `BOARD_BOTTOM_CLEAR_VAR`. The column body spends it as its bottom padding;
+ * `BOARD_BOTTOM_CLEAR`. The column body spends it as its bottom padding;
  * CSS takes the max with the phone's button band, which covers the bottom
  * whenever the composer is hidden.
  */
 import { useLayoutEffect, type RefObject } from 'react';
 
 /** The CSS variable the columns row carries and every column body reads. */
-export const BOARD_BOTTOM_CLEAR_VAR = '--board-bottom-clear';
+export const BOARD_BOTTOM_CLEAR = '--board-bottom-clear';
 
 /** The breath between the last card and whatever floats below it. */
 export const CLEARANCE_GAP_PX = 16;
@@ -37,7 +37,7 @@ export function bottomClearance(scrollerBottom: number, coverTop: number | null,
 /**
  * Keeps the clearance of the columns in `rowRef` in sync with the composer
  * that floats over them, written straight on the row as
- * `BOARD_BOTTOM_CLEAR_VAR`: a resize repaints the padding without rendering
+ * `BOARD_BOTTOM_CLEAR`: a resize repaints the padding without rendering
  * the board again. The composer is found next to the row, inside the same
  * board area, so two boards on screen never read each other's composer.
  * Before the first measure the CSS fallback holds. `mounted` is false while
@@ -60,7 +60,7 @@ export function useColumnClearance(rowRef: RefObject<HTMLElement | null>, layout
       const rect = composer?.getBoundingClientRect();
       const coverTop = rect && rect.height > 0 ? rect.top : null;
       const next = `${bottomClearance(scroller.getBoundingClientRect().bottom, coverTop)}px`;
-      if (row.style.getPropertyValue(BOARD_BOTTOM_CLEAR_VAR) !== next) row.style.setProperty(BOARD_BOTTOM_CLEAR_VAR, next);
+      if (row.style.getPropertyValue(BOARD_BOTTOM_CLEAR) !== next) row.style.setProperty(BOARD_BOTTOM_CLEAR, next);
     };
     measure();
     const ro = new ResizeObserver(measure);

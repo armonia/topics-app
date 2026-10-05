@@ -1,11 +1,11 @@
 /**
  * THE BOARD ON A PHONE, MEASURED (asked on 05/10/2026).
  *
- * «mi fa scrollare verticalmente la top bar della Kanban [...] la barra di
- * ricerca e' troppo piccola nella Kanban [...] le colonne della Kanban
- * dovrebbero [riempire] lo spazio, a meno che non ci siano troppe card. Pur poi
- * scrollando, alla fine l'ultima card insomma dovrebbe preservare lo spazio
- * sotto». Each sentence is a number read from the DOM here, on the engine the
+ * The user's four complaints (quoted in openspec/specs/kanban/spec.md,
+ * KANBAN-MOBILE-01..04): the board's top bar scrolls vertically, its search
+ * field is too small, the columns should fill the height unless the cards
+ * overflow, and a scrolled column must keep room under its last card. Each
+ * sentence is a number read from the DOM here, on the engine the
  * app ships in (WebKit), on a 390x844 phone with a finger and the iPhone's
  * safe-area bands forced (`--sat`/`--sab`, the variables the app reads).
  *
