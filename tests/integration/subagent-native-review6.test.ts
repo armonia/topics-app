@@ -259,7 +259,7 @@ beforeAll(async () => {
     reopen: (t) => { reopenTopicFully(reopenDepsFor(ctx, () => {}), t.id); },
     backgroundWork: (sk) => busyBackground.has(sk),
     waitPollMs: 100,
-    cutTurnResumable: async (sk) => (await import("../../server/lib/ripresa-boot")).cutTurnResumable(resumeCtx(), sk),
+    cutTurnResumable: async (sk) => { const { cutTurnResumable } = await import("../../server/lib/ripresa-boot"); return cutTurnResumable(resumeCtx(), sk); },
   });
   await until("the reconcile list", () => bridge.received.some((m) => m.type === "list"), 5_000);
 }, 30_000);
@@ -269,7 +269,7 @@ afterEach(async () => {
   slowAbortMs = 0;
   abortHook = null;
   selfAnswer = null;
-  (await import("../../server/lib/provider-hold")).clearProviderHold();
+  { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
   for (const m of [...held.keys()]) release(m);
   await until("the root free", () => !busy(ROOT_KEY));
 });
@@ -340,7 +340,7 @@ function resumeCtx(): import("../../server/lib/ripresa-boot").CtxRipresa {
     isStreaming: (k) => ctx.activeStreams.has(k),
     providerBusy: () => false,
     bootedAtMs: Date.now() - 1_000,
-    abandonCut: (sk) => { void import("../../server/lib/native-subagents").then((m) => m.abandonCutTurn(sk)); },
+    abandonCut: (sk) => { void (async () => { const { abandonCutTurn } = await import("../../server/lib/native-subagents"); abandonCutTurn(sk); })(); },
   };
 }
 
@@ -512,7 +512,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     expect(reportsFor(id)).toHaveLength(0);
     expect(rowOf(id)?.state).toBe("running");
     // The hold lifts; the periodic sweep resends the cut turn.
-    (await import("../../server/lib/provider-hold")).clearProviderHold();
+    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
     await resumeSweep();
     await until("its result", () => reportsFor(id)[0], 15_000);
     await until("child free", () => !busy(sk));
@@ -527,7 +527,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     expect(res.status).toBe(200);
     await until("both results", () => reportsFor(id)[1], 15_000);
     await until("child free", () => !busy(sk));
-    (await import("../../server/lib/provider-hold")).clearProviderHold();
+    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
     const past = new Date(Date.now() - 3 * 60_000).toISOString();
     ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [past, sk]);
     await resumeSweep();
@@ -541,7 +541,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     expect(reportsFor(id)).toHaveLength(0);
     const t = ctx.getTopicBySessionKey(sk)!;
     ctx.saveSingleTopic({ ...t, archived: true });
-    (await import("../../server/lib/provider-hold")).clearProviderHold();
+    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
     await resumeSweep();
     await until("its result", () => reportsFor(id)[0], 10_000);
     await resumeSweep();
@@ -558,7 +558,7 @@ describe("one result per turn, and only the parent or a person drives a child's 
     const { getSubagent } = await import("../../server/lib/subagent-store");
     const native = await import("../../server/lib/native-subagents");
     await native.stopNativeChild(getSubagent(ctx.db as never, id)!, { archive: false });
-    (await import("../../server/lib/provider-hold")).clearProviderHold();
+    { const { clearProviderHold } = await import("../../server/lib/provider-hold"); clearProviderHold(); }
     await resumeSweep();
     await sleep(1_500);
     expect(busy(sk)).toBe(false);
