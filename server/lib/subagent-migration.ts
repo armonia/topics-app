@@ -36,7 +36,7 @@ function textOf(content: unknown): string {
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}\n[…tagliato]` : s);
 
 /** The person's first message (the task) and the assistant's last text. */
-export function cliHandover(jsonl: string): { task: string | null; lastReport: string | null } {
+export function cliTranscriptSummary(jsonl: string): { task: string | null; lastReport: string | null } {
   let task: string | null = null;
   let lastReport: string | null = null;
   for (const line of jsonl.split("\n")) {
@@ -80,18 +80,18 @@ const TAIL_BYTES = 512 * 1024;
  * held the server's one thread for the length of the read, on a request path.
  * A line cut at either edge fails to parse and is skipped.
  */
-async function readCliHandover(path: string): Promise<{ task: string | null; lastReport: string | null }> {
+async function readCliTranscriptSummary(path: string): Promise<{ task: string | null; lastReport: string | null }> {
   const fh = await open(path, "r");
   try {
     const { size } = await fh.stat();
     const read = async (start: number, length: number) => {
-      const buf = Buffer.alloc(length);
-      const { bytesRead } = await fh.read(buf, 0, length, start);
-      return buf.subarray(0, bytesRead).toString("utf8");
+      const chunk = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(chunk, 0, length, start);
+      return chunk.subarray(0, bytesRead).toString("utf8");
     };
-    if (size <= HEAD_BYTES + TAIL_BYTES) return cliHandover(await read(0, size));
-    const head = cliHandover(await read(0, HEAD_BYTES));
-    const tail = cliHandover(await read(size - TAIL_BYTES, TAIL_BYTES));
+    if (size <= HEAD_BYTES + TAIL_BYTES) return cliTranscriptSummary(await read(0, size));
+    const head = cliTranscriptSummary(await read(0, HEAD_BYTES));
+    const tail = cliTranscriptSummary(await read(size - TAIL_BYTES, TAIL_BYTES));
     return { task: head.task, lastReport: tail.lastReport ?? head.lastReport };
   } finally {
     await fh.close();
@@ -100,9 +100,9 @@ async function readCliHandover(path: string): Promise<{ task: string | null; las
 
 export async function migratedChildPromptFor(row: { name: string; claudeSessionId: string | null; promptSnippet: string | null }, newInput: string): Promise<string> {
   const transcriptPath = row.claudeSessionId ? findCliTranscript(row.claudeSessionId) : null;
-  let handover: { task: string | null; lastReport: string | null } = { task: null, lastReport: null };
+  let summary: { task: string | null; lastReport: string | null } = { task: null, lastReport: null };
   if (transcriptPath) {
-    try { handover = await readCliHandover(transcriptPath); } catch { /* unreadable: the prompt snippet stands in for the task */ }
+    try { summary = await readCliTranscriptSummary(transcriptPath); } catch { /* unreadable: the prompt snippet stands in for the task */ }
   }
-  return migratedChildPrompt({ name: row.name, ...handover, transcriptPath, promptSnippet: row.promptSnippet, newInput });
+  return migratedChildPrompt({ name: row.name, ...summary, transcriptPath, promptSnippet: row.promptSnippet, newInput });
 }

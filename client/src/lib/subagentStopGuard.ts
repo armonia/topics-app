@@ -64,10 +64,10 @@ export function chatStopTarget(
 }
 
 export function stopConfirmOptions(target: StopTarget, tr: Tr): ConfirmOptions {
-  const vars = { name: `«${target.name}»`, parent: target.startedBy };
+  const values = { name: `«${target.name}»`, parent: target.startedBy };
   return {
-    title: tr('subagent.stopConfirm.title', vars),
-    body: tr('subagent.stopConfirm.body', vars),
+    title: tr('subagent.stopConfirm.title', values),
+    body: tr('subagent.stopConfirm.body', values),
     confirmLabel: tr('subagent.stopConfirm.confirm'),
     tone: 'danger',
   };

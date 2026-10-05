@@ -7,6 +7,7 @@
  * English, following Topics' own notices.
  *
  * Drives the REAL provider against a stubbed API and reads what it sent.
+ * @covers PROMPT-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

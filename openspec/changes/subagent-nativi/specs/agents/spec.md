@@ -183,6 +183,16 @@ result card or the strip SHALL open its chat, never a terminal tab. Changed on
 proprio potrebbero uscire come sotto tab nella sidebar» (before: a flat chat in
 the project's sidebar).
 
+A child born on the CLI and written to again with `send_to_agent` after it
+ended SHALL come back on the engine with the same id: its row SHALL be updated,
+never replaced, so its reported turns and pending results stay and the next
+turn is numbered after them; it SHALL carry its profile's instructions and
+tools, and its task, last report and transcript path as context. The reason a
+child was born on its runtime SHALL be recorded (`asked`, `fallback`,
+`default`); a child whose call asked for `runtime: "claude-code"` SHALL resume
+on the CLI. A row older than that record SHALL migrate. Added on 04/10 at
+Attilio's request: «pulisci, migri».
+
 Dove cambiarla: scelta 1 (chat a sé, non turno annidato) e scelta 2 (default
 nativo per tutti) di `subagent-nativi`; dove si vede, questo requisito.
 
@@ -208,6 +218,12 @@ nativo per tutti) di `subagent-nativi`; dove si vede, questo requisito.
 - **GIVEN** a profile with `tools: Read, Grep, Glob, mcp__topics__list_agents`
 - **WHEN** a child is spawned from it
 - **THEN** the child chat SHALL be offered `read_file`, `grep`, `glob`, `list_agents` and no `bash`
+
+#### Scenario: a CLI child resumed moves to the engine and keeps counting
+- **GIVEN** a CLI child with no recorded reason whose turn 1 was reported, then stopped
+- **WHEN** its parent calls `send_to_agent` twice
+- **THEN** the row SHALL say `topics`, and the parent SHALL receive turns 2 and 3, both `completed`
+- **AND** a child spawned with `runtime: "claude-code"` SHALL instead resume as a CLI
 
 ### Requirement: SUBAGENT-19 — A native child's turn ends in a result read from its chat, and stops like a chat
 
@@ -308,8 +324,11 @@ store decides it at the source (`quiet` input of `composeAttention`, the
 reaches the parent (wake and card), and the parent is what notifies. Its work
 SHALL still show as `working`, and a wait it opens (a question, a permission)
 SHALL still need the person, since nobody else can answer it. Once the person
-opens it (its seen door), it lights like any chat. That engagement is held in
-memory: after a restart the child is quiet again until reopened.
+opens it (its seen door) or puts it in front of an awake window (its focus),
+it lights like any chat. That engagement SHALL be written on the child's row
+(`engaged_at`): after a restart the child is still the person's. A closed
+accordion SHALL show an amber dot while one of its children waits on the
+person.
 
 #### Scenario: a child finishes while the person looks elsewhere
 - **GIVEN** a chat with three sub-agents, the accordion closed
@@ -327,8 +346,11 @@ memory: after a restart the child is quiet again until reopened.
 Attilio, 05/10: «pulisci anche quelli che non servono più, dovrebbero chiudersi». Un figlio nativo
 il cui turno finisce da solo (esito `completed`, già consegnato al padre) SHALL archiviare la sua
 chat, e con lei i suoi segnali di attenzione, come i figli del tool Agent di Claude Code. NON SHALL
-archiviarsi un figlio fermato (si legge cosa ha fatto) né uno che la persona ha aperto.
-`send_to_agent` lo riporta in vista.
+archiviarsi un figlio fermato (si legge cosa ha fatto) né uno che la persona ha aperto o messo
+davanti (SUBAGENT-21). L'archiviazione SHALL passare dalla stessa porta di ogni archivio
+(`archiveTopicFully`). Un figlio con nipoti ancora al lavoro o lavoro in background che lo
+risveglierà NON è finito: SHALL restare `running` e in vista, e il turno del suo risveglio SHALL
+arrivare al padre come turno successivo (SUBAGENT-19). `send_to_agent` lo riporta in vista.
 
 #### Scenario: Turno finito, figlio fuori dalla vista
 - **GIVEN** un figlio nativo mai aperto dalla persona

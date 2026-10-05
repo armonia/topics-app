@@ -1,18 +1,17 @@
 /**
- * The handover a CLI-born child carries when it comes back on the engine
- * (SUBAGENT-14): its starting task and its last report, read off the CLI
- * transcript, composed into the migrated child's first turn.
- * @covers SUBAGENT-14
+ * What a CLI child carries when it moves to the engine: its task, its last
+ * report and where its transcript is, never the whole history.
+ * @covers SUBAGENT-18
  */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { cliHandover, findCliTranscript, migratedChildPrompt } from "./subagent-migration";
+import { cliTranscriptSummary, findCliTranscript, migratedChildPrompt } from "./subagent-migration";
 
 const line = (type: string, content: unknown) => JSON.stringify({ type, message: { role: type, content } });
 
-describe("cliHandover", () => {
+describe("cliTranscriptSummary", () => {
   test("the task is the first person message, the report the last assistant text; tool rows are skipped", () => {
     const jsonl = [
       line("user", "build the bastion"),
@@ -21,7 +20,7 @@ describe("cliHandover", () => {
       line("assistant", [{ type: "text", text: "70/70 green" }]),
       "not json",
     ].join("\n");
-    expect(cliHandover(jsonl)).toEqual({ task: "build the bastion", lastReport: "70/70 green" });
+    expect(cliTranscriptSummary(jsonl)).toEqual({ task: "build the bastion", lastReport: "70/70 green" });
   });
 });
 
