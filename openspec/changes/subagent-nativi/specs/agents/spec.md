@@ -242,15 +242,29 @@ index as offset.
 
 `stop_agent` SHALL cancel the running turn through the chat's own Stop; the
 result SHALL be `stopped` by the parent, which wakes nobody, and the child's
-chat SHALL be archived. A person's Stop on the parent chat SHALL also stop the
-native children whose turn is running, without archiving their chats.
+chat SHALL be archived. A person's Stop on the parent chat SHALL also stop
+its live children, without archiving their chats. Both stops SHALL reach the
+whole live tree: children waiting on their own children, and those children,
+native or CLI. No result produced after the Stop SHALL wake the parent, and a
+stopped child's chat SHALL report nothing until `send_to_agent` resumes it.
+
+A child whose turn ends while work it started will still wake it (a child not
+seen finished, a result not yet delivered, a command or background task of
+its chat) SHALL stay `running` and in view. Every turn of its chat that the
+server did not send (the wake) SHALL be reported once, as the next turn, with
+its own last words. When that work is over without a wake turn (a grandchild
+retired or lost, a wake the route refused), the child SHALL be closed, not
+left running. Resuming an archived child SHALL undo the archive whole (flag,
+`ui_state` markers, retirement fact), through the unarchive's own door.
 
 While a native child's turn runs, the parent's goal loop SHALL read it as
 background work, and SHALL NOT send «Objective still open».
 
 After a restart, a native child still `running` SHALL be watched for a minute:
 a turn resumed with its chat SHALL be awaited and reported; one that does not
-come back SHALL be reported `lost` with what it had written.
+come back SHALL be reported `lost` with what it had written. A child that had
+reported and was only waiting on its own work lost no turn: it SHALL NOT be
+reported `lost`.
 
 #### Scenario: one turn, one result, slot freed
 - **GIVEN** a native child whose chat answers and ends with `end_turn`
@@ -324,8 +338,9 @@ store decides it at the source (`quiet` input of `composeAttention`, the
 reaches the parent (wake and card), and the parent is what notifies. Its work
 SHALL still show as `working`, and a wait it opens (a question, a permission)
 SHALL still need the person, since nobody else can answer it. Once the person
-opens it (its seen door) or puts it in front of an awake window (its focus),
-it lights like any chat. That engagement SHALL be written on the child's row
+opens it (its seen door) or keeps it in front of an awake window for the
+seen's dwell (`SEEN_DWELL_MS`), it lights like any chat; a window's first focus
+after loading, the layout it restored, does not count. That engagement SHALL be written on the child's row
 (`engaged_at`): after a restart the child is still the person's. A closed
 accordion SHALL show an amber dot while one of its children waits on the
 person.

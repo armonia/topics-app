@@ -47,10 +47,10 @@ import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
-import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
+import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
-import { archiveTopicFully } from "./server/services/archive-topic";
+import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
@@ -936,7 +936,10 @@ configureNativeSubagents({
   engineReady: () => tryGetProvider("topics")?.connected === true,
   // The same door as every archive: unread, ui_state, parked session, open ask.
   archive: (topic) => retirementConsequences.archiveTopic(topic.id),
-  backgroundWork: (sk) => subagentWakeOwed(sk) || commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
+  // And the unarchive's door to come back: flag, ui_state markers, retirement fact.
+  reopen: (topic) => { reopenTopicFully(reopenDepsFor(ctx, ctx.broadcastToAll), topic.id); },
+  // Its own children are read by the module itself (`subagentWakeState`).
+  backgroundWork: (sk) => commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
   log: (m) => console.log(`[subagent-native] ${m}`),
 });
 // Deleting a terminal session closes any browser it opened (contextId
