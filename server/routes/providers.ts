@@ -12,6 +12,7 @@ import {
   configureDirectProvider,
 } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
+import { nativeEngineRemoved } from "../lib/native-subagents";
 import { updateAppSettings } from "../services/app-settings";
 import { detectAgents, resetAgentBinCaches } from "../lib/detect-agents";
 import { isCliAgentId } from "../lib/agent-bin-paths";
@@ -231,6 +232,8 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
     if (deleteMatch) {
       const name = deleteMatch[1];
       try {
+        // Removing the Topics engine is not a shutdown: its sub-agents' turns fail now.
+        if (name === "topics") nativeEngineRemoved();
         removeProvider(name);
         return json({ ok: true });
       } catch (err) {

@@ -63,6 +63,8 @@ import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
 import { isInternalRequest, isMachineStop } from "../lib/abort-cause";
+import { agentAuthOk } from "../lib/agent-auth";
+import { getSubagentBySessionKey } from "../lib/subagent-store";
 import { patchOpenTool, registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
@@ -633,6 +635,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
       }
+      // An agent, not a person: send_chat_message (fromAgent) or an agent credential.
+      // Read from the request's authentication, never trusted from the body alone.
+      const sentByAgent = !isInternalRequest(req) && (body.fromAgent === true || agentAuthOk(req));
+      const subagentOfChat = sentByAgent || isInternalRequest(req) ? getSubagentBySessionKey(ctx.db as never, sessionKey) : null;
+      // send_to_agent's turn: its text is the child's prompt, never a chat command.
+      const drivenChildTurn = !sentByAgent && subagentOfChat?.runtime === "topics";
+      // A native sub-agent's chat is driven by its parent through send_to_agent:
+      // an agent writing here would open a turn nobody owns and a second result.
+      if (sentByAgent && subagentOfChat?.runtime === "topics") {
+        return json({ error: `this chat belongs to sub-agent ${subagentOfChat.id}: its parent writes to it with send_to_agent(agent_id="${subagentOfChat.id}")`, code: "subagent_chat" }, 409);
+      }
 
       /**
        * UN TURNO PER SESSIONE.
@@ -820,7 +833,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         }
 
         // Handle board chat control commands (/ prefixed)
-        if (lastUserMsg.content.trim().startsWith("/")) {
+        if (lastUserMsg.content.trim().startsWith("/") && !drivenChildTurn) {
           const cmdText = lastUserMsg.content.trim();
           const cmdMatch = cmdText.match(/^\/(\w+)\s*(.*)/);
           if (cmdMatch) {
@@ -1608,7 +1621,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // The turn's name: the user row it answers. It rides on every end this
           // route records, so a late end is never taken for the next turn's.
           const turnId = partialMsg.parentId ?? undefined;
-          if (turnId) recordTurnStart(sessionKey, turnId, { byPerson: sentByPerson && !isInternalRequest(req), key: idempotencyKey });
+          if (turnId) recordTurnStart(sessionKey, turnId, { byPerson: sentByPerson && !sentByAgent && !isInternalRequest(req), key: idempotencyKey });
           // From here the turn's end decides for the answers it carries, not the route's exit.
           if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,

@@ -6,7 +6,7 @@ import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
 import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat } from "./server/lib/wake-adoption";
-import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
+import { cutTurnResumable, riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage, isProviderHeld } from "./server/lib/provider-hold";
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
@@ -174,7 +174,7 @@ import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/ser
 import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
-import { adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
+import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -942,6 +942,8 @@ configureNativeSubagents({
   backgroundWork: (sk) => commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
   stopBackgroundWork: (sk) => { stopCommandWakesOf(sk); },
   log: (m) => console.log(`[subagent-native] ${m}`),
+  // The resume's own verdict (declared below, read only after the boot).
+  cutTurnResumable: (sk) => cutTurnResumable(resumeCtx, sk),
 });
 // Deleting a terminal session closes any browser it opened (contextId
 // `term-<id>`): broadcast the pane close for every client + destroy the
@@ -5736,6 +5738,7 @@ const resumeCtx: CtxRipresa = {
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
   backgroundCommands: (sk) => commandBackgroundWork.tasks(sk).flatMap((t) => (t.processId ? [{ description: t.description, processId: t.processId }] : [])),
+  abandonCut: abandonCutTurn,
 };
 
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker

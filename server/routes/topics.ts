@@ -2567,7 +2567,7 @@ export function createTopicsRouter(
         }, 409);
       }
 
-      const stream = activeStreams.get(sessionKey);
+      const streamAtStop = activeStreams.get(sessionKey);
 
       // Resolve topic and provider for abort — O(1) UNIQUE-index lookup
       // instead of a full topics scan per /api/chat/abort hit.
@@ -2633,6 +2633,9 @@ export function createTopicsRouter(
       const fullStop = stopReachesSubagents(req, body?.cause);
       if (fullStop) writeQueuedWakesAsRows(sessionKey);
       const stoppedChildren = fullStop ? await stopNativeChildrenOf(sessionKey) : 0;
+      // Read again after the children's stop: the turn this Stop was for may
+      // have ended meanwhile, and a turn opened since (a wake) is not its own.
+      const stream = activeStreams.get(sessionKey) === streamAtStop ? streamAtStop : undefined;
       if (!stream) {
         const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
         if (background) return json(background); // only background work was left: the Stop was for it

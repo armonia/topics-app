@@ -602,6 +602,23 @@ export function childPhase(id: string): SubAgentPhase | null {
   return childRuntime.get(id)?.phase ?? null;
 }
 
+/**
+ * A CLI child's phase, now. After a restart this process has none in memory
+ * until the watch's first look: it is read off the transcript here the way
+ * the watch reads it, never taken for `working` (or `finished`) on trust.
+ */
+export function cliChildPhaseNow(child: { id: string; cwd: string; claudeSessionId: string | null; turnsReported: number }): SubAgentPhase | null {
+  const known = childPhase(child.id);
+  if (known || !child.claudeSessionId) return known;
+  const path = claudeTranscriptPath(child.cwd, child.claudeSessionId);
+  let stat: fs.Stats | null = null;
+  try { stat = fs.statSync(path); } catch { /* not written yet */ }
+  const rt = runtimeOf(child.id);
+  const tally = foldTranscript(rt, path, stat);
+  rt.phase = tally.prompts === 0 ? 'waiting-prompt' : tally.prompts <= child.turnsReported ? 'finished' : 'working';
+  return rt.phase;
+}
+
 /** A child was just told something (its seed, or `send_to_agent`): its turn is open. */
 export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): void {
   const rt = runtimeOf(id);

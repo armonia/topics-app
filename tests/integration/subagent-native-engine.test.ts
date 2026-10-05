@@ -307,8 +307,16 @@ describe("native sub-agents on the real engine", () => {
   test("a parked CLI child keeps its PTY through the tree stop", async () => {
     const c = await spawn(ROOT_KEY, { name: "cli-parked", prompt: "do the thing", runtime: "claude-code" });
     const cliId = c.body.agentId as string;
-    const { runtimeOf } = await import("../../server/lib/subagent-runtime");
-    runtimeOf(cliId).phase = "finished";
+    // Parked for real: its transcript holds the prompt and the answer, and the
+    // children's watch reported the turn. A phase set in memory alone was
+    // recomputed by the watch from a transcript with no prompt.
+    const cli = bridge.children.get(cliId)!;
+    const file = bridge.transcriptFile(cli.cwd, cli.sessionId)!;
+    await until("the prompt record", () => fs.existsSync(file) && fs.readFileSync(file, "utf-8").includes('"type":"user"'));
+    bridge.append(cli, { type: "assistant", message: { model: "claude-sonnet-5-5", role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "Report: done" }] } });
+    await until("its turn reported", () => reportsFor(cliId).length === 1, 15_000);
+    const { childPhase } = await import("../../server/lib/subagent-runtime");
+    await until("parked", () => childPhase(cliId) === "finished");
     hold("TASK-UNDER-PARKED");
     const g = await spawn(cliId, { name: "under-parked", prompt: "TASK-UNDER-PARKED" });
     const gid = g.body.agentId as string;
@@ -317,6 +325,24 @@ describe("native sub-agents on the real engine", () => {
     await stopNativeChildrenOf(ROOT_KEY);
     expect(rowOf(gid)?.state).toBe("stopped");
     // Left alone: the stopper would have killed it, or closed its row.
+    expect(rowOf(cliId)?.state).toBe("running");
+    expect(bridge.received.some((m) => m.type === "kill" && (m as { id?: string }).id === cliId)).toBe(false);
+  }, 30_000);
+
+  test("after a restart a parked CLI child's phase is read off its transcript: the tree stop leaves it its PTY", async () => {
+    const c = await spawn(ROOT_KEY, { name: "cli-parked-restart", prompt: "do the thing", runtime: "claude-code" });
+    const cliId = c.body.agentId as string;
+    const cli = bridge.children.get(cliId)!;
+    const file = bridge.transcriptFile(cli.cwd, cli.sessionId)!;
+    await until("the prompt record", () => fs.existsSync(file) && fs.readFileSync(file, "utf-8").includes('"type":"user"'));
+    bridge.append(cli, { type: "assistant", message: { model: "claude-sonnet-5-5", role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "Report: done" }] } });
+    await until("its turn reported", () => reportsFor(cliId).length === 1, 15_000);
+    // The restart: this process remembers nothing of the child, its phase is null.
+    const runtime = await import("../../server/lib/subagent-runtime");
+    runtime._forgetSubAgentMemory();
+    expect(runtime.childPhase(cliId)).toBeNull();
+    const { stopNativeChildrenOf } = await import("../../server/lib/native-subagents");
+    await stopNativeChildrenOf(ROOT_KEY);
     expect(rowOf(cliId)?.state).toBe("running");
     expect(bridge.received.some((m) => m.type === "kill" && (m as { id?: string }).id === cliId)).toBe(false);
   }, 30_000);
