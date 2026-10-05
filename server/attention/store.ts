@@ -953,12 +953,16 @@ export function setSocketFocus(socketId: string, f: { subject: string | null; aw
   armEngageDwell(socketId, f);
 }
 
-/** Per socket: the sub-agent it has in front, waiting out the dwell before it counts as engaged. */
-const engageDwells = new Map<string, { subject: string; timer: ReturnType<typeof setTimeout> }>();
+/**
+ * Per socket: the sub-agent the person chose, waiting out the dwell before it
+ * counts as engaged. `timer` is null while the window sleeps: the choice
+ * stays, and the dwell runs again when the window wakes on the same subject.
+ */
+const engageDwells = new Map<string, { subject: string; timer: ReturnType<typeof setTimeout> | null }>();
 
 function cancelEngageDwell(socketId: string): void {
   const pending = engageDwells.get(socketId);
-  if (pending) clearTimeout(pending.timer);
+  if (pending?.timer) clearTimeout(pending.timer);
   engageDwells.delete(socketId);
 }
 
@@ -966,25 +970,42 @@ function cancelEngageDwell(socketId: string): void {
  * A sub-agent the person put in front (`chosen`: a click on its row or tab,
  * not a layout the window restored), kept there for the seen's own dwell
  * (`SEEN_DWELL_MS`) with the window awake, is engaged. A pass over it shorter
- * than the dwell does not count. The same subject announced again (a second
- * sender, a wake of the window) leaves the dwell running: it neither starts
- * one nor cuts one.
+ * than the dwell does not count. The choice holds until the person puts
+ * something else in front: a window that loses focus before the dwell runs
+ * out pauses it, and waking on the same subject runs it again, though the
+ * frame that wakes it is no gesture. The same subject announced again (a
+ * second sender) leaves a running dwell alone.
  */
 function armEngageDwell(socketId: string, f: { subject: string | null; awake: boolean; chosen?: boolean } | null): void {
   const pending = engageDwells.get(socketId);
-  if (pending && f?.subject === pending.subject && f.awake) return;
+  if (pending && f?.subject === pending.subject) {
+    if (!f.awake) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.timer = null;
+    } else if (!pending.timer) {
+      pending.timer = startEngageDwell(socketId, pending.subject);
+    }
+    return;
+  }
   cancelEngageDwell(socketId);
-  if (!f?.chosen || !f.subject || !f.awake || !isSubagentSubject(f.subject) || peek(f.subject)?.engaged) return;
-  const subject = f.subject;
+  if (!f?.chosen || !f.subject || !isSubagentSubject(f.subject) || peek(f.subject)?.engaged) return;
+  engageDwells.set(socketId, { subject: f.subject, timer: f.awake ? startEngageDwell(socketId, f.subject) : null });
+}
+
+function startEngageDwell(socketId: string, subject: string): ReturnType<typeof setTimeout> {
   const timer = setTimeout(() => {
-    engageDwells.delete(socketId);
     const now = focus.get(socketId);
-    if (now?.subject !== subject || !now.awake) return;
+    if (now?.subject !== subject || !now.awake) {
+      const pending = engageDwells.get(socketId);
+      if (pending?.timer === timer) pending.timer = null;
+      return;
+    }
+    engageDwells.delete(socketId);
     engage(subject);
     recompose(subject, { live: true });
   }, deps.engageDwellMs);
   (timer as { unref?: () => void }).unref?.();
-  engageDwells.set(socketId, { subject, timer });
+  return timer;
 }
 
 export function forgetSocket(socketId: string): void {

@@ -255,4 +255,32 @@ describe("a sub-agent is quiet until the person opens it", () => {
     await wait(120);
     expect([...engaged]).toEqual(["topic:child"]);
   });
+
+  // Review 4 of PR 238, point 7: the window lost focus before the dwell ran
+  // out, and the frame that woke it, no gesture, could never arm it again.
+  it("a choice survives the window losing focus: waking on the same subject runs the dwell again", async () => {
+    const engaged = new Set<string>();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child" || s === "topic:child2",
+      engageSubagent: (s) => { engaged.add(s); },
+      subagentEngaged: (s) => engaged.has(s),
+      engageDwellMs: 40,
+    });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true, chosen: true });
+    await wait(10);
+    setSocketFocus("sock-1", { subject: "topic:child", awake: false });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(80);
+    expect([...engaged]).toEqual(["topic:child"]);
+    // Something else put in front ends the choice: coming back without a gesture does not engage.
+    setSocketFocus("sock-2", { subject: "topic:child2", awake: true, chosen: true });
+    await wait(10);
+    setSocketFocus("sock-2", { subject: "topic:other", awake: true });
+    setSocketFocus("sock-2", { subject: "topic:child2", awake: true });
+    await wait(80);
+    expect([...engaged]).toEqual(["topic:child"]);
+  });
 });
