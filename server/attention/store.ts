@@ -213,8 +213,7 @@ export function resetAttentionStore(opts: { keepRows?: boolean } = {}): void {
   for (const e of entries.values()) if (e.graceTimer) clearTimeout(e.graceTimer);
   entries.clear();
   focus.clear();
-  for (const t of engageDwells.values()) clearTimeout(t);
-  engageDwells.clear();
+  for (const id of [...engageDwells.keys()]) cancelEngageDwell(id);
   loadedFrom = null;
   if (!opts.keepRows) memoryTable.clear();
   deps = { ...DEFAULT_DEPS };
@@ -947,27 +946,35 @@ export function noteUnreadChanged(topicId: string): void {
  * awake. A guest's focus does not count (section 6). The close of the socket
  * clears it (`forgetSocket`).
  */
-export function setSocketFocus(socketId: string, f: { subject: string | null; awake: boolean } | null, origin: { guest?: boolean } = {}): void {
+export function setSocketFocus(socketId: string, f: { subject: string | null; awake: boolean; chosen?: boolean } | null, origin: { guest?: boolean } = {}): void {
   if (origin.guest) return;
-  const before = focus.get(socketId);
   if (!f) focus.delete(socketId);
   else focus.set(socketId, { subject: f.subject, awake: !!f.awake });
-  armEngageDwell(socketId, before, f);
+  armEngageDwell(socketId, f);
 }
 
 /** Per socket: the sub-agent it has in front, waiting out the dwell before it counts as engaged. */
-const engageDwells = new Map<string, ReturnType<typeof setTimeout>>();
+const engageDwells = new Map<string, { subject: string; timer: ReturnType<typeof setTimeout> }>();
+
+function cancelEngageDwell(socketId: string): void {
+  const pending = engageDwells.get(socketId);
+  if (pending) clearTimeout(pending.timer);
+  engageDwells.delete(socketId);
+}
 
 /**
- * A sub-agent put in front by the person, and kept there for the seen's own
- * dwell (`SEEN_DWELL_MS`) with the window awake, is engaged. Two things do not
- * count: a pass over it shorter than the dwell, and a socket's FIRST frame,
- * which is the layout the window restored on load, not a choice made now.
+ * A sub-agent the person put in front (`chosen`: a click on its row or tab,
+ * not a layout the window restored), kept there for the seen's own dwell
+ * (`SEEN_DWELL_MS`) with the window awake, is engaged. A pass over it shorter
+ * than the dwell does not count. The same subject announced again (a second
+ * sender, a wake of the window) leaves the dwell running: it neither starts
+ * one nor cuts one.
  */
-function armEngageDwell(socketId: string, before: { subject: string | null; awake: boolean } | undefined, f: { subject: string | null; awake: boolean } | null): void {
+function armEngageDwell(socketId: string, f: { subject: string | null; awake: boolean; chosen?: boolean } | null): void {
   const pending = engageDwells.get(socketId);
-  if (pending) { clearTimeout(pending); engageDwells.delete(socketId); }
-  if (!before || !f?.subject || !f.awake || !isSubagentSubject(f.subject) || peek(f.subject)?.engaged) return;
+  if (pending && f?.subject === pending.subject && f.awake) return;
+  cancelEngageDwell(socketId);
+  if (!f?.chosen || !f.subject || !f.awake || !isSubagentSubject(f.subject) || peek(f.subject)?.engaged) return;
   const subject = f.subject;
   const timer = setTimeout(() => {
     engageDwells.delete(socketId);
@@ -977,14 +984,12 @@ function armEngageDwell(socketId: string, before: { subject: string | null; awak
     recompose(subject, { live: true });
   }, deps.engageDwellMs);
   (timer as { unref?: () => void }).unref?.();
-  engageDwells.set(socketId, timer);
+  engageDwells.set(socketId, { subject, timer });
 }
 
 export function forgetSocket(socketId: string): void {
   focus.delete(socketId);
-  const pending = engageDwells.get(socketId);
-  if (pending) clearTimeout(pending);
-  engageDwells.delete(socketId);
+  cancelEngageDwell(socketId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

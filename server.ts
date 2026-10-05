@@ -4659,7 +4659,7 @@ const opzioniServer = {
                 ? data.subject
                 : 'subject' in data ? null
                 : data.topicId ? topicSubject(data.topicId) : null;
-              setSocketFocus(ws.data.id, { subject, awake: data.awake ?? true }, { guest: guestSocket });
+              setSocketFocus(ws.data.id, { subject, awake: data.awake ?? true, chosen: data.chosen === true }, { guest: guestSocket });
             }
             break;
           case 'subscribe': {

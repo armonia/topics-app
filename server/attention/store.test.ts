@@ -192,22 +192,24 @@ describe("a sub-agent is quiet until the person opens it", () => {
       engageDwellMs: 40,
     });
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    // The socket's first frame is the layout restored on load, not a choice.
+    // A layout the window restored, announced twice (two senders): not a choice.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
     setSocketFocus("sock-1", { subject: "topic:child", awake: true });
     await wait(80);
     expect(engaged.size).toBe(0);
     // A pass shorter than the dwell does not count.
-    setSocketFocus("sock-1", { subject: "topic:other", awake: true });
-    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true, chosen: true });
     await wait(10);
-    setSocketFocus("sock-1", { subject: "topic:other", awake: true });
+    setSocketFocus("sock-1", { subject: "topic:other", awake: true, chosen: true });
     await wait(80);
     expect(engaged.size).toBe(0);
     // Nor a window nobody is looking at.
-    setSocketFocus("sock-1", { subject: "topic:child", awake: false });
+    setSocketFocus("sock-1", { subject: "topic:child", awake: false, chosen: true });
     await wait(80);
     expect(engaged.size).toBe(0);
-    // Chosen and kept there: engaged.
+    // Chosen and kept there: engaged, a second sender's frame in the middle included.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true, chosen: true });
+    await wait(10);
     setSocketFocus("sock-1", { subject: "topic:child", awake: true });
     await wait(80);
     expect([...engaged]).toEqual(["topic:child"]);
@@ -231,5 +233,26 @@ describe("a sub-agent is quiet until the person opens it", () => {
     turnStarted("topic:child2");
     turnEnded("topic:child2", { turnId: "m3", outcome: "done" });
     expect(getAttention("topic:child2").lit).toBe(false);
+  });
+
+  // Review 3 of PR 238: the first frame of a window was never counted, so a
+  // window opened by a click on the child never engaged it; and the restored
+  // layout announced twice (onopen and an effect) did.
+  it("the person's click as a window's first frame engages; a restored layout announced twice does not", async () => {
+    const engaged = new Set<string>();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child",
+      engageSubagent: (s) => { engaged.add(s); },
+      subagentEngaged: (s) => engaged.has(s),
+      engageDwellMs: 40,
+    });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    setSocketFocus("sock-restored", { subject: "topic:child", awake: true });
+    setSocketFocus("sock-restored", { subject: "topic:child", awake: true });
+    await wait(120);
+    expect(engaged.size).toBe(0);
+    setSocketFocus("sock-clicked", { subject: "topic:child", awake: true, chosen: true });
+    await wait(120);
+    expect([...engaged]).toEqual(["topic:child"]);
   });
 });

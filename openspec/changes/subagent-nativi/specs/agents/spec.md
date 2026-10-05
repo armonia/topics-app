@@ -370,8 +370,10 @@ reaches the parent (wake and card), and the parent is what notifies. Its work
 SHALL still show as `working`, and a wait it opens (a question, a permission)
 SHALL still need the person, since nobody else can answer it. Once the person
 opens it (its seen door) or keeps it in front of an awake window for the
-seen's dwell (`SEEN_DWELL_MS`), it lights like any chat; a window's first focus
-after loading, the layout it restored, does not count. That engagement SHALL be written on the child's row
+seen's dwell (`SEEN_DWELL_MS`), it lights like any chat. Only a child the
+person put in front (a click on its row or tab, a key: the focus frame says
+`chosen`) starts that dwell, the window's first frame included; the layout a
+window restores never does, however many times it is announced. That engagement SHALL be written on the child's row
 (`engaged_at`): after a restart the child is still the person's. A closed
 accordion SHALL show an amber dot while one of its children waits on the
 person.
