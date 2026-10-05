@@ -25,10 +25,13 @@ import { getDatabase } from "../db";
 import type { StoredMessage, Topic } from "../types";
 import type { SubAgentOutcome } from "./subagent-result";
 import type { TurnEndInfo } from "../providers/stop-reason";
-import { getSubagent, getSubagentBySessionKey, insertSubagent, isSubagentEngaged, moveSubagentToEngine, runningSubagents, setSubagentState, type SubagentRow } from "./subagent-store";
+import { getSubagent, getSubagentBySessionKey, insertSubagent, isSubagentEngaged, moveSubagentToEngine, runningSubagents, setSubagentState, subagentRuntimeReason, type SubagentRow } from "./subagent-store";
+import { migratedChildPromptFor } from "./subagent-migration";
 import { childPhase, noteChildSeeded, reportNativeChildTurn, runtimeOf, subagentWakeOwed } from "./subagent-runtime";
 import { onTurnEnd, readTurnEnd } from "../providers/turn-end-registry";
 import { internalAbortRequest, internalRequest } from "./abort-cause";
+import { profileInstructions, type AgentProfile } from "./agent-profiles";
+import { engineToolsOfProfile } from "./subagent-tool-policy";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -81,7 +84,23 @@ export function nativeSubagentsAvailable(): boolean {
   try { return deps.engineReady(); } catch { return false; }
 }
 
-export { engineToolsOfProfile } from "./subagent-tool-policy";
+export { engineToolsOfProfile };
+
+/**
+ * What a child takes from its profile and its model on the engine: the
+ * profile's own instructions as its system prompt, its tools, the engine's
+ * model id. The same for a spawn and for a CLI child moving to the engine.
+ */
+export function engineLaunchOf(
+  profile: Pick<AgentProfile, "path" | "tools"> | null,
+  model: string | null,
+): Pick<NativeSpawn, "instructions" | "tools" | "model"> {
+  return {
+    instructions: profile ? profileInstructions(profile) : null,
+    tools: engineToolsOfProfile(profile?.tools),
+    model: engineModelOf(model),
+  };
+}
 
 /**
  * The aliases `spawn_agent` accepts, mapped to the model the engine runs: the
@@ -123,6 +142,32 @@ export function nativeChildPlace(input: {
   if (parentTopic) return { ok: true, projectPath: parentTopic.projectPath ?? null, worktreeId: parentTopic.worktreeId ?? null };
   if (parentCwd && knownProject(parentCwd)) return { ok: true, projectPath: parentCwd, worktreeId: null };
   return { ok: false, reason: `the parent's directory${parentCwd ? ` ${parentCwd}` : ""} is not a project Topics knows` };
+}
+
+export type ChildRuntime =
+  | { ok: true; runtime: "topics"; place: { projectPath: string | null; worktreeId: string | null } }
+  | { ok: true; runtime: "claude-code"; note: string | null }
+  | { ok: false; status: number; error: string };
+
+/**
+ * The runtime of a `spawn_agent` call: the engine, unless the call asks for
+ * the CLI or the engine cannot take it. Falling back to the CLI is said in the
+ * answer (`note`), never silently; a call that asked for the engine is refused
+ * instead.
+ */
+export function childRuntimeFor(asked: unknown, place: () => ReturnType<typeof nativeChildPlace>): ChildRuntime {
+  if (asked !== undefined && asked !== "topics" && asked !== "claude-code") {
+    return { ok: false, status: 400, error: `unknown runtime "${String(asked)}": use "topics" or "claude-code"` };
+  }
+  if (asked === "claude-code") return { ok: true, runtime: "claude-code", note: null };
+  const available = nativeSubagentsAvailable();
+  const where = available ? place() : null;
+  if (!where?.ok) {
+    const why = where ? where.reason : "the Topics engine is not available";
+    if (asked === "topics") return { ok: false, status: available ? 400 : 503, error: `cannot start a sub-agent on the Topics engine: ${why}` };
+    return { ok: true, runtime: "claude-code", note: `claude-code (${why})` };
+  }
+  return { ok: true, runtime: "topics", place: { projectPath: where.projectPath, worktreeId: where.worktreeId } };
 }
 
 // ── This process's state ─────────────────────────────────────────────────────
@@ -217,6 +262,41 @@ export function spawnNativeChild(s: NativeSpawn): { sessionKey: string; topic: T
   }
   void driveTurn(s.id, s.prompt);
   return { sessionKey: topic.sessionKey, topic };
+}
+
+/**
+ * `send_to_agent` on an ended CLI child: it is not relit as Claude Code. If
+ * the engine can take it, it comes back native with the same id, its row
+ * updated (turns and pending results kept), its profile's instructions and
+ * tools, and its work as context. A child whose call asked for `claude-code`
+ * resumes where it was asked to run, and so does one the engine cannot place
+ * or start: null, and the caller relights the CLI.
+ */
+export async function moveCliChildToEngine(row: SubagentRow, input: string, from: {
+  parentTopic: Topic | null;
+  parentCwd: string | null;
+  knownProject: (path: string) => boolean;
+  profileOf: (cwd: string, agentType: string) => AgentProfile | null;
+}): Promise<{ sessionKey: string } | null> {
+  if (!nativeSubagentsAvailable() || subagentRuntimeReason(getDatabase(), row.id) === "asked") return null;
+  const place = nativeChildPlace({ explicitCwd: row.cwd || null, parentTopic: from.parentTopic, parentCwd: from.parentCwd, knownProject: from.knownProject });
+  if (!place.ok) return null;
+  try {
+    const child = spawnNativeChild({
+      id: row.id, parentSessionKey: row.parentSessionKey, name: row.name,
+      prompt: await migratedChildPromptFor(row, input),
+      cwd: row.cwd, parentTopic: from.parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
+      ...engineLaunchOf(row.agentType ? from.profileOf(row.cwd, row.agentType) : null, row.model),
+      effort: row.effort, agentType: row.agentType,
+      promptSnippet: row.promptSnippet,
+      migrate: true,
+    });
+    deps?.log?.(`${row.id} (${row.name}) moved from the CLI to the Topics engine: ${child.sessionKey}`);
+    return { sessionKey: child.sessionKey };
+  } catch (err) {
+    deps?.log?.(`moving ${row.id} to the engine failed, it resumes on the CLI: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 /**
@@ -627,7 +707,17 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
   }));
 }
 
-// ── read_agent ───────────────────────────────────────────────────────────────
+// ── list_agents, read_agent ──────────────────────────────────────────────────
+
+/** `list_agents`: native children have no terminal, their running rows are the live list. */
+export function liveNativeChildren(parentSessionKey: string) {
+  return runningSubagents(getDatabase(), parentSessionKey)
+    .filter((r) => r.runtime === "topics")
+    .map((r) => ({
+      agentId: r.id, name: r.name, cwd: r.cwd, branch: r.branch, claudeSessionId: null, runtime: "topics" as const, sessionKey: r.sessionKey,
+      busy: childPhase(r.id) !== "finished", state: "running" as const, phase: childPhase(r.id),
+    }));
+}
 
 /**
  * `read_agent` on a native child: its answers and its tool calls, from the
