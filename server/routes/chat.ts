@@ -62,7 +62,7 @@ import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
-import { isMachineStop } from "../lib/abort-cause";
+import { isInternalRequest, isMachineStop } from "../lib/abort-cause";
 import { patchOpenTool, registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
@@ -1608,7 +1608,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // The turn's name: the user row it answers. It rides on every end this
           // route records, so a late end is never taken for the next turn's.
           const turnId = partialMsg.parentId ?? undefined;
-          if (turnId) recordTurnStart(sessionKey, turnId);
+          if (turnId) recordTurnStart(sessionKey, turnId, { byPerson: sentByPerson && !isInternalRequest(req), key: idempotencyKey });
           // From here the turn's end decides for the answers it carries, not the route's exit.
           if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
@@ -3867,7 +3867,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number } = { rowId: partialMsg.id };
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number; turnId?: string } = { rowId: partialMsg.id, ...(turnId ? { turnId } : {}) };
             if (payload.slashContext !== undefined) sendOptions.slashContext = payload.slashContext;
             if (overrideModel) sendOptions.model = overrideModel;
             // The answers carried in front of the person's words are rows of

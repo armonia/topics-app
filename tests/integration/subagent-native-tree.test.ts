@@ -39,7 +39,7 @@ const busyBackground = new Set<string>();
 
 async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise<Response | null> {
   const { recordTurnEnd, recordTurnStart } = await import("../../server/providers/turn-end-registry");
-  const body = await req.json() as { sessionKey: string; messages?: Array<{ content: string }> };
+  const body = await req.json() as { sessionKey: string; messages?: Array<{ content: string }> ; clientMessageId?: string };
   const sessionKey = body.sessionKey;
   if (pathname === "/api/chat/abort") {
     const stop = cut.get(sessionKey);
@@ -53,7 +53,8 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
   const text = body.messages?.at(-1)?.content ?? "";
   const turnId = ctx.appendLocalMessage(sessionKey, "user", text).id;
   openTurnIds.set(sessionKey, turnId);
-  recordTurnStart(sessionKey, turnId);
+  // The driven turn is known by the key it sent; a person's message by its author.
+  recordTurnStart(sessionKey, turnId, { byPerson: false, key: body.clientMessageId ?? null });
   const holding = mode === "hold";
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

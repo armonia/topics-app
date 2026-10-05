@@ -23,9 +23,16 @@ describe("how a child chat's turn ended, as a result (SUBAGENT-11)", () => {
     expect(nativeTurnOutcome({ end: { end: "end_turn" }, text: "old", routeError: "the chat route answered 503", stopped: false }).status).toBe("failed");
   });
 
-  test("no end on record: words left are a result, none is a cut turn", () => {
-    expect(nativeTurnOutcome({ end: null, text: "ok", stopped: false }).status).toBe("completed");
+  // Review 5 of PR 238: the outcome is the end's cause, never «words left = done».
+  // A swept turn's last row is a notice, and it was reported `completed`.
+  test("no end on record is a cut turn, words left or not", () => {
+    expect(nativeTurnOutcome({ end: null, text: "ok", stopped: false })).toMatchObject({ status: "failed", reason: { code: "exited-mid-turn" } });
     expect(nativeTurnOutcome({ end: null, text: "", stopped: false })).toMatchObject({ status: "failed", reason: { code: "exited-mid-turn" } });
+  });
+
+  test("a machine's cut is `stopped` with its reason; a person's Stop has none", () => {
+    expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "watchdog" }, text: "⚠️ notice", stopped: false })).toMatchObject({ status: "stopped", reason: { code: "swept" } });
+    expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "user" }, text: "half", stopped: false }).reason).toBeUndefined();
   });
 });
 

@@ -203,8 +203,10 @@ export interface TurnEndInfo {
   detail?: string;
   /**
    * The turn this end belongs to: the id of the user row it answers, as
-   * `recordTurnStart` named it. Set by the chat route and the abort route;
-   * absent from a provider's own record, which does not know it.
+   * `recordTurnStart` named it. Set by the chat route, the abort route and
+   * the native engine (handed the name with the turn); absent from the
+   * stale-stream sweep and the CLI providers, whose end closes whatever turn
+   * is open.
    */
   turnId?: string;
 }

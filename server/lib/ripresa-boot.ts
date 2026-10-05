@@ -403,6 +403,7 @@ import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChai
 import { providerHoldKey } from "../../shared/provider-hold";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 import { waitingAskStartedAt } from "./waiting-ask";
+import { stoppedSubagentChat } from "./wake-adoption";
 
 /**
  * Does one of the chat's last rows carry a question still waiting for its
@@ -881,6 +882,9 @@ export async function riprendiTurniInterrotti(
       }
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
+      // A sub-agent its parent stopped gets no turn from the machine: only a
+      // person's message or `send_to_agent` resumes it (SUBAGENT-19).
+      if (topic.id && stoppedSubagentChat(ctx.db, topic.id)) continue;
       // The message a resend sends, which keys its count (lib/resend-count.ts).
       const lastUser = ctx.db.query(
         `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,

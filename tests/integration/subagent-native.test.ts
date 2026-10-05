@@ -39,7 +39,7 @@ let mode: "answer" | "hold" | "fail" = "answer";
 
 async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise<Response | null> {
   const { recordTurnEnd, recordTurnStart } = await import("../../server/providers/turn-end-registry");
-  const body = await req.json() as { sessionKey: string; messages?: Array<{ content: string }>; cause?: string };
+  const body = await req.json() as { sessionKey: string; messages?: Array<{ content: string }>; cause?: string ; clientMessageId?: string };
   const sessionKey = body.sessionKey;
   if (pathname === "/api/chat/abort") {
     const close = open.get(sessionKey);
@@ -54,14 +54,16 @@ async function fakeChatRoute(req: Request, _url: URL, pathname: string): Promise
   if (mode === "fail") return Response.json({ error: "Questa chat è legata al motore di Topics, che non è connesso." }, { status: 503 });
   const turnId = ctx.appendLocalMessage(sessionKey, "user", text).id;
   openTurnIds.set(sessionKey, turnId);
-  recordTurnStart(sessionKey, turnId);
+  // The driven turn is known by the key it sent; a person's message by its author.
+  recordTurnStart(sessionKey, turnId, { byPerson: false, key: body.clientMessageId ?? null });
   const holding = mode === "hold";
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const finish = () => { open.delete(sessionKey); controller.close(); };
       if (holding) {
         ctx.appendLocalMessage(sessionKey, "assistant", "half a sentence");
-        open.set(sessionKey, finish);
+        // Released by the test, the held turn ends like the engine ends one: with its end recorded.
+        open.set(sessionKey, () => { recordTurnEnd(sessionKey, { end: "end_turn", turnId }); finish(); });
         return;
       }
       ctx.appendLocalMessage(sessionKey, "assistant", `done: ${text}`);

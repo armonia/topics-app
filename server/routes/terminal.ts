@@ -3669,7 +3669,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
               const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
               if (refusal) return errorResponse(429, refusal);
             }
-            const sent = sendToNativeChild(row, input);
+            const sent = await sendToNativeChild(row, input);
             if (!sent.ok) return errorResponse(sent.status, sent.error);
             return json({ ok: true, sent: input.length, ...(sent.resumed ? { resumed: true } : {}) });
           }

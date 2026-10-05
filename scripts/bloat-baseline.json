@@ -264,7 +264,10 @@
     "re-announce of the same subject neither starts nor cuts it. Recorded by hand, these two rows only.",
     "05/10, same PR, review 4. server/lib/native-subagents.ts new on this PR, 750 -> 844: +94 every turn of a native",
     "child named by its user row and reported once by that name (start listener, report chain, claim), and the Stop",
-    "that marks the whole tree before its first await. Recorded by hand, this row only."
+    "that marks the whole tree before its first await. Recorded by hand, this row only.",
+    "05/10, same PR, review 5. server/lib/native-subagents.ts 844 -> 884: +40 one open turn per child chat closed by",
+    "any end, the shutdown kept as a suspended turn, the driven turn known by its key and a refused send answered as",
+    "an error. The report chain's dedup set and the end-time guesses went. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -403,7 +406,7 @@
 
     "server/lib/claude-session-tracker.ts": 1082,
 
-    "server/lib/native-subagents.ts": 844,
+    "server/lib/native-subagents.ts": 884,
 
     "server/lib/ripresa-boot.test.ts": 847,
 

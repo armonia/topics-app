@@ -28,7 +28,7 @@ import type { TurnEndInfo } from "../providers/stop-reason";
 import { claimTurnReport, getSubagent, getSubagentBySessionKey, insertSubagent, isSubagentEngaged, lastReportedTurnStatus, moveSubagentToEngine, runningSubagents, setSubagentState, subagentRuntimeReason, turnWasReported, type SubagentRow } from "./subagent-store";
 import { migratedChildPromptFor } from "./subagent-migration";
 import { childPhase, noteChildSeeded, reportNativeChildTurn, runtimeOf, subagentWakeOwed } from "./subagent-runtime";
-import { onTurnEnd, onTurnStart, readTurnEnd } from "../providers/turn-end-registry";
+import { onTurnEnd, onTurnStart, type TurnStartMeta } from "../providers/turn-end-registry";
 import { internalAbortRequest, internalRequest } from "./abort-cause";
 import { profileInstructions, type AgentProfile } from "./agent-profiles";
 import { engineToolsOfProfile } from "./subagent-tool-policy";
@@ -70,7 +70,7 @@ export function configureNativeSubagents(d: NativeSubagentDeps | null): void {
   deps = d;
   stopListening?.();
   if (!d) { stopListening = null; return; }
-  const offStart = onTurnStart((sessionKey, turnId) => onNativeChildChatTurnStart(sessionKey, turnId));
+  const offStart = onTurnStart((sessionKey, turnId, meta) => onNativeChildChatTurnStart(sessionKey, turnId, meta));
   const offEnd = onTurnEnd((sessionKey, info) => onNativeChildChatTurnEnd(sessionKey, info));
   stopListening = () => { offStart(); offEnd(); };
 }
@@ -177,12 +177,17 @@ export function childRuntimeFor(asked: unknown, place: () => ReturnType<typeof n
 
 /** Children whose turn this process is sending (`send_to_agent`, the spawn): a second send is refused. */
 const driving = new Set<string>();
+/** The key each driven turn carries in its request (`clientMessageId`): only that turn is the driven one. */
+const drivenKeys = new Map<string, string>();
+
 /**
- * The turn each child's chat has open, by its name: the user row it answers,
- * as its start said it (`recordTurnStart`). A driven turn has none until the
- * chat route opens it.
+ * The one turn each child's chat has open, from its start (`recordTurnStart`)
+ * to the first end recorded on the chat. `driven`: the turn this module sent.
+ * `suspended`: cut by the server's shutdown, which is no outcome; the resume
+ * after the boot reports it, or the adoption closes it as `lost`.
  */
-const openTurn = new Map<string, string>();
+interface OpenTurn { turnId: string; driven: boolean; suspended?: boolean }
+const openTurn = new Map<string, OpenTurn>();
 /**
  * Children stopped mid-turn by their parent (its `stop_agent`, or a person's
  * Stop above it), with the turn whose result the Stop still owes: the only
@@ -274,7 +279,7 @@ export function spawnNativeChild(s: NativeSpawn): { sessionKey: string; topic: T
       runtime: "topics", sessionKey: topic.sessionKey, tools: s.tools, runtimeReason: s.runtimeReason ?? "default",
     });
   }
-  void driveTurn(s.id, s.prompt);
+  void driveTurn(s.id, s.prompt, { refusalIsResult: true });
   return { sessionKey: topic.sessionKey, topic };
 }
 
@@ -316,9 +321,11 @@ export async function moveCliChildToEngine(row: SubagentRow, input: string, from
 /**
  * The next turn: `send_to_agent` on a native child. A child mid-turn refuses
  * (409): its result arrives by itself, and two turns on one chat are not
- * queued here. A finished, retired or stopped one resumes from its chat.
+ * queued here. A finished, retired or stopped one resumes from its chat. The
+ * answer waits for the chat route's: a turn that got there first is a 409 for
+ * the parent, never an `ok` for a turn that was not sent.
  */
-export function sendToNativeChild(row: SubagentRow, input: string): { ok: true; resumed: boolean } | { ok: false; status: number; error: string } {
+export async function sendToNativeChild(row: SubagentRow, input: string): Promise<{ ok: true; resumed: boolean } | { ok: false; status: number; error: string }> {
   if (!deps) return { ok: false, status: 503, error: "native sub-agents are not wired" };
   if (!row.sessionKey) return { ok: false, status: 410, error: `sub-agent "${row.name}" has no chat` };
   // A report still on its way is the same answer: the result arrives by itself.
@@ -343,8 +350,8 @@ export function sendToNativeChild(row: SubagentRow, input: string): { ok: true; 
       try { reportTurn(row.id, cut, { end: null, lost: true }); } catch (err) { deps.log?.(`report ${row.id}: ${err instanceof Error ? err.message : String(err)}`); }
     }
   }
-  void driveTurn(row.id, input);
-  return { ok: true, resumed };
+  const sent = await driveTurn(row.id, input, { refusalIsResult: false });
+  return sent.ok ? { ok: true, resumed } : sent;
 }
 
 /** Every live child under a session, native or CLI, and theirs below them. */
@@ -380,7 +387,7 @@ function markStopped(row: SubagentRow): void {
   stopWatchingChild(row.id);
   // The boot's adoption lets it go: a Stop owes nothing for a turn a restart cut.
   adopting.delete(row.id);
-  const open = openTurn.get(row.id);
+  const open = openTurn.get(row.id)?.turnId;
   const owed = open !== undefined ? (turnWasReported(db, row.id, open) ? undefined : open) : (driving.has(row.id) ? null : undefined);
   if (owed === undefined) stopTurns.delete(row.id);
   else stopTurns.set(row.id, owed);
@@ -459,9 +466,15 @@ function turnOf(sessionKey: string, turnId: string): { opener: StoredMessage | n
   return { opener: all[at]!, rows: all.slice(at + 1, next < 0 ? undefined : next).filter((m) => m.role === "assistant") };
 }
 
-/** How a turn of a child chat ended, read from the chat: its end, and its last words. */
+/** Stops the machine decided (a watchdog, a frozen stream, a stall): said with the reason, never a person's. */
+const MACHINE_CUTS = new Set(["watchdog", "stall", "wall-clock", "superseded"]);
+
+/**
+ * How a turn of a child chat ended: from the cause of its end, never from
+ * whether it left words behind. A cut turn's last row is often a notice.
+ */
 export function nativeTurnOutcome(input: {
-  end: { end: string; detail?: string } | null;
+  end: { end: string; cause?: string; detail?: string } | null;
   text: string;
   routeError?: string | null;
   stopped: boolean;
@@ -471,78 +484,109 @@ export function nativeTurnOutcome(input: {
   // The parent's stop never wakes it (`resultWakesParent`); a person's Stop on
   // the child's own chat does, like a closed tab of a CLI child.
   if (input.stopped) return { status: "stopped", partial: true, text, reason: { code: "stopped-by-parent" } };
-  if (input.end?.end === "cancelled") return { status: "stopped", partial: true, text };
-  if (!input.end) {
-    // No end on record: a turn that left words behind is read as done, the
-    // way the CLI's last `end_turn` is; one that left nothing was cut.
-    return text ? { status: "completed", partial: false, text } : { status: "failed", partial: true, text, reason: { code: "exited-mid-turn" } };
+  if (!input.end) return { status: "failed", partial: true, text, reason: { code: "exited-mid-turn" } };
+  if (input.end.end === "cancelled") {
+    return input.end.cause && MACHINE_CUTS.has(input.end.cause)
+      ? { status: "stopped", partial: true, text, reason: { code: "swept" } }
+      : { status: "stopped", partial: true, text };
   }
   if (input.end.end === "end_turn") return { status: "completed", partial: false, text };
   return { status: "failed", partial: true, text, reason: { code: "api-error", detail: input.end.detail ? `${input.end.end}: ${input.end.detail}` : input.end.end } };
 }
 
-/** The driven turn of each child, as the chat route named it when it opened it. */
-const drivenTurn = new Map<string, string>();
+type RouteAnswer = { ok: true } | { ok: false; status: number; error: string };
 
-/** The turn of a child: sent through the chat route, drained, reported by its end. */
-async function driveTurn(id: string, text: string): Promise<void> {
+/**
+ * The turn of a child, sent through the chat route. The promise answers as
+ * soon as the route does: a refusal (a 409, another turn got there first) is
+ * the caller's to say. The rest runs on: the stream drained, the turn
+ * reported by its end. `refusalIsResult`: the spawn, which already answered
+ * its caller, reports a refusal as the turn's `failed` result instead.
+ */
+function driveTurn(id: string, text: string, opts: { refusalIsResult: boolean }): Promise<RouteAnswer> {
+  let answered!: (a: RouteAnswer) => void;
+  const answer = new Promise<RouteAnswer>((r) => { answered = r; });
+  void runDrivenTurn(id, text, opts, answered);
+  return answer;
+}
+
+async function runDrivenTurn(id: string, text: string, opts: { refusalIsResult: boolean }, answered: (a: RouteAnswer) => void): Promise<void> {
   const d = deps;
   const db = getDatabase();
   const row0 = getSubagent(db, id);
-  if (!d || !row0?.sessionKey) return;
+  if (!d || !row0?.sessionKey) { answered({ ok: false, status: 410, error: "the sub-agent has no chat" }); return; }
   const sessionKey = row0.sessionKey;
-  // Before any await: a Stop from here on owes this turn's result (`markStopped`).
+  // Before any await: a Stop from here on owes this turn's result (`markStopped`),
+  // and only the turn carrying this key is the driven one (`onNativeChildChatTurnStart`).
+  const key = `drive:${crypto.randomUUID()}`;
   driving.add(id);
-  drivenTurn.delete(id);
-  openTurn.delete(id);
+  drivenKeys.set(id, key);
   stopTurns.delete(id);
   setSubagentState(db, id, "running");
   noteChildSeeded(id, { working: true });
   let routeError: string | null = null;
+  let status = 0;
   try {
     const url = new URL("http://localhost/api/chat");
     const resp = await d.route(
       internalRequest(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }] }),
+        body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], clientMessageId: key }),
       }),
       url, "/api/chat", "POST",
     );
+    status = resp?.status ?? 0;
     if (!resp?.ok) {
       const body = resp ? await resp.json().catch(() => null) as { error?: unknown } | null : null;
       routeError = `the chat route answered ${resp?.status ?? "nothing"}${typeof body?.error === "string" ? `: ${body.error}` : ""}`;
-    } else if (resp.body) {
-      // The stream is the turn: read to its end. The route keeps writing the
-      // rows on its own, a reader that walked away would change nothing.
-      const reader = resp.body.getReader();
-      for (;;) { const r = await reader.read(); if (r.done) break; }
+    } else {
+      answered({ ok: true });
+      if (resp.body) {
+        // The stream is the turn: read to its end. The route keeps writing the
+        // rows on its own, a reader that walked away would change nothing.
+        const reader = resp.body.getReader();
+        for (;;) { const r = await reader.read(); if (r.done) break; }
+      }
+      // The stream can close a beat before the route lets the session go.
+      for (let i = 0; i < 120 && d.isBusy(sessionKey); i++) await sleep(250);
     }
-    // The stream can close a beat before the route lets the session go.
-    for (let i = 0; i < 120 && d.isBusy(sessionKey); i++) await sleep(250);
   } catch (err) {
     routeError = err instanceof Error ? err.message : String(err);
   }
   try {
-    // Its end reports it (`onNativeChildChatTurnEnd`). What is left here is a
-    // turn whose end never came: one the chat route refused or never opened,
-    // named here, or one whose ends carried no name.
+    if (routeError && !opts.refusalIsResult) {
+      // Nothing was sent: the parent hears it from its own call, and the child
+      // goes back to how it was, unless another turn holds its chat now.
+      answered({ ok: false, status: status >= 400 ? status : 502, error: routeError });
+      if (!openTurn.has(id) && getSubagent(db, id)?.state === "running" && row0.state !== "running") {
+        setSubagentState(db, id, row0.state);
+        runtimeOf(id).phase = "finished";
+      }
+      return;
+    }
+    answered({ ok: true });
+    // Its end reports it (`onNativeChildChatTurnEnd`). Left here: a turn the
+    // chat route refused or never opened, named here, and a turn still open
+    // with no end, which never came. A suspended one waits for the boot.
     await (reportChains.get(id) ?? Promise.resolve());
-    let turnId = drivenTurn.get(id);
-    if (!turnId) {
+    const open = openTurn.get(id);
+    let turnId: string | null = null;
+    if (open?.driven && !open.suspended) {
+      turnId = open.turnId;
+      openTurn.delete(id);
+    } else if (routeError) {
       turnId = `drive:${crypto.randomUUID()}`;
-      openTurn.set(id, turnId);
       if (stopTurns.get(id) === null) stopTurns.set(id, turnId);
     }
-    if (!turnWasReported(db, id, turnId)) {
-      const recorded = readTurnEnd(sessionKey)?.info;
+    if (turnId) {
       const named = turnId;
-      await enqueueReport(id, async () => reportTurn(id, named, { end: recorded?.turnId === named ? recorded : null, routeError }));
+      await enqueueReport(id, async () => reportTurn(id, named, { end: null, routeError }));
     }
   } finally {
     // Never left behind: an id stuck here refused every later send with a 409.
     driving.delete(id);
-    drivenTurn.delete(id);
+    drivenKeys.delete(id);
   }
 }
 
@@ -564,19 +608,19 @@ function reportTurn(id: string, turnId: string, opts: { end: TurnEndInfo | null;
   const outcome: SubAgentOutcome = opts.lost && !opts.end
     ? { status: "lost", partial: true, text: last?.content ?? "", reason: { code: "exited-mid-turn" } }
     : nativeTurnOutcome({ end: opts.end, text: last?.content ?? "", routeError: opts.routeError ?? null, stopped: byParent });
-  if (!claimTurnReport(db, id, turnId, outcome.status)) return;
-  if (byParent) stopTurns.delete(id);
-  const durationMs = last?.latencyMs ?? (last && opener ? Date.parse(last.timestamp) - Date.parse(opener.timestamp) : null);
-  reportNativeChildTurn(
-    { id, name: row.name, cwd: row.cwd, parentSessionKey: row.parentSessionKey },
-    row.turnsReported + 1,
-    outcome,
-    { model: (last as { model?: string } | undefined)?.model ?? row.model, durationMs: durationMs != null && durationMs >= 0 ? durationMs : null },
-    { stoppedByParent: byParent },
-  );
+  if (claimTurnReport(db, id, turnId, outcome.status)) {
+    if (byParent) stopTurns.delete(id);
+    const durationMs = last?.latencyMs ?? (last && opener ? Date.parse(last.timestamp) - Date.parse(opener.timestamp) : null);
+    reportNativeChildTurn(
+      { id, name: row.name, cwd: row.cwd, parentSessionKey: row.parentSessionKey },
+      row.turnsReported + 1,
+      outcome,
+      { model: (last as { model?: string } | undefined)?.model ?? row.model, durationMs: durationMs != null && durationMs >= 0 ? durationMs : null },
+      { stoppedByParent: byParent },
+    );
+  }
   // A later turn is open on the chat already: that turn closes the child.
-  const open = openTurn.get(id);
-  if (open !== undefined && open !== turnId) return;
+  if (openTurn.has(id)) return;
   // A child that delegated (a grandchild still working) or left a command
   // running is not done: its own wake turn reports again. Retired or archived
   // here, that wake was refused and the final result never reached the root
@@ -595,7 +639,8 @@ function reportTurn(id: string, turnId: string, opts: { end: TurnEndInfo | null;
  * park: the slot is free. A stop already wrote `stopped`, and that is what it
  * stays. Like the Agent tool's children, a turn that ended on its own, its
  * result delivered, leaves the view; `send_to_agent` brings it back. A stopped
- * child stays to be read, and so does one a person engaged with.
+ * child stays to be read, and so does one a person engaged with, or one whose
+ * turn did not complete.
  */
 function closeTurn(id: string, completed: boolean): void {
   const db = getDatabase();
@@ -640,8 +685,8 @@ function watchWaitingChild(id: string, completed: boolean): void {
     const d = deps;
     const row = getSubagent(getDatabase(), id);
     if (!d || !row?.sessionKey || row.state !== "running") { stopWatchingChild(id); return; }
-    // A turn of its own is running or being reported: that path closes it.
-    if (driving.has(id) || adopting.has(id) || reportChains.has(id) || d.isBusy(row.sessionKey)) return;
+    // A turn of its own is open or being reported: that path closes it.
+    if (driving.has(id) || adopting.has(id) || openTurn.has(id) || reportChains.has(id) || d.isBusy(row.sessionKey)) return;
     if (stillWorkingFor(row.sessionKey)) return;
     stopWatchingChild(id);
     // Its last turn was reported already: nothing new to say, only the slot to free.
@@ -657,11 +702,8 @@ function stopWatchingChild(id: string): void {
   waitWatches.delete(id);
 }
 
-/** The reports of each child's turns, one chain per child: in order, each once. */
+/** The reports of each child's turns, one chain per child: in order. */
 const reportChains = new Map<string, Promise<void>>();
-/** Turns waiting in a chain: a second end of one is not queued again. */
-const queuedTurns = new Set<string>();
-const turnKey = (id: string, turnId: string) => `${id}\n${turnId}`;
 
 function enqueueReport(id: string, job: () => Promise<void>): Promise<void> {
   const next: Promise<void> = (reportChains.get(id) ?? Promise.resolve()).then(job)
@@ -672,27 +714,28 @@ function enqueueReport(id: string, job: () => Promise<void>): Promise<void> {
 }
 
 /**
- * A turn opened on a child's chat, under its name. A turn this module is
- * sending is its driven turn. On a stopped child, a turn nobody here sent is
- * a person writing in its chat: it resumes the child as `send_to_agent` does,
- * so its results and its delegations work again (SUBAGENT-22). On a retired
- * one (a wake, a person) it is at work again.
+ * A turn opened on a child's chat: it is the chat's one open turn. It is the
+ * driven turn only when it carries the key this module sent. On a stopped
+ * child only a person's own message reopens it, as `send_to_agent` does, so
+ * its results and its delegations work again (SUBAGENT-22); a machine's turn
+ * (a resume, a goal nudge, a wake) leaves it stopped and says nothing. On a
+ * retired one any turn sets it to work again.
  */
-function onNativeChildChatTurnStart(sessionKey: string, turnId: string): void {
+function onNativeChildChatTurnStart(sessionKey: string, turnId: string, meta: TurnStartMeta): void {
   const d = deps;
   if (!d) return;
   const db = getDatabase();
   const row = getSubagentBySessionKey(db, sessionKey);
   if (!row || row.runtime !== "topics") return;
-  openTurn.set(row.id, turnId);
-  const driven = driving.has(row.id) && !drivenTurn.has(row.id);
-  if (driven) drivenTurn.set(row.id, turnId);
+  const driven = driving.has(row.id) && meta.key != null && meta.key === drivenKeys.get(row.id);
+  openTurn.set(row.id, { turnId, driven });
   if (row.state === "stopped") {
     // A driven turn a Stop reached before the route opened it: its result is the Stop's.
     if (driven) {
       if (stopTurns.get(row.id) === null) stopTurns.set(row.id, turnId);
       return;
     }
+    if (!meta.byPerson) return;
     stopTurns.delete(row.id);
     const topic = d.getTopicBySessionKey(sessionKey);
     if (topic?.archived) {
@@ -707,36 +750,35 @@ function onNativeChildChatTurnStart(sessionKey: string, turnId: string): void {
 }
 
 /**
- * The end of a turn of a native child's chat, driven or not: a wake when a
- * grandchild's result or a command lands, a person writing in it. Before, the
- * result of a delegation two levels down stopped at the child (SUBAGENT-19).
- *
- * Attributed by the turn's name alone. The engine records each end twice (the
- * provider, with no name, then the route's finalize or the abort route, with
- * it): an end with no name, or naming a turn already queued or reported, is
- * ignored. An end never puts a child back to `running`: only a start does.
+ * Any end recorded on a native child's chat closes its open turn, whatever
+ * its cause (the turn's own end, the abort route, a watchdog, the stale-stream
+ * sweep, an error) and whether or not it names the turn. An end with no open
+ * turn is the second end of a closed one: ignored. An end naming another turn
+ * is a late one (a cut turn slow to unwind): ignored. The server's shutdown is
+ * no outcome: the turn stays open, suspended, for the boot. An end never puts
+ * a child back to `running`: only a start does.
  */
 export function onNativeChildChatTurnEnd(sessionKey: string, info: TurnEndInfo): void {
   const d = deps;
-  const turnId = info.turnId;
-  if (!d || !turnId) return;
+  if (!d) return;
   const db = getDatabase();
   const row = getSubagentBySessionKey(db, sessionKey);
   if (!row || row.runtime !== "topics") return;
-  const key = turnKey(row.id, turnId);
-  if (queuedTurns.has(key) || turnWasReported(db, row.id, turnId)) return;
-  if (row.state === "stopped" && stopTurns.get(row.id) !== turnId) return;
-  queuedTurns.add(key);
+  const open = openTurn.get(row.id);
+  if (!open) return;
+  if (info.turnId && info.turnId !== open.turnId) {
+    d.log?.(`${row.id}: an end of turn ${info.turnId} while ${open.turnId} is open, ignored`);
+    return;
+  }
+  if (info.cause === "server-shutdown") { open.suspended = true; return; }
+  openTurn.delete(row.id);
+  if (row.state === "stopped" && stopTurns.get(row.id) !== open.turnId) return;
   void enqueueReport(row.id, async () => {
-    try {
-      // The end is recorded before the route writes the turn's last words: wait
-      // for the session to let go, or for the next turn, which can only open
-      // once this one has.
-      for (let i = 0; i < 120 && d.isBusy(sessionKey) && openTurn.get(row.id) === turnId; i++) await sleep(250);
-      reportTurn(row.id, turnId, { end: info });
-    } finally {
-      queuedTurns.delete(key);
-    }
+    // The end is recorded before the route writes the turn's last words: wait
+    // for the session to let go, or for the next turn, which can only open
+    // once this one has.
+    for (let i = 0; i < 120 && d.isBusy(sessionKey) && !openTurn.has(row.id); i++) await sleep(250);
+    reportTurn(row.id, open.turnId, { end: info });
   });
 }
 
@@ -757,11 +799,12 @@ function unreportedTurnOf(row: SubagentRow): string | null {
 
 /**
  * After a restart: native children still `running` have no process to find,
- * but their turn may have restarted with the chat resume. The chat is watched
- * for a minute: a live turn is reported by its end, one that never comes back
- * is reported `lost` with what it had written. A child that was only waiting
- * on its own work lost no turn: it goes back to waiting, or is closed the way
- * its last reported turn ended. A child stopped meanwhile is left alone.
+ * but their turn may come back with the boot's resume. The chat is watched
+ * for a minute: a turn resumed is reported by its own end, once, for the turn
+ * the shutdown suspended; one that never comes back is reported `lost` with
+ * what it had written. A child that was only waiting on its own work lost no
+ * turn: it goes back to waiting, or is closed the way its last reported turn
+ * ended. A child stopped meanwhile is left alone.
  */
 export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?: number } = {}): Promise<void> {
   const d = deps;
@@ -780,12 +823,10 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
     const until = Date.now() + waitMs;
     while (adopting.has(row.id) && !d.isBusy(sessionKey) && Date.now() < until) await sleep(pollMs);
     if (!adopting.delete(row.id)) return;
-    // The turn came back with the chat's resume: its own end reports it.
-    const resumed = d.isBusy(sessionKey);
     while (d.isBusy(sessionKey)) await sleep(pollMs);
     await (reportChains.get(row.id) ?? Promise.resolve());
     const cur = getSubagent(db, row.id);
-    if (cur?.state !== "running") return;
+    if (cur?.state !== "running" || openTurn.has(row.id)) return;
     const cut = unreportedTurnOf(cur);
     if (!cut) {
       // How its last turn ended, as the live path read it when it reported it:
@@ -795,7 +836,7 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
       else closeTurn(row.id, completed);
       return;
     }
-    await enqueueReport(row.id, async () => reportTurn(row.id, cut, { end: null, lost: !resumed }));
+    await enqueueReport(row.id, async () => reportTurn(row.id, cut, { end: null, lost: true }));
   }));
 }
 
@@ -831,13 +872,12 @@ export function readNativeChildOutput(row: SubagentRow, since: number): { events
 /** Test seam: forget what this process drives. */
 export function _resetNativeSubagents(): void {
   driving.clear();
-  drivenTurn.clear();
+  drivenKeys.clear();
   openTurn.clear();
   stopTurns.clear();
   adopting.clear();
   for (const id of [...waitWatches.keys()]) stopWatchingChild(id);
   reportChains.clear();
-  queuedTurns.clear();
   stopListening?.();
   stopListening = null;
   deps = null;

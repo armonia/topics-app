@@ -65,6 +65,11 @@ export function internalRequest(url: URL | string, init: RequestInit): Request {
   return req;
 }
 
+/** A request the server built for its own routes (`internalRequest`), not one a person sent. */
+export function isInternalRequest(req: Request): boolean {
+  return internalRequests.has(req);
+}
+
 /** Who stopped the turn: the cause `declared` counts only on a request the server built. */
 export function stopCauseOf(req: Request, declared: unknown): StopCause {
   return internalRequests.has(req) && typeof declared === "string" && MACHINE_STOP_CAUSES.has(declared)

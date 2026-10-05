@@ -53,7 +53,13 @@ export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
   }
 }
 
-type TurnStartListener = (sessionKey: string, turnId: string) => void;
+/**
+ * Who opened the turn. `byPerson`: a message a person typed, not one the
+ * machine produced (a wake, a resume, a goal nudge, a turn the server sends
+ * itself). `key`: the send's own key (`clientMessageId`), when it carried one.
+ */
+export interface TurnStartMeta { byPerson: boolean; key: string | null }
+type TurnStartListener = (sessionKey: string, turnId: string, meta: TurnStartMeta) => void;
 const startListeners = new Set<TurnStartListener>();
 
 /**
@@ -62,9 +68,9 @@ const startListeners = new Set<TurnStartListener>();
  * turn's end (`TurnEndInfo.turnId`), so whoever reports turns attributes each
  * end to its own turn, not to whatever turn is open at that moment.
  */
-export function recordTurnStart(sessionKey: string, turnId: string): void {
+export function recordTurnStart(sessionKey: string, turnId: string, meta: TurnStartMeta = { byPerson: false, key: null }): void {
   for (const fn of startListeners) {
-    try { fn(sessionKey, turnId); } catch { /* a failing listener must not break the turn */ }
+    try { fn(sessionKey, turnId, meta); } catch { /* a failing listener must not break the turn */ }
   }
 }
 
