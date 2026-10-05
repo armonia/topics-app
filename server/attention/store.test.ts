@@ -183,16 +183,33 @@ describe("a sub-agent is quiet until the person opens it", () => {
   // Review of 05/10: a quiet child is never lit, so its `seen` never came and
   // the exception never fired. Putting it in front counts, and it is written
   // down, so a restart still knows.
-  it("a child put in front of an awake window is engaged, on record, across a restart", () => {
+  it("a child the person keeps in front of an awake window for the seen's dwell is engaged, on record, across a restart", async () => {
     const engaged = new Set<string>();
     configureAttentionStore({
       isSubagent: (s) => s === "topic:child",
       engageSubagent: (s) => { engaged.add(s); },
       subagentEngaged: (s) => engaged.has(s),
+      engageDwellMs: 40,
     });
-    setSocketFocus("sock-1", { subject: "topic:child", awake: false });
-    expect(engaged.size).toBe(0);
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // The socket's first frame is the layout restored on load, not a choice.
     setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    // A pass shorter than the dwell does not count.
+    setSocketFocus("sock-1", { subject: "topic:other", awake: true });
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(10);
+    setSocketFocus("sock-1", { subject: "topic:other", awake: true });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    // Nor a window nobody is looking at.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: false });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    // Chosen and kept there: engaged.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(80);
     expect([...engaged]).toEqual(["topic:child"]);
     // Looked at, then left: its next turn lights like any chat's.
     setSocketFocus("sock-1", null);
@@ -200,10 +217,19 @@ describe("a sub-agent is quiet until the person opens it", () => {
     turnEnded("topic:child", { turnId: "m1", outcome: "done" });
     expect(getAttention("topic:child").lit).toBe(true);
 
+    // A restart forgets the process, not the record.
     resetAttentionStore();
+    configure();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child" || s === "topic:child2",
+      subagentEngaged: (s) => engaged.has(s),
+    });
     turnStarted("topic:child");
     turnEnded("topic:child", { turnId: "m2", outcome: "done" });
     expect(getAttention("topic:child").lit).toBe(true);
-    configureAttentionStore({ isSubagent: () => false, engageSubagent: () => {}, subagentEngaged: () => false });
+    // The control: a sibling never engaged is still quiet.
+    turnStarted("topic:child2");
+    turnEnded("topic:child2", { turnId: "m3", outcome: "done" });
+    expect(getAttention("topic:child2").lit).toBe(false);
   });
 });
