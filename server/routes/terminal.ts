@@ -46,7 +46,7 @@ import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
 import { profileInstructions, readAgentProfiles } from "../lib/agent-profiles";
 import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
-import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, runningSubagents, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
+import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, runningSubagents, setSubagentSessionId, setSubagentState, subagentRuntimeReason } from "../lib/subagent-store";
 import {
   engineModelOf, engineToolsOfProfile, nativeChildPlace, nativeSubagentsAvailable, readNativeChildOutput, sendToNativeChild,
   spawnNativeChild, stopNativeChild,
@@ -3545,6 +3545,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
               instructions: profile ? profileInstructions(profile) : null,
               tools: engineToolsOfProfile(profile?.tools),
               promptSnippet: normalizePromptSnippet(prompt),
+              runtimeReason: body.runtime === "topics" ? "asked" : "default",
             });
             return json({
               agentId: id, name, cwd, branch, runtime: "topics", sessionKey: child.sessionKey, topicId: child.topic.id,
@@ -3574,6 +3575,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             id, parentSessionKey: parentKey, name, model: launch.model, agentType: launch.agent, effort: launch.effort,
             promptSnippet: session.spawnPromptSnippet, cwd: session.cwd, branch,
             claudeSessionId: session.claudeSessionId ?? null, createdAt: session.createdAt,
+            // Only a CLI the call asked for stays on the CLI when resumed.
+            runtimeReason: body.runtime === "claude-code" ? "asked" : runtimeNote ? "fallback" : "default",
           });
           noteChildSeeded(id);
           if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
@@ -3668,8 +3671,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           if (refusal) return errorResponse(429, refusal);
           // subagent-nativi: a child born on the CLI is not relit as Claude
           // Code. If the engine can take it, it comes back native with the
-          // same id (the row is rewritten) and its work as context.
-          if (nativeSubagentsAvailable()) {
+          // same id, its row updated (turns and pending results kept), its
+          // profile's instructions and tools, and its work as context. A child
+          // whose call asked for `claude-code` is the exception: it resumes
+          // where it was asked to run.
+          if (nativeSubagentsAvailable() && subagentRuntimeReason(getDatabase(), row.id) !== "asked") {
             const parentTopic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
             const place = nativeChildPlace({
               explicitCwd: row.cwd || null,
@@ -3679,13 +3685,16 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             });
             if (place.ok) {
               try {
+                const profile = row.agentType ? agentProfilesFor(row.cwd).get(row.agentType) ?? null : null;
                 const child = spawnNativeChild({
                   id: row.id, parentSessionKey: parentKey, name: row.name,
-                  prompt: migratedChildPromptFor(row, input),
+                  prompt: await migratedChildPromptFor(row, input),
                   cwd: row.cwd, parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
                   model: engineModelOf(row.model), effort: row.effort, agentType: row.agentType,
-                  instructions: null, tools: null,
+                  instructions: profile ? profileInstructions(profile) : null,
+                  tools: engineToolsOfProfile(profile?.tools),
                   promptSnippet: row.promptSnippet,
+                  migrate: true,
                 });
                 console.log(`[subagent] ${row.id} (${row.name}) migrato dalla CLI al motore di Topics: ${child.sessionKey}`);
                 return json({ ok: true, sent: input.length, resumed: true, runtime: "topics", sessionKey: child.sessionKey });

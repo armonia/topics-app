@@ -6,7 +6,8 @@
  * chat: the task, the last report and the transcript path do, and the child
  * can read the transcript if it needs more.
  */
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync } from "fs";
+import { open } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -69,11 +70,39 @@ export function migratedChildPrompt(input: {
   ].filter(Boolean).join("\n\n");
 }
 
-export function migratedChildPromptFor(row: { name: string; claudeSessionId: string | null; promptSnippet: string | null }, newInput: string): string {
+/** How much of a transcript is read: its head holds the task, its tail the last report. */
+const HEAD_BYTES = 256 * 1024;
+const TAIL_BYTES = 512 * 1024;
+
+/**
+ * The task from the transcript's head and the last report from its tail. A
+ * long CLI session runs to hundreds of MB: read whole and synchronously, it
+ * held the server's one thread for the length of the read, on a request path.
+ * A line cut at either edge fails to parse and is skipped.
+ */
+async function readCliHandover(path: string): Promise<{ task: string | null; lastReport: string | null }> {
+  const fh = await open(path, "r");
+  try {
+    const { size } = await fh.stat();
+    const read = async (start: number, length: number) => {
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, start);
+      return buf.subarray(0, bytesRead).toString("utf8");
+    };
+    if (size <= HEAD_BYTES + TAIL_BYTES) return cliHandover(await read(0, size));
+    const head = cliHandover(await read(0, HEAD_BYTES));
+    const tail = cliHandover(await read(size - TAIL_BYTES, TAIL_BYTES));
+    return { task: head.task, lastReport: tail.lastReport ?? head.lastReport };
+  } finally {
+    await fh.close();
+  }
+}
+
+export async function migratedChildPromptFor(row: { name: string; claudeSessionId: string | null; promptSnippet: string | null }, newInput: string): Promise<string> {
   const transcriptPath = row.claudeSessionId ? findCliTranscript(row.claudeSessionId) : null;
   let handover: { task: string | null; lastReport: string | null } = { task: null, lastReport: null };
   if (transcriptPath) {
-    try { handover = cliHandover(readFileSync(transcriptPath, "utf8")); } catch { /* resta il promptSnippet */ }
+    try { handover = await readCliHandover(transcriptPath); } catch { /* unreadable: the prompt snippet stands in for the task */ }
   }
   return migratedChildPrompt({ name: row.name, ...handover, transcriptPath, promptSnippet: row.promptSnippet, newInput });
 }

@@ -22,6 +22,12 @@ export type SubagentState = "running" | "retired" | "stopped" | "lost";
  * slot.
  */
 export type SubagentRuntime = "claude-code" | "topics";
+/**
+ * Why the child was born on its runtime: the call named it (`asked`), the
+ * engine could not take it (`fallback`), or nothing was asked (`default`).
+ * Only an `asked` CLI child stays on the CLI when resumed.
+ */
+export type SubagentRuntimeReason = "asked" | "fallback" | "default";
 
 /** After this long, an ended child leaves `list_agents` and can no longer be resumed (SUBAGENT-14). */
 export const SUBAGENT_RESUME_WINDOW_MS = 24 * 60 * 60_000;
@@ -97,7 +103,7 @@ function attempt<T>(fallback: T, fn: () => T): T {
 export function insertSubagent(
   db: Db,
   row: Omit<SubagentRow, "state" | "turnsReported" | "reportedAt" | "endedAt" | "runtime" | "sessionKey" | "tools">
-    & Partial<Pick<SubagentRow, "runtime" | "sessionKey" | "tools">>,
+    & Partial<Pick<SubagentRow, "runtime" | "sessionKey" | "tools">> & { runtimeReason?: SubagentRuntimeReason },
 ): void {
   attempt(undefined, () => {
     db.run(
@@ -106,6 +112,44 @@ export function insertSubagent(
       [row.id, row.parentSessionKey, row.name, row.model, row.agentType, row.effort, row.promptSnippet, row.cwd, row.branch, row.claudeSessionId, row.createdAt,
         row.runtime ?? "claude-code", row.sessionKey ?? null, row.tools ? JSON.stringify(row.tools) : null],
     );
+  });
+  // Its own statement: a database without the column still gets the row above.
+  const reason = row.runtimeReason;
+  if (reason) attempt(undefined, () => { db.run("UPDATE subagents SET runtime_reason = ? WHERE id = ?", [reason, row.id]); });
+}
+
+/** Why the child was born where it was; null for a row older than the column. */
+export function subagentRuntimeReason(db: Db, id: string): SubagentRuntimeReason | null {
+  return attempt(null, () => {
+    const r = db.query("SELECT runtime_reason AS v FROM subagents WHERE id = ?").get(id) as { v: string | null } | null;
+    return r?.v === "asked" || r?.v === "fallback" || r?.v === "default" ? r.v : null;
+  });
+}
+
+/**
+ * A CLI child moves to the engine on resume (subagent-nativi). The row is
+ * UPDATED, never replaced: its turns already reported and its results still
+ * pending belong to the same child, and a fresh row restarted the numbering
+ * at turn 1, a key the dedup had already used (so every later result was lost).
+ */
+export function moveSubagentToEngine(db: Db, id: string, to: { sessionKey: string; tools: string[] | null; model: string | null }): void {
+  attempt(undefined, () => {
+    db.run(
+      "UPDATE subagents SET runtime = 'topics', session_key = ?, tools = ?, model = COALESCE(?, model), state = 'running', ended_at = NULL WHERE id = ?",
+      [to.sessionKey, to.tools ? JSON.stringify(to.tools) : null, to.model, id],
+    );
+  });
+}
+
+/** A person opened this child: it is theirs from now on, across restarts (SUBAGENT-21). */
+export function markSubagentEngaged(db: Db, id: string, at = new Date().toISOString()): void {
+  attempt(undefined, () => { db.run("UPDATE subagents SET engaged_at = COALESCE(engaged_at, ?) WHERE id = ?", [at, id]); });
+}
+
+export function isSubagentEngaged(db: Db, id: string): boolean {
+  return attempt(false, () => {
+    const r = db.query("SELECT engaged_at AS v FROM subagents WHERE id = ?").get(id) as { v: string | null } | null;
+    return !!r?.v;
   });
 }
 

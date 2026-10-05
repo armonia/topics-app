@@ -5,7 +5,7 @@
  * deposits the turn's end, the two things a real native turn leaves behind.
  * A fake PTY bridge is there only to prove that no CLI starts, and that
  * `runtime: "claude-code"` still starts one.
- * @covers SUBAGENT-08, SUBAGENT-11, SUBAGENT-12, SUBAGENT-14, SUBAGENT-15, SUBAGENT-18, SUBAGENT-19, CHAT-NTOOL-03
+ * @covers SUBAGENT-08, SUBAGENT-11, SUBAGENT-12, SUBAGENT-14, SUBAGENT-15, SUBAGENT-18, SUBAGENT-19, SUBAGENT-21, SUBAGENT-22, CHAT-NTOOL-03
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -100,6 +100,18 @@ async function spawn(parent: string, body: Record<string, unknown>): Promise<{ s
   const json = await res.json() as Record<string, unknown>;
   if (res.status === 200) spawned.push({ parent, agentId: json.agentId as string });
   return { status: res.status, body: json };
+}
+
+/**
+ * A CLI child from before the engine existed: no reason on record, so it moves
+ * to the engine when resumed. A child whose call asks for `claude-code` today
+ * stays where it was asked to run.
+ */
+async function legacyCliChild(name: string, extra: Record<string, unknown> = {}): Promise<string> {
+  const { body } = await spawn(PARENT, { runtime: "claude-code", name, ...extra });
+  const id = body.agentId as string;
+  ctx.db.run("UPDATE subagents SET runtime_reason = NULL WHERE id = ?", [id]);
+  return id;
 }
 
 function topic(sessionKey: string, model: string | null): void {
@@ -240,8 +252,7 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
   // 04/10: pop-demo kept writing to "arte-tappa-1", born on the CLI, and every
   // resume reopened a Claude Code. Now it comes back native, same id.
   test("a stopped CLI child, written to again, comes back on the engine with its task, not with --resume", async () => {
-    const { body } = await spawn(PARENT, { runtime: "claude-code", name: "arte-tappa-1" });
-    const id = body.agentId as string;
+    const id = await legacyCliChild("arte-tappa-1");
     await call(`${agents(PARENT)}/${id}/stop`, "POST");
     ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000aa", id]);
     const before = creates().length;
@@ -256,6 +267,155 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(turn.text.toLowerCase()).toContain("find the call sites of deliverexit.");
     expect(turn.text.endsWith("now the bastion")).toBe(true);
     expect(await until("its result", () => reportsFor(id).find((r) => r.outcome.status === "completed"))).toBeTruthy();
+  });
+
+  // Review of 05/10: the migration replaced the row, so the numbering restarted
+  // at a turn the dedup had already delivered and every native result was lost.
+  test("a migrated child keeps counting its turns: the native ones reach the parent as the next turns", async () => {
+    const id = await legacyCliChild("repro-a");
+    await call(`${agents(PARENT)}/${id}/stop`, "POST");
+    ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000bb", id]);
+    // The stop's own report settles first, as in real life.
+    // The fake CLI writes no transcript: its stop is an `undelivered` turn 1,
+    // which by design does not consume the turn (`pendingTallyTurns`).
+    await until("the stop report", () => reportsFor(id)[0], 6_000);
+    const before = reportsFor(id).length;
+    const reported = rowOf(id)!.turns_reported;
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "now the bastion" });
+    const sent = await res.json() as Record<string, unknown>;
+    expect(sent).toMatchObject({ ok: true, runtime: "topics" });
+    const next = await until("the native turn's result", () => reportsFor(id)[before]);
+    expect(next).toMatchObject({ turn: reported + 1, outcome: { status: "completed", text: "done: " + (turns.find((t) => t.sessionKey === sent.sessionKey)?.text ?? "") } });
+    const res2 = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "and the walls" });
+    expect(res2.status).toBe(200);
+    const after = await until("the second native result", () => reportsFor(id)[before + 1]);
+    expect(after).toMatchObject({ turn: reported + 2, outcome: { status: "completed", text: "done: and the walls" } });
+    expect(rowOf(id)?.turns_reported).toBe(reported + 2);
+  }, 20_000);
+
+  test("a CLI child whose turn 1 was reported, stopped, then resumed natively: turns 2 and 3", async () => {
+    const id = await legacyCliChild("repro-b");
+    // The transcript watch reports the CLI's turn 1; `reportNativeChildTurn` is the same call.
+    const rt = await import("../../server/lib/subagent-runtime");
+    rt.reportNativeChildTurn({ id, name: "repro-b", cwd: PROJECT, parentSessionKey: PARENT }, 1, { status: "completed", partial: false, text: "CLI turn 1 done" }, null);
+    expect(reportsFor(id).length).toBe(1);
+    await call(`${agents(PARENT)}/${id}/stop`, "POST");
+    ctx.db.run("UPDATE subagents SET claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000cc", id]);
+    // The stop's report settles (the fake CLI has no transcript, so it says
+    // `undelivered`, a key of its own that consumes no turn).
+    await new Promise((r) => setTimeout(r, 3_000));
+    const turnsOf = () => reportsFor(id).filter((r) => r.outcome.status !== "undelivered");
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "follow up" });
+    expect(await res.json()).toMatchObject({ ok: true, runtime: "topics" });
+    await until("turn 2", () => turnsOf()[1]);
+    const res2 = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "second follow up" });
+    expect(res2.status).toBe(200);
+    await until("turn 3", () => turnsOf()[2]);
+    expect(turnsOf().map((r) => [r.turn, r.outcome.status])).toEqual([[1, "completed"], [2, "completed"], [3, "completed"]]);
+    expect(turnsOf()[2]!.outcome.text).toBe("done: second follow up");
+    expect(rowOf(id)).toMatchObject({ runtime: "topics", turns_reported: 3 });
+  }, 30_000);
+
+  test("a child born on the CLI because its call asked for it resumes on the CLI", async () => {
+    const { body } = await spawn(PARENT, { runtime: "claude-code", name: "asked-cli" });
+    const id = body.agentId as string;
+    await call(`${agents(PARENT)}/${id}/stop`, "POST");
+    ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000dd", id]);
+    const before = creates().length;
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "go on" });
+    expect(res.status).toBe(200);
+    const sent = await res.json() as Record<string, unknown>;
+    expect(sent).toMatchObject({ ok: true, resumed: true });
+    expect(sent.runtime).toBeUndefined();
+    await until("the CLI's create frame", () => creates().length > before);
+    expect(rowOf(id)?.runtime).toBe("claude-code");
+  });
+
+  test("after a restart, send_to_agent inside the adoption minute: the cut turn is lost, the new one is its own", async () => {
+    const { body } = await spawn(PARENT, { name: "repro-c" });
+    const id = body.agentId as string;
+    const sk = body.sessionKey as string;
+    await until("turn 1", () => reportsFor(id)[0]);
+    // The process died during turn 2: the row is still `running`, nothing in
+    // this process drives it, and the turn ends it knew are gone with it.
+    ctx.db.run("UPDATE subagents SET state = 'running', ended_at = NULL WHERE id = ?", [id]);
+    const { resetTurnEndRegistry } = await import("../../server/providers/turn-end-registry");
+    resetTurnEndRegistry();
+    const native = await import("../../server/lib/native-subagents");
+    const adopting = native.adoptNativeChildrenAtBoot({ waitMs: 3_000, pollMs: 50 });
+    mode = "hold";
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "turn after restart" });
+    expect(res.status).toBe(200);
+    await until("turn open", () => open.has(sk));
+    open.get(sk)!();
+    await adopting;
+    await until("turn 3", () => reportsFor(id)[2]);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(reportsFor(id).map((r) => [r.turn, r.outcome.status])).toEqual([[1, "completed"], [2, "lost"], [3, "completed"]]);
+  }, 20_000);
+
+  test("depth 2: a child that delegated in background stays open, and its wake turn carries the result to the root", async () => {
+    mode = "hold";
+    const child = await spawn(OTHER_PARENT, { name: "repro-d-child" });
+    const childId = child.body.agentId as string;
+    const childSk = child.body.sessionKey as string;
+    await until("child turn open", () => open.has(childSk));
+    // During its turn the child calls spawn_agent (background) for a grandchild.
+    const grand = await spawn(childSk, { name: "repro-d-grand" });
+    expect(grand.status).toBe(200);
+    const grandSk = grand.body.sessionKey as string;
+    await until("grand turn open", () => open.has(grandSk));
+    // The child ends its turn ("delegated, the result will wake me").
+    open.get(childSk)!();
+    await until("child's turn 1", () => reportsFor(childId)[0]);
+    // Not done: still running, still in view, so its wake is allowed.
+    expect(rowOf(childId)?.state).toBe("running");
+    const { wakeVerdict } = await import("../../server/lib/wake-adoption");
+    const childTopic = ctx.getTopicBySessionKey(childSk)!;
+    expect(wakeVerdict({ id: childTopic.id, archived: childTopic.archived }, () => false)).toBe("adopt");
+    // The grandchild finishes: its result goes to the child chat, which wakes.
+    open.get(grandSk)!();
+    const g = await until("grand's report", () => reportsFor(grand.body.agentId as string)[0]);
+    expect(g.parentSessionKey).toBe(childSk);
+    mode = "answer";
+    const url = new URL("http://localhost/api/chat");
+    const wake = await fakeChatRoute(new Request(url, { method: "POST", body: JSON.stringify({ sessionKey: childSk, messages: [{ content: "the grandchild's result" }] }) }), url, "/api/chat");
+    const reader = wake!.body!.getReader();
+    while (!(await reader.read()).done) { /* drain */ }
+    // That wake turn, driven by nobody here, reaches the root as turn 2.
+    const second = await until("child's turn 2", () => reportsFor(childId)[1]);
+    expect(second).toMatchObject({ parentSessionKey: OTHER_PARENT, turn: 2, outcome: { status: "completed", text: "done: the grandchild's result" } });
+    expect(rowOf(childId)?.state).toBe("retired");
+    expect(ctx.getTopicBySessionKey(childSk)?.archived).toBe(true);
+  }, 20_000);
+
+  test("a read-only profile CLI child, resumed natively, keeps its profile", async () => {
+    const id = await legacyCliChild("repro-e", { agent_type: "scout" });
+    await call(`${agents(PARENT)}/${id}/stop`, "POST");
+    ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000ee", id]);
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "go on" });
+    const sent = await res.json() as Record<string, unknown>;
+    expect(sent.runtime).toBe("topics");
+    const { nativeSubagentToolPolicy, toolAllowedByPolicy } = await import("../../server/lib/subagent-tool-policy");
+    const policy = nativeSubagentToolPolicy(sent.sessionKey as string);
+    expect(toolAllowedByPolicy(policy, "read_file")).toBe(true);
+    expect(toolAllowedByPolicy(policy, "bash")).toBe(false);
+    expect(toolAllowedByPolicy(policy, "write_file")).toBe(false);
+    const t = ctx.getTopicById(ctx.getTopicBySessionKey(sent.sessionKey as string)!.id);
+    expect(t?.systemPrompt).toBe("You locate things and judge nothing.");
+  }, 20_000);
+
+  test("a child a person engaged with stays in view when its turn ends", async () => {
+    mode = "hold";
+    const { body } = await spawn(PARENT, { name: "engaged" });
+    const id = body.agentId as string;
+    await until("the turn open", () => open.has(body.sessionKey as string));
+    const { markSubagentEngaged } = await import("../../server/lib/subagent-store");
+    markSubagentEngaged(ctx.db, id);
+    open.get(body.sessionKey as string)!();
+    await until("the report", () => reportsFor(id)[0]);
+    expect(rowOf(id)?.state).toBe("retired");
+    expect(ctx.getTopicBySessionKey(body.sessionKey as string)?.archived).toBe(false);
   });
 
   // 04/10: retired children's tabs stayed open because this list reported

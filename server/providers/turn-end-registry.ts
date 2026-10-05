@@ -48,6 +48,21 @@ export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
     if (oldest.done) break;
     lastTurnEnd.delete(oldest.value);
   }
+  for (const fn of listeners) {
+    try { fn(sessionKey, info); } catch { /* a failing listener must not break the turn's end */ }
+  }
+}
+
+type TurnEndListener = (sessionKey: string, info: TurnEndInfo) => void;
+const listeners = new Set<TurnEndListener>();
+
+/**
+ * Told of every end as it is recorded: native sub-agents report a wake turn
+ * of a child's chat that no driver of theirs sent. Returns the unsubscribe.
+ */
+export function onTurnEnd(fn: TurnEndListener): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
 }
 
 /** Ritira (e consuma) la fine del turno. `undefined` = nessuna, o già ritirata. */

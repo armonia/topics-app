@@ -929,9 +929,14 @@ configureNativeSubagents({
   saveTopic: (topic, created) => {
     ctx.saveSingleTopic(topic);
     ctx.broadcastToAll({ type: created ? "topic:created" : "topic:updated", topic });
+    // An archived child also leaves the attention rows: no badge left on a chat nobody sees.
+    setClosed(topicSubject(topic.id), { archived: !!topic.archived });
   },
   loadMessages: (sk) => ctx.loadLocalMessages(sk),
   engineReady: () => tryGetProvider("topics")?.connected === true,
+  // The same door as every archive: unread, ui_state, parked session, open ask.
+  archive: (topic) => retirementConsequences.archiveTopic(topic.id),
+  backgroundWork: (sk) => subagentWakeOwed(sk) || commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
   log: (m) => console.log(`[subagent-native] ${m}`),
 });
 // Deleting a terminal session closes any browser it opened (contextId
