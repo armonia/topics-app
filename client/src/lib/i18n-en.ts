@@ -134,6 +134,7 @@ const EN = {
 
   'sidebar.subagents.one': '1 sub-agent',
   'sidebar.subagents.many': '{n} sub-agents',
+  'sidebar.subagents.needsYou': 'A sub-agent is waiting for you',
   'sidebar.subagents.working': 'A sub-agent is working',
   'app.unsent.title.one': '1 message not sent',
   'app.unsent.title.many': '{n} messages not sent',

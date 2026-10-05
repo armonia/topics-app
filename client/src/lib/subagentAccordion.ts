@@ -20,25 +20,30 @@ export interface SubagentSummary {
   working: boolean;
   /** One of them is the focused row. */
   holdsFocus: boolean;
+  /** One of them waits on the person (a question, a permission): closed, the header must say so. */
+  needsYou: boolean;
 }
 
 export function summarizeSubagents(
   children: readonly SidebarItem[],
   isWorking: (item: SidebarItem) => boolean,
   isFocused: (item: SidebarItem) => boolean,
+  isWaitingOnYou: (item: SidebarItem) => boolean = () => false,
 ): SubagentSummary {
   let count = 0;
   let working = false;
   let holdsFocus = false;
+  let needsYou = false;
   const stack = [...children];
   while (stack.length) {
     const item = stack.pop()!;
     count += 1;
     if (!working && isWorking(item)) working = true;
     if (!holdsFocus && isFocused(item)) holdsFocus = true;
+    if (!needsYou && isWaitingOnYou(item)) needsYou = true;
     if (item.subAgents?.length) stack.push(...item.subAgents);
   }
-  return { count, working, holdsFocus };
+  return { count, working, holdsFocus, needsYou };
 }
 
 /** Open when the person opened it, or while a child is the focused row. */

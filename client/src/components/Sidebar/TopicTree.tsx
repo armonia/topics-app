@@ -48,7 +48,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE, TIER_INPUT_BG } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity, ProjectElapsed } from '@/components/Shared/SessionActivity';
@@ -1059,19 +1059,19 @@ export function TopicTree({
     );
   };
 
-  // The accordion that holds a parent's sub-agents: a header with the count and
-  // a dot while one works, the rows only once opened (SUBAGENT-21).
-  const subagentIsWorking = (child: SidebarItem) => {
-    const subject = child.type === 'chat' ? topicSubject(child.topic!.id) : terminalSubject(child.terminal!.id);
-    return attention.get(subject)?.state === 'working';
-  };
+  // The accordion that holds a parent's sub-agents: a header with the count, a
+  // dot while one works and an amber one while one waits on the person, the
+  // rows only once opened (SUBAGENT-21).
+  const subagentSubject = (child: SidebarItem) => child.type === 'chat' ? topicSubject(child.topic!.id) : terminalSubject(child.terminal!.id);
+  const subagentIsWorking = (child: SidebarItem) => attention.get(subagentSubject(child))?.state === 'working';
+  const subagentNeedsYou = (child: SidebarItem) => attention.get(subagentSubject(child))?.state === 'needs-you';
   const subagentIsFocused = (child: SidebarItem) => {
     const paneId = child.type === 'chat' ? child.topic!.id : `terminal:${child.terminal!.id}`;
     return focusedTopicId === paneId
       || isActiveInnerChild(child.projectPath, child.type === 'chat' ? createPaneId('chat', child.topic!.id) : paneId);
   };
   const renderSubagentNest = (parentId: string, subAgents: SidebarItem[], depth: number) => {
-    const summary = summarizeSubagents(subAgents, subagentIsWorking, subagentIsFocused);
+    const summary = summarizeSubagents(subAgents, subagentIsWorking, subagentIsFocused, subagentNeedsYou);
     const open = isAccordionOpen(parentId, openedSubagents, summary);
     const label = summary.count === 1 ? tr('sidebar.subagents.one') : tr('sidebar.subagents.many', { n: summary.count });
     return (
@@ -1085,7 +1085,9 @@ export function TopicTree({
         >
           <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />
           <span>{label}</span>
-          {summary.working && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.subagents.working')} />}
+          {summary.needsYou
+            ? <span className={`h-1.5 w-1.5 rounded-full ${TIER_INPUT_BG} animate-pulse`} role="img" aria-label={tr('sidebar.subagents.needsYou')} />
+            : summary.working && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.subagents.working')} />}
         </button>
         {open && subAgents.map(child => renderSubAgentItem(child, depth))}
       </>
