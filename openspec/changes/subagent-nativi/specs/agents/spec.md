@@ -228,8 +228,16 @@ nativo per tutti) di `subagent-nativi`; dove si vede, questo requisito.
 ### Requirement: SUBAGENT-19 — A native child's turn ends in a result read from its chat, and stops like a chat
 
 The end of every turn of a native child SHALL produce one result (SUBAGENT-11)
-read from its chat: the last assistant row written since the turn began, and
-the turn's end in the turn-end registry. `end_turn` SHALL be `completed`;
+read from its chat: the last assistant row of the turn, and the turn's end in
+the turn-end registry. Every turn SHALL have a name, the id of the user row it
+answers: the chat route says it when the turn opens and puts it on every end it
+records (its finalize, its watchdog, the abort route). A result SHALL be read
+and attributed by that name alone: the turn's rows are those between its user
+row and the next one, its end the one that names it. An end with no name (the
+provider's own) or naming a turn already reported SHALL be ignored, and the
+names reported SHALL be written down (`subagent_reported_turns`), so a second
+result never goes out, after a restart either. An end SHALL never put a child
+back to `running`: only a turn opening on its chat does. `end_turn` SHALL be `completed`;
 `cancelled` SHALL be `stopped`; any other end, or a chat route that refused the
 turn, SHALL be `failed` with the reason. The result SHALL go to the parent the
 way a CLI child's does (SUBAGENT-12, 13). At the end of its turn the row SHALL
@@ -256,12 +264,22 @@ on. The client says it on `/api/chat/abort` with `cause: "send-now"`; the stop
 is still the person's for the turn (its durable Stop, its notice). Only the
 explicit Stop or `stop_agent` SHALL stop the tree.
 
-No result produced after the Stop SHALL wake the parent. A `stopped` child
-SHALL never be woken by a result (a grandchild's, a command's): the wake's
-verdict reads the row's state, not whether the chat is archived, and a result
-queued for it before the Stop SHALL land as a plain row in its chat. Only an
-explicit `send_to_agent` SHALL start it again; until then its chat SHALL
-report nothing.
+No result produced after the Stop SHALL wake the parent. The Stop SHALL write
+`stopped` on every native node of the tree before it waits on anything (an
+abort, a child below): a turn ending meanwhile reads it. A stopped child SHALL
+send one result only, the Stop's own, for the turn the Stop cut, marked
+`stoppedByParent`; the check is the sender's, not only the wake's. A `stopped`
+child SHALL never be woken by a result (a grandchild's, a command's): the
+wake's verdict reads the row's state, not whether the chat is archived, and a
+result queued for it before the Stop SHALL land as a plain row in its chat.
+The person's explicit Stop on a chat SHALL also turn the results already
+queued to wake THAT chat into plain rows («Send now» does not). The boot's
+adoption SHALL leave a child stopped meanwhile alone: the turn a restart cut
+says nothing after a Stop.
+
+A `send_to_agent` SHALL start a stopped child again, and so SHALL a person
+writing in its chat by hand: the child goes back to `running`, its chat back
+in view, and its results and its delegations work again.
 
 A child whose turn ends while work it started will still wake it (a child not
 seen finished, a result not yet delivered, a command or background task of
@@ -283,7 +301,9 @@ a turn resumed with its chat SHALL be awaited and reported; one that does not
 come back SHALL be reported `lost` with what it had written. A child that had
 reported and was only waiting on its own work lost no turn: it SHALL NOT be
 reported `lost`, whether the adoption closes it or a `send_to_agent` arrives
-during that minute.
+during that minute. Closing it, the boot SHALL read its last turn as the live
+path did (the status written with its name), not the row's `endReason`:
+`done` also covers max_tokens, a refusal and the round cap.
 
 #### Scenario: one turn, one result, slot freed
 - **GIVEN** a native child whose chat answers and ends with `end_turn`
@@ -306,6 +326,19 @@ during that minute.
 - **WHEN** the person presses «Send now»
 - **THEN** the parent's turn SHALL stop and the queue SHALL go out
 - **AND** the child SHALL still be `running`, its turn going on
+
+#### Scenario: a Stop is one result
+- **GIVEN** a native child whose turn ends while the person's Stop on the root is stopping its grandchild
+- **THEN** the child SHALL send one result, `stopped` and `stoppedByParent`, and the root SHALL run no new turn
+
+#### Scenario: a late end is not the next turn's
+- **GIVEN** a wake turn on a child's chat, cut by «Send now» and slow to unwind, and the person's message after it
+- **THEN** the cut turn SHALL be reported `stopped` and the person's turn `completed` with its own answer
+
+#### Scenario: a person resumes a stopped child
+- **GIVEN** a child stopped by the person's Stop on the root
+- **WHEN** the person writes in the child's chat
+- **THEN** the child SHALL be `running`, its turn SHALL be reported, and a helper it spawns SHALL wake it
 
 #### Scenario: a result queued before the Stop does not wake the stopped child
 - **GIVEN** a native child in its turn, and its grandchild's result waiting for that turn to end
@@ -373,7 +406,12 @@ opens it (its seen door) or keeps it in front of an awake window for the
 seen's dwell (`SEEN_DWELL_MS`), it lights like any chat. Only a child the
 person put in front (a click on its row or tab, a key: the focus frame says
 `chosen`) starts that dwell, the window's first frame included; the layout a
-window restores never does, however many times it is announced. That engagement SHALL be written on the child's row
+window restores never does, however many times it is announced. The choice
+SHALL hold until the person puts something else in front: a window that loses
+focus before the dwell runs out pauses it, and waking on the same subject runs
+it again. Known limit: below macOS 13.3 the webview has no
+`navigator.userActivation`, so no frame says `chosen` and only the seen door
+engages a child there. That engagement SHALL be written on the child's row
 (`engaged_at`): after a restart the child is still the person's. A closed
 accordion SHALL show an amber dot while one of its children waits on the
 person.
@@ -398,7 +436,8 @@ archiviarsi un figlio fermato (si legge cosa ha fatto) né uno che la persona ha
 davanti (SUBAGENT-21). L'archiviazione SHALL passare dalla stessa porta di ogni archivio
 (`archiveTopicFully`). Un figlio con nipoti ancora al lavoro o lavoro in background che lo
 risveglierà NON è finito: SHALL restare `running` e in vista, e il turno del suo risveglio SHALL
-arrivare al padre come turno successivo (SUBAGENT-19). `send_to_agent` lo riporta in vista.
+arrivare al padre come turno successivo (SUBAGENT-19). `send_to_agent` lo riporta in vista, e
+così la persona che scrive a mano nella sua chat, anche su un figlio fermato: torna `running`.
 
 #### Scenario: Turno finito, figlio fuori dalla vista
 - **GIVEN** un figlio nativo mai aperto dalla persona
