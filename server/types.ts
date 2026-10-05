@@ -561,8 +561,6 @@ export interface AppContext {
    */
   touchTopicActivity: (topicId: string, updatedAt: string) => Topic | null;
   loadUnread: () => UnreadData;
-  /** `loadUnread` without the zeroed rows of archived topics: the `unread:init` payload. */
-  loadUnreadForInit: () => UnreadData;
   /** Rewrites the WHOLE table and deletes the rows missing from `data`: boot cleanup only. */
   saveUnread: (data: UnreadData) => void;
   /** +1 on one topic's unread (creating the row at 1), returns the new count. */

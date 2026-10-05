@@ -62,11 +62,6 @@ describe('validateInbound — frame che il client legge a mano', () => {
       capabilities: [], serverTime: 0, clientId: 'ws-1',
     },
     { type: 'dashboard:updated' },
-    {
-      type: 'unread:init',
-      data: { 't1': { lastReadAt: '2026', unreadCount: 0 } },
-    },
-    { type: 'unread:updated', topicId: 't-1', unreadCount: 3 },
     { type: 'stream:end', sessionKey: 'sk', messageId: 'm-1' },
     { type: 'stream:catchup', sessionKey: 'sk', messageId: 'm-1' },
     { type: 'stream:start', sessionKey: 'sk', messageId: 'm-1' },
@@ -104,11 +99,6 @@ describe('validateInbound — malformed', () => {
       expect(r.error).toContain('clientId');
       expect(r.type).toBe('connected');
     }
-  });
-
-  test('rejects unread:updated with non-number unreadCount', () => {
-    const r = validateInbound({ type: 'unread:updated', topicId: 't', unreadCount: 'many' });
-    expect(r.ok).toBe(false);
   });
 
   test('rejects stream:content_chunk with non-string content', () => {

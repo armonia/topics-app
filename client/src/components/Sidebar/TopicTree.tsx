@@ -15,7 +15,6 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
-import { topicsApi } from '@/lib/api';
 import { createPaneId, getProjectPathFromPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
 import { CalendarTilePreview } from './CalendarTilePreview';
@@ -23,7 +22,7 @@ import { isCalendarPageUrl } from '../../../../shared/calendar';
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
-import type { Topic, UnreadData, PaneType, TerminalSessionInfo, Worktree } from '@/types';
+import type { Topic, PaneType, TerminalSessionInfo, Worktree } from '@/types';
 import { groupProjectChildrenByWorktree, worktreeChipFor, type WorktreeLabel } from '@/lib/sidebarWorktrees';
 import { WorktreeSection } from './WorktreeSection';
 import { EntryIncognito } from './EntryIncognito';
@@ -33,7 +32,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
-import { sendAttentionSeen, useAttentionRows } from '@/state/attention';
+import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
 import { projectAttention } from '@/state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../../shared/attention';
 import { useProjectFocusStore } from '@/state/projectFocus';
@@ -299,7 +298,6 @@ export interface TopicTreeProps {
   onTopicClick: (topicId: string, e?: React.MouseEvent) => void;
   onTopicDoubleClick: (topicId: string, e?: React.MouseEvent) => void;
   onTopicContextMenu: (e: React.MouseEvent, topic: Topic) => void;
-  unreadData: UnreadData;
   onArchiveTopic: (topicId: string, archive: boolean) => Promise<boolean>;
   onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
   onNewTopicInProject?: (projectPath: string) => void;
@@ -418,7 +416,6 @@ export function TopicTree({
   onTopicClick,
   onTopicDoubleClick,
   onTopicContextMenu,
-  unreadData,
   onArchiveTopic,
   onArchiveProject,
   onNewTopicInProject,
@@ -465,7 +462,7 @@ export function TopicTree({
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
-  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean; muted: boolean } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unseenSubjects: string[]; pinned: boolean; muted: boolean } | null>(null);
   // IL PROGETTO CHE SI STA CONDIVIDENDO. Da 20260816230500 un progetto e' una
   // risorsa condivisibile: condividerlo apre i suoi task senza scrivere una
   // riga per ciascuno. Il pannello e' lo STESSO di un task e di una chat -
@@ -498,6 +495,9 @@ export function TopicTree({
   // renderProjectItem closure can derive a project's rollup synchronously: the
   // same rows the tab bar and every row read.
   const attention = useAttentionRows();
+  /** A project's chats with something to see: what «Mark all read» sends to the seen door. */
+  const unseenChatSubjects = (topicIds: readonly string[]): string[] =>
+    topicIds.map(topicSubject).filter((subject) => needsSeen(attentionOf(attention, subject)));
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -1216,9 +1216,9 @@ export function TopicTree({
           }}
           onContextMenu={(e) => {
             e.preventDefault();
-            const unreadTopicIds = allChats.filter(t => (unreadData[t.id]?.unreadCount || 0) > 0).map(t => t.id);
+            const unseenSubjects = unseenChatSubjects(allChats.map(t => t.id));
             const muted = (loadSettings().mutedProjects ?? []).includes(pp);
-            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds, pinned: !!item.pinned, muted });
+            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unseenSubjects, pinned: !!item.pinned, muted });
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
@@ -1709,13 +1709,11 @@ export function TopicTree({
         if (item.type === 'project' && item.projectPath) {
           e.preventDefault();
           const pp = item.projectPath;
-          const unreadTopicIds = (item.children ?? [])
-            .filter(c => c.type === 'chat' && (unreadData[c.id]?.unreadCount || 0) > 0)
-            .map(c => c.id);
+          const unseenSubjects = unseenChatSubjects((item.children ?? []).filter(c => c.type === 'chat').map(c => c.id));
           const muted = (loadSettings().mutedProjects ?? []).includes(pp);
           setProjectContextMenu({
             x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name,
-            allArchived: item.archived, unreadTopicIds, pinned: true, muted,
+            allArchived: item.archived, unseenSubjects, pinned: true, muted,
           });
           return;
         }
@@ -2194,12 +2192,10 @@ export function TopicTree({
           onClose={() => setProjectContextMenu(null)}
           minWidth={160}
         >
-          {projectContextMenu.unreadTopicIds.length > 0 && (
+          {projectContextMenu.unseenSubjects.length > 0 && (
             <button
               onClick={() => {
-                for (const id of projectContextMenu.unreadTopicIds) {
-                  topicsApi.markRead(id).catch(() => {});
-                }
+                sendAttentionSeen(projectContextMenu.unseenSubjects);
                 setProjectContextMenu(null);
               }}
               className={POPOVER_ITEM}

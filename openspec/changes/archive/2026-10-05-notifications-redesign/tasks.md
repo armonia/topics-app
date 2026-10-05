@@ -82,10 +82,13 @@ rossi; diventano verdi con le sezioni 2 e 3.
 
 ## 2. Server
 
-- [ ] 2.1 Copia di `data/topics.db` e `-wal`, poi la migration solo schema
+- [x] 2.1 Copia di `data/topics.db` e `-wal`, poi la migration solo schema
   `<ts>-subject-attention.sql` (design §2.1). Test che la esegue su un DB sintetico,
   come `tests/integration/migration-074-messages-timestamp-index.test.ts`; manifest
-  embedded rigenerato.
+  embedded rigenerato. Atterrata con la PR #210:
+  `server/db/migrations/20261003214001-subject-attention.sql`, voce nel manifest
+  `server/db/migrations-embedded.ts`; il test che esegue il FILE su un DB sintetico è
+  `tests/integration/migration-subject-attention.test.ts` (3 prove, verdi il 05/10).
 - [x] 2.2 `server/attention/compose.ts`: funzione pura. Test a tabella sulle nove regole
   di precedenza e sulle transizioni T1…T17 di design §4.
 - [x] 2.3 `server/attention/store.ts`: epoca legata alla causa (design §4.1), visto con
@@ -238,11 +241,30 @@ server (rotta degli hook, provider finto). Ogni spec lascia il `.webm`.
 
 ## 6. Chiusura
 
-- [ ] 6.1 `docs/board-protocol.md` se il testo dell'envelope cita le notifiche (oggi no:
-  verificarlo con `git grep -n notific server/services/task-dispatcher.ts`).
-- [ ] 6.2 Dopo una release con il client nuovo: via gli alias delle porte vecchie e i frame
+- [x] 6.1 `docs/board-protocol.md` se il testo dell'envelope cita le notifiche (oggi no:
+  verificarlo con `git grep -n notific server/services/task-dispatcher.ts`). Verificato
+  il 05/10: le 7 righe di `git grep -n -i notific` sono tutte commenti, nessuna dentro
+  `buildKickoff` né in `PREVIEW_RULE` (`shared/board.ts`); niente da allineare.
+- [x] 6.2 Dopo una release con il client nuovo: via gli alias delle porte vecchie e i frame
   `notification:new`/`notification:seen`/`unread:*` se nessun lettore resta (`git grep`).
-- [ ] 6.3 Archiviare la change: le delta entrano in `notifications` e `claude-sessions`.
+  Release: Tauri v2.2.441 (ultima v2.2.448). Tolti `POST /api/topics/:id/read`,
+  `POST /api/notifications/seen` (con `server/subject-seen.ts`) e i quattro frame, dallo
+  schema, dai tipi, dai produttori e dai lettori. Due lettori servivano ancora e sono
+  passati ai frame di attenzione: la riga dal vivo della «Cronologia» viaggia in
+  `attention:updated.history` (la riga che l'epoca ha scritto), e «Segna tutto come
+  letto» del progetto legge lo store di attenzione e passa dalla porta del visto
+  (`attention-project-mark-read.spec.ts`). Il lettore di `notification:seen` aggiornava
+  solo `seenAt`, che nessuna superficie disegna: tolto con `lib/notify/seenFrame.ts`.
+  Le righe che nessuna transizione scrive (avvisi di sistema, `POST /api/notifications`)
+  arrivano dal vivo sul frame `attention:history` (`recordHistoryRow` nello store).
+- [x] 6.3 Archiviare la change: le delta entrano in `notifications` e `claude-sessions`.
   Prima va sistemata `openspec/specs/claude-sessions/spec.md`, che oggi ha i requisiti
   fuori dalla sezione `## Requirements`: `openspec validate` dice che l'archivio
-  rifiuterebbe la delta di MONITOR-04 finché non è corretta.
+  rifiuterebbe la delta di MONITOR-04 finché non è corretta. Fatto il 05/10:
+  `## Purpose` e `## Requirements` in `claude-sessions`; BGVIS-01 e BGVIS-03 cambiano
+  titolo, quindi entrano come `RENAMED` nella delta di `chat`; tolti a mano dalle spec
+  principali i quattro scenari superati che l'archivio non sa togliere da un blocco
+  MODIFIED: «un turno vero vince sul background» (BGVIS-01) e «una chat in background è
+  un agente attivo» (BGVIS-03) in `chat`, «Only a watch-arming tool arms the watch, and
+  later work does not disarm it» e «The delivery closes the watch» (MONITOR-04) in
+  `claude-sessions`.

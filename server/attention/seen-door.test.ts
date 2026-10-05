@@ -2,9 +2,9 @@
  * ONE door for "I have seen it": `POST /api/attention/seen` with
  * `{ subject, epoch, turnAt }` (ATTN-06, NOTIF-ONE-01; defects E and B4).
  *
- * Today seeing a terminal with no history row tells no other window
- * (`markTargetSeenAndAnnounce` announces only when it cleared a row), and the
- * seen lives in each window's memory, so a reload relights every chat.
+ * Before this door, seeing a terminal with no history row told no other window
+ * (the old row-seen frame left only when it cleared a row), and the seen lived
+ * in each window's memory, so a reload relit every chat.
  *
  * The contract: the door always announces; an epoch protects what came after
  * it, a `turnAt` protects the turn after it; a guest's seen is dropped; and a

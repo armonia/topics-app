@@ -4404,26 +4404,28 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 ### Requirement: CHAT-WAIT-03 — ⌘J porta alla prossima chat che ti aspetta
 
 Un comando SHALL portare il fuoco sulla prossima riga della sidebar in attesa di
-una tua risposta, nel senso di CHAT-WAIT-01: ferma su una domanda o un
-permesso, oppure su un piano da approvare quando a chiederlo è Claude Code con
-gli hook (`cli` e terminali Claude Code). Da tastiera è `Mod+J` (⌘J sul Mac,
-Ctrl+J altrove).
+una tua risposta: il cui soggetto di attenzione è `needs-you` con motivo
+`question`, `permission` o `plan` (ATTN-01, ATTN-04), qualunque sia il runtime.
+Da tastiera è `Mod+J` (⌘J sul Mac, Ctrl+J altrove).
 
-**Le mete.** Una meta SHALL essere una riga chat il cui topic sta in
-`awaitingInputTopics`, oppure una riga terminale Claude Code il cui id sta in
-`claudePhaseAwaitingInputTermIds`: le righe che la sidebar colora d'ambra. Una
-chat al lavoro, una chat col turno finito (`awaiting-user`, `paused`) e un
-sotto-agente annidato NON SHALL essere mete. Nemmeno la chat del runtime
-nativo col piano che l'app chiede a fine turno (`server/lib/plan-approval.ts`):
-il turno è chiuso, la riga non è ambra, e questa change non la colora. Il
-«visto» non conta: una meta guardata resta una meta finché la domanda è aperta.
+**Le mete.** Una meta SHALL essere una riga chat o terminale il cui soggetto
+(`topic:<id>`, `terminal:<id>`) ha `attentionOf(subject).tier = 'needs-you'` con
+motivo `question`, `permission` o `plan`: le righe che la sidebar colora
+d'ambra, lette dallo stesso store di attenzione e non più da
+`awaitingInputTopics` o `claudePhaseAwaitingInputTermIds`. Una chat al lavoro,
+in background o col turno finito (`finished`, visto o no) e un sotto-agente
+annidato NON SHALL essere mete. La chat del runtime nativo col piano che l'app
+chiede a fine turno (`server/lib/plan-approval.ts`) ora è `needs-you(plan)`,
+ambra, e SHALL essere una meta. Una card in review o parcheggiata non è una riga
+della sidebar e NON SHALL essere una meta: la porta la inbox. Il «visto» non
+conta: una meta guardata resta una meta finché la domanda è aperta.
 
 **L'ordine.** Le mete SHALL essere ordinate da una funzione pura
 `waitingQueue(allItems, pinnedIds, sig)` in `client/src/lib/waitingQueue.ts`:
 prima le righe fissate, nell'ordine dei Fissati (un progetto fissato porta al
 suo posto le mete fra le sue tab, che la sua fascia disegna lì e la lista sotto
-non ripete); poi quelle che `groupSidebarItemsByState` mette in «Attende te», nel
-loro ordine. Ogni soggetto
+non ripete); poi quelle che `groupSidebarItemsByState` mette in «Ti aspetta» (la
+sezione che legge il tier `needs-you`, ATTN-12), nel loro ordine. Ogni soggetto
 SHALL comparire una volta sola, alla prima occorrenza: una chat fissata dentro un
 progetto sta sia fra i Fissati sia fra i figli che la vista promuove, e conta
 fra i Fissati.
@@ -4445,8 +4447,8 @@ fuoco) e nessun cambio di fuoco.
 **Il gesto.** Il tasto SHALL annunciare l'evento `topics:next-waiting` e basta;
 la sidebar (`TopicTree`) SHALL rispondere chiamando lo stesso gestore del clic
 sulla riga: `handleChatRowClick` per le chat, e per i terminali un
-`handleTerminalRowClick` che spegne il «finito» (`clearTerminalFinished`) e poi
-chiama `onTerminalClick`, estratto dalla riga (`TopicTree.tsx:2376`) e usato da
+`handleTerminalRowClick` che manda il visto del soggetto alla porta del server
+(ATTN-06) e poi chiama `onTerminalClick`, estratto dalla riga (`TopicTree.tsx:2376`) e usato da
 lei e dal tasto. Una meta disegnata nella card di un gruppo che la finestra non
 mostra SHALL passare prima da `goToSpace` di quel gruppo, come fa la cattura del
 clic sulla card (`SpaceGroups`): la finestra va sul gruppo, e in una
@@ -4472,7 +4474,7 @@ SHALL commutare la griglia sul gruppo della meta, e la query NON SHALL comparire
 - Con Shift o Alt premuti il gestore NON SHALL scattare.
 
 #### Scenario: due chat in attesa e una al lavoro
-- **GIVEN** su `:13334`, vista per stato, tre chat: A ferma su un permesso (`session:state` con fase `awaiting-approval`), B ferma su una domanda dentro l'app (stream aperto e ultima riga con `mcp__topics__ask_user_question` in `waiting_for_input`), C con uno stream aperto e nessuna domanda
+- **GIVEN** su `:13334`, vista per stato, tre chat: A ferma su un permesso (`needs-you(permission)` dal permission bridge del server di test), B ferma su una domanda dentro l'app (`needs-you(question)` da `mcp__topics__ask_user_question`), C con uno stream aperto e nessuna domanda
 - **AND** il fuoco su C
 - **WHEN** si preme ⌘J tre volte
 - **THEN** la tab a fuoco (`[role="tab"][data-active="true"]`) è, nell'ordine, la prima riga di `sidebar-state-section-awaiting`, poi la seconda, poi di nuovo la prima
@@ -4501,7 +4503,7 @@ SHALL commutare la griglia sul gruppo della meta, e la query NON SHALL comparire
 - **THEN** la risposta è `null`
 
 #### Scenario: in app, nessun'altra chat ti aspetta
-- **GIVEN** su `:13334` una sola chat A ferma su un permesso (`session:state` con fase `awaiting-approval`), a fuoco
+- **GIVEN** su `:13334` una sola chat A ferma su un permesso (`needs-you(permission)`), a fuoco
 - **WHEN** si preme ⌘J
 - **THEN** compare il `toast` «Nessun'altra chat ti aspetta»
 - **AND** la tab a fuoco è ancora A
@@ -4522,12 +4524,16 @@ SHALL commutare la griglia sul gruppo della meta, e la query NON SHALL comparire
 - **THEN** la coda è `[Q, A]`
 
 #### Scenario: un turno finito non è una meta
-- **GIVEN** una chat in `awaitingFeedbackTopics` per la fase `awaiting-user` e non in `awaitingInputTopics`
-- **THEN** non è nella coda
+- **GIVEN** una chat `finished(done)` non vista, e una in `background`
+- **THEN** nessuna delle due è nella coda
 
 #### Scenario: un terminale fermo su un permesso è una meta
-- **GIVEN** un terminale Claude Code in `claudePhaseAwaitingInputTermIds`
+- **GIVEN** un terminale Claude Code `needs-you(permission)`
 - **THEN** è nella coda, al posto della sua riga
+
+#### Scenario: il piano del runtime nativo è una meta
+- **GIVEN** una chat nativa il cui turno chiude aprendo il pannello del piano (`needs-you(plan)`)
+- **THEN** è nella coda, e il numero della porta di CHAT-WAIT-04 la conta
 
 #### Scenario: su Windows Ctrl+J resta al terminale
 - **GIVEN** su `:13334` una chat A ferma su un permesso e il fuoco dentro un terminale
@@ -4985,47 +4991,41 @@ conteggi dei messaggi.
 - **WHEN** si esporta la conversazione e si conta `GET /api/history` del ramo
 - **THEN** il file e il conteggio non contengono «Diramata da»
 
-### Requirement: BGVIS-01 — Una chat in background ha un glifo suo, diverso da «risponde» e da «aspetta te»
+### Requirement: BGVIS-01 — Una chat che aspetta il suo lavoro in background è in corso, con l'anello di lavoro
 
 Quando una chat non ha un turno aperto ma il suo ultimo turno ha lasciato lavoro
-in background (riga `state:"background"` di `/api/topics/streaming`), la riga di
-sidebar, la sua tab e, a cartella chiusa, il roll-up del progetto SHALL mostrare
-il glifo `background`: lo stesso anello di `OrbitLoader`
-(`client/src/components/Layout/StreamingIndicator.tsx:94`), arco **grigio**
-(`text-app-text-tertiary`) che gira **lento**, reso da `LoaderSlot` con
-`data-loader-state="background"`.
-
-È un terzo stato e non va confuso con gli altri due: l'anello blu che gira dice
-«sta rispondendo, l'invio si accoda», l'ambra ferma dice «tocca a te». Qui
-nessuna delle due è vera: la chat è libera e il lavoro gira da sé.
+in background (stato di attenzione `working` con compiti in volo, ATTN-01), la
+riga di sidebar, la sua tab e, a cartella chiusa, il roll-up del progetto SHALL
+mostrare l'anello di lavoro in corso, lo stesso di un turno che risponde:
+`LoaderSlot` con `data-loader-state="working"`. Il terzo glifo grigio e lento
+(`background`) non esiste più (modifica del 2026-10-04, richiesta di Attilio:
+«uniformare lo stato in cui sta attendendo un job da finire»).
 
 Precedenza, sulla stessa riga o sullo stesso progetto: `waiting` (ambra) >
-`working` (blu) > `background` (grigio). Con `prefers-reduced-motion` l'arco
-SHALL stare fermo, come `.animate-orbit-spin` (`client/src/index.css:2900`).
+`working` (blu). Su un fill di attenzione l'arco di lavoro SHALL prendere
+l'inchiostro tenue del fill (`loaderArcClass`), come il tempo che sostituisce.
+Con `prefers-reduced-motion` l'arco SHALL stare fermo.
 
-Il tooltip SHALL dire quanti lavori e che la chat è libera (chiavi i18n it/en).
-`ProjectElapsed` (`Sidebar/TopicTree.tsx:1295`) NON SHALL contare il lavoro in
-background: misura il turno più vecchio in corso, e questo non è un turno.
-
-Dove cambiarla: scelta 1 del blocco «Da decidere». Con «no» il glifo diventa lo
-stesso `working` blu, e cade lo scenario «non si confonde».
+Il tooltip dell'anello di una chat senza turno aperto SHALL dire quanti lavori
+girano e che la chat è libera (chiavi i18n it/en). `ProjectElapsed` NON SHALL
+contare il lavoro in background: misura il turno più vecchio in corso. Il
+composer resta libero (BGVIS-02): la chat è in corso ma un messaggio parte subito.
 
 #### Scenario: la riga di sidebar di una chat in background
-- **GIVEN** `/api/topics/streaming` che risponde una sola riga
-  `{topicId: T, state: "background", tasks: [2 task]}`
+- **GIVEN** lo stato di attenzione della chat T `working` con due compiti, nessun turno aperto
 - **WHEN** la sidebar mostra la chat T
-- **THEN** la riga di T contiene `[data-loader-state="background"]`
-- **AND** non contiene `[data-loader-state="working"]` né `[data-loader-state="waiting"]`
+- **THEN** la riga di T contiene `[data-loader-state="working"]`, col tooltip «2 lavori in background. La chat è libera…»
+- **AND** non contiene `[data-loader-state="waiting"]`
 
 #### Scenario: la tab e il progetto chiuso dicono lo stesso
-- **GIVEN** la chat T in background, aperta in una tab, dentro il progetto P
+- **GIVEN** la chat T in attesa del suo lavoro, aperta in una tab, dentro il progetto P
 - **WHEN** la cartella di P è chiusa in sidebar
-- **THEN** la tab di T e la riga di P mostrano `[data-loader-state="background"]`
+- **THEN** la tab di T e la riga di P mostrano `[data-loader-state="working"]`, e P nessun tempo vivo
 
-#### Scenario: un turno vero vince sul background
-- **GIVEN** il progetto P con la chat T in background e la chat U che sta rispondendo
-- **WHEN** la cartella di P è chiusa
-- **THEN** la riga di P mostra `[data-loader-state="working"]`
+#### Scenario: il lavoro torna
+- **GIVEN** la chat T in attesa di un Bash in background, non guardata
+- **WHEN** il Bash torna e il turno che lo riporta chiude
+- **THEN** la riga di T ha `data-attention="done"` e nessun `[data-loader-state]`
 
 ### Requirement: BGVIS-02 — Il background non entra negli insiemi di streaming
 
@@ -5056,35 +5056,29 @@ riapertura fantasma del turno.
 - **THEN** glifo, riga in chat e riga fra gli agenti attivi spariscono senza
   aspettare il poll successivo
 
-### Requirement: BGVIS-03 — Le chat in background contano fra gli agenti attivi
+### Requirement: BGVIS-03 — Le chat in background contano fra gli agenti al lavoro
 
-`activeAgentRowsFrom` (`client/src/state/signals.ts:1313`) SHALL restituire,
-oltre a `working`, `awaitingInput` e `finished`, un gruppo `background`: una riga
-per chat (mai per task), solo per le chat a schermo (`visibleTopicSignalIds`),
-mai anche in `working`. `Sidebar/AgentLines.tsx` SHALL mostrarlo sotto
-un'intestazione propria («In background»), righe con
-`data-testid="background-agent-row"`.
+`activeAgentRowsFrom` (`client/src/state/signals.ts`) SHALL mettere una chat o
+un terminale `working` sullo stato di attenzione (anche senza turno aperto, in
+attesa del suo lavoro) fra i `working`, una riga per soggetto (mai per task),
+solo per le chat a schermo, mai due volte. Non esiste più un gruppo
+`background` né un'intestazione «In background» nel menu (modifica del
+2026-10-04).
 
-Il numero sul pulsante del menu (`Sidebar/IdentityBlock.tsx:189`) e la coda
-della riga «Agenti attivi» SHALL contare `working + background`, calcolati da
-una sola funzione sulle stesse righe, così numero ed elenco non possono
-divergere (STATUSLINE-05).
+Il numero sul pulsante del menu e la coda della riga «Agenti attivi» SHALL contare
+`working`, calcolati da una sola funzione sulle stesse righe, così numero ed
+elenco non possono divergere (STATUSLINE-05).
 
-Dove cambiarla: scelta 2 del blocco «Da decidere». Con «no» il gruppo resta
-nell'elenco ma il numero torna `working.length`, come per `awaitingInput` e
-`finished`.
-
-#### Scenario: una chat in background è un agente attivo
-- **GIVEN** la chat T con la sessione S in background, nessun turno aperto
+#### Scenario: una chat in background è un agente al lavoro
+- **GIVEN** la chat T in attesa del suo lavoro, nessun turno aperto
 - **WHEN** si calcola `activeAgentRowsFrom`
-- **THEN** `background` contiene una riga `{id: T, kind: "topic"}`
-- **AND** `working` non contiene T
+- **THEN** `working` contiene una riga `{id: T, kind: "topic"}`
 - **AND** il numero sul pulsante del menu vale 1
 
 #### Scenario: una chat archiviata non conta
-- **GIVEN** la chat T in background ma archiviata
+- **GIVEN** la chat T in attesa del suo lavoro ma archiviata
 - **WHEN** si calcola `activeAgentRowsFrom`
-- **THEN** `background` è vuoto
+- **THEN** `working` è vuoto
 
 ### Requirement: BGVIS-04 — In chat una riga dice chi si sta aspettando
 
@@ -5353,7 +5347,17 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
 
 Un comando lanciato con `run_command` che NON sveglia la chat (`wake: false`) e
 il cui albero di processi ascolta su almeno una porta TCP SHALL essere un
-**server** della chat: non lavoro in background che la chat aspetta. Un comando
+**server** della chat: non lavoro in background che la chat aspetta. Lo stesso
+vale per uno script del progetto che l'agente avvia con `run_script` (modifica
+del 2026-10-04): la sua riga nel registro porta la chat della sessione che l'ha
+lanciato, e uno script non sveglia mai nessuno.
+
+Dal 2026-10-04 il lavoro che la chat aspetta è lavoro in corso (ATTN-01, ATTN-02):
+il server è l'UNICO stato a parte. La riga della chat in sidebar SHALL portare,
+fra i segni quieti della coda, il segno del server (`data-testid="row-server-sign"`,
+icona `Server` di lucide, tooltip «Server acceso: <indirizzo>…» da i18n) finché
+un suo server è in corsa, senza anello di lavoro, senza fill e senza contare
+nella inbox né fra gli agenti al lavoro. Un server appena finito non ha il segno. Un comando
 che sveglia la chat resta lavoro atteso (BGVIS-07) anche se ascolta su una
 porta; uno che non ascolta su niente pure.
 
@@ -5373,8 +5377,8 @@ chat rispondeva `[]` mentre la chat nominava il processo.
   raddoppio SHALL fermarsi a 5 s: un server che compila a lungo si vede entro
   5 s dal momento in cui apre la porta. La route di stato NON SHALL lanciare `lsof`.
 - Un server NON SHALL comparire fra i `tasks` di `/api/topics/streaming`: niente
-  riga `background-work-line`, niente glifo `background` su riga, tab e
-  progetto, niente riga fra gli agenti attivi, e lo Stop del composer non lo
+  riga `background-work-line`, niente anello di lavoro su riga, tab e
+  progetto, niente riga fra gli agenti al lavoro, e lo Stop del composer non lo
   riguarda. La risposta SHALL portare a parte `services: [{topicId, sessionKey,
   services}]` (`TopicServices`, `shared/background-work.ts`).
 - In chat, nel `Footer` del trascritto sotto la riga di BGVIS-04, una riga
@@ -5418,7 +5422,7 @@ chat rispondeva `[]` mentre la chat nominava il processo.
   (`helpers/fake-claude-service.ts`) che lancia con `run_command` senza sveglia
   un vero server HTTP su una porta libera
 - **THEN** la chat ha UNA riga `running-service-row` con `127.0.0.1:<porta>` e
-  il nome, nessuna `background-work-line`, nessun glifo `background` sulla tab
+  il nome, nessuna `background-work-line`, nessun anello di lavoro sulla tab
   e nessuno Stop nel composer
 - **AND** `GET /api/processes?topicId=` lo elenca `running` con la porta
 - **WHEN** si clicca Apri
@@ -5433,6 +5437,16 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **WHEN** il server risponde sulla sua porta
 - **THEN** la riga `background-work-line` lo nomina con «sveglia la chat» e non
   c'è nessuna `running-service-row`
+
+#### Scenario: un dev server avviato con run_script
+- **GIVEN** una chat di progetto su una CLI finta che avvia con `run_script` lo
+  script `serve` del progetto, un vero server HTTP su una porta libera
+- **WHEN** il server risponde sulla sua porta
+- **THEN** la riga della chat in sidebar ha `row-server-sign` col suo indirizzo
+  nel tooltip e nessun `[data-loader-state]`, lo stato di attenzione non è
+  `working`, e la inbox non ha la riga quieta
+- **WHEN** il server si spegne
+- **THEN** il segno sparisce
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 

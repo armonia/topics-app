@@ -57,6 +57,29 @@ describe("the epoch is tied to the cause", () => {
     expect(pushes[0].badge).toBe(1);
   });
 
+  it("the row a new epoch wrote travels in its frame, and a row the log refused does not", () => {
+    // The inbox's «History» tab grows from `history`, the frame that replaced
+    // `notification:new` (tasks.md 6.2).
+    let written = 0;
+    configureAttentionStore({
+      recordRow: (i) => {
+        written += 1;
+        // The second write is the log's dedup saying no.
+        return written === 1 ? { id: "n-1", createdAt: "2026-10-05T10:00:00.000Z", kind: i.kind, title: i.title, body: i.body ?? "",
+          targetKind: i.targetKind ?? null, targetId: i.targetId ?? null, targetUrl: null, source: i.source ?? "push", groupKey: i.groupKey ?? null, seenAt: null } : null;
+      },
+    });
+    turnStarted("topic:h");
+    turnEnded("topic:h", { turnId: "m1", outcome: "done" });
+    const first = frames.filter((f) => f.type === "attention:updated" && f.history);
+    expect(first.map((f) => [f.row.subject, f.history.id, f.history.kind])).toEqual([["topic:h", "n-1", "chat-message"]]);
+    expect(first[0].announce?.tag).toBe("topic:h");
+    turnStarted("topic:h");
+    turnEnded("topic:h", { turnId: "m2", outcome: "done" });
+    expect(written).toBe(2);
+    expect(frames.filter((f) => f.type === "attention:updated" && f.history)).toHaveLength(1);
+  });
+
   it("the same cause recomposed makes no epoch, no row and no push", () => {
     openHold("topic:b", "ask", { kind: "question", id: "ask:1" });
     openHold("topic:b", "ask", { kind: "question", id: "ask:1" });

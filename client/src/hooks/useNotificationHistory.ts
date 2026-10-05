@@ -10,7 +10,6 @@ import {
   type NotificationHistoryPage,
 } from '../lib/notify/history';
 import { NOTIFICATION_MAX_ROWS, NOTIFICATION_PAGE_SIZE } from '../../../shared/notification-log';
-import { rowSeenByFrame } from '../lib/notify/seenFrame';
 
 export interface NotificationHistoryState {
   rows: NotificationRow[];
@@ -34,12 +33,15 @@ export interface NotificationHistoryState {
  * The rows are the server's (one per lit transition, written by the attention
  * store) and they enter no number any more: the inbox's number is the lit
  * subjects (`state/attentionTotal.ts`). So this hook reads and merges, and
- * writes nothing: no counter, no "mark all seen" on open. A row's dot goes out
- * when the server says so (`notification:seen`, the seen door's echo).
+ * writes nothing: no counter, no "mark all seen" on open. A row's dot is not
+ * here either: the panel draws it from the attention store (the subject still
+ * lit), not from the row's `seenAt`.
  *
- * Two sources: the live `notification:new` and `notification:seen`, and the
- * HTTP read (at mount and at every open of the tab). A read that started
- * before a live frame does not overwrite what that frame said.
+ * Two sources: the live rows, and the HTTP read (at mount and at every open
+ * of the tab). A live row comes in the `attention:updated` of the epoch that
+ * wrote it (`history`), or, written by no transition (a system notice, the
+ * log's POST), on `attention:history`. A read that started before a live
+ * frame does not overwrite what that frame said.
  */
 export function useNotificationHistory(
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void,
@@ -85,19 +87,13 @@ export function useNotificationHistory(
 
   useEffect(() => { void load(); }, [load]);
 
-  useWSSubscription(onWSMessage, 'notification:new', (msg) => {
-    const row = msg.row;
+  const takeLiveRow = (row: NotificationRow | undefined) => {
     if (!row) return;
     liveTick.current += 1;
     setRows((prev) => mergeNotificationRow(prev, row, NOTIFICATION_MAX_ROWS));
-  });
-
-  useWSSubscription(onWSMessage, 'notification:seen', (msg) => {
-    liveTick.current += 1;
-    // Only the rows of the subjects the frame names.
-    const at = new Date().toISOString();
-    setRows((prev) => prev.map((r) => (r.seenAt || !rowSeenByFrame(msg, r.groupKey ?? r.id) ? r : { ...r, seenAt: at })));
-  });
+  };
+  useWSSubscription(onWSMessage, 'attention:updated', (msg) => takeLiveRow(msg.history));
+  useWSSubscription(onWSMessage, 'attention:history', (msg) => takeLiveRow(msg.row));
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;

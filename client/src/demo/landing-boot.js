@@ -10,7 +10,7 @@
  *   3. Monkeypatches window.WebSocket with a stub that feeds canned frames:
  *        /ws/terminal/<id>  → ANSI shell output + replay-end
  *        /ws/browser/<id>   → nav + one screenshot frame
- *        /ws (main)         → unread:init so topics appear in the sidebar
+ *        /ws (main)         → terminal sessions and window presence
  *
  * NOTHING here references real user/project data — it's a generic showcase.
  * Maintainability: this IS the real app bundle; only this one file is the
@@ -380,7 +380,8 @@
     "t-bugs": topic("t-bugs", "bug triage", "🐞", "#f5a524"),
   };
   // Topics are secondary in this story — the Claude Code sessions are the value.
-  // Keep just one unread topic so the sidebar leads with projects + their agents.
+  // One unread topic, for the `GET /api/unread` mock: no frame lights it, so the
+  // sidebar leads with projects + their agents.
   var UNREAD = {
     "t-ship": { lastReadAt: ISO, unreadCount: 2 },
   };
@@ -835,7 +836,6 @@
         setTimeout(function () { self._msg(JSON.stringify({ type: "dom_event", event: ev })); }, 160 + i * 30);
       });
     } else {
-      setTimeout(function () { self._msg(JSON.stringify({ type: "unread:init", data: UNREAD })); }, 90);
       setTimeout(function () { self._msg(JSON.stringify({ type: "terminal:sessions", sessions: SESSIONS })); }, 110);
       /* Detached windows. Window presence is deliberately NOT persisted — it is
        * fed only by `presence:windows` on the main socket — so no localStorage
