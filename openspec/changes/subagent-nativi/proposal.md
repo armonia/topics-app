@@ -5,14 +5,15 @@ Sotto-agenti sul motore di Topics invece che su una CLI Claude Code: 3 scelte pr
 2. Default nativo per tutti i figli, CLI Claude Code solo se la chiamata chiede `runtime: "claude-code"` (o: nativo solo per i figli di chat native, CLI per i figli di chat claude-code).
 3. Profondità massima 2 (un figlio può delegare una volta) e i tetti di oggi restano: 5 per chat, 6 vivi su tutto il Mac (o: profondità 1, i figli non delegano).
 
-Fuori: figli Codex, migrazione dei figli già vivi (finiscono come sono nati).
+Dentro anche: un figlio nato sulla CLI e riscritto con `send_to_agent` torna sul motore, stesso id, turni e risultati pendenti conservati, profilo con istruzioni e strumenti; resta sulla CLI solo se la sua chiamata chiedeva `runtime: "claude-code"` («pulisci, migri», risposta del 04/10).
+Fuori: figli Codex.
 «ok» = tutte le consigliate · «ok ma 2 no» = cambio la 2.
 
 ---
 
 # Proposal: subagent-nativi
 
-> Bozza del 2026-10-04, **non approvata**: niente codice finché `.openspec.yaml` non dice `status: approved`.
+> Approvata il 2026-10-04 alle 19:04 (`.openspec.yaml`).
 
 | # | Dove cambiarla |
 |---|----------------|
@@ -44,6 +45,9 @@ quattro come qualunque chat.
 - Profilo (`~/.claude/agents`): il suo prompt e il modello diventano system prompt e modello del figlio
   nativo; gli strumenti del profilo filtrano quelli nativi.
 - `runtime: "claude-code"` nella chiamata mantiene il percorso di oggi.
+- Migrazione: un figlio CLI ripreso con `send_to_agent` passa al motore aggiornando la sua riga
+  (`runtime_reason` dice perché era nato sulla CLI; `asked` resta sulla CLI, una riga vecchia senza
+  motivo migra).
 
 ## Impact
 
