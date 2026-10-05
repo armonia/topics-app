@@ -200,20 +200,20 @@ describe("resume, wake and restart of a child in the middle of a tree", () => {
   test("a child whose CLI grandchild reported is closed after its wake turn, and a restart reports nothing", async () => {
     mode = "hold";
     const c = await spawn(ROOT2, { name: "c-child" });
-    const cid = c.body.agentId as string; const csk = c.body.sessionKey as string;
-    await until("child open", () => open.has(csk));
-    const g = await spawn(csk, { name: "c-grand-cli", runtime: "claude-code" });
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child open", () => open.has(childKey));
+    const g = await spawn(childKey, { name: "c-grand-cli", runtime: "claude-code" });
     expect(g.body.runtime).toBe("claude-code");
     const gid = g.body.agentId as string;
-    open.get(csk)!();
+    open.get(childKey)!();
     await until("child turn 1", () => reportsFor(cid)[0]);
     expect(rowOf(cid)?.state).toBe("running");
     // The CLI grandchild's turn 1, as the transcript watch reports it: it stays
     // `running`, parked, its phase `finished`.
     const rt = await import("../../server/lib/subagent-runtime");
-    rt.reportNativeChildTurn({ id: gid, name: "c-grand-cli", cwd: PROJECT, parentSessionKey: csk }, 1, { status: "completed", partial: false, text: "grand done" }, null);
+    rt.reportNativeChildTurn({ id: gid, name: "c-grand-cli", cwd: PROJECT, parentSessionKey: childKey }, 1, { status: "completed", partial: false, text: "grand done" }, null);
     expect(rowOf(gid)?.state).toBe("running");
-    await wakeTurn(csk, "the CLI grandchild's result");
+    await wakeTurn(childKey, "the CLI grandchild's result");
     const second = await until("child turn 2", () => reportsFor(cid)[1]);
     expect(second).toMatchObject({ turn: 2, outcome: { status: "completed", text: "done: the CLI grandchild's result" } });
     await until("the child closed", () => rowOf(cid)?.state === "retired");
@@ -228,11 +228,11 @@ describe("resume, wake and restart of a child in the middle of a tree", () => {
   test("a grandchild lost without a result: the waiting child is looked at again and closed, not left running", async () => {
     mode = "hold";
     const c = await spawn(ROOT2, { name: "lost-child" });
-    const cid = c.body.agentId as string; const csk = c.body.sessionKey as string;
-    await until("child open", () => open.has(csk));
-    const g = await spawn(csk, { name: "lost-grand" });
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child open", () => open.has(childKey));
+    const g = await spawn(childKey, { name: "lost-grand" });
     await until("grand open", () => open.has(g.body.sessionKey as string));
-    open.get(csk)!();
+    open.get(childKey)!();
     await until("child turn 1", () => reportsFor(cid)[0]);
     expect(rowOf(cid)?.state).toBe("running");
     // Gone with no result reaching the child: no wake will ever come.
@@ -249,14 +249,14 @@ describe("resume, wake and restart of a child in the middle of a tree", () => {
   test("work that was owed at the turn's end and ends without a wake turn: the child is closed", async () => {
     mode = "hold";
     const c = await spawn(ROOT2, { name: "bg-child" });
-    const cid = c.body.agentId as string; const csk = c.body.sessionKey as string;
-    await until("child open", () => open.has(csk));
-    busyBackground.add(csk);
-    open.get(csk)!();
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child open", () => open.has(childKey));
+    busyBackground.add(childKey);
+    open.get(childKey)!();
     await until("child turn 1", () => reportsFor(cid)[0]);
     await sleep(300);
     expect(rowOf(cid)?.state).toBe("running");
-    busyBackground.delete(csk);
+    busyBackground.delete(childKey);
     await until("the child closed", () => rowOf(cid)?.state === "retired", 3_000);
     expect(reportsFor(cid)).toHaveLength(1);
   }, 20_000);
@@ -266,26 +266,26 @@ describe("resume, wake and restart of a child in the middle of a tree", () => {
   test("two wake turns back to back: each reported once, with its own words", async () => {
     mode = "hold";
     const c = await spawn(ROOT2, { name: "f-child" });
-    const cid = c.body.agentId as string; const csk = c.body.sessionKey as string;
-    await until("child open", () => open.has(csk));
-    const g1 = await spawn(csk, { name: "f-g1" }); const g2 = await spawn(csk, { name: "f-g2" });
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child open", () => open.has(childKey));
+    const g1 = await spawn(childKey, { name: "f-g1" }); const g2 = await spawn(childKey, { name: "f-g2" });
     await until("grands open", () => open.has(g1.body.sessionKey as string) && open.has(g2.body.sessionKey as string));
-    open.get(csk)!();
+    open.get(childKey)!();
     await until("child turn 1", () => reportsFor(cid)[0]);
     open.get(g1.body.sessionKey as string)!(); open.get(g2.body.sessionKey as string)!();
     await until("grands reported", () => reportsFor(g1.body.agentId as string)[0] && reportsFor(g2.body.agentId as string)[0]);
     const startHeld = async (text: string) => {
       const url = new URL("http://localhost/api/chat");
-      const r = await fakeChatRoute(new Request(url, { method: "POST", body: JSON.stringify({ sessionKey: csk, messages: [{ content: text }] }) }), url, "/api/chat");
+      const r = await fakeChatRoute(new Request(url, { method: "POST", body: JSON.stringify({ sessionKey: childKey, messages: [{ content: text }] }) }), url, "/api/chat");
       void (async () => { const rd = r!.body!.getReader(); while (!(await rd.read()).done) { /* drain */ } })();
     };
     await startHeld("wake 1: g1 result");
-    await until("w1 open", () => open.has(csk));
-    open.get(csk)!();
+    await until("w1 open", () => open.has(childKey));
+    open.get(childKey)!();
     await sleep(10);
     await startHeld("wake 2: g2 result");
     await sleep(600);
-    open.get(csk)!();
+    open.get(childKey)!();
     await until("both wakes reported", () => reportsFor(cid)[2]);
     await sleep(500);
     expect(reportsFor(cid).map((r) => [r.turn, r.outcome.status, r.outcome.text])).toEqual([
@@ -328,23 +328,23 @@ describe("a Stop reaches the whole live tree (SUBAGENT-11)", () => {
   test("a person's Stop on the root stops a waiting child and its grandchild; nothing after it wakes the root", async () => {
     mode = "hold";
     const c = await spawn(ROOT2, { name: "b-child" });
-    const cid = c.body.agentId as string; const csk = c.body.sessionKey as string;
-    await until("child open", () => open.has(csk));
-    const g = await spawn(csk, { name: "b-grand" });
-    const gid = g.body.agentId as string; const gsk = g.body.sessionKey as string;
-    await until("grand open", () => open.has(gsk));
-    open.get(csk)!();
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child open", () => open.has(childKey));
+    const g = await spawn(childKey, { name: "b-grand" });
+    const gid = g.body.agentId as string; const grandKey = g.body.sessionKey as string;
+    await until("grand open", () => open.has(grandKey));
+    open.get(childKey)!();
     await until("child turn 1", () => reportsFor(cid)[0]);
     expect(rowOf(cid)?.state).toBe("running");
     const { stopNativeChildrenOf } = await import("../../server/lib/native-subagents");
     expect(await stopNativeChildrenOf(ROOT2)).toBe(1);
     expect(rowOf(cid)?.state).toBe("stopped");
     expect(rowOf(gid)?.state).toBe("stopped");
-    expect(open.has(gsk)).toBe(false);
+    expect(open.has(grandKey)).toBe(false);
     const grand = await until("grand's stopped result", () => reportsFor(gid)[0]);
     expect(grand.stoppedByParent).toBe(true);
     // Even a turn on the stopped child's chat reaches nobody.
-    await wakeTurn(csk, "late");
+    await wakeTurn(childKey, "late");
     await sleep(800);
     expect(reportsFor(cid)).toHaveLength(1);
   }, 20_000);
@@ -353,13 +353,13 @@ describe("a Stop reaches the whole live tree (SUBAGENT-11)", () => {
   test("stop_agent on a waiting child stops its native and CLI grandchildren", async () => {
     mode = "hold";
     const c = await spawn(PARENT, { name: "g-child" });
-    const cid = c.body.agentId as string; const csk = c.body.sessionKey as string;
-    await until("child open", () => open.has(csk));
-    const gn = await spawn(csk, { name: "g-native" });
-    const gc = await spawn(csk, { name: "g-cli", runtime: "claude-code" });
+    const cid = c.body.agentId as string; const childKey = c.body.sessionKey as string;
+    await until("child open", () => open.has(childKey));
+    const gn = await spawn(childKey, { name: "g-native" });
+    const gc = await spawn(childKey, { name: "g-cli", runtime: "claude-code" });
     expect(gc.body.runtime).toBe("claude-code");
     await until("native grand open", () => open.has(gn.body.sessionKey as string));
-    open.get(csk)!();
+    open.get(childKey)!();
     await until("child turn 1", () => reportsFor(cid)[0]);
     const res = await call(`${agents(PARENT)}/${cid}/stop`, "POST");
     expect(res.status).toBe(200);
