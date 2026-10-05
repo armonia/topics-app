@@ -102,6 +102,11 @@ describe('validateOutbound — attention:updated history', () => {
   test('accepts the frame with the row it wrote', () => {
     expect(validateOutbound(attentionUpdatedWithHistory).ok).toBe(true);
   });
+  test('attention:history carries a row with no subject, and refuses one without an id', () => {
+    const systemRow = { ...historyRow, kind: 'system', targetKind: null, targetId: null, groupKey: 'system:restart-held' };
+    expect(validateOutbound({ type: 'attention:history', row: systemRow }).ok).toBe(true);
+    expect(validateOutbound({ type: 'attention:history', row: { ...systemRow, id: undefined } }).ok).toBe(false);
+  });
   test('accepts the frame without one', () => {
     const { history: _history, ...plain } = attentionUpdatedWithHistory;
     expect(validateOutbound(plain).ok).toBe(true);
@@ -181,6 +186,7 @@ describe('outbound registry contract', () => {
     // niente. Non si poteva allargare `stream:context` senza far dire a un
     // evento due cose che si muovono in verso opposto.
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
+      'attention:history',
       'attention:init',
       'attention:updated',
       'auth:device-revoked',
@@ -420,8 +426,13 @@ describe('outbound registry contract', () => {
   // the history's live row, which now travels in `attention:updated.history`.
   // A chat's unread is on its attention row; a row's seen dot is drawn from
   // the attention store.
-  test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(104);
+  // 104 -> 105: `attention:history`, a history row no transition wrote (a
+  // system notice, the log's public POST). Without it those rows reached the
+  // «History» tab only at its next open, where `notification:new` had brought
+  // them live. Owner-only. Sender `server/attention/store.ts`
+  // (`recordHistoryRow`), listener `useNotificationHistory`.
+  test('all 105 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(105);
   });
 });
 

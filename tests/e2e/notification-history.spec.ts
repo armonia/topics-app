@@ -13,7 +13,9 @@
  *   NH-02  opening the history marks nothing: an unseen row stays unseen on
  *          the server, even after a reload; and a row is not a lit thing, so
  *          the button's number does not rise for it.
- *   NH-04  due mittenti dello stesso evento fanno una riga sola.
+ *   NH-04  due mittenti dello stesso evento fanno una riga sola, and that row,
+ *          posted to the log with the history open, arrives by itself on
+ *          `attention:history` (no subject, no transition: its own frame).
  *   NH-06  oltre la prima pagina: il registro non finisce alla cinquantesima.
  * NH-03 (un gruppo visto una volta) e NH-05 (un fronte in ritardo non
  * riaccende il numero) misuravano il numero fatto di righe, che non esiste
@@ -23,8 +25,9 @@
  *
  * The log is seeded through its public route (`POST /api/notifications`):
  * seeding by writing the table would prove the table, not the chain. NH-01
- * drives a real transition instead, because the live row travels only in the
- * frame of the transition that wrote it (tasks.md 6.2).
+ * drives a real transition: its row travels in the `attention:updated` of
+ * that transition. A posted row, written by no transition, travels on
+ * `attention:history` (NH-04).
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
@@ -161,11 +164,9 @@ test.describe("Cronologia notifiche", () => {
     // Il SECONDO mittente dello stesso evento (la spinta, un'altra finestra).
     const second = await postNotification(page.request, { kind: "task-review", title: "Consegna", targetKind: "task", targetId: taskId, dedupeKey: key, source: "push" });
     expect(second.recorded).toBe(false);
-    // A posted row has no frame (only a live transition's row does): the tab
-    // reads the log again at every open.
-    await page.getByTestId("inbox-tab-now").click();
-    await page.getByTestId("inbox-tab-history").click();
+    // No reload, no reopening of the tab: the row arrives on its own frame.
     await expect(historyRows(page)).toHaveCount(before + 1, { timeout: 10_000 });
+    await expect(historyRows(page).first()).toContainText("Consegna");
   });
 
   test("NH-06: oltre la prima pagina — il registro non finisce alla cinquantesima", async ({ page }) => {

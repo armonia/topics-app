@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import { listNotifications, unseenSnapshot } from "../db/notification-log";
-import { recordNotificationRow } from "../notification-registry";
+import { recordHistoryRow } from "../attention/store";
 import { parseNotificationInput } from "../../shared/notification-log";
 import { createAttentionRouter } from "./attention";
 
@@ -17,7 +17,8 @@ import { createAttentionRouter } from "./attention";
  *
  * The rows of the attention subjects are written by the attention store, not
  * by this POST; it stays the log's public door (a failed write is silent, and
- * the answer only says whether the row was new).
+ * the answer only says whether the row was new). A new row reaches every open
+ * window on `attention:history`, written by no transition as it is.
  */
 export function createNotificationsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON } = ctx;
@@ -36,7 +37,7 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
       const body = await readJSON(req);
       const input = parseNotificationInput(body);
       if (!input) return json({ error: "Invalid notification" }, 400);
-      const row = recordNotificationRow(input);
+      const row = recordHistoryRow(input);
       return json({ ok: true, recorded: !!row, row, ...unseenSnapshot() });
     }
 

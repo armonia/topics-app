@@ -37,11 +37,11 @@ export interface NotificationHistoryState {
  * here either: the panel draws it from the attention store (the subject still
  * lit), not from the row's `seenAt`.
  *
- * Two sources: the row a live epoch wrote, carried by its `attention:updated`
- * frame (`history`), and the HTTP read (at mount and at every open of the
- * tab). A read that started before a live frame does not overwrite what that
- * frame said. A row with no subject (a system notice) has no frame: it arrives
- * with the next read.
+ * Two sources: the live rows, and the HTTP read (at mount and at every open
+ * of the tab). A live row comes in the `attention:updated` of the epoch that
+ * wrote it (`history`), or, written by no transition (a system notice, the
+ * log's POST), on `attention:history`. A read that started before a live
+ * frame does not overwrite what that frame said.
  */
 export function useNotificationHistory(
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void,
@@ -87,12 +87,13 @@ export function useNotificationHistory(
 
   useEffect(() => { void load(); }, [load]);
 
-  useWSSubscription(onWSMessage, 'attention:updated', (msg) => {
-    const row = msg.history;
+  const takeLiveRow = (row: NotificationRow | undefined) => {
     if (!row) return;
     liveTick.current += 1;
     setRows((prev) => mergeNotificationRow(prev, row, NOTIFICATION_MAX_ROWS));
-  });
+  };
+  useWSSubscription(onWSMessage, 'attention:updated', (msg) => takeLiveRow(msg.history));
+  useWSSubscription(onWSMessage, 'attention:history', (msg) => takeLiveRow(msg.row));
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;

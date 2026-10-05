@@ -1461,7 +1461,11 @@ punto (la chat sulla domanda, la card nel cassetto) e, per una `Finite`, segnarl
 epoche mostrate. «Ti aspettano» NON SHALL avere un'azione che la spegne senza rispondere.
 
 «Cronologia» SHALL elencare le ultime 100 righe del registro per giorno, in sola lettura,
-senza numero sulla linguetta.
+senza numero sulla linguetta. Una riga nuova SHALL arrivarci dal vivo, a linguetta
+aperta e senza ricaricare: quella scritta da una transizione di un soggetto nel suo
+`attention:updated` (`history`), ogni altra (un avviso di sistema, la rotta pubblica
+`POST /api/notifications`) sul frame `attention:history`, solo della persona come gli
+altri frame di attenzione. Un doppione che il registro scarta NON SHALL partire.
 
 Il tasto SHALL mostrare il numero dei soggetti accesi, ambra se almeno uno è
 `needs-you`, e nessun numero a zero. Il pannello SHALL funzionare da tastiera (una voce
@@ -1501,6 +1505,12 @@ emoji.
 - **GIVEN** uno schermo largo 390 px
 - **WHEN** si tocca il tasto
 - **THEN** il pannello SHALL aprirsi come foglio dal basso con righe alte almeno 44 px, e uno scorrimento a sinistra su una `Finite` SHALL segnarla vista
+
+#### Scenario: una riga senza transizione arriva dal vivo
+- **GIVEN** la linguetta «Cronologia» aperta
+- **WHEN** un avviso di sistema scrive la sua riga, o una riga arriva da `POST /api/notifications`
+- **THEN** la riga SHALL comparire in cima senza ricaricare né riaprire la linguetta, portata da `attention:history`
+- **AND** lo stesso evento riportato una seconda volta NON SHALL aggiungere una riga né un frame
 
 ### Requirement: ATTN-10 — Gli avvisi di infrastruttura non accendono una chat
 

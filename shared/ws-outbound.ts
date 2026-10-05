@@ -1362,6 +1362,18 @@ const attentionUpdatedSchema = z.looseObject({
 });
 
 /**
+ * A history row that no transition of a subject wrote (a system notice, the
+ * log's public `POST /api/notifications`): no `attention:updated` carries it,
+ * so it travels alone and the inbox's «History» tab grows live. The row of a
+ * transition travels in that transition's `attention:updated.history`.
+ * Owner-only. Sender `server/attention/store.ts` (`recordHistoryRow`).
+ */
+const attentionHistorySchema = z.looseObject({
+  type: z.literal('attention:history'),
+  row: notificationRowSchema,
+});
+
+/**
  * Whether a session has a turn open, from the server's ledger
  * (`server/lib/turn-ledger.ts`). Sent on every open/close transition, from
  * every source: a turn the route registered, a turn the CLI opened by itself,
@@ -1555,6 +1567,7 @@ const OUTBOUND_SCHEMAS = {
   // Lo stato di attenzione (notifications-redesign)
   'attention:init': attentionInitSchema,
   'attention:updated': attentionUpdatedSchema,
+  'attention:history': attentionHistorySchema,
 } as const;
 
 /**

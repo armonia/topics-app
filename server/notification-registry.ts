@@ -7,9 +7,10 @@
  * (the attention store, the system notices, the public route), and a rule
  * copied three times drifts at the first change.
  *
- * No frame leaves from here: a new row reaches the windows inside the
- * `attention:updated` frame of the transition that wrote it, sent by the
- * attention store (notifications-redesign, tasks.md 6.2).
+ * No frame leaves from here: the attention store tells the windows, inside the
+ * `attention:updated` of the transition that wrote the row, or on
+ * `attention:history` for a row no transition wrote (notifications-redesign,
+ * tasks.md 6.2).
  *
  * The topic lookup is INJECTED at bootstrap, as for `configureAttentionStore`:
  * the module keeps no dependency on the app context and the tests mount it
@@ -44,7 +45,7 @@ export function __resetNotificationRegistry(): void {
  * window, an archived topic, or a write error.
  *
  * The return value is NOT decorative: only a new row travels in the store's
- * frame. It is also the defence against the boot trap: if something replays
+ * frames. It is also the defence against the boot trap: if something replays
  * old events at start, the dedup recognises them and the history does not
  * present them as new.
  */

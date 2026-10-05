@@ -13,7 +13,8 @@
  *   - a new live epoch writes ONE history row (born seen when the subject is
  *     in front of the person), decides the announce and sends the push
  *     (section 10.1); the row travels in the same frame (`history`), so the
- *     inbox's «History» tab grows live;
+ *     inbox's «History» tab grows live; a row written by no transition (a
+ *     system notice, the log's public POST) goes out on `attention:history`;
  *   - the seen is written, per person, as `seen_epoch` and `seen_at`
  *     (section 6);
  *   - `attention:updated` goes out, and `attention:init` is composed for
@@ -386,6 +387,26 @@ export function attentionInitFrame(): OutboundMessage {
   const rows: AttentionSnapshot[] = [];
   for (const e of entries.values()) if (e.row.state !== "idle") rows.push(snapshotOf(e));
   return { type: "attention:init", rows } as OutboundMessage;
+}
+
+/**
+ * A history row written outside any subject's transition: a system notice, or
+ * the log's public POST. No `attention:updated` carries it, so it goes out on
+ * its own frame, `attention:history`, and the inbox's «History» tab grows live
+ * (the rows of a transition travel in that transition's frame, `history`).
+ * `null` when the log did not write it (dedup, archived topic): nothing goes out.
+ */
+export function recordHistoryRow(input: NotificationRecordInput): NotificationRow | null {
+  let row: NotificationRow | null = null;
+  try { row = deps.recordRow(input); } catch (err) {
+    console.warn("[attention] history row failed:", (err as Error)?.message || err);
+    return null;
+  }
+  if (!row) return null;
+  try { deps.broadcast({ type: "attention:history", row } as OutboundMessage); } catch (err) {
+    console.warn("[attention] broadcast failed:", (err as Error)?.message || err);
+  }
+  return row;
 }
 
 /** How many subjects are lit: the number of the Dock, the tray and the PWA badge. */

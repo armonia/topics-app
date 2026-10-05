@@ -255,8 +255,8 @@ server (rotta degli hook, provider finto). Ogni spec lascia il `.webm`.
   letto» del progetto legge lo store di attenzione e passa dalla porta del visto
   (`attention-project-mark-read.spec.ts`). Il lettore di `notification:seen` aggiornava
   solo `seenAt`, che nessuna superficie disegna: tolto con `lib/notify/seenFrame.ts`.
-  Gli avvisi di sistema non hanno soggetto, quindi niente frame: arrivano in Cronologia
-  alla sua apertura successiva.
+  Le righe che nessuna transizione scrive (avvisi di sistema, `POST /api/notifications`)
+  arrivano dal vivo sul frame `attention:history` (`recordHistoryRow` nello store).
 - [x] 6.3 Archiviare la change: le delta entrano in `notifications` e `claude-sessions`.
   Prima va sistemata `openspec/specs/claude-sessions/spec.md`, che oggi ha i requisiti
   fuori dalla sezione `## Requirements`: `openspec validate` dice che l'archivio

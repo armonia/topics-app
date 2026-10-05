@@ -1234,9 +1234,17 @@ export interface WSAttentionUpdatedMessage {
   history?: NotificationRow;
 }
 
+/** A history row no transition wrote (a system notice, the log's POST): the
+ *  inbox's «History» tab grows from it as from `attention:updated.history`. */
+export interface WSAttentionHistoryMessage {
+  type: 'attention:history';
+  row: NotificationRow;
+}
+
 export type WSMessage =
   | WSAttentionInitMessage
   | WSAttentionUpdatedMessage
+  | WSAttentionHistoryMessage
   | WSTaskDeletedMessage
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage
