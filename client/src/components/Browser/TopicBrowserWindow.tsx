@@ -721,6 +721,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               onTitleChange={(title) => topicBrowserWindow.updateSheet(topicId, t.contextId, { title })}
               hasFocus={focus.focused}
               onSelfFocus={focus.claim}
+              projectPath={projectPath}
             />
           </div>
         ))}
