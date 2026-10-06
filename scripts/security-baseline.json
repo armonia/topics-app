@@ -12,10 +12,33 @@
     "riscrivere la baseline, o marcisce.",
     "03/10: accettato http-cache-semantics GHSA-ch52-4w7c-c8xp (landing, via astro). Nessuna versione corretta esiste (<= 4.2.0, senza patch). Il sito e' una build statica: astro lo usa solo in build/dev, mai come cache condivisa fra utenti, che e' la condizione dell'avviso. Si toglie appena esce la patch."
   ],
-  "updated": "2026-10-03",
+  "updated": "2026-10-06",
   "advisories": {
-    ".": [],
-    "client": [],
+    ".": [
+      {
+        "package": "smol-toml",
+        "id": 1241205,
+        "severity": "moderate",
+        "title": "smol-toml: Quadratic-time parse() from parseKey rescanning to end of document on each key line",
+        "url": "https://github.com/advisories/GHSA-r4xh-jqrq-34v2"
+      }
+    ],
+    "client": [
+      {
+        "package": "katex",
+        "id": 1241206,
+        "severity": "low",
+        "title": "KaTeX: Existing prototype pollution can bypass trust restrictions",
+        "url": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+      },
+      {
+        "package": "source-map-js",
+        "id": 1241209,
+        "severity": "high",
+        "title": "source-map-js allows event-loop denial of service through indexed source-map section offsets",
+        "url": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+      }
+    ],
     "landing": [
       {
         "package": "http-cache-semantics",
@@ -23,6 +46,27 @@
         "severity": "high",
         "title": "http-cache-semantics max-stale handling can disclose cross-user cached responses",
         "url": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
+      },
+      {
+        "package": "postcss-selector-parser",
+        "id": 1241232,
+        "severity": "moderate",
+        "title": "PostCSS: Quadratic complexity in flat selector parsing allows CPU exhaustion",
+        "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
+      },
+      {
+        "package": "smol-toml",
+        "id": 1241205,
+        "severity": "moderate",
+        "title": "smol-toml: Quadratic-time parse() from parseKey rescanning to end of document on each key line",
+        "url": "https://github.com/advisories/GHSA-r4xh-jqrq-34v2"
+      },
+      {
+        "package": "source-map-js",
+        "id": 1241209,
+        "severity": "high",
+        "title": "source-map-js allows event-loop denial of service through indexed source-map section offsets",
+        "url": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
       }
     ]
   }
