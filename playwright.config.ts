@@ -702,6 +702,10 @@ export default defineConfig({
         // models in the chat ModelSelector, a turn answering on the topic.
         // A DOM/functional spec like the rest, read on the engine that ships.
         "**/muse-provider-picker.spec.ts",
+        // The empty browser tab is an Arc-style field with local suggestions:
+        // focus against the auto-opened sheet, sections, classification and
+        // the note in the project folder. Read on the engine that ships.
+        "**/newtab-arc.spec.ts",
       ],
       use: {
         browserName: "webkit",
