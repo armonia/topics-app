@@ -8,7 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  buildModelCatalog, catalogColumns, filterModelCatalog, rowSelected, taskMenuSelection,
+  buildModelCatalog, catalogColumns, connectAction, filterModelCatalog, rowSelected, signInCommand, taskMenuSelection,
   type CatalogGroup,
 } from './useModelCatalog';
 import { contextWindowFor } from '../../../../../shared/context-window';
@@ -189,6 +189,14 @@ describe('without ready accounts: the connect box (revision §4.6, AC-16, AC-17,
     const openAiGroup = group(buildModelCatalog(fleet, 'chat', value), 'openai');
     expect(openAiGroup.rows[0]).toMatchObject({ stale: true, model: 'gpt-5.5' });
     expect(rowSelected(openAiGroup.rows[0]!, value)).toBe(true);
+  });
+
+  test('an unsigned muse offers sign-in with its login command', () => {
+    expect(connectAction('muse')).toBe('signIn');
+    expect(signInCommand('muse')).toBe('muse login');
+    const fleet = snapshotOf([entry('muse', 'Muse', [], { status: 'unavailable' })]);
+    expect(group(buildModelCatalog(fleet, 'chat', AUTO), 'meta').connect.map((e) => [e.name, e.action]))
+      .toEqual([['muse', 'signIn']]);
   });
 });
 

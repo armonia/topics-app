@@ -75,6 +75,7 @@ const EN = {
   'ai.providers.fact.default': 'Default',
   'ai.providers.fact.claudePlan': 'Claude plan',
   'ai.providers.fact.chatgptPlan': 'ChatGPT plan',
+  'ai.providers.fact.musePlan': 'Muse plan',
   'ai.providers.fact.key': 'Pay-as-you-go key',
   'ai.providers.fact.program': 'Program',
   'ai.providers.fact.agent': 'Agent',

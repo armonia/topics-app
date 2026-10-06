@@ -18,6 +18,7 @@ import { existsSync } from "fs";
 import { resolveClaudeBin, _resetClaudeBinCache } from "./claude-bin";
 import { resolveCodexBin, _resetCodexBinCache } from "./codex-bin";
 import { resolveKimiBin, _resetKimiBinCache } from "./kimi-bin";
+import { resolveMuseBin, _resetMuseBinCache } from "./muse-bin";
 import {
   CLI_AGENT_BIN_NAMES,
   agentBinPath,
@@ -126,6 +127,14 @@ export function detectAgents(): AgentPresence[] {
       url: "https://github.com/google-gemini/gemini-cli",
       installed: false,
     },
+    {
+      id: "muse",
+      name: "Muse",
+      path: resolveMuseBin(),
+      install: "https://www.meta.ai/code",
+      url: "https://www.meta.ai/code",
+      installed: false,
+    },
   ];
   const manual = readAgentBinPaths();
   return raw.map((a) => {
@@ -147,10 +156,11 @@ export function detectAgents(): AgentPresence[] {
  * move and wrong the moment somebody points at one by hand or installs the CLI
  * while the app is open: without this the new path would take effect at the next
  * restart, which is the restart the whole feature exists to avoid. It lives here
- * because this is the module that already imports all three resolvers.
+ * because this is the module that already imports all the resolvers.
  */
 export function resetAgentBinCaches(): void {
   _resetClaudeBinCache();
   _resetCodexBinCache();
   _resetKimiBinCache();
+  _resetMuseBinCache();
 }

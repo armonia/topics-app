@@ -272,8 +272,8 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 369,
-  "clone_groups": 14,
+  "duplicated_lines": 482,
+  "clone_groups": 19,
   "files": {
     "client/src/App.tsx": {
       "lines": 2781,
@@ -424,6 +424,10 @@
 
     "server/providers/codex.ts": 1303,
 
+    "server/providers/index.ts": {"lines": 803, "why": ["2026-10-06, muse-provider: new offender at 803, the muse case in createProvider plus the detect+register init block."]},
+
+    "server/providers/muse.ts": {"lines": 1084, "why": ["2026-10-06, muse-provider: new file, the Muse chat provider as a deliberate CodexProvider mirror (one-shot exec + sid resume, JSONL mapping, abort, usage). The mirror is also the +113 duplicated lines / +5 clone groups recorded above."]},
+
     "server/providers/native/agent-loop.ts": 1049,
 
     "server/providers/native/provider.ts": 999,
@@ -449,7 +453,7 @@
 
     "server/routes/tasks.ts": 3981,
 
-    "server/routes/terminal.ts": {"lines": 3888, "why": ["2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module.", "2026-10-05, subagent-nativi (PR #238): 3767 on main -> 3888, the routes' side of native sub-agents: the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the engine, one resume at a time, the CLI stop as a function the tree stop reuses. The logic lives in server/lib/native-subagents.ts (childRuntimeFor, engineLaunchOf, moveCliChildToEngine, liveNativeChildren)."]},
+    "server/routes/terminal.ts": {"lines": 3908, "why": ["2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module.", "2026-10-05, subagent-nativi (PR #238): 3767 on main -> 3888, the routes' side of native sub-agents: the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the engine, one resume at a time, the CLI stop as a function the tree stop reuses. The logic lives in server/lib/native-subagents.ts (childRuntimeFor, engineLaunchOf, moveCliChildToEngine, liveNativeChildren).", "2026-10-06, muse-provider, rebased on e3f95e3c: 3888 -> 3908, +20 this change (the muse PTY spawn branch, its env, the install hint, the body.type parse)."]},
 
     "server/routes/topics.control.test.ts": 855,
 

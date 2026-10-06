@@ -20,6 +20,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI API",
   gemini: "Gemini CLI",
   jcode: "jcode",
+  muse: "Muse",
   topics: "Topics",
 };
 

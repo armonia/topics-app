@@ -5,11 +5,11 @@ import type { ProvidersSnapshot } from './types';
  * same family, instead of keeping a second, independently-maintained copy of
  * this list (review bug #4: chat and task disagreed on what "routable" means). */
 export const CLAUDE_CODING_PROVIDERS = ['topics', 'claude-code', 'jcode'];
-const EXPLICIT_RUNTIME_PREFIXES = new Set([...CLAUDE_CODING_PROVIDERS, 'codex']);
+const EXPLICIT_RUNTIME_PREFIXES = new Set([...CLAUDE_CODING_PROVIDERS, 'codex', 'muse']);
 
 function isTaskCodingProvider(entry: ProvidersSnapshot['providers'][number]): boolean {
   if (entry.capabilities !== undefined) return entry.capabilities.includes('coding-tasks');
-  return CLAUDE_CODING_PROVIDERS.includes(entry.name) || entry.name === 'codex';
+  return CLAUDE_CODING_PROVIDERS.includes(entry.name) || entry.name === 'codex' || entry.name === 'muse';
 }
 
 export interface TaskExecutionOption {
@@ -60,6 +60,7 @@ export function taskModelSelection(value?: string | null): { model?: string; pro
   const model = value?.trim();
   if (!model || model === 'auto') return {};
   if (model === 'codex') return { provider: 'codex' };
+  if (model === 'muse') return { provider: 'muse' };
   const separator = model.indexOf(':');
   if (separator > 0) {
     const provider = model.slice(0, separator);
@@ -87,7 +88,7 @@ export function taskExecutionOptions(snapshot?: ProvidersSnapshot | null): TaskE
     // never a synthetic menu choice.
     if (entry.name === 'topics') return [];
     if (!isTaskCodingProvider(entry)) return [];
-    const models = entry.name === 'codex'
+    const models = entry.name === 'codex' || entry.name === 'muse'
       ? entry.models
       : entry.models.filter((model) => model.startsWith('claude-'));
     return [{
@@ -113,6 +114,12 @@ export function availableTaskModels(snapshot?: ProvidersSnapshot | null): string
       // A ready Codex installation can use its own default without a warm
       // model cache. This is a provider choice, not a guessed model id.
       if (!entry.models.length) models.add('codex');
+    } else if (entry.name === 'muse') {
+      // No bare-family rule (unlike `gpt-`): every muse value stays prefixed
+      // so it parses back to this runtime. Empty catalog, same provider
+      // choice as Codex: the CLI serves its configured default.
+      for (const model of entry.models) models.add(`muse:${model}`);
+      if (!entry.models.length) models.add('muse');
     }
   }
   return [...models];
@@ -339,11 +346,11 @@ export function taskModelMatchesSession(
   const selected = taskModelSelection(value);
   if (!session) return false;
   const provider = session.provider === 'claude-code-team' ? 'claude-code' : session.provider;
-  if (!provider || (provider !== 'codex' && !CLAUDE_CODING_PROVIDERS.includes(provider))) return false;
+  if (!provider || (provider !== 'codex' && provider !== 'muse' && !CLAUDE_CODING_PROVIDERS.includes(provider))) return false;
   if (reusedSessionRouteConflict(value, session, topicsRouting)) return false;
   if (!selected.model && !selected.provider) return true;
-  if (selected.provider === 'codex') {
-    return provider === 'codex' && (!selected.model || selected.model === session.model);
+  if (selected.provider === 'codex' || selected.provider === 'muse') {
+    return provider === selected.provider && (!selected.model || selected.model === session.model);
   }
   if (selected.provider) {
     const sameRuntime = provider === selected.provider || (provider === 'topics' && selected.provider === 'claude-code');

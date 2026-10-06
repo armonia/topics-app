@@ -75,6 +75,7 @@ const IT: Dict = {
   'ai.providers.fact.default': 'Predefinito',
   'ai.providers.fact.claudePlan': 'Abbonamento Claude',
   'ai.providers.fact.chatgptPlan': 'Piano ChatGPT',
+  'ai.providers.fact.musePlan': 'Abbonamento Muse',
   'ai.providers.fact.key': 'Chiave a consumo',
   'ai.providers.fact.program': 'Programma',
   'ai.providers.fact.agent': 'Agente',

@@ -19,6 +19,7 @@ import { resolveClaudeBin } from "../lib/claude-bin";
 import { topicsHooksSettings } from "../lib/topics-hooks";
 import { hookScriptPath } from "../lib/topics-hook-script";
 import { resolveKimiBin } from "../lib/kimi-bin";
+import { resolveMuseBin } from "../lib/muse-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
@@ -1906,6 +1907,18 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // launchd-spawned server inherits (see lib/kimi-bin.ts).
     file = resolveKimiBin() ?? 'kimi';
     args = [];
+  } else if (sessionType === 'muse') {
+    // Muse (Meta's CLI) — spawned the same interactive-PTY way as
+    // codex/kimi: no session-id/--resume, no MCP bridge config, no tracker
+    // registration. It carries no claude_session_id, so the dormant sweep and
+    // `decideOnRestart` treat it like shell/codex (see terminal-restart-policy.ts).
+    //
+    // Resolve the ABSOLUTE path: the launcher lives in ~/.local/bin, which the
+    // bare PATH of a launchd-spawned server does not include (see
+    // lib/muse-bin.ts). The shared resolver is the same one the chat provider
+    // uses, so the two never disagree on where muse lives.
+    file = resolveMuseBin() ?? 'muse';
+    args = [];
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -1954,6 +1967,11 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // Same reasoning as codex: PATH augmented for a launchd-minimal env, HOME
     // pinned to the real home so kimi reads its own auth/config, not a sandbox one.
     env = { PATH: augmentPath(), HOME: realHome() };
+  } else if (sessionType === 'muse') {
+    // Same reasoning as codex/kimi: PATH augmented for a launchd-minimal env,
+    // HOME pinned to the real home so muse reads its own auth/config
+    // (~/.local/share/muse), not a sandbox one.
+    env = { PATH: augmentPath(), HOME: realHome() };
   }
 
   // IS THE CLI ACTUALLY THERE? If not, say so HERE.
@@ -1978,6 +1996,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
         'codex': 'npm i -g @openai/codex',
         'opencode': 'npm i -g opencode-ai',
         'kimi': 'curl https://code.kimi.com/kimi-code/install.sh | bash',
+        'muse': 'curl -fsSL https://dev.meta.ai/install.sh | bash',
       };
       const base = file.replace(/\.(exe|cmd|bat)$/i, '');
       const hint = howToInstall[base];
@@ -3117,7 +3136,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         body.type === 'claude-code' ? 'claude-code' :
         body.type === 'codex' ? 'codex' :
         body.type === 'opencode' ? 'opencode' :
-        body.type === 'kimi-code' ? 'kimi-code' : 'shell';
+        body.type === 'kimi-code' ? 'kimi-code' :
+        body.type === 'muse' ? 'muse' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
       const claudeSessionId = resumeIdForNewSession(body.claudeSessionId, sessionType);
       // `command` E' ESECUZIONE ARBITRARIA: createSession lo spezza e lo passa

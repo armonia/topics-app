@@ -44,7 +44,7 @@ describe('the list: every provider once, in a fixed order (AC-06)', () => {
   });
 
   test('the table of names is the revision\'s', () => {
-    expect([...PROVIDER_ORDER]).toEqual(['claude-code', 'topics', 'claude', 'codex', 'openai', 'gemini', 'jcode', 'openclaw', 'goose']);
+    expect([...PROVIDER_ORDER]).toEqual(['claude-code', 'topics', 'claude', 'codex', 'muse', 'openai', 'gemini', 'jcode', 'openclaw', 'goose']);
   });
 
   test('a program installed but not registered is a card to connect, after the known names', () => {
@@ -75,6 +75,7 @@ describe('the companies a card serves (§5.2, AC-07)', () => {
 
   test('a provider with no model takes the company of the static table', () => {
     expect(servedMakers(AUDIT_NO_KEYS.providers.find((p) => p.name === 'codex')!)).toEqual(['OpenAI']);
+    expect(servedMakers({ name: 'muse', label: 'Muse', models: [] })).toEqual(['Meta']);
     expect(servedMakers({ name: 'goose', label: 'goose', models: [] })).toEqual([]);
   });
 
@@ -92,6 +93,7 @@ describe('one action per state (§5.4)', () => {
     expect(cardAction('goose', 'error')).toBe('retry');
     expect(cardAction('codex', 'unavailable')).toBe('signIn');
     expect(cardAction('claude-code', 'unavailable')).toBe('signIn');
+    expect(cardAction('muse', 'unavailable')).toBe('signIn');
     expect(cardAction('openai', 'unavailable')).toBe('addKey');
     expect(cardAction('gemini', 'unavailable')).toBe('setUp');
   });
@@ -116,6 +118,9 @@ describe('the fact line (§5.2)', () => {
     expect(cardFact(card('gemini'), it)).toBe('Programma · 3 modelli');
     expect(cardFact(card('jcode'), it)).toBe('Agente · 3 modelli');
     expect(cardFact(card('direct-openrouter'), it)).toBe('Endpoint · openrouter.ai · 6 modelli');
+    const muse = providerCards(snapshotOf([entry('muse', 'Muse', ['muse-spark-1.3-contributor', 'muse-spark-1.2'])]))
+      .find((c) => c.name === 'muse')!;
+    expect(cardFact(muse, it)).toBe('Abbonamento Muse · 2 modelli');
   });
 
   test('in error, the reason', () => {
@@ -123,8 +128,8 @@ describe('the fact line (§5.2)', () => {
   });
 
   test('the kinds', () => {
-    expect(['claude-code', 'codex', 'claude', 'openai', 'gemini', 'jcode', 'direct-x', 'topics', 'goose'].map(providerKind))
-      .toEqual(['subscription', 'subscription', 'key', 'key', 'program', 'agent', 'endpoint', 'engine', 'agent']);
+    expect(['claude-code', 'codex', 'muse', 'claude', 'openai', 'gemini', 'jcode', 'direct-x', 'topics', 'goose'].map(providerKind))
+      .toEqual(['subscription', 'subscription', 'subscription', 'key', 'key', 'program', 'agent', 'endpoint', 'engine', 'agent']);
   });
 
   test('the host of an endpoint', () => {

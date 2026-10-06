@@ -41,6 +41,7 @@ export interface AppSettings {
   openaiMaxTokens: number | null;
   codexModel: string | null;
   codexReasoningEffort: string | null;
+  museModel: string | null;
   claudeCodePermissionMode: string | null;
   codexApprovalMode: string | null;
   claudeCodeEnabled: boolean | null;
@@ -101,6 +102,7 @@ const EMPTY: AppSettings = {
   openaiMaxTokens: null,
   codexModel: null,
   codexReasoningEffort: null,
+  museModel: null,
   claudeCodePermissionMode: null,
   codexApprovalMode: null,
   claudeCodeEnabled: null,
@@ -127,6 +129,7 @@ interface Row {
   openai_max_tokens: number | null;
   codex_model: string | null;
   codex_reasoning_effort: string | null;
+  muse_model: string | null;
   claude_code_permission_mode: string | null;
   codex_approval_mode: string | null;
   claude_code_enabled: number | null;
@@ -154,6 +157,7 @@ function rowToSettings(r: Row): AppSettings {
     openaiMaxTokens: r.openai_max_tokens ?? null,
     codexModel: r.codex_model ?? null,
     codexReasoningEffort: r.codex_reasoning_effort ?? null,
+    museModel: r.muse_model ?? null,
     claudeCodePermissionMode: r.claude_code_permission_mode ?? null,
     codexApprovalMode: r.codex_approval_mode ?? null,
     claudeCodeEnabled:
@@ -189,6 +193,7 @@ export function getAppSettings(): AppSettings {
       .query(
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
+                muse_model,
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
                 output_language, discord_presence_enabled, discord_detail_level,
                 agent_runtime, profile_publish_cost, profile_share_token,
@@ -215,6 +220,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   openaiMaxTokens: "openai_max_tokens",
   codexModel: "codex_model",
   codexReasoningEffort: "codex_reasoning_effort",
+  museModel: "muse_model",
   claudeCodePermissionMode: "claude_code_permission_mode",
   codexApprovalMode: "codex_approval_mode",
   claudeCodeEnabled: "claude_code_enabled",
@@ -329,8 +335,26 @@ export function resolveCodexModel(s = getAppSettings()): string | undefined {
   return firstNonEmpty(s.codexModel, process.env.CODEX_MODEL);
 }
 
+export function resolveMuseModel(s = getAppSettings()): string | undefined {
+  return firstNonEmpty(s.museModel, process.env.MUSE_MODEL);
+}
+
 export function resolveClaudeCodePermissionMode(s = getAppSettings()): string | undefined {
   return firstNonEmpty(s.claudeCodePermissionMode, process.env.CLAUDE_CODE_PERMISSION_MODE);
+}
+
+/** Muse approval mode, validated to the known union (auto|full-access). Env-only:
+ *  no Settings knob in this change — `MUSE_APPROVAL_MODE=full-access` opts the
+ *  machine into bypass, anything else stays sandboxed. */
+export function resolveMuseApprovalMode(): "auto" | "full-access" | undefined {
+  const raw = firstNonEmpty(process.env.MUSE_APPROVAL_MODE);
+  if (raw === "auto" || raw === "full-access") return raw;
+  if (raw) {
+    console.warn(
+      `[app-settings] Ignoring invalid Muse approval mode '${raw}' (expected 'auto' | 'full-access')`,
+    );
+  }
+  return undefined;
 }
 
 /** Codex approval mode, validated to the known union (auto|full-access). */

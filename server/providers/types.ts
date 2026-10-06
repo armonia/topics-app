@@ -763,6 +763,13 @@ export interface CodexProviderConfig {
   defaultWorkspace?: string;  // defaults to HOME
 }
 
+export interface MuseProviderConfig {
+  type: "muse";
+  model?: string;             // defaults to settings.json's
+  approvalMode?: "auto" | "full-access";
+  defaultWorkspace?: string;  // defaults to HOME
+}
+
 export interface OpenAIProviderConfig {
   type: "openai";
   apiKey: string;
@@ -801,6 +808,7 @@ export type ProviderConfig =
   | ClaudeProviderConfig
   | ClaudeCodeProviderConfig
   | CodexProviderConfig
+  | MuseProviderConfig
   | OpenAIProviderConfig
   | DirectEndpointProviderConfig
   | AcpProviderConfig
