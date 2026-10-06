@@ -1,9 +1,9 @@
 /**
- * Quali strumenti vede la chat di un sotto-agente nativo (subagent-nativi):
- * quelli che il suo profilo concede, e nessuno strumento di delega al tetto
- * di profondità. Modulo a parte perché lo legge il provider nativo, che non
- * deve importare il runtime dei sotto-agenti (quello importa i provider: il
- * giro chiuso lascerebbe un export indefinito al caricamento).
+ * Which tools a native sub-agent's chat sees (subagent-nativi): the ones its
+ * profile grants, and no delegation tool at the depth cap. A module apart
+ * because the native provider reads it, and it must not import the
+ * sub-agent runtime (that one imports the providers: a cycle would leave an
+ * export undefined at load time).
  */
 import { getSubagentBySessionKey, subagentDepth } from "./subagent-store";
 
@@ -23,11 +23,11 @@ export interface SubagentToolPolicy {
 }
 
 /**
- * Il `tools:` di un profilo, scritto coi nomi di Claude Code, tradotto nei
- * nomi del motore. `Agent`/`Task` è la delega, cioè i cinque strumenti dei
- * sotto-agenti; un tool di Topics arriva alla CLI come `mcp__topics__<nome>`,
- * qui col nome nudo; gli altri MCP restano come sono. Quel che il motore non
- * ha (WebSearch, per dire) cade: dichiararlo sarebbe un invito a fallire.
+ * A profile's `tools:`, written in Claude Code names, translated into the
+ * engine's names. `Agent`/`Task` is delegation: the five sub-agent tools. A
+ * Topics tool reaches the CLI as `mcp__topics__<name>`, here under its bare
+ * name; other MCPs stay as they are. What the engine lacks (WebSearch, for
+ * example) drops out: declaring it would invite failure.
  */
 const CLI_TO_ENGINE: Record<string, string[]> = {
   Read: ["read_file"], Write: ["write_file"], Edit: ["edit_file"], MultiEdit: ["edit_file"], NotebookEdit: ["edit_file"],

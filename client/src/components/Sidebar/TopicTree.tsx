@@ -1080,7 +1080,7 @@ export function TopicTree({
           type="button"
           onClick={() => toggleSubagents(parentId)}
           aria-expanded={open}
-          className={`flex items-center h-6 text-[11px] text-app-text-secondary hover:text-app-text transition-colors`}
+          className={`flex items-center h-6 text-mini text-app-text-secondary hover:text-app-text transition-colors`}
           style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
         >
           <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />

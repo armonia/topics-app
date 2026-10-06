@@ -593,6 +593,12 @@ export const PROJECT_WORDS = new Set([
   // agent-loop.test.ts`). `sof0`: JPEG's baseline Start-Of-Frame marker, same
   // reasoning, same fixture pattern (`server/providers/native/tools.test.ts`).
   "ihdr", "idat", "crc", "sof0", "sof",
+  // Another dictionary hole: `handover` is plain English (the act of handing
+  // work over) and the 1934 list does not carry it. It names what a CLI-born
+  // child hands to the engine when it comes back native: its starting task
+  // and its last report. A name for that pair has no other honest word
+  // (2026-10-06, `server/lib/subagent-migration.ts`).
+  "handover",
 ]);
 
 function trackedFiles(): string[] {

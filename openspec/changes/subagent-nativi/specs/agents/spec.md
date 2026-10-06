@@ -51,6 +51,60 @@ runtime di default); la catena del modello resta la scelta 1 di
 - **THEN** the route SHALL answer 400, naming the accepted values
 - **AND** no chat and no create frame SHALL exist for it
 
+### Requirement: SUBAGENT-14 — A finished sub-agent can be continued, even after its process is gone
+
+A child that reported its turn and stayed idle SHALL be retired after 15
+minutes (choice 5): its PTY closed gracefully, and its row kept as `retired`
+with `claude_session_id`, model, profile, effort, cwd and branch. The
+retirement passes the same gates as the idle park: a child whose pane a window
+is showing, or that holds a pending question, is not retired until those clear.
+
+`send_to_agent` on a `retired`, `stopped` or `lost` child SHALL bring it back
+with the same `agentId` and then deliver the input — on the engine when the
+engine can take it, on the CLI otherwise. A CLI-born child whose engine is
+connected and whose directory is a project Topics knows SHALL come back as a
+native child (SUBAGENT-18): a new chat whose first turn carries its handover
+(the starting task, its last report, the CLI transcript when one exists) and
+the new message, and whose row is rewritten `runtime = 'topics'`. Only when
+the engine cannot take it SHALL the child be recreated with
+`--resume <claude_session_id>`, the same flags and the same cwd. The same
+SHALL hold after a server or bridge restart, because the row, not memory,
+holds what the resume needs.
+
+More than 24 h after it ended, a child SHALL leave `list_agents`, and a resume
+SHALL answer 410 naming why. This also sweeps the dormant child rows that no
+sweep reaches today.
+
+Dove cambiarla: scelta 5. With «no» no idle child is retired, and only the
+resume half of this requirement stands.
+
+#### Scenario: an idle finished child is retired and resumed
+- **GIVEN** a child idle 15 minutes after reporting its turn
+- **THEN** its PTY SHALL be closed, and its row SHALL read `retired`
+- **WHEN** the parent calls `send_to_agent` with that `agentId`
+- **THEN** the child SHALL come back with the same `agentId`, and the input SHALL be delivered to it
+
+#### Scenario: resumption survives a restart
+- **GIVEN** a stopped child and a server restart
+- **WHEN** the parent calls `send_to_agent` on it
+- **THEN** the child SHALL be recreated from its persisted row, not refused with 404
+
+#### Scenario: a CLI child written to after its stop comes back on the engine
+- **GIVEN** a `claude-code` child, stopped, whose engine is connected
+- **WHEN** the parent calls `send_to_agent` with its `agentId`
+- **THEN** no create frame SHALL reach the PTY bridge
+- **AND** the row SHALL read `runtime = 'topics'` with the same `agentId`
+- **AND** the engine's first turn SHALL carry its starting task, its last report and the new message
+
+#### Scenario: without an engine the resume is still --resume
+- **GIVEN** a `claude-code` child, stopped, whose engine is not connected
+- **WHEN** the parent calls `send_to_agent` with its `agentId`
+- **THEN** a create frame SHALL carry `--resume <its claude_session_id>` with its model and profile flags
+
+#### Scenario: a native Agent id gets a useful refusal
+- **WHEN** `read_agent` or `send_to_agent` is called with an id shaped like a CLI `Agent` task id (`a` followed by 16 hex)
+- **THEN** the 404 SHALL say that the id belongs to the CLI's own `Agent` tool, not to `spawn_agent`
+
 ### Requirement: SUBAGENT-15 — Limits are counted from persisted rows, with a machine-wide cap
 
 Spawning SHALL be refused (429) past any of these limits:

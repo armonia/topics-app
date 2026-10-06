@@ -164,25 +164,26 @@ const NO_WORKSPACE_NOTE =
   "collegarne uno alla conversazione.";
 
 /**
- * Il prompt di sistema di un turno nativo, oltre all'identità di Claude Code.
+ * The system prompt of a native turn, past Claude Code's identity.
  *
- * LA LINGUA STA QUI, non solo nel `<context>` del messaggio. La rotta non passa
- * mai `systemPrompt` a questo runtime: la direttiva arrivava soltanto inline,
- * nel turno utente, dove la deduplica la toglie dai turni successivi (lo scope
- * è l'id della sessione CLI, che una chat nativa non rinnova) e la storia
- * ricostruita dal DB dopo un riavvio non la contiene. Il 04/10 topic:d740f8ae,
- * passata al nativo con MSEL-06, rispondeva in inglese a una chat italiana
- * anche dopo il fix della direttiva: il modello seguiva gli avvisi inglesi di
- * Topics. Nel system la riga c'è a ogni giro, e resta nel prefisso in cache.
+ * THE LANGUAGE LIVES HERE, not only in the message's `<context>`. The route
+ * never passes `systemPrompt` to this runtime: the directive used to arrive
+ * inline only, in the user turn, where dedup drops it from later turns (the
+ * scope is the CLI session id, which a native chat never renews) and the
+ * history rebuilt from the DB after a restart never holds it. On 04/10
+ * topic:d740f8ae, moved to native with MSEL-06, answered an Italian chat in
+ * English even after the directive fix: the model was following Topics'
+ * English notices. In system the line is there every round, and stays in the
+ * cached prefix.
  *
- * Si rilegge a ogni turno, come effort e modello: cambiare lingua vale dal
- * messaggio dopo.
+ * Reread every turn, like effort and model: a language change applies from
+ * the next message.
  */
 export function nativeSystemPrompt(args: {
   base?: string;
-  /** La chat ha un progetto: niente nota sull'assenza di strumenti. */
+  /** The chat has a project: no note about missing tools. */
   workspace: boolean;
-  /** Il coordinatore: senza progetto per costruzione, la nota mentirebbe. */
+  /** The coordinator: project-less by design, the note would lie. */
   globalOrchestrator: boolean;
   language?: string;
 }): string {

@@ -169,8 +169,8 @@ test('una sessione uscita ADESSO non è un cadavere: prima si richiede', () => {
 });
 
 /**
- * SUBSTRIP-01g. Il 04/10 pop-demo teneva aperte le schede di otto sotto-agenti
- * Claude Code finiti, ritirati (dormant) o fermati dal padre, anche dopo un reload.
+ * SUBSTRIP-01g. On 04/10 pop-demo kept open the tabs of eight finished,
+ * retired (dormant) or parent-stopped Claude Code sub-agents, even after a reload.
  */
 describe("decideRestoredTerminalPane — ended sub-agents", () => {
   test("the tab of an ended sub-agent closes once its session left the roster", () => {

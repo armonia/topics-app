@@ -1,9 +1,9 @@
 /**
  * Stopping work another session started asks first (SUBAGENT-20).
  *
- * Owner, 04/10: «non dovrei poterle chiudere allegramente come processi, in
- * caso siano avviati da altre sessioni dovrebbe chiedere conferma». A
- * sub-agent belongs to the session that spawned it: closing its terminal tab
+ * Owner, 04/10: «non dovrei poterle chiudere allegramente come processi, in allow-italian: verbatim quote from the owner
+ * caso siano avviati da altre sessioni dovrebbe chiedere conferma». allow-italian: verbatim quote from the owner
+ * A sub-agent belongs to the session that spawned it: closing its terminal tab
  * kills its PTY, and a Stop on its chat cuts its turn. Either way the parent
  * gets a «stopped» result for work it is waiting on.
  *
@@ -22,7 +22,7 @@ export interface StopTarget {
   startedBy: string;
 }
 
-type Tr = (key: string, vars?: Record<string, string | number>) => string;
+type Tr = (key: string, values?: Record<string, string | number>) => string;
 
 /** A readable name for the parent session key: its chat, its terminal, or the key itself. */
 export function parentLabel(
@@ -64,10 +64,10 @@ export function chatStopTarget(
 }
 
 export function stopConfirmOptions(target: StopTarget, tr: Tr): ConfirmOptions {
-  const vars = { name: `«${target.name}»`, parent: target.startedBy };
+  const values = { name: `«${target.name}»`, parent: target.startedBy };
   return {
-    title: tr('subagent.stopConfirm.title', vars),
-    body: tr('subagent.stopConfirm.body', vars),
+    title: tr('subagent.stopConfirm.title', values),
+    body: tr('subagent.stopConfirm.body', values),
     confirmLabel: tr('subagent.stopConfirm.confirm'),
     tone: 'danger',
   };

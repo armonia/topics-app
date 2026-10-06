@@ -153,8 +153,8 @@ describe("a row saved before the job left running became `working`", () => {
   });
 });
 
-// Attilio, 05/10: «vedo notifiche sulle tab dei sotto agenti [...] non essere
-// "attiva" fino a che non interagisci». The parent gets the result; the child
+// Attilio, 05/10: «vedo notifiche sulle tab dei sotto agenti [...] non essere allow-italian: verbatim quote from Attilio
+// "attiva" fino a che non interagisci». The parent gets the result; the child allow-italian: verbatim quote from Attilio
 // stays dark until the person opens it, then it is a chat like any other.
 describe("a sub-agent is quiet until the person opens it", () => {
   it("its finished turn lights nothing, rows nothing, pushes nothing; its work still shows", () => {

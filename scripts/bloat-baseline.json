@@ -247,7 +247,15 @@
     "empty cache. Recorded by hand, this row only.",
     "05/10, tornata of #234 and #236. server/lib/claude-session-tracker.ts 961 -> 1082: +121 from two PRs each",
     "inside the ceiling alone: hooks made async and put back in order by when they fired (#234), and a",
-    "terminal's turn closed when the phase rests without a Stop, the Esc case (#236). Recorded by hand, this row only."
+    "terminal's turn closed when the phase rests without a Stop, the Esc case (#236). Recorded by hand, this row only.",
+    "06/10, subagent-nativi tornata (50 commits), three files the push tipped over ceilings they already touched.",
+    "server/utils.ts, recorded 2877, main already at 3020 against a 3020 ceiling: 3020 -> 3043, +23 the native-child",
+    "projection (subagentOf from `subagents`, batched and single-row) and the isSubagent gate.",
+    "server/providers/native/agent-loop.ts, recorded 922, main already at 1042 against a 1042 ceiling: 1042 -> 1049,",
+    "+7 the allowTool option and its enforcement, a sub-agent's chat refusing a tool its profile or depth denies.",
+    "server/providers/native/provider.ts 969 on main -> 999: +30 nativeSystemPrompt (the language directive in the",
+    "system prompt, read every turn) and the sub-agent tool-policy filter with its allowTool wiring.",
+    "Recorded by hand, these three rows only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -402,9 +410,9 @@
 
     "server/providers/codex.ts": 1303,
 
-    "server/providers/native/agent-loop.ts": 922,
+    "server/providers/native/agent-loop.ts": 1049,
 
-    "server/providers/native/provider.ts": 869,
+    "server/providers/native/provider.ts": 999,
 
     "server/routes/auth.ts": 1707,
 
@@ -465,7 +473,7 @@
 
     "server/services/worktree-gc.ts": 888,
 
-    "server/utils.ts": 2877,
+    "server/utils.ts": 3043,
 
     "shared/board.test.ts": 1111,
 

@@ -110,10 +110,10 @@ export function decideRestoredTerminalPane(
 ): RestoredTerminalPaneVerdict {
   // Present now → keep.
   if (rosterIds.has(sessionId)) return 'keep';
-  // Un sotto-agente finito → si chiude. Prima della regola del parcheggio: un
-  // figlio ritirato resta `dormant`, e tenerne la scheda voleva dire riaprirlo
-  // come Claude Code al primo clic, quando ora si riprende dal padre sul motore
-  // di Topics (subagent-nativi). Il 04/10 pop-demo ne mostrava otto.
+  // A finished sub-agent → its tab closes. Before the parking rule, a retired
+  // child stayed `dormant`, and keeping its tab meant reopening it as Claude
+  // Code on the first click; now the parent resumes it on the Topics engine
+  // (subagent-nativi). On 04/10 pop-demo showed eight of them.
   if (endedSubAgentIds.has(sessionId)) return 'prune';
   // Parked → keep. Must come BEFORE the seen-then-gone rule: to that rule a
   // parked session is indistinguishable from one closed elsewhere, and pruning

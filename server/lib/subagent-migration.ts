@@ -1,10 +1,10 @@
 /**
- * Un figlio nato sulla CLI, richiamato dopo che si e' fermato, riparte sul
- * motore di Topics (subagent-nativi). Il `--resume` lo riaccendeva come Claude
- * Code: il 04/10 pop-demo continuava a parlare con «arte-tappa-1» via
- * `send_to_agent` e ogni ripresa riapriva una CLI. La storia della CLI non si
- * trasferisce nella chat nativa: passa il compito, l'ultimo resoconto e il
- * percorso del transcript, che il figlio puo' leggere se gli serve di piu'.
+ * A child born on the CLI, written to after it stopped, comes back on the
+ * Topics engine (subagent-nativi). `--resume` used to bring it back as Claude
+ * Code: on 04/10 pop-demo kept talking to «arte-tappa-1» through
+ * `send_to_agent`, and every resume reopened a CLI. The CLI history does not
+ * move into the native chat: what passes is the task, the last report, and
+ * the transcript path, which the child can read for more if it needs it.
  */
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { homedir } from "os";
@@ -13,7 +13,7 @@ import { join } from "path";
 const TASK_MAX = 6_000;
 const REPORT_MAX = 4_000;
 
-/** Il transcript di una sessione della CLI, in qualunque cartella di progetto. */
+/** The transcript of a CLI session, in any project folder. */
 export function findCliTranscript(claudeSessionId: string, projectsDir = join(homedir(), ".claude", "projects")): string | null {
   if (!/^[0-9a-f-]{36}$/i.test(claudeSessionId) || !existsSync(projectsDir)) return null;
   for (const dir of readdirSync(projectsDir)) {
@@ -34,7 +34,7 @@ function textOf(content: unknown): string {
 
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}\n[…tagliato]` : s);
 
-/** Il primo messaggio della persona (il compito) e l'ultimo testo dell'assistente. */
+/** The person's first message (the task) and the assistant's last text. */
 export function cliHandover(jsonl: string): { task: string | null; lastReport: string | null } {
   let task: string | null = null;
   let lastReport: string | null = null;
@@ -50,7 +50,7 @@ export function cliHandover(jsonl: string): { task: string | null; lastReport: s
   return { task, lastReport };
 }
 
-/** Il primo turno del figlio migrato: chi era, cosa aveva fatto, cosa gli si chiede ora. */
+/** The migrated child's first turn: who it was, what it had done, what it is asked now. */
 export function migratedChildPrompt(input: {
   name: string;
   task: string | null;

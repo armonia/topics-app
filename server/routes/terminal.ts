@@ -1478,7 +1478,7 @@ function isRosterDependentRoute(pathname: string, method: string): boolean {
  * swap 33k false 404 lines for 33k 503 lines and cure nothing — the count goes
  * out once, in `markRosterReconciled`.
  */
-/** Le righe dei terminali di una persona, non dei sotto-agenti. */
+/** A person's terminal rows, not the sub-agents'. */
 const NOT_A_SUBAGENT = "(parent_session_key IS NULL OR parent_session_key = '')";
 
 function rosterWarming(): Response {
@@ -3233,10 +3233,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
     // --- Dormant sessions: list and revive ---
 
-    // Un sotto-agente ritirato non e' una scheda da riaprire: la sua scheda
-    // lo riaccendeva come Claude Code con `--resume`, mentre ora lo riprende
-    // il padre con `send_to_agent`, sul motore di Topics (subagent-nativi).
-    // Fuori da questa lista, il client chiude la scheda invece di tenerla.
+    // A retired sub-agent is not a tab to reopen: its tab used to bring it
+    // back as Claude Code with `--resume`, while now the parent picks it up
+    // with `send_to_agent`, on the Topics engine (subagent-nativi). Off this
+    // list, the client closes the tab instead of keeping it.
     if (method === "GET" && pathname === "/api/terminal/sessions/dormant") {
       const db = getDatabase();
       const cwd = url.searchParams.get('cwd');
@@ -3471,9 +3471,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // subagent-nativi: il figlio gira sul motore di Topics, salvo che la
-        // chiamata chieda la CLI o che il motore non possa prenderlo. La
-        // ricaduta sulla CLI si dice nella risposta, mai in silenzio.
+        // subagent-nativi: the child runs on the Topics engine, unless the
+        // call asks for the CLI or the engine cannot take it. A fallback to
+        // the CLI is declared in the answer, never silent.
         if (body.runtime !== undefined && body.runtime !== "topics" && body.runtime !== "claude-code") {
           return errorResponse(400, `unknown runtime "${String(body.runtime)}": use "topics" or "claude-code"`);
         }
@@ -3538,7 +3538,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           const model = engineModelOf(launch.model);
           try {
             if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
-            const child = spawnNativeChild({
+            const child = await spawnNativeChild({
               id, parentSessionKey: parentKey, name, prompt, cwd,
               parentTopic, projectPath: nativePlace.projectPath, worktreeId: nativePlace.worktreeId, branch,
               model, effort: launch.effort, agentType: launch.agent,
@@ -3666,9 +3666,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
           const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
           if (refusal) return errorResponse(429, refusal);
-          // subagent-nativi: un figlio nato sulla CLI non si riaccende come
-          // Claude Code. Se il motore lo puo' prendere, riparte nativo con lo
-          // stesso id (la riga si riscrive) e il suo lavoro come contesto.
+          // subagent-nativi: a CLI-born child does not come back as Claude
+          // Code. When the engine can take it, it restarts native with the
+          // same id (the row is rewritten) and its work as context.
           if (nativeSubagentsAvailable()) {
             const parentTopic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
             const place = nativeChildPlace({
@@ -3679,7 +3679,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             });
             if (place.ok) {
               try {
-                const child = spawnNativeChild({
+                const child = await spawnNativeChild({
                   id: row.id, parentSessionKey: parentKey, name: row.name,
                   prompt: migratedChildPromptFor(row, input),
                   cwd: row.cwd, parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,

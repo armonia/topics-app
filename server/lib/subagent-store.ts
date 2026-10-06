@@ -18,8 +18,8 @@ export type SubagentState = "running" | "retired" | "stopped" | "lost";
 /**
  * Where the child runs: a Claude CLI in a PTY, or a chat of its own on the
  * Topics engine (openspec/changes/subagent-nativi). A native child has no
- * process: «retired» per lui vuol dire solo che il turno è finito e che non
- * occupa un posto.
+ * process: for it, «retired» only means its turn is over and it holds no
+ * slot.
  */
 export type SubagentRuntime = "claude-code" | "topics";
 
@@ -118,10 +118,10 @@ export function getSubagentBySessionKey(db: Db, sessionKey: string): SubagentRow
 }
 
 /**
- * Quanti spawn stanno sopra questa sessione: 0 per la chat o il terminale di
- * una persona, 1 per un figlio, 2 per un nipote. Si cammina sulle righe, così
- * un riavvio non lo azzera; un figlio CLI ha per chiave il suo id, uno nativo
- * la session key della sua chat.
+ * How many spawns stand above this session: 0 for a person's chat or terminal,
+ * 1 for a child, 2 for a grandchild. The walk reads the rows, so a restart
+ * does not reset it; a CLI child is keyed by its id, a native one by the
+ * session key of its chat.
  */
 export function subagentDepth(db: Db, sessionKey: string): number {
   let depth = 0;
@@ -186,7 +186,7 @@ export function endedSubagents(db: Db, parentSessionKey: string, now = Date.now(
 /** Can this ended child still be resumed, and if not, why. */
 export function resumeVerdict(row: SubagentRow, now = Date.now()): { ok: true } | { ok: false; status: 409 | 410; reason: string } {
   if (row.state === "running") return { ok: false, status: 409, reason: "the sub-agent is running" };
-  // Un figlio nativo ha per storia la sua chat: non c'è un transcript da perdere.
+  // A native child keeps its history in its chat: there is no transcript to lose.
   if (row.runtime !== "topics" && !row.claudeSessionId) return { ok: false, status: 410, reason: "the sub-agent has no session to resume: its transcript was never found" };
   const endedAt = row.endedAt ? Date.parse(row.endedAt) : NaN;
   if (Number.isFinite(endedAt) && now - endedAt > SUBAGENT_RESUME_WINDOW_MS) {

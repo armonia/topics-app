@@ -1,3 +1,9 @@
+/**
+ * The handover a CLI-born child carries when it comes back on the engine
+ * (SUBAGENT-14): its starting task and its last report, read off the CLI
+ * transcript, composed into the migrated child's first turn.
+ * @covers SUBAGENT-14
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
