@@ -36,7 +36,7 @@ async function openStreamingPane(page: Page, topicId: string, browser: import(".
 async function openSheet(page: Page) {
   await page.locator('[data-pane-id^="browser:"]').first().hover();
   await page.getByTestId("browser-tab-menu").first().click();
-  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("tab-sheet")).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe("BROWSER-STREAM-HISTORY-01 - streaming back/forward follow the server history", () => {
