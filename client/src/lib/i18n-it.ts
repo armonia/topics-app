@@ -2626,6 +2626,11 @@ const IT: Dict = {
   'browser.newTab.topSites': 'I tuoi siti',
   'browser.newTab.empty': 'I siti che apri più spesso compaiono qui.',
   'browser.newTab.forget': 'Togli {host} dai tuoi siti',
+  'browser.newTab.openTabs': 'Schede aperte',
+  'browser.newTab.recent': 'Recenti',
+  'browser.newTab.commands': 'Comandi',
+  'browser.newTab.createFile': 'Crea nota con questo testo',
+  'browser.newTab.createFailed': 'Non riesco a creare la nota',
   // -- Development bar of the browser pane: zoom, device and the console
   //    dropdown. The per level chip labels live in
   //    `Browser/consoleLogModel.ts` next to the rule they filter by, and that

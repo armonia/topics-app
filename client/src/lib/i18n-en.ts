@@ -2325,6 +2325,11 @@ const EN = {
   'browser.newTab.topSites': 'Your sites',
   'browser.newTab.empty': 'The sites you open most often show up here.',
   'browser.newTab.forget': 'Remove {host} from your sites',
+  'browser.newTab.openTabs': 'Open tabs',
+  'browser.newTab.recent': 'Recent',
+  'browser.newTab.commands': 'Commands',
+  'browser.newTab.createFile': 'Create note with this text',
+  'browser.newTab.createFailed': 'Could not create the note',
   // ── Dev bar of the browser pane: zoom, device, console drop-down. The
   //    per-level chip labels stay in `Browser/consoleLogModel.ts`, next to the
   //    rule they filter by.
