@@ -415,6 +415,9 @@ export default defineConfig({
         "**/mobile-bottom-bar-geometry.spec.ts",
         "**/board-mobile-phone.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
+        // The phone chrome feedback loop (05/10): its own viewport
+        // (390x844 with a finger), the engine that ships, runs only in `webkit`.
+        "**/mobile-chrome-feedback.spec.ts",
         // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
         // `chromium-touch` e `tab-close-ring-touch` in quello di
         // `chromium-touch-wide`, ma un `testMatch` altrove non ESCLUDE nulla
@@ -706,6 +709,11 @@ export default defineConfig({
         // focus against the auto-opened sheet, sections, classification and
         // the note in the project folder. Read on the engine that ships.
         "**/newtab-arc.spec.ts",
+        // The phone chrome feedback loop (05/10/2026, msg
+        // 3862): reveal-on-scroll, two-level sheet, row geometry,
+        // Search in the design system, waiting always alive, pencil. Readings
+        // from the DOM on the engine that ships.
+        "**/mobile-chrome-feedback.spec.ts",
       ],
       use: {
         browserName: "webkit",

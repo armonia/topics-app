@@ -2082,6 +2082,13 @@ const IT: Dict = {
   'sidebar.waitingDoorTitle': 'Vai alla prossima chat che ti aspetta',
   'sidebar.profileDoorTitle': 'Profilo e statistiche',
   'sidebar.profileDoorTitleNamed': '{nome}. Profilo e statistiche',
+  // The pencil door (mobile-chrome-feedback A6): the tap opens a new chat at
+  // once, the long press opens the whole «+» menu.
+  'sidebar.pencilDoor': 'Nuova',
+  'sidebar.pencilDoorTitle': 'Nuova chat: tieni premuto per le altre voci',
+  // The user sheet on the phone has two floors (A1): the root and the Topics
+  // floor, walked back from with this row.
+  'sidebar.userMenuBack': 'Indietro',
   // A topic's worktree in the sidebar: the chip on the row and the header of
   // the sub-section when a project works on several worktrees at once.
   // "Worktree" stays the same word in both languages: it is git's own name.
