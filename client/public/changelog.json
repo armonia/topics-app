@@ -16,6 +16,12 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "@covers PROMPT-02 (sblocca gates PR)",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -57,6 +63,158 @@
           "en": "",
           "scope": "security",
           "breaking": false
+        },
+        {
+          "it": "Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci in inglese i commenti nuovi dei sotto-agenti nativi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli il re-export inutilizzato di MAX_AGENT_DEPTH dal runtime dei sotto-agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dello spawn nativo aspetta il primo turno invece di correre contro la route asincrona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra nella baseline di check:bloat la crescita dei tre file del motore nativo toccati dai sotto-agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli e2e SUBSTRIP-01c ed 01e confermano il dialogo SUBAGENT-20 prima di chiudere un sotto-agente vivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I sotto-agenti nativi non perdono più risultati: migrazione, profondità 2 e riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente messo davanti in una finestra sveglia conta come aperto, e resta scritto nella sua riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'intestazione chiusa dei sotto-agenti mostra un punto ambra quando uno di loro aspetta la persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La proposta subagent-nativi non è più una bozza e porta la migrazione dentro lo scope",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese per check:identifier-language, @covers sui due test nuovi e spec allineata alla review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riaprire una chat passa da reopenTopicFully: flag, segni in ui_state e fatto del ritiro insieme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente conta come aperto solo se la persona lo tiene davanti per la soglia del seen",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un figlio nativo in mezzo all'albero si chiude, si ferma e si riprende senza esiti persi o falsi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese nel test dell'albero dei sotto-agenti (check:identifier-language)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno = un esito, un figlio fermato non si risveglia, niente lost falso al boot; lo Stop scende tutto l'albero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Invia subito» ferma solo il turno del padre: i sotto-agenti continuano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente conta come aperto solo se la persona l'ha messo davanti: niente più regola del primo frame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "argomenti di spawn condivisi in native-subagents, terminal.ts più magro, baseline riallineata",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sotto-agenti nativi: ogni turno ha un nome, un esito per turno, lo Stop marca l'albero prima di attendere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la scelta di un sotto-agente resta armata finché la persona non guarda altro",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Spec subagent-nativi: nome del turno, un esito dello Stop, ripresa a mano, limite macOS 13.3",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti nativi: un solo turno aperto per chat, chiuso da qualunque fine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Modifica e rigenera rifiutate nella chat di un sotto-agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec subagent-nativi: turno aperto unico, esito dalla causa, spegnimento non è un esito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti nativi: solo il padre o una persona muovono la chat del figlio, un turno sospeso ha un solo esito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec subagent-nativi: agenti fuori dalla chat del figlio, turno sospeso con un esito, tetto di giri come due esiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test review 6: import dinamici destrutturati, native-subagents non e' piu' opaco per knip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto-agenti nativi: un turno esiste solo se la chat l'ha aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spec subagent-nativi: turno solo se aperto, niente comandi slash nella chat del figlio, rifiuto della ripresa come failed, Stop su turno sospeso",
+          "en": "",
+          "scope": null
         }
       ]
     }

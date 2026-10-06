@@ -7,6 +7,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **ci** · main verde dopo push 37bd4f42e
 - **e2e** · usa testid tab-sheet dopo rename tab-menu
+- **ci** · @covers PROMPT-02 (sblocca gates PR)
 
 ### Sotto il cofano
 - Registra la crescita di claude-session-tracker.ts nella tornata di #234 e #236
@@ -16,6 +17,36 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · aggiorna durate shard dal nightly del 2026-10-05 [skip ci]
 - ignora output/ di build, aggiunge openspec/config.yaml
 - **security** · accetta 7 advisory in baseline 2026-10-06
+- Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta
+- Traduci in inglese i commenti nuovi dei sotto-agenti nativi
+- Togli il re-export inutilizzato di MAX_AGENT_DEPTH dal runtime dei sotto-agenti
+- Il test dello spawn nativo aspetta il primo turno invece di correre contro la route asincrona
+- Registra nella baseline di check:bloat la crescita dei tre file del motore nativo toccati dai sotto-agenti
+- Gli e2e SUBSTRIP-01c ed 01e confermano il dialogo SUBAGENT-20 prima di chiudere un sotto-agente vivo
+- I sotto-agenti nativi non perdono più risultati: migrazione, profondità 2 e riavvio
+- Un sotto-agente messo davanti in una finestra sveglia conta come aperto, e resta scritto nella sua riga
+- L'intestazione chiusa dei sotto-agenti mostra un punto ambra quando uno di loro aspetta la persona
+- La proposta subagent-nativi non è più una bozza e porta la migrazione dentro lo scope
+- Nomi in inglese per check:identifier-language, @covers sui due test nuovi e spec allineata alla review
+- Riaprire una chat passa da reopenTopicFully: flag, segni in ui_state e fatto del ritiro insieme
+- Un sotto-agente conta come aperto solo se la persona lo tiene davanti per la soglia del seen
+- Un figlio nativo in mezzo all'albero si chiude, si ferma e si riprende senza esiti persi o falsi
+- Nomi in inglese nel test dell'albero dei sotto-agenti (check:identifier-language)
+- Un turno = un esito, un figlio fermato non si risveglia, niente lost falso al boot; lo Stop scende tutto l'albero
+- «Invia subito» ferma solo il turno del padre: i sotto-agenti continuano
+- Un sotto-agente conta come aperto solo se la persona l'ha messo davanti: niente più regola del primo frame
+- argomenti di spawn condivisi in native-subagents, terminal.ts più magro, baseline riallineata
+- Sotto-agenti nativi: ogni turno ha un nome, un esito per turno, lo Stop marca l'albero prima di attendere
+- la scelta di un sotto-agente resta armata finché la persona non guarda altro
+- Spec subagent-nativi: nome del turno, un esito dello Stop, ripresa a mano, limite macOS 13.3
+- Sotto-agenti nativi: un solo turno aperto per chat, chiuso da qualunque fine
+- Modifica e rigenera rifiutate nella chat di un sotto-agente
+- Spec subagent-nativi: turno aperto unico, esito dalla causa, spegnimento non è un esito
+- Sotto-agenti nativi: solo il padre o una persona muovono la chat del figlio, un turno sospeso ha un solo esito
+- Spec subagent-nativi: agenti fuori dalla chat del figlio, turno sospeso con un esito, tetto di giri come due esiti
+- Test review 6: import dinamici destrutturati, native-subagents non e' piu' opaco per knip
+- Sotto-agenti nativi: un turno esiste solo se la chat l'ha aperto
+- Spec subagent-nativi: turno solo se aperto, niente comandi slash nella chat del figlio, rifiuto della ripresa come failed, Stop su turno sospeso
 
 ## 2.2.448 — 2026-10-04
 

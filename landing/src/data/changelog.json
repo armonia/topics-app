@@ -12,6 +12,10 @@
         {
           "text": "usa testid tab-sheet dopo rename tab-menu",
           "scope": "e2e"
+        },
+        {
+          "text": "@covers PROMPT-02 (sblocca gates PR)",
+          "scope": "ci"
         }
       ],
       "perf": []
