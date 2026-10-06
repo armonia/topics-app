@@ -1,7 +1,7 @@
 /**
  * The path an agent CLI was pointed at BY HAND, when the probe could not find it.
  *
- * `claude-bin.ts`, `codex-bin.ts` and `kimi-bin.ts` walk a list of known install
+ * `claude-bin.ts`, `codex-bin.ts`, `kimi-bin.ts` and `muse-bin.ts` walk a list of known install
  * locations. The list works for the install methods the vendors document, and it
  * cannot work for the others: a custom npm prefix, a version manager, a portable
  * copy on a second volume. Whoever installed the CLI somewhere else saw Settings
@@ -26,6 +26,7 @@ export const CLI_AGENT_IDS = [
   "opencode",
   "kimi-code",
   "gemini",
+  "muse",
 ] as const;
 
 export type CliAgentId = (typeof CLI_AGENT_IDS)[number];
@@ -42,6 +43,7 @@ export const CLI_AGENT_BIN_NAMES: Record<CliAgentId, string> = {
   opencode: "opencode",
   "kimi-code": "kimi",
   gemini: "gemini",
+  muse: "muse",
 };
 
 export function isCliAgentId(value: unknown): value is CliAgentId {

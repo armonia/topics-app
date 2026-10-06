@@ -1547,6 +1547,7 @@ export interface AppBehaviorSettings {
   openaiModel: string | null;
   openaiMaxTokens: number | null;
   codexModel: string | null;
+  museModel: string | null;
   codexReasoningEffort: string | null;
   claudeCodePermissionMode: string | null;
   codexApprovalMode: string | null;

@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { engineMaker, modelMaker } from './modelMaker';
+import { bareModelId, engineMaker, modelMaker } from './modelMaker';
 
 // The 134 ids jcode listed on 2026-10-03 (revision 2026-10-04, §3.2).
 const JCODE_IDS = readFileSync(join(import.meta.dir, '../tests/e2e/fixtures/jcode-models.txt'), 'utf8')
@@ -65,6 +65,10 @@ describe('engineMaker: the company of a provider that lists no model', () => {
     expect(engineMaker('codex')).toBe('openai');
     expect(engineMaker('openai')).toBe('openai');
     expect(engineMaker('gemini')).toBe('google');
+    expect(engineMaker('muse')).toBe('meta');
+  });
+  test('a muse-prefixed value peels to the bare slug', () => {
+    expect(bareModelId('muse:muse-spark-1.3-contributor')).toBe('muse-spark-1.3-contributor');
   });
   test('an agent or an endpoint has none: it serves many companies', () => {
     expect(engineMaker('jcode')).toBeNull();

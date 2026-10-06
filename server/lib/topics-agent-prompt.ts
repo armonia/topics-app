@@ -7,7 +7,7 @@ import {
   settingCodexReasoningEffort,
   resolveOutputLanguage,
 } from '../services/app-settings';
-import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../shared/effort';
+import { EFFORT_TIERS, CODEX_REASONING_EFFORTS, MUSE_REASONING_EFFORTS } from '../../shared/effort';
 import type { OutputLanguage } from '../../shared/types';
 import { hasCommandShell } from './command-process';
 
@@ -366,6 +366,34 @@ export function resolveCodexReasoningEffort(opts?: { configPath?: string; topicO
     readCodexConfigReasoningEffort(opts?.configPath) ||
     'xhigh';
   return VALID_CODEX_REASONING_EFFORTS.has(candidate) ? candidate : null;
+}
+
+/**
+ * Reasoning-effort tier for Topics-launched Muse sessions — the muse analogue
+ * of `resolveCodexReasoningEffort()` above. Muse reads no effort from its
+ * `settings.json` (provider+model only), so there is no user config to honour:
+ * the chain is shorter.
+ *
+ * Valid tiers, probed against `muse exec --help` (1.4.3):
+ * `none/minimal/low/medium/high/xhigh/max/ultra`.
+ *
+ * Resolution order: per-topic override (`topics.effort`, set via the
+ * model-picker's effort selector — the whole Topics scale is a valid muse
+ * tier) → `TOPICS_MUSE_REASONING_EFFORT` ("off"/"default" disables — NOT
+ * "none", which is a real tier) → `"high"` (the CLI default). Returns null
+ * when disabled or the value is not a recognised tier, in which case no flag
+ * is passed and no badge is shown.
+ */
+const VALID_MUSE_REASONING_EFFORTS = new Set<string>(MUSE_REASONING_EFFORTS);
+
+export function resolveMuseReasoningEffort(opts?: { topicOverride?: string | null }): string | null {
+  const perTopic = (opts?.topicOverride ?? '').trim().toLowerCase();
+  if (perTopic && (VALID_MUSE_REASONING_EFFORTS.has(perTopic) || (EFFORT_TIERS as readonly string[]).includes(perTopic))) return perTopic;
+
+  const override = (process.env.TOPICS_MUSE_REASONING_EFFORT ?? '').trim().toLowerCase();
+  if (override === 'off' || override === 'default') return null;
+  const candidate = override || 'high';
+  return VALID_MUSE_REASONING_EFFORTS.has(candidate) ? candidate : null;
 }
 
 function readCodexConfigReasoningEffort(configPath?: string): string | null {

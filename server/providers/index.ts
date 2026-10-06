@@ -15,21 +15,24 @@
 export * from "./types";
 
 import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, MuseProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
 import { existsSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { resolveMuseBin } from "../lib/muse-bin";
 import {
   getAppSettings,
   resolveAiProvider,
   resolveClaudeModel,
   resolveCodexModel,
+  resolveMuseModel,
   resolveClaudeCodeModel,
   resolveClaudeCodePermissionMode,
   resolveCodexApprovalMode,
+  resolveMuseApprovalMode,
   resolveClaudeCodeEnabled,
   resolveAgentRuntime,
 } from "../services/app-settings";
@@ -50,6 +53,7 @@ let _defaultName: string | undefined;
 const PROVIDER_PREFERENCE_ORDER = [
   "claude-code",
   "codex",
+  "muse",
   "claude",
   "openai",
   "openclaw",
@@ -85,6 +89,10 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case "codex": {
       const { CodexProvider } = require("./codex");
       return new CodexProvider(config);
+    }
+    case "muse": {
+      const { MuseProvider } = require("./muse");
+      return new MuseProvider(config);
     }
     case "openai": {
       const { OpenAIProvider } = require("./openai");
@@ -442,6 +450,31 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
+  // Muse — auto-detect (CLI installed, `~/.local/bin/muse` launcher) AND logged
+  // in (MUSE-01): unlike codex, an installed-but-logged-out CLI does NOT
+  // register — every turn would fail, a dead picker entry. The login state is
+  // still visible in Settings via `detectAgents()` (bin presence).
+  if (!_providers.has("muse") && await detectMuseCli()) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the binary exists; the provider module loads here or not at all
+    const { museHasStoredSession } = require("./muse") as typeof import("./muse");
+    if (museHasStoredSession()) {
+      try {
+        const config: MuseProviderConfig = {
+          type: "muse",
+          model: resolveMuseModel(settings),
+          approvalMode: resolveMuseApprovalMode(),
+          defaultWorkspace: process.env.MUSE_WORKSPACE || undefined,
+        };
+        const p = createProvider(config);
+        p.start();
+        _providers.set(p.name, p);
+        started.push(p);
+      } catch (err) {
+        console.warn(`[Providers] Failed to init muse: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
   // Il runtime NATIVO. Si registra quando su questa macchina c'è una
   // credenziale Claude, cioè quando può davvero servire un turno: un provider
   // che non può rispondere riempirebbe il picker di una voce morta, come per
@@ -608,6 +641,11 @@ async function detectClaudeCodeCli(): Promise<boolean> {
 async function detectCodexCli(): Promise<boolean> {
   if (process.env.CODEX_BIN) return true;
   return resolveCodexBin() !== null;
+}
+
+async function detectMuseCli(): Promise<boolean> {
+  if (process.env.MUSE_BIN) return true;
+  return resolveMuseBin() !== null;
 }
 
 // ---------------------------------------------------------------------------

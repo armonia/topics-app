@@ -186,6 +186,9 @@ import m20261004180000_subagents_native_runtime from "./migrations/2026100418000
 import m20261005060000_subagents_runtime_reason_engaged from "./migrations/20261005060000-subagents-runtime-reason-engaged.sql" with { type: "text" };
 import m20261005140000_subagent_reported_turns from "./migrations/20261005140000-subagent-reported-turns.sql" with { type: "text" };
 import m20261005200000_subagent_started_turns from "./migrations/20261005200000-subagent-started-turns.sql" with { type: "text" };
+import m20261006000000_muse_sessions from "./migrations/20261006000000-muse-sessions.sql" with { type: "text" };
+import m20261006000001_app_settings_muse_model from "./migrations/20261006000001-app-settings-muse-model.sql" with { type: "text" };
+import m20261006000002_terminal_session_type_muse from "./migrations/20261006000002-terminal-session-type-muse.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -376,4 +379,7 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20261005060000, name: "20261005060000-subagents-runtime-reason-engaged.sql", sql: m20261005060000_subagents_runtime_reason_engaged },
   { version: 20261005140000, name: "20261005140000-subagent-reported-turns.sql", sql: m20261005140000_subagent_reported_turns },
   { version: 20261005200000, name: "20261005200000-subagent-started-turns.sql", sql: m20261005200000_subagent_started_turns },
+  { version: 20261006000000, name: "20261006000000-muse-sessions.sql", sql: m20261006000000_muse_sessions },
+  { version: 20261006000001, name: "20261006000001-app-settings-muse-model.sql", sql: m20261006000001_app_settings_muse_model },
+  { version: 20261006000002, name: "20261006000002-terminal-session-type-muse.sql", sql: m20261006000002_terminal_session_type_muse },
 ];

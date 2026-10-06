@@ -34,3 +34,13 @@ export const EFFORT_TIERS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const CODEX_REASONING_EFFORTS = [
   'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra',
 ] as const;
+
+/**
+ * Muse reasoning-effort scale (`--reasoning-effort …`). The codex scale plus
+ * `max`: measured on `muse exec --help` (1.4.3). The topics scale
+ * (`EFFORT_TIERS`: low/medium/high/xhigh/max) fits inside it, so the
+ * per-topic selector passes through unchanged.
+ */
+export const MUSE_REASONING_EFFORTS = [
+  'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra',
+] as const;

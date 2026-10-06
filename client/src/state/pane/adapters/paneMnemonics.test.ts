@@ -24,6 +24,7 @@ const LABELS: Record<AddMenuItemId, string> = {
   codex: TERMINAL_AGENT_LABELS.codex,
   opencode: TERMINAL_AGENT_LABELS.opencode,
   'kimi-code': TERMINAL_AGENT_LABELS['kimi-code'],
+  muse: TERMINAL_AGENT_LABELS.muse,
   browser: getPaneConfig('browser').label,
   git: getPaneConfig('git').label,
   files: getPaneConfig('files').label,

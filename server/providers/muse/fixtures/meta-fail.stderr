@@ -1,0 +1,2 @@
+invalid --session-id: not-a-uuid (expected a UUID, e.g. 123e4567-e89b-12d3-a456-426614174000)
+usage: muse exec [OPTIONS] [PROMPT] (run `muse exec --help` for options)

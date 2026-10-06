@@ -698,6 +698,10 @@ export default defineConfig({
         // Target size, text size and contrast on every main surface, measured
         // in the engine that ships (WebKit), two viewports, two themes.
         "**/usability-audit.spec.ts",
+        // The Muse provider in the UI: its card in Settings → Providers, its
+        // models in the chat ModelSelector, a turn answering on the topic.
+        // A DOM/functional spec like the rest, read on the engine that ships.
+        "**/muse-provider-picker.spec.ts",
       ],
       use: {
         browserName: "webkit",
