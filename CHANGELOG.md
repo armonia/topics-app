@@ -2,19 +2,63 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.449 — 2026-10-06
+
+### Correzioni
+- **ci** · main verde dopo push 37bd4f42e
+- **e2e** · usa testid tab-sheet dopo rename tab-menu
+
+### Sotto il cofano
+- Registra la crescita di claude-session-tracker.ts nella tornata di #234 e #236
+- L'istantanea del server e il layout iniziale non riaprono le chat dei sotto-agenti
+- Sotto-agenti piegati e muti finché la persona non li apre: accordion chiuso sotto la chat padre, niente notifiche dai figli alla fonte
+- Un sotto-agente che ha finito il turno si archivia da solo, salvo che la persona l'abbia aperto
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-05 [skip ci]
+- ignora output/ di build, aggiunge openspec/config.yaml
+- **security** · accetta 7 advisory in baseline 2026-10-06
+
 ## 2.2.448 — 2026-10-04
 
 ### Sotto il cofano
 - Pannello chiuso prima della sua riga: la riga nasce chiusa, non sul pannello
+- Annida i sotto-agenti nativi sotto la chat padre nella sidebar, mai come chat a sé né come scheda
 - Traduci in inglese i commenti nuovi dei commit locali e traccia il goal che aspetta un sottoagente
 - Isola lo stato di browser-close-keeps-session, ora che resolveStateDir rifiuta il repo sotto test
+- Un sotto-agente non apre una scheda: né quando nasce né al ripristino del layout
 - Cancella la card che git-rows-one-shape e chat-changed-files-task-range lasciano in review
 - Mostra le regole globali dell'hub nell'ispettore anche senza progetto
+- Rendi asincroni tutti gli hook Topics tranne SessionEnd, e rimettili in ordine sul server
+- Chiedi conferma prima di fermare un sotto-agente al lavoro avviato da un'altra sessione
+- Lascia partire il trascinamento delle tab: il fuoco portato dalla pressione si toglie a fine gesto
+- Togli data-pane-id dalle schede della finestrella del browser
+- Fai chiudere all'Esc solo il foglio della tab, non il cassetto che c'e' sotto
+- Apri l'elenco dei download dal foglio senza sfrattare il foglio
+- Copia l'indirizzo del documento, non quello del trasporto
+- Porta al foglio della tab le spec rimaste sul menu a tendina
+- Cancella la card in review che git-rows-one-shape lasciava sulla board
+- Apri il diff della chat dentro la striscia, con il pannello unico della board
+- Prova su WebKit la striscia che apre il diff della chat e porta alla card
+- Porta CHAT-CHANGES-01 e CHGSET-01..04 nella spec della chat e spunta tasks.md con le prove
+- Chiudi il tool quando il PostToolUse arriva dopo il suo PreToolUse ma timbrato prima
+- Mostra «in corso» un topic che aspetta il suo lavoro in background, e tieni a parte solo il server acceso
+- Rileggi il diff della striscia a ogni apertura e a ogni fine turno
+- Misura la striscia aperta nella guardia di usabilita' e porta a soglia i suoi bersagli
+- Riconosci il chevron del progetto anche quando axe lo nomina per classi
+- Chiudi il turno di un terminale che va a riposo senza Stop
+- Passa l'identità git inline nei repo di prova della striscia: in CI non c'è una config globale
+- Chiudi al caricamento le schede dei sotto-agenti che il layout salvato riapriva
 
 ## 2.2.447 — 2026-10-04
 
 ### Sotto il cofano
+- Apri il foglio della tab dal tasto destro, a due livelli
+- Misura il foglio della tab nella guardia di usabilita'
+- Un figlio nato sulla CLI, richiamato dopo lo stop, riparte sul motore di Topics col suo lavoro come contesto
 - Domanda arrivata prima della sua riga: il form si apre lo stesso nella finestra mittente
+- Correggi il foglio della tab: indirizzo senza chrome, testata con un livello aperto, pressione dentro il foglio, Chiudi le altre sul telefono
+- Copia l'indirizzo intero dal foglio della tab: a schermo resta abbreviato
+- Chiudi la scheda di un sotto-agente finito nel progetto, e togli i figli ritirati dalla lista dei parcheggiati
+- Registra l'approvazione di changeset-chat-strip (ok alle quattro scelte consigliate)
 - Registra la scelta del proprietario: il browser remoto delle pane resta su Chromium
 - A project created by name is born next to the user's projects, not in the agent workspace
 - Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired
@@ -31,6 +75,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Registra global-setup.ts nella baseline di check:bloat: +21 righe per WebKit nel server isolato
 - Fai funzionare l'indietro delle tab browser: frame che segue l'indirizzo e frecce native accese
 - Fai tornare l'indietro della tab sulla pagina lasciata da un link nel frame, senza voci nella cronologia dell'app
+- Registra il si' di Attilio alla change tab-menu-unico (04/10 19:05)
+- Accendi indietro e avanti della pane in streaming solo se c'è una pagina dove andare
+- Proponi i sotto-agenti sul motore di Topics (subagent-nativi, approvata)
+- Registra runtime e chat del sotto-agente, profondita' massima 2
+- Fai girare spawn_agent sul motore di Topics come chat figlia, la CLI solo su richiesta
+- Manda le frecce della pane anche dalla pagina d'errore del server
 - Porta a text-mini l'etichetta della coda: #225 ha ritirato text-micro mentre #228 la usava
 - Porta in inglese il commento italiano di tool-live-tail-reopen
 - NOTIF-ONE misura cio' che accendono le sue chat, non il totale del server
@@ -38,9 +88,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.445 — 2026-10-04
 
 ### Sotto il cofano
+- Metti la direttiva di lingua nel prompt di sistema del runtime nativo
 - Porta la coda viva anche nella storia e non dire «nessun output finora»
 - Togli i furti delle aree proiettate e porta i comandi della tab a 24
 - Chiudi i tre buchi della guardia di usabilità
+- Proponi tab-menu-unico: il tasto destro apre la tab espansa, a due livelli
+- Escludi le tab dell'editor dal foglio e tieni il cancello di Chiudi
 
 ## 2.2.444 — 2026-10-04
 
@@ -68,6 +121,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Allinea shutdown-wiring al contratto nuovo: una chat senza reattach sopravvive al riavvio
 - Banco e2e: API Anthropic finta per il motore nativo, senza Keychain né proxy ereditato
 - Motore nativo: mostra in coda la chiamata non partita, il comando mentre si scrive, rispetta il timeout della shell
+- Non spingere il goal mentre un sottoagente lavora per la chat
 
 ## 2.2.442 — 2026-10-04
 
@@ -110,16 +164,22 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.439 — 2026-10-04
 
 ### Sotto il cofano
+- Fai seguire alla lingua auto la persona, non gli avvisi di Topics
+- Apri come finestra vera i popup con dimensioni, così il login Google arriva alla pagina
 - Leggi lo stato di attenzione dal server in ogni superficie del client e apri «Da guardare» (3.1-3.8, 4.1-4.4)
 - Togli dal server le esportazioni rimaste senza lettore e il predicato del turno pulito ora a una voce sola
 - Fai scrivere il Dock solo alla finestra principale e aggiungi ⇧⌘I per «Da guardare» (4.5, 4.6)
 - Porta i cancelli statici a verde per la meta' client delle notifiche
 - Spunta i task client di notifications-redesign e scrivi dove il codice si scosta
 - Correggi due righe dello scostamento client in design.md
+- Mostra in chat i retry dell'API che fa la CLI
+- Accetta il dialogo di fiducia della cartella prima di seminare un sottoagente
+- Segui il transcript vero quando SessionStart dichiara un path che non esiste
 - Correggi quattro difetti visti dagli e2e delle notifiche: glifo grigio del terminale in attesa, fuoco della inbox, colonna dei tempi, «Attende: other»
 - Scrivi gli e2e dello stato di attenzione sul server di test vero (5.1-5.4, 5.6)
 - Riscrivi sul contratto nuovo gli e2e che iniettavano i segni delle notifiche (5.5, prima parte)
 - Rivedi il design dei pannelli del modello: un asse solo, l'azienda, a ogni livello
+- Fai sopravvivere ai riavvii le chat sul motore interno, invece di rinviare il riavvio
 - Fai dire «sta per riprendere» al risveglio in coda, sulla riga del background e sul glifo
 - Riscrivi sul contratto nuovo il resto degli e2e delle notifiche (5.5, seconda parte) e aggiungi le schermate alle spec nuove
 - Spunta la sezione 5 di notifications-redesign, scrivi gli scostamenti degli e2e e aggiungi le prove visive
@@ -314,6 +374,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Fai rispondere al CLI finto con l'ultima riga del messaggio e filtra il menu con un prefisso che nessuna skill ha
 - Rileggi l'elenco dei comandi all'apertura del menu: il gruppo del motore arriva col primo turno
 - Dai al segno dei comandi noti la lettura per il rendering statico
+- A test process can no longer write the live state through any module, not only createAppContext
 - Dichiara le righe di /resume una volta sola in shared e conta il nuovo frame della risposta di comando
 - Appunta il messaggio giusto e riporta il cursore in fondo prima di filtrare /resume
 - Sposta a tab il browser della topic senza ricaricarlo
@@ -352,6 +413,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.430 — 2026-10-03
 
 ### Sotto il cofano
+- Topics reads the shared rules and skills from the ~/.agents hub, and its global memory is retired
+- Archive the contesto-dall-hub change: shipped
 - Fai passare la grazia del passaggio con l'orologio della pagina, non con un sonno
 - Proponi commands-ui: /resume elenca le sessioni Claude del progetto, il menu «/» legge i comandi dal motore
 - Manda su https l'host scritto senza schema con la porta 443 o 8443
@@ -512,6 +575,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Aggiungi i controlli del menu: segmento, passo e interruttore sui token del movimento
 - Sposta Aspetto, Notifiche, Vista e Dispositivi nel menu utente
 - Dai al cassetto di progetto del telefono l'entrata e l'uscita condivise
+- A project created by name is born next to the user's projects, not in the agent workspace
 
 ## 2.2.426 — 2026-10-01
 
