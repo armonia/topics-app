@@ -672,7 +672,18 @@ export function ModelList(props: ModelListProps) {
       <Sparkles className={`h-3.5 w-3.5 shrink-0 text-app-text-secondary ${isColumns ? '' : 'mt-0.5'}`} aria-hidden="true" />
       <span className={isColumns ? 'whitespace-nowrap' : 'min-w-0 flex-1'}>
         <span className="block">{props.automatic.who ? `${tr('ai.selector.auto')} · ${props.automatic.who}` : tr('ai.selector.auto')}</span>
-        {!isColumns && <span id={automaticHintId} className="block text-mini leading-snug text-app-text-secondary">{props.automatic.hint}</span>}
+        {!isColumns && (
+          <span
+            id={automaticHintId}
+            // Compact desktop hides the sentence (the button already names who
+            // decides); the roomy full variant and the phone sheet keep it.
+            className={props.variant === 'full'
+              ? 'block text-mini leading-snug text-app-text-secondary'
+              : 'sr-only coarse:not-sr-only coarse:block coarse:text-mini coarse:leading-snug coarse:text-app-text-secondary'}
+          >
+            {props.automatic.hint}
+          </span>
+        )}
       </span>
       {automaticSelected && <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
     </button>
