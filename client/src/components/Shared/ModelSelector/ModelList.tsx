@@ -122,7 +122,7 @@ function RoutingBand({ enabled, route, engineLabel, onToggle }: {
       data-testid="model-selector-routing"
       data-route={!enabled ? 'off' : through ? 'topics' : 'direct'}
       onClick={onToggle}
-      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-start gap-2 rounded-md px-2.5 py-1 coarse:py-3 text-left transition-colors ${
+      className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] shrink-0 items-start gap-2 rounded-md px-2.5 py-1 coarse:min-h-[44px] coarse:py-3 text-left transition-colors ${
         through ? 'border-l-2 border-primary bg-primary/10' : 'border-l-2 border-transparent bg-app-inset'
       }`}
     >
@@ -670,20 +670,10 @@ export function ModelList(props: ModelListProps) {
         : `${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`}
     >
       <Sparkles className={`h-3.5 w-3.5 shrink-0 text-app-text-secondary ${isColumns ? '' : 'mt-0.5'}`} aria-hidden="true" />
+      {/* Solo l'etichetta: la frase lunga sta fuori dal bottone (aria-describedby),
+          così il testo chiuso resta «label · who» (AC-30, AC-31, §3.7). */}
       <span className={isColumns ? 'whitespace-nowrap' : 'min-w-0 flex-1'}>
         <span className="block">{props.automatic.who ? `${tr('ai.selector.auto')} · ${props.automatic.who}` : tr('ai.selector.auto')}</span>
-        {!isColumns && (
-          <span
-            id={automaticHintId}
-            // Compact desktop hides the sentence (the button already names who
-            // decides); the roomy full variant and the phone sheet keep it.
-            className={props.variant === 'full'
-              ? 'block text-mini leading-snug text-app-text-secondary'
-              : 'sr-only coarse:not-sr-only coarse:block coarse:text-mini coarse:leading-snug coarse:text-app-text-secondary'}
-          >
-            {props.automatic.hint}
-          </span>
-        )}
       </span>
       {automaticSelected && <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
     </button>
@@ -766,6 +756,18 @@ export function ModelList(props: ModelListProps) {
           style={isColumns ? { gridTemplateColumns: `repeat(${Math.max(1, columns.length)}, minmax(0, 1fr))` } : undefined}
         >
           {!isColumns && automaticButton}
+          {!isColumns && (
+            <p
+              id={automaticHintId}
+              // Compact desktop hides the sentence (the button already names who
+              // decides); the roomy full variant and the phone sheet keep it.
+              className={props.variant === 'full'
+                ? 'block text-mini leading-snug text-app-text-secondary mx-3 mb-1'
+                : 'sr-only coarse:not-sr-only coarse:mx-3 coarse:mb-1 coarse:block coarse:text-mini coarse:leading-snug coarse:text-app-text-secondary'}
+            >
+              {props.automatic.hint}
+            </p>
+          )}
           {isColumns
             ? columns.map((column, index) => (
               <div
