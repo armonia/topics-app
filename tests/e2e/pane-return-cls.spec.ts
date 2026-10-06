@@ -88,6 +88,19 @@ const VIEWPORTS = [PHONE, WIDE] as const;
  */
 const PROJECT_VIEWPORTS = [WIDE] as const;
 
+/**
+ * The add menu, on both viewports. On the phone the trigger is the pencil
+ * (mobile-chrome-feedback A6): the tap opens a chat at once, so the menu
+ * opens with the second gesture — here the right button, which opens the
+ * same menu as the long press. The measurement below starts from the same
+ * open pane either way.
+ */
+async function openAddMenu(page: Page, vp: { name: string }): Promise<void> {
+  const trigger = page.getByTestId("pane-add-menu-trigger").first();
+  if (vp.name === PHONE.name) await trigger.click({ button: "right" });
+  else await trigger.click();
+}
+
 async function measureReturn(page: Page, selector: string, name: string): Promise<ClsReport> {
   await armObserver(page);
   await armFullness(page, selector);
@@ -136,7 +149,7 @@ test.describe("BOARD - the kanban returns without moving", () => {
         await seedBoardTasks(request, TERMINAL_PROJECT_PATH);
         await resetPaneStore(request, []);
         await goToApp(page);
-        await page.getByTestId("pane-add-menu-trigger").first().click();
+        await openAddMenu(page, vp);
         await page.getByTestId("pane-add-menu-board").click();
         await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
         await waitForLocalCopy(page, "board-rows-cache:");
@@ -339,8 +352,9 @@ test.describe("DASHBOARD - the KPI grid returns without moving", () => {
           await route.continue();
         });
         await goToApp(page);
-        // Standalone scope, same gesture as the board: the sidebar's "+".
-        await page.getByTestId("pane-add-menu-trigger").first().click();
+        // Standalone scope, same gesture as the board: the sidebar's "+"
+        // (the pencil on the phone — `openAddMenu` above).
+        await openAddMenu(page, vp);
         await page.getByTestId("pane-add-menu-dashboard").click();
         await expect(page.getByTestId("kpi-card-grid")).toBeVisible({ timeout: 15000 });
         // The copy the next frame has to draw from. A bundle that never writes

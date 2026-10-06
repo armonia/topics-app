@@ -22,9 +22,12 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * waiting for me?», and on a phone there was no key to ask it. The door takes
  * the same step as ⌘J (it announces `NEXT_WAITING_EVENT`, the sidebar answers)
  * and carries the length of the same queue as its number, so the number and
- * the targets cannot disagree. At zero it stays in place, disabled: a door
- * that came and went would move the other four under the thumb. It keeps its
- * raised ground when off, because a slab without one reads as a gap in the row.
+ * the targets cannot disagree. At zero it stays in place, ENABLED: a door
+ * that came and went would move the other four under the thumb, and a door
+ * that stays dead is a gesture that answers nothing (mobile-chrome-feedback
+ * A5) — with an empty queue whoever mounts it lands on the Inbox's Now
+ * instead. It keeps its raised ground at rest either way, because a slab
+ * without one reads as a gap in the row.
  *
  * ── L'ULTIMA PORTA È IL PROFILO, E PRIMA NON ERA UNA PORTA ───────────────
  * Stava dentro il menu «Topics», cioè dietro un gesto che nessuno fa per
@@ -317,15 +320,15 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       </div>
 
       {/* The ⌘J door, before the profile: in the middle, where no edge reaches,
-          so its radius is the standard one. Disabled at zero, never removed. */}
+          so its radius is the standard one. Alive at zero too (A5): with an
+          empty queue it opens the Inbox's Now instead of stepping. */}
       <div ref={(n) => { slotRefs.current[3] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(3).alzata }}>
         <BottoneFila
           etichetta={tr('sidebar.waitingDoor')}
           onClick={onNextWaiting}
           testId="mobile-chrome-waiting"
           forma={forma(3)}
-          disabled={waitingCount === 0}
-          titolo={waitingCount === 0 ? tr('sidebar.noChatWaiting') : tr('sidebar.waitingDoorTitle')}
+          titolo={waitingCount === 0 ? tr('inbox.title') : tr('sidebar.waitingDoorTitle')}
           // The number is only drawn (the badge), so the name has to say it:
           // the label and the count, zero included when nothing waits.
           accessibleName={tr('sidebar.waitingDoorName', { n: waitingCount })}
@@ -424,7 +427,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
  * rotazione, e Tailwind compila le classi che vede nel sorgente. Il filo di
  * `edge-lit` lo segue da sé — quel bordo eredita il raggio (`inherit`).
  */
-function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma, disabled, accessibleName }: {
+function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma, accessibleName }: {
   etichetta: string;
   onClick: () => void;
   children: ReactNode;
@@ -432,21 +435,20 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
   testId?: string;
   titolo?: string;
   forma: FormaScatola;
-  /** Off, but in place: glyph and word dim, the raised ground stays
-   *  (MOBILE-CHROME-06 measures the ground of every door at rest). */
-  disabled?: boolean;
   /** The accessible name when it must carry more than the title, e.g. a
    *  count that is only drawn. The title then stays the tooltip. */
   accessibleName?: string;
 }) {
+  // No `disabled`: every door of the row answers (A5 took the last dead one —
+  // «In attesa» at zero opens the Inbox's Now). MOBILE-CHROME-06 still
+  // measures the ground of every door at rest.
   const tone = attivo
     ? `${SIDEBAR_ACTIVE} text-primary`
-    : `${RAISED_CONTROL} ${disabled ? 'text-app-text-tertiary' : 'text-app-text'}`;
+    : `${RAISED_CONTROL} text-app-text`;
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
       data-testid={testId}
       title={titolo ?? etichetta}
       aria-label={accessibleName ?? titolo ?? etichetta}

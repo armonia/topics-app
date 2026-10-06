@@ -91,9 +91,19 @@ export const MODAL_PANEL =
  */
 export const MODAL_PAGE_CONTAINER = `fixed inset-0 ${MODAL_LAYER} flex flex-col`;
 
-/** Il corpo della pagina a schermo pieno. Gemello mobile di `MODAL_PANEL`. */
+/**
+ * Il corpo della pagina a schermo pieno. Gemello mobile di `MODAL_PANEL`.
+ *
+ * `modal-page-panel` (index.css): a page does NOT float, so it does not take
+ * the popover glass (`--popover-bg`) that the plane rule paints on every
+ * `.native-occlude` under 768px — its ground is the app's (`--bg`), with no
+ * seam under the notch either. `bg-app-bg` says it here too, for whoever
+ * reads without opening the sheet: the rule wins anyway (higher
+ * specificity), but if it ever falls it must fall on the same pixel, not on
+ * the old grey (mobile-chrome-feedback A4).
+ */
 export const MODAL_PAGE_PANEL =
-  'native-occlude bg-surface overflow-hidden command-palette-enter flex flex-col flex-1 min-h-0';
+  'native-occlude modal-page-panel bg-app-bg overflow-hidden command-palette-enter flex flex-col flex-1 min-h-0';
 
 /**
  * Una pagina a schermo pieno scavalla la tacca: il contenitore e' `fixed inset-0`,
@@ -101,5 +111,10 @@ export const MODAL_PAGE_PANEL =
  * pagina, cosi' la striscia sotto la tacca la dipinge la sua stessa superficie.
  * `--sat` (index.css) vale 0 dove la tacca non c'e', quindi si applica sempre e
  * non serve chiedersi se il dispositivo ne ha una.
+ *
+ * And below it clears the home bar: the content lands INSIDE the safe area at
+ * the bottom too (`--sab`), not only at the top (mobile-chrome-feedback A4) —
+ * the last row under the finger is not a flaw you see, it is a key you cannot
+ * press.
  */
-export const MODAL_PAGE_INSET = { paddingTop: 'var(--sat, 0px)' } as const;
+export const MODAL_PAGE_INSET = { paddingTop: 'var(--sat, 0px)', paddingBottom: 'var(--sab, 0px)' } as const;

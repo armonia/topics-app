@@ -29,6 +29,14 @@ export type UserMenuLevelName = keyof typeof LEVEL_ROW;
 /** Opens the user menu and one of its levels; hands back the level's panel. */
 export async function openUserMenuLevel(page: Page, level: UserMenuLevelName): Promise<Locator> {
   await openProfileMenu(page);
+  // On the phone Appearance, Notifications and View live on the Topics floor
+  // (A1): when the entry down is there (sheet at the root), take it. On the
+  // desktop there is none and nothing happens — and it is by presence, not by
+  // viewport, that a sheet already down does not look for it twice.
+  if (level === "appearance" || level === "notifications" || level === "view") {
+    const entry = page.getByTestId("user-menu-topics-entry");
+    if ((await entry.count()) > 0) await entry.click();
+  }
   // The Machines section is a level of Devices: Devices opens first.
   if (level === "nodes") {
     const devices = page.getByTestId(LEVEL_ROW.devices);

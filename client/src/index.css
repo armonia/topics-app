@@ -889,6 +889,17 @@
   html:not(.native-frost) [role="region"][aria-label$=" panel"] form.bg-surface {
     background-color: var(--popover-bg);
   }
+  /* MA UNA PAGINA NON FLOTTA (mobile-chrome-feedback A4). La pagina di ricerca
+   * a schermo pieno porta `native-occlude` — sotto di lei la pane nativa del
+   * browser Tauri deve congelarsi — e la regola qui sopra la dipingeva col
+   * vetro dei popover: un grigio fisso (#dfe0e2 in chiaro, misurato) fuori dal
+   * design system, con uno stacco contro il fondo dell'app. Una pagina e' la
+   * superficie dell'app, quindi `--bg`, che sotto i 768px e' il chrome: stesso
+   * pixel di cio' che sta intorno, nessuno stacco col notch. (0,3,1): batte la
+   * regola del piano (0,2,1) a prescindere dall'ordine. */
+  html:not(.native-frost) .native-occlude.modal-page-panel {
+    background-color: var(--bg);
+  }
   /* Lo scuro ha SOLO i suoi valori, e non annulla niente di nessuno: la bolla e
    * i bordi qui reggono da sé sul fondo più scuro.
    * The placeholder override that used to sit here (48%, 4.55:1 on the chrome)

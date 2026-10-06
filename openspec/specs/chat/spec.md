@@ -4594,9 +4594,10 @@ attesa», prima del Profilo, con il glifo `Hourglass` della sezione «Attende te
   letta dallo stesso store: numero e mete non possono divergere, e una chat
   fissata dentro un progetto conta una volta.
 - Premerla SHALL fare lo stesso passo di ⌘J (evento `topics:next-waiting`).
-- A coda vuota la porta SHALL restare al suo posto, `disabled`, con un titolo
-  che dice che nessuna chat ti aspetta: le altre porte NON SHALL spostarsi quando
-  il numero cambia.
+- A coda vuota la porta SHALL restare al suo posto, ABILITATA, e premerla
+  SHALL aprire la pagina In attesa (il Now dell'Inbox, evento
+  `topics:open-inbox`) invece di restare muta (mobile-chrome-feedback A5): le
+  altre porte NON SHALL spostarsi quando il numero cambia.
 - Il nome accessibile della porta SHALL portare il numero, zero compreso
   («In attesa, 3», «In attesa, 0»): il numero sulla porta è solo disegnato, e il
   titolo resta il suggerimento.
@@ -4610,9 +4611,11 @@ attesa», prima del Profilo, con il glifo `Hourglass` della sezione «Attende te
 - **WHEN** la si preme due volte
 - **THEN** a fuoco va la prima meta e poi la seconda, e mai la chat al lavoro
 
-#### Scenario: a zero è spenta e non sposta niente
+#### Scenario: a zero è viva, apre l'Inbox e non sposta niente
 - **GIVEN** nessuna chat in attesa
-- **THEN** `mobile-chrome-waiting` è `disabled`, e il suo nome accessibile è «In attesa, 0»
+- **THEN** `mobile-chrome-waiting` è abilitata, e il suo nome accessibile è «In attesa, 0»
+- **WHEN** la si preme
+- **THEN** si apre il pannello Inbox sul Now (`inbox-panel-now`)
 - **AND** le cinque porte hanno la stessa larghezza di quando il numero è `2`
 
 ### Requirement: CHAT-FORK-01 — Diramare crea una chat NUOVA con la stessa storia, e l'originale non cambia

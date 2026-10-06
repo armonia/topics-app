@@ -685,6 +685,7 @@ test.describe.serial("La chrome del telefono", () => {
         headerBottom: header.getBoundingClientRect().bottom,
         scrollerTop: scroller.getBoundingClientRect().top,
         padding: parseFloat(getComputedStyle(scroller).paddingTop),
+        sat: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0,
         canScroll: scroller.scrollHeight - scroller.clientHeight,
       };
     });
@@ -699,11 +700,13 @@ test.describe.serial("La chrome del telefono", () => {
     expect(alfaVelo, `il velo c'e' (${riga.velo})`).toBeGreaterThan(0.5);
     expect(alfaVelo, `ed e' semitrasparente (${riga.velo})`).toBeLessThan(1);
     expect(riga.sfocatura, "e sfoca cio' che passa sotto").toContain("blur");
-    // 3. the room it needs is INSIDE the scroll, as padding: the scroller
-    //    starts above the row and the list starts below it, which is the whole
-    //    difference between "it scrolls under" and "it starts after".
+    // 3. the room it needs is INSIDE the scroll, as padding — and the padding
+    //    is the safe area ALONE (mobile-chrome-feedback A1): the list starts
+    //    right after `--sat` and travels behind the row from the first pixel,
+    //    the way a native list does. It used to carry the height of the row on
+    //    top of the inset, which left a full row of dead space under the notch.
     expect(riga.scrollerTop).toBeLessThanOrEqual(1);
-    expect(riga.padding).toBeGreaterThanOrEqual(riga.headerBottom - 1);
+    expect(Math.abs(riga.padding - riga.sat)).toBeLessThanOrEqual(1);
 
     // And it does scroll under, measured on a row: a shorter screen so the
     // list overflows for real (nothing is faked: if it does not overflow the

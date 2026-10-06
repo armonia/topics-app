@@ -479,10 +479,16 @@ test.describe("in a 390 window with a mouse the menu is a sheet, and its levels 
     // Where the sheet is going to rise: the pointer rests in the lower half.
     await page.mouse.move(195, 700);
     await page.keyboard.press("Control+,");
+    // On the two-floor sheet (A1) Appearance lives on the Topics floor: walk
+    // down, then out and back onto the row — leaving and re-entering makes
+    // sure the hover measured below is a true entry, not the row born under a
+    // pointer that sat there already.
+    await page.getByTestId("user-menu-topics-entry").click();
     const row = page.getByTestId("topics-menu-appearance");
     await expect(row).toBeVisible({ timeout: 15_000 });
     const box = await row.boundingBox();
     expect(box, "the row is laid out").not.toBeNull();
+    await page.mouse.move(10, 10, { steps: 2 });
     // The person moves onto the row, as the hand does after a shortcut.
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 4 });
     const level = page.getByTestId("topics-menu-appearance-menu");

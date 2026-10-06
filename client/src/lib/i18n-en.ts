@@ -1849,6 +1849,13 @@ const EN = {
   'sidebar.waitingDoorTitle': 'Go to the next chat waiting for you',
   'sidebar.profileDoorTitle': 'Profile and statistics',
   'sidebar.profileDoorTitleNamed': '{nome}. Profile and statistics',
+  // The pencil door (mobile-chrome-feedback A6): tap opens a new chat at once,
+  // a long press opens the whole «+» menu.
+  'sidebar.pencilDoor': 'New',
+  'sidebar.pencilDoorTitle': 'New chat: long-press for more options',
+  // The user sheet on the phone has two floors (A1): the root and the Topics
+  // floor, which this row walks back from.
+  'sidebar.userMenuBack': 'Back',
   'identity.title': 'People',
   'identity.blurb.solo': 'For now it’s just you. Add someone to be able to share with them, even before they connect a device of their own.',
   'identity.blurb.group': 'Sharing with the organization reaches every member, without doing it one by one.',
