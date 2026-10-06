@@ -46,6 +46,7 @@ import { closeTabSheet } from '../../state/tabSheet';
 import { SLASH_COMMANDS } from '../Chat/slashCommands';
 import { Suggestion, SuggestionSectionLabel } from '../Shared/Suggestion';
 import { POPOVER_SURFACE } from '../../lib/popoverStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { ApiError, filesApi } from '../../lib/api';
 import { useT } from '../../hooks/useT';
 import { useToast } from '../Shared/Toast';
@@ -72,8 +73,10 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
   const toast = useToast();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [dismissed, setDismissed] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const suggestRef = useRef<HTMLDivElement>(null);
   const creatingRef = useRef(false);
 
   // THE FIELD TAKES THE FOCUS, AND KEEPS IT AGAINST THE SHEET. See the header:
@@ -82,6 +85,7 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
   // dots, a click on the tab) always arrives behind a gesture, so it is never
   // robbed; the auto-opened one is never preceded by one, so it never wins.
   useEffect(() => {
+    if (typeof document === 'undefined') return;
     const bornAt = Date.now();
     let mine = false;
     let retired = false;
@@ -140,9 +144,13 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
     return out;
   }, [showFileRow, sections]);
   const indexByKey = useMemo(() => new Map(flatRows.map((f, i) => [f.key, i])), [flatRows]);
+  // The shared exit for the entering surface above (MOTION-04): the dropdown
+  // leaves like every other popover instead of just vanishing.
+  const dropOpen = flatRows.length > 0 && !dismissed;
+  useExitGhost(suggestRef, dropOpen, 'popover');
 
   // A selection never survives a text change: the rows it pointed at are gone.
-  useEffect(() => { setActiveIndex(-1); }, [query]);
+  useEffect(() => { setActiveIndex(-1); setDismissed(false); }, [query]);
 
   // The field grows with a note being written, up to four rows, then scrolls.
   useEffect(() => {
@@ -256,17 +264,28 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       doSubmit();
-    } else if (e.key === 'ArrowDown' && flatRows.length > 0) {
+    } else if (e.key === 'ArrowDown' && dropOpen) {
       e.preventDefault();
       setActiveIndex((i) => (i + 1) % flatRows.length);
-    } else if (e.key === 'ArrowUp' && flatRows.length > 0) {
+    } else if (e.key === 'ArrowUp' && dropOpen) {
       e.preventDefault();
       setActiveIndex((i) => (i - 1 + flatRows.length) % flatRows.length);
+    } else if (e.key === 'Escape') {
+      // The capture wrapper above this pane (BrowserKeyboardCapture) stops
+      // every key before the document, so Esc never reaches the sheet's own
+      // closer while the caret sits here: this field forwards it by hand.
+      // Both at once, like the sheet's own field (TabSheetBody), whose Esc
+      // closes the sheet WITH its suggestions in one press: dismissing only
+      // the dropdown would eat the press three pinned specs spend on the
+      // sheet (LAYOUT-40, TABSHEET-02, motion), and the two are sibling
+      // chrome of one interaction, not nested levels.
+      e.preventDefault();
+      e.stopPropagation();
+      setDismissed(true);
+      setActiveIndex(-1);
+      closeTabSheet();
     }
-    // No Escape here on purpose: it bubbles to the sheet, which closes on Esc
-    // from anywhere. Spending it on the selection would eat the press that
-    // dismisses the auto-opened sheet (one Esc, one thing closed).
-  }, [doSubmit, flatRows.length]);
+  }, [doSubmit, dropOpen, flatRows.length]);
 
   const sectionTitle = useCallback((id: NewTabSectionId): string => {
     switch (id) {
@@ -349,11 +368,12 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
             />
           </form>
 
-          {flatRows.length > 0 && (
+          {dropOpen && (
             <div
               // The sheet's own surface: same rows, same tokens. (`bg-app-panel`
               // is deliberately dark in the light theme — not a shortcut to a
               // light background — and would plant a dark box on a white page.)
+              ref={suggestRef}
               className={`mt-3 ${POPOVER_SURFACE} overflow-hidden`}
               data-testid="browser-new-tab-suggestions"
             >
