@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.454 — 2026-10-06
+
+### Sotto il cofano
+- Applica il feedback mobile-chrome: reveal-on-scroll, foglio a due piani, Cerca nel design system, attesa viva, matita
+- Aggiungi requisiti MOBILE-CHROME-07..12 e spec e2e del feedback mobile-chrome
+- Registra la matita nel rail dei menu right-click
+- Traduci commenti e nomi in inglese nel feedback mobile-chrome
+- Ripara le 4 mobili rotte dal foglio a due piani e dall'header overlay (A1)
+
 ## 2.2.453 — 2026-10-06
 
 ### Sotto il cofano

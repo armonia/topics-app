@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.454",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Applica il feedback mobile-chrome: reveal-on-scroll, foglio a due piani, Cerca nel design system, attesa viva, matita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi requisiti MOBILE-CHROME-07..12 e spec e2e del feedback mobile-chrome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la matita nel rail dei menu right-click",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci commenti e nomi in inglese nel feedback mobile-chrome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ripara le 4 mobili rotte dal foglio a due piani e dall'header overlay (A1)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.453",
     "date": "2026-10-06",
     "sections": {
