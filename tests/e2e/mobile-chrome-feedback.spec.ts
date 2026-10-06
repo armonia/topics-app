@@ -1,31 +1,31 @@
 /**
- * IL GIRO DI FEEDBACK SULLA CHROME DEL TELEFONO (05/10/2026, msg 3862).
+ * THE PHONE CHROME FEEDBACK LOOP (05/10/2026, msg 3862).
  *
- * Provando Topics dal telefono: la riga in alto deve rivelarsi scorrendo con
- * le sessioni da subito dopo la safe area, il menu Topics deve stare nel menu
- * utente, la fila in basso tiene le sue misure, Cerca sta nel design system,
- * «In attesa» non resta mai muta e la matita apre subito una chat nuova.
+ * Trying Topics on the phone: the top row must reveal itself on scroll with
+ * the sessions starting right past the safe area, the Topics menu belongs in
+ * the user menu, the bottom row keeps its sizes, Search lives in the design
+ * system, "Waiting" is never muted and the pencil opens a fresh chat at once.
  *
- * Ogni voce qui è un numero letto dal DOM su 390x844 col dito:
+ * Every entry here is a number read from the DOM at 390x844 with a finger:
  *
- *  MOBILE-CHROME-07  in cima la riga è compatta (44), scorrendo si rivela
- *                    intera (56), le righe partono da `--sat`; il foglio ha
- *                    due piani e il menu Topics si raggiunge dalla radice
- *  MOBILE-CHROME-08  primo/ultimo tasto col raggio basso esterno sopra 12px,
- *                    PASSO fra i tasti, SOPRA sopra, glifi al centro (±1px)
- *                    e la parola sotto, fuori dal flusso
- *  MOBILE-CHROME-09  il toggle Cerca sta allo stesso passo degli altri tasti
- *                    (bordi e centri dei glifi, ±1px)
- *  MOBILE-CHROME-10  Cerca ha il fondo dell'app (mai il grigio dei popover),
- *                    dipinto da y=0, e il contenuto dentro la safe area
- *  MOBILE-CHROME-11  «In attesa» è sempre abilitata: a coda vuota apre il Now
- *                    (il passo con la coda resta di CHAT-WAIT-04, provato lì)
- *  MOBILE-CHROME-12  tap sulla matita = bozza nuova a fuoco; pressione lunga
- *                    = l'intero menu «+», senza nessuna chat
+ *  MOBILE-CHROME-07  at the top the row is compact (44), on scroll it reveals
+ *                    itself whole (56), rows start from `--sat`; the sheet has
+ *                    two levels and the Topics menu is reached from the root
+ *  MOBILE-CHROME-08  first/last key with the low outer radius above 12px,
+ *                    STEP between keys, ROOM above, glyphs centred (±1px)
+ *                    and the word below, outside the flow
+ *  MOBILE-CHROME-09  the Search toggle keeps the step of the other keys
+ *                    (edges and glyph centres, ±1px)
+ *  MOBILE-CHROME-10  Search has the app background (never the popover grey),
+ *                    painted from y=0, and the content inside the safe area
+ *  MOBILE-CHROME-11  "Waiting" is always enabled: with an empty queue it opens
+ *                    the Now (the step with the queue stays CHAT-WAIT-04's, tried there)
+ *  MOBILE-CHROME-12  tap on the pencil = new focused draft; long press
+ *                    = the whole "+" menu, with no chat open
  *
- * La fascia inferiore, il raggio e la tacca si FORZANO (`--sab`,
- * `--screen-corner-radius`, `--sat`): è per questo che vivono in variabili CSS
- * invece che in `env()` nude — `env()` non si sovrascrive.
+ * The bottom band, the radius and the notch are FORCED (`--sab`,
+ * `--screen-corner-radius`, `--sat`): that is why they live in CSS variables
+ * instead of bare `env()` calls, `env()` cannot be overwritten.
  *
  * @covers MOBILE-CHROME-07, MOBILE-CHROME-08, MOBILE-CHROME-09, MOBILE-CHROME-10, MOBILE-CHROME-11, MOBILE-CHROME-12
  */
@@ -41,17 +41,17 @@ hermetic(test);
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
 const BAR = '[data-testid="mobile-chrome-bar"]';
-const CERCA = '[data-testid="mobile-chrome-search"]';
-const MATITA = '[data-testid="pane-add-menu-trigger"]';
-const ATTESA = '[data-testid="mobile-chrome-waiting"]';
-const COLONNA = '[aria-label="Topics sidebar"]';
-const SCROLLER = `${COLONNA} .sidebar-column`;
-/** La fascia dell'home indicator e il raggio di un iPhone in verticale. */
+const SEARCH = '[data-testid="mobile-chrome-search"]';
+const PENCIL = '[data-testid="pane-add-menu-trigger"]';
+const WAITING = '[data-testid="mobile-chrome-waiting"]';
+const COLUMN = '[aria-label="Topics sidebar"]';
+const SCROLLER = `${COLUMN} .sidebar-column`;
+/** The home indicator band and the radius of a portrait iPhone. */
 const BAND = 34;
 const RADIUS = 55;
-/** Una tacca da forzare: `--sat` a zero non distingue «dopo la safe area» da «da y=0». */
+/** A notch to force: `--sat` at zero cannot tell "past the safe area" from "from y=0". */
 const NOTCH = 24;
-/** Abbastanza righe da straripare a 844px da sole (vedi mobile-list-under-chrome). */
+/** Enough rows to overflow at 844px on their own (see mobile-list-under-chrome). */
 const CROWD = 20;
 
 let ids: string[] = [];
@@ -76,14 +76,14 @@ async function open(page: Page): Promise<void> {
     s.setProperty("--screen-corner-radius", `${radius}px`);
     window.dispatchEvent(new Event("resize"));
   }, [BAND, RADIUS] as const);
-  // Le scatole crescono della fascia: lo si aspetta, poi si aspetta la fila ferma.
+  // The boxes grow by the band: that is expected, then wait for the row to settle.
   await expect
     .poll(() => page.evaluate((sel) => document.querySelector(`${sel} button`)?.getBoundingClientRect().height ?? 0, BAR))
     .toBeGreaterThanOrEqual(44 + BAND - 1);
   await waitForLayoutSettled(page, BAR);
 }
 
-/** Forza la tacca e aspetta chi la legge. */
+/** Forces the notch and waits for whoever reads it. */
 async function notch(page: Page, px: number): Promise<void> {
   await page.evaluate((v) => {
     document.documentElement.style.setProperty("--sat", `${v}px`);
@@ -92,7 +92,7 @@ async function notch(page: Page, px: number): Promise<void> {
   await waitForLayoutSettled(page);
 }
 
-/** Quante bolle di messaggio si vedono davvero (le pane tenute vive non contano). */
+/** How many message bubbles are truly visible (kept-alive panes do not count). */
 async function visibleMessages(page: Page): Promise<number> {
   return page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="chat-message"]'))
     .filter((el) => {
@@ -123,7 +123,7 @@ test("MOBILE-CHROME-07: compatta in cima, intera appena si scorre, righe dalla s
     };
   });
 
-  // In cima: compatta, e le righe da subito dopo la tacca.
+  // At the top: compact, with rows starting right past the notch.
   const top = await read();
   expect(top.compact).toBe("true");
   expect(top.headerH).toBe(44);
@@ -131,14 +131,14 @@ test("MOBILE-CHROME-07: compatta in cima, intera appena si scorre, righe dalla s
   expect(Math.abs(top.firstTop! - NOTCH)).toBeLessThanOrEqual(1);
   expect(top.overflow, "the list must overflow, or there is nothing to reveal on scroll").toBeGreaterThan(0);
 
-  // Scorrendo: la riga si rivela intera e le righe le passano sotto.
+  // On scroll: the row reveals itself whole and the rows travel under it.
   await page.evaluate((sel) => { document.querySelector<HTMLElement>(sel)!.scrollTop = 120; }, SCROLLER);
   await expect.poll(async () => (await read()).compact).toBe("false");
   const scrolled = await read();
   expect(scrolled.headerH).toBe(56);
   expect(scrolled.behind, "no row travels behind the revealed header").toBe(true);
 
-  // E tornando in cima torna compatta: la rivelazione è reversibile.
+  // And scrolling back to the top it turns compact again: the reveal is reversible.
   await page.evaluate((sel) => { document.querySelector<HTMLElement>(sel)!.scrollTop = 0; }, SCROLLER);
   await expect.poll(async () => (await read()).compact).toBe("true");
   expect((await read()).headerH).toBe(44);
@@ -148,26 +148,26 @@ test("MOBILE-CHROME-07b: il menu Topics si raggiunge dal menu utente", async ({ 
   test.info().annotations.push({ type: "spec", description: "MOBILE-CHROME-07" });
   await open(page);
 
-  // Il foglio si apre alla radice: identità, voce Topics, stato.
+  // The sheet opens at the root: identity, Topics entry, status.
   await page.locator('[data-testid="sidebar-topics-menu"]').tap();
   const entry = page.locator('[data-testid="user-menu-topics-entry"]');
   await expect(entry).toBeVisible();
   await expect(page.locator('[data-testid="menu-system-status"]')).toBeVisible();
   await expect(page.locator('[data-testid="user-menu-topics-back"]')).toHaveCount(0);
 
-  // La voce scende al piano Topics: indietro + le righe.
+  // The entry goes down to the Topics level: back + the rows.
   await entry.tap();
   await expect(page.locator('[data-testid="user-menu-topics-back"]')).toBeVisible();
   await expect(page.locator('[data-testid="topics-menu-view"]')).toBeVisible();
   await expect(entry).toHaveCount(0);
 
-  // E indietro risale alla radice.
+  // And back climbs to the root.
   await page.locator('[data-testid="user-menu-topics-back"]').tap();
   await expect(entry).toBeVisible();
   await expect(page.locator('[data-testid="menu-system-status"]')).toBeVisible();
 });
 
-/** Rettangolo, centro del glifo, raggi e parola di ogni tasto della fila. */
+/** Rectangle, glyph centre, radii and word of every key in the row. */
 async function buttons(page: Page) {
   return page.evaluate(() => {
     const bar = document.querySelector('[data-testid="mobile-chrome-bar"]')!;
@@ -178,8 +178,8 @@ async function buttons(page: Page) {
         const r = b.getBoundingClientRect();
         const g = (b.querySelector("svg") ?? b.querySelector<HTMLElement>(".rounded-full")) as Element;
         const gr = g.getBoundingClientRect();
-        // La parola, non il primo `span`: la porta dell'attesa avvolge il
-        // glifo in uno `span.relative` che non è lei.
+        // The word, not the first `span`: the waiting door wraps the
+        // glyph in a `span.relative` that is not it.
         const word = b.querySelector("span.pointer-events-none") as HTMLElement | null;
         const wr = word?.getBoundingClientRect();
         const s = getComputedStyle(b);
@@ -209,19 +209,19 @@ test("MOBILE-CHROME-08: raggi, aria e glifi al centro", async ({ page }) => {
   const first = doors[0]!;
   const last = doors[doors.length - 1]!;
 
-  // Il basso esterno del primo e dell'ultimo è sopra lo standard: segue il vetro.
+  // The outer bottom of the first and last is above the standard: it follows the glass.
   expect(first.bl).toBeGreaterThan(12);
   expect(last.br).toBeGreaterThan(12);
 
-  // PASSO fra i tasti, SOPRA sopra: l'unica aria orizzontale e quella in alto.
+  // STEP between keys, ROOM above: the only horizontal air and the one on top.
   for (let i = 1; i < doors.length; i++) {
     const gap = doors[i]!.x - (doors[i - 1]!.x + doors[i - 1]!.w);
     expect(Math.abs(gap - 6), `buco fra ${doors[i - 1]!.id} e ${doors[i]!.id}`).toBeLessThanOrEqual(1);
   }
   expect(Math.abs(barH - first.h - 6)).toBeLessThanOrEqual(1);
 
-  // Il glifo al centro su entrambi gli assi, la parola sotto fuori dal flusso
-  // con aria misurabile fra il glifo e il fondo del tasto.
+  // The glyph centred on both axes, the word below outside the flow
+  // with measurable air between the glyph and the bottom of the key.
   for (const d of doors) {
     expect(Math.abs(d.dcx), `${d.id} dcx`).toBeLessThanOrEqual(1);
     expect(Math.abs(d.dcy), `${d.id} dcy`).toBeLessThanOrEqual(1);
@@ -237,8 +237,8 @@ test("MOBILE-CHROME-09: Cerca equidistante", async ({ page }) => {
   expect(doors.length).toBe(5);
   expect(doors[0]!.id).toBe("mobile-chrome-search");
 
-  // Un PASSO unico: il buco di Cerca è il buco degli altri, e il passo fra i
-  // centri dei glifi è lo stesso per tutta la fila.
+  // A single STEP: the Search gap is the others' gap, and the step between
+  // glyph centres is the same across the whole row.
   const gaps = doors.slice(1).map((d, i) => d.x - (doors[i]!.x + doors[i]!.w));
   const steps = doors.slice(1).map((d, i) => d.cx - doors[i]!.cx);
   for (let i = 1; i < gaps.length; i++) {
@@ -252,7 +252,7 @@ test("MOBILE-CHROME-10: Cerca nel design system e dentro la safe area", async ({
   await open(page);
   await notch(page, NOTCH);
 
-  await page.locator(CERCA).tap();
+  await page.locator(SEARCH).tap();
   const pal = page.locator('[data-testid="command-palette"]');
   await expect(pal).toBeVisible();
   await waitForLayoutSettled(page, '[data-testid="command-palette"]');
@@ -260,15 +260,15 @@ test("MOBILE-CHROME-10: Cerca nel design system e dentro la safe area", async ({
   const m = await page.evaluate(() => {
     const root = document.querySelector("[data-testid=\"command-palette\"]") as HTMLElement;
     const panel = root.children[0] as HTMLElement;
-    // Il fondo dell'app, letto dalla stessa variabile che lo dichiara.
+    // The app background, read from the same variable that declares it.
     const probe = document.createElement("div");
     probe.style.background = "var(--bg)";
     document.body.appendChild(probe);
     const appBg = getComputedStyle(probe).backgroundColor;
     probe.remove();
     const input = root.querySelector("input")!;
-    // Ogni nodo che interseca lo schermo deve finire sopra l'indicatore: la
-    // pagina tiene `--sab` di rispetto in fondo, non solo `--sat` sopra.
+    // Every node crossing the screen must end above the indicator: the
+    // page keeps `--sab` of clearance at the bottom, not only `--sat` on top.
     let worst = 0;
     for (const el of Array.from(panel.querySelectorAll("*"))) {
       const r = (el as HTMLElement).getBoundingClientRect();
@@ -284,15 +284,15 @@ test("MOBILE-CHROME-10: Cerca nel design system e dentro la safe area", async ({
       vh: window.innerHeight,
     };
   });
-  // Il fondo è quello dell'app, dipinto da y=0: nessuno stacco col notch.
+  // The background is the app's, painted from y=0: no seam at the notch.
   expect(m.panelBg).toBe(m.appBg);
   expect(m.panelTop).toBeLessThanOrEqual(1);
-  // E il contenuto sta dentro la safe area, sopra e sotto.
+  // And the content stays inside the safe area, top and bottom.
   expect(m.inputTop).toBeGreaterThanOrEqual(NOTCH);
   expect(m.paddingBottom).toBeGreaterThanOrEqual(BAND - 1);
   expect(m.worstBottom).toBeLessThanOrEqual(m.vh - BAND + 1);
 
-  // La si chiude col bottone indietro (il primo della pagina) e sparisce.
+  // It is closed with the back button (the first on the page) and it is gone.
   await pal.locator("button").first().tap();
   await expect(pal).toHaveCount(0);
 });
@@ -301,23 +301,23 @@ test("MOBILE-CHROME-11: a coda vuota «In attesa» apre il Now", async ({ page }
   test.info().annotations.push({ type: "spec", description: "MOBILE-CHROME-11" });
   await open(page);
 
-  // Viva a coda vuota: abilitata, non muta.
-  const door = page.locator(ATTESA);
+  // Alive with an empty queue: enabled, not muted.
+  const door = page.locator(WAITING);
   await expect(door).toBeEnabled();
   await door.tap();
   await expect(page.locator('[data-testid="inbox-panel-now"]')).toBeVisible();
 
-  // Escape la richiude (sul telefono è un foglio col suo scrim: la campanella
-  // sta dietro il velo e non si può ritoccare per chiudere).
+  // Escape closes it again (on the phone it is a sheet with its scrim: the bell
+  // sits behind the veil and cannot be tapped again to close).
   await page.keyboard.press("Escape");
   await expect(page.locator('[data-testid="inbox-panel"]')).toHaveCount(0);
 });
 
 test("MOBILE-CHROME-12: tap sulla matita apre la bozza, senza menu", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "MOBILE-CHROME-12" });
-  // Ogni chat che esiste ha una riga: quella che si apre senza righe è nuova
-  // per forza. (Le bozze non si leggono dal server: sono scratch locali e lo
-  // snapshot in uscita le spoglia — `selectSyncableSnapshot`.)
+  // Every existing chat has a row: the one opening with no rows is new
+  // by force. (Drafts are not read from the server: they are local scratch and
+  // the outgoing snapshot strips them, `selectSyncableSnapshot`.)
   const topics = (await (await request.get(`${E2E_BASE}/api/topics`)).json()) as {
     topics: Record<string, { sessionKey?: string }>;
   };
@@ -327,14 +327,14 @@ test("MOBILE-CHROME-12: tap sulla matita apre la bozza, senza menu", async ({ pa
     await seedMessage(request, { sessionKey, role: "user", content: "ciao" });
   }
   await open(page);
-  // La riga c'è davvero, dietro il cassetto: se non si vedesse, lo zero dopo
-  // sarebbe vacuo invece che una prova.
+  // The row is really there, behind the drawer: were it not visible, the zero
+  // after would be vacuous instead of proof.
   await expect.poll(() => visibleMessages(page)).toBeGreaterThanOrEqual(1);
 
-  await page.locator(MATITA).tap();
-  // Il cassetto si chiude e davanti va una chat senza righe — la bozza, non
-  // una delle venti. Il menu no.
-  await expect(page.locator(COLONNA)).toBeHidden();
+  await page.locator(PENCIL).tap();
+  // The drawer closes and a chat with no rows comes forward, the draft, not
+  // one of the twenty. No menu.
+  await expect(page.locator(COLUMN)).toBeHidden();
   await expect.poll(() => visibleMessages(page)).toBe(0);
   await expect(page.locator('[data-testid="chat-message-input"]')).toBeVisible();
   await expect(page.locator('[data-testid="pane-add-menu"]')).toHaveCount(0);
@@ -344,13 +344,13 @@ test("MOBILE-CHROME-12b: pressione lunga apre l'intero menu, senza chat", async 
   test.info().annotations.push({ type: "spec", description: "MOBILE-CHROME-12" });
   await open(page);
 
-  // La pressione lunga, sintetizzata dove il dito la mette: `touchstart`,
-  // seicento millisecondi TENUTI (la tenuta È il gesto, come la velocità di
-  // uno swipe — non un'attesa del driver), `touchend`, e il clic che il
-  // browser sintetizzerebbe dopo, che il trigger deve mangiarsi. Eventi nudi
-  // con le touches appiccicate: `new Touch()` è un costruttore illegale fuori
-  // da un dito vero (WebKit desktop), e a React basta che l'evento si chiami
-  // `touchstart` e porti le touches.
+  // The long press, synthesised where the finger puts it: `touchstart`,
+  // six hundred milliseconds HELD (the hold IS the gesture, like the speed of
+  // a swipe, not a driver wait), `touchend`, and the click the
+  // browser would synthesise after, which the trigger must swallow. Bare events
+  // with the touches stuck on: `new Touch()` is an illegal constructor outside
+  // a real finger (desktop WebKit), and React only needs the event to be named
+  // `touchstart` and to carry the touches.
   await page.evaluate(() => {
     const btn = document.querySelector('[data-testid="pane-add-menu-trigger"]') as HTMLElement;
     const r = btn.getBoundingClientRect();
@@ -372,12 +372,12 @@ test("MOBILE-CHROME-12b: pressione lunga apre l'intero menu, senza chat", async 
     });
   });
 
-  // Il menu c'è, popolato (lo stesso elenco del desktop, non un sottoinsieme),
-  // e nessuna chat si è aperta: il cassetto è ancora lì.
+  // The menu is there, populated (the same list as the desktop, not a subset),
+  // and no chat has opened: the drawer is still there.
   const menu = page.locator('[data-testid="pane-add-menu"]');
   await expect(menu).toBeVisible();
   expect(await menu.locator("button").count()).toBeGreaterThanOrEqual(3);
-  await expect(page.locator(COLONNA)).toBeVisible();
+  await expect(page.locator(COLUMN)).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
