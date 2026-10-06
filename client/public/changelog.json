@@ -11,6 +11,41 @@
           "it": "Accetta advisory sharp/librsvg CVE-2026-96889 in baseline",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "newtab-arc: aggiungi classifica e modello sezioni puri con unit test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: estrai la riga suggerimento condivisa con la tab sheet",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: campo con focus, suggerimenti e nota nella scheda nuova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: requisiti NEWTAB-ARC-01..04 e spec e2e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sistema lingua: NEW_TAB_* inglesi, fixture example.it nella spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Inoltra Esc dalla new-tab alla sheet, exit ghost, guardia document",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza i monogrammi favicon al minimo di leggibilita 11px",
+          "en": "",
+          "scope": null
         }
       ]
     }
