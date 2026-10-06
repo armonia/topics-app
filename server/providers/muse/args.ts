@@ -80,7 +80,7 @@ export function buildMuseArgs(opts: MuseExecArgsOptions): string[] {
  * but `--no-session-log`: a completion is not a conversation and must not
  * leave a session in the log on every call (both flags together are exit 2).
  */
-export function buildMuseOneshotArgs(opts: { model?: string | null; reasoningEffort?: string | null; promptFile: string }): string[] {
+export function buildMuseSingleShotArgs(opts: { model?: string | null; reasoningEffort?: string | null; promptFile: string }): string[] {
   const args = ["exec", "--no-session-log"];
   if (opts.model) args.push("--model", opts.model);
   if (opts.reasoningEffort) args.push("--reasoning-effort", opts.reasoningEffort);

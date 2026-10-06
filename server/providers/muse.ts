@@ -39,7 +39,7 @@ import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { resolveMuseBin } from "../lib/muse-bin";
 import { resolveMuseReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession } from "../lib/agent-workspace";
-import { buildMuseArgs, buildMuseOneshotArgs } from "./muse/args";
+import { buildMuseArgs, buildMuseSingleShotArgs } from "./muse/args";
 import { readMuseModels, readMuseConfiguredModel, museDefaultModel, museContextWindows, museModelInfo } from "./muse/models";
 import type { ModelInfo } from "../../shared/types";
 import { getDatabase } from "../db";
@@ -590,10 +590,10 @@ export class MuseProvider implements AIProvider {
       if (surfaced) fullText += surfaced;
     });
 
-    let stderrBuf = "";
+    let stderrText = "";
     child.stderr!.on("data", (d: Buffer) => {
-      stderrBuf += d.toString();
-      if (stderrBuf.length > 4096) stderrBuf = stderrBuf.slice(-4096);
+      stderrText += d.toString();
+      if (stderrText.length > 4096) stderrText = stderrText.slice(-4096);
     });
 
     const timeout = armMuseTurnTimeout({
@@ -693,7 +693,7 @@ export class MuseProvider implements AIProvider {
       } else {
         // Sanitize stderr: don't echo full upstream errors to the UI (may leak
         // tokens/paths). Log full tail server-side, surface a generic message.
-        const tail = stderrBuf.trim().split("\n").slice(-3).join("\n");
+        const tail = stderrText.trim().split("\n").slice(-3).join("\n");
         if (tail) console.warn(`[muse] exit ${code}: ${tail}`);
         handler.onError(`Muse exited with code ${code}`);
       }
@@ -904,7 +904,7 @@ export class MuseProvider implements AIProvider {
 
     // Only forward --model when explicitly configured; otherwise let the CLI
     // pick from settings.json. Mirrors sendChat.
-    const args = buildMuseOneshotArgs({
+    const args = buildMuseSingleShotArgs({
       model: options?.model ?? this.config.model,
       reasoningEffort: resolveMuseReasoningEffort(),
       promptFile,

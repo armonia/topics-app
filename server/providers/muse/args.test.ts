@@ -1,6 +1,6 @@
 /** @covers MUSE-02 */
 import { expect, test } from 'bun:test';
-import { buildMuseArgs, buildMuseOneshotArgs } from './args';
+import { buildMuseArgs, buildMuseSingleShotArgs } from './args';
 
 test('a chat turn is `exec --json` with session, workspace and prompt file', () => {
   const args = buildMuseArgs({
@@ -53,7 +53,7 @@ test('full-access bypasses approval and sandbox; anything else leaves the CLI de
 });
 
 test('a oneshot completion is plain `exec` with --no-session-log and no --json', () => {
-  const args = buildMuseOneshotArgs({ model: 'muse-spark-1.3', reasoningEffort: 'minimal', promptFile: '/tmp/p/prompt.md' });
+  const args = buildMuseSingleShotArgs({ model: 'muse-spark-1.3', reasoningEffort: 'minimal', promptFile: '/tmp/p/prompt.md' });
   expect(args[0]).toBe('exec');
   expect(args).not.toContain('--json');
   // A completion is not a conversation: nothing must land in the session log.

@@ -20,7 +20,7 @@ import type { StreamHandler } from "./types";
 
 let tempRoot: string;
 const previousBin = process.env.MUSE_BIN;
-const previousXdg = process.env.XDG_DATA_HOME;
+const previousDataDir = process.env.XDG_DATA_HOME;
 
 function seedTopic(sessionKey: string): void {
   const now = new Date().toISOString();
@@ -55,7 +55,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (previousBin === undefined) delete process.env.MUSE_BIN; else process.env.MUSE_BIN = previousBin;
-  if (previousXdg === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = previousXdg;
+  if (previousDataDir === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = previousDataDir;
   _resetMuseBinCache();
   closeDatabase();
   rmSync(tempRoot, { recursive: true, force: true });
@@ -106,21 +106,21 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      await provider.sendChat(sessionKey, "hello TOOL", rec.handler, {
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "hello TOOL", tape.handler, {
         history: [
           { role: "user", content: "earlier turn" },
           { role: "assistant", content: "earlier reply" },
         ],
       });
-      const result = await timed(rec.done, "onDone");
+      const result = await timed(tape.done, "onDone");
       expect(result).toContain("echo");
       // The prompt file carried the transcript (fresh turn + history).
       expect(result).toContain("earlier");
-      expect(rec.texts.join("")).toContain("echo");
-      expect(rec.starts).toEqual([{ id: "task-fake-read", name: "read_file" }]);
-      expect(rec.results).toEqual([{ id: "task-fake-read", result: "fake file contents", error: false }]);
-      expect(rec.errors).toEqual([]);
+      expect(tape.texts.join("")).toContain("echo");
+      expect(tape.starts).toEqual([{ id: "task-fake-read", name: "read_file" }]);
+      expect(tape.results).toEqual([{ id: "task-fake-read", result: "fake file contents", error: false }]);
+      expect(tape.errors).toEqual([]);
       // Fresh turn: the sid the CLI saw is the one stored for the resume.
       const sid = storedSid(sessionKey);
       expect(sid).toBeTruthy();
@@ -173,11 +173,11 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      await provider.sendChat(sessionKey, "after prune", rec.handler, {
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "after prune", tape.handler, {
         history: [{ role: "user", content: "earlier turn" }],
       });
-      const result = await timed(rec.done, "onDone");
+      const result = await timed(tape.done, "onDone");
       const sid = storedSid(sessionKey);
       expect(sid).toBeTruthy();
       expect(sid).not.toBe("orphan-sid");
@@ -207,9 +207,9 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      await provider.sendChat(sessionKey, "boom CRASH", rec.handler);
-      const result = await timed(rec.done, "onDone-or-error");
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "boom CRASH", tape.handler);
+      const result = await timed(tape.done, "onDone-or-error");
       expect(result).toContain("error:Muse exited with code 3");
       // The dead sid must not survive: otherwise every future turn repeats the
       // same failing resume forever.
@@ -226,16 +226,16 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      const origDelta = rec.handler.onTextDelta;
-      rec.handler.onTextDelta = (t, full) => {
+      const tape = recorder();
+      const origDelta = tape.handler.onTextDelta;
+      tape.handler.onTextDelta = (t, full) => {
         origDelta(t, full);
         if (t.includes("slow:started")) void provider.abort(sessionKey);
       };
-      await provider.sendChat(sessionKey, "take long SLOW", rec.handler);
-      const partial = await timed(rec.aborted, "onAborted");
+      await provider.sendChat(sessionKey, "take long SLOW", tape.handler);
+      const partial = await timed(tape.aborted, "onAborted");
       expect(partial).toContain("slow:started");
-      expect(rec.errors).toEqual([]);
+      expect(tape.errors).toEqual([]);
       expect(provider.ownsSession(sessionKey)).toBe(false);
     } finally {
       provider.stop();
@@ -248,12 +248,12 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      await provider.sendChat(sessionKey, "boom CRASH", rec.handler);
-      const result = await timed(rec.done, "onError");
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "boom CRASH", tape.handler);
+      const result = await timed(tape.done, "onError");
       expect(result).toBe("error:Muse exited with code 3");
-      expect(rec.errors.join("\n")).not.toContain("sk-secret");
-      expect(rec.errors.join("\n")).not.toContain("/etc/passwd");
+      expect(tape.errors.join("\n")).not.toContain("sk-secret");
+      expect(tape.errors.join("\n")).not.toContain("/etc/passwd");
     } finally {
       provider.stop();
     }
@@ -265,9 +265,9 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      await provider.sendChat(sessionKey, "doom FAIL", rec.handler);
-      const result = await timed(rec.done, "onError");
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "doom FAIL", tape.handler);
+      const result = await timed(tape.done, "onError");
       expect(result).toContain("error:Muse run failed: fake model exploded");
     } finally {
       provider.stop();
@@ -280,9 +280,9 @@ describe("muse-integration", () => {
     const provider = new MuseProvider({ type: "muse", defaultWorkspace: tempRoot });
     provider.start();
     try {
-      const rec = recorder();
-      await provider.sendChat(sessionKey, "quiet NOTERMINAL", rec.handler);
-      const result = await timed(rec.done, "onError");
+      const tape = recorder();
+      await provider.sendChat(sessionKey, "quiet NOTERMINAL", tape.handler);
+      const result = await timed(tape.done, "onError");
       expect(result).toBe("error:Muse turn ended without a terminal event");
     } finally {
       provider.stop();

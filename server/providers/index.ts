@@ -456,8 +456,12 @@ export async function initProviders(): Promise<AIProvider[]> {
   // still visible in Settings via `detectAgents()` (bin presence).
   if (!_providers.has("muse") && await detectMuseCli()) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- the binary exists; the provider module loads here or not at all
-    const { museHasStoredSession } = require("./muse") as typeof import("./muse");
-    if (museHasStoredSession()) {
+    const { museHasStoredSession, museAuthPath } = require("./muse") as typeof import("./muse");
+    if (!museHasStoredSession()) {
+      // Tells a missing login apart from a missing binary: without this line
+      // both look like "muse never registered" in a bench log.
+      console.warn(`[Providers] muse CLI detected but no stored session at ${museAuthPath()}; skipping registration`);
+    } else {
       try {
         const config: MuseProviderConfig = {
           type: "muse",
