@@ -1,11 +1,11 @@
 /**
  * THE BODY OF THE MODEL SELECTOR (MSEL-02..08, revision 2026-10-04 §4,
- * list-only since the 2026-10-06 amendment): the Run-in-Topics band, the
- * search with Automatic beside it, the companies in one vertical list, and
- * the providers at the foot. Every surface that picks a model draws this,
- * through `ModelSelector`, which owns the popover around it. The `columns`
- * layout stays a supported value of the `layout` prop, with its unit tests,
- * though no product surface uses it: `ModelSelector` always passes `list`.
+ * accordion since the compact amendment): the Run-in-Topics band, the
+ * search with Automatic beside it, the companies in one vertical accordion,
+ * and the providers at the foot. Every surface that picks a model draws
+ * this, through `ModelSelector`, which owns the popover around it. The
+ * side-by-side `columns` layout is gone with the same amendment: one list,
+ * no branches.
  *
  * The body is not a listbox: it is a dialog of company groups (`role=group`)
  * of buttons, with nothing interactive inside anything interactive. The engine
@@ -15,7 +15,7 @@
  * Its own chunk (`modelListLazy.ts`): it is the content of a popover, nothing
  * of it is on screen at first paint.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, KeyRound, Route, Search, Sparkles } from 'lucide-react';
 import type { ProvidersSnapshot } from '../../../types';
 import type { ProvidersTarget } from '../../Settings/AIProvidersSection';
@@ -24,7 +24,6 @@ import { contextWindowFor, formatContextWindow } from '../../../../../shared/con
 import { POPOVER_ITEM } from '../../../lib/popoverStyles';
 import { usePlanUsage } from '../../../state/planUsage';
 import { useT } from '../../../hooks/useT';
-import { isTypingSurface } from '../../../hooks/useMenuKeyboard';
 import { SEGNALE_ATTESA } from '../../Sidebar/chromeSignals';
 import { claudePlanWarning, providersCountTail } from '../../Sidebar/formLevelTails';
 import {
@@ -43,7 +42,6 @@ import {
 export interface ModelListProps {
   scope: TopicsRouteScope;
   variant: 'compact' | 'full';
-  layout: 'columns' | 'list';
   value: AiExecutionSelection;
   /** What the band judges when it differs from `value` (Automatic on a card
    *  runs the board default; a chat with no override runs its pin). */
@@ -72,16 +70,12 @@ export interface ModelListProps {
 export const HIDDEN_CONNECT_KEY = 'topics.modelSelector.hiddenConnect';
 /** The active ink: 4.5:1 on the popover in both themes (revision §4.4). */
 const ACTIVE_INK = 'text-blue-800 dark:text-blue-300';
-/** The column dividers, `#d3d5d9` / `#3d4044` as the revision draws them (§4.4). */
-const COLUMN_DIVIDER = 'border-[#d3d5d9] dark:border-[#3d4044]';
 const STATUS_DOT: Record<GroupStatus, string> = {
   ready: 'bg-emerald-600 dark:bg-emerald-400',
   unavailable: 'bg-zinc-400 dark:bg-zinc-500',
   error: 'bg-red-600 dark:bg-red-400',
   loading: 'bg-blue-600 dark:bg-blue-400 animate-pulse motion-reduce:animate-none',
 };
-const NAVIGABLE = 'button:not([disabled]):not([data-roving-skip]):not([role="radio"][aria-checked="false"])';
-
 function readHidden(): string[] {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(HIDDEN_CONNECT_KEY) ?? '[]');
@@ -366,18 +360,24 @@ function ConnectBox({ group, disabled, onHide, onClose, onOpenProviders }: {
 }
 
 /**
- * The heading of a group, the same two lines on every group, stacked ones
- * included: the status dot and the COMPANY (plus the plan warning on
- * Anthropic), then «via <who runs it>» with ⌄ when two engines run the
- * group. On a list both sit on one 44px row.
+ * The heading of a group: the accordion toggle (chevron, status dot and
+ * COMPANY, plus the plan warning on Anthropic), then «via <who runs it>»
+ * with ⌄ when two engines run the group. The toggle is a button only around
+ * the first line: the engine choice stays a SIBLING below it, never nested
+ * (axe `nested-interactive`). On a list both sit on one 44px row, and the
+ * toggle fills it, so the sheet keeps its 44px targets (AC-37).
  */
-function GroupHeading({ group, headingId, list, open, onToggle, planWarning }: {
+function GroupHeading({ group, headingId, open, onToggle, planWarning, expanded, onExpandToggle, expandDisabled }: {
   group: CatalogGroup;
   headingId: string;
-  list: boolean;
   open: boolean;
   onToggle: () => void;
   planWarning: string | null;
+  /** The section's accordion: open rows show, closed ones do not. */
+  expanded: boolean;
+  onExpandToggle: () => void;
+  /** While a search filters, every matching section stays open. */
+  expandDisabled: boolean;
 }) {
   const tr = useT();
   const who = group.who ? tr('ai.selector.route.via', { engine: group.who }) : null;
@@ -400,25 +400,33 @@ function GroupHeading({ group, headingId, list, open, onToggle, planWarning }: {
   return (
     <div
       data-testid="model-section-heading"
-      className={`sticky top-0 z-10 flex h-11 bg-[var(--popover-bg)] px-3 ${list ? 'items-center justify-between gap-2' : 'flex-col justify-center gap-0.5'}`}
+      className="sticky top-0 z-10 flex h-11 items-center justify-between gap-2 bg-[var(--popover-bg)] px-3"
     >
-      <span className="flex min-w-0 items-center gap-1.5">
+      <button
+        type="button"
+        data-testid="model-section-toggle"
+        aria-expanded={expanded}
+        disabled={expandDisabled}
+        onClick={onExpandToggle}
+        className="flex h-11 min-w-0 items-center gap-1.5 rounded outline-none focus-visible:bg-app-hover disabled:cursor-default"
+      >
+        {expanded
+          ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-secondary" aria-hidden="true" />
+          : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-secondary" aria-hidden="true" />}
         <StatusDot status={group.status} />
         <span id={headingId} className="truncate text-mini font-semibold uppercase leading-4 tracking-wide text-app-text-secondary">{group.label}</span>
         {planWarning && (
           <span data-testid="model-plan-warning" className={`ml-auto shrink-0 text-mini leading-4 tabular-nums ${SEGNALE_ATTESA}`}>{planWarning}</span>
         )}
-      </span>
+      </button>
       {engineLine && <span className="flex min-w-0 items-center leading-4">{engineLine}</span>}
     </div>
   );
 }
 
-function GroupView({ group, column, props, list, expanded, onExpand, engineOpen, onEngineOpen, onEngine, onHide, planWarning }: {
+function GroupView({ group, props, expanded, onExpand, engineOpen, onEngineOpen, onEngine, onHide, planWarning, open, onToggle, toggleDisabled }: {
   group: CatalogGroup;
-  column: number;
   props: ModelListProps;
-  list: boolean;
   expanded: boolean;
   onExpand: () => void;
   engineOpen: boolean;
@@ -426,6 +434,10 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
   onEngine: (name: string) => void;
   onHide: () => void;
   planWarning: string | null;
+  /** The accordion: a closed section renders its heading only. */
+  open: boolean;
+  onToggle: () => void;
+  toggleDisabled: boolean;
 }) {
   const tr = useT();
   const headingId = `model-group-${domId(group.maker)}`;
@@ -474,9 +486,13 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
   }, [engineOpen, onEngineOpen, focusEngineButton]);
 
   return (
-    <div ref={groupRef} role="group" aria-labelledby={headingId} data-testid={`model-section-${group.maker}`} data-maker={group.maker} data-column={column}>
-      <GroupHeading group={group} headingId={headingId} list={list} open={engineOpen} onToggle={() => onEngineOpen(!engineOpen)} planWarning={planWarning} />
-      {engineOpen && (
+    <div ref={groupRef} role="group" aria-labelledby={headingId} data-testid={`model-section-${group.maker}`} data-maker={group.maker}>
+      <GroupHeading
+        group={group} headingId={headingId} planWarning={planWarning}
+        open={engineOpen} onToggle={() => { if (!open) onToggle(); onEngineOpen(!engineOpen); }}
+        expanded={open} onExpandToggle={onToggle} expandDisabled={toggleDisabled}
+      />
+      {open && engineOpen && (
         <div
           ref={radiosRef}
           role="radiogroup"
@@ -508,6 +524,7 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
           })}
         </div>
       )}
+      {open && (<>
       {rows.map((row) => (
         <ModelRow
           key={row.key} row={row} value={props.value} scope={props.scope} variant={props.variant}
@@ -527,13 +544,14 @@ function GroupView({ group, column, props, list, expanded, onExpand, engineOpen,
           <span className="min-w-0 flex-1 truncate">{expanded ? tr('ai.selector.olderHide') : tr('ai.selector.older', { n: group.older.length })}</span>
         </button>
       )}
+      </>)}
     </div>
   );
 }
 
 export function ModelList(props: ModelListProps) {
   const tr = useT();
-  const { scope, value, layout, onSelect, onClose } = props;
+  const { scope, value, onSelect, onClose } = props;
   const routingEnabled = props.topicsRouting?.enabled ?? false;
   const [hidden, setHidden] = useState<string[]>(readHidden);
   const [groupEngines, setGroupEngines] = useState<Record<string, string>>({});
@@ -545,9 +563,28 @@ export function ModelList(props: ModelListProps) {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [engineOpen, setEngineOpen] = useState<string | null>(null);
+  // The accordion, one toggle per section for this opening (list only; in
+  // `columns` every section stays open). Untoggled sections follow
+  // `defaultOpen`: the choice's section, else the first.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const defaultOpen = useMemo(() => {
+    if (value.model) {
+      const hit = all.find((group) => [...group.rows, ...group.older]
+        .some((row) => !row.automatic && (row.model === value.model || row.longModel === value.model)));
+      if (hit) return hit.maker;
+    }
+    if (value.provider) {
+      const hit = all.find((group) => group.engine?.name === value.provider
+        || [...group.rows, ...group.older].some((row) => row.engine?.name === value.provider)
+        || group.connect.some((entry) => entry.name === value.provider));
+      if (hit) return hit.maker;
+    }
+    return all[0]?.maker ?? null;
+  }, [all, value.model, value.provider]);
   const searchRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const groups = useMemo(() => filterModelCatalog(all, query, tr('ai.selector.auto')), [all, query, tr]);
+  // The catalog's order, fixed companies first: the list renders it flat.
   const columns = useMemo(() => catalogColumns(groups), [groups]);
   const target = props.routingTarget ?? value;
   const route = routeOf(routingEnabled, target, snapshot, scope);
@@ -598,34 +635,10 @@ export function ModelList(props: ModelListProps) {
     return () => cancelAnimationFrame(handle);
   }, [props.focusSearch]);
 
-  // Tab stops once per column (roving tabindex): the chosen row of the column
-  // or its first stop. Every scrolling column so holds one focusable element.
-  const layoutKey = `${layout}|${query}|${JSON.stringify(expanded)}|${engineOpen}|${columns.map((column) => column.map((g) => g.maker).join(',')).join('/')}`;
-  useLayoutEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const containers = [...panel.querySelectorAll<HTMLElement>('[data-model-column]')];
-    for (const container of containers) {
-      const items = [...container.querySelectorAll<HTMLElement>(NAVIGABLE)];
-      const keep = items.find((item) => item.getAttribute('aria-pressed') === 'true') ?? items[0];
-      for (const item of items) item.tabIndex = item === keep ? 0 : -1;
-    }
-    const onFocus = (event: FocusEvent) => {
-      const item = event.target as HTMLElement;
-      const container = item.closest<HTMLElement>('[data-model-column]');
-      if (!container || !item.matches(NAVIGABLE)) return;
-      for (const other of container.querySelectorAll<HTMLElement>(NAVIGABLE)) other.tabIndex = other === item ? 0 : -1;
-    };
-    panel.addEventListener('focusin', onFocus);
-    return () => panel.removeEventListener('focusin', onFocus);
-  }, [layoutKey]);
-
-  // On open the chosen row is brought into view inside the scrolling list,
-  // or inside its own column when the layout has them (AC-05).
+  // On open the chosen row is brought into view inside the scrolling list (AC-05).
   useEffect(() => {
     const row = panelRef.current?.querySelector<HTMLElement>('[data-testid="model-selector-sections"] [aria-pressed="true"]');
-    const container = row?.closest<HTMLElement>('[data-model-column]')
-      ?? panelRef.current?.querySelector<HTMLElement>('[data-testid="model-selector-sections"]');
+    const container = panelRef.current?.querySelector<HTMLElement>('[data-testid="model-selector-sections"]');
     if (!row || !container) return;
     const rowBox = row.getBoundingClientRect();
     const box = container.getBoundingClientRect();
@@ -633,30 +646,8 @@ export function ModelList(props: ModelListProps) {
     else if (rowBox.top < box.top + 44) container.scrollTop -= box.top + 44 - rowBox.top;
   }, []);
 
-  // ← → go to the next column, onto the stop nearest in height (§4.7).
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (layout !== 'columns' || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
-    if (isTypingSurface(event.target)) return;
-    const item = event.target as HTMLElement;
-    const container = item.closest<HTMLElement>('[data-model-column]');
-    if (!container || item.closest('[role="radiogroup"]')) return;
-    const index = Number(container.dataset.modelColumn) + (event.key === 'ArrowRight' ? 1 : -1);
-    const next = panelRef.current?.querySelector<HTMLElement>(`[data-model-column="${index}"]`);
-    if (!next) return;
-    event.preventDefault();
-    const y = item.getBoundingClientRect().top;
-    const stops = [...next.querySelectorAll<HTMLElement>(NAVIGABLE)];
-    const nearest = stops.reduce<HTMLElement | null>((best, stop) => {
-      if (!best) return stop;
-      return Math.abs(stop.getBoundingClientRect().top - y) < Math.abs(best.getBoundingClientRect().top - y) ? stop : best;
-    }, null);
-    nearest?.focus();
-  };
-
-  const isColumns = layout === 'columns';
   const automaticSelected = value.provider === null && value.model === null;
   const automaticHintId = `model-auto-hint-${domId(scope)}-${props.variant}`;
-  const hintVisible = !isColumns || props.variant === 'full';
   const automaticButton = (
     <button
       type="button"
@@ -665,43 +656,55 @@ export function ModelList(props: ModelListProps) {
       disabled={props.disabled}
       data-testid="model-row-automatic"
       onClick={() => pick({ provider: null, model: null })}
-      className={isColumns
-        ? `flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-compact text-app-text hover:bg-app-hover disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`
-        : `${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`}
+      className={`${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`}
     >
-      <Sparkles className={`h-3.5 w-3.5 shrink-0 text-app-text-secondary ${isColumns ? '' : 'mt-0.5'}`} aria-hidden="true" />
-      <span className={isColumns ? 'whitespace-nowrap' : 'min-w-0 flex-1'}>
+      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-app-text-secondary" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
         <span className="block">{props.automatic.who ? `${tr('ai.selector.auto')} · ${props.automatic.who}` : tr('ai.selector.auto')}</span>
-        {!isColumns && <span id={automaticHintId} className="block text-mini leading-snug text-app-text-secondary">{props.automatic.hint}</span>}
+        <span
+          id={automaticHintId}
+          // Compact desktop hides the sentence (the button already names who
+          // decides); the roomy full variant and the phone sheet keep it.
+          className={props.variant === 'full'
+            ? 'block text-mini leading-snug text-app-text-secondary'
+            : 'sr-only coarse:not-sr-only coarse:block coarse:text-mini coarse:leading-snug coarse:text-app-text-secondary'}
+        >
+          {props.automatic.hint}
+        </span>
       </span>
       {automaticSelected && <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
     </button>
   );
-  const groupView = (group: CatalogGroup, column: number) => (
-    <GroupView
-      key={group.maker}
-      group={group}
-      column={column}
-      props={{ ...props, onSelect: pick }}
-      list={!isColumns}
-      expanded={!!expanded[group.maker]}
-      onExpand={() => setExpanded((current) => ({ ...current, [group.maker]: !current[group.maker] }))}
-      engineOpen={engineOpen === group.maker}
-      onEngineOpen={(open) => setEngineOpen(open ? group.maker : null)}
-      onEngine={(name) => chooseEngine(group, name)}
-      onHide={() => hideConnect(group)}
-      planWarning={group.maker === 'anthropic' ? planWarning : null}
-    />
-  );
+  const groupView = (group: CatalogGroup) => {
+    // While a search filters, every matching section stays open (a toggle
+    // then only writes the state the clear goes back to).
+    const sectionOpen = query !== '' || (openSections[group.maker] ?? group.maker === defaultOpen);
+    return (
+      <GroupView
+        key={group.maker}
+        group={group}
+        props={{ ...props, onSelect: pick }}
+        expanded={!!expanded[group.maker]}
+        onExpand={() => setExpanded((current) => ({ ...current, [group.maker]: !current[group.maker] }))}
+        engineOpen={engineOpen === group.maker}
+        onEngineOpen={(open) => setEngineOpen(open ? group.maker : null)}
+        onEngine={(name) => chooseEngine(group, name)}
+        onHide={() => hideConnect(group)}
+        planWarning={group.maker === 'anthropic' ? planWarning : null}
+        open={sectionOpen}
+        onToggle={() => setOpenSections((current) => ({ ...current, [group.maker]: !(current[group.maker] ?? group.maker === defaultOpen) }))}
+        toggleDisabled={query !== ''}
+      />
+    );
+  };
   return (
     <div
       ref={panelRef}
       data-model-selector-panel=""
       data-testid="model-selector-panel"
       data-variant={props.variant}
-      data-layout={layout}
+      data-layout="list"
       data-scope={scope}
-      onKeyDown={onKeyDown}
       className="flex min-h-0 flex-1 flex-col"
     >
       {props.topicsRouting && (
@@ -735,38 +738,15 @@ export function ModelList(props: ModelListProps) {
             className="h-8 coarse:h-11 min-w-0 flex-1 bg-transparent text-compact text-app-text outline-none placeholder:text-app-text-faint"
           />
         </label>
-        {isColumns && automaticButton}
       </div>
-      {isColumns && (
-        <p id={automaticHintId} className={hintVisible ? 'mx-3 mb-1 shrink-0 text-mini leading-snug text-app-text-secondary' : 'sr-only'}>
-          {props.automatic.hint}
-        </p>
-      )}
       <div data-model-list-body="" className="flex min-h-0 flex-1 flex-col">
         <div
           data-model-list-sections=""
           data-testid="model-selector-sections"
-          className={isColumns
-            // The dividers of the columns are the design's own (revision §4.4,
-            // AC-38): `--border` is 1.09:1 on the popover in light and about
-            // 1:1 in dark, so the columns read as one block.
-            ? `grid min-h-0 flex-1 border-t ${COLUMN_DIVIDER}`
-            : 'min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-app-border'}
-          style={isColumns ? { gridTemplateColumns: `repeat(${Math.max(1, columns.length)}, minmax(0, 1fr))` } : undefined}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-app-border"
         >
-          {!isColumns && automaticButton}
-          {isColumns
-            ? columns.map((column, index) => (
-              <div
-                key={column.map((group) => group.maker).join(',')}
-                data-model-column={index}
-                data-testid="model-column"
-                className={`flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-l first:border-l-0 ${COLUMN_DIVIDER}`}
-              >
-                {column.map((group) => groupView(group, index))}
-              </div>
-            ))
-            : columns.flat().map((group) => groupView(group, 0))}
+          {automaticButton}
+          {columns.flat().map((group) => groupView(group))}
           {groups.length === 0 && (
             <p className="px-3 py-4 text-center text-mini text-app-text-secondary" data-testid="model-selector-empty">
               {query ? tr('chat.picker.noMatches') : tr('ai.selector.none')}

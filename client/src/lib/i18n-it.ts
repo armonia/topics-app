@@ -27,7 +27,7 @@ const IT: Dict = {
   ...ATTENTION_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
   'ai.selector.routing': 'Esegui in Topics',
-  'ai.selector.routingLine': 'Claude gira in Topics col tuo abbonamento, senza un processo per chat. Gli altri vanno diretti.',
+  'ai.selector.routingLine': 'Gli altri vanno diretti.',
   'ai.selector.route.topics': 'via Topics',
   'ai.selector.route.via': 'via {engine}',
   'ai.selector.route.direct.family': 'Questo modello va diretto: {engine} non passa da Topics.',

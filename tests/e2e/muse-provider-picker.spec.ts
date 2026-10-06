@@ -76,6 +76,8 @@ test.describe.serial("Muse provider picker", () => {
 
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
+    // A new topic chooses nothing, so the Muse section is closed: its heading opens it.
+    await popover.getByTestId("model-section-provider:muse").getByTestId("model-section-toggle").click();
     const current = popover.locator('[data-testid="model-row"][data-provider="muse"][data-model="muse-spark-1.3-contributor"]');
     await expect(current).toBeVisible({ timeout: 5_000 });
     await didascalia(page, "I modelli muse nel selettore della chat");
@@ -105,6 +107,8 @@ test.describe.serial("Muse provider picker", () => {
     await pickerBtn.click();
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
+    // A new topic chooses nothing, so the Muse section is closed: its heading opens it.
+    await popover.getByTestId("model-section-provider:muse").getByTestId("model-section-toggle").click();
     const current = popover.locator('[data-testid="model-row"][data-provider="muse"][data-model="muse-spark-1.3-contributor"]:not([aria-disabled="true"])');
     await expect(current).toBeVisible({ timeout: 5_000 });
     await current.click();

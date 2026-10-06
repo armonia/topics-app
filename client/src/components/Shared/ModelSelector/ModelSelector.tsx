@@ -14,13 +14,12 @@
  * scope is a defect. The trigger stays with the caller: its look and its
  * `data-testid` belong to the surface.
  *
- * Layout (MSEL-02, amended 2026-10-06): one vertical list of company
+ * Layout (MSEL-02, amended 2026-10-06): one vertical accordion of company
  * sections on every viewport; under 768px the `Menu` sheet from the bottom.
  * The side-by-side columns (revision 2026-10-04 §3.4) read as a mess once the
- * companies grew past three, so this selector no longer picks them; `ModelList`
- * keeps `columns` as a tested layout value, unused from here. Band, search and
- * Automatic never scroll: only the sections do, inside a height of at most
- * `min(456, room on the roomier side - 16)` (§4.2).
+ * companies grew past three, so they are gone from `ModelList`: one list, no
+ * branches. Band, search and Automatic never scroll: only the sections do,
+ * inside a height of at most `min(456, room on the roomier side - 16)` (§4.2).
  *
  * Providers and keys is a LEVEL of this panel (revision §5.1, Ribaltamento 2):
  * the foot, «Sistema ›» and the connect boxes put the providers' levels over
@@ -50,7 +49,7 @@ const MAX_PANEL_PX = 456;
 /** The popover surface around the body: `py-1` and a 1px border. */
 const SURFACE_CHROME_PX = 10;
 
-export interface ModelSelectorProps extends Omit<ModelListProps, 'layout' | 'focusSearch' | 'onSelect' | 'onOpenProviders'> {
+export interface ModelSelectorProps extends Omit<ModelListProps, 'focusSearch' | 'onSelect' | 'onOpenProviders'> {
   onSelect: (selection: ModelListProps['value']) => void;
   open: boolean;
   /** Open on the providers level (or one account's detail) instead of the
@@ -230,7 +229,6 @@ function SelectorBody({ list, anchorRef, onClose, initialLevel, isMobile, style,
             }}
             onClose={onClose}
             onOpenProviders={openLevel}
-            layout="list"
             focusSearch={!isMobile}
           />
         </Suspense>

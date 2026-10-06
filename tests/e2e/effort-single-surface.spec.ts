@@ -4,6 +4,7 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { openAllModelSections } from "./helpers/model-selector";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -75,8 +76,11 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     };
 
     // One panel since the one selector (MSEL-02): every company, every row,
-    // and the effort in none of them.
+    // and the effort in none of them. The accordion hides closed sections,
+    // so everything opens first: the check must see every row, not the
+    // default-open one.
     await expect(popover.getByTestId("model-selector-panel")).toBeVisible();
+    await openAllModelSections(popover);
     await assertNoEffort();
     // The folded older generations must not grow it back either.
     for (const older of await popover.getByTestId("model-section-older").all()) await older.click();

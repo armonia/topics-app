@@ -32,7 +32,7 @@ const FLEET = snapshotOf([CLAUDE_CODE, CODEX_ENTRY, ENGINE], 'claude-code');
 function draw(value: string | null, props: Partial<ModelListProps> = {}, snapshot: ProvidersSnapshot = FLEET, boardValue?: string | null) {
   return renderToStaticMarkup(
     <ModelList
-      scope="task" variant="compact" layout="list" focusSearch={false} onClose={() => {}} onSelect={() => {}} onOpenProviders={() => {}}
+      scope="task" variant="compact" focusSearch={false} onClose={() => {}} onSelect={() => {}} onOpenProviders={() => {}}
       automatic={{ who: 'segue la board', hint: 'Segue la scelta della board' }} snapshot={snapshot}
       value={taskMenuSelection(value, snapshot)}
       routingTarget={value === null && boardValue ? taskMenuSelection(boardValue, snapshot) : undefined}
@@ -59,7 +59,7 @@ describe('the card rows', () => {
 
   test('only coding engines, «Automatico» within Codex, and never a Topics row (AICTRL-01)', () => {
     const fleet = snapshotOf([CLAUDE_CODE, CODEX_ENTRY, ENGINE, entry('openai', 'OpenAI', ['gpt-api-only'], { capabilities: ['streaming'] })]);
-    const markup = draw(null, {}, fleet);
+    const markup = draw('codex:gpt-6.1-sol', {}, fleet);
     expect(markup).toMatch(/data-testid="model-row-automatic-within"[^>]*data-provider="codex"/);
     expect(markup).not.toContain('data-model="gpt-api-only"');
     expect(markup).not.toContain('data-provider="topics"');

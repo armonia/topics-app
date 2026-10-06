@@ -27,7 +27,7 @@ const EN = {
   ...ATTENTION_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
   'ai.selector.routing': 'Run in Topics',
-  'ai.selector.routingLine': 'Claude runs in Topics on your subscription, without a process per chat. Everything else goes direct.',
+  'ai.selector.routingLine': 'Everything else goes direct.',
   'ai.selector.route.topics': 'via Topics',
   'ai.selector.route.via': 'via {engine}',
   'ai.selector.route.direct.family': 'This model runs direct: {engine} does not go through Topics.',

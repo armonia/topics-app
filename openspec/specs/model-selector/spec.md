@@ -61,6 +61,13 @@ l'intestazione di ciascuna SHALL restare in vista mentre si scorre
 (emendamento del 06/10: le colonne affiancate erano illeggibili già con tre
 aziende; la lista è l'unico layout, sul telefono come sul desktop).
 
+Ogni sezione SHALL essere un accordion: l'intestazione è un bottone che la
+apre e la chiude, con `aria-expanded`. Aperta di default SHALL essere la
+sezione della scelta corrente, o la prima con Automatico. Una ricerca
+attiva SHALL aprire tutte le sezioni rimaste; pulendola torna lo stato dei
+toggle (emendamento del 06/10, compattazione: il pannello tutto aperto era
+un lenzuolo).
+
 Il pannello SHALL restare dentro il viewport e SHALL aprirsi dal lato del trigger
 con più spazio quando non ci sta da nessuno dei due. Quando le righe non ci stanno,
 SHALL scorrere solo l'area delle sezioni, e fascia, ricerca e Automatico SHALL
@@ -84,8 +91,16 @@ interruttore dentro la riga del modello, non una riga a sé.
 - **GIVEN** quattro aziende pronte e una finestra di 1280 × 900 px con il composer in basso
 - **WHEN** l'utente apre il selettore
 - **THEN** il pannello sta dentro il viewport
-- **AND** le aziende sono una lista verticale sola, la prima in vista senza scorrere
+- **AND** le aziende sono una lista verticale sola, la prima aperta in vista senza scorrere
+- **AND** le altre mostrano la sola intestazione
 - **AND** scorrendo la lista, l'intestazione dell'azienda in vista resta ferma
+
+#### Scenario: accordion della scelta
+- **GIVEN** una chat con Opus 5.5
+- **WHEN** l'utente apre il selettore
+- **THEN** solo la sezione Anthropic è aperta
+- **WHEN** tocca l'intestazione OpenAI
+- **THEN** OpenAI si apre sul posto senza chiudere le altre
 
 #### Scenario: quattro aziende sul telefono
 - **GIVEN** quattro aziende pronte e uno schermo largo 390 px
@@ -262,12 +277,13 @@ In cima al pannello SHALL esserci una fascia con:
 - un interruttore;
 - una riga di spiegazione leggibile senza passare col mouse, anche sul telefono.
 
-La riga SHALL dire cosa fa (Claude gira dentro Topics col tuo abbonamento,
-senza aprire un processo Claude Code per chat) e cosa resta fuori («Gli altri
-vanno diretti»: emendamento del 04/10, perché sotto la fascia ci sono anche Meta,
-Mistral e le altre aziende). La riga SHALL NOT promettere né la stessa quota né meno
-memoria: la quota è la stessa solo con MSEL-11, e per jcode la memoria non
-cambia.
+La riga SHALL dire cosa resta fuori («Gli altri vanno diretti»:
+emendamento del 04/10, perché sotto la fascia ci sono anche Meta, Mistral e
+le altre aziende); il COME (abbonamento, niente processo per chat) esce
+dalla fascia (emendamento del 06/10, compattazione: la riga sta in una riga
+sola, come dice il titolo). La riga SHALL NOT promettere né la stessa quota
+né meno memoria: la quota è la stessa solo con MSEL-11, e per jcode la
+memoria non cambia.
 
 Quando il valore attuale va diretto pur con la preferenza accesa, la fascia
 SHALL dire perché.
@@ -280,7 +296,9 @@ automatica).
 #### Scenario: Automatico nomina il predefinito, non il motore attuale
 - **GIVEN** una chat su Codex con GPT-6.1-Sol e il predefinito delle Impostazioni su Claude Code
 - **WHEN** l'utente apre il selettore del composer o quello delle impostazioni della chat
-- **THEN** Automatico dice «Automatico · Claude Code» e la frase «Usa il predefinito: Claude Code»
+- **THEN** nel composer Automatico dice «Automatico · Claude Code» su una riga sola
+- **AND** nelle impostazioni e sul telefono la frase «Usa il predefinito: Claude Code» resta sotto, visibile
+- **AND** ovunque è la descrizione accessibile del bottone
 - **AND** sceglierlo lascia il chip su «Automatico · Claude Code»
 
 #### Scenario: Automatico dentro un motore senza modelli
@@ -303,13 +321,16 @@ automatica).
 
 - ⌘⇧M SHALL aprire e chiudere il selettore del composer con il fuoco, e SHALL
   essere nel catalogo delle scorciatoie.
-- ↓ e ↑ SHALL attraversare fascia, Automatico, righe e «Precedenti» di tutte le
-  sezioni, senza fermarsi sul testo delle intestazioni; il bottone del motore di
-  un'intestazione è una fermata solo quando offre una scelta. Invio sceglie; Esc
+- ↓ e ↑ SHALL attraversare fascia, Automatico, intestazioni, righe e
+  «Precedenti» delle sezioni aperte (con una ricerca attiva le intestazioni
+  restano ferme e le frecce attraversano le righe); il bottone del motore di
+  un'intestazione è una fermata solo quando offre una scelta. Invio su
+  un'intestazione la apre o la chiude; Invio su una riga sceglie; Esc
   chiude e riporta il fuoco al trigger. Nella lista sola, `→` e `←` SHALL
   restare dove sono, e Tab SHALL attraversare le fermate in ordine
-  (emendamento del 06/10: niente più colonne da attraversare; emendamento del
-  04/10: la scelta del motore è nel titolo, e si apre con Invio sul suo bottone).
+  (emendamento del 06/10: niente più colonne da attraversare, le
+  intestazioni sono bottoni; emendamento del 04/10: la scelta del motore è
+  nel titolo, e si apre con Invio sul suo bottone).
   Con la scelta del motore aperta, le frecce SHALL muoversi fra i suoi motori e
   Invio o Spazio SHALL scegliere quello col fuoco; dopo la scelta il fuoco torna
   al bottone del motore (emendamento del 04/10, design §9.5).
@@ -318,7 +339,7 @@ automatica).
 
 #### Scenario: da Opus a GPT con la tastiera
 - **GIVEN** il selettore aperto con il fuoco nella ricerca
-- **WHEN** l'utente preme ↓ fino a GPT-6.1-Sol e poi Invio
+- **WHEN** l'utente preme ↓ fino all'intestazione OpenAI, Invio per aprirla, ↓ fino a GPT-6.1-Sol e poi Invio
 - **THEN** il valore è Codex con GPT-6.1-Sol e il fuoco torna al trigger
 
 #### Scenario: il motore di un'azienda dalla tastiera

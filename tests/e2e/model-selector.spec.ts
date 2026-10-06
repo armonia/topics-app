@@ -15,6 +15,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { openAllModelSections } from "./helpers/model-selector";
 import { hermetic } from "./fixtures/hermetic";
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from "../../shared/types";
 
@@ -94,6 +95,7 @@ async function openChat(page: Page, request: Parameters<typeof resetPaneStore>[0
 
 const panel = (page: Page) => page.getByTestId("model-selector-panel");
 const modelRow = (page: Page, model: string) => panel(page).locator(`[data-testid="model-row"][data-model="${model}"]`);
+const sectionToggle = (page: Page, maker: string) => panel(page).getByTestId(`model-section-${maker}`).getByTestId("model-section-toggle");
 
 test.describe("desktop, 1280 × 900", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
@@ -103,6 +105,13 @@ test.describe("desktop, 1280 × 900", () => {
     await picker.click();
     // MSEL-02: no intermediate level, every company in one vertical list.
     await expect(panel(page)).toHaveAttribute("data-layout", "list");
+    // The accordion opens the choice's section (Anthropic here); OpenAI opens
+    // on its heading, without closing the others.
+    await expect(sectionToggle(page, "anthropic")).toHaveAttribute("aria-expanded", "true");
+    await expect(sectionToggle(page, "openai")).toHaveAttribute("aria-expanded", "false");
+    await sectionToggle(page, "openai").click();
+    await expect(sectionToggle(page, "openai")).toHaveAttribute("aria-expanded", "true");
+    await expect(sectionToggle(page, "anthropic")).toHaveAttribute("aria-expanded", "true");
     await expect(modelRow(page, "claude-opus-5-5")).toBeVisible();
     await expect(modelRow(page, "gpt-6.1-sol")).toBeVisible();
     // MSEL-03: the search has the focus on desktop.
@@ -129,11 +138,18 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(page.getByTestId("model-row-automatic")).toBeFocused();
     // ↓ only, from Automatic to Opus and on to GPT-6.1-Sol across the sections.
     // The path is recorded, so a red says where the focus went instead.
+    // Closed sections hide their rows: Enter on a heading opens it (MSEL-08).
     const path: string[] = [];
     const walkTo = async (model: string) => {
       const target = modelRow(page, model);
       for (let i = 0; i < 24 && !(await target.evaluate((el) => el === document.activeElement)); i++) {
-        await page.keyboard.press("ArrowDown");
+        const closed = panel(page).locator('[data-testid="model-section-toggle"][aria-expanded="false"]:focus');
+        if ((await closed.count()) > 0) {
+          await page.keyboard.press("Enter");
+          await expect(panel(page).locator('[data-testid="model-section-toggle"]:focus')).toHaveAttribute("aria-expanded", "true");
+        } else {
+          await page.keyboard.press("ArrowDown");
+        }
         path.push(await page.evaluate(() => {
           const el = document.activeElement as HTMLElement | null;
           return el ? `${el.dataset.testid ?? el.tagName}:${el.dataset.model ?? el.dataset.provider ?? ""}` : "none";
@@ -142,7 +158,7 @@ test.describe("desktop, 1280 × 900", () => {
       await expect(target, `focus path: ${path.join(" > ")}`).toBeFocused();
     };
     await walkTo("claude-opus-5-5");
-    expect(path, "Opus is the first row after Automatic").toHaveLength(1);
+    expect(path, "Automatic, the Anthropic heading, Opus").toHaveLength(2);
     await walkTo("gpt-6.1-sol");
     const target = modelRow(page, "gpt-6.1-sol");
     await page.keyboard.press("Enter");
@@ -158,6 +174,8 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(page.getByTestId("model-selector-routing-line")).toContainText("Codex");
     await expect(band).toBeEnabled();
     // Back to Opus: through Topics, and the chip shows the mark.
+    // GPT is the choice now, so Anthropic is closed: its heading opens it.
+    await sectionToggle(page, "anthropic").click();
     // On the label: the middle of a narrow row is the 1M switch, a sibling.
     await modelRow(page, "claude-opus-5-5").click({ position: { x: 12, y: 10 } });
     await expect(picker.getByTestId("model-route-mark")).toBeVisible();
@@ -183,7 +201,8 @@ test.describe("desktop, 1280 × 900", () => {
     const anthropic = panel(page).getByTestId("model-section-anthropic");
     await expect(anthropic.getByTestId("model-section-heading")).toBeInViewport();
     await expect(anthropic.getByTestId("model-row").first()).toBeInViewport();
-    // Open every fold: the list grows past its height and scrolls by itself.
+    // Open every section, then every fold: the list grows past its height and scrolls by itself.
+    await openAllModelSections(panel(page));
     for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
     const sections = panel(page).getByTestId("model-selector-sections");
     const scroll = await sections.evaluate((el) => ({ overflowY: getComputedStyle(el).overflowY }));
@@ -231,6 +250,8 @@ test.describe("desktop, 1280 × 900", () => {
     await expect(trigger).toBeFocused();
     await trigger.click();
     await expect(panel(page)).toHaveAttribute("data-scope", "chat");
+    // The choice is Claude Code's, so OpenAI is closed: its heading opens it.
+    await sectionToggle(page, "openai").click();
     await modelRow(page, "gpt-6.1-sol").click();
     await expect(trigger).toContainText("GPT-6.1-Sol");
     await expect(page.getByRole("dialog").locator("select")).toHaveCount(0);

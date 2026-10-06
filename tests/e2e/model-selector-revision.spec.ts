@@ -18,6 +18,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { hermetic } from "./fixtures/hermetic";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { JCODE_IDS, KEYS, NO_KEYS, claudeCode, engine, mockSnapshot, row, snapshotOf } from "./fixtures/model-panels-fleet";
+import { openAllModelSections } from "./helpers/model-selector";
 
 hermetic(test);
 // On WebKit a page the service worker controls (from its second load on) sends
@@ -53,6 +54,7 @@ async function openSelector(page: Page, request: Parameters<typeof resetPaneStor
 
 const panel = (page: Page) => page.getByTestId("model-selector-panel");
 const section = (page: Page, maker: string) => panel(page).getByTestId(`model-section-${maker}`);
+const sectionToggle = (page: Page, maker: string) => section(page, maker).getByTestId("model-section-toggle");
 const box = async (page: Page, selector: string) => page.locator(selector).first().evaluate((el) => {
   const r = el.getBoundingClientRect();
   return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
@@ -101,6 +103,15 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
   test("sections by company, headings, «via X», the engine in place, room and accessibility", async ({ page, request }) => {
     await openSelector(page, request, KEYS);
+    // The accordion opens the choice's section (Anthropic here); the rest
+    // keep headings only until their heading opens them.
+    await expect(sectionToggle(page, "anthropic")).toHaveAttribute("aria-expanded", "true");
+    for (const maker of ["openai", "google", "meta", "deepseek", "mistral", "qwen", "xai"]) {
+      await expect(sectionToggle(page, maker)).toHaveAttribute("aria-expanded", "false");
+    }
+    await expect(section(page, "openai").getByTestId("model-row")).toHaveCount(0);
+    await openAllModelSections(panel(page));
+    await expect(sectionToggle(page, "xai")).toHaveAttribute("aria-expanded", "true");
     // AC-01, AC-04: no catch-all; one list, Anthropic, OpenAI, Google, then the others below.
     await expect(panel(page).getByTestId("model-section-other")).toHaveCount(0);
     const makers = await panel(page).getByTestId("model-selector-sections").locator('[role="group"]').evaluateAll((groups) =>
@@ -188,6 +199,7 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
   test("the 134 real jcode ids: labels stop at two lines with the whole name kept (AC-11)", async ({ page, request }) => {
     await openSelector(page, request, snapshotOf([claudeCode, row("jcode", "jcode", JCODE_IDS), engine]));
+    await openAllModelSections(panel(page));
     for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
     const labels = await panel(page).getByTestId("model-row-label").evaluateAll((els) => els.map((el) => {
       const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
@@ -213,6 +225,8 @@ test.describe("desktop 1440 × 900, with keys", () => {
       claudeCode, row("jcode", "jcode", ["openai/gpt-oss-20b"]),
       row("direct-ollama", "Ollama (Mac mini)", ["gpt-oss:20b"], { capabilities: ["streaming"] }), engine,
     ]));
+    // The choice is Claude Code's, so OpenAI is closed: its heading opens it.
+    await sectionToggle(page, "openai").click();
     await expect(section(page, "openai").getByTestId("model-row")).toHaveCount(1);
     await expect(section(page, "openai").getByTestId("model-row")).toContainText("GPT-OSS 20B");
     await section(page, "openai").getByTestId("model-group-engine").click();
@@ -221,6 +235,8 @@ test.describe("desktop 1440 × 900, with keys", () => {
 
   test("Gemini CLI ready with no models has an «Automatico» row that saves the provider alone (AC-16)", async ({ page, request }) => {
     await openSelector(page, request, snapshotOf([claudeCode, row("gemini", "Gemini CLI", []), engine]));
+    // The choice is Claude Code's, so Google is closed: its heading opens it.
+    await sectionToggle(page, "google").click();
     const automatic = section(page, "google").getByTestId("model-row-automatic-within");
     await expect(automatic).toHaveAttribute("data-provider", "gemini");
     await automatic.click();
@@ -247,6 +263,8 @@ test.describe("desktop 1440 × 900, with keys", () => {
     expect(hint?.shown).toBe(false);
 
     // AC-30: after a choice the closed text is the row's label, «label · who», no window.
+    // No choice is saved, so OpenAI is closed: its heading opens it.
+    await sectionToggle(page, "openai").click();
     const o4 = section(page, "openai").locator('[data-testid="model-row"][data-model="o4-mini"]');
     const rowLabel = (await o4.getByTestId("model-row-label").innerText()).trim();
     await o4.click();
@@ -275,6 +293,7 @@ test.describe("desktop 1440 × 900, with keys", () => {
   test("the panel's text: the band says who goes direct, no «≈», nothing under 10 px (AC-12, AC-32, AC-36)", async ({ page, request }) => {
     await openSelector(page, request, KEYS);
     await expect(page.getByTestId("model-selector-routing-line")).toContainText("Gli altri vanno diretti");
+    await openAllModelSections(panel(page));
     for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
     expect(await panel(page).innerText()).not.toContain("≈");
     const small = await panel(page).evaluate((root) => [...root.querySelectorAll<HTMLElement>("*")]
@@ -337,6 +356,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
 
     test("no label of the fixture is cut, none takes more than two lines (AC-11)", async ({ page, request }) => {
       await openSelector(page, request, KEYS);
+      await openAllModelSections(panel(page));
       for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
       const labels = await panel(page).getByTestId("model-row-label").evaluateAll((els) => els.map((el) => ({
         text: el.textContent ?? "",
@@ -378,6 +398,8 @@ test.describe("without keys, 1440 × 900", () => {
       }
     });
     await openSelector(page, request, NO_KEYS);
+    // The boxes hide in closed sections: everything opens first.
+    await openAllModelSections(panel(page));
     const text = (await panel(page).innerText()).replace(/\s+/g, " ");
     for (const word of ["login", "export", "ECONNREFUSED"]) expect(text).not.toMatch(new RegExp(`(^|[^\\p{L}])${word}([^\\p{L}]|$)`, "iu"));
     await expect(section(page, "openai").getByTestId("model-connect-action")).toHaveCount(1);
@@ -547,6 +569,8 @@ test.describe("Automatico, named with the app's default (revision §3.7)", () =>
     const picker = page.getByTestId("provider-model-picker").last();
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await picker.click();
+    // A new draft chooses nothing, so Google is closed: its heading opens it.
+    await sectionToggle(page, "google").click();
     await section(page, "google").getByTestId("model-row-automatic-within").click();
     await expect(panel(page)).toHaveCount(0);
     await expect(picker.getByTestId("provider-model-picker-label")).toHaveText("Automatico · Gemini CLI");
