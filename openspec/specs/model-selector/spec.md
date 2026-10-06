@@ -66,6 +66,12 @@ con più spazio quando non ci sta da nessuno dei due. Quando le righe non ci sta
 SHALL scorrere solo l'area delle sezioni, e fascia, ricerca e Automatico SHALL
 restare ferme.
 
+Il livello «Provider e chiavi» SHALL occupare lo stesso pannello dei modelli
+(stessi x, y e larghezza). Nel pannello stretto la lista delle schede SHALL
+essere una colonna sola che scorre, come sul telefono: dieci schede non ci
+stanno in vista insieme (emendamento del 06/10: AC-21 e AC-07 rivisti di
+conseguenza, la scheda in vista è intera, mai tagliata).
+
 Le generazioni non correnti SHALL stare in una riga «Precedenti (n)» in fondo
 alla loro sezione, che si apre sul posto. Una generazione dichiarata dal provider
 vince; senza dichiarazione, è corrente la versione più alta di ogni famiglia
