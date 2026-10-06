@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.451 — 2026-10-06
+
+### Sotto il cofano
+- La board sul telefono: barra che non scorre, ricerca e controlli a 44 col dito, spazio misurato sotto l'ultima card, chip leggibili nel tema chiaro
+- Commenti e nomi in inglese, la misura sotto l'ultima card scritta sulla riga senza ridisegnare la board
+- Sostituisci sleep fissi con attese a condizione nella spec board-mobile
+
 ## 2.2.449 — 2026-10-06
 
 ### Correzioni

@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.451",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La board sul telefono: barra che non scorre, ricerca e controlli a 44 col dito, spazio misurato sotto l'ultima card, chip leggibili nel tema chiaro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti e nomi in inglese, la misura sotto l'ultima card scritta sulla riga senza ridisegnare la board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sostituisci sleep fissi con attese a condizione nella spec board-mobile",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.449",
     "date": "2026-10-06",
     "sections": {
