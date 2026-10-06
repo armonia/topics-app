@@ -194,6 +194,13 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // Config e sessioni OpenClaw dell'utente vero fuori dai piedi: SESSIONS_DIR
     // deriva da OPENCLAW_DIR, quindi questa sola variabile copre entrambi.
     OPENCLAW_DIR: join(dataDir, ".openclaw"),
+    // XDG dentro la HOME isolata: nella precedenza XDG la variabile vince su
+    // HOME, e il runner CI le esporta puntate alla home vera — senza queste due
+    // righe un provider che rispetta XDG (muse: auth.json, model-catalog) legge
+    // la macchina vera invece dello stub isolato. Misurato su PR241: muse non
+    // si registrava in CI e il banco era verde sul Mac, dove XDG non è impostato.
+    XDG_CONFIG_HOME: join(dataDir, ".home", ".config"),
+    XDG_DATA_HOME: join(dataDir, ".home", ".local", "share"),
     // Socket del PTY-bridge: senza, viene derivato dalla cwd — che il server di
     // test CONDIVIDE con quello di sviluppo — e il reconcile del test vedrebbe
     // le PTY Claude vive dello sviluppo come orfane, ammazzandole.

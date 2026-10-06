@@ -62,6 +62,14 @@ export TOPICS_HOME="${TOPICS_HOME:-$DATA_DIR/.topics-home}"
 # HOME here never leaks into those spawns (see server/utils/path-env.ts).
 export OPENCLAW_DIR="${OPENCLAW_DIR:-$DATA_DIR/.openclaw}"
 export HOME="$DATA_DIR/.home"
+# XDG INSIDE THE ISOLATED HOME (same values testServerEnv() sets, for whoever
+# runs this script by hand): in XDG precedence the variable wins over HOME,
+# and CI runners export both pointed at the real home — without these two
+# lines an XDG-respecting provider (muse: auth.json, model-catalog) reads the
+# real machine instead of the isolated stub. Measured on PR241: muse never
+# registered in CI while green on a Mac, where XDG is unset.
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
 # UNO STUB DI `claude` DENTRO LA HOME ISOLATA, e non e' un trucco per far
 # passare un test: e' la conseguenza diretta della riga qui sopra.
 #
