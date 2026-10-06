@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.452 — 2026-10-06
+
+### Novità
+- **providers** · Muse di primo livello in Topics (chat, task, settings, PTY)
+
+### Correzioni
+- **knip** · registra scripts/smoke-muse-provider.ts come entry
+- **muse** · nomi inglesi per il gate + warn quando manca il login
+- **e2e** · isola XDG_CONFIG_HOME/XDG_DATA_HOME nel banco di test
+- **i18n** · commento XDG in inglese per il gate
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-10-06 [skip ci]
+- **openspec** · archivia change muse-provider, promuove specs/muse
+
 ## 2.2.451 — 2026-10-06
 
 ### Sotto il cofano

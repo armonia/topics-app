@@ -1,5 +1,60 @@
 [
   {
+    "version": "2.2.452",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "it": "Muse di primo livello in Topics (chat, task, settings, PTY)",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "registra scripts/smoke-muse-provider.ts come entry",
+          "en": "",
+          "scope": "knip",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi per il gate + warn quando manca il login",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        },
+        {
+          "it": "isola XDG_CONFIG_HOME/XDG_DATA_HOME nel banco di test",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "commento XDG in inglese per il gate",
+          "en": "",
+          "scope": "i18n",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-06 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "archivia change muse-provider, promuove specs/muse",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.451",
     "date": "2026-10-06",
     "sections": {
