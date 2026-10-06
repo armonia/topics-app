@@ -56,7 +56,10 @@ export function BrowserFavicon({
           style={{
             ...box,
             backgroundColor: faviconPlaceholderColor(ph.hue),
-            fontSize: Math.round(size * 0.64),
+            // Floor at the audit minimum (UI-READ-01): below 11px the letter is
+            // decoration, not text. The box stays `size`; the glyph just stops
+            // shrinking with it.
+            fontSize: Math.max(11, Math.round(size * 0.64)),
             lineHeight: 1,
           }}
           data-testid="browser-favicon-monogram"

@@ -129,6 +129,9 @@ interface RemoteBrowserPanelProps {
   shared?: boolean;
   shareMode?: ShareMode;
   onToggleShare?: () => void;
+  /** The project folder a new-tab note is written to (NEWTAB-ARC-04). Absent
+   *  where the host has no project — there the note door stays shut. */
+  projectPath?: string;
 }
 
 /**
@@ -168,7 +171,7 @@ function writeShareMode(contextId: string, mode: ShareMode): void {
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus, hasFocus }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus, hasFocus, projectPath }: RemoteBrowserPanelProps) {
   /**
    * TWO QUESTIONS, NOT ONE (NATIVEPARK-02).
    *
@@ -260,6 +263,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         shared={false}
         shareMode={mode}
         onToggleShare={onToggleShare}
+        projectPath={projectPath}
       />
     );
   }
@@ -284,6 +288,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       shared={shared}
       shareMode={isTauri ? mode : undefined}
       onToggleShare={isTauri ? onToggleShare : undefined}
+      projectPath={projectPath}
     />
   );
 }
@@ -371,7 +376,7 @@ function useNativeBrowserFinder(
  * Every command is optional in the snapshot, so the sheet shows only what this
  * path actually wired and there are never dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, hasFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, hasFocus, shared, shareMode, onToggleShare, projectPath }: RemoteBrowserPanelProps) {
   const tr = useT();
   const toast = useToast();
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus, hasFocus ?? isVisible);
@@ -676,7 +681,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         // la stessa ragione del parcheggio qui sopra. La view nativa nasce fuori
         // schermo (browser_open a x=-100000) e senza placeholder nessuno le
         // spinge un rettangolo: resta lì finché non si naviga davvero.
-        <NewTabPage onNavigate={(u) => { void browser.navigate(u); }} />
+        <NewTabPage onNavigate={(u) => { void browser.navigate(u); }} projectPath={projectPath} />
       ) : (
         <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       )}
@@ -744,7 +749,7 @@ function useSharedBrowserFinder(paneId: string, renderMode: 'dom' | 'video'): (r
   return useCallback((read: (() => Document | null) | null) => { readDocRef.current = read; }, []);
 }
 
-function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
+function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, shareMode, onToggleShare, projectPath }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const tr = useT();
@@ -1340,7 +1345,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 onDismiss={dismissDeadLoopback}
               />
             )}
-            <NewTabPage onNavigate={(u) => { browser.navigate(u); }} />
+            <NewTabPage onNavigate={(u) => { browser.navigate(u); }} projectPath={projectPath} />
           </div>
         ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (
           // DOM mode renders nothing HERE on purpose: DomCoBrowse above owns this

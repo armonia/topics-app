@@ -534,6 +534,8 @@ export function ProjectWindowPane({
               // Same convention as the chat pane above: focused group AND this
               // project window is the focused panel.
               hasFocus={onScreen && isFocused && focusedPanelId === wrapperPaneId}
+              // A new-tab note lands in this window's own folder (NEWTAB-ARC-04).
+              projectPath={projectPath}
             />
           </LazyPane>
         );
