@@ -37,7 +37,7 @@ import { markTopicSeen } from "../subject-seen";
 import { markAttentionSeen, seenItemNow, setClosed, turnEnded } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
-import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
+import { isMachineStop, machineStopToolError, stopCauseOf, stopReachesSubagents } from "../lib/abort-cause";
 import { leaveMachineStopNotice } from "../lib/machine-stop-notice";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
@@ -58,13 +58,13 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicTo
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
-import { requestSubagentWake } from "../services/subagent-wake";
+import { requestSubagentWake, writeQueuedWakesAsRows } from "../services/subagent-wake";
 import { stopNativeChildrenOf } from "../lib/native-subagents";
 import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../lib/topic-changes";
 import { gitDiffBundle, gitDiffStat } from "../lib/git-diff-stat";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import type { ChangeSet } from "../../shared/change-set";
-import { archiveTopicFully } from "../services/archive-topic";
+import { archiveTopicFully, reopenTopicFully, type ReopenTopicDeps } from "../services/archive-topic";
 import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
@@ -389,6 +389,17 @@ function restoreTopicInUiState(
   topicId: string,
 ): void {
   mutateAllUiState(db, broadcastToAll, "restoreTopicInUiState", topicId, retractTopicTombstoneFromUiStateValue);
+}
+
+/** What `reopenTopicFully` needs, bound once: the unarchive route and a sub-agent's resume share it. */
+export function reopenDepsFor(ctx: Pick<AppContext, "db" | "getTopicById" | "saveSingleTopic">, broadcastToAll: ReopenTopicDeps["broadcastToAll"]): ReopenTopicDeps {
+  return {
+    getTopicById: ctx.getTopicById,
+    saveSingleTopic: ctx.saveSingleTopic,
+    broadcastToAll,
+    restoreInUiState: (topicId) => restoreTopicInUiState(ctx.db, broadcastToAll, topicId),
+    clearRetirement: (topicId) => { clearRetirement(ctx.db, "topic", topicId); },
+  };
 }
 
 /** Quanti caratteri grezzi leggere per ricavarne {@link PREVIEW_MAX_CHARS} puliti.
@@ -1928,19 +1939,10 @@ export function createTopicsRouter(
         // Unarchive is a REOPEN: retract the close markers the purge left, or
         // the client's hydrate strip would delete the tab on every load and
         // the chat would be permanently un-openable.
-        topic.archived = false;
-        topic.updatedAt = new Date().toISOString();
-        saveSingleTopic(topic);
-        broadcastToAll({ type: "topic:archived", topic });
-        restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
-        // Il fatto va ritrattato con gli altri due registri, o al riavvio
-        // successivo il riconcilio richiuderebbe la chat appena riaperta —
-        // con l'utente dentro.
-        clearRetirement(ctx.db, "topic", params.id);
-        // Reopening relights nothing of before (T18): the turn seen at the
-        // archiving makes no epoch.
-        setClosed(topicSubject(params.id), { archived: false });
-        return json(presentGlobalOrchestratorTopic(db, topic));
+        // The retirement fact goes with the flag and the ui_state markers, or
+        // the next boot's reconcile closes the chat again, person inside.
+        const reopened = reopenTopicFully(reopenDepsFor(ctx, broadcastToAll), params.id) ?? topic;
+        return json(presentGlobalOrchestratorTopic(db, reopened));
       }
     }
 
@@ -2565,7 +2567,7 @@ export function createTopicsRouter(
         }, 409);
       }
 
-      const stream = activeStreams.get(sessionKey);
+      const streamAtStop = activeStreams.get(sessionKey);
 
       // Resolve topic and provider for abort — O(1) UNIQUE-index lookup
       // instead of a full topics scan per /api/chat/abort hit.
@@ -2623,9 +2625,17 @@ export function createTopicsRouter(
         return true;
       };
 
-      // A person's Stop reaches the native sub-agents working for this chat too
+      // A person's Stop reaches the sub-agents working for this chat too
       // (subagent-nativi): left running, a child woke the parent just stopped.
-      const stoppedChildren = stopCauseOf(req, body?.cause) === "user" ? await stopNativeChildrenOf(sessionKey) : 0;
+      // «Send now» stops only the turn (`stopReachesSubagents`). The results
+      // already queued to wake this chat land as rows: woken by them, the chat
+      // just stopped started again at once.
+      const fullStop = stopReachesSubagents(req, body?.cause);
+      if (fullStop) writeQueuedWakesAsRows(sessionKey);
+      const stoppedChildren = fullStop ? await stopNativeChildrenOf(sessionKey) : 0;
+      // Read again after the children's stop: the turn this Stop was for may
+      // have ended meanwhile, and a turn opened since (a wake) is not its own.
+      const stream = activeStreams.get(sessionKey) === streamAtStop ? streamAtStop : undefined;
       if (!stream) {
         const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
         if (background) return json(background); // only background work was left: the Stop was for it
@@ -2659,7 +2669,8 @@ export function createTopicsRouter(
       // request from outside is the person; the server's own callers (the
       // stall judge, the board, the dispatcher's clocks) name theirs.
       const cause = stopCauseOf(req, body?.cause);
-      recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
+      // Named after the turn it stops (`recordTurnStart` in chat.ts): the user row it answers.
+      recordTurnEnd(sessionKey, { ...cancelled(cause, "POST /api/chat/abort"), turnId: (stream.messageId ? ctx.getMessageById(stream.messageId)?.parentId : null) ?? undefined });
       // Said BEFORE anything below can close the turn: the close of the ledger
       // (`endStream` here, the provider's own finalize, the CLI's exit) reaches
       // every window before this route's `stream:end`, and must itself say that

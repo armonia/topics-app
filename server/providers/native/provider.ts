@@ -164,20 +164,19 @@ const NO_WORKSPACE_NOTE =
   "collegarne uno alla conversazione.";
 
 /**
- * The system prompt of a native turn, past Claude Code's identity.
+ * A native turn's system prompt, on top of Claude Code's identity.
  *
  * THE LANGUAGE LIVES HERE, not only in the message's `<context>`. The route
- * never passes `systemPrompt` to this runtime: the directive used to arrive
- * inline only, in the user turn, where dedup drops it from later turns (the
- * scope is the CLI session id, which a native chat never renews) and the
- * history rebuilt from the DB after a restart never holds it. On 04/10
- * topic:d740f8ae, moved to native with MSEL-06, answered an Italian chat in
- * English even after the directive fix: the model was following Topics'
- * English notices. In system the line is there every round, and stays in the
- * cached prefix.
+ * never passes `systemPrompt` to this runtime: the directive only rode inline
+ * in the user turn, where dedup drops it from later turns (its scope is the
+ * CLI session id, which a native chat never renews) and the history rebuilt
+ * from the DB after a restart does not hold it. On 04/10 topic:d740f8ae, moved
+ * to native by MSEL-06, answered an Italian chat in English even after the
+ * directive fix: the model followed Topics' English notices. In the system
+ * prompt the line is there on every round, and it stays in the cached prefix.
  *
- * Reread every turn, like effort and model: a language change applies from
- * the next message.
+ * Re-read on every turn, like effort and model: a language change applies
+ * from the next message.
  */
 export function nativeSystemPrompt(args: {
   base?: string;
@@ -537,6 +536,8 @@ export class NativeProvider implements AIProvider {
        * still starts with the command (see `ProviderPayload.slashContext`).
        */
       slashContext?: string;
+      /** The turn's name: it rides on every end recorded here, so a late end is never taken for the next turn's. */
+      turnId?: string;
     },
   ): Promise<{ runId?: string }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
@@ -664,7 +665,7 @@ export class NativeProvider implements AIProvider {
     sessionKey: string,
     session: NativeSession,
     handler: StreamHandler,
-    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string } | undefined,
+    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string; turnId?: string } | undefined,
     abort: AbortController,
   ): Promise<{ runId?: string }> {
     try {
@@ -804,7 +805,7 @@ export class NativeProvider implements AIProvider {
       // Il perché della fine si deposita dove il resto del server lo cerca:
       // è lo stesso registro che usano le CLI, e senza questo un turno
       // dispacciato non saprebbe dire com'è finito.
-      recordTurnEnd(sessionKey, out.turnEnd);
+      recordTurnEnd(sessionKey, { ...out.turnEnd, turnId: options?.turnId });
       // L'uso NON si deposita qui: ci ha già pensato `onRoundUsage`, giro per
       // giro. Sommare anche `out.usage` — che di quei giri è la somma —
       // conterebbe ogni token due volte.
@@ -820,12 +821,12 @@ export class NativeProvider implements AIProvider {
       if (abort.signal.aborted) {
         const causa = stopCauseFromSignal(abort.signal);
         const end: TurnEndInfo = causa ? cancelled(causa) : { end: "cancelled" };
-        recordTurnEnd(sessionKey, end);
+        recordTurnEnd(sessionKey, { ...end, turnId: options?.turnId });
         handler.onAborted?.({ result: "", turnEnd: end });
         return {};
       }
       handler.onError(detail);
-      recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail });
+      recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail, turnId: options?.turnId });
       return {};
     } finally {
       // ONLY ITS OWN HANDLE. An unconditional clear is how the first turn's

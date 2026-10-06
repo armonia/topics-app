@@ -1,12 +1,13 @@
 /**
- * A child born on the CLI, written to after it stopped, comes back on the
- * Topics engine (subagent-nativi). `--resume` used to bring it back as Claude
- * Code: on 04/10 pop-demo kept talking to «arte-tappa-1» through
- * `send_to_agent`, and every resume reopened a CLI. The CLI history does not
- * move into the native chat: what passes is the task, the last report, and
- * the transcript path, which the child can read for more if it needs it.
+ * A child born on the CLI, written to again after it stopped, comes back on
+ * the Topics engine (subagent-nativi). `--resume` relit it as Claude Code: on
+ * 04/10 pop-demo kept talking to "arte-tappa-1" through `send_to_agent`, and
+ * every resume reopened a CLI. The CLI history does not move into the native
+ * chat: the task, the last report and the transcript path do, and the child
+ * can read the transcript if it needs more.
  */
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync } from "fs";
+import { open } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -35,7 +36,7 @@ function textOf(content: unknown): string {
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}\n[…tagliato]` : s);
 
 /** The person's first message (the task) and the assistant's last text. */
-export function cliHandover(jsonl: string): { task: string | null; lastReport: string | null } {
+export function cliTranscriptSummary(jsonl: string): { task: string | null; lastReport: string | null } {
   let task: string | null = null;
   let lastReport: string | null = null;
   for (const line of jsonl.split("\n")) {
@@ -69,11 +70,39 @@ export function migratedChildPrompt(input: {
   ].filter(Boolean).join("\n\n");
 }
 
-export function migratedChildPromptFor(row: { name: string; claudeSessionId: string | null; promptSnippet: string | null }, newInput: string): string {
-  const transcriptPath = row.claudeSessionId ? findCliTranscript(row.claudeSessionId) : null;
-  let handover: { task: string | null; lastReport: string | null } = { task: null, lastReport: null };
-  if (transcriptPath) {
-    try { handover = cliHandover(readFileSync(transcriptPath, "utf8")); } catch { /* resta il promptSnippet */ }
+/** How much of a transcript is read: its head holds the task, its tail the last report. */
+const HEAD_BYTES = 256 * 1024;
+const TAIL_BYTES = 512 * 1024;
+
+/**
+ * The task from the transcript's head and the last report from its tail. A
+ * long CLI session runs to hundreds of MB: read whole and synchronously, it
+ * held the server's one thread for the length of the read, on a request path.
+ * A line cut at either edge fails to parse and is skipped.
+ */
+async function readCliTranscriptSummary(path: string): Promise<{ task: string | null; lastReport: string | null }> {
+  const fh = await open(path, "r");
+  try {
+    const { size } = await fh.stat();
+    const read = async (start: number, length: number) => {
+      const chunk = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(chunk, 0, length, start);
+      return chunk.subarray(0, bytesRead).toString("utf8");
+    };
+    if (size <= HEAD_BYTES + TAIL_BYTES) return cliTranscriptSummary(await read(0, size));
+    const head = cliTranscriptSummary(await read(0, HEAD_BYTES));
+    const tail = cliTranscriptSummary(await read(size - TAIL_BYTES, TAIL_BYTES));
+    return { task: head.task, lastReport: tail.lastReport ?? head.lastReport };
+  } finally {
+    await fh.close();
   }
-  return migratedChildPrompt({ name: row.name, ...handover, transcriptPath, promptSnippet: row.promptSnippet, newInput });
+}
+
+export async function migratedChildPromptFor(row: { name: string; claudeSessionId: string | null; promptSnippet: string | null }, newInput: string): Promise<string> {
+  const transcriptPath = row.claudeSessionId ? findCliTranscript(row.claudeSessionId) : null;
+  let summary: { task: string | null; lastReport: string | null } = { task: null, lastReport: null };
+  if (transcriptPath) {
+    try { summary = await readCliTranscriptSummary(transcriptPath); } catch { /* unreadable: the prompt snippet stands in for the task */ }
+  }
+  return migratedChildPrompt({ name: row.name, ...summary, transcriptPath, promptSnippet: row.promptSnippet, newInput });
 }

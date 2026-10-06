@@ -5,8 +5,8 @@ import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
 import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
-import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
-import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat } from "./server/lib/wake-adoption";
+import { cutTurnResumable, riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage, isProviderHeld } from "./server/lib/provider-hold";
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
@@ -47,10 +47,10 @@ import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
-import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
+import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
-import { archiveTopicFully } from "./server/services/archive-topic";
+import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
@@ -171,10 +171,10 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { commandBackgroundWork, commandWakeState, createProcessesRouter, loadProcessRegistry, sessionsAwaitingCommandWake, startProcessDetection, stopCommandWakesOf } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
-import { adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
+import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
 import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -182,7 +182,7 @@ import { createDeliveryCapture, type DeliveryCapture } from "./server/services/t
 import { createPushRouter } from "./server/routes/push";
 import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
-import { attentionInitFrame, forgetSocket, getAttention, isAttentionEngaged, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
+import { attentionInitFrame, forgetSocket, getAttention, processEnded, recomposeAttentionOnBoot, setClosed, setSocketFocus } from "./server/attention/store";
 import { withCommandTask } from "./server/attention/background-tasks";
 import { observeCommandChanged } from "./server/lib/command-background";
 import { attentionBootReader } from "./server/attention/boot-reader";
@@ -934,8 +934,16 @@ configureNativeSubagents({
   },
   loadMessages: (sk) => ctx.loadLocalMessages(sk),
   engineReady: () => tryGetProvider("topics")?.connected === true,
-  engaged: (topicId) => isAttentionEngaged(topicSubject(topicId)),
+  // The same door as every archive: unread, ui_state, parked session, open ask.
+  archive: (topic) => retirementConsequences.archiveTopic(topic.id),
+  // And the unarchive's door to come back: flag, ui_state markers, retirement fact.
+  reopen: (topic) => { reopenTopicFully(reopenDepsFor(ctx, ctx.broadcastToAll), topic.id); },
+  // Its own children are read by the module itself (`subagentWakeState`).
+  backgroundWork: (sk) => commandWakeState(sk) !== "none" || sessionHasBackgroundWork(sk),
+  stopBackgroundWork: (sk) => { stopCommandWakesOf(sk); },
   log: (m) => console.log(`[subagent-native] ${m}`),
+  // The resume's own verdict (declared below, read only after the boot).
+  cutTurnResumable: (sk) => cutTurnResumable(resumeCtx, sk),
 });
 // Deleting a terminal session closes any browser it opened (contextId
 // `term-<id>`): broadcast the pane close for every client + destroy the
@@ -4653,7 +4661,7 @@ const opzioniServer = {
                 ? data.subject
                 : 'subject' in data ? null
                 : data.topicId ? topicSubject(data.topicId) : null;
-              setSocketFocus(ws.data.id, { subject, awake: data.awake ?? true }, { guest: guestSocket });
+              setSocketFocus(ws.data.id, { subject, awake: data.awake ?? true, chosen: data.chosen === true }, { guest: guestSocket });
             }
             break;
           case 'subscribe': {
@@ -5679,7 +5687,7 @@ function adottaTurniRisvegliati(): void {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     // A task agent's topic is born archived yet is alive while its task runs:
     // the rule, and the 8 wakes it used to drop, in `lib/wake-adoption.ts`.
-    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id));
+    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id));
     if (verdict !== "adopt") {
       // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
       // in un posto che l'utente non ha. `false` tells the provider to drop
@@ -5730,6 +5738,7 @@ const resumeCtx: CtxRipresa = {
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
   backgroundCommands: (sk) => commandBackgroundWork.tasks(sk).flatMap((t) => (t.processId ? [{ description: t.description, processId: t.processId }] : [])),
+  abandonCut: abandonCutTurn,
 };
 
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
@@ -5765,7 +5774,7 @@ void survivingTurnsAdopted
     isBusy: (sk) => activeStreams.has(sk),
     canWake: (sk) => {
       const topic = ctx.getTopicBySessionKey(sk);
-      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id)) !== "adopt") return "row";
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
       return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
     },
     log: (m) => console.log(`[subagent-wake] ${m}`),

@@ -26,7 +26,7 @@ import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
-import type { SendMessageOptions } from '@/hooks/useChat';
+import type { SendMessageOptions, StopSessionOptions } from '@/hooks/useChat';
 import { missionPrompt, type Mission } from '../../lib/missions';
 import { pickMissionSession } from '../../lib/missionTarget';
 import { useConfirmTerminalStop } from '../../lib/subagentStopGuard';
@@ -65,7 +65,7 @@ export interface ProjectWindowPaneProps {
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   wasSessionStopped: (sk: string) => boolean;
-  stopSession: (sk: string) => Promise<boolean>;
+  stopSession: (sk: string, opts?: StopSessionOptions) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;

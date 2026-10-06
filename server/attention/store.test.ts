@@ -19,6 +19,7 @@ import {
   resetAttentionStore,
   setBackgroundTasks,
   setCard,
+  setSocketFocus,
   turnEnded,
   turnStarted,
 } from "./store";
@@ -153,8 +154,8 @@ describe("a row saved before the job left running became `working`", () => {
   });
 });
 
-// Attilio, 05/10: «vedo notifiche sulle tab dei sotto agenti [...] non essere allow-italian: verbatim quote from Attilio
-// "attiva" fino a che non interagisci». The parent gets the result; the child allow-italian: verbatim quote from Attilio
+// Owner, 05/10: sub-agent tabs were showing notifications; a child should not be
+// "active" until the person interacts with it. The parent gets the result; the child
 // stays dark until the person opens it, then it is a chat like any other.
 describe("a sub-agent is quiet until the person opens it", () => {
   it("its finished turn lights nothing, rows nothing, pushes nothing; its work still shows", () => {
@@ -177,5 +178,109 @@ describe("a sub-agent is quiet until the person opens it", () => {
     turnStarted("terminal:child");
     turnEnded("terminal:child", { turnId: "t2", outcome: "done" });
     expect(getAttention("terminal:child")).toMatchObject({ state: "finished", lit: true });
+  });
+
+  // Review of 05/10: a quiet child is never lit, so its `seen` never came and
+  // the exception never fired. Putting it in front counts, and it is written
+  // down, so a restart still knows.
+  it("a child the person keeps in front of an awake window for the seen's dwell is engaged, on record, across a restart", async () => {
+    const engaged = new Set<string>();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child",
+      engageSubagent: (s) => { engaged.add(s); },
+      subagentEngaged: (s) => engaged.has(s),
+      engageDwellMs: 40,
+    });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // A layout the window restored, announced twice (two senders): not a choice.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    // A pass shorter than the dwell does not count.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true, chosen: true });
+    await wait(10);
+    setSocketFocus("sock-1", { subject: "topic:other", awake: true, chosen: true });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    // Nor a window nobody is looking at.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: false, chosen: true });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    // Chosen and kept there: engaged, a second sender's frame in the middle included.
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true, chosen: true });
+    await wait(10);
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(80);
+    expect([...engaged]).toEqual(["topic:child"]);
+    // Looked at, then left: its next turn lights like any chat's.
+    setSocketFocus("sock-1", null);
+    turnStarted("topic:child");
+    turnEnded("topic:child", { turnId: "m1", outcome: "done" });
+    expect(getAttention("topic:child").lit).toBe(true);
+
+    // A restart forgets the process, not the record.
+    resetAttentionStore();
+    configure();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child" || s === "topic:child2",
+      subagentEngaged: (s) => engaged.has(s),
+    });
+    turnStarted("topic:child");
+    turnEnded("topic:child", { turnId: "m2", outcome: "done" });
+    expect(getAttention("topic:child").lit).toBe(true);
+    // The control: a sibling never engaged is still quiet.
+    turnStarted("topic:child2");
+    turnEnded("topic:child2", { turnId: "m3", outcome: "done" });
+    expect(getAttention("topic:child2").lit).toBe(false);
+  });
+
+  // Review 3 of PR 238: the first frame of a window was never counted, so a
+  // window opened by a click on the child never engaged it; and the restored
+  // layout announced twice (onopen and an effect) did.
+  it("the person's click as a window's first frame engages; a restored layout announced twice does not", async () => {
+    const engaged = new Set<string>();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child",
+      engageSubagent: (s) => { engaged.add(s); },
+      subagentEngaged: (s) => engaged.has(s),
+      engageDwellMs: 40,
+    });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    setSocketFocus("sock-restored", { subject: "topic:child", awake: true });
+    setSocketFocus("sock-restored", { subject: "topic:child", awake: true });
+    await wait(120);
+    expect(engaged.size).toBe(0);
+    setSocketFocus("sock-clicked", { subject: "topic:child", awake: true, chosen: true });
+    await wait(120);
+    expect([...engaged]).toEqual(["topic:child"]);
+  });
+
+  // Review 4 of PR 238, point 7: the window lost focus before the dwell ran
+  // out, and the frame that woke it, no gesture, could never arm it again.
+  it("a choice survives the window losing focus: waking on the same subject runs the dwell again", async () => {
+    const engaged = new Set<string>();
+    configureAttentionStore({
+      isSubagent: (s) => s === "topic:child" || s === "topic:child2",
+      engageSubagent: (s) => { engaged.add(s); },
+      subagentEngaged: (s) => engaged.has(s),
+      engageDwellMs: 40,
+    });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true, chosen: true });
+    await wait(10);
+    setSocketFocus("sock-1", { subject: "topic:child", awake: false });
+    await wait(80);
+    expect(engaged.size).toBe(0);
+    setSocketFocus("sock-1", { subject: "topic:child", awake: true });
+    await wait(80);
+    expect([...engaged]).toEqual(["topic:child"]);
+    // Something else put in front ends the choice: coming back without a gesture does not engage.
+    setSocketFocus("sock-2", { subject: "topic:child2", awake: true, chosen: true });
+    await wait(10);
+    setSocketFocus("sock-2", { subject: "topic:other", awake: true });
+    setSocketFocus("sock-2", { subject: "topic:child2", awake: true });
+    await wait(80);
+    expect([...engaged]).toEqual(["topic:child"]);
   });
 });

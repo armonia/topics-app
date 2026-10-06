@@ -38,6 +38,7 @@ import {
   taskIdOfSubject,
   terminalIdOfSubject,
   topicIdOfSubject,
+  SEEN_DWELL_MS,
   type AttentionAnnounce,
   type AttentionOutcome,
   type AttentionReason,
@@ -100,6 +101,12 @@ export interface AttentionStoreDeps {
   graceMs: number;
   /** Is this subject a sub-agent (a row in `subagents`)? Its attention stays quiet until the person opens it. */
   isSubagent: (subject: string) => boolean;
+  /** Write down that a person engaged with this sub-agent: it survives a restart. */
+  engageSubagent: (subject: string) => void;
+  /** A person engaged with this sub-agent before (on record, any process). */
+  subagentEngaged: (subject: string) => boolean;
+  /** How long a sub-agent stays in front before the focus counts as engaged: the seen's dwell. */
+  engageDwellMs: number;
 }
 
 function defaultDb(): Database | null {
@@ -122,6 +129,9 @@ const DEFAULT_DEPS: AttentionStoreDeps = {
   describe: () => null,
   graceMs: 5_000,
   isSubagent: () => false,
+  engageSubagent: () => {},
+  subagentEngaged: () => false,
+  engageDwellMs: SEEN_DWELL_MS,
 };
 
 let deps: AttentionStoreDeps = { ...DEFAULT_DEPS };
@@ -203,6 +213,7 @@ export function resetAttentionStore(opts: { keepRows?: boolean } = {}): void {
   for (const e of entries.values()) if (e.graceTimer) clearTimeout(e.graceTimer);
   entries.clear();
   focus.clear();
+  for (const id of [...engageDwells.keys()]) cancelEngageDwell(id);
   loadedFrom = null;
   if (!opts.keepRows) memoryTable.clear();
   deps = { ...DEFAULT_DEPS };
@@ -324,12 +335,33 @@ function peek(subject: string): Entry | undefined {
 }
 
 function inputsOf(e: Entry): AttentionInputs {
-  const quiet = !e.engaged && isSubagentSubject(e.row.subject);
+  const quiet = isSubagentSubject(e.row.subject) && !isEngaged(e);
   return { ...e.live, lastTurn: e.row.lastTurn, seenAt: e.row.seenAt, background: e.row.background, ...(quiet ? { quiet } : {}) };
 }
 
 function isSubagentSubject(subject: string): boolean {
   try { return deps.isSubagent(subject); } catch { return false; }
+}
+
+function isEngaged(e: Entry): boolean {
+  if (e.engaged) return true;
+  try { e.engaged = deps.subagentEngaged(e.row.subject) || undefined; } catch { /* nothing on record */ }
+  return e.engaged === true;
+}
+
+/**
+ * A person engaged with this subject: they opened it (`seen`) or put it in
+ * front (`focus`). A quiet sub-agent is never lit, so its `seen` never came,
+ * and the seen alone never fired: the focus counts too, and a sub-agent's is
+ * written down, so its chat stays open across a restart.
+ */
+function engage(subject: string): Entry {
+  const e = entryOf(subject);
+  if (!e.engaged && isSubagentSubject(subject)) {
+    try { deps.engageSubagent(subject); } catch { /* best-effort: the process still knows */ }
+  }
+  e.engaged = true;
+  return e;
 }
 
 /**
@@ -874,8 +906,7 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
   const out: AttentionSnapshot[] = [];
   for (const item of items) {
     if (!item || typeof item.subject !== "string" || !item.subject) continue;
-    const e = entryOf(item.subject);
-    e.engaged = true;
+    const e = engage(item.subject);
     const row = e.row;
     const epoch = Number.isFinite(item.epoch) ? Math.max(0, Math.floor(item.epoch)) : 0;
     const covered = Math.min(epoch, row.epoch);
@@ -897,10 +928,6 @@ export function markAttentionSeen(items: readonly AttentionSeenItem[], origin: {
 }
 
 /** Everything about this subject seen now: the aliases of the old doors. */
-/** True once a person opened this subject (`markAttentionSeen`): a sub-agent they engaged is theirs to close. */
-export function isAttentionEngaged(subject: string): boolean {
-  return entries.get(subject)?.engaged === true;
-}
 
 export function seenItemNow(subject: string): AttentionSeenItem {
   const s = getAttention(subject);
@@ -919,14 +946,71 @@ export function noteUnreadChanged(topicId: string): void {
  * awake. A guest's focus does not count (section 6). The close of the socket
  * clears it (`forgetSocket`).
  */
-export function setSocketFocus(socketId: string, f: { subject: string | null; awake: boolean } | null, origin: { guest?: boolean } = {}): void {
+export function setSocketFocus(socketId: string, f: { subject: string | null; awake: boolean; chosen?: boolean } | null, origin: { guest?: boolean } = {}): void {
   if (origin.guest) return;
   if (!f) focus.delete(socketId);
   else focus.set(socketId, { subject: f.subject, awake: !!f.awake });
+  armEngageDwell(socketId, f);
+}
+
+/**
+ * Per socket: the sub-agent the person chose, waiting out the dwell before it
+ * counts as engaged. `timer` is null while the window sleeps: the choice
+ * stays, and the dwell runs again when the window wakes on the same subject.
+ */
+const engageDwells = new Map<string, { subject: string; timer: ReturnType<typeof setTimeout> | null }>();
+
+function cancelEngageDwell(socketId: string): void {
+  const pending = engageDwells.get(socketId);
+  if (pending?.timer) clearTimeout(pending.timer);
+  engageDwells.delete(socketId);
+}
+
+/**
+ * A sub-agent the person put in front (`chosen`: a click on its row or tab,
+ * not a layout the window restored), kept there for the seen's own dwell
+ * (`SEEN_DWELL_MS`) with the window awake, is engaged. A pass over it shorter
+ * than the dwell does not count. The choice holds until the person puts
+ * something else in front: a window that loses focus before the dwell runs
+ * out pauses it, and waking on the same subject runs it again, though the
+ * frame that wakes it is no gesture. The same subject announced again (a
+ * second sender) leaves a running dwell alone.
+ */
+function armEngageDwell(socketId: string, f: { subject: string | null; awake: boolean; chosen?: boolean } | null): void {
+  const pending = engageDwells.get(socketId);
+  if (pending && f?.subject === pending.subject) {
+    if (!f.awake) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.timer = null;
+    } else if (!pending.timer) {
+      pending.timer = startEngageDwell(socketId, pending.subject);
+    }
+    return;
+  }
+  cancelEngageDwell(socketId);
+  if (!f?.chosen || !f.subject || !isSubagentSubject(f.subject) || peek(f.subject)?.engaged) return;
+  engageDwells.set(socketId, { subject: f.subject, timer: f.awake ? startEngageDwell(socketId, f.subject) : null });
+}
+
+function startEngageDwell(socketId: string, subject: string): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(() => {
+    const now = focus.get(socketId);
+    if (now?.subject !== subject || !now.awake) {
+      const pending = engageDwells.get(socketId);
+      if (pending?.timer === timer) pending.timer = null;
+      return;
+    }
+    engageDwells.delete(socketId);
+    engage(subject);
+    recompose(subject, { live: true });
+  }, deps.engageDwellMs);
+  (timer as { unref?: () => void }).unref?.();
+  return timer;
 }
 
 export function forgetSocket(socketId: string): void {
   focus.delete(socketId);
+  cancelEngageDwell(socketId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

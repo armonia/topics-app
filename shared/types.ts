@@ -963,6 +963,14 @@ export type TurnEndCause = (typeof STOP_CAUSES)[number];
  */
 export type MachineStopCause = 'superseded' | 'wall-clock' | 'stall';
 
+/**
+ * The `cause` the client sends with «Send now» on a queued message: the
+ * person stops the parent's turn to deliver the correction, and the work it
+ * delegated goes on. Only an explicit Stop, or `stop_agent`, stops the tree of
+ * sub-agents (`server/lib/abort-cause.ts`).
+ */
+export const SEND_NOW_STOP_CAUSE = 'send-now';
+
 /** One notification that opened a turn the CLI started by itself: a Monitor's event, a Monitor's
  *  end (`end`: `stream ended`, `stopped`, `script failed (exit 1)`, ...) with its last event, or a task's report. */
 export type WakeEvent = { source: 'monitor' | 'task'; label: string; text?: string; end?: string };

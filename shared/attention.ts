@@ -86,6 +86,13 @@ export interface AttentionSeenItem {
   turnAt?: string | null;
 }
 
+/**
+ * How long a pane stays in front, window awake, before it counts as seen
+ * (`client/src/state/signals.ts` says why 1200 ms). The server reads it too:
+ * a sub-agent kept in front this long is engaged.
+ */
+export const SEEN_DWELL_MS = 1200;
+
 export const TOPIC_SUBJECT_PREFIX = "topic:";
 export const TERMINAL_SUBJECT_PREFIX = "terminal:";
 export const TASK_SUBJECT_PREFIX = "task:";

@@ -44,14 +44,13 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
-import { profileInstructions, readAgentProfiles } from "../lib/agent-profiles";
+import { readAgentProfiles } from "../lib/agent-profiles";
 import { resolveSubagentLaunch, launchArgs } from "../lib/subagent-launch";
-import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, runningSubagents, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
+import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentSessionId, setSubagentState } from "../lib/subagent-store";
 import {
-  engineModelOf, engineToolsOfProfile, nativeChildPlace, nativeSubagentsAvailable, readNativeChildOutput, sendToNativeChild,
-  spawnNativeChild, stopNativeChild,
+  childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, readNativeChildOutput, sendToNativeChild,
+  setCliChildStopper, spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
-import { migratedChildPromptFor } from "../lib/subagent-migration";
 import {
   FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
@@ -1478,7 +1477,7 @@ function isRosterDependentRoute(pathname: string, method: string): boolean {
  * swap 33k false 404 lines for 33k 503 lines and cure nothing — the count goes
  * out once, in `markRosterReconciled`.
  */
-/** A person's terminal rows, not the sub-agents'. */
+/** The rows of a person's terminals, not of sub-agents. */
 const NOT_A_SUBAGENT = "(parent_session_key IS NULL OR parent_session_key = '')";
 
 function rosterWarming(): Response {
@@ -2377,6 +2376,9 @@ function subAgentNotFound(agentId: string): string {
     : "sub-agent not found";
 }
 
+/** Ended children a `send_to_agent` is bringing back right now. */
+const childrenBeingResumed = new Set<string>();
+
 /** Resolve a child the caller is allowed to drive, or null. The caller MUST be
  *  the child's recorded parent — this is the orchestrator's whole auth model. */
 function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalSession | null {
@@ -2384,6 +2386,45 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
   if (!child || child.parentSessionKey !== parentSessionKey) return null;
   return child;
 }
+
+/**
+ * `stop_agent` on a live CLI child: the PTY goes, its turn is reported as
+ * stopped by the parent (which wakes nobody). Returns its branch, read before
+ * the kill. Also the CLI half of stopping a native child's whole tree.
+ */
+function stopLiveCliChild(child: TerminalSession): string | null {
+  const childClaudeId = child.claudeSessionId;
+  // Read BEFORE the kill: afterwards the session is gone and the branch
+  // would be unrecoverable for whoever just asked for the stop. The
+  // directory is NOT deleted here: the sweep decides (WORKTREE-09/10).
+  const childBranch = branchOfCwd(child.cwd);
+  sendToBridge({ type: "kill", id: child.id });
+  sessions.delete(child.id);
+  const sockets = sessionSockets.get(child.id);
+  if (sockets) {
+    for (const ws of sockets) { try { ws.close(1000, "Sub-agent stopped"); } catch {} }
+    sessionSockets.delete(child.id);
+  }
+  try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [child.id]); }
+  catch (e) { warnThrottled("terminal_sessions:subagent-stop", `[Terminal] terminal_sessions: deleting the row of stopped sub-agent ${child.id} failed:`, e); }
+  if (childClaudeId) _tracker?.dropTerminalSession(childClaudeId);
+  clearTerminalActivity(child.id);
+  broadcastTerminalSessions();
+  // Reaping a sub-agent via /stop is the primary way an orchestrator ends a
+  // delegated task — report its turn here, because the pre-delete above
+  // makes the bridge `exit` frame unable to (session gone).
+  reportChildEnd(child, null, 'stopped');
+  return childBranch;
+}
+
+// A native child's tree stop reaches its CLI children through here.
+setCliChildStopper((id) => {
+  const child = sessions.get(id);
+  if (child) { stopLiveCliChild(child); return; }
+  // A parked CLI child has no process: its row only closes.
+  const row = getSubagent(getDatabase(), id);
+  if (row && (row.state === "running" || row.state === "retired")) setSubagentState(getDatabase(), id, "stopped");
+});
 
 /**
  * `spawn_agent` creates an interactive Claude PTY. Codex bridge-only topics
@@ -3233,10 +3274,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
     // --- Dormant sessions: list and revive ---
 
-    // A retired sub-agent is not a tab to reopen: its tab used to bring it
-    // back as Claude Code with `--resume`, while now the parent picks it up
-    // with `send_to_agent`, on the Topics engine (subagent-nativi). Off this
-    // list, the client closes the tab instead of keeping it.
+    // A retired sub-agent is not a tab to reopen: its tab relit it as Claude
+    // Code with `--resume`, while now the parent resumes it with
+    // `send_to_agent`, on the Topics engine (subagent-nativi). Left out of
+    // this list, the client closes the tab instead of keeping it.
     if (method === "GET" && pathname === "/api/terminal/sessions/dormant") {
       const db = getDatabase();
       const cwd = url.searchParams.get('cwd');
@@ -3471,33 +3512,18 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // subagent-nativi: the child runs on the Topics engine, unless the
-        // call asks for the CLI or the engine cannot take it. A fallback to
-        // the CLI is declared in the answer, never silent.
-        if (body.runtime !== undefined && body.runtime !== "topics" && body.runtime !== "claude-code") {
-          return errorResponse(400, `unknown runtime "${String(body.runtime)}": use "topics" or "claude-code"`);
-        }
-        let runtime: "topics" | "claude-code" = body.runtime === "claude-code" ? "claude-code" : "topics";
-        let runtimeNote: string | null = null;
-        let nativePlace: { projectPath: string | null; worktreeId: string | null } | null = null;
-        if (runtime === "topics") {
-          const place = isolation === "worktree"
-            ? { ok: true as const, projectPath: null, worktreeId: null } // decided once the worktree exists
-            : nativeChildPlace({
-              explicitCwd: typeof body.cwd === "string" && body.cwd ? body.cwd : null,
-              parentTopic,
-              parentCwd: parent?.cwd ?? null,
-              knownProject: (p) => !!ctx.projectStore.getByPath(p),
-            });
-          const why = !nativeSubagentsAvailable() ? "the Topics engine is not available" : !place.ok ? place.reason : null;
-          if (why) {
-            if (body.runtime === "topics") return errorResponse(!nativeSubagentsAvailable() ? 503 : 400, `cannot start a sub-agent on the Topics engine: ${why}`);
-            runtime = "claude-code";
-            runtimeNote = `claude-code (${why})`;
-          } else if (place.ok) {
-            nativePlace = { projectPath: place.projectPath, worktreeId: place.worktreeId };
-          }
-        }
+        // subagent-nativi: the engine, unless the call asks for the CLI or the engine cannot take it.
+        const choice = childRuntimeFor(body.runtime, () => isolation === "worktree"
+          ? { ok: true, projectPath: null, worktreeId: null } // decided once the worktree exists
+          : nativeChildPlace({
+            explicitCwd: typeof body.cwd === "string" && body.cwd ? body.cwd : null,
+            parentTopic,
+            parentCwd: parent?.cwd ?? null,
+            knownProject: (p) => !!ctx.projectStore.getByPath(p),
+          }));
+        if (!choice.ok) return errorResponse(choice.status, choice.error);
+        let nativePlace = choice.runtime === "topics" ? choice.place : null;
+        const runtimeNote = choice.runtime === "claude-code" ? choice.note : null;
         let branch: string | null = null;
         if (isolation === "worktree") {
           const project = resolveAgentProject(
@@ -3533,22 +3559,20 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const chosenName = typeof body.name === "string" && body.name ? body.name : null;
         const name = chosenName ?? `agent ${id.slice(0, 8)}`;
         const foreground = body.run_in_background === false || body.runInBackground === false;
-        if (runtime === "topics" && nativePlace) {
-          const profile = launch.agent ? agentProfilesFor(cwd).get(launch.agent) ?? null : null;
-          const model = engineModelOf(launch.model);
+        if (nativePlace) {
+          const engine = engineLaunchOf(launch.agent ? agentProfilesFor(cwd).get(launch.agent) ?? null : null, launch.model);
           try {
             if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
-            const child = await spawnNativeChild({
+            const child = spawnNativeChild({
               id, parentSessionKey: parentKey, name, prompt, cwd,
               parentTopic, projectPath: nativePlace.projectPath, worktreeId: nativePlace.worktreeId, branch,
-              model, effort: launch.effort, agentType: launch.agent,
-              instructions: profile ? profileInstructions(profile) : null,
-              tools: engineToolsOfProfile(profile?.tools),
+              ...engine, effort: launch.effort, agentType: launch.agent,
               promptSnippet: normalizePromptSnippet(prompt),
+              runtimeReason: body.runtime === "topics" ? "asked" : "default",
             });
             return json({
               agentId: id, name, cwd, branch, runtime: "topics", sessionKey: child.sessionKey, topicId: child.topic.id,
-              model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
+              model: engine.model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
               agentType: launch.agent, effort: launch.effort,
               notify: parentKey.startsWith("topic:") ? "chat" : "read_agent",
               runInBackground: !foreground,
@@ -3574,6 +3598,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             id, parentSessionKey: parentKey, name, model: launch.model, agentType: launch.agent, effort: launch.effort,
             promptSnippet: session.spawnPromptSnippet, cwd: session.cwd, branch,
             claudeSessionId: session.claudeSessionId ?? null, createdAt: session.createdAt,
+            // Only a CLI the call asked for stays on the CLI when resumed.
+            runtimeReason: body.runtime === "claude-code" ? "asked" : runtimeNote ? "fallback" : "default",
           });
           noteChildSeeded(id);
           if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
@@ -3616,14 +3642,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           state: "running",
           phase: childPhase(s.id),
         }));
-        // Native children have no terminal: their running rows are the live list.
-        const native = runningSubagents(getDatabase(), parentKey)
-          .filter((r) => r.runtime === "topics")
-          .map((r) => ({
-            agentId: r.id, name: r.name, cwd: r.cwd, branch: r.branch, claudeSessionId: null, runtime: "topics", sessionKey: r.sessionKey,
-            busy: childPhase(r.id) !== "finished", state: "running", phase: childPhase(r.id),
-          }));
-        live.push(...(native as typeof live));
+        live.push(...(liveNativeChildren(parentKey) as typeof live));
         // Ended children stay listed for 24 hours: `send_to_agent` brings them back.
         const liveIds = new Set(live.map((a) => a.agentId));
         const ended = endedSubagents(getDatabase(), parentKey)
@@ -3650,7 +3669,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
               const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
               if (refusal) return errorResponse(429, refusal);
             }
-            const sent = sendToNativeChild(row, input);
+            const sent = await sendToNativeChild(row, input);
             if (!sent.ok) return errorResponse(sent.status, sent.error);
             return json({ ok: true, sent: input.length, ...(sent.resumed ? { resumed: true } : {}) });
           }
@@ -3666,46 +3685,34 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
           const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
           if (refusal) return errorResponse(429, refusal);
-          // subagent-nativi: a CLI-born child does not come back as Claude
-          // Code. When the engine can take it, it restarts native with the
-          // same id (the row is rewritten) and its work as context.
-          if (nativeSubagentsAvailable()) {
-            const parentTopic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
-            const place = nativeChildPlace({
-              explicitCwd: row.cwd || null,
-              parentTopic,
+          // One resume at a time: two `send_to_agent` racing here both read the
+          // row as ended and migrated (or relit) the child twice.
+          if (childrenBeingResumed.has(row.id)) return errorResponse(409, `sub-agent "${row.name}" is already being resumed: its result will arrive by itself`);
+          childrenBeingResumed.add(row.id);
+          try {
+            // subagent-nativi: a child born on the CLI comes back on the engine when it can.
+            const moved = await moveCliChildToEngine(row, input, {
+              parentTopic: parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null,
               parentCwd: sessions.get(parentKey)?.cwd ?? null,
               knownProject: (p) => !!ctx.projectStore.getByPath(p),
+              profileOf: (cwd, agentType) => agentProfilesFor(cwd).get(agentType) ?? null,
             });
-            if (place.ok) {
-              try {
-                const child = await spawnNativeChild({
-                  id: row.id, parentSessionKey: parentKey, name: row.name,
-                  prompt: migratedChildPromptFor(row, input),
-                  cwd: row.cwd, parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
-                  model: engineModelOf(row.model), effort: row.effort, agentType: row.agentType,
-                  instructions: null, tools: null,
-                  promptSnippet: row.promptSnippet,
-                });
-                console.log(`[subagent] ${row.id} (${row.name}) migrato dalla CLI al motore di Topics: ${child.sessionKey}`);
-                return json({ ok: true, sent: input.length, resumed: true, runtime: "topics", sessionKey: child.sessionKey });
-              } catch (err) {
-                console.warn(`[subagent] migrazione di ${row.id} fallita, riprende sulla CLI:`, err);
-              }
+            if (moved) return json({ ok: true, sent: input.length, resumed: true, runtime: "topics", sessionKey: moved.sessionKey });
+            try {
+              await ensureBridge();
+              const session = await createSession(row.id, row.name, row.cwd, undefined, 120, 30, undefined, "claude-code", true, row.claudeSessionId!, parentKey, "user");
+              session.spawnPromptSnippet = row.promptSnippet ?? undefined;
+              try { getDatabase().run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch { /* the row was just written */ }
+              noteChildSeeded(row.id, { working: true });
+              broadcastTerminalSessions();
+              seedAgentPrompt(row.id, input, normalizePromptSnippet(input))
+                .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for resumed ${row.id}:`, err));
+              return json({ ok: true, sent: input.length, resumed: true });
+            } catch (err) {
+              return errorResponse(502, `Failed to resume sub-agent: ${err instanceof Error ? err.message : String(err)}`);
             }
-          }
-          try {
-            await ensureBridge();
-            const session = await createSession(row.id, row.name, row.cwd, undefined, 120, 30, undefined, "claude-code", true, row.claudeSessionId!, parentKey, "user");
-            session.spawnPromptSnippet = row.promptSnippet ?? undefined;
-            try { getDatabase().run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch { /* the row was just written */ }
-            noteChildSeeded(row.id, { working: true });
-            broadcastTerminalSessions();
-            seedAgentPrompt(row.id, input, normalizePromptSnippet(input))
-              .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for resumed ${row.id}:`, err));
-            return json({ ok: true, sent: input.length, resumed: true });
-          } catch (err) {
-            return errorResponse(502, `Failed to resume sub-agent: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            childrenBeingResumed.delete(row.id);
           }
         }
         if (!input) return errorResponse(400, "input (string) is required");
@@ -3773,28 +3780,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }
           return errorResponse(404, subAgentNotFound(agentId));
         }
-        const childClaudeId = child.claudeSessionId;
-        // Read BEFORE the kill: afterwards the session is gone and the branch
-        // would be unrecoverable for whoever just asked for the stop. The
-        // directory is NOT deleted here: the sweep decides (WORKTREE-09/10).
-        const childBranch = branchOfCwd(child.cwd);
-        sendToBridge({ type: "kill", id: child.id });
-        sessions.delete(child.id);
-        const sockets = sessionSockets.get(child.id);
-        if (sockets) {
-          for (const ws of sockets) { try { ws.close(1000, "Sub-agent stopped"); } catch {} }
-          sessionSockets.delete(child.id);
-        }
-        try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [child.id]); }
-        catch (e) { warnThrottled("terminal_sessions:subagent-stop", `[Terminal] terminal_sessions: deleting the row of stopped sub-agent ${child.id} failed:`, e); }
-        if (childClaudeId) _tracker?.dropTerminalSession(childClaudeId);
-        clearTerminalActivity(child.id);
-        broadcastTerminalSessions();
-        // Reaping a sub-agent via /stop is the primary way an orchestrator ends a
-        // delegated task — report its turn here, because the pre-delete above
-        // makes the bridge `exit` frame unable to (session gone).
-        reportChildEnd(child, null, 'stopped');
-        return json({ ok: true, branch: childBranch });
+        return json({ ok: true, branch: stopLiveCliChild(child) });
       }
     }
 

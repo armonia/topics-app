@@ -30,7 +30,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Topic, ClaudeSessionPhase, ClaudeSessionState, AttentionTier, PhaseTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork';
-import type { AttentionTask } from '../../../shared/attention';
+import { SEEN_DWELL_MS as SHARED_SEEN_DWELL_MS, type AttentionTask } from '../../../shared/attention';
 import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
 import { projectAttention, projectWorkingCount } from './attentionRollups';
 
@@ -94,7 +94,7 @@ export function attentionTierForPhase(phase: ClaudeSessionPhase): PhaseTier | nu
  * riporta il comportamento di prima, alzarla oltre ~2 s fa sembrare che il fill
  * non cada mai.
  */
-export const SEEN_DWELL_MS = 1200;
+export const SEEN_DWELL_MS = SHARED_SEEN_DWELL_MS;
 
 /**
  * Politica pura: una tab è "vista" solo se è stata davanti per almeno `dwellMs`

@@ -10,7 +10,7 @@ import { Pin } from 'lucide-react';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { requestHistoryCompletion } from '../../state/historyCompleteness';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
-import type { SendMessageOptions } from '../../hooks/useChat';
+import type { SendMessageOptions, StopSessionOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, chatApi, apiErrorCode, type CommandResult } from '../../lib/api';
 import { useComposerDock } from './useComposerDock';
 import { composerMayTakeFocus } from './composerFocus';
@@ -127,7 +127,7 @@ export interface ChatPaneProps {
    * agent owns the turn. See `composerAction.ts` for the decision rules
    * and `stopSessionPolicy.ts` for the wipe-safety guard.
    */
-  stopSession: (sk: string) => Promise<boolean>;
+  stopSession: (sk: string, opts?: StopSessionOptions) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   /** Send/queue errors keyed by sessionKey: this pane shows only its own. */
@@ -1838,7 +1838,9 @@ function ChatPaneComponent({
     // paint "stopped by you" and propose wiping a chat that is not running.
     // This is the stranded case (queue survived a reload, or a turn that ended
     // while this client was not listening): only the hold and the kick apply.
-    if (currentStreaming) await stopSession(topic.sessionKey);
+    // Only the turn, to send the correction: the sub-agents it delegated to
+    // keep working. The tree stops on the explicit Stop alone.
+    if (currentStreaming) await stopSession(topic.sessionKey, { sendNow: true });
     releaseHold(topic.sessionKey);
     for (let tentativo = 0; tentativo < QUEUE_KICK_ATTEMPTS; tentativo++) {
       const prima = getQueue(topic.sessionKey).length;

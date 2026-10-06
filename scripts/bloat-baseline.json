@@ -248,14 +248,26 @@
     "05/10, tornata of #234 and #236. server/lib/claude-session-tracker.ts 961 -> 1082: +121 from two PRs each",
     "inside the ceiling alone: hooks made async and put back in order by when they fired (#234), and a",
     "terminal's turn closed when the phase rests without a Stop, the Esc case (#236). Recorded by hand, this row only.",
-    "06/10, subagent-nativi tornata (50 commits), three files the push tipped over ceilings they already touched.",
-    "server/utils.ts, recorded 2877, main already at 3020 against a 3020 ceiling: 3020 -> 3043, +23 the native-child",
-    "projection (subagentOf from `subagents`, batched and single-row) and the isSubagent gate.",
-    "server/providers/native/agent-loop.ts, recorded 922, main already at 1042 against a 1042 ceiling: 1042 -> 1049,",
-    "+7 the allowTool option and its enforcement, a sub-agent's chat refusing a tool its profile or depth denies.",
-    "server/providers/native/provider.ts 969 on main -> 999: +30 nativeSystemPrompt (the language directive in the",
-    "system prompt, read every turn) and the sub-agent tool-policy filter with its allowTool wiring.",
-    "Recorded by hand, these three rows only."
+    "05/10, native sub-agents (PR #238, subagent-nativi). Three files already at their ceiling on main, pushed over",
+    "by small additions. server/utils.ts 2877 (3020 on main) -> 3043: +23 the subagentOf projection on topic reads",
+    "and isSubagent for the quiet attention rule. server/providers/native/agent-loop.ts 922 -> 1049: +7 tools refused",
+    "at execution by profile and depth. server/providers/native/provider.ts 869 -> 999: +35 the language directive in",
+    "the native system prompt and the profile tool filter. The rest of each growth was already on main. Recorded by",
+    "hand, these three rows only.",
+    "05/10, same PR, review fixes. server/attention/store.ts 894 (990 on main) -> 1036: +46 the engaged exception",
+    "made real, a focused sub-agent counts and is written down so a restart keeps it. Recorded by hand, this row only.",
+    "05/10, same PR, review 3. server/routes/terminal.ts 3767 on main -> 3888: +121 native sub-agents on the routes",
+    "(the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the",
+    "engine, one resume at a time, the CLI stop as a function the tree stop reuses); review 2 had it at 3940, the",
+    "runtime choice, the profile launch, the move and the native list went to server/lib/native-subagents.ts.",
+    "server/attention/store.ts 1036 -> 1072: +36 the engage dwell starts only on a frame the person chose, and a",
+    "re-announce of the same subject neither starts nor cuts it. Recorded by hand, these two rows only.",
+    "05/10, same PR, review 4. server/lib/native-subagents.ts new on this PR, 750 -> 844: +94 every turn of a native",
+    "child named by its user row and reported once by that name (start listener, report chain, claim), and the Stop",
+    "that marks the whole tree before its first await. Recorded by hand, this row only.",
+    "05/10, same PR, review 5. server/lib/native-subagents.ts 844 -> 884: +40 one open turn per child chat closed by",
+    "any end, the shutdown kept as a suspended turn, the driven turn known by its key and a refused send answered as",
+    "an error. The report chain's dedup set and the end-time guesses went. Recorded by hand, this row only."
   ],
   "tolerance_pct": 5,
   "max_lines": 800,
@@ -377,7 +389,7 @@
 
     "server.ts": 6674,
 
-    "server/attention/store.ts": {"lines": 894, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
+    "server/attention/store.ts": {"lines": 1072, "why": ["2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."]},
     "server/browser-service.ts": 2361,
 
     "server/browser-tools-handler.ts": 810,
@@ -393,6 +405,8 @@
     "server/lib/claude-session-tracker.test.ts": 1160,
 
     "server/lib/claude-session-tracker.ts": 1082,
+
+    "server/lib/native-subagents.ts": 884,
 
     "server/lib/ripresa-boot.test.ts": 847,
 
@@ -435,7 +449,7 @@
 
     "server/routes/tasks.ts": 3981,
 
-    "server/routes/terminal.ts": {"lines": 3727, "why": ["2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module."]},
+    "server/routes/terminal.ts": {"lines": 3888, "why": ["2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module.", "2026-10-05, subagent-nativi (PR #238): 3767 on main -> 3888, the routes' side of native sub-agents: the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the engine, one resume at a time, the CLI stop as a function the tree stop reuses. The logic lives in server/lib/native-subagents.ts (childRuntimeFor, engineLaunchOf, moveCliChildToEngine, liveNativeChildren)."]},
 
     "server/routes/topics.control.test.ts": 855,
 

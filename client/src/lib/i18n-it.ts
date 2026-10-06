@@ -134,6 +134,7 @@ const IT: Dict = {
 
   'sidebar.subagents.one': '1 sotto-agente',
   'sidebar.subagents.many': '{n} sotto-agenti',
+  'sidebar.subagents.needsYou': 'Un sotto-agente ti aspetta',
   'sidebar.subagents.working': 'Un sotto-agente sta lavorando',
   'app.unsent.title.one': '1 messaggio non inviato',
   'app.unsent.title.many': '{n} messaggi non inviati',

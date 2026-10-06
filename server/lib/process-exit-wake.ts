@@ -58,7 +58,7 @@
 import type { Database } from "bun:sqlite";
 import type { ContentBlock } from "../types";
 import { decodeCol } from "../../shared/message-blob";
-import { wakeVerdict } from "./wake-adoption";
+import { stoppedSubagentChat, wakeVerdict } from "./wake-adoption";
 import { isProviderHeld } from "./provider-hold";
 import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
@@ -251,7 +251,7 @@ export async function deliverProcessExit(
     // Resolved on every round: the topic can be archived, or its card leave
     // the column, while the wake waits.
     const topic = deps.getTopicById(f.topicId);
-    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask) !== "adopt") return "no-topic";
+    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id)) !== "adopt") return "no-topic";
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }

@@ -43,7 +43,7 @@ import { backgroundOfTurn, goalContinuationForChatRoute, type ChatGoalLoop, type
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
-import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
+import { readTurnEnd, recordTurnEnd, recordTurnStart } from "../providers/turn-end-registry";
 import { outageCutPickedUp, resumeAttemptOf } from "../lib/ripresa-boot";
 import { noteResendCopy } from "../lib/resend-count";
 import { appendUsageRecord } from "../usage/store";
@@ -62,7 +62,9 @@ import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
-import { isMachineStop } from "../lib/abort-cause";
+import { isInternalRequest, isMachineStop } from "../lib/abort-cause";
+import { agentAuthOk } from "../lib/agent-auth";
+import { getSubagentBySessionKey } from "../lib/subagent-store";
 import { patchOpenTool, registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
@@ -633,6 +635,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
       }
+      // An agent, not a person: send_chat_message (fromAgent) or an agent credential.
+      // Read from the request's authentication, never trusted from the body alone.
+      const sentByAgent = !isInternalRequest(req) && (body.fromAgent === true || agentAuthOk(req));
+      const subagentOfChat = getSubagentBySessionKey(ctx.db as never, sessionKey);
+      // A native sub-agent's chat: whoever writes (a person, the resume,
+      // send_to_agent), a message is the child's prompt, never a chat command.
+      const nativeChildChat = subagentOfChat?.runtime === "topics";
+      // It is driven by its parent through send_to_agent: an agent writing
+      // here would open a turn nobody owns and a second result.
+      if (sentByAgent && nativeChildChat) {
+        return json({ error: `this chat belongs to sub-agent ${subagentOfChat!.id}: its parent writes to it with send_to_agent(agent_id="${subagentOfChat!.id}")`, code: "subagent_chat" }, 409);
+      }
 
       /**
        * UN TURNO PER SESSIONE.
@@ -820,7 +834,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         }
 
         // Handle board chat control commands (/ prefixed)
-        if (lastUserMsg.content.trim().startsWith("/")) {
+        if (lastUserMsg.content.trim().startsWith("/") && !nativeChildChat) {
           const cmdText = lastUserMsg.content.trim();
           const cmdMatch = cmdText.match(/^\/(\w+)\s*(.*)/);
           if (cmdMatch) {
@@ -1605,6 +1619,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // una chat che il boot riprende da sola (`turnSurvivesRestart`). Si
           // chiede UNA volta, qui: non cambia mentre il turno gira.
           startStream(sessionKey, partialMsg.id, externalAbort, turnSurvivesRestart({ providerReattaches: providerSurvivesRestart(topicProvider), boardCard: !!dispatched }));
+          // The turn's name: the user row it answers. It rides on every end this
+          // route records, so a late end is never taken for the next turn's.
+          const turnId = partialMsg.parentId ?? undefined;
+          if (turnId) recordTurnStart(sessionKey, turnId, { byPerson: sentByPerson && !isInternalRequest(req), key: idempotencyKey });
           // From here the turn's end decides for the answers it carries, not the route's exit.
           if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
@@ -1859,7 +1877,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Il figlio è morto e nessuno ha parlato: è il watchdog a fermare il
             // turno. Senza questo, chi guida un turno headless leggerebbe la fine
             // di default (`end_turn`) e crederebbe a una consegna riuscita.
-            recordTurnEnd(sessionKey, cancelled("watchdog", "grace expired"));
+            recordTurnEnd(sessionKey, { ...cancelled("watchdog", "grace expired"), turnId });
             const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
             // Replace the soft annotation with the hard timeout marker.
             fullContent = stripSlowAnnotation(fullContent);
@@ -1917,7 +1935,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
             console.error(`[StreamWS] Hard cap (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached and provider process is DEAD on ${sessionKey} → finalize`);
             streamState = "finalized";
-            recordTurnEnd(sessionKey, cancelled("watchdog", "hard cap reached"));
+            recordTurnEnd(sessionKey, { ...cancelled("watchdog", "hard cap reached"), turnId });
             const msg = `⚠️ Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached. The provider stopped responding.`;
             fullContent = stripSlowAnnotation(fullContent);
             if (!fullContent.trim()) fullContent = msg;
@@ -2194,7 +2212,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 : { end: "end_turn" });
             // Depositata PRIMA di chiudere l'SSE: chi guida un turno headless la
             // ritira appena il drain finisce, e il drain finisce con `[DONE]`.
-            recordTurnEnd(sessionKey, endInfo);
+            recordTurnEnd(sessionKey, { ...endInfo, turnId });
             // A land, a delegation's deadline, the stall judge (lib/abort-cause.ts).
             // The silence cap shares `wall-clock` but ends through `onError`.
             const wantedByMachine = reason === "aborted" && isMachineStop(endInfo.cause);
@@ -3863,7 +3881,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number } = { rowId: partialMsg.id };
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number; turnId?: string } = { rowId: partialMsg.id, ...(turnId ? { turnId } : {}) };
             if (payload.slashContext !== undefined) sendOptions.slashContext = payload.slashContext;
             if (overrideModel) sendOptions.model = overrideModel;
             // The answers carried in front of the person's words are rows of

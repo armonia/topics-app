@@ -71,6 +71,8 @@ export function configureSubagentRuntime(d: SubagentRuntimeDeps): void {
   configured = d;
 }
 
+// Max depth 2 (subagent-nativi, choice 3): shared with the native provider,
+// which hides the delegation tools from a grandchild.
 import { MAX_AGENT_DEPTH } from "./subagent-tool-policy";
 /** Max live children per parent — a runaway parent can't fork unbounded PTYs. */
 export const MAX_CHILDREN_PER_PARENT = 5;
@@ -440,10 +442,10 @@ export function reportChildEnd(child: ChildRef, exitCode: number | null, ending:
 }
 
 /**
- * A native child's turn (subagent-nativi) has ended: it is reported like a
- * CLI child's, with the same dedup, the same foreground wait, and the same
- * delivery to the parent. `native-subagents.ts` reads the verdict from the
- * child's chat instead of from a transcript.
+ * A native child's turn (subagent-nativi) is over: it is reported like a CLI
+ * child's, with the same dedup, the same foreground wait and the same delivery
+ * to the parent. `native-subagents.ts` reads the verdict from the child's chat
+ * instead of a transcript.
  */
 export function reportNativeChildTurn(
   child: Pick<ChildRef, 'id' | 'name' | 'cwd'> & { parentSessionKey: string },
@@ -598,6 +600,23 @@ export function subagentWakeState(parentSessionKey: string): 'running' | 'wake-q
 /** The phase the roster shows for a live child, or null before the first look. */
 export function childPhase(id: string): SubAgentPhase | null {
   return childRuntime.get(id)?.phase ?? null;
+}
+
+/**
+ * A CLI child's phase, now. After a restart this process has none in memory
+ * until the watch's first look: it is read off the transcript here the way
+ * the watch reads it, never taken for `working` (or `finished`) on trust.
+ */
+export function cliChildPhaseNow(child: { id: string; cwd: string; claudeSessionId: string | null; turnsReported: number }): SubAgentPhase | null {
+  const known = childPhase(child.id);
+  if (known || !child.claudeSessionId) return known;
+  const path = claudeTranscriptPath(child.cwd, child.claudeSessionId);
+  let stat: fs.Stats | null = null;
+  try { stat = fs.statSync(path); } catch { /* not written yet */ }
+  const rt = runtimeOf(child.id);
+  const tally = foldTranscript(rt, path, stat);
+  rt.phase = tally.prompts === 0 ? 'waiting-prompt' : tally.prompts <= child.turnsReported ? 'finished' : 'working';
+  return rt.phase;
 }
 
 /** A child was just told something (its seed, or `send_to_agent`): its turn is open. */

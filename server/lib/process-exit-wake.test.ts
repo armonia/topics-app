@@ -237,7 +237,9 @@ describe("deliverProcessExit", () => {
       let searches = 0;
       const { d } = deps({ isBusy: () => busy-- > 0 });
       const db = d.db;
-      d.db = { query: (sql: string) => { searches++; return db.query(sql); } } as never;
+      // The verdict's look at a stopped sub-agent runs every round by design
+      // (a Stop can come while the wake waits): not a search for the row.
+      d.db = { query: (sql: string) => { if (!sql.includes("FROM subagents")) searches++; return db.query(sql); } } as never;
       expect(await deliverProcessExit(d, FACTS)).toBe("sent");
       return searches;
     };

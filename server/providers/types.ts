@@ -497,6 +497,8 @@ export interface AIProvider {
       tools?: Tool[];
       /** The row this turn writes to: claude-code leaves it in the broker store as the turn's mark (`claude/row-turn.ts`). */
       rowId?: string;
+      /** The turn's name (the user row it answers): the engine puts it on the end it records (`TurnEndInfo.turnId`). */
+      turnId?: string;
     },
   ): Promise<{ runId?: string; /** Stopped while queued, nothing written: the caller undoes what it marked as sent. */ notSent?: boolean }>;
 

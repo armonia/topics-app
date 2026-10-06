@@ -306,11 +306,14 @@ export const chatApi = {
    * solo se la risposta torna `cleared: true` — il server ricontrolla sul DB
    * (vedi `shared/clear-messages-policy.ts`) e vede anche le righe fuori dal
    * ramo attivo, che il client non ha.
+   *
+   * `cause: SEND_NOW_STOP_CAUSE` («Send now») stops the turn only: the
+   * sub-agents it launched keep working.
    */
-  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean; cleared?: boolean; reason?: string }> {
+  async abort(sessionKey: string, clearMessages?: boolean, cause?: typeof SEND_NOW_STOP_CAUSE): Promise<{ ok: boolean; cleared?: boolean; reason?: string }> {
     return request<{ ok: boolean; cleared?: boolean }>('/chat/abort', {
       method: 'POST',
-      body: JSON.stringify({ sessionKey, clearMessages }),
+      body: JSON.stringify({ sessionKey, clearMessages, ...(cause ? { cause } : {}) }),
     });
   },
 
@@ -1589,7 +1592,7 @@ export interface AppBehaviorSettings {
  * La superficie è in Impostazioni → Permessi.
  */
 export type { ToolGrant } from '../../../shared/types';
-import type { ToolGrant, DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
+import type { ToolGrant, DiscordDetailLevel, AgentRuntime, SEND_NOW_STOP_CAUSE } from '../../../shared/types';
 import type { DirectEndpointInput, DirectEndpointView } from '../../../shared/direct-endpoints';
 export type { DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
 

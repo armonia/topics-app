@@ -1,6 +1,6 @@
 /**
  * The sub-agents accordion starts closed, counts every descendant, says when
- * one is working, and opens by itself only while a child is the focused row.
+ * one is working or waits on the person, and opens by itself only while a child is the focused row.
  * @covers SUBAGENT-21
  */
 import { describe, expect, test } from 'bun:test';
@@ -15,13 +15,21 @@ describe('sub-agents accordion', () => {
 
   test('closed by default: nothing opened, nothing focused', () => {
     const s = summarizeSubagents(tree, () => false, () => false);
-    expect(s).toEqual({ count: 3, working: false, holdsFocus: false });
+    expect(s).toEqual({ count: 3, working: false, holdsFocus: false, needsYou: false });
     expect(isAccordionOpen('parent', new Set(), s)).toBe(false);
   });
 
   test('a working grandchild lights the header dot, without opening it', () => {
     const s = summarizeSubagents(tree, (i) => i.id === 'a1', () => false);
     expect(s.working).toBe(true);
+    expect(isAccordionOpen('parent', new Set(), s)).toBe(false);
+  });
+
+  // Review of 05/10: a child's question or permission sat behind a closed
+  // header that said nothing; only the parent's row could have been lit.
+  test('a grandchild waiting on the person marks the closed header, without opening it', () => {
+    const s = summarizeSubagents(tree, () => false, () => false, (i) => i.id === 'a1');
+    expect(s.needsYou).toBe(true);
     expect(isAccordionOpen('parent', new Set(), s)).toBe(false);
   });
 

@@ -201,6 +201,14 @@ export interface TurnEndInfo {
   cause?: StopCause;
   /** Testo grezzo che ha portato alla classificazione — per il log, non per l'UI. */
   detail?: string;
+  /**
+   * The turn this end belongs to: the id of the user row it answers, as
+   * `recordTurnStart` named it. Set by the chat route, the abort route and
+   * the native engine (handed the name with the turn); absent from the
+   * stale-stream sweep and the CLI providers, whose end closes whatever turn
+   * is open.
+   */
+  turnId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
