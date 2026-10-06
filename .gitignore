@@ -454,3 +454,4 @@ mem-samples.json.tmp
 # changed file. Found untracked in the prod checkout on 24/09/2026.
 swap-freeze.json
 swap-freeze.json.tmp
+output/
