@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.453 — 2026-10-06
+
+### Sotto il cofano
+- Accetta advisory sharp/librsvg CVE-2026-96889 in baseline
+
 ## 2.2.452 — 2026-10-06
 
 ### Novità
