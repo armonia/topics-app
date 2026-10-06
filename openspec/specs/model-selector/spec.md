@@ -52,15 +52,14 @@ intermedio. Le sezioni sono per azienda, e ogni sezione SHALL portare il nome di
 un'azienda o, per un'azienda sconosciuta, il nome del provider che offre il
 modello. Nessuna sezione SHALL raccogliere ciò che resta («Altri», «Other») né
 raggruppare per tipo di connessione (emendamento del 04/10, revisione).
-Anthropic, OpenAI e Google SHALL essere le prime tre colonne, sempre in
-quest'ordine. Con più di quattro sezioni, le aziende successive SHALL stare
-impilate nella quarta colonna, ognuna col suo titolo.
+Anthropic, OpenAI e Google SHALL essere le prime tre sezioni, sempre in
+quest'ordine. Con più di tre sezioni, le aziende successive SHALL seguire
+sotto, ognuna col suo titolo.
 
-Da 720 px di finestra in su le sezioni SHALL essere colonne affiancate, una per
-azienda, tutte in vista insieme senza scorrere il pannello di lato; una colonna
-più lunga dello spazio SHALL scorrere da sola, con l'intestazione ferma. Sotto
-i 720 px le sezioni SHALL essere una lista sola, e l'intestazione di ciascuna
-SHALL restare in vista mentre si scorre.
+Le sezioni SHALL essere una lista sola verticale su ogni viewport, e
+l'intestazione di ciascuna SHALL restare in vista mentre si scorre
+(emendamento del 06/10: le colonne affiancate erano illeggibili già con tre
+aziende; la lista è l'unico layout, sul telefono come sul desktop).
 
 Il pannello SHALL restare dentro il viewport e SHALL aprirsi dal lato del trigger
 con più spazio quando non ci sta da nessuno dei due. Quando le righe non ci stanno,
@@ -85,7 +84,8 @@ interruttore dentro la riga del modello, non una riga a sé.
 - **GIVEN** quattro aziende pronte e una finestra di 1280 × 900 px con il composer in basso
 - **WHEN** l'utente apre il selettore
 - **THEN** il pannello sta dentro il viewport
-- **AND** le quattro intestazioni e la prima riga di ogni azienda sono visibili senza scorrere
+- **AND** le aziende sono una lista verticale sola, la prima in vista senza scorrere
+- **AND** scorrendo la lista, l'intestazione dell'azienda in vista resta ferma
 
 #### Scenario: quattro aziende sul telefono
 - **GIVEN** quattro aziende pronte e uno schermo largo 390 px
@@ -306,8 +306,9 @@ automatica).
 - ↓ e ↑ SHALL attraversare fascia, Automatico, righe e «Precedenti» di tutte le
   sezioni, senza fermarsi sul testo delle intestazioni; il bottone del motore di
   un'intestazione è una fermata solo quando offre una scelta. Invio sceglie; Esc
-  chiude e riporta il fuoco al trigger. A colonne, `→` e `←` SHALL passare alla
-  colonna accanto, e Tab SHALL fermarsi una volta per colonna (emendamento del
+  chiude e riporta il fuoco al trigger. Nella lista sola, `→` e `←` SHALL
+  restare dove sono, e Tab SHALL attraversare le fermate in ordine
+  (emendamento del 06/10: niente più colonne da attraversare; emendamento del
   04/10: la scelta del motore è nel titolo, e si apre con Invio sul suo bottone).
   Con la scelta del motore aperta, le frecce SHALL muoversi fra i suoi motori e
   Invio o Spazio SHALL scegliere quello col fuoco; dopo la scelta il fuoco torna

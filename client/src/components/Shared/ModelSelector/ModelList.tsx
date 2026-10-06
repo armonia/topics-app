@@ -1,9 +1,11 @@
 /**
- * THE BODY OF THE MODEL SELECTOR (MSEL-02..08, revision 2026-10-04 §4): the
- * Run-in-Topics band, the search with Automatic beside it, the companies in
- * columns (Anthropic, OpenAI, Google fixed, the others stacked in the fourth),
- * and the providers at the foot. Every surface that picks a model draws this,
- * through `ModelSelector`, which owns the popover around it.
+ * THE BODY OF THE MODEL SELECTOR (MSEL-02..08, revision 2026-10-04 §4,
+ * list-only since the 2026-10-06 amendment): the Run-in-Topics band, the
+ * search with Automatic beside it, the companies in one vertical list, and
+ * the providers at the foot. Every surface that picks a model draws this,
+ * through `ModelSelector`, which owns the popover around it. The `columns`
+ * layout stays a supported value of the `layout` prop, with its unit tests,
+ * though no product surface uses it: `ModelSelector` always passes `list`.
  *
  * The body is not a listbox: it is a dialog of company groups (`role=group`)
  * of buttons, with nothing interactive inside anything interactive. The engine
@@ -367,7 +369,7 @@ function ConnectBox({ group, disabled, onHide, onClose, onOpenProviders }: {
  * The heading of a group, the same two lines on every group, stacked ones
  * included: the status dot and the COMPANY (plus the plan warning on
  * Anthropic), then «via <who runs it>» with ⌄ when two engines run the
- * group. On a list (phone) both sit on one 44px row.
+ * group. On a list both sit on one 44px row.
  */
 function GroupHeading({ group, headingId, list, open, onToggle, planWarning }: {
   group: CatalogGroup;
@@ -618,10 +620,12 @@ export function ModelList(props: ModelListProps) {
     return () => panel.removeEventListener('focusin', onFocus);
   }, [layoutKey]);
 
-  // On open the chosen row is brought into view inside its own column.
+  // On open the chosen row is brought into view inside the scrolling list,
+  // or inside its own column when the layout has them (AC-05).
   useEffect(() => {
-    const row = panelRef.current?.querySelector<HTMLElement>('[data-model-column] [aria-pressed="true"]');
-    const container = row?.closest<HTMLElement>('[data-model-column]');
+    const row = panelRef.current?.querySelector<HTMLElement>('[data-testid="model-selector-sections"] [aria-pressed="true"]');
+    const container = row?.closest<HTMLElement>('[data-model-column]')
+      ?? panelRef.current?.querySelector<HTMLElement>('[data-testid="model-selector-sections"]');
     if (!row || !container) return;
     const rowBox = row.getBoundingClientRect();
     const box = container.getBoundingClientRect();

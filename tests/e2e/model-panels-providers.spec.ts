@@ -113,12 +113,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       const { picker } = await openChat(page, request, KEYS);
       await picker.click();
       await expect(models(page)).toBeVisible();
-      // The models as somebody left them: a search typed, a section opened, a column scrolled.
+      // The models as somebody left them: a search typed, a section opened, the list scrolled.
       await models(page).getByTestId("model-section-anthropic").getByTestId("model-section-older").click();
       await models(page).getByTestId("model-selector-search").fill("o");
-      const column = models(page).locator('[data-model-column="1"]');
-      await column.evaluate((el) => { el.scrollTop = 40; });
-      const scrolled = await column.evaluate((el) => el.scrollTop);
+      const scroller = models(page).getByTestId("model-selector-sections");
+      await scroller.evaluate((el) => { el.scrollTop = 40; });
+      const scrolled = await scroller.evaluate((el) => el.scrollTop);
       expect(scrolled).toBeGreaterThan(0);
       const before = await rect(popover(page));
       const footerTail = await models(page).getByTestId("ai-selector-providers-tail").innerText();
@@ -144,7 +144,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       await page.getByTestId("level-back").click();
       await expect(models(page)).toBeVisible();
       await expect(models(page).getByTestId("model-selector-search")).toHaveValue("o");
-      expect(await column.evaluate((el) => el.scrollTop)).toBe(scrolled);
+      expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrolled);
       await expect(models(page).getByTestId("ai-selector-providers")).toBeFocused();
 
       // Escape too, and a second Escape closes with the focus on the chip.
@@ -153,7 +153,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
       await page.keyboard.press("Escape");
       await expect(models(page)).toBeVisible();
       await expect(models(page).getByTestId("model-selector-search")).toHaveValue("o");
-      expect(await column.evaluate((el) => el.scrollTop)).toBe(scrolled);
+      expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrolled);
       // The section opened before the search is still open once it is cleared.
       await models(page).getByTestId("model-selector-search").fill("");
       await expect(models(page).getByTestId("model-section-anthropic").getByTestId("model-section-older")).toHaveAttribute("aria-expanded", "true");
