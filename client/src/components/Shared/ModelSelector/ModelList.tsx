@@ -670,8 +670,9 @@ export function ModelList(props: ModelListProps) {
         : `${POPOVER_ITEM} shrink-0 !items-start disabled:opacity-40 ${automaticSelected ? 'bg-primary/5' : ''}`}
     >
       <Sparkles className={`h-3.5 w-3.5 shrink-0 text-app-text-secondary ${isColumns ? '' : 'mt-0.5'}`} aria-hidden="true" />
-      {/* Solo l'etichetta: la frase lunga sta fuori dal bottone (aria-describedby),
-          così il testo chiuso resta «label · who» (AC-30, AC-31, §3.7). */}
+      {/* The label only: the long sentence lives outside the button
+          (aria-describedby), so the closed text stays «label · who»
+          (AC-30, AC-31, §3.7). */}
       <span className={isColumns ? 'whitespace-nowrap' : 'min-w-0 flex-1'}>
         <span className="block">{props.automatic.who ? `${tr('ai.selector.auto')} · ${props.automatic.who}` : tr('ai.selector.auto')}</span>
       </span>
