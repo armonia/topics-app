@@ -16,7 +16,7 @@ import { rankSites, type PageVisit, type SiteEntry } from '../state/browserSiteH
 import { displayUrl, prettyUrl } from './browserNavUrl';
 
 /** Each list contributes at most this many rows — the tab sheet's own cap. */
-export const NEWTAB_SUGGESTIONS_PER_SECTION = 5;
+export const NEW_TAB_SUGGESTIONS_PER_SECTION = 5;
 
 export type NewTabSectionId = 'tabs' | 'recent' | 'top' | 'commands';
 
@@ -69,7 +69,7 @@ export function buildNewTabSuggestions(opts: {
 
   const tabs: NewTabSuggestionRow[] = [];
   for (const pane of panes) {
-    if (tabs.length >= NEWTAB_SUGGESTIONS_PER_SECTION) break;
+    if (tabs.length >= NEW_TAB_SUGGESTIONS_PER_SECTION) break;
     if (pane.type !== 'browser' || !isRealUrl(pane.url)) continue;
     const url = pane.url;
     if (shown.has(url)) continue;
@@ -81,7 +81,7 @@ export function buildNewTabSuggestions(opts: {
 
   const recent: NewTabSuggestionRow[] = [];
   for (const page of opts.pages) {
-    if (recent.length >= NEWTAB_SUGGESTIONS_PER_SECTION) break;
+    if (recent.length >= NEW_TAB_SUGGESTIONS_PER_SECTION) break;
     if (!isRealUrl(page.url) || shown.has(page.url)) continue;
     if (!matchesQuery([page.title, page.url], q)) continue;
     shown.add(page.url);
@@ -98,7 +98,7 @@ export function buildNewTabSuggestions(opts: {
       now,
     );
     for (const site of ranked) {
-      if (top.length >= NEWTAB_SUGGESTIONS_PER_SECTION) break;
+      if (top.length >= NEW_TAB_SUGGESTIONS_PER_SECTION) break;
       if (shown.has(site.url)) continue;
       shown.add(site.url);
       top.push({
@@ -112,7 +112,7 @@ export function buildNewTabSuggestions(opts: {
 
   const commands: NewTabSuggestionRow[] = [];
   for (const c of opts.commands) {
-    if (commands.length >= NEWTAB_SUGGESTIONS_PER_SECTION) break;
+    if (commands.length >= NEW_TAB_SUGGESTIONS_PER_SECTION) break;
     if (!matchesQuery([c.cmd], q)) continue;
     commands.push({ key: `cmd:${c.cmd}`, kind: 'command', primary: c.cmd, title: c.cmd, cmd: c.cmd });
   }

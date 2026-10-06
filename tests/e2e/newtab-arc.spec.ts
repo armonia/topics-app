@@ -208,10 +208,10 @@ test.describe("newtab-arc", () => {
     browserProcessPageV2.drainInputMessages();
     restNavigates.length = 0;
     const input = scope.getByTestId("browser-new-tab-input");
-    await input.fill("esempio.it");
+    await input.fill("example.it");
     await input.press("Enter");
-    // The exact url, on whichever channel the pane took: `esempio.it` is a
-    // bare public host, so the bar rule says `https://esempio.it`.
+    // The exact url, on whichever channel the pane took: `example.it` is a
+    // bare public host, so the bar rule says `https://example.it`.
     await expect
       .poll(
         () => {
@@ -223,7 +223,7 @@ test.describe("newtab-arc", () => {
         },
         { timeout: 10_000 },
       )
-      .toContain("https://esempio.it");
+      .toContain("https://example.it");
     // …and the pane left the new tab for it.
     await expect(scope.getByTestId("browser-new-tab")).toHaveCount(0);
   });

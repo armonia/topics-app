@@ -5,7 +5,7 @@
  *   1. a command attempt — the text starts with `/name` (one token, no dot,
  *      no second slash): a known name runs as that command, an unknown one
  *      stays a suggestion instead of navigating somewhere surprising;
- *   2. a long text — multiline, or over NEWTAB_FILE_LENGTH characters: the
+ *   2. a long text — multiline, or over NEW_TAB_FILE_LENGTH characters: the
  *      person is writing, not addressing, so the door is "create a note";
  *   3. anything else — an address under the same rule as the bar above
  *      (`toNavigableUrl`), which is what the page has always promised.
@@ -18,7 +18,7 @@
 import { toNavigableUrl } from './browserNavUrl';
 
 /** Past this many characters a text is a note being written, not an address. */
-export const NEWTAB_FILE_LENGTH = 500;
+export const NEW_TAB_FILE_LENGTH = 500;
 
 export type NewTabSubmitKind = 'url' | 'command' | 'file';
 
@@ -64,7 +64,7 @@ export function matchNewTabCommand(text: string, known: readonly string[]): stri
 
 /** Multiline, or longer than the note threshold: the "create a note" door. */
 export function isLongNewTabText(text: string): boolean {
-  return text.includes('\n') || text.length > NEWTAB_FILE_LENGTH;
+  return text.includes('\n') || text.length > NEW_TAB_FILE_LENGTH;
 }
 
 /** The door a submit walks through. Null when there is nothing to submit. */
