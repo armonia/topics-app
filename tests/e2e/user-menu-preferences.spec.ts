@@ -433,6 +433,9 @@ test.describe("sul telefono il menu del titolo è il menu utente", () => {
     await expect(appearance).toBeHidden({ timeout: 10_000 });
 
     const sheet = page.getByTestId("sidebar-topics-menu-panel");
+    // The sheet stays on the Topics floor once the level closes (A1): a
+    // person taps Back to climb to the identity root, where sign-in lives.
+    await sheet.getByTestId("user-menu-topics-back").click();
     // Sign in: the account block is at the top of the title menu.
     const addressField = sheet.getByTestId("account-email");
     await expect(addressField).toBeVisible({ timeout: 15_000 });
