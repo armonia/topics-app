@@ -194,7 +194,7 @@ test.describe("La board sul telefono", () => {
     await onlyOurCards(page);
     const atEnd = async () => {
       await page.evaluate(() => { const b = document.querySelector<HTMLElement>('[data-testid="kanban-column-body-backlog"]')!; b.scrollTop = b.scrollHeight; });
-      await page.waitForTimeout(250);
+      await waitForLayoutSettled(page, '[data-testid="kanban-column-body-backlog"]');
       return page.evaluate(() => {
         const cards = Array.from(document.querySelectorAll('[data-testid="kanban-column-body-backlog"] [data-task-card]'));
         const last = cards[cards.length - 1]!.getBoundingClientRect();
@@ -217,7 +217,7 @@ test.describe("La board sul telefono", () => {
       document.documentElement.style.setProperty("--mobile-transport-h", "48px");
       window.dispatchEvent(new Event("resize"));
     });
-    await page.waitForTimeout(300);
+    await waitForLayoutSettled(page, '[data-testid="kanban-board"]');
     const grown = await atEnd();
     console.log("FONDO-BANDA", JSON.stringify(grown));
     await shot(page, "fondo-colonna-banda");
@@ -232,7 +232,7 @@ test.describe("La board sul telefono", () => {
     await onlyOurCards(page);
     // Todo is the second slide: bring it in, the chips under test live there.
     await page.evaluate(() => document.querySelector('[data-testid="kanban-column-todo"]')!.scrollIntoView({ inline: "center", block: "nearest" }));
-    await page.waitForTimeout(400);
+    await waitForLayoutSettled(page, '[data-testid="kanban-column-todo"]');
     await shot(page, "chip-tema-chiaro");
     const audit = await auditSurface(page, '[data-testid="kanban-column-todo"]', 44);
     const failing = [
