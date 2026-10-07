@@ -11,7 +11,7 @@
  *   B. nessuna migration pending → exit 0
  *   C. una migration VALIDA pending → exit 0
  *   D. nessun DB sul disco → exit 0 (primo avvio, sicuro per definizione)
- *   E. sqlite3 assente → exit 0 (degradazione silenziosa, meglio un reload)
+ *   E. sqlite3 assente → exit 0, dichiarando che il cancello e' spento (meglio un reload)
  *   F. migration ROTTA senza DATA_DIR nell'env → exit 1 (percorso default corretto)
  *
  * Il cancello NON tocca il DB vivo: tutte le prove usano una copia.
@@ -25,6 +25,14 @@ import { Database } from "bun:sqlite";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const GATE = join(REPO_ROOT, "scripts", "server-reload-gate.sh");
+
+/**
+ * The migration gate reads the registry with the `sqlite3` binary. Where it is
+ * missing (the cloud VM, a minimal container) the gate TURNS ITSELF OFF, and says
+ * so: A and F, which want exit 1, can only check the declared shutdown there.
+ * They used to fail with "received 0" and it looked like a broken gate.
+ */
+const HA_SQLITE3 = Bun.which("sqlite3") !== null;
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +123,11 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
 
     const { code, out } = eseguiCancello(dir);
 
+    if (!HA_SQLITE3) {
+      expect(code).toBe(0);
+      expect(out).toContain("sqlite3 non trovato");
+      return;
+    }
     expect(code).toBe(1);
     // dice il nome della migration che ha fallito
     expect(out).toContain("20260817120001-broken.sql");
@@ -161,7 +174,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     expect(code).toBe(0);
   });
 
-  it("E: sqlite3 non trovato → exit 0 (degradazione silenziosa)", () => {
+  it("E: sqlite3 non trovato → exit 0 (degradazione dichiarata)", () => {
     const dir = fakeAppDir({
       migrations: [
         { name: "20260817120001-broken.sql", sql: "THIS IS NOT SQL!!!", applied: false },
@@ -200,9 +213,12 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
 
     const fakePath = fakeBin;
 
-    const { code } = eseguiCancello(dir, { PATH: fakePath });
-    // Il cancello non può verificare: non blocca (exit 0)
+    const { code, out } = eseguiCancello(dir, { PATH: fakePath });
+    // The gate cannot verify: it does not block (exit 0), and SAYS it is off.
+    // Without the message a gate that looks at nothing and one that looked and
+    // found everything in order come out the same.
     expect(code).toBe(0);
+    expect(out).toContain("sqlite3 non trovato");
   });
 
   it("F: migration ROTTA senza DATA_DIR → exit 1 (percorso default = APP_DIR/data)", () => {
@@ -226,6 +242,11 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     // Nessun DATA_DIR: il cancello deve trovare il DB da <APP_DIR>/data/topics.db
     const { code, out } = eseguiCancello(dir);
 
+    if (!HA_SQLITE3) {
+      expect(code).toBe(0);
+      expect(out).toContain("sqlite3 non trovato");
+      return;
+    }
     expect(code).toBe(1);
     expect(out).toContain("20260817120001-broken.sql");
     expect(out).toContain("server vecchio resta su");

@@ -19,7 +19,13 @@ import { captureShellTree, esitoShellMorta, sweepOrphanedShellTree } from "./pro
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 function isAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  try { process.kill(pid, 0); } catch { return false; }
+  // `kill(pid, 0)` also succeeds on a ZOMBIE: the process is dead but nobody has
+  // collected its exit. Where the adoptive parent does not (an init that never
+  // calls wait, as in a cloud VM) the sweep had closed the child and the test
+  // still saw it as alive. A zombie is not a child left open.
+  const stat = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
+  return !new TextDecoder().decode(stat.stdout).trim().startsWith("Z");
 }
 
 describe("sweep dei figli orfani di una shell morta", () => {
