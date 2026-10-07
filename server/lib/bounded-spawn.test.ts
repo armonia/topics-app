@@ -176,3 +176,44 @@ describe("the deadline limits the ANSWER, not the direct child", () => {
     expect(proc.timedOut).toBe(false);
   });
 });
+
+describe("the server's shutdown closes the groups it launched", () => {
+  const alive = (pid: number): boolean => {
+    try { process.kill(pid, 0); } catch { return false; }
+    // A zombie is dead; some inits (a cloud VM's) never collect it.
+    const stat = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)], { timeout: 3000, killSignal: "SIGKILL" });
+    return !new TextDecoder().decode(stat.stdout).trim().startsWith("Z");
+  };
+
+  // The host forwards launchd's SIGTERM to the server's whole process GROUP.
+  async function stopLikeTheHost(mode: "plain" | "bounded"): Promise<{ childPid: number; survived: boolean }> {
+    const server = Bun.spawn(["bun", join(import.meta.dir, "bounded-spawn.shutdown.fixture.ts"), mode], {
+      stdout: "pipe", stderr: "ignore", detached: true, // its own group, like the server under topics-host
+    });
+    const reader = server.stdout.getReader();
+    let text = "";
+    while (!/CHILD \d+/.test(text)) {
+      const next = await reader.read();
+      if (next.done) break;
+      text += new TextDecoder().decode(next.value);
+    }
+    const childPid = Number(/CHILD (\d+)/.exec(text)?.[1]);
+    expect(childPid).toBeGreaterThan(1);
+    try {
+      process.kill(-server.pid, "SIGTERM");
+      await server.exited;
+      await Bun.sleep(900); // the exit hook's grace is 500 ms
+      return { childPid, survived: alive(childPid) };
+    } finally {
+      try { process.kill(childPid, "SIGKILL"); } catch { /* already gone */ }
+    }
+  }
+
+  it("a plain Bun.spawn child dies with the group (the behaviour to keep)", async () => {
+    expect((await stopLikeTheHost("plain")).survived).toBe(false);
+  });
+
+  it("a spawnBounded child is closed by the server's exit hook, not orphaned", async () => {
+    expect((await stopLikeTheHost("bounded")).survived).toBe(false);
+  });
+});

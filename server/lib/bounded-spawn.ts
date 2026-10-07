@@ -54,6 +54,56 @@ function cappedMs(timeoutMs: number): number {
   return Number.isFinite(cap) && cap > 0 ? Math.min(timeoutMs, cap) : timeoutMs;
 }
 
+/**
+ * THE GROUPS THAT ARE STILL ALIVE, so that the server's shutdown can close them.
+ *
+ * The child is `detached` (a group of its own: the deadline kills the whole
+ * tree), so it is NOT in the server's group any more. `scripts/topics-host/
+ * topics-host.c` forwards launchd's SIGTERM to the server's whole group
+ * (`kill(-child_pid, sig)`): with `Bun.spawn` the children died with it, with a
+ * detached one they would survive with ppid 1, and with no deadline either (the
+ * timer died with the server). The server cannot be stopped from outside by
+ * group any more, so it closes its own: when the process exits (every path of
+ * `gracefulShutdown` ends in `process.exit`) the groups still alive get SIGTERM,
+ * a short sync grace, then SIGKILL. A SIGKILL on the server itself still leaves
+ * them, exactly as it left a `Bun.spawn` child.
+ *
+ * Why a registry and not "no `detached`, kill the tree photographed with `ps`":
+ * the group kill is what makes the deadline reach a grandchild that has
+ * reparented or double-forked inside the tree, and a `ps` snapshot would be a
+ * second process launched on the way out, with the very hang risk this file
+ * exists to remove.
+ */
+const liveGroups = new Set<number>();
+let exitHookInstalled = false;
+/** Grace between SIGTERM and SIGKILL at shutdown: synchronous, so it is short. */
+const SHUTDOWN_GRACE_MS = 500;
+
+function groupExists(pid: number): boolean {
+  if (pid <= 1) return false;
+  try { process.kill(-pid, 0); return true; } catch { return false; }
+}
+
+/** SIGTERM, a short grace, SIGKILL to every group a `spawnBounded` left alive. Safe to call twice. */
+export function reapBoundedGroups(graceMs: number = SHUTDOWN_GRACE_MS): number {
+  const alive = [...liveGroups].filter(groupExists);
+  liveGroups.clear();
+  if (alive.length === 0) return 0;
+  for (const pid of alive) { try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ } }
+  Bun.sleepSync(graceMs);
+  for (const pid of alive) { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } }
+  return alive.length;
+}
+
+function trackGroup(pid: number): void {
+  for (const old of liveGroups) if (!groupExists(old)) liveGroups.delete(old); // an id that is gone may be recycled
+  liveGroups.add(pid);
+  if (!exitHookInstalled) {
+    exitHookInstalled = true;
+    process.on("exit", () => { reapBoundedGroups(); });
+  }
+}
+
 export interface SpawnBoundedOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
@@ -144,6 +194,7 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
     detached: true,
   });
 
+  trackGroup(proc.pid);
   let timedOut = false;
   let fireDeadline!: () => void;
   const deadline = new Promise<void>((resolve) => { fireDeadline = resolve; });
@@ -191,7 +242,13 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
   const exited: Promise<number | null> = Promise.race([
     answered.then((code) => (timedOut ? null : code)),
     deadline.then(() => null),
-  ]).finally(() => clearTimeout(timer));
+  ]).finally(() => {
+    clearTimeout(timer);
+    // The answer is over. A group with nobody left in it need not be reaped at
+    // shutdown (and its id could be recycled by then); one that still has a
+    // member (a daemon the child left behind) stays in the registry.
+    if (!groupExists(proc.pid)) liveGroups.delete(proc.pid);
+  });
   // A late rejection from the loser of the race must not become an unhandled one.
   exited.catch(() => {});
 
