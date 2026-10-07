@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "fs";
 import { isAbsolute, join, relative, resolve, sep } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { wantsHtml, mediaErrorHtml } from "../media-error-page";
@@ -250,6 +250,21 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
             detail: "The path is allowed, but nothing is on disk at it (or it was moved).",
           }),
           { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+        );
+      }
+      // Una cartella non e' un file: `Bun.file` la apre lo stesso e la lettura
+      // esplode con EISDIR, che nel pannello arriva come il riquadro d'errore
+      // di Bun («Directories cannot be read like files»). Ci portava un link a
+      // `proofs/clips/` scritto in chat (topic:d740f8ae, 07/10).
+      if (statSync(resolved).isDirectory()) {
+        if (!asHtml) return json({ error: "path is a directory" }, 400);
+        return new Response(
+          mediaErrorHtml({
+            path: resolved,
+            title: "This is a folder, not a file",
+            detail: "Open it from the Files panel, or link one of the files inside it.",
+          }),
+          { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } },
         );
       }
       const file = Bun.file(resolved);
