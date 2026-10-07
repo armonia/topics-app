@@ -127,7 +127,7 @@ export function isSlimmableDirName(
   return marker ? hasMarker(marker) : false;
 }
 
-export type SlimRefusal = "non ignorato da git" | "contiene file tracciati";
+export type SlimRefusal = "non ignorato da git" | "contiene file tracciati" | "git non ha risposto";
 
 export interface SlimVerdict {
   /** Percorsi (relativi alla radice del worktree) che si possono cancellare. */
@@ -289,6 +289,12 @@ export async function slimWorktree(root: string, skip: ReadonlySet<string> = new
   // percorso ignorato è raro e legale, ed è l'unico modo in cui cancellare
   // sporcherebbe `git status`.
   const ls = await gitOut(root, ["ls-files", "-z", "--", ...candidates]);
+  // FAIL CLOSED, like gate 1. `gitOut` turns a git that does not answer (deadline,
+  // missing binary) into code 128 with an empty output, and an empty list reads as
+  // "nothing tracked down there": the guard would skip and the directories would
+  // be deleted on the strength of a question git never answered. Any code other
+  // than 0 means we do not know: nothing is touched.
+  if (ls.code !== 0) return { ...EMPTY, refused: candidates.map((relPath) => ({ relPath, reason: "git non ha risposto" as const })) };
   const trackedFiles = ls.out.split("\0").filter(Boolean).map(toPosix);
   const trackedUnder = new Set(
     candidates.filter((c) => trackedFiles.some((f) => f === c || f.startsWith(`${c}/`))),
