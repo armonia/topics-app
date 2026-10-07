@@ -138,3 +138,15 @@ E2E_TIER=pr npx playwright test --project=chromium <le spec della tua area>
 - Video e trace su un ramo a parte, `cloud/<ramo della traccia>-evidenza`, mai sul ramo dei fix.
 - Ti fermi quando la barra è verde e i numeri della traccia sono al target, oppure dopo 4 ore di
   lavoro, oppure se ricevi «chiudi»: in quel caso finisci il fix in corso, barra, REPORT, push.
+
+## Dopo T0 (misurato nella VM il 07/10): parti da qui
+
+- `check:route-latency` nella VM si astiene («il tubo è fuori scala»: la baseline è del Mac, la VM
+  è ~3x più lenta). Per il prima/dopo usa un banco tuo contro il server di test isolato, stessa VM,
+  due corse, `uptime` accanto. `export SERVER_HOST=127.0.0.1` sempre (la VM non ha IPv6).
+- Due rossi di `test:unit:shards` che T0 non ha spiegato con l'ambiente: guardali per primi.
+  1. `scripts/reload-gate-migration.test.ts` casi A e F: il cancello di ricarica esce 0 con una
+     migration rotta (`:118`, `:229`). Quel cancello è ciò che impedisce al server di produzione di
+     ripartire su una modifica rotta: se il difetto è vero, è il fix più prezioso della traccia.
+  2. `server/routes/processes.shell-sweep.test.ts`: `isAlive(pid)` resta vero dopo lo sweep
+     (`:63`). Decidi se è la VM (nessun init che raccoglie gli zombie) o un difetto vero.

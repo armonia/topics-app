@@ -153,3 +153,12 @@ E2E_TIER=pr npx playwright test --project=chromium <le spec della tua area>
 - Video e trace su un ramo a parte, `cloud/<ramo della traccia>-evidenza`, mai sul ramo dei fix.
 - Ti fermi quando la barra è verde e i numeri della traccia sono al target, oppure dopo 4 ore di
   lavoro, oppure se ricevi «chiudi»: in quel caso finisci il fix in corso, barra, REPORT, push.
+
+## Dopo T0 (misurato nella VM il 07/10): parti da qui
+
+- `qa-gate.sh --veloce` = 292 s, e `typecheck` (121 s) più `lint` (134 s) sono l'87%: il tempo si
+  guadagna lì (incrementale, cache, parallelo), non sui cancelli da un secondo.
+- In un container come root e senza IPv6 la barra ha rossi che non sono difetti: `check:security`
+  e `no-home-paths-tracked` (HOME=/root), `worktree-manager` e `file-tree` (root ignora chmod),
+  `loopback-probe` e i test che spawnano server (IPv6). Un test che dipende dall'ambiente deve dirlo
+  (skip motivato e visibile) o adattarsi, senza smettere di verificare ciò che verifica oggi.
