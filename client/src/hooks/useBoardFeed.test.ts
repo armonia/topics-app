@@ -382,7 +382,7 @@ describe('il feed globale ha un lettore solo', () => {
     // shared chat store.
     const s = src('./useTaskTopicIndex.ts');
     expect(s.includes('boardApi.')).toBe(false);
-    expect(s.includes('useBoardTasks(')).toBe(true);
+    expect(s.includes('subscribeBoardTasks(')).toBe(true);
   });
 
   test('e chi scrive la rilascia quando la PATCH ha risposto, non prima', () => {
