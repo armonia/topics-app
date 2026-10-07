@@ -275,32 +275,6 @@ describe('useBoardFeed: la risposta è di CHI ha chiesto per ultimo', () => {
     f.unmount();
   });
 
-  test('a re-read keeps the object of every row that did not change', async () => {
-    const f = mountFeed({ projectId: 'board-A' });
-    pending[0]!.resolve([task('a'), task('b')]);
-    await settle();
-    const first = f.now().tasks;
-
-    // An identical read: same array, so the pane does not even render.
-    f.now().refetch();
-    jest.advanceTimersByTime(400);
-    pending[pending.length - 1]!.resolve([task('a'), task('b')]);
-    await settle();
-    expect(f.now().tasks, 'an identical read replaced the rows').toBe(first);
-
-    // One title changed: only that row is a new object, the other card keeps
-    // its own and `memo(Card)` can hold.
-    f.now().refetch();
-    jest.advanceTimersByTime(400);
-    pending[pending.length - 1]!.resolve([task('a'), { ...task('b'), text: 'changed' }]);
-    await settle();
-    const next = f.now().tasks;
-    expect(next).not.toBe(first);
-    expect(next[0]).toBe(first[0]);
-    expect(next[1]!.text).toBe('changed');
-    f.unmount();
-  });
-
   /**
    * FINIRE IL GESTO NON È LEGGERE. `endDrag` rilasciava la GET parcheggiata
    * durante il drag, e la pane lo chiama PRIMA della PATCH del drop: la lettura

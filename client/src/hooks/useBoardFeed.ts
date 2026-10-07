@@ -40,7 +40,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { boardApi, type BoardTask } from '../lib/board';
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
 import {
-  hasLoadedBoardTasks, patchBoardTask, reconcileBoardRows, requestBoardTasksRefresh,
+  hasLoadedBoardTasks, patchBoardTask, requestBoardTasksRefresh,
   useBoardTasks, useBoardTasksError, useBoardTasksLoaded,
 } from '../lib/boardTasksStore';
 import { readBoardRowsCache, writeBoardRowsCache } from '../lib/boardRowsCache';
@@ -153,15 +153,7 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
         },
         apply: (out) => {
           if (out.ok) {
-            // Same query: the rows that did not change keep their object, and an
-            // identical read keeps the whole state (no render at all). Every
-            // `task:*` frame of this board is a re-read here, most of them
-            // about one card.
-            setOwn((prev) => {
-              if (prev.key !== out.key) return { key: out.key, rows: out.rows };
-              const rows = reconcileBoardRows(prev.rows, out.rows);
-              return rows === prev.rows ? prev : { key: out.key, rows };
-            });
+            setOwn({ key: out.key, rows: out.rows });
             writeBoardRowsCache(out.key, out.rows);
             onErrorRef.current(null);
           } else {

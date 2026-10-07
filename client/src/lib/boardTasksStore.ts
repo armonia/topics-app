@@ -82,27 +82,6 @@ function sameTaskValue(a: unknown, b: unknown): boolean {
   return aKeys.every((key) => Object.hasOwn(right, key) && sameTaskValue(left[key], right[key]));
 }
 
-/**
- * The rows of a new read, with the identity of every row that did not change
- * kept from the previous read (matched by id, so a card that moved up or down
- * keeps its object too). Returns `prev` itself when nothing changed at all.
- *
- * It exists for the readers that hold their own copy of a feed (`useBoardFeed`
- * in project mode): without it every re-read handed every card a fresh object,
- * and `memo(Card)` re-rendered the whole column to repaint one title.
- */
-export function reconcileBoardRows(prev: readonly BoardTask[], next: readonly BoardTask[]): readonly BoardTask[] {
-  const byId = new Map(prev.map((row) => [row.id, row] as const));
-  let same = prev.length === next.length;
-  const out = next.map((row, i) => {
-    const old = byId.get(row.id);
-    const kept = old && sameTaskValue(old, row) ? old : row;
-    if (kept !== prev[i]) same = false;
-    return kept;
-  });
-  return same ? prev : out;
-}
-
 /** Publish changed rows immediately. A repeated feed keeps its identities, so
  * subscribers and the first-frame cache pay only for real changes. */
 export function setBoardTasks(next: readonly BoardTask[]): void {
