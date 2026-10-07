@@ -30,12 +30,12 @@
  * lands in the coalescer above. See `useBoardFeed` for the numbers of the day
  * three of them were reading the same feed on their own.
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { WSMessage } from '../types';
 import { boardApi, type BoardTask, type TaskStatus } from '../lib/board';
 import { groupByStatus } from '../lib/boardOrder';
 import {
-  applyBoardTaskFrame, markBoardTasksFailed, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
+  applyBoardTaskFrame, getBoardTasks, markBoardTasksFailed, setBoardTasks, setBoardTasksRefresher, subscribeBoardTasks,
 } from '../lib/boardTasksStore';
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
 import { BOOT_READ_TTL_MS } from '../lib/coalesceFetch';
@@ -75,8 +75,58 @@ type GlobalReadOutcome =
 export interface GlobalBoard {
   /** Tasks not yet `done`, across every project. */
   activeCount: number;
-  /** The rows per kanban column, ordered the way the board shows them. */
+  /**
+   * The rows per kanban column, ordered the way the board shows them.
+   *
+   * It changes only when the SHAPE of the board changes (a card enters,
+   * leaves, changes column or project): a frame that rewrites a title or a
+   * dispatch chip leaves it as it was, rows included. Whoever needs the live
+   * row reads `boardTasksStore` (`useBoardTasks`), like the board itself does.
+   */
   byStatus: Record<TaskStatus, BoardTask[]>;
+}
+
+/**
+ * THE SHAPE, NOT THE ROWS: what `App` actually reads of the board.
+ *
+ * This hook lives in `App`, and it was subscribed to EVERY write of the store:
+ * an agent at work re-emits its row every few seconds, the store absorbs each
+ * frame (`applyBoardTaskFrame`), and each absorption re-rendered `App` - the
+ * sidebar, every resident pane and the board under them - to repaint a title
+ * only the board shows. What leaves this hook is the count of active cards and
+ * `byStatus`, which the sidebar reduces to cards per column and per project
+ * (`BoardRowSummary`): id, status and project are all it can see. So the
+ * subscription compares those, and hands back the SAME object while they hold.
+ *
+ * Module state and not a ref: the store is one per document, and so is its
+ * summary. The key is the identity of the rows array, which the store replaces
+ * on every real change and keeps on a repeated feed.
+ */
+let summaryRows: readonly BoardTask[] | null = null;
+let summaryShape = '';
+let summary: GlobalBoard | null = null;
+
+function boardShape(tasks: readonly BoardTask[]): string {
+  let shape = '';
+  for (const t of tasks) shape += `${t.id}\u0000${t.status}\u0000${t.projectId}\u0001`;
+  return shape;
+}
+
+function getGlobalBoardSummary(): GlobalBoard {
+  const tasks = getBoardTasks();
+  if (summary && tasks === summaryRows) return summary;
+  summaryRows = tasks;
+  const shape = boardShape(tasks);
+  if (summary && shape === summaryShape) return summary;
+  summaryShape = shape;
+  let activeCount = 0;
+  for (const task of tasks) if (task.status !== 'done') activeCount++;
+  // Stesso ordinamento della board vera, così la fascia non racconta un ordine
+  // diverso da quello che si vede aprendola. Scope `cross-project`: qui i task
+  // vengono da board diverse e `kanbanOrder` non si confronta fra sequenze
+  // indipendenti (vedi `lib/boardOrder`).
+  summary = { activeCount, byStatus: groupByStatus(tasks, 'cross-project') };
+  return summary;
 }
 
 /** A window nobody is looking at. `document.hidden` and not the focus test of
@@ -89,7 +139,7 @@ function windowHidden(): boolean {
 export function useGlobalBoard(
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
 ): GlobalBoard {
-  const tasks = useBoardTasks();
+  const board = useSyncExternalStore(subscribeBoardTasks, getGlobalBoardSummary, getGlobalBoardSummary);
   // A refresh that came due while the window was hidden. It is remembered, not
   // dropped: the moment somebody looks again, ONE read brings back whatever the
   // agents did in the meantime.
@@ -227,13 +277,5 @@ export function useGlobalBoard(
     return () => { stopReconnectListener(); stopOpenListener(); };
   }, [ensure]);
 
-  return useMemo(() => {
-    let activeCount = 0;
-    for (const task of tasks) if (task.status !== 'done') activeCount++;
-    // Stesso ordinamento della board vera, così la fascia non racconta un ordine
-    // diverso da quello che si vede aprendola. Scope `cross-project`: qui i task
-    // vengono da board diverse e `kanbanOrder` non si confronta fra sequenze
-    // indipendenti (vedi `lib/boardOrder`).
-    return { activeCount, byStatus: groupByStatus(tasks, 'cross-project') };
-  }, [tasks]);
+  return board;
 }
