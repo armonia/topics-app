@@ -18,6 +18,7 @@ import { augmentPath } from "../utils/path-env";
 import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
+import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 
 export interface SpawnOpts {
   cliPath: string;
@@ -439,6 +440,13 @@ export class AiBridgeClient {
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
       if (Number.isInteger(msg.pid)) this.connectedDaemonPid = msg.pid;
+      // Demone sopravvissuto alla sessione grafica: ogni `claude` che fa nascere
+      // dice «Not logged in». Si rifà solo a mani vuote (live 0), per non tagliare
+      // un turno: SIGTERM, il 'close' riconnette e ensureConnected lo fa rinascere qui.
+      if (msg.live === 0 && Number.isInteger(msg.pid) && bridgeOutsideGuiSession(msg.session, guiSessionName)) {
+        console.warn(`[AI Bridge] daemon ${msg.pid} outside the GUI session (${JSON.stringify(msg.session)}): recycling it`);
+        try { process.kill(msg.pid, "SIGTERM"); } catch { /* già morto */ }
+      }
       return;
     }
     const id = msg.id as string | undefined;

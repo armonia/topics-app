@@ -35,6 +35,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveNodeBin, nodeMancanteMessage } from "./lib/test-node-bin";
 import { slackMs } from "../tests/helpers/time-slack";
+import { guiSessionName } from "./pty-bridge-platform.mjs";
 
 /** L'eseguibile Node con cui lanciare il ponte. */
 const NODE = resolveNodeBin();
@@ -219,5 +220,29 @@ describe("pty-bridge · backstop idle", () => {
     void bridge.exited.then(() => { exited = true; });
     await Bun.sleep(BUSY_IDLE_EXIT_MS * 2); // well past the window it was given
     expect(exited).toBe(false);
+  }, CASE_MS);
+});
+
+describe("pong", () => {
+  // Il server rifà il ponte su questo campo (bridgeOutsideGuiSession): un ponte
+  // nato da qui sta nella sessione di chi lo lancia, e deve dirlo.
+  test("carries the bridge's launchd session", async () => {
+    const sock = socketPath("pong");
+    spawnBridge(sock, process.pid);
+    expect(await until(() => existsSync(sock), 15_000)).toBe(true);
+    const client = net.connect(sock);
+    cleanups.push(() => client.destroy());
+    const pong = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      let buf = "";
+      client.on("data", (d) => {
+        buf += d.toString();
+        for (const line of buf.split("\n")) {
+          try { const m = JSON.parse(line); if (m.type === "pong") resolve(m); } catch { /* riga a metà */ }
+        }
+      });
+      client.on("error", reject);
+      client.on("connect", () => client.write(JSON.stringify({ type: "ping" }) + "\n"));
+    });
+    expect(pong.session).toBe(guiSessionName());
   }, CASE_MS);
 });

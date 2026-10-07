@@ -13,6 +13,7 @@ import fs from "fs";
 import { homedir, tmpdir } from "os";
 import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
+import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
@@ -1253,6 +1254,12 @@ function handleBridgeMessage(msg: any) {
       // must not, or a daemon that accepts connections and answers nothing
       // would loop through soft resets forever and never be SIGTERMed.
       recycleArmedAt = 0;
+      // Ponte sopravvissuto alla sessione grafica (logout, crash di WindowServer):
+      // i terminali che fa nascere non hanno Portachiavi, appunti né browser.
+      // Rifatto, nasce dal server; reconcile riprende le sessioni claude con --resume.
+      if (bridgeOutsideGuiSession(msg.session, guiSessionName)) {
+        recycleBridge(`bridge outside the GUI session (launchctl managername: ${JSON.stringify(msg.session)})`);
+      }
       break;
     }
   }
