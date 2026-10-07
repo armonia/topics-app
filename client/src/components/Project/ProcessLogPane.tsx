@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Square } from 'lucide-react';
-import { scriptsApi } from '../../lib/api';
+import { Square, X } from 'lucide-react';
+import { scriptsApi, type ScriptOutput } from '../../lib/api';
 import type { WSMessage } from '../../types';
 import { stripAnsi } from '../../lib/stripAnsi';
+import { useT } from '../../hooks/useT';
 
 /**
  * Tetto al log tenuto in memoria dal pannello.
@@ -22,6 +23,24 @@ interface ProcessLogPaneProps {
    * ricade nel comportamento che questo prop esiste per superare.
    */
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /** A close at the end of the header, for a log docked in a strip (chat-live-work). */
+  onClose?: () => void;
+}
+
+/** What an empty log is waiting for: the file the command writes to, or the one nobody can follow (chat-live-work). */
+type Waiting = Pick<ScriptOutput, 'follows' | 'unfollowed'>;
+
+/**
+ * The empty log's line: what it waits for and since when. Before this it said
+ * «Waiting for output...» for 58 minutes while Muse wrote to a file (07/10).
+ */
+export function waitingText(tr: ReturnType<typeof useT>, waiting: Waiting, startedAt: string): string {
+  const d = new Date(startedAt);
+  const time = Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (waiting.unfollowed) {
+    return tr('processlog.unfollowed', { target: waiting.unfollowed.target, reason: tr(`processlog.reason.${waiting.unfollowed.reason}`), time });
+  }
+  return waiting.follows ? tr('processlog.waitingFile', { path: waiting.follows, time }) : tr('processlog.waiting', { time });
 }
 
 function formatDuration(startedAt: string, completedAt?: string): string {
@@ -36,8 +55,11 @@ function formatDuration(startedAt: string, completedAt?: string): string {
   return `${h}h ${m % 60}m`;
 }
 
-export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogPaneProps) {
+export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: ProcessLogPaneProps) {
+  const tr = useT();
   const [output, setOutput] = useState('');
+  /** Null until the first answer: before it, an empty log is not yet «waiting». */
+  const [waiting, setWaiting] = useState<Waiting | null>(null);
   /** L'ultima riga non ancora terminata: si MOSTRA ma non si accumula, o la si
    *  vedrebbe due volte quando arriva completa. */
   const [pending, setPending] = useState('');
@@ -127,6 +149,8 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
           });
         }
         setPending(stripAnsi(data.pending ?? ''));
+        setWaiting({ follows: data.follows, unfollowed: data.unfollowed });
+        if (data.startedAt) setStartedAt(data.startedAt);
         currentOffset = data.offset;
         setOffset(data.offset);
         setStatus(data.status);
@@ -230,6 +254,18 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
             Stop
           </button>
         )}
+        {onClose && (
+          <button
+            type="button"
+            data-testid="process-log-close"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            className="flex items-center rounded p-0.5 text-app-text-muted hover:bg-app-hover hover:text-app-text transition-colors"
+            title={tr('livework.logClose')}
+            aria-label={tr('livework.logClose')}
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Output */}
@@ -241,7 +277,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
       >
         {output || pending
           ? (pending ? (output ? output + '\n' + pending : pending) : output)
-          : (error ? `Error: ${error}` : 'Waiting for output...')}
+          : error ? `Error: ${error}` : waiting ? waitingText(tr, waiting, startedAt) : ''}
       </pre>
     </div>
   );

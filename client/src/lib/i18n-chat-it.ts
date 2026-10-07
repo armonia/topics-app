@@ -231,6 +231,17 @@ const CHAT_IT: Dict = {
   'chat.subagent.noOutput': 'terminato senza output',
   'chat.subagent.turn': 'turno {n}',
   'chat.subagent.open': 'Apri il suo terminale',
+  // What works now for the chat, the strip under it (chat-live-work), and the
+  // empty log of a command: what it waits for and since when.
+  'livework.finished': 'finito',
+  'livework.logTitle': '{name} · log (apri)',
+  'livework.logClose': 'Chiudi il log',
+  'processlog.waiting': 'Nessun output ancora: il comando è in corso dalle {time}',
+  'processlog.waitingFile': 'Nessun output ancora in {path}, dove il comando scrive: in corso dalle {time}',
+  'processlog.unfollowed': 'Il comando scrive in {target}, che non si può seguire ({reason}): qui arriva solo il resto. In corso dalle {time}',
+  'processlog.reason.variable': 'il percorso viene da una variabile',
+  'processlog.reason.pattern': 'il percorso è un glob',
+  'processlog.reason.cwd': 'la cartella si sa solo eseguendolo',
 };
 
 export default CHAT_IT;

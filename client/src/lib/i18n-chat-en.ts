@@ -210,6 +210,17 @@ const CHAT_EN: Dict = {
   'chat.subagent.noOutput': 'finished with no output',
   'chat.subagent.turn': 'turn {n}',
   'chat.subagent.open': 'Open its terminal',
+  // What works now for the chat, the strip under it (chat-live-work), and the
+  // empty log of a command: what it waits for and since when.
+  'livework.finished': 'finished',
+  'livework.logTitle': '{name} · log (open)',
+  'livework.logClose': 'Close the log',
+  'processlog.waiting': 'No output yet: the command has been running since {time}',
+  'processlog.waitingFile': 'No output yet in {path}, where the command writes: running since {time}',
+  'processlog.unfollowed': 'The command writes to {target}, which cannot be followed ({reason}): only the rest shows here. Running since {time}',
+  'processlog.reason.variable': 'the path comes from a variable',
+  'processlog.reason.pattern': 'the path is a glob',
+  'processlog.reason.cwd': 'its folder is known only by running it',
 };
 
 export default CHAT_EN;
