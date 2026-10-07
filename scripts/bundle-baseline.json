@@ -793,7 +793,13 @@
     "project window leave the entry: 195 modules. They come back on the first frame only",
     "when needed, through the panePreload gate and the modulepreload boot.js adds when the",
     "local snapshot holds a chat. Total assets (8.778.718, +1.1%) stay inside the tolerance",
-    "and are not raised."
+    "and are not raised.",
+    "",
+    "2026-10-07, T3, right after: critical path 1.781.910 / 535.037 (5 files) -> 1.623.819 /",
+    "487.014 (4 files). The manual `markdown` entry left manualChunks: its chunk stayed in",
+    "modulepreload because Rollup parked react/jsx-runtime in it, and once the chat left",
+    "the entry it was react-markdown on the critical path with no eager user. Entry",
+    "unchanged (1.157.623 / 373.330)."
   ],
   "updated": "2026-10-07",
   "tolerance_pct": 2,
@@ -802,9 +808,9 @@
     "gz": 373360
   },
   "critical_path": {
-    "raw": 1781910,
-    "gz": 535037,
-    "files": 5
+    "raw": 1623819,
+    "gz": 487014,
+    "files": 4
   },
   "total_assets": {
     "raw": 8680229

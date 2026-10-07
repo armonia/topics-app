@@ -235,7 +235,18 @@ export default defineConfig({
           // Without the subpaths the ~170KB renderer silently stays in the
           // main chunk and react-vendor ships 3KB.
           'react-vendor': ['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client'],
-          'markdown': ['react-markdown', 'remark-gfm'],
+          // NO ENTRY FOR react-markdown, for the same reason as dnd-kit below.
+          // An entry `'markdown': ['react-markdown', 'remark-gfm']` stood here,
+          // and the chunk it forced stayed in index.html's `modulepreload` even
+          // when no eager code drew any markdown: Rollup parked
+          // `react/jsx-runtime` in it (its `?commonjs-*` wrapper modules do not
+          // match the react-vendor entry and go to the first manual chunk that
+          // pulls them as a dependency), so the entry opened with
+          // `import … from "./markdown-*.js"`. Once the chat body left the
+          // entry that was 47.9 KB gzip of react-markdown and remark-gfm on the
+          // critical path for nothing. Without the entry they live with their
+          // users (the MessageContent chunk, taken by the chat, the editor and
+          // the markdown preview) and jsx-runtime goes back to react-vendor.
           'editor': ['@codemirror/view', '@codemirror/state', '@codemirror/language', '@codemirror/commands', '@codemirror/theme-one-dark'],
           'icons': ['lucide-react'],
           // NO ENTRY FOR dnd-kit, and removing it is half the win.
