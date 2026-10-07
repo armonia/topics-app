@@ -1,0 +1,189 @@
+/**
+ * AN EXTERNAL PROCESS WITH A REAL DEADLINE, for the path of a request.
+ *
+ * `Bun.spawn(...)` followed by `await new Response(proc.stdout).text()` waits
+ * for the end of the STREAM, not for the end of the process: if the child
+ * spawns a grandchild that inherits the pipe (git launching ssh, a hook or a
+ * credential helper; a shell launching `sleep`) and the child is killed, the
+ * grandchild keeps the pipe open and the request hangs until it dies on its
+ * own. Measured with `sh -c "trap '' TERM; sleep 30"` and Bun 1.4's `timeout`
+ * option: the answer comes back after 30005 ms, not after 300. The same holds
+ * for a `setTimeout(() => proc.kill())` followed by an await on the stream
+ * (which is what `runNetworkGit` did).
+ *
+ * `spawnBounded` replaces `Bun.spawn` with the same shape of use (`stdout`,
+ * `stderr`, `stdin`, `exited`, `exitCode`, `kill`) and a deadline that is a
+ * limit on the ANSWER: when it fires it kills the whole process group (the
+ * child starts in a group of its own, `detached`, so whoever holds the pipe
+ * dies with it) and CLOSES the streams, so every await on the text or on
+ * `exited` settles. `exitCode` stays `null` and `timedOut` is `true`: callers
+ * that look at `exitCode !== 0` read the deadline as a failure.
+ *
+ * Environment variable `TOPICS_SPAWN_TIMEOUT_CAP_MS`: a ceiling applied to
+ * EVERY deadline. It exists for the tests (a fake git that never answers must
+ * not make them wait 60 seconds); it is not a knob for normal use.
+ */
+
+/** Reference deadlines, so callers do not spell them out by hand. */
+export const SPAWN_TIMEOUT = {
+  /** A question to git or `ps` about a local tree: rev-parse, status, diff, log. */
+  query: 30_000,
+  /** A local git write: add, reset, checkout, switch. */
+  write: 120_000,
+  /** Commit: may run slow hooks. */
+  commit: 300_000,
+  /** Worktree operations (add, remove, merge): they touch many files and run queued, not in a hot route. */
+  long: 600_000,
+} as const;
+
+/** After the deadline, how long to wait before giving up on the streams of a child that no signal can move (D state). */
+const CLOSE_GRACE_MS = 250;
+
+function cappedMs(timeoutMs: number): number {
+  const cap = Number(process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS);
+  return Number.isFinite(cap) && cap > 0 ? Math.min(timeoutMs, cap) : timeoutMs;
+}
+
+export interface SpawnBoundedOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  /** `pipe` to write by hand, or the bytes to hand over right away (stdin is then closed). */
+  stdin?: "pipe" | "ignore" | "inherit" | Uint8Array;
+  stdout?: "pipe" | "ignore";
+  stderr?: "pipe" | "ignore";
+  /** Deadline on the answer, in milliseconds (see `SPAWN_TIMEOUT`). */
+  timeoutMs: number;
+}
+
+export interface BoundedProcess {
+  readonly pid: number;
+  readonly stdin: { write(data: string | Uint8Array): unknown; end(): unknown } | null;
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
+  /** Settles at the end of the process OR at the deadline, never after. */
+  readonly exited: Promise<number | null>;
+  /** `null` if the process died of a signal (the deadline's included). */
+  readonly exitCode: number | null;
+  readonly timedOut: boolean;
+  kill(signal?: NodeJS.Signals | number): void;
+}
+
+const EMPTY = (): ReadableStream<Uint8Array> => new ReadableStream({ start: (c) => c.close() });
+
+/**
+ * The stream of `src`, closing by itself when the deadline fires. It reads in
+ * chunks, so the text that arrived up to then is not lost.
+ */
+function untilDeadline(src: ReadableStream<Uint8Array> | undefined | null, deadline: Promise<void>): ReadableStream<Uint8Array> {
+  if (!src || typeof src === "number") return EMPTY();
+  const reader = src.getReader();
+  let over = false;
+  void deadline.then(() => { over = true; });
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await Promise.race([
+          reader.read(),
+          deadline.then(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<Uint8Array>),
+        ]);
+        if (next.done || over) {
+          controller.close();
+          void reader.cancel().catch(() => {});
+          return;
+        }
+        controller.enqueue(next.value);
+      } catch {
+        controller.close();
+      }
+    },
+    cancel() {
+      void reader.cancel().catch(() => {});
+    },
+  });
+}
+
+/** Throws if the process cannot start (missing binary, missing cwd), exactly like `Bun.spawn`. */
+export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): BoundedProcess {
+  const proc = Bun.spawn(argv, {
+    cwd: opts.cwd,
+    env: opts.env as Record<string, string> | undefined,
+    stdin: opts.stdin ?? "ignore",
+    stdout: opts.stdout ?? "pipe",
+    stderr: opts.stderr ?? "ignore",
+    detached: true,
+  });
+
+  let timedOut = false;
+  let fireDeadline!: () => void;
+  const deadline = new Promise<void>((resolve) => { fireDeadline = resolve; });
+
+  const killGroup = (signal: NodeJS.Signals | number = "SIGKILL"): void => {
+    if (proc.pid > 1) {
+      try { process.kill(-proc.pid, signal); return; } catch { /* group already gone: fall back to the child */ }
+    }
+    try { proc.kill(signal); } catch { /* already dead */ }
+  };
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killGroup("SIGKILL");
+    // The group is dead: the pipes close by themselves. The margin covers a
+    // child in D state, which no signal moves: whoever waits returns anyway.
+    const grace = setTimeout(fireDeadline, CLOSE_GRACE_MS);
+    grace.unref?.();
+  }, cappedMs(opts.timeoutMs));
+  timer.unref?.();
+
+  const exited: Promise<number | null> = Promise.race([
+    proc.exited.then((code) => (timedOut ? null : code)),
+    deadline.then(() => null),
+  ]).finally(() => clearTimeout(timer));
+  // A late rejection from the loser of the race must not become an unhandled one.
+  exited.catch(() => {});
+
+  return {
+    pid: proc.pid,
+    stdin: typeof proc.stdin === "object" && proc.stdin !== null ? (proc.stdin as BoundedProcess["stdin"]) : null,
+    stdout: untilDeadline(proc.stdout as ReadableStream<Uint8Array> | undefined, deadline),
+    stderr: untilDeadline(proc.stderr as ReadableStream<Uint8Array> | undefined, deadline),
+    exited,
+    get exitCode() { return timedOut ? null : proc.exitCode; },
+    get timedOut() { return timedOut; },
+    kill(signal) { killGroup(signal ?? "SIGKILL"); },
+  };
+}
+
+export interface BoundedResult {
+  stdout: string;
+  stderr: string;
+  /** `null` if the process was killed by a signal, the deadline included, or never started. */
+  exitCode: number | null;
+  timedOut: boolean;
+  /** The process did not even start (missing binary, missing cwd). */
+  spawnFailed: boolean;
+}
+
+/** Launches, reads everything, returns a result: for callers that do not need to touch the streams. */
+export async function runBounded(
+  argv: string[],
+  opts: SpawnBoundedOptions & { stdinData?: string | Uint8Array },
+): Promise<BoundedResult> {
+  let proc: BoundedProcess;
+  try {
+    proc = spawnBounded(argv, { ...opts, stdin: opts.stdinData === undefined ? "ignore" : "pipe" });
+  } catch {
+    return { stdout: "", stderr: "", exitCode: null, timedOut: false, spawnFailed: true };
+  }
+  if (opts.stdinData !== undefined && proc.stdin) {
+    try {
+      proc.stdin.write(opts.stdinData);
+      await proc.stdin.end();
+    } catch { /* the child closed stdin before reading: its exit speaks for itself */ }
+  }
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  await proc.exited;
+  return { stdout, stderr, exitCode: proc.exitCode, timedOut: proc.timedOut, spawnFailed: false };
+}

@@ -25,6 +25,7 @@
 
 import { existsSync } from "node:fs";
 import type { GitRunner } from "./own-commits";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /**
  * THE SCAN, kept apart from the pairing so that both halves can be measured.
@@ -67,9 +68,9 @@ async function run(cwd: string, args: string[], runGit?: GitRunner): Promise<{ c
     catch { return { code: 1, stdout: "" }; }
   }
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore" });
+    const proc = spawnBounded(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
     const stdout = await new Response(proc.stdout).text();
-    return { code: await proc.exited, stdout };
+    return { code: (await proc.exited) ?? 1, stdout };
   } catch { return { code: 1, stdout: "" }; }
 }
 

@@ -24,6 +24,7 @@ import { isProtectedFromWalk, protectedDirExcludes } from "../lib/protected-app-
 import { readGitStatusCache, writeGitStatusCache, invalidateGitCache } from "../lib/git-status-cache";
 import { computeGitStatus } from "../lib/git-status";
 import { gitEnvFor } from "../lib/git-identity";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 // Conservative git ref/remote name validation (mirrors worktrees.ts BASE_REF_REGEX)
 const GIT_REF_MAX = 200;
@@ -149,10 +150,15 @@ async function runNetworkGit(
   cwd: string,
   timeoutMs = 60_000,
 ): Promise<{ ok: boolean; stdout: string; stderr: string; timedOut: boolean }> {
-  const proc = Bun.spawn(args, {
+  // Real deadline: `spawnBounded` kills the whole group (git, ssh, the
+  // credential helper) and closes the streams. With a bare `proc.kill()` on git,
+  // an `ssh` left holding the pipe kept the request hanging past the declared
+  // timeout.
+  const proc = spawnBounded(args, {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    timeoutMs,
     env: {
       ...process.env,
       GIT_TERMINAL_PROMPT: "0",
@@ -161,18 +167,13 @@ async function runNetworkGit(
       SSH_ASKPASS: "",
     },
   });
-  let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, timeoutMs);
-  try {
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    await proc.exited;
-    return { ok: !timedOut && proc.exitCode === 0, stdout: stdout.trim(), stderr: stderr.trim(), timedOut };
-  } finally {
-    clearTimeout(timer);
-  }
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  await proc.exited;
+  const timedOut = proc.timedOut;
+  return { ok: !timedOut && proc.exitCode === 0, stdout: stdout.trim(), stderr: stderr.trim(), timedOut };
 }
 
 /** Tetto di durata per una ricerca nei file. Oltre, si tronca e lo si DICE. */
@@ -237,7 +238,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // debounce a 300 ms se ne accodavano a decine), e `stderr` in pipe e mai
         // letto puo' riempire il buffer e appendere la richiesta per sempre —
         // basta una cartella non leggibile che stampi a ogni riga.
-        const proc = Bun.spawn(["grep", ...args], { cwd: resolvedPath, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["grep", ...args], { cwd: resolvedPath, stdout: "pipe", stderr: "pipe", timeoutMs: SEARCH_TIMEOUT_MS });
         let timedOut = false;
         const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, SEARCH_TIMEOUT_MS);
         let output: string;
@@ -426,10 +427,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(gitRead("diff", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(gitRead("diff", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const diff = await new Response(proc.stdout).text();
         if (!diff.trim()) {
-          const cachedProc = Bun.spawn(gitRead("diff", "--cached", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const cachedProc = spawnBounded(gitRead("diff", "--cached", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
           return new Response(await new Response(cachedProc.stdout).text(), { headers: { "Content-Type": "text/plain; charset=utf-8" } });
         }
         return new Response(diff, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -454,7 +455,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const args = staged
           ? gitRead("diff", "--cached", "--", filePath)
           : gitRead("diff", "--", filePath);
-        const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        const proc = spawnBounded(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
         const diff = await new Response(proc.stdout).text();
         await proc.exited;
         return json({ hunks: summarizeHunks(parseUnifiedDiff(diff)) });
@@ -481,7 +482,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const diffArgs = fromIndex
           ? gitRead("diff", "--cached", "--", filePath)
           : gitRead("diff", "--", filePath);
-        const diffProc = Bun.spawn(diffArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        const diffProc = spawnBounded(diffArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
         const diff = await new Response(diffProc.stdout).text();
         await diffProc.exited;
 
@@ -495,9 +496,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const applyArgs = azione === "stage" ? ["git", "apply", "--cached", "-"]
           : azione === "unstage" ? ["git", "apply", "--cached", "-R", "-"]
           : ["git", "apply", "-R", "-"];
-        const applyProc = Bun.spawn(applyArgs, { cwd: resolvedDir, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-        applyProc.stdin.write(patch);
-        applyProc.stdin.end();
+        const applyProc = spawnBounded(applyArgs, { cwd: resolvedDir, stdin: "pipe", stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
+        applyProc.stdin?.write(patch);
+        applyProc.stdin?.end();
         const stderr = await new Response(applyProc.stderr).text();
         await applyProc.exited;
         if (applyProc.exitCode !== 0) {
@@ -521,14 +522,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // coperta da test sull'output vero di un clone con due remote: è la
         // parte che nascondeva sia il ramo remoto scambiato per locale sia il
         // checkout che staccava HEAD. Qui resta solo ciò che ha bisogno di git.
-        const branchProc = Bun.spawn(["git", "branch", "-a", `--format=${BRANCH_FORMAT}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const branchProc = spawnBounded(["git", "branch", "-a", `--format=${BRANCH_FORMAT}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const branchText = (await new Response(branchProc.stdout).text()).trim();
         interface GitBranch { name: string; current: boolean; isRemote: boolean; ahead: number; behind: number; shortName?: string; remote?: string }
         const branches: GitBranch[] = [];
         for (const ref of parseBranchLines(branchText)) {
           let ahead = 0, behind = 0;
           if (!ref.isRemote && ref.upstream) {
-            try { const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${ref.name}...${ref.upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); const revText = (await new Response(revProc.stdout).text()).trim(); const parts = revText.split(/\s+/); if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; } } catch {}
+            try { const revProc = spawnBounded(["git", "rev-list", "--left-right", "--count", `${ref.name}...${ref.upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query }); const revText = (await new Response(revProc.stdout).text()).trim(); const parts = revText.split(/\s+/); if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; } } catch {}
           }
           const entry: GitBranch = { name: ref.name, current: ref.current, isRemote: ref.isRemote, ahead, behind };
           if (ref.isRemote) { entry.remote = ref.remote; entry.shortName = ref.shortName; }
@@ -537,7 +538,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Detached HEAD — no branch is current, add a HEAD entry
         if (branches.length > 0 && !branches.some(b => b.current)) {
           try {
-            const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            const headProc = spawnBounded(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
             const headRef = (await new Response(headProc.stdout).text()).trim();
             if (headRef) branches.unshift({ name: headRef, current: true, isRemote: false, ahead: 0, behind: 0 });
           } catch {}
@@ -545,7 +546,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Fresh repo (git init, no commits) — git branch returns nothing but HEAD exists
         if (branches.length === 0) {
           try {
-            const headProc = Bun.spawn(["git", "symbolic-ref", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            const headProc = spawnBounded(["git", "symbolic-ref", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
             const headName = (await new Response(headProc.stdout).text()).trim();
             if (headName) branches.push({ name: headName, current: true, isRemote: false, ahead: 0, behind: 0 });
           } catch {}
@@ -571,7 +572,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // HEAD resta possibile, ma solo chiedendolo con `--detach`, che questa
         // rotta non offre. Unico chiamante: BranchList, che passa sempre un
         // nome di ramo.
-        const proc = Bun.spawn(["git", "switch", "--", body.branch], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "switch", "--", body.branch], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Checkout failed" }, 400);
@@ -590,14 +591,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const logArgs = ["git", "log", `--max-count=${limit}`, "--format=%H|%h|%s|%an|%ar|%aI"];
         try {
-          const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
           // Stesso confronto su path RISOLTI di `/api/git/status`: con un link
           // simbolico di mezzo il log tornava quello di tutto il repo.
           const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
           if (prefix) logArgs.push("--", prefix.replace(/\/$/, ""));
         } catch {}
-        const proc = Bun.spawn(logArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(logArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const logText = (await new Response(proc.stdout).text()).trim();
         const commits = logText.split("\n").filter(Boolean).map(line => { const [hash, shortHash, message, author, ago, date] = line.split("|"); return { hash, shortHash, message, author, ago, date }; });
         return json(commits);
@@ -621,12 +622,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         let prefix = "";
         try {
-          const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
           prefix = repoPrefixOf(resolvedDir, gitRoot).prefix;
         } catch {}
         const leggi = async (args: string[]) => {
-          const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+          const proc = spawnBounded(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
           const text = await new Response(proc.stdout).text();
           await proc.exited;
           return proc.exitCode === 0 ? text : "";
@@ -655,12 +656,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // so a large stage is a single process spawn instead of N serialized
         // ones. Only fall back to per-file spawns (to attribute the failures)
         // when the batch exits non-zero.
-        const batch = Bun.spawn(["git", "add", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        const batch = spawnBounded(["git", "add", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.write });
         await batch.exited;
         if (batch.exitCode === 0) { invalidateGitCache(resolvedDir); return json({ ok: true }); }
         const failed: string[] = [];
         for (const f of files) {
-          const proc = Bun.spawn(["git", "add", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+          const proc = spawnBounded(["git", "add", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.write });
           await proc.exited;
           if (proc.exitCode !== 0) failed.push(f);
         }
@@ -688,7 +689,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // 17.682 file invece dei 11.031 della cartella, cioè 6.651 file che il
         // pannello non mostra nemmeno. Ciò che il bottone fa deve coincidere
         // con ciò che la lista dice.
-        const proc = Bun.spawn(["git", "add", "-A", "--", "."], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "add", "-A", "--", "."], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         const stderr = await new Response(proc.stderr).text();
         await proc.exited;
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Stage-all failed" }, 400);
@@ -705,10 +706,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         // Get diff stat for staged + unstaged
-        const statProc = Bun.spawn(gitRead("diff", "--stat", "HEAD"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statProc = spawnBounded(gitRead("diff", "--stat", "HEAD"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const statText = (await new Response(statProc.stdout).text()).trim();
         // Get status porcelain for changed files (untracked included as "??")
-        const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statusProc = spawnBounded(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const statusText = await new Response(statusProc.stdout).text();
         const added: string[] = [];
         const modified: string[] = [];
@@ -751,12 +752,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         // Batch into one `git reset HEAD --` (see /api/git/stage); fall back to
         // per-file only on a non-zero batch exit to attribute the failures.
-        const batch = Bun.spawn(["git", "reset", "HEAD", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        const batch = spawnBounded(["git", "reset", "HEAD", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.write });
         await batch.exited;
         if (batch.exitCode === 0) { invalidateGitCache(resolvedDir); return json({ ok: true }); }
         const failed: string[] = [];
         for (const f of files) {
-          const proc = Bun.spawn(["git", "reset", "HEAD", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+          const proc = spawnBounded(["git", "reset", "HEAD", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.write });
           await proc.exited;
           if (proc.exitCode !== 0) failed.push(f);
         }
@@ -776,7 +777,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Scopato alla cartella aperta, per lo stesso motivo di `stage-all`:
         // togliere dallo stage roba che qui dentro non si vede sarebbe
         // altrettanto sorprendente.
-        const proc = Bun.spawn(["git", "reset", "HEAD", "--", "."], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "reset", "HEAD", "--", "."], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         const stderr = await new Response(proc.stderr).text();
         await proc.exited;
         // `git reset HEAD` esce 1 anche quando ha lavorato, se restano
@@ -800,7 +801,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const failed: string[] = [];
         for (const file of files) {
-          const statusProc = Bun.spawn(gitRead("status", "--porcelain", "--", file), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const statusProc = spawnBounded(gitRead("status", "--porcelain", "--", file), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
           const statusOut = (await new Response(statusProc.stdout).text()).trim();
           if (statusOut.startsWith("??")) {
             // Scartare un file NON TRACCIATO non è come scartare uno tracciato:
@@ -817,7 +818,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             const esito = await moveToTrash(assoluto);
             if (!esito.ok) failed.push(file);
           } else {
-            const proc = Bun.spawn(["git", "checkout", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            const proc = spawnBounded(["git", "checkout", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
             await proc.exited;
             if (proc.exitCode !== 0) failed.push(file);
           }
@@ -838,12 +839,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         if (body.files && Array.isArray(body.files) && body.files.length > 0) {
           // One batched `git add` for the whole commit set; per-file fallback
           // only on a non-zero batch exit.
-          const batch = Bun.spawn(["git", "add", "--", ...body.files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+          const batch = spawnBounded(["git", "add", "--", ...body.files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.write });
           await batch.exited;
           if (batch.exitCode !== 0) {
             const failed: string[] = [];
             for (const file of body.files) {
-              const addProc = Bun.spawn(["git", "add", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+              const addProc = spawnBounded(["git", "add", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.write });
               await addProc.exited;
               if (addProc.exitCode !== 0) failed.push(file);
             }
@@ -858,7 +859,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // premuto il tasto. Il land (`services/task-automerge.ts`) lo faceva già dal 15/08;
         // questo endpoint no, ed è il motivo per cui FILE-17 era rosso nella nightly.
         const env = await gitEnvFor(resolvedDir);
-        const proc = Bun.spawn(["git", "commit", "-m", body.message], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", env });
+        const proc = spawnBounded(["git", "commit", "-m", body.message], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.commit });
         await proc.exited;
         const stdout = await new Response(proc.stdout).text();
         const stderr = await new Response(proc.stderr).text();
@@ -918,10 +919,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         // Resolve current branch and remote explicitly to avoid "multiple upstream branches" errors
-        const branchProc = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const branchProc = spawnBounded(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         await branchProc.exited;
         const branch = (await new Response(branchProc.stdout).text()).trim();
-        const remoteProc = Bun.spawn(["git", "config", `branch.${branch}.remote`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const remoteProc = spawnBounded(["git", "config", `branch.${branch}.remote`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         await remoteProc.exited;
         const configuredRemote = (await new Response(remoteProc.stdout).text()).trim();
         const remote = configuredRemote || "origin";
@@ -983,7 +984,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         let gitRelativePath = filePath;
         try {
-          const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
           const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
           if (prefix) gitRelativePath = prefix + filePath;
@@ -991,7 +992,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // `:0:` è lo stage 0 dell'indice — quello normale, non un lato di
         // merge. Il `0` è composto QUI e non arriva mai dal client.
         const spec = side === "index" ? `:0:${gitRelativePath}` : `${rev}:${gitRelativePath}`;
-        const proc = Bun.spawn(["git", "show", spec], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "show", spec], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const content = await new Response(proc.stdout).text();
         await proc.exited;
         if (proc.exitCode !== 0) return new Response("", { headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -1090,7 +1091,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const stat = statSync(resolvedFrom);
         const args = stat.isDirectory() ? ["cp", "-r", resolvedFrom, resolvedTo] : ["cp", resolvedFrom, resolvedTo];
-        const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(args, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         if (proc.exitCode !== 0) {
           const stderr = await new Response(proc.stderr).text();
@@ -1159,7 +1160,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
 
         const args = isDir ? ["cp", "-r", resolvedFile, newPath] : ["cp", resolvedFile, newPath];
-        const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(args, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         if (proc.exitCode !== 0) {
           const stderr = await new Response(proc.stderr).text();
@@ -1179,7 +1180,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedFile) return errorResponse(400, "Invalid path");
       if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
       try {
-        const proc = Bun.spawn(["open", "-R", resolvedFile], { stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["open", "-R", resolvedFile], { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         await proc.exited;
         if (proc.exitCode !== 0) {
           const stderr = await new Response(proc.stderr).text();
@@ -1284,7 +1285,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         // Check if path is a git repo
-        const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const checkProc = spawnBounded(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         await checkProc.exited;
         if (checkProc.exitCode !== 0) {
           return json({ error: "Not a git repository" }, 400);
@@ -1295,7 +1296,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // mangia lo spazio della prima riga — ` M a.txt` diventava `M a.txt`
         // e un file solo modificato sul disco passava per «in stage». Vedi
         // `lib/commit-message.ts`.
-        const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statusProc = spawnBounded(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const porcelain = await new Response(statusProc.stdout).text();
         await statusProc.exited;
         const staged = stagedEntries(porcelain);
@@ -1307,9 +1308,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // La mappa completa (costa poco anche su venti file) più il diff
         // ripartito nel budget. Vedi `lib/commit-message.ts` per il perché
         // «i primi 4000 caratteri» era il criterio peggiore a parità di spesa.
-        const statProc = Bun.spawn(gitRead("diff", "--cached", "--stat"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statProc = spawnBounded(gitRead("diff", "--cached", "--stat"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const statText = await new Response(statProc.stdout).text();
-        const diffProc = Bun.spawn(gitRead("diff", "--cached", "--unified=1"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const diffProc = spawnBounded(gitRead("diff", "--cached", "--unified=1"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const diffText = await new Response(diffProc.stdout).text();
 
         const fallback = rulesFallback(staged);
@@ -1329,7 +1330,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // MEZZ'ORA: senza questa corsa un modello appeso terrebbe occupato il
         // gestore per tutto quel tempo. Il fetch di prima aveva un
         // AbortController a 30s messo lì apposta, e non si perde.
-        const logProc = Bun.spawn(["git", "log", "--pretty=%s", "-10"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const logProc = spawnBounded(["git", "log", "--pretty=%s", "-10"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const esempi = (await new Response(logProc.stdout).text()).split("\n").map(s => s.trim()).filter(Boolean);
 
         const scaduto = Symbol("timeout");
@@ -1368,7 +1369,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       if (!existsSync(resolvedDir)) return json({ error: "directory not found" }, 404);
       try {
-        const proc = Bun.spawn(["git", "init"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "init"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "git init failed" }, 400);
@@ -1387,7 +1388,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const checkout = body.checkout !== false; // default true
         const args = checkout ? ["git", "checkout", "-b", body.name] : ["git", "branch", body.name];
-        const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(args, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Create branch failed" }, 400);
@@ -1405,7 +1406,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         const flag = body.force ? "-D" : "-d";
-        const proc = Bun.spawn(["git", "branch", flag, body.name], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "branch", flag, body.name], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Delete branch failed" }, 400);
@@ -1421,7 +1422,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "remote", "-v"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "remote", "-v"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const output = (await new Response(proc.stdout).text()).trim();
         await proc.exited;
         const remotes: { name: string; fetchUrl: string; pushUrl: string }[] = [];
@@ -1451,7 +1452,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "remote", "add", body.name, body.url], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "remote", "add", body.name, body.url], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Remote add failed" }, 400);
@@ -1468,7 +1469,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "remote", "remove", body.name], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(["git", "remote", "remove", body.name], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Remote remove failed" }, 400);
@@ -1485,7 +1486,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(gitRead("diff", "HEAD", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = spawnBounded(gitRead("diff", "HEAD", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const diff = await new Response(proc.stdout).text();
         await proc.exited;
 

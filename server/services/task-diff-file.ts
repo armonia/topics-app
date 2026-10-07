@@ -20,6 +20,7 @@ import { isInsideDir } from "../lib/path-containment";
 import { previewTypeOf } from "../../shared/preview-kind";
 import { defaultRunGit, type GitRunner } from "./own-commits";
 import { revsOfRange } from "./task-diff-range";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /**
  * Per-file cap for `?file=`. Far above the bundle's: this is ONE file someone
@@ -167,6 +168,6 @@ export async function serveDiffBlob(
   if (size > DIFF_BLOB_CAP) return refuse(413, "too_large", { size });
   // Streamed straight from git's stdout: never `.text()`, never a whole buffer
   // held on the server's loop.
-  const proc = Bun.spawn(["git", "-C", target.cwd, "cat-file", "blob", spec], { stdout: "pipe", stderr: "ignore" });
+  const proc = spawnBounded(["git", "-C", target.cwd, "cat-file", "blob", spec], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
   return new Response(proc.stdout, { headers: { ...headers, "Content-Length": String(size) } });
 }

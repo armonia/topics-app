@@ -34,6 +34,7 @@
 import type { GitRunResult } from "./task-automerge";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { gitEnvFor } from "../lib/git-identity";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 export interface ResidueResult {
   ok: boolean;
@@ -93,12 +94,12 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult>
     // Senza identità git esce 128 PRIMA di toccare l'albero, e questa funzione
     // crea un commit: stessa ragione (e stesso ripiego) di `task-automerge`.
     const env = await gitEnvFor(cwd);
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env });
+    const proc = spawnBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env, timeoutMs: SPAWN_TIMEOUT.long });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    return { code: await proc.exited, stdout, stderr };
+    return { code: (await proc.exited) ?? 1, stdout, stderr };
   } catch (e) {
     return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }

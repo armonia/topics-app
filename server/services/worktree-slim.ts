@@ -46,6 +46,7 @@
 import { existsSync } from "node:fs";
 import { readdir, rm, lstat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 
 /**
  * Nomi di cartella che sono, per convenzione universale del loro ecosistema,
@@ -167,13 +168,14 @@ export function pickSlimTargets(
 
 async function gitOut(cwd: string, args: string[], stdin?: string): Promise<{ out: string; code: number }> {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], {
+    const proc = spawnBounded(["git", "-C", cwd, ...args], {
       stdout: "pipe",
       stderr: "ignore",
       stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+      timeoutMs: SPAWN_TIMEOUT.long,
     });
     const out = await new Response(proc.stdout).text();
-    const code = await proc.exited;
+    const code = (await proc.exited) ?? 128;
     return { out, code };
   } catch {
     return { out: "", code: 128 };

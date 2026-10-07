@@ -723,6 +723,49 @@ XY codes.
 - **GIVEN** a plain folder
 - **THEN** the status is null, after one spawn
 
+### Requirement: GIT-DEADLINE-01 — An external process on the path of a request answers, or the deadline does
+
+Every external process the server launches on the path of a request (the
+`/api/git/*` routes, the git/ps/lsof helpers behind the panels, the process
+panel's probes) SHALL have a deadline on its ANSWER, not on the process alone.
+When the deadline fires the whole process group SHALL be killed and the streams
+SHALL be closed, so that a grandchild holding the pipe open (ssh under git, a
+hook, a credential helper, a script's children) cannot keep the request waiting
+after the child has been killed. The caller SHALL see a failed exit (never a
+success) and the text that arrived before the deadline SHALL NOT be lost.
+
+Synchronous calls (`Bun.spawnSync`, `execFileSync`) SHALL carry `timeout` and
+`killSignal: "SIGKILL"`, since they stop the single event loop of the server
+for as long as they last.
+
+The calls that have no deadline by design (agent turns, daemons, scripts and
+commands started from the panel that the user stops, package installs in a
+worktree, calls that already race their own deadline) SHALL be listed, each with
+its reason, in `server/lib/spawn-deadline-scan.test.ts`; any other call without
+a deadline SHALL turn that test red.
+
+> **Why.** On 21/09 a `ps` with no deadline froze the server for minutes
+> (`GET /api/system/status`: 399 seconds). T5 found 89 more calls with no
+> deadline, 48 of them in `routes/files.ts`, and found that the fix everyone
+> reached for does not work: with `sh -c "trap '' TERM; sleep 30"` and Bun's own
+> `timeout: 300` the answer came back after 30005 ms, because the `sleep` held
+> the pipe.
+
+#### Scenario: a git that never answers
+- **GIVEN** a `git` on the PATH that launches a `sleep 30` child and waits
+- **WHEN** `GET /api/git/diff`, `GET /api/git/log`, `POST /api/git/stage-all` or `POST /api/git/pull` is called
+- **THEN** each returns at its deadline, not after 30 seconds
+- **AND** `stage-all` answers 400 and `pull` answers 504
+
+#### Scenario: a grandchild ignores SIGTERM and holds the pipe
+- **GIVEN** a shell that traps TERM and runs `sleep 30`
+- **WHEN** it is run with a 300 ms deadline
+- **THEN** the call returns in under two seconds, timed out, with a null exit code
+
+#### Scenario: a new call with no deadline
+- **WHEN** a `Bun.spawn(...)` with no `timeout` in its text is added under `server/` and is not in the list
+- **THEN** `server/lib/spawn-deadline-scan.test.ts` is red
+
 ### Requirement: TRASH-01 — Cancellare vuol dire spostare nel cestino, e due file con lo stesso nome non si sovrascrivono
 
 Cancellare dall'interfaccia SHALL significare SPOSTARE NEL CESTINO del sistema,
