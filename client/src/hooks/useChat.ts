@@ -12,7 +12,8 @@ import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAs
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
-import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting } from './historyPaging';
+import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
+import { noteLocalCopyRows, settleLocalCopyRows, showsLocalCopyRows } from '../state/localCopyRows';
 import { HISTORY_FETCH_ALL, HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
 import { SEND_NOW_STOP_CAUSE } from '../../../shared/types';
 import {
@@ -542,7 +543,9 @@ export function useChat() {
   // l'initializer di `useState`; adesso lo store nasce vuoto e si riempie qui.
   if (!messageStoreHydrated) {
     messageStoreHydrated = true;
-    replaceAllMessages(getInitialMessages());
+    const fromCopy = getInitialMessages();
+    replaceAllMessages(fromCopy);
+    noteLocalCopyRows(Object.keys(fromCopy));
   }
   // Compaction dividers per session (CHAT-COMPACT-01): display-only, merged
   // into the transcript by afterMessageId in MessageList. Populated live via
@@ -2762,18 +2765,23 @@ export function useChat() {
       // in flight: the name left by a turn whose end never reached this window
       // kept its deleted row as a bubble with a spinner.
       const liveRowId = response.isStreaming || startedMeanwhile ? streamMessageIdRef.current.get(sessionKey) : undefined;
+      // While the store holds the local copy the list may already be showing
+      // it (MessageList does not wait for this answer): rows of the page ABOVE
+      // the copy stay out, as partial history (`rowsAboveLocalCopy`).
+      const above = showsLocalCopyRows(sessionKey) ? rowsAboveLocalCopy(messagesRef.current[sessionKey] || [], response.messages) : 0;
+      const pageRows = above > 0 ? response.messages.slice(above) : response.messages;
       // Fewer rows than the thread has: what came is a page, not the story.
       // Compared BEFORE the context-message filter below, which is client-side
       // and would otherwise make a complete thread look short.
       const total = response.total ?? response.messages.length;
-      const wholeThread = response.messages.length >= total;
-      const boundaryId = wholeThread ? null : (response.messages[0]?.id ?? null);
+      const wholeThread = pageRows.length >= total;
+      const boundaryId = wholeThread ? null : (pageRows[0]?.id ?? null);
 
       const discarded = discardedRowsRef.current.get(sessionKey);
       // An answer read after the deletes no longer has those rows: the list
       // has done its job. One read before them still does, and drops them here.
       if (!endedMeanwhile) discardedRowsRef.current.delete(sessionKey);
-      const chatMessages: ChatMessage[] = response.messages
+      const chatMessages: ChatMessage[] = pageRows
         .filter(msg => !isContextMessage(msg.content) && !(msg.id && discarded?.has(msg.id)))
         .map(msg => ({
           ...msg,
@@ -2810,7 +2818,7 @@ export function useChat() {
         return { ...prev, [sessionKey]: riconciliato };
       });
       if (boundaryId && !alreadyWhole) {
-        markHistoryPartial(sessionKey, { boundaryId, missing: total - response.messages.length });
+        markHistoryPartial(sessionKey, { boundaryId, missing: total - pageRows.length });
       } else {
         markHistoryComplete(sessionKey);
       }
@@ -2827,6 +2835,7 @@ export function useChat() {
       // The server answered: whatever the pane was saying about the local copy
       // stops being true here (see `state/historyFromCache.ts`).
       clearHistoryFromCache(sessionKey);
+      settleLocalCopyRows(sessionKey);
       // Mark this session as freshly loaded — subsequent re-mounts within
       // HISTORY_DEDUP_MS will short-circuit instead of re-fetching. Not an
       // answer older than a turn end: the read again must not be skipped.
