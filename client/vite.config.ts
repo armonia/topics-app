@@ -108,6 +108,49 @@ function precompressAssets(): Plugin {
   };
 }
 
+// Plugin: the chunks of the chat body, written into index.html so that boot.js
+// can preload them BEFORE the entry.
+//
+// The chat body (`Layout/ChatPanel`) is no longer in the eager chunk: the
+// first-frame gate asks for it (`state/pane/panePreload`). But that request
+// only leaves once the entry has been downloaded and evaluated, and on a reload
+// with a chat open the waterfall cost ~55 ms, measured (the chunks started at
+// 155 ms instead of 21 ms, together with the entry). A fixed
+// `<link rel=modulepreload>` in index.html would put them back on EVERYBODY's
+// critical path, including whoever opens on a board; this way only boot.js
+// preloads them, and only when the local snapshot says a chat is on screen.
+// The list lives in a `content` and not in an `href` on purpose: it is not the
+// critical path of a first load, and `check:bundle` reads it that way.
+function chatChunksHint(): Plugin {
+  return {
+    name: 'topics-chat-chunks-hint',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const chunks = Object.values(ctx.bundle ?? {}).filter((c) => c.type === 'chunk');
+        const chat = chunks.find((c) => c.facadeModuleId?.endsWith('/components/Layout/ChatPanel.tsx'));
+        if (!chat) return html;
+        const byName = new Map(chunks.map((c) => [c.fileName, c]));
+        const files: string[] = [];
+        const visit = (fileName: string) => {
+          const chunk = byName.get(fileName);
+          if (!chunk || chunk.isEntry || files.includes(fileName)) return;
+          files.push(fileName);
+          chunk.imports.forEach(visit);
+        };
+        visit(chat.fileName);
+        // Whatever index.html already preloads (react-vendor, icons) is left out.
+        const hrefs = files.map((f) => `/${f}`).filter((href) => !html.includes(`"${href}"`));
+        return {
+          html,
+          tags: [{ tag: 'meta', attrs: { name: 'topics-chat-chunks', content: hrefs.join(' ') }, injectTo: 'head-prepend' }],
+        };
+      },
+    },
+  };
+}
+
 // Plugin: track last source file change time, serve via /@last-change
 function lastChangePlugin(): Plugin {
   let lastChange = new Date().toISOString();
@@ -166,7 +209,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(__appVersion),
     __BUILD_SHA__: JSON.stringify(__buildSha),
   },
-  plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss(), dropLegacyKatexFonts(), precompressAssets()],
+  plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss(), dropLegacyKatexFonts(), precompressAssets(), chatChunksHint()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

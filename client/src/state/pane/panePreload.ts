@@ -78,6 +78,28 @@ export const loadProjectSidebar = async () => {
   const { ProjectSidebar } = await import('../../components/Project/ProjectSidebar');
   return { ProjectSidebar };
 };
+/**
+ * THE CHAT BODY AND THE PROJECT WINDOW. They were STATIC imports of
+ * `StandaloneChatGroup`, which put them in the eager chunk: `ChatPanel` brings
+ * `ChatPane`, the composer, the message list (react-virtuoso), the tool cards
+ * and the message markdown; `ProjectWindowPane` brings its tile grid. Measured
+ * on the build's module graph: 195 modules, about a quarter of the entry,
+ * downloaded and evaluated on every boot even by whoever opens the app on a
+ * board, a terminal or no pane at all.
+ *
+ * They stay on the first frame when they are needed: `chat` and `project` are
+ * in `LOADERS` below, so their chunks leave with the boot and the first-frame
+ * gate (`main.tsx`) waits for them as it waits for the board. Destructured like
+ * `loadProjectSidebar`, so knip is not blinded.
+ */
+export const loadChatPanel = async () => {
+  const { ChatPanel } = await import('../../components/Layout/ChatPanel');
+  return { ChatPanel };
+};
+export const loadProjectWindow = async () => {
+  const { ProjectWindowPane } = await import('../../components/Layout/ProjectWindow');
+  return { ProjectWindowPane };
+};
 export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
 export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
 // The destructured `await` and not `import().then(m => ...)`: with the `.then`
@@ -95,10 +117,12 @@ export const loadProfile = async () => {
 };
 
 /**
- * The chunks each pane type lives in. Only the types with a heavy lazy body:
- * a chat pane is in the main bundle, so there is nothing to warm.
+ * The chunks each pane type lives in. Only the types with a heavy lazy body.
+ * The chat is one of them since its body left the main bundle (see
+ * `loadChatPanel`).
  */
 const LOADERS: Partial<Record<PaneType, Loader[]>> = {
+  chat: [loadChatPanel],
   board: [loadBoard],
   kanban: [loadBoard],
   terminal: [loadTerminal],
@@ -139,7 +163,9 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   // `loadProjectSidebar` first: it is the window's CHROME, the one piece whose
   // absence for a frame moves everything else sideways, so it is the one the
   // gate must not render without.
-  project: [loadProjectSidebar, loadFilePane, loadFileExplorer, loadEditorTabs],
+  // `loadProjectWindow` first: it is the window itself, and it hosts chats,
+  // so it pulls the `loadChatPanel` chunk along with it.
+  project: [loadProjectWindow, loadProjectSidebar, loadFilePane, loadFileExplorer, loadEditorTabs],
 };
 
 /** The shape of a project's local tab record, as far as warming is concerned. */
@@ -279,5 +305,10 @@ export function paneTypesToWarmWhenIdle(
 ): PaneType[] {
   const out = new Set(paneTypesToWarm(panes, readLocal));
   if (out.has('project')) out.add('git');
+  // A chat is always one gesture away (a new chat, a topic from the sidebar,
+  // the coordinator in the board's drawer), even with none on screen: its
+  // chunk is warmed anyway, after the first frame, so that first gesture does
+  // not draw the fallback.
+  out.add('chat');
   return [...out];
 }

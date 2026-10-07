@@ -98,6 +98,32 @@
     var settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
     if (settings.sidebarCollapsed) document.documentElement.classList.add('sidebar-pre-collapsed');
   } catch (e) {}
+
+  // The chat chunks, preloaded BEFORE the entry, only when a chat is on screen.
+  // The chat body lives in chunks of its own (see `chatChunksHint` in
+  // client/vite.config.ts, which writes their list into the meta): without
+  // this hint their request would only leave after the entry has been
+  // evaluated. Who wants it: a detached window (`?topic=`/`?topics=`), or a
+  // local pane snapshot holding a chat or a project window (which hosts chats).
+  // A regex and not `JSON.parse`: it is only a hint, and the snapshot can weigh
+  // tens of KB that the app reads again right afterwards.
+  try {
+    var chatChunks = document.querySelector('meta[name="topics-chat-chunks"]');
+    var chatHrefs = chatChunks ? (chatChunks.getAttribute('content') || '').split(' ') : [];
+    var wantsChat = /[?&]topics?=/.test(location.search)
+      || /"type":"(chat|project)"/.test(localStorage.getItem('pane-store-v2') || '');
+    if (wantsChat) {
+      chatHrefs.forEach(function (href) {
+        if (!href) return;
+        var link = document.createElement('link');
+        link.rel = 'modulepreload';
+        link.crossOrigin = '';
+        link.fetchPriority = 'low';
+        link.href = href;
+        document.head.appendChild(link);
+      });
+    }
+  } catch (e) {}
 })();
 
 // ---- Service Worker (PWA): on every secure origin outside the desktop shell ----

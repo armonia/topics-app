@@ -8,7 +8,7 @@ import { PaneTabBar } from './PaneTabBar';
 import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
 import { openTabSheet } from '../../state/tabSheet';
 import { openContextMenuAt, useLongPress } from '../../hooks/useLongPress';
-import { ChatPanel } from './ChatPanel';
+import { ChatPanel, ProjectWindowPane } from './lazyPaneBodies';
 import { TopicColorDot } from '../Shared/TopicColorDot';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
@@ -35,7 +35,6 @@ import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/termina
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { orchestratorSessionsApi } from '../../lib/api';
-import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';

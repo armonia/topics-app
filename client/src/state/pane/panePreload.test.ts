@@ -116,7 +116,13 @@ describe('paneTypesToWarmWhenIdle', () => {
     const types = paneTypesToWarmWhenIdle([{ type: 'project', projectPath: PROJECT }, { type: 'chat' }], () => null);
     expect(types.sort()).toEqual(['chat', 'git', 'project']);
   });
-  test('without a project window nothing is added', () => {
-    expect(paneTypesToWarmWhenIdle([{ type: 'terminal' }], () => null)).toEqual(['terminal']);
+  test('without a project window no git panel is added', () => {
+    expect(paneTypesToWarmWhenIdle([{ type: 'terminal' }], () => null).sort()).toEqual(['chat', 'terminal']);
+  });
+  test('the chat chunk is warmed even when no chat is on screen', () => {
+    // Its body is no longer in the eager chunk: the first new chat must not
+    // draw the fallback because nobody had asked for its chunk.
+    expect(paneTypesToWarmWhenIdle([], () => null)).toEqual(['chat']);
+    expect(paneTypesToWarmWhenIdle([{ type: 'board' }], () => null).sort()).toEqual(['board', 'chat']);
   });
 });

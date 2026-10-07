@@ -784,17 +784,26 @@
     "languages (i18n is eager by choice), all hung off the eager composer and chat.",
     "Alone, on main b4875e1be, it measured +18.386 / +5.507. Each number was inside 2%",
     "of main's; all three are set to the measured values so the next change starts",
-    "from what is actually shipped."
+    "from what is actually shipped.",
+    "",
+    "2026-10-07, cloud-quality-pass T3: entry 1.647.998 / 523.275 -> 1.157.756 / 373.360",
+    "(-29.7% raw, -28.6% gz; measured before on main at 1.669.264 / 532.460), critical path",
+    "2.266.809 / 683.292 -> 1.781.910 / 535.037. The chat body (Layout/ChatPanel: ChatPane,",
+    "composer, message list with react-virtuoso, tool cards, message markdown) and the",
+    "project window leave the entry: 195 modules. They come back on the first frame only",
+    "when needed, through the panePreload gate and the modulepreload boot.js adds when the",
+    "local snapshot holds a chat. Total assets (8.778.718, +1.1%) stay inside the tolerance",
+    "and are not raised."
   ],
-  "updated": "2026-10-03",
+  "updated": "2026-10-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1647998,
-    "gz": 523275
+    "raw": 1157756,
+    "gz": 373360
   },
   "critical_path": {
-    "raw": 2266809,
-    "gz": 683292,
+    "raw": 1781910,
+    "gz": 535037,
     "files": 5
   },
   "total_assets": {
