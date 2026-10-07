@@ -141,3 +141,38 @@ describe("the deadline asks politely first (SIGTERM), then forces (SIGKILL)", ()
     expect(proc.exitCode).toBe(7); // a SIGKILL would have given null
   });
 });
+
+describe("the deadline limits the ANSWER, not the direct child", () => {
+  it("a child that exits at once and leaves a grandchild holding the pipe times out at the deadline", async () => {
+    const t0 = performance.now();
+    const r = await runBounded(["sh", "-c", "sleep 8 & echo started"], { timeoutMs: 1000, graceMs: 300 });
+    const dt = performance.now() - t0;
+    expect(dt).toBeLessThan(3000); // it came back after 8023 ms when the child's exit switched the timer off
+    expect(r.timedOut).toBe(true);
+    expect(r.exitCode).toBeNull(); // a deadline is a failure, whatever the direct child's status was
+    expect(r.stdout).toBe("started\n"); // what arrived is kept
+  });
+
+  it("`exited` does not report success while the pipe is still held", async () => {
+    const proc = spawnBounded(["sh", "-c", "sleep 8 & echo started"], { stdout: "pipe", timeoutMs: 800, graceMs: 300 });
+    const code = await proc.exited;
+    expect(code).toBeNull();
+    expect(proc.timedOut).toBe(true);
+  });
+
+  it("a normal call is not a timeout and keeps its status", async () => {
+    const r = await runBounded(["sh", "-c", "echo ok; exit 4"], { timeoutMs: 800 });
+    expect(r).toMatchObject({ stdout: "ok\n", exitCode: 4, timedOut: false });
+  });
+
+  it("awaiting `exited` before reading the output does not wait for the deadline", async () => {
+    // The pattern many callers use. 3 MB is more than one chunk and more than the pipe holds.
+    const t0 = performance.now();
+    const proc = spawnBounded(["sh", "-c", "head -c 3000000 /dev/zero"], { stdout: "pipe", timeoutMs: 20_000 });
+    await proc.exited;
+    const text = await new Response(proc.stdout).text();
+    expect(text.length).toBe(3_000_000);
+    expect(performance.now() - t0).toBeLessThan(5000);
+    expect(proc.timedOut).toBe(false);
+  });
+});

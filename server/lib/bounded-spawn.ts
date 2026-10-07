@@ -84,14 +84,29 @@ const EMPTY = (): ReadableStream<Uint8Array> => new ReadableStream({ start: (c) 
 
 /**
  * The stream of `src`, closing by itself when the deadline fires. It reads in
- * chunks, so the text that arrived up to then is not lost.
+ * chunks, so the text that arrived up to then is not lost. `done` settles when
+ * the pipe has reached its end (every writer closed it), when it failed, was
+ * cancelled, or the deadline closed it: "the stream is finished" is half of
+ * what makes an answer complete (see `spawnBounded`).
+ *
+ * The queue has no high-water mark on purpose: it drains the pipe as fast as it
+ * comes, like `Bun.spawn`'s own stream (measured: 20 MB written by a child that
+ * is awaited BEFORE its stdout is read still finishes). With the default mark of
+ * one chunk the end of the pipe would only be seen when somebody reads, and
+ * `await proc.exited; await text()` (a pattern in the callers) would wait for the
+ * deadline.
  */
-function untilDeadline(src: ReadableStream<Uint8Array> | undefined | null, deadline: Promise<void>): ReadableStream<Uint8Array> {
-  if (!src || typeof src === "number") return EMPTY();
+function untilDeadline(
+  src: ReadableStream<Uint8Array> | undefined | null,
+  deadline: Promise<void>,
+): { stream: ReadableStream<Uint8Array>; done: Promise<void> } {
+  if (!src || typeof src === "number") return { stream: EMPTY(), done: Promise.resolve() };
   const reader = src.getReader();
   let over = false;
-  void deadline.then(() => { over = true; });
-  return new ReadableStream<Uint8Array>({
+  let finish!: () => void;
+  const done = new Promise<void>((resolve) => { finish = resolve; });
+  void deadline.then(() => { over = true; finish(); });
+  const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const next = await Promise.race([
@@ -101,17 +116,21 @@ function untilDeadline(src: ReadableStream<Uint8Array> | undefined | null, deadl
         if (next.done || over) {
           controller.close();
           void reader.cancel().catch(() => {});
+          finish();
           return;
         }
         controller.enqueue(next.value);
       } catch {
         controller.close();
+        finish();
       }
     },
     cancel() {
       void reader.cancel().catch(() => {});
+      finish();
     },
-  });
+  }, { highWaterMark: Infinity });
+  return { stream, done };
 }
 
 /** Throws if the process cannot start (missing binary, missing cwd), exactly like `Bun.spawn`. */
@@ -158,8 +177,19 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
   }, cappedMs(opts.timeoutMs));
   timer.unref?.();
 
+  const out = untilDeadline(proc.stdout as ReadableStream<Uint8Array> | undefined, deadline);
+  const err = untilDeadline(proc.stderr as ReadableStream<Uint8Array> | undefined, deadline);
+  // THE DEADLINE LIMITS THE ANSWER, not the direct child: the answer is complete
+  // when the child has exited AND its pipes have reached their end. A child that
+  // exits at once and leaves a grandchild holding the pipe (`cmd &`, a deploy
+  // script that backgrounds something) used to switch the timer off with its
+  // own exit and the caller waited for the grandchild to die on its own.
+  // When the deadline fires first, the call is a timeout whatever the direct
+  // child's exit status was: `timedOut` is true and `exitCode` is null, so a
+  // caller that reads `exitCode !== 0` treats it as a failure.
+  const answered = Promise.all([proc.exited, out.done, err.done]).then(([code]) => code);
   const exited: Promise<number | null> = Promise.race([
-    proc.exited.then((code) => (timedOut ? null : code)),
+    answered.then((code) => (timedOut ? null : code)),
     deadline.then(() => null),
   ]).finally(() => clearTimeout(timer));
   // A late rejection from the loser of the race must not become an unhandled one.
@@ -168,8 +198,8 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
   return {
     pid: proc.pid,
     stdin: typeof proc.stdin === "object" && proc.stdin !== null ? (proc.stdin as BoundedProcess["stdin"]) : null,
-    stdout: untilDeadline(proc.stdout as ReadableStream<Uint8Array> | undefined, deadline),
-    stderr: untilDeadline(proc.stderr as ReadableStream<Uint8Array> | undefined, deadline),
+    stdout: out.stream,
+    stderr: err.stream,
     exited,
     get exitCode() { return timedOut ? null : proc.exitCode; },
     get timedOut() { return timedOut; },
