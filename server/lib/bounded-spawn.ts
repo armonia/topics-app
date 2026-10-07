@@ -13,11 +13,16 @@
  *
  * `spawnBounded` replaces `Bun.spawn` with the same shape of use (`stdout`,
  * `stderr`, `stdin`, `exited`, `exitCode`, `kill`) and a deadline that is a
- * limit on the ANSWER: when it fires it kills the whole process group (the
- * child starts in a group of its own, `detached`, so whoever holds the pipe
- * dies with it) and CLOSES the streams, so every await on the text or on
- * `exited` settles. `exitCode` stays `null` and `timedOut` is `true`: callers
- * that look at `exitCode !== 0` read the deadline as a failure.
+ * limit on the ANSWER: the answer is complete when the child has exited AND its
+ * pipes have reached their end. When the deadline fires first it stops the whole
+ * process group (the child starts in a group of its own, `detached`, so whoever
+ * holds the pipe goes with it): SIGTERM, so git drops its lock files and a
+ * script's `trap` runs, then SIGKILL after a short grace to whoever remains. It
+ * then CLOSES the streams, so every await on the text or on `exited` settles.
+ * `timedOut` is true and `exitCode` null whatever the child's own status was:
+ * callers that look at `exitCode !== 0` read the deadline as a failure.
+ * `kill()` with no argument is SIGTERM, as in `Bun.spawn`. The groups still
+ * alive when the server exits are closed by its exit hook (see `liveGroups`).
  *
  * Environment variable `TOPICS_SPAWN_TIMEOUT_CAP_MS`: a ceiling applied to
  * EVERY deadline. It exists for the tests (a fake git that never answers must

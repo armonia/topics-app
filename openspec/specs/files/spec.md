@@ -728,11 +728,23 @@ XY codes.
 Every external process the server launches on the path of a request (the
 `/api/git/*` routes, the git/ps/lsof helpers behind the panels, the process
 panel's probes) SHALL have a deadline on its ANSWER, not on the process alone.
-When the deadline fires the whole process group SHALL be killed and the streams
-SHALL be closed, so that a grandchild holding the pipe open (ssh under git, a
-hook, a credential helper, a script's children) cannot keep the request waiting
-after the child has been killed. The caller SHALL see a failed exit (never a
-success) and the text that arrived before the deadline SHALL NOT be lost.
+The deadline limits the answer, which is complete only when the child has exited
+AND its pipes have reached their end: a child that exits at once and leaves a
+grandchild holding the pipe is still a timeout. When the deadline fires the whole
+process group SHALL receive SIGTERM first (so git removes its lock files and a
+script's `trap` cleanup runs), SIGKILL after a short grace to whoever remains,
+and the streams SHALL be closed, so that a grandchild holding the pipe open (ssh
+under git, a hook, a credential helper, a script's children) cannot keep the
+request waiting after the child has been killed. The caller SHALL see a failed
+exit (`timedOut` true and a null exit code, never a success) and the text that
+arrived before the deadline SHALL NOT be lost. Work that is legitimately long
+(copying a tree, a push with a pre-push hook) SHALL use the long deadline, and a
+timed-out copy SHALL NOT leave a partial destination behind.
+
+The groups started this way are not in the server's own process group, so the
+server SHALL close the ones still alive when it shuts down (SIGTERM, a short
+grace, SIGKILL): a stop signal forwarded to the server's group by the host must
+not leave them orphaned.
 
 Synchronous calls (`Bun.spawnSync`, `execFileSync`) SHALL carry `timeout` and
 `killSignal: "SIGKILL"`, since they stop the single event loop of the server
@@ -761,6 +773,21 @@ a deadline SHALL turn that test red.
 - **GIVEN** a shell that traps TERM and runs `sleep 30`
 - **WHEN** it is run with a 300 ms deadline
 - **THEN** the call returns in under two seconds, timed out, with a null exit code
+
+#### Scenario: the deadline fires on a git holding a lock
+- **GIVEN** a `git add -A` held by a slow clean filter, with a 1.5 s deadline
+- **WHEN** the deadline fires
+- **THEN** git is stopped with SIGTERM and leaves no `.git/index.lock`
+- **AND** a process that ignores SIGTERM is killed after the grace, still within deadline plus grace
+
+#### Scenario: the direct child exits and a grandchild keeps the pipe
+- **GIVEN** `sh -c "sleep 8 & echo started"` with a 1 s deadline
+- **THEN** the call returns near the deadline, timed out, with a null exit code and the text "started"
+
+#### Scenario: the host stops the server
+- **GIVEN** a bounded child alive and the host sends SIGTERM to the server's process group
+- **WHEN** the server exits
+- **THEN** the child is gone, as a child of plain `Bun.spawn` is
 
 #### Scenario: a new call with no deadline
 - **WHEN** a `Bun.spawn(...)` with no `timeout` in its text is added under `server/` and is not in the list
