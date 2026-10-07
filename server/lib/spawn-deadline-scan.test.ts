@@ -66,6 +66,62 @@ function walk(dir: string, out: string[]): void {
 
 const CALL = /(Bun\.spawnSync\(|Bun\.spawn\(|(?<![\w.])spawnSync\(|(?<![\w.])execFileSync\(|(?<![\w.])execSync\(|(?<![\w.])execFile\(|(?<![\w.])spawn\(|promisify\(execFile\)|promisify\(exec\))/;
 
+/**
+ * The code of a source file with comments blanked and string contents emptied,
+ * keeping every newline (so line numbers still match). What is left is what the
+ * compiler sees: a word in a comment, in a string, or in a variable name outside
+ * the call cannot be mistaken for the call's deadline.
+ */
+function lastSignificant(text: string): string {
+  for (let k = text.length - 1; k >= 0; k--) if (!/\s/.test(text[k]!)) return text[k]!;
+  return "";
+}
+
+export function codeOnly(src: string): string {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i]!;
+    const n = src[i + 1];
+    if (c === "/" && n === "/") {
+      while (i < src.length && src[i] !== "\n") i++;
+    } else if (c === "/" && n === "*") {
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) { if (src[i] === "\n") out += "\n"; i++; }
+      i += 2;
+    } else if (c === "/" && /[(,=:[!&|?{};+\-*%<>~^]/.test(lastSignificant(out) || "(")) {
+      // A regex literal (a quote inside it must not open a string). It follows an
+      // operator or an opening bracket; after a name or `)` a slash is a division.
+      out += "/";
+      i++;
+      let inClass = false;
+      while (i < src.length && src[i] !== "\n" && (inClass || src[i] !== "/")) {
+        if (src[i] === "\\") i++;
+        else if (src[i] === "[") inClass = true;
+        else if (src[i] === "]") inClass = false;
+        i++;
+      }
+      out += "/";
+      i++;
+    } else if (c === '"' || c === "'" || c === "`") {
+      out += c;
+      i++;
+      while (i < src.length && src[i] !== c) {
+        if (src[i] === "\\") i++;
+        else if (src[i] === "\n" && c !== "`") break;
+        if (src[i] === "\n") out += "\n";
+        i++;
+      }
+      out += c;
+      i++;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
 /** The text of the call: from the line that opens it to the parenthesis that closes it (40 lines at most). */
 function callText(lines: string[], i: number): string {
   let depth = 0;
@@ -84,6 +140,20 @@ function callText(lines: string[], i: number): string {
   return parts.join("\n");
 }
 
+/** A deadline among the call's own options: `timeout:` / `timeoutMs:` as an object key (or shorthand). */
+const DEADLINE_OPTION = /[{,\s](timeoutMs|timeout)\s*[:,}]/;
+
+/** 0-based line numbers of the calls whose own options carry no deadline. */
+export function callsWithoutDeadline(source: string): number[] {
+  const lines = codeOnly(source).split("\n");
+  const found: number[] = [];
+  lines.forEach((line, i) => {
+    if (!CALL.test(line)) return;
+    if (!DEADLINE_OPTION.test(callText(lines, i))) found.push(i);
+  });
+  return found;
+}
+
 describe("external processes in the server", () => {
   const files: string[] = [];
   walk(SERVER, files);
@@ -92,18 +162,21 @@ describe("external processes in the server", () => {
 
   for (const file of files) {
     const rel = relative(ROOT, file);
-    const lines = readFileSync(file, "utf8").split("\n");
-    lines.forEach((line, i) => {
-      const t = line.trim();
-      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
-      if (!CALL.test(line)) return;
-      const text = callText(lines, i);
-      if (/timeout/i.test(text)) return;
+    const source = readFileSync(file, "utf8");
+    const lines = source.split("\n");
+    for (const i of callsWithoutDeadline(source)) {
+      const line = lines[i]!;
       const allowIdx = LONG_LIVED.findIndex((a) => a.file === rel && line.includes(a.snippet));
-      if (allowIdx >= 0) { usedAllow.add(allowIdx); return; }
-      unbounded.push(`${rel}:${i + 1}  ${t.slice(0, 110)}`);
-    });
+      if (allowIdx >= 0) { usedAllow.add(allowIdx); continue; }
+      unbounded.push(`${rel}:${i + 1}  ${line.trim().slice(0, 110)}`);
+    }
   }
+
+  it("the scan still sees the calls (a blind matcher would pass everything)", () => {
+    let seen = 0;
+    for (const file of files) for (const line of codeOnly(readFileSync(file, "utf8")).split("\n")) if (CALL.test(line)) seen++;
+    expect(seen).toBeGreaterThan(40);
+  });
 
   it("no call without a deadline and outside the list", () => {
     expect(unbounded).toEqual([]);
@@ -119,5 +192,34 @@ describe("external processes in the server", () => {
       return !src.includes(rest.join(": "));
     });
     expect(missing).toEqual([]);
+  });
+});
+
+describe("the scan reads the call's own options, not the words around it", () => {
+  it("a call with a deadline option passes", () => {
+    expect(callsWithoutDeadline('Bun.spawn(["ls"], { timeoutMs: 5000 });')).toEqual([]);
+    expect(callsWithoutDeadline('execFileSync("ps", [], { encoding: "utf8", timeout: 5000, killSignal: "SIGKILL" });')).toEqual([]);
+    expect(callsWithoutDeadline('Bun.spawnSync(["ps"], {\n  stdout: "pipe",\n  timeout: 5000,\n});')).toEqual([]);
+    expect(callsWithoutDeadline('spawn("x", [], { stdio: "ignore", timeout })')).toEqual([]);
+  });
+
+  it("a call with no deadline next to a comment that says timeout is flagged", () => {
+    expect(callsWithoutDeadline('// timeout: 5000 is handled elsewhere\nBun.spawn(["ls"]);')).toEqual([1]);
+    expect(callsWithoutDeadline('Bun.spawn(["ls"], {\n  // timeout: the caller aborts\n  stdout: "pipe",\n});')).toEqual([0]);
+    expect(callsWithoutDeadline('/* timeoutMs: 5 */ Bun.spawn(["ls"]);')).toEqual([0]);
+  });
+
+  it("a variable or string that mentions timeout is not a deadline", () => {
+    expect(callsWithoutDeadline('const timeoutMs = 5000;\nBun.spawn(["ls"], opts);')).toEqual([1]);
+    expect(callsWithoutDeadline('Bun.spawn(["sh", "-c", "run --timeout: 5"]);')).toEqual([0]);
+    expect(callsWithoutDeadline('Bun.spawn(["ls"], { env: { TIMEOUT: "timeout: 1" } });')).toEqual([0]);
+  });
+
+  it("a regex literal with a quote in it does not swallow the code after it", () => {
+    expect(callsWithoutDeadline("const R = /^'x/; Bun.spawn([\"ls\"]);")).toEqual([0]);
+  });
+
+  it("comment markers inside strings do not hide the code after them", () => {
+    expect(callsWithoutDeadline('const u = "http://x"; Bun.spawn(["ls"]);')).toEqual([0]);
   });
 });
