@@ -4,8 +4,11 @@
 
 ```bash
 cd ~/Projects/topics-app
-bun test <i test unitari nuovi o toccati dalla change>
-bunx playwright test tests/e2e/chat-live-work.spec.ts   # server isolato :13334, video in test-results/
+bun test server/lib/command-redirect.test.ts server/lib/file-tail.test.ts server/lib/live-work.test.ts \
+  tests/integration/process-stdout-file.test.ts client/src/components/Chat/SubAgentsStrip.test.tsx \
+  client/src/components/Project/ProcessLogPane.test.tsx
+# Su questo Mac il config accetta solo WebKit; server isolato :13334, video in test-results/artifacts/
+bunx playwright test tests/e2e/chat-live-work.spec.ts --project=webkit
 ```
 
 Exit 0 tutti e due. Ciò che è verde resta verde: `bun test server/lib client/src/state
