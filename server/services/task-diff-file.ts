@@ -169,5 +169,39 @@ export async function serveDiffBlob(
   // Streamed straight from git's stdout: never `.text()`, never a whole buffer
   // held on the server's loop.
   const proc = spawnBounded(["git", "-C", target.cwd, "cat-file", "blob", spec], { stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
-  return new Response(proc.stdout, { headers: { ...headers, "Content-Length": String(size) } });
+  return new Response(exactlyBytes(proc.stdout, size), { headers: { ...headers, "Content-Length": String(size) } });
+}
+
+/**
+ * The stream of git's stdout, which must deliver EXACTLY `size` bytes (the
+ * `Content-Length` already promised). When git's deadline closes the pipe halfway
+ * (or git dies), a clean close would hand the client a short body that looks like
+ * a finished response, and the headers say `immutable` for a year: a browser
+ * could cache the truncated picture. Erroring the stream aborts the transfer
+ * instead, which clients and caches treat as a failed download.
+ *
+ * Why this and not the other ways out: the deadline stays `query` (30 s is far
+ * more than 10 MB of `cat-file` needs, and a longer one would only keep a hung git
+ * longer); dropping `Content-Length` would not stop the cache from keeping a
+ * truncated body; an error "before the headers" cannot be told, because a git that
+ * will hang has not hung yet when the headers go out.
+ */
+function exactlyBytes(src: ReadableStream<Uint8Array>, size: number): ReadableStream<Uint8Array> {
+  const reader = src.getReader();
+  let seen = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.read();
+      if (next.done) {
+        if (seen === size) controller.close();
+        else controller.error(new Error(`git cat-file delivered ${seen} of ${size} bytes`));
+        return;
+      }
+      seen += next.value.byteLength;
+      controller.enqueue(next.value);
+    },
+    cancel() {
+      void reader.cancel().catch(() => {});
+    },
+  });
 }
