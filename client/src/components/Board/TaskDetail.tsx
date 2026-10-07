@@ -2154,7 +2154,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
             title={tr('board.task.editTitleTitle')}
             className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-body-lg leading-5 text-app-text hover:bg-white/5"
-          >{task || initialTitle != null ? <MorphText text={task?.text ?? initialTitle ?? ''} /> : null}</p>
+          >{task ? <MorphText text={task.text} /> : initialTitle != null ? <MorphText text={initialTitle} /> : null}</p>
         )}
         {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
             which now lives behind the collapsed "details" toggle: a blocked
