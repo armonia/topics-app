@@ -875,6 +875,17 @@ export const commandBackgroundWork = commandWorkOver(() => (loadProcessRegistry(
 export const commandServices = () => (loadProcessRegistry(), servicesOver(serviceRows(runningScripts.values()), serviceRows(recentScripts), commandServiceWatch.listenOf, Date.now()));
 /** A chat's `run_command` processes, for `GET /api/processes`. */
 export const topicCommandProcesses = (topicId: string) => (loadProcessRegistry(), commandProcessesOf([...runningScripts.values(), ...recentScripts], topicId, commandServiceWatch.listenOf));
+/**
+ * A chat's processes at work now, for the strip under the chat (chat-live-work):
+ * its `run_command`s and the `run_script`s its agent started, with the line each
+ * prints and a server's addresses. A person's Run has its own card in the chat.
+ */
+export const liveCommandsOf = (topicId: string) => (loadProcessRegistry(), [...runningScripts.values()]
+  .filter((sp) => sp.status === "running" && !isPersonRun(sp) && (sp.cmd?.topicId ?? sp.agentRun?.topicId) === topicId)
+  .map((sp) => ({
+    processId: sp.processId, name: sp.scriptName, command: sp.command, startedAt: sp.startedAt,
+    lastLine: lastLineOf(sp), listen: commandServiceWatch.listenOf(sp.processId) ?? [],
+  })));
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a

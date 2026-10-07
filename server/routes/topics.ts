@@ -32,6 +32,7 @@ import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
+import { liveWorkOf } from "./live-work";
 import { getSessionContext } from "../db/session-context";
 import { markTopicSeen } from "../subject-seen";
 import { markAttentionSeen, seenItemNow, setClosed, turnEnded } from "../attention/store";
@@ -3366,6 +3367,15 @@ export function createTopicsRouter(
         const sessions = result?.result?.sessions || [];
         return json([...commands, ...subagentProcesses(sessions)]);
       } catch { return json(commands); }
+    }
+
+    {
+      // The strip under the chat: what works for it now (chat-live-work).
+      const params = matchRoute(pathname, "/api/topics/:topicId/live-work");
+      if (params && method === "GET") {
+        const topic = getTopicById(params.topicId);
+        return topic ? json(liveWorkOf(ctx, topic)) : json({ error: "Topic not found" }, 404);
+      }
     }
 
     {

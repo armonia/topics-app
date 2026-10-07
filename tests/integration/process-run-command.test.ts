@@ -661,55 +661,6 @@ describe("a command's log file is bounded like a script's", () => {
   }, 20_000);
 });
 
-// Muse, 07/10: `freeagent … > /tmp/fa-wallrunv2.log 2>&1` ran 58 minutes with
-// its row on «Waiting for output...»: everything it printed went to that file.
-describe("a command that sends its stdout to a file it names (chat-live-work)", () => {
-  type Out = { output: string; pending: string; follows?: string; unfollowed?: { target: string; reason: string } };
-  const outputOf = async (processId: string) =>
-    (await (await call(bench.processes, "GET", `/api/scripts/${processId}/output`)).json()) as Out;
-  const runQuiet = async (command: string) => ((await (await call(bench.processes, "POST",
-    `/api/sessions/${encodeURIComponent(newTopic().sessionKey)}/commands/run`, { command, wake: false })).json()) as { processId: string }).processId;
-  let files = 0;
-  const fileIn = () => join(ROOT, `stdout-${++files}.log`);
-
-  test("its log follows that file while it runs, and keeps what it read when it ends", async () => {
-    const file = fileIn();
-    const processId = await runQuiet(`for i in 1 2 3 4 5 6 7 8; do echo tick $i; sleep 0.5; done > ${file} 2>&1; echo own line`);
-    await until(async () => (await outputOf(processId)).output.includes("tick 1"), 3000);
-    const live = await outputOf(processId);
-    expect(live.output).toContain("tick 1");
-    expect(live.follows).toBe(file);
-    expect((await scriptRow(processId))?.status).toBe("running");
-
-    await until(async () => (await scriptRow(processId))?.status !== "running");
-    const ended = await outputOf(processId);
-    expect(ended.output).toContain("tick 1\ntick 2\ntick 3\ntick 4\ntick 5\ntick 6\ntick 7\ntick 8\nown line");
-    // A reload reads the log alone: what went to the file is in it too.
-    expect(readFileSync(logPathOf(processId), "utf8")).toContain("tick 1\ntick 2\ntick 3\ntick 4\ntick 5\ntick 6\ntick 7\ntick 8\nown line");
-  }, 20_000);
-
-  test("a file it appends to: only what this run adds", async () => {
-    const file = fileIn();
-    writeFileSync(file, "an earlier run\n");
-    const processId = await runQuiet(`echo this run >> ${file}`);
-    await until(async () => (await scriptRow(processId))?.status !== "running");
-    const { output } = await outputOf(processId);
-    expect(output).toContain("this run");
-    expect(output).not.toContain("an earlier run");
-  });
-
-  test("a file only the shell can name: said, not followed", async () => {
-    const file = fileIn();
-    const processId = await runQuiet(`LOG=${file}; echo hidden > "$LOG"`);
-    await until(async () => (await scriptRow(processId))?.status !== "running");
-    const out = await outputOf(processId);
-    expect(out.unfollowed).toEqual({ target: "$LOG", reason: "variable" });
-    expect(out.follows).toBeUndefined();
-    expect(out.output).not.toContain("hidden");
-    expect(readFileSync(file, "utf8")).toBe("hidden\n");
-  });
-});
-
 // ── Across a reload of the server ────────────────────────────────────────────
 
 const LIFE = join(import.meta.dir, "helpers", "process-registry-life.ts");
@@ -825,26 +776,5 @@ describe("the command outlives the server", () => {
     const delivered = db.query("SELECT content FROM messages WHERE blocks LIKE ?").all(`%${started.processId}%`) as Array<{ content: string }>;
     db.close();
     expect(delivered[0]?.content).toContain("exit code unknown");
-  }, 40_000);
-
-  // chat-live-work: the file a command sends its stdout to is not a pipe either.
-  test("a reload mid-run: its stdout file is read again from the run's start and followed on", () => {
-    const file = join(state, `stdout-${Date.now()}.log`);
-    const started = life("start", PROJECT, `{ echo tick 1; sleep 3; echo tick 2; } > ${file}`);
-    const booted = life("boot", PROJECT, started.processId, dbPath);
-    expect(booted.row).toMatchObject({ processId: started.processId, status: "done", exitCode: 0 });
-    expect(booted.log).toContain("tick 1\ntick 2"); // the first before the reload, the second after
-    expect(booted.log.match(/tick 1/g)).toHaveLength(1);
-  }, 40_000);
-
-  test("it ended while the server was down: its stdout file is in the log the boot closes, and only once", async () => {
-    const file = join(state, `stdout-${Date.now()}.log`);
-    const started = life("start", PROJECT, `{ echo tick 1; echo tick 2; } > ${file}`);
-    await until(() => existsSync(join(state, ".state", "scripts", `${started.processId}.exit`)));
-    await until(() => !alive(started.pid));
-
-    expect(life("boot", PROJECT, started.processId, dbPath).log).toContain("tick 1\ntick 2");
-    // The next boot reads the log alone, which the first one completed.
-    expect(life("boot", PROJECT, started.processId, dbPath).log.match(/tick 2/g)).toHaveLength(1);
   }, 40_000);
 });

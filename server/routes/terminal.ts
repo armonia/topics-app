@@ -54,7 +54,7 @@ import {
   setCliChildStopper, spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
 import {
-  FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
+  FOREGROUND_WAIT_MS, bootChildSweep, childPhase, cliChildPhaseNow, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
@@ -2368,6 +2368,26 @@ function boardAgentCap(): number {
 /** Live children of a parent (present in the in-memory `sessions` map). */
 function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
   return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
+}
+
+/**
+ * A chat's live CLI children for the strip under the chat (chat-live-work): the
+ * phase read now (off the transcript after a restart, never on trust) and the
+ * tool the hooks say it is running. `routes/live-work.ts` makes the rows.
+ */
+export function liveCliChildren(parentSessionKey: string) {
+  const db = getDatabase();
+  return liveChildrenOf(parentSessionKey).map((s) => {
+    const row = getSubagent(db, s.id);
+    const tool = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId)?.lastTool : undefined;
+    return {
+      id: s.id, name: row?.name ?? s.name, createdAt: row?.createdAt ?? s.createdAt,
+      phase: row ? cliChildPhaseNow(row) : childPhase(s.id),
+      busy: terminalActivity.get(s.id)?.busy ?? false,
+      reportedAt: row?.reportedAt ?? null,
+      tool: tool ? { name: tool.name, input: tool.input as unknown } : null,
+    };
+  });
 }
 
 /**

@@ -446,7 +446,7 @@
 
     "server/routes/outbound.test.ts": 972,
 
-    "server/routes/processes.ts": 2213,
+    "server/routes/processes.ts": {"lines": 2497, "why": ["2026-10-07, chat-live-work: 2319 on main -> 2497. +167 the file a run_command sends its stdout to, followed beside its own log: the follow at the start, its resume at the reload (CMDRUN-03, legacy rows included), its last read and the log rewritten at the end, whole lines from two sources, the line a row prints now for scripts:output; +11 liveCommandsOf for the strip under the chat. The parser lives in server/lib/command-redirect.ts, the rows of the strip in server/lib/live-work.ts. Recorded by hand, this row only: server/routes/chat.ts is over its ceiling from another lane."]},
 
     "server/routes/tasks-board.ts": 1197,
     "server/routes/tasks.test.ts": 2697,
