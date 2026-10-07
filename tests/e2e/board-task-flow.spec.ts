@@ -41,7 +41,7 @@ test.describe("Board: the Task flow in one take", () => {
   const stamp = Date.now();
   const created: string[] = [];
   const todo: Array<{ id: string; text: string }> = [];
-  let tabbed = { id: "", text: "" };
+  let withTabs = { id: "", text: "" };
 
   test.beforeAll(async ({ request }) => {
     const seed = async (text: string, status: "backlog" | "todo" | "done"): Promise<string> => {
@@ -65,11 +65,11 @@ test.describe("Board: the Task flow in one take", () => {
       todo.push({ id: await seed(text, "todo"), text });
     }
     const text = `Flow task with tabs ${stamp}`;
-    tabbed = { id: await seed(text, "todo"), text };
+    withTabs = { id: await seed(text, "todo"), text };
     // The tabs record as the server writes it when an agent opens a browser
     // pane for the task (task-tab-persist.ts).
-    const ctx = `task-${tabbed.id.slice(0, 8)}-nflow`;
-    const put = await request.put(`${E2E_BASE}/api/ui-state/task-browser-tabs:${tabbed.id}`, {
+    const ctx = `task-${withTabs.id.slice(0, 8)}-nflow`;
+    const put = await request.put(`${E2E_BASE}/api/ui-state/task-browser-tabs:${withTabs.id}`, {
       data: { tabs: [{ contextId: ctx, url: `${E2E_BASE}/`, title: "App", seq: 0, titleSource: "agent" }], activeContextId: ctx, nextSeq: 1 },
     });
     expect(put.ok(), "could not seed the task's tabs").toBe(true);
@@ -127,14 +127,14 @@ test.describe("Board: the Task flow in one take", () => {
     // 3. Archive the task that owns browser tabs: the card leaves the board and
     // the server releases the tabs record.
     await didascalia(page, "Archivio un task con le sue tab aperte");
-    const before = await request.get(`${E2E_BASE}/api/ui-state/task-browser-tabs:${tabbed.id}`);
+    const before = await request.get(`${E2E_BASE}/api/ui-state/task-browser-tabs:${withTabs.id}`);
     expect(await before.json(), "the tabs record was not there to begin with").not.toBeNull();
-    const tabbedCard = page.locator(`[data-task-card="${tabbed.id}"]`);
-    await tabbedCard.click({ button: "right" });
+    const withTabsCard = page.locator(`[data-task-card="${withTabs.id}"]`);
+    await withTabsCard.click({ button: "right" });
     await page.getByRole("menuitem", { name: "Archivia" }).click();
-    await expect(tabbedCard).toHaveCount(0, { timeout: 10_000 });
+    await expect(withTabsCard).toHaveCount(0, { timeout: 10_000 });
     await expect
-      .poll(async () => (await request.get(`${E2E_BASE}/api/ui-state/task-browser-tabs:${tabbed.id}`)).json(), { timeout: 10_000 })
+      .poll(async () => (await request.get(`${E2E_BASE}/api/ui-state/task-browser-tabs:${withTabs.id}`)).json(), { timeout: 10_000 })
       .toBeNull();
     await didascalia(page, "Card archiviata, tab rilasciate");
     await beat(page);
