@@ -31,6 +31,7 @@ import {
 import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
+import { showsLocalCopyRows } from '../../state/localCopyRows';
 import { useListStateCache } from './listStateCache';
 import { MessageEntrance } from './messageEntrance';
 import { decideHistoryCompletion } from './historyCompletionDecision';
@@ -1315,7 +1316,13 @@ export function MessageList({
       // curtain right before the list moved (see LIST_REVEAL_HARD_CAP_MS), so
       // the frame count only starts once there is something painted, whole,
       // and authoritative to hold still.
-      const ready = !currentLoadingRef.current && listPaintedAndWhole(el);
+      // On the device's local copy there is no waiting for the network: the
+      // copy IS the first page (`shared/history-paging.ts`, and
+      // `rowsAboveLocalCopy` keeps a shorter copy from growing at the top), so
+      // the answer confirms it or appends to it. Waiting held the skeleton over
+      // rows already in the store for the whole request: 75 frames against 15
+      // in `topic-visited-first-frame.spec.ts`, up to the hard cap below.
+      const ready = (!currentLoadingRef.current || showsLocalCopyRows(topic.sessionKey)) && listPaintedAndWhole(el);
       const h = el.scrollHeight;
       const top = Math.round(el.scrollTop);
       if (ready && h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
@@ -1330,7 +1337,7 @@ export function MessageList({
     };
     raf = requestAnimationFrame(guarda);
     return () => cancelAnimationFrame(raf);
-  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty]);
+  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty, topic.sessionKey]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
