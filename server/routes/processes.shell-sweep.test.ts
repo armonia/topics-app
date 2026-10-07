@@ -15,11 +15,19 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { captureShellTree, esitoShellMorta, sweepOrphanedShellTree } from "./processes";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 function isAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  try { process.kill(pid, 0); } catch { return false; }
+  // A child that was killed but never reaped is a zombie: `kill(pid, 0)` still
+  // answers, yet it is dead. Orphans are re-parented to pid 1, and in a
+  // container pid 1 is often not an init (the cloud VM), so nobody reaps them.
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) !== "Z";
+  } catch { return true; } // no /proc (macOS): kill(0) is all there is
 }
 
 describe("sweep dei figli orfani di una shell morta", () => {
