@@ -55,7 +55,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { freePort, testTmpDir } from "./helpers";
+import { freePort, testTmpDir, spawnedServerHostEnv } from "./helpers";
 
 const PROJECT_ROOT = path.join(import.meta.dir, "..", "..");
 const ROOT = testTmpDir("home-isolation");
@@ -140,6 +140,7 @@ async function bootSessionAndStop(home: string, slug: string): Promise<void> {
       TOPICS_PTY_SOCKET: path.join(ROOT, `pty-${slug}.sock`),
       TOPICS_AI_BRIDGE: "0",
       TOPICS_AI_BRIDGE_SOCKET: path.join(ROOT, `ai-${slug}.sock`),
+      ...spawnedServerHostEnv(),
     },
     stdout: "pipe",
     stderr: "pipe",
