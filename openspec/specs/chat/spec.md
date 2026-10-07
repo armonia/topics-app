@@ -1766,7 +1766,7 @@ position, so the rest of the answer keeps landing in its own bubble.
 
 ### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
 
-A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes), or its turn is over, the row SHALL stay, marked ended with the "done" check, for 60 seconds from that end and then leave, or sooner when the user dismisses it or closes its terminal tab; a reload within that minute SHALL show it again for what remains of it (chat-live-work: on 07/10 three sub-agents ended hours before filled the strip of a chat whose real work was a command nobody could see). A CLI sub-agent ends when its turn is reported, not when its idle session is retired 15 minutes later. The strip SHALL list the chat's native sub-agents and its running processes too (`GET /api/topics/:id/live-work`). The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
+A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes), or its turn is over, the row SHALL stay, marked ended with the "done" check, for 60 seconds from that end and then leave, or sooner when the user dismisses it or closes its terminal tab; a reload within that minute SHALL show it again for what remains of it (chat-live-work: on 07/10 three sub-agents ended hours before filled the strip of a chat whose real work was a command nobody could see). A CLI sub-agent ends when its turn is reported, not when its idle session is retired 15 minutes later. The strip SHALL list the chat's native sub-agents and its running processes too (`GET /api/topics/:id/live-work`); a process row SHALL carry its own Stop and, when its end will wake the chat, say so (BGVIS-07/08). The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
 
 #### Scenario: A message in the parent chat does not take the sub-agent away
 - **GIVEN** a chat with a live sub-agent listed in its strip and its terminal pane open
@@ -5277,8 +5277,11 @@ come `local_bash`), senza tempo, e compariva solo al poll successivo (15 s).
 ### Requirement: BGVIS-07 — Un comando lanciato con `run_command` è lavoro in background della chat
 
 Un processo che l'agente lancia con il tool Topics `run_command` SHALL comparire
-nella riga `background-work-line` di BGVIS-04/05/06 per tutta la sua vita, come
-un task della CLI, e SHALL sparire quando il processo esce.
+nella striscia sotto la chat (`SubAgentsStrip`, SUBSTRIP-01) come riga
+`live-command-row` per tutta la sua vita, e SHALL sparire quando il processo
+esce. La riga `background-work-line` di BGVIS-04/05/06 NON SHALL nominarlo: fino
+al 07/10 lo nominavano tutte e due, e la chat di Prince of Persia mostrava Muse
+due volte (chat-live-work).
 
 Il caso da cui nasce (30/09, Attilio su una chat viva: «qua anche non sta uscendo
 nessuna ui, non so che sta facendo»): il turno era finito, l'agente aveva
@@ -5307,18 +5310,18 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
   `background:changed {topicId, sessionKey}` come per i task della CLI
   (BGVIS-06), non aspettare il poll dei 15 s.
 - Riavvio: un comando riadottato al boot (vivo, stesso `lstart`) resta nella
-  riga; uno trovato morto si chiude al boot e non compare.
-- Riga: `background-work-task` con `data-type="command"` e `data-process-id`,
-  l'icona lucide `SquareTerminal` (etichetta i18n `chat.background.command`), il
-  tempo di corsa e, se una sveglia è dovuta, «sveglia la chat quando finisce»
-  (`background-work-wakes`). Il nome è un bottone (`background-work-open`) che
-  apre il log del processo come pane della finestra di progetto della chat
-  (evento `open-process-log`, con lo scoping per progetto di `open-file-diff`).
+  striscia; uno trovato morto si chiude al boot e non compare.
+- Riga: `live-command-row` con `data-process-id`, il nome, l'ultima riga che
+  stampa e, se una sveglia è dovuta, l'icona lucide `AlarmClock`
+  (`live-work-wakes`, etichetta i18n `chat.background.wakes`: «sveglia la chat
+  quando finisce»), dal campo `wakes` di `GET /api/topics/:id/live-work`. Un
+  clic sulla riga apre il log del processo, agganciato sopra la striscia.
 - Stop: lo Stop del composer ferma il lavoro della CLI, non i comandi (vivono
   fuori dalla CLI apposta). Una chat con soli comandi NON SHALL entrare
   nell'insieme per sessione del composer (`composerStopsWork`,
   `client/src/state/backgroundWork.ts`): lì lo Stop rispondeva «niente da
-  fermare». Lo Stop di un comando è nel pannello Processi che la riga apre.
+  fermare». Lo Stop di un comando è **Ferma** sulla sua riga (`live-work-stop`,
+  `POST /api/scripts/:id/stop`).
 - Sveglia: la risposta alla sveglia SHALL portare in cima un banner `woken` con
   `source: "command"`, il nome del comando, il suo `exitCode` (null = nessuno
   registrato, detto «sconosciuto», mai un successo) e la sua ultima riga di
@@ -5346,12 +5349,12 @@ Topics (`server/routes/processes.ts`), non nella CLI: la chat non mostrava nient
 - **GIVEN** una chat in una finestra di progetto su una CLI finta
   (`helpers/fake-claude-command.ts`) un cui turno resta aperto e chiama
   `run_command` subito dopo un poll di stato
-- **THEN** entro 5 s, con lo Stop del turno visibile, la riga ha un task
-  `data-type="command"` con il nome, l'icona, un tempo e «sveglia la chat»
+- **THEN** entro 5 s, con lo Stop del turno visibile, la striscia ha la riga
+  del comando con «sveglia la chat», e nessuna `background-work-line`
 - **WHEN** il turno finisce
-- **THEN** la riga lo nomina ancora, il tempo avanza e il composer non offre Stop
-- **WHEN** si clicca il nome
-- **THEN** il log del processo si apre come tab della finestra di progetto
+- **THEN** la riga resta, con il suo Ferma, e il composer non offre Stop
+- **WHEN** si clicca la riga
+- **THEN** il log del processo si apre agganciato sopra la striscia
 - **WHEN** il comando esce
 - **THEN** la riga sparisce e la risposta alla sveglia ha un banner `source:
   "command"` con il nome, `exit 0` e l'ultima riga di output
@@ -5384,17 +5387,18 @@ chat rispondeva `[]` mentre la chat nominava il processo.
   progetto, niente riga fra gli agenti attivi, e lo Stop del composer non lo
   riguarda. La risposta SHALL portare a parte `services: [{topicId, sessionKey,
   services}]` (`TopicServices`, `shared/background-work.ts`).
-- In chat, nel `Footer` del trascritto sotto la riga di BGVIS-04, una riga
-  compatta per server `data-testid="running-service-row"` (non un banner):
-  «Server · 127.0.0.1:8777 · nome» con **Apri** (una tab del browser di Topics
-  sull'indirizzo, attraverso `openLink` come ogni link della chat), **Log** (il
-  log del processo nella finestra di progetto, evento `open-process-log`) e
-  **Ferma** (`POST /api/scripts/:id/stop`). Entra con `reveal-in`.
+- In chat un server è una riga della striscia sotto la chat (`live-command-row`,
+  SUBSTRIP-01), non un banner: il nome, l'indirizzo (`live-work-address`),
+  **Apri** (`live-work-open`, una tab del browser di Topics sull'indirizzo,
+  attraverso `openLink` come ogni link della chat) e **Ferma** (`live-work-stop`,
+  `POST /api/scripts/:id/stop`); un clic sulla riga apre il suo log. La riga
+  `running-service-row` nel `Footer` del trascritto non c'è più: dal 07/10
+  ripeteva quella della striscia.
 - Dal vivo: un avvio, una fine e una porta che compare o sparisce SHALL mandare
   `background:changed`, come per BGVIS-06/07.
 - Fine: per `SERVICE_END_SHOWN_MS` (8 s) dopo l'uscita il server resta fra i
-  `services` con `ended: {at, exitCode, stopped}`; la riga dice come è finito
-  («Server fermato», «Server terminato (exit N)») e sparisce da sé dopo 5 s.
+  `services` con `ended: {at, exitCode, stopped}`; la riga della striscia se ne
+  va con il processo, e come è finito lo dice il suo log.
 - Un server che sta finendo (fermato, o col processo morto e la riga non ancora
   chiusa: uno riadottato dopo un riavvio si chiude al controllo del pid ogni
   3 s) SHALL tenere i suoi indirizzi anche se il timer non vede più la porta:
@@ -5424,22 +5428,21 @@ chat rispondeva `[]` mentre la chat nominava il processo.
 - **GIVEN** una chat in una finestra di progetto su una CLI finta
   (`helpers/fake-claude-service.ts`) che lancia con `run_command` senza sveglia
   un vero server HTTP su una porta libera
-- **THEN** la chat ha UNA riga `running-service-row` con `127.0.0.1:<porta>` e
-  il nome, nessuna `background-work-line`, nessun glifo `background` sulla tab
-  e nessuno Stop nel composer
+- **THEN** la striscia ha UNA riga col nome e `127.0.0.1:<porta>`, senza
+  «sveglia la chat», nessuna `background-work-line`, nessun glifo `background`
+  sulla tab e nessuno Stop nel composer
 - **AND** `GET /api/processes?topicId=` lo elenca `running` con la porta
 - **WHEN** si clicca Apri
 - **THEN** parte una `browser:open-tab` su `http://127.0.0.1:<porta>/` per quella chat
-- **WHEN** si clicca Log
-- **THEN** il log del processo si apre come tab della finestra di progetto
+- **WHEN** si clicca la riga
+- **THEN** il log del processo si apre agganciato sopra la striscia
 - **WHEN** si clicca Ferma
-- **THEN** la riga dice «Server fermato» e poi sparisce
+- **THEN** il server non risponde più e la riga sparisce
 
 #### Scenario: con la sveglia resta lavoro atteso
 - **GIVEN** la stessa CLI finta che lancia lo stesso server CON la sveglia
 - **WHEN** il server risponde sulla sua porta
-- **THEN** la riga `background-work-line` lo nomina con «sveglia la chat» e non
-  c'è nessuna `running-service-row`
+- **THEN** la sua riga della striscia ha «sveglia la chat»
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 

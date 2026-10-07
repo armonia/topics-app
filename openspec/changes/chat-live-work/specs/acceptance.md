@@ -18,10 +18,12 @@ nello stesso commit, e il messaggio lo dice.
 
 ## Scenario 1: solo ciò che è vivo
 
-- **GIVEN** una chat con 3 sotto-agenti finiti da ore, 1 sotto-agente al lavoro e 1 comando
-  `run_command` in corso che stampa «tick N» ogni secondo
+- **GIVEN** una chat con 3 sotto-agenti finiti da ore, 1 sotto-agente al lavoro, 1 comando
+  `run_command` in corso che stampa «tick N» ogni secondo e 1 comando lanciato con la sveglia
 - **WHEN** la chat è aperta
-- **THEN** la striscia ha 2 righe, il sotto-agente e il comando, e nessuna riga finita
+- **THEN** la striscia ha 3 righe, il sotto-agente e i due comandi, e nessuna riga finita
+- **AND** solo la riga del comando con la sveglia dice «sveglia la chat», e il suo nome è una
+  volta sola sulla pagina (la riga del lavoro in background non lo ripete)
 - **AND** l'anteprima del comando mostra un «tick N» più recente entro 3 s dalla stampa
 - **AND** quando il sotto-agente finisce, la sua riga resta con la spunta e sparisce entro 70 s
 
@@ -35,7 +37,10 @@ nello stesso commit, e il messaggio lo dice.
 ## Scenario 3: il server locale
 
 - **GIVEN** un comando `python3 -m http.server <porta libera> --bind 127.0.0.1`
-- **THEN** la sua riga mostra la porta, e «apri» porta a `http://127.0.0.1:<porta>`
+- **THEN** la sua riga mostra la porta, una volta sola sulla pagina, e «apri» porta a
+  `http://127.0.0.1:<porta>`
+- **WHEN** si clicca «Ferma»
+- **THEN** il server non risponde più e la sua riga sparisce
 
 ## Mutazioni (su una copia in scratch, mai sul file vero)
 

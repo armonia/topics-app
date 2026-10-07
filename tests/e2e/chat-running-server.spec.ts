@@ -9,11 +9,12 @@
  * Real server turns from a fake CLI (`helpers/fake-claude-service.ts`) that
  * calls `run_command` through the bridge's own code to start a real HTTP
  * server on a free port. With no wake, once its port is up the chat has no
- * waiting line, no ring and no composer Stop, and shows one row "Server ·
- * 127.0.0.1:<port> · name" with Open (a browser tab of the app, on that
- * address), Logs (the process log in the project window) and Stop; the
- * chat's processes list it; Stop ends it, the row says so and goes. A server
- * started WITH a wake is still work the chat waits for.
+ * waiting line, no ring and no composer Stop, and the strip under the chat
+ * shows it as one row with its address, Open (a browser tab of the app, on
+ * that address) and Stop, its log a click away (chat-live-work: the server's
+ * own row under the transcript named it a second time); the chat's processes
+ * list it; Stop ends it and its row goes. A server started WITH a wake is
+ * still work the chat waits for, and its row says so.
  */
 import { createServer } from "node:net";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -32,7 +33,7 @@ let removeCli: (() => void) | null = null;
 // allow-italian: the exact aria-label shipped in i18n-chat-it.ts.
 const STOP = 'button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]';
 const LINE = '[data-testid="background-work-line"]';
-const ROW = '[data-testid="running-service-row"]';
+const ROW = '[data-testid="subagents-strip"] [data-testid="live-command-row"]';
 
 /** A port nobody listens on right now. */
 async function freePort(): Promise<number> {
@@ -107,7 +108,7 @@ test.describe("a server the chat started", () => {
     return { topic, win, port, wakePort };
   }
 
-  test("is one row with its address, Open, Logs and Stop, the chat is not waiting on it, and its processes list it", async ({ page, request, chatPage }) => {
+  test("is one row of the strip with its address, Open, its log and Stop, the chat is not waiting on it, and its processes list it", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-08" });
     const { topic, win, port } = await openChat(page, chatPage, request, "srvcard");
     try {
@@ -118,12 +119,11 @@ test.describe("a server the chat started", () => {
       // waiting line (a push re-reads the status once its port is seen).
       await expect.poll(async () => (await request.get(`http://127.0.0.1:${port}/`).then((r) => r.text()).catch(() => "")), { timeout: 10_000 }).toBe("SRVCARD-OK");
       await expect(page.locator(LINE)).toHaveCount(0, { timeout: 10_000 });
-      // One row: "Server · 127.0.0.1:<port> · name".
-      const row = page.locator(ROW);
+      // One row of the strip: its name and its address, and no wake.
+      const row = page.locator(ROW).filter({ hasText: "SRVCARD-SERVER" });
       await expect(row).toHaveCount(1, { timeout: 5_000 });
-      await expect(row).toHaveAttribute("data-state", "running");
-      await expect(row.getByTestId("running-service-address")).toHaveText(`127.0.0.1:${port}`);
-      await expect(row.getByTestId("running-service-name")).toHaveText("SRVCARD-SERVER");
+      await expect(row.getByTestId("live-work-address")).toHaveText(`127.0.0.1:${port}`, { timeout: 10_000 });
+      await expect(row.getByTestId("live-work-wakes")).toHaveCount(0);
       // No ring on its tab, no composer Stop.
       const tab = win.locator(`[role="tab"][data-pane-id="chat:${topic.id}"]`);
       await expect(tab.locator("[data-loader-state]")).toHaveCount(0);
@@ -136,21 +136,18 @@ test.describe("a server the chat started", () => {
       expect(listed.find((p) => p.processId === processId)).toMatchObject({ status: "running", ports: [port] });
 
       // Open asks for a browser tab of the app on that address, for this chat.
-      await row.getByTestId("running-service-open").click();
+      await row.getByTestId("live-work-open").click();
       await expect.poll(() => page.evaluate(() => (window as unknown as { __openTabs: unknown[] }).__openTabs), { timeout: 5_000 })
         .toEqual([{ url: `http://127.0.0.1:${port}/`, topicId: topic.id }]);
 
-      // Logs opens the process log in the chat's project window.
-      await row.getByTestId("running-service-logs").click();
-      await expect(win.locator(`[role="tab"][data-pane-id="process-log:${processId}"]`)).toHaveCount(1, { timeout: 10_000 });
-      await expect(win.locator('[data-testid="process-log-output"]').last()).toContainText("SRVCARD-LISTENING", { timeout: 10_000 });
-      await tab.click();
+      // A click on the row opens its log, docked over the strip.
+      await row.getByRole("button").first().click();
+      await expect(page.getByTestId("subagents-strip").getByTestId("process-log-output")).toContainText("SRVCARD-LISTENING", { timeout: 10_000 });
 
-      // Stop: the row says the server stopped, then goes; no waiting line ever came.
-      await page.locator(ROW).getByTestId("running-service-stop").click();
-      await expect(page.locator(ROW)).toHaveAttribute("data-state", "ended", { timeout: 10_000 });
-      await expect(page.locator(ROW).getByTestId("running-service-ended")).toHaveText(/^(Server stopped|Server fermato)$/);
-      await expect(page.locator(ROW)).toHaveCount(0, { timeout: 10_000 });
+      // Stop: the server ends and its row goes; no waiting line ever came.
+      await row.getByTestId("live-work-stop").click();
+      await expect(row).toHaveCount(0, { timeout: 10_000 });
+      await expect.poll(async () => request.get(`http://127.0.0.1:${port}/`).then(() => "up", () => "down"), { timeout: 10_000 }).toBe("down");
       await expect(page.locator(LINE)).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
@@ -163,16 +160,15 @@ test.describe("a server the chat started", () => {
     try {
       await chatPage.sendMessage("srvcard-wake");
       await expect(page.getByText("WAKE-STARTED").first()).toBeVisible({ timeout: 30_000 });
-      const command = page.locator(LINE).locator('[data-testid="background-work-task"][data-type="command"]');
-      await expect(command).toContainText("SRVCARD-WAKE", { timeout: 15_000 });
-      // Its port is up, and the chat still waits on it: a line, no server row.
+      const row = page.locator(ROW).filter({ hasText: "SRVCARD-WAKE" });
+      await expect(row).toHaveCount(1, { timeout: 15_000 });
+      // Its port is up, and the chat still waits on it: its row says that its end wakes the chat.
       await expect.poll(async () => (await request.get(`http://127.0.0.1:${wakePort}/`).then((r) => r.text()).catch(() => "")), { timeout: 10_000 }).toBe("SRVCARD-OK");
-      await expect(command.getByTestId("background-work-wakes")).toHaveCount(1);
-      await expect(page.locator(ROW)).toHaveCount(0);
-      // Stopped from its panel, it wakes nobody.
-      const processId = await command.getAttribute("data-process-id");
+      await expect(row.getByTestId("live-work-wakes")).toHaveCount(1);
+      // Stopped from the processes route, its row goes.
+      const processId = await row.getAttribute("data-process-id");
       expect((await request.post(`/api/scripts/${processId}/stop`)).ok()).toBe(true);
-      await expect(page.locator(LINE)).toHaveCount(0, { timeout: 10_000 });
+      await expect(row).toHaveCount(0, { timeout: 10_000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

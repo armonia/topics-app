@@ -16,3 +16,9 @@ Lo stato di una traccia lo danno git e i test, non le caselle.
 5. **E2E, video e mutazioni.** `tests/e2e/chat-live-work.spec.ts`. Dipende da 1-4.
 6. **Dal vivo.** `bun run build:client`, poi la chat Prince of Persia: Muse e il server delle clip
    nella striscia, il log di Muse si apre pieno. Chiude anche il task 11 di `subagent-nativi`.
+7. **Una riga sola per comando.** La riga di un comando nella striscia ha **Ferma** (la route dello
+   Stop dei processi) e, se la sua fine sveglia la chat, lo dice (`wakes` da `/live-work`). Sotto
+   il trascritto la riga dei server (`RunningServiceRows`) sparisce e la riga del lavoro in
+   background non nomina più i comandi: li nominavano due volte (07/10, Muse e il server delle clip
+   sulla chat Prince of Persia). Barra: test del componente, scenari 1 e 3 estesi, BGVIS-07/08
+   riscritti sulla striscia (`chat-command-visible`, `chat-running-server`).

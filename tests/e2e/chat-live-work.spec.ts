@@ -13,7 +13,11 @@
  * `run_command` calls. The ended sub-agents are rows of the test server's own
  * `subagents` table.
  *
- * @covers SUBSTRIP-01 CMDRUN-03
+ * Each command is on screen once: its Stop and the sign that its end wakes the
+ * chat are on its row, where the background line and a server's row under the
+ * transcript named the same command a second time (BGVIS-07/08).
+ *
+ * @covers SUBSTRIP-01 CMDRUN-03 BGVIS-07 BGVIS-08
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -34,7 +38,7 @@ test.describe.configure({ timeout: 180_000 });
 
 const STAMP = Date.now();
 const TOKEN = { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" };
-const enc = encodeURIComponent;
+const encode = encodeURIComponent;
 
 let project = "";
 let topicId = "";
@@ -44,7 +48,7 @@ const agents: string[] = [];
 
 test.afterEach(async ({ request }) => {
   for (const id of processes.splice(0)) await request.post(`${E2E_BASE}/api/scripts/${id}/stop`).catch(() => {});
-  for (const id of agents.splice(0)) await request.post(`${E2E_BASE}/api/sessions/${enc(sessionKey)}/agents/${id}/stop`, { headers: TOKEN }).catch(() => {});
+  for (const id of agents.splice(0)) await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: TOKEN }).catch(() => {});
   if (topicId) await deleteTopic(request, topicId).catch(() => {});
   if (project) removeTmpDir(project);
   topicId = sessionKey = project = "";
@@ -72,7 +76,7 @@ async function openChat(page: Page, request: APIRequestContext): Promise<void> {
 
 /** `run_command` from the chat's session, as the MCP tool calls it. */
 async function runCommand(request: APIRequestContext, command: string, description: string, wake = false): Promise<string> {
-  const res = await request.post(`${E2E_BASE}/api/sessions/${enc(sessionKey)}/commands/run`, { data: { command, description, wake } });
+  const res = await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/commands/run`, { data: { command, description, wake } });
   expect(res.ok(), `run refused: ${res.status()} ${await res.text()}`).toBe(true);
   const { processId } = (await res.json()) as { processId: string };
   processes.push(processId);
@@ -81,7 +85,7 @@ async function runCommand(request: APIRequestContext, command: string, descripti
 
 /** Spawn a sub-agent of the chat through the route `spawn_agent` calls, and check it runs the stub. */
 async function spawnSubAgent(request: APIRequestContext, name: string): Promise<string> {
-  const spawned = await request.post(`${E2E_BASE}/api/sessions/${enc(sessionKey)}/agents/spawn`, {
+  const spawned = await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/spawn`, {
     headers: TOKEN,
     data: { prompt: "wait for instructions", name, cwd: "/tmp" },
   });
@@ -96,7 +100,7 @@ async function spawnSubAgent(request: APIRequestContext, name: string): Promise<
   await expect.poll(() => cliCommandsFor(child?.claudeSessionId), { timeout: 15_000 }).not.toEqual([]).catch(() => {});
   const launched = cliCommandsFor(child?.claudeSessionId);
   if (!child || launched.length === 0 || !launched.every((c) => c.includes("/.home/.local/bin/claude"))) {
-    await request.post(`${E2E_BASE}/api/sessions/${enc(sessionKey)}/agents/${id}/stop`, { headers: TOKEN });
+    await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${id}/stop`, { headers: TOKEN });
     throw new Error(`the sub-agent did not run the e2e stub: ${JSON.stringify(launched)}`);
   }
   return id;
@@ -134,22 +138,31 @@ async function freePort(): Promise<number> {
 const strip = (page: Page) => page.getByTestId("subagents-strip");
 const tickOf = (text: string | null) => Number(text?.match(/tick (\d+)/)?.[1] ?? 0);
 
-test("only what works now: the working sub-agent and the command, and an ended sub-agent leaves within 70 s", async ({ page, request }) => {
+test("only what works now: the working sub-agent and the commands, the one that wakes the chat says so, and an ended sub-agent leaves within 70 s", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01" });
   await chatWithProject(request, "now");
   seedEndedSubAgents();
   const agentId = await spawnSubAgent(request, `E2E worker ${STAMP}`);
   const tick = await runCommand(request, 'for i in $(seq 1 600); do echo "tick $i"; sleep 1; done', "tick every second");
+  const build = await runCommand(request, "sleep 600", `E2E build ${STAMP}`, true);
   await openChat(page, request);
 
-  // Two rows, the sub-agent and the command; none of the three ended hours ago.
+  // Three rows, the sub-agent and the two commands; none of the three ended hours ago.
   const agentRow = strip(page).locator(`[data-testid="subagent-row"][data-subagent-id="${agentId}"]`);
   const commandRow = strip(page).locator(`[data-testid="live-command-row"][data-process-id="${tick}"]`);
+  const buildRow = strip(page).locator(`[data-testid="live-command-row"][data-process-id="${build}"]`);
   await expect(agentRow).toHaveCount(1, { timeout: 20_000 });
   await expect(commandRow).toHaveCount(1, { timeout: 20_000 });
-  await expect(strip(page).locator('[data-testid="subagent-row"], [data-testid="live-command-row"]')).toHaveCount(2);
+  await expect(buildRow).toHaveCount(1, { timeout: 20_000 });
+  await expect(strip(page).locator('[data-testid="subagent-row"], [data-testid="live-command-row"]')).toHaveCount(3);
   await expect(strip(page).locator('[data-state="ended"]')).toHaveCount(0);
   expect(["working", "waiting"]).toContain(await agentRow.getAttribute("data-state"));
+
+  // The command whose end wakes the chat says so on its row, the other does
+  // not; and it is named once: the background line no longer lists commands.
+  await expect(buildRow.getByTestId("live-work-wakes")).toHaveAttribute("aria-label", /^(wakes the chat when it ends|sveglia la chat quando finisce)$/);
+  await expect(commandRow.getByTestId("live-work-wakes")).toHaveCount(0);
+  await expect(page.getByText(`E2E build ${STAMP}`)).toHaveCount(1);
 
   // The command's line moves: a newer «tick N» within 3 s.
   const preview = commandRow.getByTestId("live-work-preview");
@@ -159,7 +172,7 @@ test("only what works now: the working sub-agent and the command, and an ended s
 
   // The sub-agent finishes (its parent stops it): its row stays with the
   // check, then leaves within 70 s of the end.
-  await request.post(`${E2E_BASE}/api/sessions/${enc(sessionKey)}/agents/${agentId}/stop`, { headers: TOKEN });
+  await request.post(`${E2E_BASE}/api/sessions/${encode(sessionKey)}/agents/${agentId}/stop`, { headers: TOKEN });
   const endedAt = Date.now();
   await expect(agentRow).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
   await expect(agentRow.locator("svg").first()).toBeVisible();
@@ -196,7 +209,7 @@ test("the output a command redirects to a file shows in its log", async ({ page,
   expect(texts.filter((t) => /Waiting for output|Nessun output ancora|No output yet/.test(t))).toEqual([]);
 });
 
-test("a local server shows its port, and Open goes to its address", async ({ page, request }) => {
+test("a local server shows its port, Open goes to its address, and Stop ends it and its row", async ({ page, request }) => {
   test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01" });
   await chatWithProject(request, "server");
   const port = await freePort();
@@ -215,7 +228,15 @@ test("a local server shows its port, and Open goes to its address", async ({ pag
 
   const row = strip(page).locator(`[data-testid="live-command-row"][data-process-id="${id}"]`);
   await expect(row.getByTestId("live-work-address")).toHaveText(`127.0.0.1:${port}`, { timeout: 20_000 });
+  // Its address is on the page once: no server row under the transcript names it again.
+  await expect(page.getByText(`127.0.0.1:${port}`, { exact: true })).toHaveCount(1);
   await row.getByTestId("live-work-open").click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __openTabs: string[] }).__openTabs), { timeout: 5_000 })
     .toEqual([`http://127.0.0.1:${port}/`]);
+
+  // Stop: the server no longer answers, and its row leaves.
+  await expect.poll(() => request.get(`http://127.0.0.1:${port}/`).then(() => "up", () => "down"), { timeout: 5_000 }).toBe("up");
+  await row.getByTestId("live-work-stop").click();
+  await expect(row).toHaveCount(0, { timeout: 10_000 });
+  await expect.poll(() => request.get(`http://127.0.0.1:${port}/`).then(() => "up", () => "down"), { timeout: 10_000 }).toBe("down");
 });

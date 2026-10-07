@@ -2,7 +2,8 @@
  * THE STRIP UNDER THE CHAT SHOWS WHAT WORKS NOW (chat-live-work), through the
  * real strip: the rows the server answers, a command's line moving on its
  * `scripts:output` frame with no request, an ended sub-agent leaving when the
- * server said it would, and each row opening what it is.
+ * server said it would, each row opening what it is, and a command's Stop and
+ * the sign that its end wakes the chat.
  *
  * Mounted with `test/reactHarness` (no DOM in this repo): the network is
  * `liveWorkApi` and `scriptsApi` answering, the window a stand-in that records
@@ -21,7 +22,7 @@ import type { LiveWorkRow } from '../../../../shared/live-work';
 
 const g = globalThis as unknown as Record<string, unknown>;
 const saved = { window: g.window };
-const real = { get: liveWorkApi.get, output: scriptsApi.output, list: scriptsApi.list };
+const real = { get: liveWorkApi.get, output: scriptsApi.output, list: scriptsApi.list, stop: scriptsApi.stop };
 let events: Array<{ type: string; detail: unknown }> = [];
 let harness: Harness | null = null;
 let answers: LiveWorkRow[][] = [];
@@ -32,8 +33,8 @@ const ROWS: LiveWorkRow[] = [
   { kind: 'agent', id: 'cli-1', name: 'reviewer', runtime: 'cli', state: 'working', preview: 'Bash: npm test', startedAt: t0 },
   { kind: 'agent', id: 'nat-1', name: 'Muse', runtime: 'topics', sessionKey: 'topic:nat1', state: 'waiting', preview: '', startedAt: t0 },
   { kind: 'agent', id: 'old-1', name: 'anim-fix', runtime: 'topics', state: 'ended', preview: '', startedAt: t0, endedAt: t0, goneInMs: 80 },
-  { kind: 'command', id: 'p1', name: 'tick', command: 'while true; do echo tick; sleep 1; done', preview: 'tick 1', startedAt: t0, listen: [] },
-  { kind: 'command', id: 'p2', name: 'clips', command: 'python3 -m http.server 8781 --bind 127.0.0.1', preview: '', startedAt: t0, listen: [{ host: '127.0.0.1', port: 8781 }] },
+  { kind: 'command', id: 'p1', name: 'tick', command: 'while true; do echo tick; sleep 1; done', preview: 'tick 1', startedAt: t0, listen: [], wakes: true },
+  { kind: 'command', id: 'p2', name: 'clips', command: 'python3 -m http.server 8781 --bind 127.0.0.1', preview: '', startedAt: t0, listen: [{ host: '127.0.0.1', port: 8781 }], wakes: false },
 ];
 
 beforeEach(() => {
@@ -62,6 +63,7 @@ afterEach(() => {
   liveWorkApi.get = real.get;
   scriptsApi.output = real.output;
   scriptsApi.list = real.list;
+  scriptsApi.stop = real.stop;
   if (saved.window === undefined) delete g.window; else g.window = saved.window;
 });
 
@@ -74,6 +76,13 @@ function rowButton(h: Harness, testId: string, idProp: string, id: string): Host
   const button = all.slice(at + 1).find((n) => n.type === 'button');
   if (at < 0 || !button) throw new Error(`no row ${id}`);
   return button;
+}
+/** The node with `testId` inside one command's row, before the next row starts. */
+function inRow(h: Harness, processId: string, testId: string): HostNode | undefined {
+  const all = h.last().hosts;
+  const at = all.findIndex((n) => n.props['data-testid'] === 'live-command-row' && n.props['data-process-id'] === processId);
+  const end = all.findIndex((n, i) => i > at && (n.props['data-testid'] === 'live-command-row' || n.props['data-testid'] === 'subagent-row'));
+  return all.slice(at + 1, end < 0 ? undefined : end).find((n) => n.props['data-testid'] === testId);
 }
 const click = (node: HostNode) => (node.props.onClick as (e: unknown) => void)({ stopPropagation() {}, currentTarget: null });
 
@@ -166,5 +175,38 @@ describe('a row opens what it is', () => {
     click(hosts(h, 'subagent-dismiss')[0]!);
     h.rerender();
     expect(hosts(h, 'subagent-row').map((n) => n.props['data-subagent-id'])).toEqual(['cli-1', 'nat-1']);
+  });
+});
+
+describe('a command stops from its row, and says when its end wakes the chat', () => {
+  test('Stop asks the stop route for that command, and stays pressed until its row leaves', async () => {
+    const asked: string[] = [];
+    scriptsApi.stop = (async (id: string) => { asked.push(id); return { ok: true }; }) as typeof scriptsApi.stop;
+    const h = await mounted();
+    click(inRow(h, 'p2', 'live-work-stop')!);
+    await flush();
+    h.rerender();
+    expect(asked).toEqual(['p2']);
+    expect(inRow(h, 'p2', 'live-work-stop')!.props.disabled).toBe(true);
+    expect(inRow(h, 'p1', 'live-work-stop')!.props.disabled).toBe(false);
+  });
+
+  test('a stop that fails leaves its button usable again', async () => {
+    let fail: (e: Error) => void = () => {};
+    scriptsApi.stop = (() => new Promise((_, reject) => { fail = reject; })) as typeof scriptsApi.stop;
+    const h = await mounted();
+    click(inRow(h, 'p1', 'live-work-stop')!);
+    h.rerender();
+    expect(inRow(h, 'p1', 'live-work-stop')!.props.disabled).toBe(true);
+    fail(new Error('500'));
+    await flush();
+    h.rerender();
+    expect(inRow(h, 'p1', 'live-work-stop')!.props.disabled).toBe(false);
+  });
+
+  test('a command whose end wakes the chat says so, one that wakes nobody does not', async () => {
+    const h = await mounted();
+    expect(inRow(h, 'p1', 'live-work-wakes')).toBeDefined();
+    expect(inRow(h, 'p2', 'live-work-wakes')).toBeUndefined();
   });
 });

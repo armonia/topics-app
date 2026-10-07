@@ -42,7 +42,6 @@ import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
-import { RunningServiceRows } from './RunningServiceRows';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { ANCHOR_SLACK_PROPERTY, TranscriptDisclosureContext, useDisclosureAnchor } from './useDisclosureAnchor';
 import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
@@ -362,11 +361,11 @@ export function MessageList({
     // The background work line (`BackgroundWorkLine`) is the first row here,
     // right under the last message: it is the tail of the turn that left the
     // work running, and here its coming and going cannot move the composer.
-    // The chat's servers (`RunningServiceRows`, BGVIS-08) sit right under it.
+    // A chat's commands and servers are rows of the strip under the chat
+    // (`SubAgentsStrip`, BGVIS-07/08), not of the transcript.
     Footer: () => (
       <>
-        <BackgroundWorkLine topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
-        <RunningServiceRows topicId={topic.id} projectPath={topic.projectPath} isMobile={isMobile} />
+        <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
         <QueuedTurns
           turns={queued}
           isMobile={isMobile}
@@ -409,7 +408,7 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id, topic.projectPath]);
+  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.

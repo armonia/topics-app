@@ -56,3 +56,6 @@ figli Codex · terminali che non sono di un agente · layout mobile, oltre a non
   lavoro. Nessuna ricerca di file, nessuna variabile espansa: un percorso con `$VAR` resta non
   seguito, e il pannello lo dice.
 - Anteprima di una riga sola: di più diventa una seconda chat dentro la chat.
+- La riga del lavoro in background resta, per il lavoro della CLI (un Bash in background, un
+  Monitor, un Agent), che la striscia non elenca; non nomina più i comandi. Tolta tutta, quel
+  lavoro sparirebbe dallo schermo.

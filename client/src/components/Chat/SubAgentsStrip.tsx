@@ -1,6 +1,8 @@
 import { memo, useState, type MouseEvent } from 'react';
-import { CircleCheck, ExternalLink, Hourglass, Loader2, Server, SquareTerminal, X } from 'lucide-react';
+import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { scriptsApi } from '../../lib/api';
+import { useToast } from '../Shared/Toast';
 import { listenLabel, listenUrl } from '../../../../shared/background-work';
 import type { LiveAgentRow, LiveCommandRow } from '../../../../shared/live-work';
 import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
@@ -27,6 +29,14 @@ import type { WSMessage } from '../../types';
  * A row opens what it is: a CLI child's terminal, a native child's chat, a
  * command's live log, docked above the rows (`DockedStripPanel`) so the chat
  * keeps its place. A server has its address and «Open» on the row.
+ *
+ * A command is also where it stops («Stop», the Processes panel's route) and
+ * where it says that its end will wake the chat. Both used to be two more
+ * rows under the transcript, the background line and a server's row
+ * (BGVIS-07/08), which named the same commands a second time: on 07/10 the
+ * Prince of Persia chat showed Muse and the clip server twice. The background
+ * line keeps the CLI's own work (a background Bash, a Monitor, an Agent),
+ * which no row here lists.
  *
  * Every click stops at the row: the chat panel around the strip focuses ITSELF
  * on click (`ChatPanel` onClick={onFocus}), and left to bubble that focus
@@ -85,12 +95,20 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
 
 function CommandRow({ row, open, onToggle }: { row: LiveCommandRow; open: boolean; onToggle: () => void }) {
   const tr = useT();
+  const toast = useToast();
+  const [stopping, setStopping] = useState(false);
   // The server puts the page first when the command serves more than one port.
   const first = row.listen[0];
   const url = first ? listenUrl(first) : '';
   const title = tr('livework.logTitle', { name: row.name });
+  const wakes = tr('chat.background.wakes');
+  // The row leaves once the server sees the process end; until then its Stop stays pressed.
+  const stop = async () => {
+    setStopping(true);
+    try { await scriptsApi.stop(row.id); } catch { toast.error(tr('livework.stopFailed', { name: row.name })); setStopping(false); }
+  };
   return (
-    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className="flex min-w-0 items-center" title={row.command}>
+    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
       <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onToggle(); }} className={ROW}>
         {first
           ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
@@ -99,6 +117,11 @@ function CommandRow({ row, open, onToggle }: { row: LiveCommandRow; open: boolea
         {first && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
         <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>
       </button>
+      {row.wakes && (
+        <span data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 px-1 text-app-text-secondary">
+          <AlarmClock size={11} aria-hidden="true" />
+        </span>
+      )}
       {url && (
         <button
           type="button"
@@ -110,6 +133,16 @@ function CommandRow({ row, open, onToggle }: { row: LiveCommandRow; open: boolea
           <ExternalLink className="h-3 w-3" aria-hidden="true" />{tr('chat.service.open')}
         </button>
       )}
+      <button
+        type="button"
+        data-testid="live-work-stop"
+        className={`${SIDE_BUTTON} disabled:opacity-50`}
+        disabled={stopping}
+        title={tr('livework.stopTitle', { name: row.name })}
+        onClick={(e) => { e.stopPropagation(); void stop(); }}
+      >
+        <Square className="h-3 w-3" aria-hidden="true" />{tr('chat.service.stop')}
+      </button>
     </div>
   );
 }
