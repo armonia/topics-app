@@ -647,7 +647,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // route instead of this one.
         {
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
             { projectId: bReview.projectId, taskId: bReview.taskId },
             comment,
             { force: body?.force },
@@ -1009,7 +1009,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         {
           const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
           const intercepted = interceptBoardAction(
-            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+            { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN, teardownTaskBrowserState: opts?.teardownTaskBrowserState },
             { projectId: bComments.projectId, taskId: root?.id ?? bComments.taskId },
             typeof body?.content === "string" ? body.content : "",
             { force: body?.force },
