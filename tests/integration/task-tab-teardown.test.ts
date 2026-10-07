@@ -163,6 +163,41 @@ describe("DELETE di un task: le sue tab se ne vanno con lui", () => {
     expect(uiKeys("task-td-vivo")).toEqual(["task-browser-tabs:task-td-vivo"]);
   });
 
+  test("fondere una card la archivia: le sue tab se ne vanno, quelle della superstite e dei figli restano", async () => {
+    // A card being merged has no live agent (`merge` refuses one), so no
+    // topic: the row and its tabs are seeded the way a finished turn leaves them.
+    const nowIso = new Date().toISOString();
+    const insert = ctx.db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, parent_task_id)
+       VALUES (?, ?, ?, 'review', ?, ?, ?)`,
+    );
+    insert.run("task-td-fusa", PROJ, "Fusa", nowIso, nowIso, null);
+    insert.run("task-td-superstite", PROJ, "Superstite", nowIso, nowIso, null);
+    insert.run("task-td-figlio-fusa", PROJ, "Figlio della fusa", nowIso, nowIso, "task-td-fusa");
+    const seedTabs = (taskId: string, contextId: string) =>
+      ctx.db.run(
+        "INSERT OR REPLACE INTO ui_state (key, value, payload_version, server_seq) VALUES (?, ?, 2, 99)",
+        [`task-browser-tabs:${taskId}`, JSON.stringify({ tabs: [{ contextId, url: "http://localhost:3504/", title: "", seq: 0 }] })],
+      );
+    seedTabs("task-td-fusa", "ctx-fusa");
+    seedLayout("task-td-fusa", "browser:ctx-fusa");
+    seedTabs("task-td-superstite", "ctx-superstite");
+    seedTabs("task-td-figlio-fusa", "ctx-figlio-fusa");
+
+    broadcasts = [];
+    destroyed = [];
+    const res = await call(tasksRouter, `/api/boards/${PROJ}/tasks/task-td-fusa/merge`, "POST", { intoTaskId: "task-td-superstite" });
+    expect(res.status).toBe(200);
+
+    expect(uiKeys("task-td-fusa")).toEqual([]);
+    expect(destroyed).toEqual(["ctx-fusa", "ctx-fusa_ws"]);
+    // The child moved under the survivor, ALIVE: its tabs are still its own.
+    expect(uiKeys("task-td-figlio-fusa")).toEqual(["task-browser-tabs:task-td-figlio-fusa"]);
+    expect(uiKeys("task-td-superstite")).toEqual(["task-browser-tabs:task-td-superstite"]);
+    const deleted = broadcasts.find((b) => b?.type === "task:deleted");
+    expect(deleted.taskIds).toEqual(["task-td-fusa"]);
+  });
+
   test("un secondo DELETE non esplode e non chiude niente due volte", async () => {
     const topicId = await seedTask("task-td-bis", "Due volte");
     await call(topicsRouter, `/api/topics/${topicId}/browser/open-pane`, "POST", { url: "http://localhost:3503/" });

@@ -538,7 +538,15 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           projectId: bMerge.projectId,
           by: HUMAN,
         });
-        broadcastToAll({ type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId });
+        // The merged card is archived exactly like a DELETE, so its tabs go the
+        // same way: without this they stayed alive until the next boot sweep.
+        // Its subtasks have already moved under the survivor, so the subtree
+        // here is the merged card alone and the children keep their tabs.
+        const torn = opts?.teardownTaskBrowserState?.(bMerge.taskId);
+        broadcastToAll({
+          type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId,
+          taskIds: torn?.taskIds ?? [bMerge.taskId],
+        });
         broadcastToAll({ type: "task:updated", projectId: bMerge.projectId, task: esito.survivor });
         return json(esito);
       } catch (e) { return fail(e); }
