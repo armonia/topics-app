@@ -4,6 +4,8 @@
  * `git` is only seen if it is in the PATH the process starts with. Prints the
  * timings as JSON.
  */
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createFilesRouter } from "./files";
 
 const dir = process.argv[2]!;
@@ -25,11 +27,19 @@ async function timed(method: string, path: string, body?: unknown): Promise<{ ms
   return { ms: Math.round(performance.now() - t0), status: res!.status };
 }
 
+const src = join(dir, "src");
+mkdirSync(src);
+writeFileSync(join(src, "a.txt"), "a");
+const target = join(dir, "target");
+
 const out = {
   diff: await timed("GET", `/api/git/diff?path=${encodeURIComponent(dir)}&file=x.txt`),
   log: await timed("GET", `/api/git/log?path=${encodeURIComponent(dir)}`),
   stageAll: await timed("POST", "/api/git/stage-all", { path: dir }),
   pull: await timed("POST", "/api/git/pull", { path: dir }),
+  copy: await timed("POST", "/api/files/copy", { from: src, to: target }),
+  duplicate: await timed("POST", "/api/files/duplicate", { path: src }),
+  leftovers: { target: existsSync(target), srcCopy: existsSync(join(dir, "src copy")) },
 };
 console.log(JSON.stringify(out));
 process.exit(0);

@@ -16,17 +16,20 @@
  * @covers GIT-DEADLINE-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 let dir = "";
-let out: Record<string, { ms: number; status: number }> = {};
+let out: Record<string, { ms: number; status: number }> & { leftovers?: { target: boolean; srcCopy: boolean } } = {};
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "git-hung-"));
   writeFileSync(join(dir, "git"), "#!/bin/sh\nsleep 30\n");
   chmodSync(join(dir, "git"), 0o755);
+  // A `cp` that writes part of the destination and then does not finish.
+  writeFileSync(join(dir, "cp"), '#!/bin/sh\nfor a; do d="$a"; done\nmkdir -p "$d"; touch "$d/partial"\nsleep 30\n');
+  chmodSync(join(dir, "cp"), 0o755);
   const proc = Bun.spawn(["bun", join(import.meta.dir, "files.git-hung.fixture.ts"), dir], {
     stdout: "pipe",
     stderr: "pipe",
@@ -60,5 +63,36 @@ describe("git routes with a git that does not answer", () => {
   test("POST /api/git/pull: the declared timeout is a deadline on the answer", () => {
     expect(out.pull!.ms).toBeLessThan(3000);
     expect(out.pull!.status).toBe(504);
+  });
+});
+
+describe("copy routes: a deadline removes the half copy", () => {
+  test("POST /api/files/copy answers 504 and leaves no destination (a retry would be 409)", () => {
+    expect(out.copy!.ms).toBeLessThan(3000);
+    expect(out.copy!.status).toBe(504);
+    expect(out.leftovers!.target).toBe(false);
+  });
+
+  test("POST /api/files/duplicate answers 504 and leaves no `copy` behind", () => {
+    expect(out.duplicate!.ms).toBeLessThan(3000);
+    expect(out.duplicate!.status).toBe(504);
+    expect(out.leftovers!.srcCopy).toBe(false);
+  });
+});
+
+describe("deadlines for legitimate long work", () => {
+  // The values themselves cannot be observed from a test that caps every deadline,
+  // so the choice is pinned in the text: 120 s is a limit near 250k files for `cp -r`
+  // (about 2100 files/s measured) and a pre-push hook may take minutes.
+  test("cp -r and duplicate use the long deadline, not the write one", () => {
+    const src = readFileSync(join(import.meta.dir, "files.ts"), "utf8");
+    const cp = src.match(/spawnBounded\(args, \{ stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT\.(\w+) \}\)/g) ?? [];
+    expect(cp.length).toBe(2);
+    for (const c of cp) expect(c).toContain("SPAWN_TIMEOUT.long");
+  });
+
+  test("the publish push uses the long deadline", () => {
+    const src = readFileSync(join(import.meta.dir, "tasks.ts"), "utf8");
+    expect(src).toContain('runGitCap(path, ["push", "origin", branch], SPAWN_TIMEOUT.long)');
   });
 });

@@ -471,14 +471,14 @@ export interface TasksRouterOpts {
  * failure) and disables the credential prompt so a push that needs auth fails
  * fast instead of hanging the request.
  */
-async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; out: string; err: string }> {
+async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
   try {
     const p = spawnBounded(["git", ...args], {
       cwd,
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      timeoutMs: SPAWN_TIMEOUT.write,
+      timeoutMs,
     });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
     const code = (await p.exited) ?? 124;
@@ -2110,7 +2110,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!path) return { ok: false, error: "project not found", code: "not_found" };
     const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
     if (!branch) return { ok: false, error: "detached HEAD: nothing to publish.", code: "detached_head" };
-    const push = await runGitCap(path, ["push", "origin", branch]);
+    // 10 minutes: a pre-push hook (tests, lint) may run for minutes, and this push had
+    // no deadline at all before T5. 120 s would turn a slow hook into a failed publish.
+    const push = await runGitCap(path, ["push", "origin", branch], SPAWN_TIMEOUT.long);
     if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
     return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
   }

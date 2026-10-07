@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, renameSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, renameSync, rmSync } from "fs";
 import { readdir as readdirAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -1091,8 +1091,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const stat = statSync(resolvedFrom);
         const args = stat.isDirectory() ? ["cp", "-r", resolvedFrom, resolvedTo] : ["cp", resolvedFrom, resolvedTo];
-        const proc = spawnBounded(args, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
+        // 10 minutes: `cp -r` of a big tree is legitimate work (about 2100 files/s
+        // measured, so 120 s was a limit near 250k files). On a timeout the
+        // half copy is removed (the destination did not exist a moment ago), or the
+        // retry would find it and answer 409.
+        const proc = spawnBounded(args, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.long });
         await proc.exited;
+        if (proc.timedOut) {
+          rmSync(resolvedTo, { recursive: true, force: true });
+          return json({ error: "Copy timed out; the partial copy was removed" }, 504);
+        }
         if (proc.exitCode !== 0) {
           const stderr = await new Response(proc.stderr).text();
           return json({ error: "Failed to copy: " + stderr }, 500);
@@ -1160,8 +1168,13 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
 
         const args = isDir ? ["cp", "-r", resolvedFile, newPath] : ["cp", resolvedFile, newPath];
-        const proc = spawnBounded(args, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
+        // Same deadline and same cleanup as `/api/files/copy`: `newPath` was picked as unused above.
+        const proc = spawnBounded(args, { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.long });
         await proc.exited;
+        if (proc.timedOut) {
+          rmSync(newPath, { recursive: true, force: true });
+          return json({ error: "Duplicate timed out; the partial copy was removed" }, 504);
+        }
         if (proc.exitCode !== 0) {
           const stderr = await new Response(proc.stderr).text();
           return json({ error: "Failed to duplicate: " + stderr }, 500);
