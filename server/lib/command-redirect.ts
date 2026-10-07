@@ -1,28 +1,28 @@
 /**
- * IL FILE IN CUI UN COMANDO MANDA IL PROPRIO STDOUT (chat-live-work).
+ * THE FILE A COMMAND SENDS ITS OWN STDOUT TO (chat-live-work).
  *
- * `run_command` scrive stdout e stderr del comando nel suo log
- * (`<processId>.log`, CMDRUN-03), e il pannello legge quello. Un comando che
- * manda il proprio stdout in un file lo toglie al log: il 07/10 Muse girava da
- * 58 minuti con `freeagent … > /tmp/fa-wallrunv2.log 2>&1`, e il pannello diceva
- * «Waiting for output...» con tutto il lavoro nel file. Qui si trova quel file,
- * perché il registro lo segua accanto al log.
+ * `run_command` writes the command's stdout and stderr into its log
+ * (`<processId>.log`, CMDRUN-03), and the panel reads that. A command that
+ * sends its stdout to a file takes it away from the log: on 07/10 Muse ran for
+ * 58 minutes with `freeagent … > /tmp/fa-wallrunv2.log 2>&1`, and the panel said
+ * «Waiting for output...» with all the work in the file. This finds that file,
+ * so the registry can follow it beside the log.
  *
- * SOLO CIÒ CHE IL COMANDO NOMINA, letto come lo leggerebbe la shell ma senza
- * eseguire niente: la redirezione dello stdout (`> f`, `>> f`, `>| f`, `1> f`,
- * `&> f`, `&>> f`, `>& f`), e `tee f` quando l'uscita di tee va altrove. Con
- * l'uscita di tee nel log quelle righe ci sono già, e seguire il file le
- * scriverebbe due volte. Un percorso relativo si risolve sulla cartella del
- * comando, o su quella di un `cd` letterale che lo precede.
+ * ONLY WHAT THE COMMAND NAMES, read the way the shell would read it but
+ * without running anything: the stdout redirects (`> f`, `>> f`, `>| f`,
+ * `1> f`, `&> f`, `&>> f`, `>& f`), and `tee f` when tee's own output goes
+ * elsewhere. With tee's output in the log those lines are there already, and
+ * following the file would write them twice. A relative path resolves against
+ * the command's folder, or against a literal `cd` before it.
  *
- * NIENTE SI ESPANDE. Un percorso con `$VAR`, un backtick o un glob resta non
- * seguito e lo si dice (`unresolved`), così il pannello spiega il vuoto invece
- * di aspettare in silenzio. Il contenuto di `$( … )` e dei backtick non è lo
- * stdout del comando, il corpo di un heredoc non è un comando, e dentro
- * `[[ ]]` e `(( ))` il `>` è un confronto.
+ * NOTHING IS EXPANDED. A path with `$VAR`, a backtick or a glob is not
+ * followed, and says so (`unresolved`), so the panel explains the empty log
+ * instead of waiting in silence. What is inside `$( … )` and backticks is not
+ * the command's stdout, a heredoc's body is not a command, and inside `[[ ]]`
+ * and `(( ))` a `>` is a comparison.
  *
- * `/dev/null`, `/dev/stdout` e il resto di `/dev` non sono file da seguire. Con
- * più file vince il primo che il comando nomina.
+ * `/dev/null`, `/dev/stdout` and the rest of `/dev` are not files to follow.
+ * With several files, the first one the command names wins.
  */
 import { isAbsolute, join, resolve } from "path";
 
@@ -30,21 +30,21 @@ export type StdoutTarget =
   | { kind: "file"; path: string; append: boolean }
   | { kind: "unresolved"; target: string; reason: UnresolvedReason };
 
-/** `variable`: `$…`, backtick, `~user`. `pattern`: un glob. `cwd`: relativo dopo un `cd` che non si legge. */
+/** `variable`: `$…`, a backtick, `~user`. `pattern`: a glob. `cwd`: relative after a `cd` nobody can read. */
 export type UnresolvedReason = "variable" | "pattern" | "cwd";
 
 interface Word { t: "word"; text: string; dynamic: UnresolvedReason | null; tilde: boolean }
 interface Op { t: "op"; op: string }
-interface Redir { t: "redir"; fd: number | null; op: string }
-type Token = Word | Op | Redir;
+interface Redirect { t: "redir"; fd: number | null; op: string }
+type Token = Word | Op | Redirect;
 
 const SPACE = /[ \t\r]/;
 const WORD_END = /[ \t\r\n;&|()<>]/;
-/** Ciò che sta davanti al nome del comando senza esserlo: una parola riservata, un'assegnazione. */
+/** What stands before a command's name without being it: a reserved word, an assignment. */
 const KEYWORDS = new Set(["{", "}", "!", "if", "then", "else", "elif", "while", "until", "do", "time"]);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-/** L'indice dopo la parentesi che chiude quella aperta in `start`, saltando virgolette e annidamenti. */
+/** The index after the bracket that closes the one opened at `start`, skipping quotes and nesting. */
 function skipBalanced(s: string, start: number, open: string, close: string): number {
   let depth = 0;
   for (let i = start; i < s.length; i++) {
@@ -59,7 +59,7 @@ function skipBalanced(s: string, start: number, open: string, close: string): nu
   return s.length;
 }
 
-/** L'indice dopo il `"` che chiude, partendo dal primo carattere dentro. */
+/** The index after the closing `"`, from the first character inside. */
 function skipDoubleQuoted(s: string, from: number): number {
   for (let i = from; i < s.length; i++) {
     if (s[i] === "\\") { i++; continue; }
@@ -79,24 +79,24 @@ function skipBacktick(s: string, from: number): number {
 }
 
 /**
- * Le parole e gli operatori del comando. Una parola tiene il suo valore senza
- * virgolette e se dipende da qualcosa che solo la shell conosce.
+ * The command's words and operators. A word keeps its value without quotes,
+ * and whether it depends on something only the shell knows.
  */
 function tokenize(s: string): Token[] {
   const out: Token[] = [];
   const heredocs: Array<{ delim: string; stripTabs: boolean }> = [];
-  let expectHeredocDelim: { stripTabs: boolean } | null = null;
+  let expectHeredocDelimiter: { stripTabs: boolean } | null = null;
   let i = 0;
 
-  const push = (tok: Token) => {
-    if (tok.t === "word" && expectHeredocDelim) {
-      heredocs.push({ delim: tok.text, stripTabs: expectHeredocDelim.stripTabs });
-      expectHeredocDelim = null;
+  const push = (token: Token) => {
+    if (token.t === "word" && expectHeredocDelimiter) {
+      heredocs.push({ delim: token.text, stripTabs: expectHeredocDelimiter.stripTabs });
+      expectHeredocDelimiter = null;
     }
-    out.push(tok);
+    out.push(token);
   };
 
-  /** Il corpo degli heredoc aperti su questa riga: righe saltate fino al delimitatore. */
+  /** The bodies of the heredocs opened on this line: lines skipped up to the delimiter. */
   const skipHeredocBodies = () => {
     for (const h of heredocs) {
       while (i < s.length) {
@@ -126,23 +126,23 @@ function tokenize(s: string): Token[] {
       push({ t: "op", op: "|" }); i++; continue;
     }
     if (c === "(") {
-      // `(( … ))` in testa a un comando è aritmetica, dove `>` confronta.
+      // `(( … ))` at the head of a command is arithmetic, where `>` compares.
       const prev = out[out.length - 1];
       if (s[i + 1] === "(" && (!prev || prev.t === "op")) { i = skipBalanced(s, i, "(", ")"); continue; }
       push({ t: "op", op: "(" }); i++; continue;
     }
     if (c === ")") { push({ t: "op", op: ")" }); i++; continue; }
     if ((c === ">" || c === "<") && s[i + 1] === "(") {
-      // Sostituzione di processo: un nome di file che esiste solo nella shell.
+      // Process substitution: a file name that exists only inside the shell.
       i = skipBalanced(s, i + 1, "(", ")");
       push({ t: "word", text: "", dynamic: "variable", tilde: false });
       continue;
     }
-    if (c === ">" || c === "<") { i = readRedirOp(s, i, null, push, (strip) => { expectHeredocDelim = { stripTabs: strip }; }); continue; }
+    if (c === ">" || c === "<") { i = readRedirectOp(s, i, null, push, (strip) => { expectHeredocDelimiter = { stripTabs: strip }; }); continue; }
 
-    // Una parola. Un numero subito attaccato a `>`/`<` è il descrittore della redirezione.
+    // A word. A number right against `>`/`<` is the redirect's descriptor.
     const fd = /^\d+(?=[<>])/.exec(s.slice(i, i + 12));
-    if (fd) { i = readRedirOp(s, i + fd[0].length, Number(fd[0]), push, (strip) => { expectHeredocDelim = { stripTabs: strip }; }); continue; }
+    if (fd) { i = readRedirectOp(s, i + fd[0].length, Number(fd[0]), push, (strip) => { expectHeredocDelimiter = { stripTabs: strip }; }); continue; }
     let text = "";
     let dynamic: UnresolvedReason | null = null;
     const tilde = c === "~";
@@ -177,8 +177,8 @@ function tokenize(s: string): Token[] {
   return out;
 }
 
-/** Un operatore di redirezione da `i`; ritorna l'indice dopo. */
-function readRedirOp(s: string, i: number, fd: number | null, push: (t: Token) => void, heredoc: (stripTabs: boolean) => void): number {
+/** A redirect operator at `i`; returns the index after it. */
+function readRedirectOp(s: string, i: number, fd: number | null, push: (t: Token) => void, heredoc: (stripTabs: boolean) => void): number {
   const ops = [">>", ">|", ">&", "<<<", "<<-", "<<", "<&", "<>", ">", "<"];
   const op = ops.find((o) => s.startsWith(o, i)) ?? s[i]!;
   push({ t: "redir", fd, op });
@@ -186,16 +186,16 @@ function readRedirOp(s: string, i: number, fd: number | null, push: (t: Token) =
   return i + op.length;
 }
 
-/** Va allo stdout del comando: un file, se la parola che segue lo è. */
-function isStdoutRedirect(r: Redir, target: Word): boolean {
+/** It takes the command's stdout: to a file, when the word after it is one. */
+function isStdoutRedirect(r: Redirect, target: Word): boolean {
   if (r.op === "&>" || r.op === "&>>") return r.fd === null;
   if (r.fd !== null && r.fd !== 1) return false;
   if (r.op === ">" || r.op === ">>" || r.op === ">|") return true;
-  // `>& file` manda stdout e stderr nel file; `>&2` e `>&-` sono un descrittore.
+  // `>& file` sends stdout and stderr to the file; `>&2` and `>&-` are a descriptor.
   return r.op === ">&" && !target.dynamic && !/^(\d+|-)$/.test(target.text);
 }
 
-/** Dove porta un `cd`, o null quando non lo si sa senza eseguirlo. */
+/** Where a `cd` goes, or null when that is not known without running it. */
 function cdTarget(cwd: string | null, args: Word[], home: string): string | null {
   const arg = args.find((a) => !/^-[LPe@]+$/.test(a.text));
   if (!arg) return home;
@@ -205,7 +205,7 @@ function cdTarget(cwd: string | null, args: Word[], home: string): string | null
   return isAbsolute(path) ? path : cwd ? resolve(cwd, path) : null;
 }
 
-/** `~` e `~/…` sulla casa; `~utente` è di qualcun altro e resta null. */
+/** `~` and `~/…` on the home; `~user` is somebody else's and stays null. */
 function expandTilde(w: Word, home: string): string | null {
   if (!w.tilde) return w.text;
   if (w.text === "~") return home;
@@ -214,8 +214,8 @@ function expandTilde(w: Word, home: string): string | null {
 }
 
 /**
- * Il file in cui `command`, lanciato in `cwd`, manda il proprio stdout; null
- * quando lo stdout arriva al log (o va in `/dev`).
+ * The file `command`, run in `cwd`, sends its own stdout to; null when the
+ * stdout reaches the log (or goes to `/dev`).
  */
 export function stdoutTargetOf(command: string, opts: { cwd: string; home: string }): StdoutTarget | null {
   const tokens = tokenize(command);
@@ -223,7 +223,7 @@ export function stdoutTargetOf(command: string, opts: { cwd: string; home: strin
   const subshells: Array<string | null> = [];
   const found: StdoutTarget[] = [];
   let words: Word[] = [];
-  let outs: Array<{ r: Redir; target: Word }> = [];
+  let outs: Array<{ r: Redirect; target: Word }> = [];
   let inTest = false;
 
   const resolveTarget = (w: Word, append: boolean, dir: string | null): StdoutTarget | null => {
@@ -254,30 +254,30 @@ export function stdoutTargetOf(command: string, opts: { cwd: string; home: strin
   };
 
   for (let k = 0; k < tokens.length; k++) {
-    const tok = tokens[k]!;
+    const token = tokens[k]!;
     if (inTest) {
-      if (tok.t === "word" && tok.text === "]]") inTest = false;
+      if (token.t === "word" && token.text === "]]") inTest = false;
       continue;
     }
-    if (tok.t === "word") {
-      if (words.length === 0 && !tok.dynamic) {
-        if (tok.text === "[[") { inTest = true; continue; }
-        if (KEYWORDS.has(tok.text) || ASSIGNMENT.test(tok.text)) continue;
+    if (token.t === "word") {
+      if (words.length === 0 && !token.dynamic) {
+        if (token.text === "[[") { inTest = true; continue; }
+        if (KEYWORDS.has(token.text) || ASSIGNMENT.test(token.text)) continue;
       }
-      words.push(tok);
+      words.push(token);
       continue;
     }
-    if (tok.t === "redir") {
+    if (token.t === "redir") {
       const next = tokens[k + 1];
       if (next?.t !== "word") continue;
       k++;
-      if (tok.op.startsWith("<")) continue;
-      outs.push({ r: tok, target: next });
+      if (token.op.startsWith("<")) continue;
+      outs.push({ r: token, target: next });
       continue;
     }
     endCommand();
-    if (tok.op === "(") subshells.push(cwd);
-    else if (tok.op === ")" && subshells.length) cwd = subshells.pop()!;
+    if (token.op === "(") subshells.push(cwd);
+    else if (token.op === ")" && subshells.length) cwd = subshells.pop()!;
   }
   endCommand();
   return found.find((t) => t.kind === "file") ?? found[0] ?? null;

@@ -34,7 +34,7 @@ type Waiting = Pick<ScriptOutput, 'follows' | 'unfollowed'>;
  * The empty log's line: what it waits for and since when. Before this it said
  * «Waiting for output...» for 58 minutes while Muse wrote to a file (07/10).
  */
-export function waitingText(tr: ReturnType<typeof useT>, waiting: Waiting, startedAt: string): string {
+function waitingText(tr: ReturnType<typeof useT>, waiting: Waiting, startedAt: string): string {
   const d = new Date(startedAt);
   const time = Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (waiting.unfollowed) {
@@ -57,6 +57,9 @@ function formatDuration(startedAt: string, completedAt?: string): string {
 
 export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: ProcessLogPaneProps) {
   const tr = useT();
+  // The poll reads it without restarting on a change of language: a restart reads the log again from line 0.
+  const trRef = useRef(tr);
+  trRef.current = tr;
   const [output, setOutput] = useState('');
   /** Null until the first answer: before it, an empty log is not yet «waiting». */
   const [waiting, setWaiting] = useState<Waiting | null>(null);
@@ -161,7 +164,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
         setError(null);
       } catch (err: unknown) {
         if (!active) return;
-        setError((err instanceof Error && err.message) || 'Failed to fetch output');
+        setError((err instanceof Error && err.message) || trRef.current('processlog.fetchFailed'));
       } finally {
         inFlight = false;
       }
@@ -211,10 +214,10 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
     : 'text-red-500';
 
   const statusLabel = status === 'running'
-    ? 'Running'
+    ? tr('processlog.running')
     : status === 'done'
-    ? `Done (exit ${exitCode ?? 0})`
-    : `Error (exit ${exitCode ?? 1})`;
+    ? tr('processlog.done', { code: exitCode ?? 0 })
+    : tr('processlog.failed', { code: exitCode ?? 1 });
 
   return (
     <div className="flex flex-col h-full bg-app-bg">
@@ -241,17 +244,17 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
         {status === 'running' && (
           <span className="flex items-center gap-1.5 text-mini text-app-text-muted">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            {offset} lines
+            {tr('processlog.lines', { n: offset })}
           </span>
         )}
         {status === 'running' && (
           <button
             onClick={handleStop}
             className="flex items-center gap-1 px-2 py-0.5 text-mini text-red-500 hover:bg-red-500/10 rounded transition-colors"
-            title="Stop process"
+            title={tr('processlog.stopTitle')}
           >
             <Square size={10} />
-            Stop
+            {tr('processlog.stop')}
           </button>
         )}
         {onClose && (
@@ -277,7 +280,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
       >
         {output || pending
           ? (pending ? (output ? output + '\n' + pending : pending) : output)
-          : error ? `Error: ${error}` : waiting ? waitingText(tr, waiting, startedAt) : ''}
+          : error ? tr('processlog.readError', { error }) : waiting ? waitingText(tr, waiting, startedAt) : ''}
       </pre>
     </div>
   );

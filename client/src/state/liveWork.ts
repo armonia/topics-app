@@ -62,7 +62,7 @@ export function useLiveWork(topicId: string): readonly LiveWorkRow[] {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight = false;
     let again = false;
-    const expiries = new Map<string, ReturnType<typeof setTimeout>>();
+    const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const holds = new Map<string, () => void>();
 
     const show = (next: readonly LiveWorkRow[]) => {
@@ -75,12 +75,13 @@ export function useLiveWork(topicId: string): readonly LiveWorkRow[] {
       for (const id of want) if (!holds.has(id)) holds.set(id, holdTopic(id));
     };
     const apply = (next: readonly LiveWorkRow[]) => {
-      for (const t of expiries.values()) clearTimeout(t);
-      expiries.clear();
+      for (const t of expiryTimers.values()) clearTimeout(t);
+      expiryTimers.clear();
       for (const r of next) {
         if (r.kind !== 'agent' || r.state !== 'ended' || typeof r.goneInMs !== 'number') continue;
         const id = r.id;
-        expiries.set(id, setTimeout(() => { expiries.delete(id); show(current.filter((x) => x.id !== id)); }, r.goneInMs));
+        // A delay past 2^31-1 ms overflows in a browser and fires at once.
+        expiryTimers.set(id, setTimeout(() => { expiryTimers.delete(id); show(current.filter((x) => x.id !== id)); }, Math.min(r.goneInMs, 2 ** 31 - 1)));
       }
       show(next);
     };
@@ -125,7 +126,7 @@ export function useLiveWork(topicId: string): readonly LiveWorkRow[] {
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
-      for (const t of expiries.values()) clearTimeout(t);
+      for (const t of expiryTimers.values()) clearTimeout(t);
       for (const release of holds.values()) release();
       offOutput(); offTools(); offChanges(); offSocket();
     };

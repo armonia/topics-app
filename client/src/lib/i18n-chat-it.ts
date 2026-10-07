@@ -242,6 +242,14 @@ const CHAT_IT: Dict = {
   'processlog.reason.variable': 'il percorso viene da una variabile',
   'processlog.reason.pattern': 'il percorso è un glob',
   'processlog.reason.cwd': 'la cartella si sa solo eseguendolo',
+  'processlog.running': 'In corso',
+  'processlog.done': 'Finito (exit {code})',
+  'processlog.failed': 'Errore (exit {code})',
+  'processlog.lines': '{n} righe',
+  'processlog.stop': 'Ferma',
+  'processlog.stopTitle': 'Ferma il processo',
+  'processlog.fetchFailed': 'Lettura del log non riuscita',
+  'processlog.readError': 'Errore: {error}',
 };
 
 export default CHAT_IT;

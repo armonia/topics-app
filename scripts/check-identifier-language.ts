@@ -98,6 +98,10 @@ export const PROJECT_WORDS = new Set([
   // participle the dictionary does not carry, next to `emitted`, `supplied` and
   // `verified`; the other gates in this folder already count files with it.
   "tailwind", "scanned",
+  // The shell's own vocabulary, which `server/lib/command-redirect.ts` has to
+  // name to read a command line the way zsh does (chat-live-work, 07/10): a
+  // heredoc, a backtick, a subshell, and the tokens the line is cut into.
+  "heredoc", "heredocs", "backtick", "subshells", "tokenize",
   // The terminal's own vocabulary: ANSI escape sequences, and SGR (Select
   // Graphic Rendition, ECMA-48), the one that sets colours and styles. The
   // output of a command run from the chat is parsed by those names and has no
