@@ -149,6 +149,21 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+/**
+ * `toolCalls` rebuilt from the tool blocks when the column left it empty (see
+ * `rowToMessage`). Module level and exported: a route that picks a window of the
+ * thread (`GET /api/topics/:id/messages`) needs the SAME rule for the partial row
+ * it ships whole, not a copy of it.
+ */
+export function restoreToolCallsFromBlocks(msg: StoredMessage): void {
+  if (!msg.toolCalls?.length && msg.blocks?.length) {
+    const fromBlocks = msg.blocks
+      .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
+      .map((b: any) => b.toolCall);
+    if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
+  }
+}
+
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
   const PORT = parseInt(process.env.BUN_PORT || process.env.PORT || "3333");
@@ -827,16 +842,6 @@ export function createAppContext(baseDir: string): AppContext {
    *  opted out, and always for a partial row, which the wire ships whole. */
   function outputsMode(opts: Pick<ThreadLoadOpts, "withToolOutputs"> | undefined, partial: unknown): "full" | "stub" {
     return opts?.withToolOutputs === false && !partial ? "stub" : "full";
-  }
-
-  /** `toolCalls` rebuilt from the tool blocks when the column left it empty (see rowToMessage). */
-  function restoreToolCallsFromBlocks(msg: StoredMessage): void {
-    if (!msg.toolCalls?.length && msg.blocks?.length) {
-      const fromBlocks = msg.blocks
-        .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
-        .map((b: any) => b.toolCall);
-      if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
-    }
   }
 
   function rowToMessage(row: any, opts?: ThreadLoadOpts): StoredMessage {

@@ -1,3 +1,4 @@
+import { restoreToolCallsFromBlocks } from "../utils";
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
@@ -2397,12 +2398,7 @@ export function createTopicsRouter(
         const window = hydrateMessageBodies(windowLean);
         // A partial goes out whole and `hydrateMessageBodies` does not rebuild its
         // toolCalls from the blocks (the fat read did, for every row).
-        for (const m of window) {
-          if (m.partial && !m.toolCalls?.length && m.blocks?.length) {
-            const fromBlocks = m.blocks.flatMap((b) => (b.kind === "tool" && b.toolCall ? [b.toolCall] : []));
-            if (fromBlocks.length > 0) m.toolCalls = fromBlocks;
-          }
-        }
+        for (const m of window) if (m.partial) restoreToolCallsFromBlocks(m);
         const result = leanMessagesForWire(window);
 
         return json({ messages: result, total, topicName: topic.name });

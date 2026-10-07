@@ -141,3 +141,15 @@ describe("GET /api/topics/:id/messages pays for the window, not the session", ()
     }
   });
 });
+
+describe("the window's partial row uses the thread's own rule for toolCalls", () => {
+  test("topics.ts imports restoreToolCallsFromBlocks from utils and keeps no copy of it", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const src = readFileSync(join(import.meta.dir, "..", "..", "server", "routes", "topics.ts"), "utf8");
+    expect(src).toContain('import { restoreToolCallsFromBlocks } from "../utils"');
+    const at = src.indexOf("loadThreadWindow(topic.sessionKey");
+    const block = src.slice(at, at + 1500);
+    expect(block).toContain("restoreToolCallsFromBlocks(m)");
+    expect(block).not.toContain('kind === "tool"');
+  });
+});
