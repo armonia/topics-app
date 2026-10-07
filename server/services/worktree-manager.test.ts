@@ -112,7 +112,10 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
     expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/topics/sage-well").code).not.toBe(0);
   });
 
-  test("cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica", async () => {
+  // root ignores the permission bits: `chmod 0555` does not stop `rm -rf` there
+  // (the cloud VM and most containers run as root). Skipped with the reason in
+  // the title; as a normal user the test stays able to go red.
+  test.skipIf(process.getuid?.() === 0)("cartella che non si puo' togliere: la riga RESTA, il ramo resta, si lancia e si notifica (saltato come root)", async () => {
     const absPath = mount("stuck");
     rmSync(join(repo, ".git", "worktrees", "stuck"), { recursive: true, force: true });
     // Read-only parent: the children can be emptied, the folder itself cannot
