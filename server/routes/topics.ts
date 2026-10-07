@@ -524,7 +524,7 @@ export function createTopicsRouter(
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread,
-    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, loadThreadWindow, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream,
     readJSON, json, matchRoute, errorResponse, slugify,
@@ -2387,17 +2387,23 @@ export function createTopicsRouter(
         const limit = parseInt(urlParams.get("limit") || "200");
         const offset = parseInt(urlParams.get("offset") || "0");
 
-        const localMsgs = loadLocalMessages(topic.sessionKey);
-        const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
-        const total = completeMsgs.length;
-        const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-        // Same slimming as `/api/history/:key`. Without it this route shipped
-        // 12.54 MB where the other shipped 5.42 for the same topic, because here
-        // `toolCalls` still travelled alongside `blocks` AND each one carried a
-        // duplicated `result`. The caller is the agents' `read_chat` over MCP,
-        // which then keeps 4,000 characters per message and throws the rest away
-        // (server/mcp/topics-mcp-server.ts:1219). See shared/lean-tool-call.ts.
-        const result = leanMessagesForWire(sliced.slice(-limit));
+        // The window is chosen on a SKELETON of the thread (four columns) and the
+        // real rows are read only for the messages that go out; the body (blocks,
+        // tool_calls) is put back by `hydrateMessageBodies` for those alone. The
+        // route used to read and decode the WHOLE session to keep `limit` of it.
+        // Same road as `/api/history`.
+        // Gate: tests/integration/topic-messages-window-cost.test.ts.
+        const { messages: windowLean, total } = loadThreadWindow(topic.sessionKey, limit, offset);
+        const window = hydrateMessageBodies(windowLean);
+        // A partial goes out whole and `hydrateMessageBodies` does not rebuild its
+        // toolCalls from the blocks (the fat read did, for every row).
+        for (const m of window) {
+          if (m.partial && !m.toolCalls?.length && m.blocks?.length) {
+            const fromBlocks = m.blocks.flatMap((b) => (b.kind === "tool" && b.toolCall ? [b.toolCall] : []));
+            if (fromBlocks.length > 0) m.toolCalls = fromBlocks;
+          }
+        }
+        const result = leanMessagesForWire(window);
 
         return json({ messages: result, total, topicName: topic.name });
       }
