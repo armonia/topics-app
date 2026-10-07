@@ -21,12 +21,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 let dir = "";
-let out: Record<string, { ms: number; status: number }> & { leftovers?: { target: boolean; srcCopy: boolean } } = {};
+let out: Record<string, { ms: number; status: number; truncated?: boolean }> & { leftovers?: { target: boolean; srcCopy: boolean } } = {};
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "git-hung-"));
   writeFileSync(join(dir, "git"), "#!/bin/sh\nsleep 30\n");
   chmodSync(join(dir, "git"), 0o755);
+  // A `grep` that prints a match and then does not finish.
+  writeFileSync(join(dir, "grep"), '#!/bin/sh\necho "./a.txt:1:x"\nsleep 30\n');
+  chmodSync(join(dir, "grep"), 0o755);
   // A `cp` that writes part of the destination and then does not finish.
   writeFileSync(join(dir, "cp"), '#!/bin/sh\nfor a; do d="$a"; done\nmkdir -p "$d"; touch "$d/partial"\nsleep 30\n');
   chmodSync(join(dir, "cp"), 0o755);
@@ -94,5 +97,20 @@ describe("deadlines for legitimate long work", () => {
   test("the publish push uses the long deadline", () => {
     const src = readFileSync(join(import.meta.dir, "tasks.ts"), "utf8");
     expect(src).toContain('runGitCap(path, ["push", "origin", branch], SPAWN_TIMEOUT.long)');
+  });
+});
+
+describe("search: one deadline, and it is spawnBounded's", () => {
+  test("a grep that does not finish returns at the deadline, flagged truncated", () => {
+    expect(out.search!.ms).toBeLessThan(3000);
+    expect(out.search!.status).toBe(200);
+    expect(out.search!.truncated).toBe(true);
+  });
+
+  test("the route keeps no second timer of its own", () => {
+    const src = readFileSync(join(import.meta.dir, "files.ts"), "utf8");
+    const block = src.slice(src.indexOf('pathname === "/api/files/search"'), src.indexOf("// --- File content ---"));
+    expect(block).toContain("proc.timedOut");
+    expect(block).not.toContain("setTimeout(");
   });
 });

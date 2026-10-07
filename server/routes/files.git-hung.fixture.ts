@@ -18,13 +18,15 @@ const router = createFilesRouter({
   resolveProjectPath: (p: string) => p,
 } as never);
 
-async function timed(method: string, path: string, body?: unknown): Promise<{ ms: number; status: number }> {
+async function timed(method: string, path: string, body?: unknown): Promise<{ ms: number; status: number; truncated?: boolean }> {
   const url = new URL(`http://x${path}`);
   const req = new Request(url, body === undefined ? { method } : { method, body: JSON.stringify(body), headers: { "content-type": "application/json" } });
   const t0 = performance.now();
   const res = await router(req, url, url.pathname, method);
-  await res!.text();
-  return { ms: Math.round(performance.now() - t0), status: res!.status };
+  const text = await res!.text();
+  let truncated: boolean | undefined;
+  try { truncated = (JSON.parse(text) as { truncated?: boolean }).truncated; } catch { /* not JSON: a diff or a log */ }
+  return { ms: Math.round(performance.now() - t0), status: res!.status, truncated };
 }
 
 const src = join(dir, "src");
@@ -37,6 +39,7 @@ const out = {
   log: await timed("GET", `/api/git/log?path=${encodeURIComponent(dir)}`),
   stageAll: await timed("POST", "/api/git/stage-all", { path: dir }),
   pull: await timed("POST", "/api/git/pull", { path: dir }),
+  search: await timed("GET", `/api/files/search?q=x&path=${encodeURIComponent(dir)}`),
   copy: await timed("POST", "/api/files/copy", { from: src, to: target }),
   duplicate: await timed("POST", "/api/files/duplicate", { path: src }),
   leftovers: { target: existsSync(target), srcCopy: existsSync(join(dir, "src copy")) },

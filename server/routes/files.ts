@@ -232,26 +232,20 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         args.push("--exclude=*.lock");
         args.push("--", query, ".");
 
-        // Timeout + kill + ENTRAMBI i flussi drenati, come `runNetworkGit` qui
-        // sopra. Prima non c'era niente di tutto questo: il processo viveva per
-        // conto suo anche quando il client aveva gia' cambiato query (col
-        // debounce a 300 ms se ne accodavano a decine), e `stderr` in pipe e mai
-        // letto puo' riempire il buffer e appendere la richiesta per sempre —
-        // basta una cartella non leggibile che stampi a ogni riga.
+        // Deadline + kill + BOTH streams drained, like `runNetworkGit` above. Before
+        // there was none of it: the process lived on its own even when the client
+        // had already changed the query (with the 300 ms debounce dozens piled up),
+        // and a piped `stderr` that was never read could fill its buffer and hang
+        // the request for good (an unreadable folder printing on every line is
+        // enough). The ONE timer is `spawnBounded`'s; whether it fired is
+        // `proc.timedOut`.
         const proc = spawnBounded(["grep", ...args], { cwd: resolvedPath, stdout: "pipe", stderr: "pipe", timeoutMs: SEARCH_TIMEOUT_MS });
-        let timedOut = false;
-        const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, SEARCH_TIMEOUT_MS);
-        let output: string;
-        try {
-          const [out] = await Promise.all([
-            new Response(proc.stdout).text(),
-            new Response(proc.stderr).text(),
-          ]);
-          output = out;
-          await proc.exited;
-        } finally {
-          clearTimeout(timer);
-        }
+        const [output] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        await proc.exited;
+        const timedOut = proc.timedOut;
 
         const results: { file: string; line: string; lineNumber: number; match: string }[] = [];
         const readableFiles = new Map<string, boolean>();
