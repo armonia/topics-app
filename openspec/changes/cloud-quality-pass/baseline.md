@@ -100,7 +100,7 @@ quasi tutta serializzata.
 
 Il rosso di `check:security` e il rosso di `tests/unit/no-home-paths-tracked.test.ts` (sotto)
 sono lo stesso difetto d'ambiente: in questa VM `HOME=/root`, e la stringa `/root` compare in
-13 file tracciati (18 occorrenze) come parte di `/pinned/root` e simili. Su un Mac o su `/home/runner` non
+13 file tracciati (18 occorrenze) come parte di `/pinned/root` e simili. Su un Mac o sul runner della CI non
 accade. Non è un difetto del codice di main.
 
 ### I 13 rossi di `test:unit:shards`, rilanciati ciascuno da solo
