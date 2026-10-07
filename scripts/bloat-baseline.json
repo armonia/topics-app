@@ -438,7 +438,7 @@
 
     "server/routes/chat.outage-direct-answer.test.ts": 1030,
 
-    "server/routes/chat.ts": {"lines": 4077, "why": ["2026-10-03, commands-ui: +20 on main (4057), the onCommandAnswer handler that broadcasts stream:command-answer and discards the empty assistant row the way a compaction does."]},
+    "server/routes/chat.ts": {"lines": 4301, "why": ["2026-10-03, commands-ui: +20 on main (4057), the onCommandAnswer handler that broadcasts stream:command-answer and discards the empty assistant row the way a compaction does.", "2026-10-07, net +224 from five lanes, none of them able to take its own lines back alone: the attention store wired into chat (78e0720b2, +80), one SSE writer for the tool announcement from origin/main (4f9702851, +53), the native engine's queued call and live command (39bfbfdbe, +47), the same tool call on SSE and WS (06355d0ed, +40), the native memory recall (1e14064c7, +21, the one that crossed the ceiling), native sub-agents (1feba6d5f, a55c09c85, fb6421597, +18). Recorded by hand, this row only. First lines to give back: the memory-recall block belongs in server/lib/native-parity.ts."]},
 
     "server/routes/e2e.ts": 815,
 
