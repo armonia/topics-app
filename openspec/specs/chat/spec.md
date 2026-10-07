@@ -1766,7 +1766,7 @@ position, so the rest of the answer keeps landing in its own bubble.
 
 ### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
 
-A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes) the row SHALL stay, marked ended with the "done" check, until the user dismisses it, closes its terminal tab, or the parent chat is archived; it SHALL survive a reload. The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
+A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes), or its turn is over, the row SHALL stay, marked ended with the "done" check, for 60 seconds from that end and then leave, or sooner when the user dismisses it or closes its terminal tab; a reload within that minute SHALL show it again for what remains of it (chat-live-work: on 07/10 three sub-agents ended hours before filled the strip of a chat whose real work was a command nobody could see). A CLI sub-agent ends when its turn is reported, not when its idle session is retired 15 minutes later. The strip SHALL list the chat's native sub-agents and its running processes too (`GET /api/topics/:id/live-work`). The sub-agent's top-level terminal tab SHALL stay open while that row does; inside a project window its tab SHALL close when its session ends (SUBSTRIP-01g). A sub-agent resumed from its pane SHALL be listed live again.
 
 #### Scenario: A message in the parent chat does not take the sub-agent away
 - **GIVEN** a chat with a live sub-agent listed in its strip and its terminal pane open
@@ -1777,7 +1777,7 @@ A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is th
 - **GIVEN** a chat whose only sub-agent is live
 - **WHEN** the sub-agent's process ends
 - **THEN** the strip SHALL still show its row, marked ended
-- **AND** after a reload the ended row SHALL still be there, until the user dismisses it
+- **AND** after a reload within the minute the ended row SHALL still be there, and 60 seconds after the end it SHALL be gone
 
 ### Requirement: SUBSTRIP-01b — Closing an ended sub-agent's tab takes its row away
 

@@ -2050,7 +2050,7 @@ function ChatPaneComponent({
         ) : (
           latestTodo && <TodoStrip snapshot={latestTodo} />
         )}
-        {!isGlobalOrchestrator && <SubAgentsStrip topicSessionKey={topic.sessionKey} />}
+        {!isGlobalOrchestrator && <SubAgentsStrip topicId={topic.id} />}
         {aboveInputSlot}
         {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
         {/* What the agent wrote in this conversation, counted from its own
