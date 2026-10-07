@@ -48,6 +48,7 @@ export interface CommandNow {
   processId: string; name: string; command: string; startedAt: string;
   lastLine: string;
   listen: readonly ListenAddress[];
+  wakes: boolean;
 }
 
 export interface LiveWorkInput {
@@ -103,7 +104,7 @@ export function liveWorkRows(input: LiveWorkInput, now: number, ttlMs = LIVE_WOR
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
     .map((c): LiveWorkRow => ({
       kind: "command", id: c.processId, name: c.name, command: c.command,
-      preview: c.lastLine, startedAt: c.startedAt, listen: [...c.listen],
+      preview: c.lastLine, startedAt: c.startedAt, listen: [...c.listen], wakes: c.wakes,
     }));
   return [...agents, ...commands];
 }

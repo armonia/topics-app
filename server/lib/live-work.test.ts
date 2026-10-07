@@ -29,11 +29,11 @@ describe("only what works now", () => {
     const rows = liveWorkRows(input({
       ended: [ended({ id: "e1" }), ended({ id: "e2", runtime: "cli", sessionKey: null }), ended({ id: "e3", endedAt: ago(5 * HOUR) })],
       native: [native({ id: "muse", preview: "Bash: freeagent" })],
-      commands: [{ processId: "p1", name: "tick", command: "tick", startedAt: ago(MIN), lastLine: "tick 41", listen: [] }],
+      commands: [{ processId: "p1", name: "tick", command: "tick", startedAt: ago(MIN), lastLine: "tick 41", listen: [], wakes: false }],
     }), NOW);
     expect(ids(rows)).toEqual(["muse:working", "p1:command"]);
     expect(rows[0]).toMatchObject({ preview: "Bash: freeagent", sessionKey: "topic:nat1", runtime: "topics" });
-    expect(rows[1]).toMatchObject({ preview: "tick 41", listen: [] });
+    expect(rows[1]).toMatchObject({ preview: "tick 41", listen: [], wakes: false });
   });
 
   test("no children and no commands: no rows", () => {
@@ -98,11 +98,13 @@ describe("the order", () => {
       native: [native({ id: "a", createdAt: ago(20 * MIN) })],
       ended: [ended({ id: "b", createdAt: ago(10 * MIN), endedAt: ago(1_000) })],
       commands: [
-        { processId: "p2", name: "b", command: "b", startedAt: ago(MIN), lastLine: "", listen: [] },
-        { processId: "p1", name: "a", command: "a", startedAt: ago(2 * MIN), lastLine: "", listen: [{ host: "127.0.0.1", port: 8781 }] },
+        { processId: "p2", name: "b", command: "b", startedAt: ago(MIN), lastLine: "", listen: [], wakes: true },
+        { processId: "p1", name: "a", command: "a", startedAt: ago(2 * MIN), lastLine: "", listen: [{ host: "127.0.0.1", port: 8781 }], wakes: false },
       ],
     }), NOW);
     expect(ids(rows)).toEqual(["a:working", "b:ended", "c:working", "p1:command", "p2:command"]);
-    expect(rows[3]).toMatchObject({ listen: [{ host: "127.0.0.1", port: 8781 }] });
+    expect(rows[3]).toMatchObject({ listen: [{ host: "127.0.0.1", port: 8781 }], wakes: false });
+    // A command whose end wakes the chat says so on its row.
+    expect(rows[4]).toMatchObject({ wakes: true });
   });
 });

@@ -884,7 +884,7 @@ export const liveCommandsOf = (topicId: string) => (loadProcessRegistry(), [...r
   .filter((sp) => sp.status === "running" && !isPersonRun(sp) && (sp.cmd?.topicId ?? sp.agentRun?.topicId) === topicId)
   .map((sp) => ({
     processId: sp.processId, name: sp.scriptName, command: sp.command, startedAt: sp.startedAt,
-    lastLine: lastLineOf(sp), listen: commandServiceWatch.listenOf(sp.processId) ?? [],
+    lastLine: lastLineOf(sp), listen: commandServiceWatch.listenOf(sp.processId) ?? [], wakes: !!sp.cmd?.wake,
   })));
 
 /**

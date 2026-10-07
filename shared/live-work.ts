@@ -48,6 +48,8 @@ export interface LiveCommandRow {
   startedAt: string;
   /** A server's addresses, the first is the one «open» opens. */
   listen: ListenAddress[];
+  /** Its end wakes the chat (`run_command` with `wake`): the chat waits on it. */
+  wakes: boolean;
 }
 
 export type LiveWorkRow = LiveAgentRow | LiveCommandRow;
