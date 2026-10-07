@@ -1,4 +1,4 @@
-import { memo, useState, type MouseEvent } from 'react';
+import { memo, Suspense, useState, type MouseEvent } from 'react';
 import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
@@ -10,9 +10,14 @@ import { useLiveWork, visibleRows } from '../../state/liveWork';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { subscribeFrames } from '../../lib/wsFrameBus';
-import { ProcessLogPane } from '../Project/ProcessLogPane';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadProcessLog } from '../../state/pane/panePreload';
 import { DockedStripPanel } from './DockedStripPanel';
 import type { WSMessage } from '../../types';
+
+// The log opens on a click: its pane stays out of the entry chunk, as everywhere else
+// (`panePreload`). Imported statically here it added 2.8 kB gz to the entry and broke `check:bundle`.
+const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, under the chat (chat-live-work):
@@ -159,7 +164,9 @@ export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicI
       <DockedStripPanel open={!!log} testId="live-work-log">
         {log && (
           <div className="h-56">
-            <ProcessLogPane key={log.id} processId={log.id} scriptName={log.name} onMessage={onScriptFrames} onClose={() => setLog(null)} />
+            <Suspense fallback={null}>
+              <ProcessLogPane key={log.id} processId={log.id} scriptName={log.name} onMessage={onScriptFrames} onClose={() => setLog(null)} />
+            </Suspense>
           </div>
         )}
       </DockedStripPanel>

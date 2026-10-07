@@ -17,6 +17,8 @@ import { mount, type Harness, type HostNode } from '../../test/reactHarness';
 import { liveWorkApi, scriptsApi } from '../../lib/api';
 import { dispatchFrame } from '../../lib/wsFrameBus';
 import { resetOpenLinkDedupeForTest } from '../../lib/openLink';
+import { warm } from '../../lib/lazyWarm';
+import { loadProcessLog } from '../../state/pane/panePreload';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import type { LiveWorkRow } from '../../../../shared/live-work';
 
@@ -150,6 +152,8 @@ describe('a row opens what it is', () => {
   });
 
   test('a command its live log, docked above the rows, and the same click closes it', async () => {
+    // The pane is a lazy chunk: warm, it renders in the click's own pass (`lazyWarm`).
+    await warm(loadProcessLog);
     const h = await mounted();
     expect(hosts(h, 'process-log-output')).toHaveLength(0);
     click(rowButton(h, 'live-command-row', 'data-process-id', 'p1'));
