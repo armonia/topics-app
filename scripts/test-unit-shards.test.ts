@@ -17,6 +17,7 @@ import {
   parseJunitDurations,
   parseJunitFailures,
   planUnderLoad,
+  defaultShards,
   aggregateVerdict,
 } from "./test-unit-shards.ts";
 
@@ -226,5 +227,15 @@ describe("enumerateTestFiles (parità con bun test)", () => {
       const hit = serial.some((f) => f === glob || f.startsWith(glob.replace(/\*\*$/, "")));
       expect(hit, `SERIAL_GLOBS: «${glob}» non corrisponde a nessun file`).toBe(true);
     }
+  });
+});
+
+describe("defaultShards", () => {
+  test("one per core, never fewer than two nor more than four", () => {
+    expect([1, 2, 3, 4, 8, 12].map(defaultShards)).toEqual([2, 2, 3, 4, 4, 4]);
+  });
+
+  test("a 4-vCPU machine gets four shards, the value the bar was written for", () => {
+    expect(defaultShards(4)).toBe(4);
   });
 });
