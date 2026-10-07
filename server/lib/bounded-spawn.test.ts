@@ -4,7 +4,12 @@
  * @covers GIT-DEADLINE-01
  */
 import { describe, expect, it } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runBounded, spawnBounded } from "./bounded-spawn";
+
+const sh = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
 
 describe("runBounded", () => {
   it("restituisce stdout, stderr e l'esito di un processo che risponde", async () => {
@@ -31,10 +36,10 @@ describe("runBounded", () => {
     // The case `Bun.spawn({ timeout })` + `await text()` does NOT solve: once the
     // shell is killed, its `sleep` child holds stdout and the read waits 30 seconds.
     const t0 = performance.now();
-    const r = await runBounded(["sh", "-c", "trap '' TERM; sleep 30"], { timeoutMs: 300 });
+    const r = await runBounded(["sh", "-c", "trap '' TERM; sleep 30"], { timeoutMs: 300, graceMs: 500 });
     const dt = performance.now() - t0;
     expect(r.timedOut).toBe(true);
-    expect(dt).toBeLessThan(2000);
+    expect(dt).toBeLessThan(2000); // deadline + grace + the close margin, not 30 s
   });
 
   it("segnala un binario che non esiste senza lanciare", async () => {
@@ -60,7 +65,7 @@ describe("spawnBounded come sostituto di Bun.spawn", () => {
   it("un git finto che non risponde fa tornare chi legge stdout e exited alla scadenza", async () => {
     // The way callers use it: read the text, then `exited`, then `exitCode`.
     const t0 = performance.now();
-    const proc = spawnBounded(["sh", "-c", "trap '' TERM; echo parziale; sleep 30"], { stdout: "pipe", stderr: "ignore", timeoutMs: 400 });
+    const proc = spawnBounded(["sh", "-c", "trap '' TERM; echo parziale; sleep 30"], { stdout: "pipe", stderr: "ignore", timeoutMs: 400, graceMs: 500 });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     expect(performance.now() - t0).toBeLessThan(2500);
@@ -81,5 +86,58 @@ describe("spawnBounded come sostituto di Bun.spawn", () => {
     const proc = spawnBounded(["sh", "-c", "head -c 3000000 /dev/zero | tr '\\0' 'a'"], { stdout: "pipe", timeoutMs: 10_000 });
     const text = await new Response(proc.stdout).text();
     expect(text.length).toBe(3_000_000);
+  });
+});
+
+describe("the deadline asks politely first (SIGTERM), then forces (SIGKILL)", () => {
+  it("a git killed at the deadline leaves no index.lock behind", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bounded-lock-"));
+    try {
+      sh(dir, "init", "-q");
+      sh(dir, "config", "user.email", "t@t");
+      sh(dir, "config", "user.name", "t");
+      // A clean filter that takes 5 s: `git add` holds `.git/index.lock` while it runs.
+      sh(dir, "config", "filter.slow.clean", "sleep 5; cat");
+      writeFileSync(join(dir, ".gitattributes"), "* filter=slow\n");
+      writeFileSync(join(dir, "a.txt"), "a\n");
+      const r = await runBounded(["git", "add", "-A", "--", "."], { cwd: dir, timeoutMs: 1500, graceMs: 3000 });
+      expect(r.timedOut).toBe(true);
+      // SIGKILL would have left the lock: the next git would exit 128 "index.lock: File exists".
+      expect(existsSync(join(dir, ".git", "index.lock"))).toBe(false);
+      const next = sh(dir, "-c", "filter.slow.clean=cat", "add", "-A", "--", ".");
+      expect(next.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a script's trap cleanup runs when the deadline fires", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bounded-trap-"));
+    const marker = join(dir, "cleaned");
+    try {
+      const script = `trap 'echo done > ${marker}; exit 0' TERM; sleep 30 & wait`;
+      const r = await runBounded(["sh", "-c", script], { timeoutMs: 400, graceMs: 3000 });
+      expect(r.timedOut).toBe(true);
+      expect(existsSync(marker) && readFileSync(marker, "utf8").trim()).toBe("done");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a process that ignores SIGTERM is still gone by deadline + grace", async () => {
+    const t0 = performance.now();
+    const r = await runBounded(["sh", "-c", "trap '' TERM; sleep 30"], { timeoutMs: 300, graceMs: 600 });
+    const dt = performance.now() - t0;
+    expect(r.timedOut).toBe(true);
+    expect(dt).toBeGreaterThan(800); // it did wait for the grace before forcing
+    expect(dt).toBeLessThan(2500);
+  });
+
+  it("kill() with no argument is SIGTERM, like Bun.spawn", async () => {
+    const proc = spawnBounded(["sh", "-c", "trap 'exit 7' TERM; sleep 30 & wait"], { stdout: "pipe", timeoutMs: 20_000 });
+    await Bun.sleep(150);
+    proc.kill();
+    await proc.exited;
+    expect(proc.exitCode).toBe(7); // a SIGKILL would have given null
   });
 });

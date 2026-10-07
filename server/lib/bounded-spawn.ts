@@ -36,8 +36,18 @@ export const SPAWN_TIMEOUT = {
   long: 600_000,
 } as const;
 
-/** After the deadline, how long to wait before giving up on the streams of a child that no signal can move (D state). */
+/** After SIGKILL, how long to wait before giving up on the streams of a child that no signal can move (D state). */
 const CLOSE_GRACE_MS = 250;
+
+/**
+ * Between the polite signal and the forced one. SIGTERM lets git remove its
+ * `index.lock` / worktree lock and lets a script's `trap` cleanup run; SIGKILL
+ * does neither (`git add` killed with SIGKILL leaves `.git/index.lock` behind,
+ * `git worktree add` leaves the worktree "locked initializing" and neither
+ * `remove --force` nor `prune` takes it away). Two seconds is long enough for
+ * those cleanups and short enough to keep the answer close to its deadline.
+ */
+export const TERM_GRACE_MS = 2_000;
 
 function cappedMs(timeoutMs: number): number {
   const cap = Number(process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS);
@@ -53,6 +63,8 @@ export interface SpawnBoundedOptions {
   stderr?: "pipe" | "ignore";
   /** Deadline on the answer, in milliseconds (see `SPAWN_TIMEOUT`). */
   timeoutMs: number;
+  /** Time between SIGTERM and SIGKILL once the deadline fires (default `TERM_GRACE_MS`; capped like the deadline). */
+  graceMs?: number;
 }
 
 export interface BoundedProcess {
@@ -117,20 +129,32 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
   let fireDeadline!: () => void;
   const deadline = new Promise<void>((resolve) => { fireDeadline = resolve; });
 
-  const killGroup = (signal: NodeJS.Signals | number = "SIGKILL"): void => {
+  const killGroup = (signal: NodeJS.Signals | number): void => {
     if (proc.pid > 1) {
       try { process.kill(-proc.pid, signal); return; } catch { /* group already gone: fall back to the child */ }
     }
     try { proc.kill(signal); } catch { /* already dead */ }
   };
+  const groupAlive = (): boolean => {
+    if (proc.pid <= 1) return false;
+    try { process.kill(-proc.pid, 0); return true; } catch { return false; }
+  };
 
   const timer = setTimeout(() => {
     timedOut = true;
-    killGroup("SIGKILL");
-    // The group is dead: the pipes close by themselves. The margin covers a
-    // child in D state, which no signal moves: whoever waits returns anyway.
-    const grace = setTimeout(fireDeadline, CLOSE_GRACE_MS);
-    grace.unref?.();
+    // Polite first: SIGTERM lets git drop its lock files and a script's `trap` run.
+    killGroup("SIGTERM");
+    const escalate = setTimeout(() => {
+      // Whoever is still in the group after the grace is forced. If the group
+      // is already gone there is nothing to force (and no signal to send to a
+      // recycled id).
+      if (groupAlive()) killGroup("SIGKILL");
+      // The group is dead: the pipes close by themselves. The margin covers a
+      // child in D state, which no signal moves: whoever waits returns anyway.
+      const close = setTimeout(fireDeadline, CLOSE_GRACE_MS);
+      close.unref?.();
+    }, cappedMs(opts.graceMs ?? TERM_GRACE_MS));
+    escalate.unref?.();
   }, cappedMs(opts.timeoutMs));
   timer.unref?.();
 
@@ -149,7 +173,7 @@ export function spawnBounded(argv: string[], opts: SpawnBoundedOptions): Bounded
     exited,
     get exitCode() { return timedOut ? null : proc.exitCode; },
     get timedOut() { return timedOut; },
-    kill(signal) { killGroup(signal ?? "SIGKILL"); },
+    kill(signal) { killGroup(signal ?? "SIGTERM"); },
   };
 }
 
