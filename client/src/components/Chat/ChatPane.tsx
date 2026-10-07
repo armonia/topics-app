@@ -22,7 +22,7 @@ import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
 import { useConfirm } from '../../hooks/useConfirm';
-import { chatAcceptsFileDrag } from './chatFileDrop';
+import { chatAcceptsFileDrag, watchFileDragEnd } from './chatFileDrop';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
 import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
@@ -1773,6 +1773,11 @@ function ChatPaneComponent({
     const f = Array.from(e.dataTransfer.files);
     if (f.length > 0) setPendingFiles(prev => [...prev, ...f]);
   }, [isGlobalOrchestrator]);
+  // A drag that ends anywhere else never reaches the two handlers above: see watchFileDragEnd.
+  useEffect(() => {
+    if (!fileDragOver) return;
+    return watchFileDragEnd(window, () => setFileDragOver(false));
+  }, [fileDragOver]);
 
   // Ref-stable so `MessageBubble`'s memo holds during streaming. These are
   // passed to EVERY visible bubble via MessageList → itemContent; when they were
