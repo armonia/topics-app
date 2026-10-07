@@ -539,6 +539,23 @@ describe("/api/media · come torna indietro ciò che è stato caricato", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  test("una CARTELLA non si legge come un file: 400, e la pagina lo dice", async () => {
+    // Prima la rotta rispondeva 200 e il corpo esplodeva in lettura con EISDIR:
+    // nel pannello compariva il riquadro d'errore di Bun (topic:d740f8ae, 07/10).
+    const dir = join(mediaDir, "clips");
+    mkdirSync(dir, { recursive: true });
+    const res = await fetchMedia(`${dir}/`);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error?: string }).error).toBe("path is a directory");
+    const req = new Request(`http://localhost/api/media?path=${encodeURIComponent(dir)}`, {
+      headers: { accept: "text/html,application/xhtml+xml" },
+    });
+    const url = new URL(req.url);
+    const page = await router()(req, url, url.pathname, "GET");
+    expect(page?.status).toBe(400);
+    expect(await page!.text()).toContain("This is a folder, not a file");
+  });
+
   test("le stesse guardie sulla risposta PARZIALE (206), o basta un Range per aggirarle", async () => {
     const p = seed("logo.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>");
     const res = await fetchMedia(p, "bytes=0-9");
