@@ -51,7 +51,9 @@ const SETTLE_MS = 400;
 
 const OUT_PATH = resolve(__dirname, "../../test-results/board-update-renders.json");
 
-test.describe("Board: renders per task:updated frame", () => {
+// `@nightly` like the other benches (drag, ink): it seeds 66 cards and measures,
+// it asserts no threshold, and the PR tier excludes it with `grepInvert`.
+test.describe("@nightly Board: renders per task:updated frame", () => {
   test.describe.configure({ timeout: 240_000 });
   test.use({ viewport: { width: 1600, height: 900 } });
 
@@ -84,7 +86,7 @@ test.describe("Board: renders per task:updated frame", () => {
     }
   });
 
-  test("counts component renders per task:updated frame on a 60+ card board", async ({ page, request }, testInfo) => {
+  test("counts component renders per task:updated frame on a 60+ card board @nightly", async ({ page, request }, testInfo) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await resetPaneStore(page.request, ["__board__"]);
     await installProbe(page);
