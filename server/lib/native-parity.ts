@@ -7,7 +7,8 @@
  * global user rules in context; the native one with Sonnet, ZERO skills and no
  * rules. It is not a shade of quality: it is a different agent.
  *
- * Here sit the two pieces of context that were missing. The model and the
+ * Here sit the pieces of context that were missing: the user's rules, the
+ * skill listing and Claude Code's memory (index and per-prompt recall). The model and the
  * thinking live elsewhere (`providers/index.ts`, `native/agent-loop.ts`) because
  * they are request parameters, not text.
  *
@@ -15,6 +16,7 @@
  * skill listing on its own: injecting them again would double the same text in
  * a prompt we pay for by the token. Callers must pass `native: true`.
  */
+import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -79,6 +81,105 @@ function readClaudeMd(file: string, home: string): string | null {
     const abs = p.startsWith("~/") ? join(home, p.slice(2)) : resolve(dirname(file), p);
     return readSmall(abs) ?? intero;
   });
+}
+
+/**
+ * Claude Code's switch for its auto-memory. OpenClaw sets it because it keeps a
+ * memory of its own: whoever turned it off does not get it back from here.
+ */
+function autoMemoryDisabled(): boolean {
+  return ["1", "true"].includes((process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY ?? "").toLowerCase());
+}
+
+/**
+ * The folder a native turn runs in: the topic's, else the runtime's default
+ * workspace (`TOPICS_WORKSPACE`, the home on this machine), else the home.
+ */
+export function nativeWorkingDir(topicCwd: string | null | undefined): string {
+  return topicCwd || process.env.TOPICS_WORKSPACE || homedir();
+}
+
+/** Claude Code's own limits: past these the index it injects is truncated. */
+const MEMORY_INDEX_MAX_LINES = 200;
+const MEMORY_INDEX_MAX_CHARS = 25_000;
+
+/**
+ * The folder where Claude Code keeps the auto-memory for `cwd`, computed the way
+ * it does: the root of the git repo (the COMMON dir, so a worktree shares the
+ * memory of its repo), else the folder itself, with `/` and `.` turned into `-`.
+ */
+export function claudeMemoryDir(cwd: string, home = homedir()): string {
+  let root = cwd;
+  try {
+    const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      encoding: "utf-8",
+      timeout: 1000,
+    });
+    const common = r.status === 0 ? r.stdout.trim() : "";
+    if (common.endsWith("/.git")) root = dirname(common);
+  } catch { /* no git: the folder itself */ }
+  return join(home, ".claude", "projects", root.replace(/[/.]/g, "-"), "memory");
+}
+
+/**
+ * The memory index Claude Code injects in a session started in `cwd`.
+ *
+ * The native runtime had none of it: the same chat on `claude` knew the lessons
+ * of the repo, here it started from zero. It is the SAME file, not a copy: the
+ * global memory of Topics was retired (change `contesto-dall-hub`) precisely
+ * because a store that only one harness reads drifts without anyone noticing.
+ */
+export function readClaudeMemoryIndex(cwd: string, home = homedir()): UserRules | null {
+  if (autoMemoryDisabled()) return null;
+  const path = join(claudeMemoryDir(cwd, home), "MEMORY.md");
+  const raw = readSmall(path);
+  if (!raw?.trim()) return null;
+  let content = raw.split("\n").slice(0, MEMORY_INDEX_MAX_LINES).join("\n");
+  if (content.length > MEMORY_INDEX_MAX_CHARS) content = content.slice(0, MEMORY_INDEX_MAX_CHARS);
+  return { path, content };
+}
+
+/**
+ * The cards relevant to `prompt`, from `memrecall`: the hook Claude Code and
+ * Codex run on every prompt (`UserPromptSubmit`), called with the same JSON so
+ * there is one retriever and one quality bar (`memrecall --eval`), not two.
+ *
+ * Absent on a machine without `memrecall`, silent past 3 s or on any failure:
+ * a suggestion must never cost the turn. Asynchronous because the server is one
+ * process and a synchronous spawn would stall every other chat meanwhile.
+ */
+export async function recallMemories(prompt: string, cwd: string, home = homedir()): Promise<string | null> {
+  if (autoMemoryDisabled()) return null;
+  const bin = findOnPath("memrecall", home);
+  if (!bin) return null;
+  try {
+    const proc = Bun.spawn([bin, "--hook"], {
+      stdin: new Blob([JSON.stringify({ prompt, cwd })]),
+      stdout: "pipe",
+      stderr: "ignore",
+      env: process.env,
+    });
+    const timer = setTimeout(() => proc.kill(), 3000);
+    const out = await new Response(proc.stdout).text();
+    clearTimeout(timer);
+    if ((await proc.exited) !== 0 || !out.trim()) return null;
+    const ctx = JSON.parse(out)?.hookSpecificOutput?.additionalContext;
+    return typeof ctx === "string" && ctx.trim() ? ctx : null;
+  } catch { return null; }
+}
+
+/**
+ * The server's PATH comes from launchd and does not have the user's bin folders,
+ * where the hub's commands live: they are looked up there too.
+ */
+function findOnPath(name: string, home: string): string | null {
+  const dirs = [...(process.env.PATH ?? "").split(":"), join(home, "bin"), join(home, ".local", "bin")];
+  for (const d of dirs) {
+    if (!d) continue;
+    const f = join(d, name);
+    try { if (statSync(f).isFile()) return f; } catch { /* next */ }
+  }
+  return null;
 }
 
 export interface SkillEntry { name: string; description: string }

@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.452",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "text": "Muse di primo livello in Topics (chat, task, settings, PTY)",
+          "scope": "providers"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "registra scripts/smoke-muse-provider.ts come entry",
+          "scope": "knip"
+        },
+        {
+          "text": "nomi inglesi per il gate + warn quando manca il login",
+          "scope": "muse"
+        },
+        {
+          "text": "isola XDG_CONFIG_HOME/XDG_DATA_HOME nel banco di test",
+          "scope": "e2e"
+        },
+        {
+          "text": "commento XDG in inglese per il gate",
+          "scope": "i18n"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.449",
     "date": "2026-10-06",
     "sections": {

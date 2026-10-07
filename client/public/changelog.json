@@ -1,5 +1,147 @@
 [
   {
+    "version": "2.2.454",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Applica il feedback mobile-chrome: reveal-on-scroll, foglio a due piani, Cerca nel design system, attesa viva, matita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiungi requisiti MOBILE-CHROME-07..12 e spec e2e del feedback mobile-chrome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la matita nel rail dei menu right-click",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduci commenti e nomi in inglese nel feedback mobile-chrome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ripara le 4 mobili rotte dal foglio a due piani e dall'header overlay (A1)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.453",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Accetta advisory sharp/librsvg CVE-2026-96889 in baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: aggiungi classifica e modello sezioni puri con unit test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: estrai la riga suggerimento condivisa con la tab sheet",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: campo con focus, suggerimenti e nota nella scheda nuova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "newtab-arc: requisiti NEWTAB-ARC-01..04 e spec e2e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sistema lingua: NEW_TAB_* inglesi, fixture example.it nella spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Inoltra Esc dalla new-tab alla sheet, exit ghost, guardia document",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alza i monogrammi favicon al minimo di leggibilita 11px",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.452",
+    "date": "2026-10-06",
+    "sections": {
+      "new": [
+        {
+          "it": "Muse di primo livello in Topics (chat, task, settings, PTY)",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "registra scripts/smoke-muse-provider.ts come entry",
+          "en": "",
+          "scope": "knip",
+          "breaking": false
+        },
+        {
+          "it": "nomi inglesi per il gate + warn quando manca il login",
+          "en": "",
+          "scope": "muse",
+          "breaking": false
+        },
+        {
+          "it": "isola XDG_CONFIG_HOME/XDG_DATA_HOME nel banco di test",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "commento XDG in inglese per il gate",
+          "en": "",
+          "scope": "i18n",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-10-06 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "archivia change muse-provider, promuove specs/muse",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.451",
     "date": "2026-10-06",
     "sections": {

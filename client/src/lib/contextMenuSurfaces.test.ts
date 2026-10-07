@@ -68,6 +68,21 @@ const NO_MENU_ON_PURPOSE: Record<string, string> = {
     'the shared mechanism itself: keyboard opening and the guard on open panels',
 };
 
+/**
+ * Files that take the gesture and open a menu that is NOT the cursor one. The
+ * rail above exists so no ad-hoc menu is born without the shared contract
+ * (flip at the edges, a role, focus, no system menu on top); a menu built on
+ * the shared Menu primitive already has that contract, so it registers here
+ * with its why instead of in the cursor menu's list.
+ */
+const MENU_NOT_CURSOR: Record<string, string> = {
+  // The pencil door (mobile-chrome-feedback A6): the right-click — the mouse's
+  // version of the long press — opens the whole add menu, which is the shared
+  // Menu primitive (dropdown on desktop, sheet on the phone), not a cursor
+  // menu and not an ad-hoc card.
+  'components/Shared/PaneAddMenu.tsx': 'the shared add menu on the Menu primitive',
+};
+
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -115,11 +130,12 @@ function rightClickViolations(
   renderedBy: Record<string, string> = MENU_RENDERED_BY,
   noMenu: Record<string, string> = NO_MENU_ON_PURPOSE,
   tabSheetSurfaces: ReadonlySet<string> = TAB_SHEET_SURFACES,
+  menuNotCursor: Record<string, string> = MENU_NOT_CURSOR,
 ): Violation[] {
   const byFile = new Map(files.map((f) => [f.file, stripComments(f.text)]));
   const out: Violation[] = [];
   for (const [file, code] of byFile) {
-    if (!takesTheRightClick(code) || file in noMenu) continue;
+    if (!takesTheRightClick(code) || file in noMenu || file in menuNotCursor) continue;
     const menuFile = renderedBy[file];
     if (menuFile !== undefined) {
       if (!SHARED_MENU.test(byFile.get(menuFile) ?? '')) out.push({ file, rule: 'its menu file does not use the shared menu' });
@@ -149,10 +165,15 @@ describe('right-click surfaces (CTXMENU-01)', () => {
 
   test('every listed file still exists and still takes the gesture', () => {
     const byFile = new Map(clientSources().map((s) => [s.file, stripComments(s.text)]));
-    for (const file of [...Object.keys(MENU_RENDERED_BY), ...Object.keys(NO_MENU_ON_PURPOSE)]) {
+    for (const file of [...Object.keys(MENU_RENDERED_BY), ...Object.keys(NO_MENU_ON_PURPOSE), ...Object.keys(MENU_NOT_CURSOR)]) {
       const code = byFile.get(file);
       // An entry nobody needs is a hole for the next one.
       expect({ file, exists: code !== undefined, takes: takesTheRightClick(code ?? '') }).toEqual({ file, exists: true, takes: true });
+    }
+    for (const file of Object.keys(MENU_NOT_CURSOR)) {
+      // The excuse of this list is the shared primitive: whoever stops
+      // rendering it stops deserving the entry.
+      expect({ file, primitive: /<Menu\b/.test(byFile.get(file) ?? '') }).toEqual({ file, primitive: true });
     }
     for (const menuFile of Object.values(MENU_RENDERED_BY)) {
       expect({ menuFile, exists: byFile.has(menuFile) }).toEqual({ menuFile, exists: true });

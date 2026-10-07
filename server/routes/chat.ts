@@ -20,6 +20,7 @@ import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
+import { nativeWorkingDir, recallMemories } from "../lib/native-parity";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
@@ -3836,11 +3837,31 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             //   - gateway-stateful (openclaw):
             //       same shape as history-aware; gateway may ignore `history`
             //       on the happy path and use its session state instead.
-            const envForProvider: ContextEnvelope = {
+            let envForProvider: ContextEnvelope = {
               ...envelope,
               providerName: topicProvider.name,
               providerStrategy: getProviderStrategy(topicProvider),
             };
+            // Claude Code's memory recall for THIS prompt, native runtime only:
+            // `claude` and `codex` run the same `memrecall` as their own hook.
+            // It goes AFTER the person's words, not in the preamble: a per-prompt
+            // suggestion is not a document, and as a deduplicated slot a turn
+            // with no hits would tell the model the memory is "no longer in effect".
+            if (topicProvider.name === "topics") {
+              const recall = await recallMemories(
+                envelope.userMessage.content,
+                nativeWorkingDir(envelope.sessionMeta?.workingDir),
+              );
+              if (recall) {
+                envForProvider = {
+                  ...envForProvider,
+                  userMessage: {
+                    ...envelope.userMessage,
+                    content: `${envelope.userMessage.content}\n\n<memory-recall>\n${recall}\n</memory-recall>`,
+                  },
+                };
+              }
+            }
             // Push the envelope to the in-memory snapshot ring BEFORE the
             // adapter so what the inspector shows is exactly what we hand
             // to the provider. Best-effort — never throws.

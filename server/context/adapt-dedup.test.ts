@@ -407,3 +407,23 @@ describe("le altre strategie non deduplicano", () => {
     expect(payload.inlineSlots).toBeUndefined();
   });
 });
+
+describe("Claude Code's memory index (user:MEMORY.md)", () => {
+  const INDEX = block({
+    id: "user:MEMORY.md",
+    label: "~/.claude/projects/-Users-x/memory/MEMORY.md",
+    category: "memory",
+    content: "- [Mai avviare Docker](feedback_docker.md)",
+  });
+
+  it("reaches the native runtime, naming the folder its cards live in", () => {
+    const out = adaptEnvelope({ ...inlineEnvelope([PROMPT, INDEX]), providerName: "topics" });
+    expect(out.userContent).toContain("from ~/.claude/projects/-Users-x/memory/MEMORY.md");
+    expect(out.userContent).toContain("Mai avviare Docker");
+  });
+
+  it("is never sent to `claude`, which injects the same index by itself", () => {
+    const out = adaptEnvelope(inlineEnvelope([PROMPT, INDEX]));
+    expect(out.userContent).not.toContain("Mai avviare Docker");
+  });
+});

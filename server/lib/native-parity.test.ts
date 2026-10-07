@@ -5,13 +5,15 @@
  * arrives halved and nobody notices — the text is there, it is the rules that
  * are missing.
  *
- * @covers NATIVE-CTX-01, NATIVE-SKILL-01, NATIVE-EFFORT-01
+ * @covers NATIVE-CTX-01, NATIVE-SKILL-01, NATIVE-EFFORT-01, NATIVE-MEM-01
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, chmodSync, readFileSync, realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  claudeMemoryDir, readClaudeMemoryIndex, recallMemories, nativeWorkingDir,
   readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
 
@@ -232,5 +234,102 @@ describe("listSkills — i casi che le facevano sparire", () => {
     writeFileSync(join(dir, "SKILL.md"),
       "---\nname: bloccata\ndescription: |\n  prima riga\n  seconda riga\n---\ncorpo\n");
     expect(listSkills(home)[0]!.description).toBe("prima riga seconda riga");
+  });
+});
+
+describe("Claude Code's memory on the native runtime", () => {
+  const enc = (p: string) => p.replace(/[/.]/g, "-");
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { stdio: "ignore" });
+  let savedPath: string | undefined;
+  let savedOff: string | undefined;
+  beforeEach(() => {
+    savedPath = process.env.PATH;
+    savedOff = process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+  });
+  afterEach(() => {
+    process.env.PATH = savedPath;
+    if (savedOff === undefined) delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+    else process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = savedOff;
+  });
+
+  it("the memory folder is the repo's, from a subfolder and from a worktree too", () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "memrepo-")));
+    try {
+      git(repo, "init", "-q");
+      git(repo, "commit", "-q", "--allow-empty", "-m", "x");
+      mkdirSync(join(repo, "sub"));
+      const wt = join(repo, "..", `${repo.split("/").pop()}-wt`);
+      git(repo, "worktree", "add", "-q", wt);
+      const want = join(home, ".claude", "projects", enc(repo), "memory");
+      expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(want);
+      expect(claudeMemoryDir(wt, home)).toBe(want);
+      rmSync(wt, { recursive: true, force: true });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("outside git the memory folder is the folder itself (the home, for a chat with no project)", () => {
+    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", enc(home), "memory"));
+  });
+
+  it("without a project the native turn runs in TOPICS_WORKSPACE", () => {
+    const saved = process.env.TOPICS_WORKSPACE;
+    process.env.TOPICS_WORKSPACE = "/ws";
+    try {
+      expect(nativeWorkingDir(null)).toBe("/ws");
+      expect(nativeWorkingDir("/p")).toBe("/p");
+    } finally {
+      if (saved === undefined) delete process.env.TOPICS_WORKSPACE; else process.env.TOPICS_WORKSPACE = saved;
+    }
+  });
+
+  it("the index is read and cut at Claude Code's 200 lines", () => {
+    const dir = claudeMemoryDir(home, home);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "MEMORY.md"), Array.from({ length: 250 }, (_, i) => `- riga ${i}`).join("\n"));
+    const idx = readClaudeMemoryIndex(home, home)!;
+    expect(idx.path).toBe(join(dir, "MEMORY.md"));
+    expect(idx.content).toContain("- riga 199");
+    expect(idx.content).not.toContain("- riga 200");
+  });
+
+  it("CLAUDE_CODE_DISABLE_AUTO_MEMORY turns index and recall off, as it does for `claude`", async () => {
+    const dir = claudeMemoryDir(home, home);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "MEMORY.md"), "- qualcosa");
+    // a memrecall that always answers: only the switch can make the recall silent
+    fakeMemrecall(`printf '%s' '{"hookSpecificOutput":{"additionalContext":"- scheda.md"}}'`);
+    process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
+    expect(readClaudeMemoryIndex(home, home)).toBeNull();
+    expect(await recallMemories("una domanda qualunque", home, home)).toBeNull();
+  });
+
+  /** A fake `memrecall` in the user's bin, the folder launchd's PATH does not have. */
+  function fakeMemrecall(body: string): string {
+    mkdirSync(join(home, "bin"), { recursive: true });
+    const bin = join(home, "bin", "memrecall");
+    writeFileSync(bin, `#!/bin/sh\n${body}\n`);
+    chmodSync(bin, 0o755);
+    process.env.PATH = "/usr/bin:/bin";
+    return bin;
+  }
+
+  it("the recall gets the hook's JSON and returns its additionalContext", async () => {
+    const seen = join(home, "stdin.json");
+    fakeMemrecall(`cat > ${seen}; printf '%s' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"- scheda.md: utile"}}'`);
+    expect(await recallMemories("come faccio il deploy", "/p", home)).toBe("- scheda.md: utile");
+    expect(JSON.parse(readFileSync(seen, "utf-8"))).toEqual({ prompt: "come faccio il deploy", cwd: "/p" });
+  });
+
+  it("no memrecall, a failure or an empty answer: no recall, and the turn goes on", async () => {
+    process.env.PATH = "/usr/bin:/bin";
+    expect(await recallMemories("domanda", "/p", home)).toBeNull();
+    fakeMemrecall("exit 2");
+    expect(await recallMemories("domanda", "/p", home)).toBeNull();
+    fakeMemrecall("exit 0");
+    expect(await recallMemories("domanda", "/p", home)).toBeNull();
   });
 });

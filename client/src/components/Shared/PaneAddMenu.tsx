@@ -43,10 +43,11 @@
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Plus } from 'lucide-react';
+import { Check, Pencil, Plus } from 'lucide-react';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
+import { useLongPress } from '../../hooks/useLongPress';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { useT } from '../../hooks/useT';
 import { type PaneScope } from '../../state/pane/adapters';
@@ -245,6 +246,14 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *     window event (⌘N).
    *  Mobile always uses the bottom-sheet — che è anch'esso `Menu`. */
   presentation?: 'dropdown' | 'palette';
+  /**
+   * The pencil door (mobile-chrome-feedback A6): the tap opens a new chat AT
+   * ONCE (`onNewChat`), and the whole menu opens on a long press — or on a
+   * right click, which is the same menu the mouse always had. Only the phone's
+   * bottom row sets it (with `triggerVariant="bar"`): everywhere else the tap
+   * keeps opening the menu, and the glyph stays a `Plus`.
+   */
+  quickChat?: boolean;
 }
 
 /**
@@ -282,20 +291,35 @@ export function PaneAddMenu({
   onNewChat,
   onAddPane,
   availableTypes,
-  triggerTitle = 'Add pane',
+  triggerTitle: triggerTitleProp,
   triggerVariant = 'pill',
-  triggerLabel,
+  triggerLabel: triggerLabelProp,
   triggerKbd,
   triggerClassName = '',
   noElectronDrag,
   presentation = 'dropdown',
+  quickChat = false,
 }: PaneAddMenuProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const { isMobile } = useMobile();
+  const { isMobile, isTouch } = useMobile();
 
   const close = useCallback(() => setOpen(false), []);
+
+  // The pencil's second gesture (A6): held down, it opens the SAME whole menu
+  // the tap skips — one gesture per hand, no second list to diverge. The hook
+  // eats the click the browser synthesises after the hold (`consumeClick`
+  // below): without it the menu would open and a chat with it.
+  const openMenu = useCallback(() => setOpen(true), []);
+  const lp = useLongPress(openMenu, { enabled: quickChat && isTouch });
+
+  const t = useT();
+  // The pencil names itself (A6): the tap is a new chat, so the old 'Add'
+  // would promise the menu the tap skips. Prop-set words still win, like
+  // everywhere on this trigger — these are defaults, not a second knob.
+  const triggerTitle = triggerTitleProp ?? (quickChat ? t('sidebar.pencilDoorTitle') : 'Add pane');
+  const triggerLabel = triggerLabelProp ?? (quickChat ? t('sidebar.pencilDoor') : undefined);
 
   // La palette è centrata, non ancorata: non passa da `Menu` e quindi si porta
   // dietro il proprio dismissal. Il dropdown (e il foglio mobile) non hanno
@@ -328,7 +352,13 @@ export function PaneAddMenu({
     buildAddMenuItems({ scope, availableTypes, onAddPane: onAddPane ?? (() => {}) }).length > 0;
   if (!hasMenuItems) return null;
 
-  const handleClick = () => setOpen((prev) => !prev);
+  const handleClick = () => {
+    // The hold's echo is not a tap: it opens nothing (see above).
+    if (quickChat && lp.consumeClick()) return;
+    // The pencil (A6): the tap IS the new chat, the menu waits for the hold.
+    if (quickChat) { onNewChat?.(); return; }
+    setOpen((prev) => !prev);
+  };
 
   // Trigger preset selection. The 'ghost' variant matches sidebar
   // header icons (Settings, Remote, etc.) — same 7×7 / 10×10 footprint,
@@ -386,7 +416,12 @@ export function PaneAddMenu({
       <button
         ref={buttonRef}
         onClick={handleClick}
-        className={`${triggerBase} ${noElectronDrag ? 'app-no-drag' : ''} ${triggerClassName}`}
+        // The hold's handlers ride only the pencil: everywhere else the tap is
+        // the menu and a second gesture would be a second way to miss it.
+        {...(quickChat ? lp.handlers : null)}
+        onContextMenu={quickChat ? (e) => { e.preventDefault(); setOpen(true); } : undefined}
+        data-pressing={lp.pressed || undefined}
+        className={`${triggerBase} ${quickChat ? 'select-none' : ''} ${noElectronDrag ? 'app-no-drag' : ''} ${triggerClassName}`}
         // La compensazione ottica vale solo dove c'è un glifo a sinistra e del
         // testo a destra (la variante 'header' col suo ⌘N). Vedi la costante.
         style={triggerVariant === 'header' && !isMobile ? { ...GLYPH_KBD_PADDING, ...(noElectronDrag ? { WebkitAppRegion: 'no-drag' } : null) } as React.CSSProperties : (noElectronDrag ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined)}
@@ -402,7 +437,7 @@ export function PaneAddMenu({
             The other variants are as tall as their content. */}
         {triggerVariant === 'bar' ? (
           <>
-            <Plus size={triggerIconSize} aria-hidden="true" />
+            {quickChat ? <Pencil size={triggerIconSize} aria-hidden="true" /> : <Plus size={triggerIconSize} aria-hidden="true" />}
             {triggerLabel && <span className="pointer-events-none absolute inset-x-0 text-center text-mini font-medium leading-none" style={{ top: BAR_LABEL_TOP }}>{triggerLabel}</span>}
           </>
         ) : (

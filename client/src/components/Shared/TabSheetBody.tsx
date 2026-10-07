@@ -29,7 +29,7 @@ import type { BrowserPaneChrome } from '../../state/browserPaneChrome';
 import { rankSites, sitesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
 import { displayUrl, prettyUrl, toNavigableUrl } from '../../lib/browserNavUrl';
 import {
-  POPOVER_SURFACE, POPOVER_SHEET, POPOVER_MARGIN, Z_POPOVER, Z_POPOVER_SCRIM, POPOVER_ITEM, POPOVER_DIVIDER,
+  POPOVER_SURFACE, POPOVER_SHEET, POPOVER_MARGIN, Z_POPOVER, Z_POPOVER_SCRIM, POPOVER_DIVIDER,
   DANGER_TEXT,
 } from '../../lib/popoverStyles';
 import { copyText } from '../../lib/clipboard';
@@ -58,6 +58,7 @@ import { restartTerminalSession } from '../../lib/terminalReload';
 import { menuRowClass } from '../Sidebar/menuRow';
 import { TopicColorDot } from './TopicColorDot';
 import { SubmenuItem, SubmenuOwnerProvider } from './SubmenuItem';
+import { Suggestion, SuggestionSectionLabel as SectionLabel } from './Suggestion';
 import { buildTabSheetEntries, DEVICE_LABEL_KEY, type SheetEntry, type TabSheetModel } from './tabSheetEntries';
 import { ControlRow, type ControlRenderers } from './tabSheetControls';
 import type { TabSheetDoor } from '../../state/tabSheet';
@@ -101,28 +102,6 @@ function NavButton({ icon, label, onClick, disabled, testId }: {
       className="w-7 h-7 coarse:w-11 coarse:h-11 flex items-center justify-center rounded-md text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
     >
       {icon}
-    </button>
-  );
-}
-
-/** A quiet heading: the sheet is read top to bottom. */
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-3 pt-1.5 pb-0.5 text-mini font-medium uppercase tracking-wide text-app-text-faint select-none">
-      {children}
-    </div>
-  );
-}
-
-/** One suggestion: an address you can go back to in one click. */
-function Suggestion({ icon, primary, secondary, title, onClick }: {
-  icon: React.ReactNode; primary: string; secondary?: string; title: string; onClick: () => void;
-}) {
-  return (
-    <button type="button" className={POPOVER_ITEM} onClick={onClick} title={title}>
-      <span className="shrink-0 flex items-center justify-center w-3.5 h-3.5 text-app-text-tertiary">{icon}</span>
-      <span className="flex-1 min-w-0 truncate text-left">{primary}</span>
-      {secondary && <span className="shrink-0 max-w-[40%] truncate text-app-text-faint text-mini">{secondary}</span>}
     </button>
   );
 }
