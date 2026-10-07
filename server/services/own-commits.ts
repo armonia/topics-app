@@ -104,7 +104,10 @@ export async function defaultRunGit(cwd: string, args: string[], opts?: GitRunEn
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    const code = (await proc.exited) ?? 1;
+    // A timeout is not "exit 1": `commitIsIn` reads 1 as "verified outside" and
+    // acts on it, while "could not answer" must stay `null`. 124 is the
+    // convention of `timeout(1)`; any code other than 0 and 1 is "no answer".
+    const code = (await proc.exited) ?? 124;
     return { code, stdout, stderr };
   } catch (e) {
     return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
