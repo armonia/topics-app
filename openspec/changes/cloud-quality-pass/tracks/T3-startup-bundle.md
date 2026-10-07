@@ -106,7 +106,7 @@ E2E_TIER=pr npx playwright test --project=chromium <le spec della tua area>
 
 - Niente feature, niente cambi di stack, nessuna dipendenza nuova senza un perché scritto nel
   commit, niente rinomine o riformattazioni in blocco. Il comportamento visibile resta quello.
-- Identificatori in inglese, commenti in italiano (`check:identifier-language`,
+- Identificatori e commenti in inglese (regola del repo dal 21/08) (`check:identifier-language`,
   `check:comment-language`). Niente lineetta lunga nei testi dell'interfaccia (`check:emdash`).
 - E2E solo contro il server di test isolato che `tests/e2e/global-setup.ts` avvia su :13334;
   mai codice o test che puntino a :3333.
