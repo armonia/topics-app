@@ -2,9 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 import type { WSMessage } from '../../types';
+import { stripAnsi } from '../../lib/stripAnsi';
 
-// Strip ANSI escape sequences (colors, bold, cursor, etc.)
-// Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
 /**
  * Tetto al log tenuto in memoria dal pannello.
  *
@@ -14,13 +13,6 @@ import type { WSMessage } from '../../types';
  */
 const MAX_CLIENT_LOG_CHARS = 400_000;
 
-const stripAnsi = (text: string) =>
-  // Il byte ESC è ciò che questa regex deve riconoscere per poterlo togliere.
-  // La regola serve a intercettare i byte di controllo finiti in un pattern per
-  // sbaglio; qui sono il soggetto.
-  // eslint-disable-next-line no-control-regex
-  text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
-      .replace(/\[(?:\d+;)*\d*[A-HJKSTfm]/g, '');
 
 interface ProcessLogPaneProps {
   processId: string;
