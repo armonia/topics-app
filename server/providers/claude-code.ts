@@ -3021,16 +3021,16 @@ export class ClaudeCodeProvider implements AIProvider {
     return pp;
   }
 
-  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the
-   *  session's child is running — direct or broker mode. A live-but-mute child
-   *  (auto-compact) must not be finalized as a timeout. */
+  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the session's child is running, direct
+   *  or broker mode. A live-but-mute child (auto-compact) must not be finalized as a timeout. */
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
     // Alive AND mid-turn, or about to know: a re-adoption still scanning the store (`replayMute`) has no handler
     // yet, and a route reading «dead» there would SIGINT the very turn its late ack is about to adopt (CCLI-04).
+    // So is a child that exited while detached, until its tail lands: `exitTail`, waiting behind the backlog.
     // A fresh idle child that took the key after a kill is alive too, and answering yes for it kept a dead
     // stream on the extend path for hours (2026-09-03, topic ada7e7db): the turn's child was gone.
-    return !!pp && pp.alive && (pp.streamHandler !== null || pp.replayMute === true);
+    return !!pp && (pp.exitTail !== undefined || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
   }
 
   /**
@@ -3176,7 +3176,7 @@ export class ClaudeCodeProvider implements AIProvider {
     let park = false;
     let keep = false;
     try {
-      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp);
+      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp, opts?.park === true); // parked, it is the re-adoption's phase 1
       if (scan.missing || !scan.alive) return "idle";
       if (!pp.replayTailOpen) {
         // No turn in flight, but its background work is: the scan becomes the
