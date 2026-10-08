@@ -77,4 +77,37 @@ describe('kanban sensors are referentially stable', () => {
     expect(card).toContain('memo(');
     expect(card).toMatch(/const Card = memo\(|export const Card = memo\(/);
   });
+
+  test('during a drag only the sortable shell reads dnd-kit: the card body is memoized apart', () => {
+    // dnd-kit's InternalContext changes whenever the droppable under the
+    // pointer changes, and every `useSortable` re-runs. With the hook inside
+    // the card, each card re-rendered its whole subtree about a dozen times per
+    // drag at identical props: 61 renders per pointer move on a 33-card board
+    // (board-drag-renders.spec.ts), 32 with the shell split.
+    const shellAt = card.indexOf('export const Card = memo(function Card(');
+    const bodyAt = card.indexOf('const CardBody = memo(function CardBody(');
+    expect(shellAt, 'the sortable shell is gone: this test guards nothing').toBeGreaterThan(0);
+    expect(bodyAt, 'the card body is no longer memoized on its own').toBeGreaterThan(0);
+    const shell = card.slice(shellAt, card.indexOf('\n});', shellAt));
+    expect(shell).toContain('useSortable(');
+    expect(shell).toContain('<CardBody');
+    const body = card.slice(bodyAt, card.indexOf('\n});', bodyAt));
+    expect(body, 'the body subscribes to dnd-kit again: the memo is bypassed on every over change').not.toMatch(/useSortable\(|useDraggable\(|useDroppable\(|useDndContext\(/);
+    // dnd-kit's transform is a new object on every render: it must reach the
+    // body already turned into a string, which compares by value
+    // (`reflowTransform`, tested in sortableReflow.test.ts).
+    expect(shell).toContain('dragTransform={reflowTransform(transform, isDragging)}');
+  });
+
+  test('the column reads its droppable in a shell too: the header does not re-render on every over change', () => {
+    const shellAt = card.indexOf('export function Column(');
+    const bodyAt = card.indexOf('const ColumnBody = memo(function ColumnBody(');
+    expect(shellAt, 'the droppable shell is gone: this test guards nothing').toBeGreaterThan(0);
+    expect(bodyAt, 'the column body is no longer memoized on its own').toBeGreaterThan(0);
+    const shell = card.slice(shellAt, card.indexOf('\n}', shellAt));
+    expect(shell).toContain('useDroppable(');
+    expect(shell).toContain('<ColumnBody');
+    const body = card.slice(bodyAt, card.indexOf('\n});', bodyAt));
+    expect(body).not.toMatch(/useDroppable\(|useDndContext\(/);
+  });
 });
