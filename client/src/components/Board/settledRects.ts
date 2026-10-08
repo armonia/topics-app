@@ -27,7 +27,7 @@ import type { ClientRect, UniqueIdentifier } from '@dnd-kit/core';
 /** Bumped on every scroll anywhere in the page: copies of an older generation are read again. */
 let generation = 0;
 let listening = false;
-const copies = new WeakMap<ClientRect, { generation: number; rect: ClientRect }>();
+const cache = new WeakMap<ClientRect, { generation: number; rect: ClientRect }>();
 
 /** A scroll moved some droppable's ancestors: every copy is stale. Exported for the tests. */
 export function invalidateSettledRects(): void {
@@ -42,11 +42,11 @@ function listen(): void {
 
 /** The rect as plain numbers, as its getters would read now. */
 export function settleRect(rect: ClientRect): ClientRect {
-  const hit = copies.get(rect);
+  const hit = cache.get(rect);
   if (hit && hit.generation === generation) return hit.rect;
   const { top, left, width, height } = rect;
   const plain = { top, left, width, height, right: left + width, bottom: top + height };
-  copies.set(rect, { generation, rect: plain });
+  cache.set(rect, { generation, rect: plain });
   return plain;
 }
 

@@ -38,8 +38,8 @@ function board(reads: { n: number }, scroll: { y: number; x: number }) {
     ['card-a', liveRect({ top: 40, left: 308, width: 264, height: 60 }, scroll, reads)],
     ['card-b', liveRect({ top: 110, left: 308, width: 264, height: 60 }, scroll, reads)],
   ]);
-  const droppableContainers = [...rects.keys()].map((id) => ({ id })) as unknown as Parameters<typeof pointerWithin>[0]['droppableContainers'];
-  return { rects, droppableContainers };
+  const containers = [...rects.keys()].map((id) => ({ id })) as unknown as Parameters<typeof pointerWithin>[0]['droppableContainers'];
+  return { rects, containers };
 }
 
 const ids = (cs: Array<{ id: UniqueIdentifier }>) => cs.map((c) => c.id);
@@ -59,10 +59,10 @@ describe('settledRects', () => {
   test('the board collision gives the same answer on plain copies as on the live rects', () => {
     const reads = { n: 0 };
     const scroll = { y: 0, x: 0 };
-    const { rects, droppableContainers } = board(reads, scroll);
+    const { rects, containers } = board(reads, scroll);
     const collisionRect = { top: 120, left: 320, width: 200, height: 40, right: 520, bottom: 160 };
     for (const pointer of [{ x: 330, y: 130 }, { x: 330, y: 500 }, { x: 900, y: 900 }]) {
-      const args = { active: { id: 'card-a' }, collisionRect, droppableRects: rects, droppableContainers, pointerCoordinates: pointer } as unknown as Parameters<typeof pointerWithin>[0];
+      const args = { active: { id: 'card-a' }, collisionRect, droppableRects: rects, droppableContainers: containers, pointerCoordinates: pointer } as unknown as Parameters<typeof pointerWithin>[0];
       // The board's rule on the live rects: a card under the pointer beats its column.
       const within = pointerWithin(args);
       const card = within.find((c) => !COLUMNS.includes(String(c.id)));
@@ -74,8 +74,8 @@ describe('settledRects', () => {
   test('a second pass with no scroll in between reads no getter at all', () => {
     const reads = { n: 0 };
     const scroll = { y: 0, x: 0 };
-    const { rects, droppableContainers } = board(reads, scroll);
-    const args = { active: { id: 'card-a' }, collisionRect: { top: 0, left: 0, width: 1, height: 1, right: 1, bottom: 1 }, droppableRects: rects, droppableContainers, pointerCoordinates: { x: 330, y: 130 } } as unknown as Parameters<typeof pointerWithin>[0];
+    const { rects, containers } = board(reads, scroll);
+    const args = { active: { id: 'card-a' }, collisionRect: { top: 0, left: 0, width: 1, height: 1, right: 1, bottom: 1 }, droppableRects: rects, droppableContainers: containers, pointerCoordinates: { x: 330, y: 130 } } as unknown as Parameters<typeof pointerWithin>[0];
     invalidateSettledRects();
     boardCollision(args);
     // Two getters per rect (top, left): right and bottom come from width and height.
