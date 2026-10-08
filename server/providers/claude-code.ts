@@ -962,6 +962,8 @@ interface PersistentProcess {
   sessionKey: string;
   /** Byte cursor consumed from the broker store (for reattach). Direct: unused. */
   consumedOffset: number;
+  /** The re-attach in flight (`resyncStream`): a second caller joins it instead of sending its own. */
+  resyncing?: Promise<boolean>;
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -2881,7 +2883,10 @@ export class ClaudeCodeProvider implements AIProvider {
           // consumedOffset must land ON the attach point, not stay at 0: it is
           // where resyncStream() re-attaches from, and 0 against an adopted
           // child's store would re-fold that child's whole history.
-          pp.consumedOffset = (await client.attachLive(sessionKey)).fromOffset;
+          // Never backwards: what the attach replayed is folded by the time it
+          // resolves, and a cursor moved back under it would replay it again.
+          const { fromOffset } = await client.attachLive(sessionKey);
+          pp.consumedOffset = Math.max(pp.consumedOffset, fromOffset);
         })
         .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
     } else {
@@ -2928,6 +2933,20 @@ export class ClaudeCodeProvider implements AIProvider {
     });
     client.registerHandlers(sessionKey, {
       onData: (chunk, offset) => {
+        // A BYTE IS FOLDED ONCE. A re-attach replays from the cursor it was
+        // SENT with, and frames the daemon had already written to the socket
+        // before it read that `attach` arrive first: the replay then repeats
+        // them, and folding them again doubled the deltas on screen (137
+        // numbers out of 1500 with overlapping re-attaches, T18). Below the
+        // cursor only a deliberate rewind may fold, and every one of those
+        // (the reattach's scan and its replay of the open turn) runs muted or
+        // silent.
+        if (offset < pp.consumedOffset && !pp.replayMute && !pp.replaySilent) {
+          const seen = pp.consumedOffset - offset;
+          if (seen >= chunk.byteLength) return;
+          chunk = chunk.subarray(seen);
+          offset = pp.consumedOffset;
+        }
         // La consegna riparte da un punto diverso (un `attach` da un offset:
         // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
         // riga tenuto da parte apparteneva a un'altra regione dello store.
@@ -3261,13 +3280,10 @@ export class ClaudeCodeProvider implements AIProvider {
    * replays zero bytes and the daemon just refreshes our delivery cursor. Safe
    * to call speculatively, which is exactly what the route's watchdog does.
    *
-   * Precondition, and why the callers all satisfy it: call this only after a
-   * stretch of SILENCE (grace expiry, the stale sweeper, a socket reconnect).
-   * `consumedOffset` advances when onData folds a chunk, so calling it while
-   * frames are still in flight in the socket buffer would replay bytes that are
-   * about to arrive anyway — duplicated deltas. After a minute of nothing there
-   * is nothing in flight, and after a reconnect the in-flight bytes are gone
-   * for good, which is precisely what makes the replay the right answer.
+   * Frames still in flight when it is called are NOT a hazard any more: the
+   * replay repeats them, and `onData` drops every byte below `consumedOffset`
+   * outside a deliberate rewind (see `wireBrokerHandlers`). It used to need a
+   * stretch of silence first, and overlapping callers broke that rule.
    *
    * Returns true when a live session was re-attached (the caller may recover),
    * false when there was nothing to resync (no broker, dead child, no process).
@@ -3276,6 +3292,16 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!USE_AI_BRIDGE) return false;
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return false;
+    // ONE re-attach at a time per session. The reconnect chain, the route's
+    // grace expiry, the sweep and the lag probe can all ask at once; each
+    // extra `attach` replayed the same bytes for nothing.
+    if (pp.resyncing) return pp.resyncing;
+    const run = this.resyncNow(sessionKey, pp);
+    pp.resyncing = run;
+    try { return await run; } finally { if (pp.resyncing === run) pp.resyncing = undefined; }
+  }
+
+  private async resyncNow(sessionKey: string, pp: PersistentProcess): Promise<boolean> {
     // Snapshot BEFORE the await: the replay this attach triggers is folded
     // synchronously by onData, so by the time it resolves pp.consumedOffset has
     // already moved — reading it after would log the destination, not the gap.
