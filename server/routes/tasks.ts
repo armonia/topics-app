@@ -36,7 +36,7 @@ import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type Field
 import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
-import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 
 /**
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
@@ -473,20 +473,14 @@ export interface TasksRouterOpts {
  * fast instead of hanging the request.
  */
 export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
-  try {
-    const p = spawnBounded(["git", ...args], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      timeoutMs,
-    });
-    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-    const code = (await p.exited) ?? 124;
-    return { code, out, err };
-  } catch (e) {
-    return { code: 1, out: "", err: String((e as Error)?.message ?? e) };
-  }
+  const r = await runBounded(["git", ...args], {
+    cwd,
+    stderr: "pipe",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    timeoutMs,
+  });
+  if (r.spawnFailed) return { code: 1, out: "", err: r.spawnError ?? "" };
+  return { code: r.exitCode ?? 124, out: r.stdout, err: r.stderr };
 }
 
 /**
@@ -2080,25 +2074,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       broadcastToAll({ type: "task:updated", projectId, task: t });
     };
     if (!cwd) { settle(false, "progetto non risolvibile su questo host: nessun checkout da usare."); return; }
-    try {
-      // 10 minutes: a deploy that does not return within this window is a stuck
-      // deploy, not a slow one — better to say so than stay "running" forever.
-      // `spawnBounded` and not a `setTimeout` + `kill()`: the shell's children kept
-      // the pipe open after the kill and the deploy stayed "running" regardless.
-      const p = spawnBounded(["bash", "-lc", command], {
-        cwd, stdout: "pipe", stderr: "pipe",
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-        timeoutMs: 10 * 60 * 1000,
-      });
-      const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-      const code = (await p.exited) ?? 124;
-      const tail = (s: string) => s.trim().slice(-1500);
-      const body = tail(err) || tail(out);
-      const detail = `\`${command}\` (exit ${code})` + (body ? `\n\n\`\`\`\n${body}\n\`\`\`` : "");
-      settle(code === 0, detail);
-    } catch (e) {
-      settle(false, `\`${command}\`: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    // 10 minutes: a deploy that does not return within this window is a stuck
+    // deploy, not a slow one — better to say so than stay "running" forever.
+    // A real deadline (`runBounded`) and not a `setTimeout` + `kill()`: the shell's
+    // children kept the pipe open after the kill and the deploy stayed "running" regardless.
+    const r = await runBounded(["bash", "-lc", command], {
+      cwd, stderr: "pipe",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      timeoutMs: 10 * 60 * 1000,
+    });
+    if (r.spawnFailed) { settle(false, `\`${command}\`: ${r.spawnError ?? ""}`); return; }
+    const code = r.exitCode ?? 124;
+    const tail = (s: string) => s.trim().slice(-1500);
+    const body = tail(r.stderr) || tail(r.stdout);
+    const detail = `\`${command}\` (exit ${code})` + (body ? `\n\n\`\`\`\n${body}\n\`\`\`` : "");
+    settle(code === 0, detail);
   }
 
   /** Push a project's current branch to origin (triggers deploy CI where set up).
