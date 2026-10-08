@@ -601,6 +601,8 @@ export default defineConfig({
         // Scrolling down to the bottom with a trackpad: every frame whose motion
         // the wheel does not explain is a jerk (reported 24/09).
         "**/chat-scroll-down-jitter.spec.ts",
+        // The prepend under the reader is measured on both engines: the shipped one is WebKit.
+        "**/chat-infinite-scroll.spec.ts",
         "**/sender-sees-question.spec.ts",
         // A question waits for its person across a reload and the death of its
         // asker, and the answer reaches the model: read in the engine that ships.

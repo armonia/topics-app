@@ -4492,7 +4492,7 @@ scenari, ciascuno con la sua rotta mockata a 500 o abortita.
 - **THEN** l'anteprima della valida entra nel composer
 - **AND** un toast di errore nomina il file scartato
 
-### Requirement: CHAT-HIST-01 — La chat si apre sulla CODA, e il resto arriva quando nessuno guarda
+### Requirement: CHAT-HIST-01 — La chat si apre sulla CODA, e il resto arriva da solo
 
 All'apertura di una chat — ricarico, cambio scheda, rientro — il client SHALL
 chiedere al server SOLO gli ultimi `HISTORY_FIRST_PAGE` messaggi
@@ -4508,21 +4508,32 @@ primo fotogramma disegnato dalla cache È la prima pagina, e la risposta del
 server la conferma senza aggiungere né togliere righe.
 
 I messaggi precedenti (`limit: 0` con il cursore `before` = id del più vecchio
-della pagina, WIRE-11) SHALL essere caricati e fusi nello store SOLO quando la
-pane non è a schermo (scheda dietro un'altra, viewport alta zero), oppure su
-richiesta: MAI sotto gli occhi di chi legge. Una lista virtuale indirizza le
-righe per indice, e anteporre ottanta messaggi cambia ciò che «la riga 30»
-mostra; il rimedio che Virtuoso offre (`firstItemIndex`) è stato misurato a CLS
-0,60 su un gesto il cui contratto è 0,01 (PERF-01). Al ritorno della pane la
-viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che aveva
-in cima se la persona aveva scorso. Nessuno scheletro nuovo, nessuno scorrimento
-automatico all'arrivo in cima (`startReached`).
+della pagina, WIRE-11) SHALL arrivare da soli: fusi nello store quando la pane
+non è a schermo (scheda dietro un'altra, viewport alta zero), oppure mentre chi
+legge risale verso di loro. Con un gesto vero (rotella, trascinamento) a meno di
+`OLDER_STAGE_SCREENS` schermate dalla cima della finestra caricata il client
+SHALL chiederli e tenerli da parte; a meno di `OLDER_MERGE_SCREENS` schermate
+SHALL fonderli (`shared/history-paging.ts`). Chi resta sulla coda senza scorrere
+NON SHALL far partire nessuna richiesta.
+
+La fusione SHALL lasciare ferme le righe sotto gli occhi di chi legge. Una lista
+virtuale indirizza le righe per indice, e anteporre ottanta messaggi cambia ciò
+che «la riga 30» mostra: il rimedio è `firstItemIndex` di Virtuoso, dalla 4.18.13
+in poi, che compensa lo scorrimento nello stesso fotogramma (con la 4.18.1 costava
+un fotogramma vuoto e un CLS di 0,60). Il contratto, misurato fotogramma per
+fotogramma: nel fotogramma della fusione la riga letta si sposta al più del passo
+di rotella che la attraversa, nei fotogrammi dopo di 0 px; nessun fotogramma resta
+senza righe; CLS al più 0,01 dove il motore lo misura (PERF-01). Al ritorno della
+pane la viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che
+aveva in cima se la persona aveva scorso. Nessuno scheletro nuovo.
 
 Finché il resto non è arrivato la chat è PARZIALE, e in cima alla finestra
 caricata SHALL comparire una riga discreta «Carica i messaggi precedenti (n)» —
-stessa geometria dei divisori di compattazione, icona lucide, italiano e inglese
-— che al click carica il resto e riàncora la lista sul messaggio che era il
-primo: un salto chiesto non è uno spostamento. Le superfici che leggono «tutti i
+stessa geometria dei divisori di compattazione, icona lucide, italiano e inglese.
+Chi ci arriva prima della rete la SHALL trovare in attesa (`aria-busy`, l'icona
+che gira) se il resto è già in viaggio; altrimenti (una richiesta fallita) il
+click lo chiede e riàncora la lista sul messaggio che era il primo: un salto
+chiesto non è uno spostamento. Le superfici che leggono «tutti i
 messaggi» SHALL saperlo (`historyCompleteness`): un divisore di compattazione la
 cui ancora non è ancora caricata NON SHALL essere disegnato in cima; un salto
 dalla palette a un messaggio non ancora presente SHALL chiedere il resto invece
@@ -4544,12 +4555,21 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 - **AND** al ritorno la chat è di nuovo in fondo, sull'ultimo messaggio
 - **AND** il primo messaggio della chat è raggiungibile scorrendo in alto, senza la riga «Carica i messaggi precedenti»
 
-#### Scenario: chi scorre in alto prima del completamento trova la riga, e il click lo porta al primo messaggio
-- **GIVEN** la chat parziale appena ricaricata
+#### Scenario: salendo, i messaggi precedenti arrivano da soli e le righe lette restano ferme
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale con la rotella fino a oltre la fusione
+- **THEN** i messaggi precedenti sono chiesti una volta sola, senza click
+- **AND** nel fotogramma della fusione le righe a schermo si spostano al più del passo di rotella, e di 0 px nei fotogrammi dopo
+- **AND** nessun fotogramma resta senza righe, e il CLS resta al più 0,01
+- **AND** scorrendo ancora il primo messaggio della chat è visibile, e la riga «Carica i messaggi precedenti» non c'è più
+
+#### Scenario: chi arriva in cima prima della rete trova la riga in attesa, e il resto entra da solo
+- **GIVEN** la chat parziale appena ricaricata, con la risposta ai messaggi precedenti trattenuta
 - **WHEN** la persona scorre subito in cima alla finestra caricata
-- **THEN** compare la riga «Carica i messaggi precedenti (n)» con n = messaggi mancanti
-- **WHEN** la clicca
-- **THEN** la lista si riàncora sul messaggio che era il primo
+- **THEN** i messaggi precedenti sono stati chiesti una volta, dallo scorrimento
+- **AND** in cima c'è la riga «Carica i messaggi precedenti (n)» in attesa, con n = messaggi mancanti
+- **WHEN** la risposta arriva
+- **THEN** il resto entra senza click, la riga sparisce, e la riga che si stava leggendo resta dov'era, al più spostata dell'altezza della riga sparita
 - **AND** scorrendo ancora in alto il primo messaggio della chat è visibile
 
 #### Scenario: una chat più corta di una pagina

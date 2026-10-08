@@ -24,8 +24,8 @@ hermetic(test);
  * WHAT THIS SPEC PINS is the half the server cannot prove on its own: a chat
  * SHORTER than a page - so one that count-based paging would have served whole
  * - now arrives partial, and the client says so and completes it with the code
- * it already has. The tail is on screen from the first frame, the row at the
- * top names the messages it is still missing, and the click brings them.
+ * it already has. The tail is on screen from the first frame, and heading up
+ * brings the messages it is still missing by itself.
  * @covers CHAT-HIST-01
  */
 
@@ -114,21 +114,12 @@ test.describe("La prima pagina di una chat grassa sta nel budget", () => {
         // page: the byte budget cut it, and the client read `total`.
         await expect(p.locator(SCROLLER)).toHaveAttribute("data-history", "partial", { timeout: 15000 });
 
-        // Up top, the row that names what is missing and offers to bring it.
-        const divider = p.getByTestId("chat-load-older");
-        await wheelUpUntilVisible(p, divider);
-        await didascalia(p, "In cima alla finestra caricata: i messaggi che mancano, contati");
-        await beat(p, 1500);
-
-        await p.getByTestId("chat-load-older-button").click();
-        await expect(p.locator(SCROLLER)).toHaveAttribute("data-history", "complete", { timeout: 20000 });
-        await expect(divider).toHaveCount(0);
-        await didascalia(p, "Il click completa la storia con `before`");
-        await beat(p, 1200);
-
-        // And the head is reachable: the story is whole.
+        // Heading up, the scroll completes the story with `before` by itself, and
+        // the head is reachable with no row to click on the way.
         await wheelUpUntilVisible(p, rowOf(p, 1), 120);
-        await didascalia(p, "Scorrendo ancora, il primo messaggio della chat");
+        await expect(p.locator(SCROLLER)).toHaveAttribute("data-history", "complete", { timeout: 20000 });
+        await expect(p.getByTestId("chat-load-older")).toHaveCount(0);
+        await didascalia(p, "Scorrendo in alto la storia si completa da sola, fino al primo messaggio");
         await beat(p, 1500);
       },
     });

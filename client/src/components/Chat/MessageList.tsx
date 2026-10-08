@@ -5,6 +5,8 @@ import type { PlanDecisionHandler } from './planDetection';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { CompactionDivider } from './CompactionDivider';
 import { LoadOlderDivider } from './LoadOlderDivider';
+import { countItemsAddedAbove } from './itemsAddedAbove';
+import { OLDER_MERGE_SCREENS, OLDER_STAGE_SCREENS } from '../../../../shared/history-paging';
 import { CompactionHoistContext } from './compactionHoist';
 import { splitCompactionSummary } from '../../lib/compactionSummary';
 import { partitionMarkers } from './partitionMarkers';
@@ -149,6 +151,10 @@ function ChatHeader() {
 
 /** Stable for the life of the module: Virtuoso remounts a component whose type changes. */
 const VIRTUOSO_COMPONENTS = { Footer: ChatFooter, Header: ChatHeader, List: ChatList };
+/** Where `firstItemIndex` starts: arbitrary, it only has to stay positive, and a chat prepends at most its own length. */
+const FIRST_ITEM_INDEX_BASE = 1_000_000;
+/** Frames a prepend takes to settle, during which `followOutput` must not read the longer list as new output. */
+const GROW_ABOVE_SETTLE_FRAMES = 4;
 
 /** Stable identity for the missing queue: a new `[]` at every render would
  *  rebuild the Footer's head at every streaming token. */
@@ -493,6 +499,43 @@ export function MessageList({
   /** The chat's last word, past a background notice after it: where Retry and a plan's buttons go. */
   const lastWord = useMemo(() => lastConversationMessage(filteredMessages), [filteredMessages]);
 
+  /**
+   * PREPENDING WITHOUT MOVING. The rest of the history lands ABOVE the rows on
+   * screen, and to a virtual list that is "item 0 is another message now":
+   * positions, sizes and keys by index all shift. Virtuoso's `firstItemIndex`
+   * keeps the viewport on the same content when it decreases, in the same
+   * render, by the number of items prepended: counted off the two lists
+   * (`countItemsAddedAbove`) at render time, in step with the array Virtuoso
+   * receives. On Virtuoso 4.18.1 it cost a blank frame and a CLS of 0.60 (tag
+   * `archive/experiment-chat-tail-first-virtuoso-prepend`); 4.18.13 lands the
+   * compensating scroll in the same paint (`chat-infinite-scroll.spec.ts`).
+   */
+  const firstItemIndexRef = useRef({ items: filteredMessages, value: FIRST_ITEM_INDEX_BASE });
+  const growingAboveRef = useRef(false);
+  {
+    const track = firstItemIndexRef.current;
+    if (track.items !== filteredMessages) {
+      const added = countItemsAddedAbove(track.items, filteredMessages, carrierById);
+      if (added > 0) {
+        track.value -= added;
+        growingAboveRef.current = true;
+      }
+      track.items = filteredMessages;
+    }
+  }
+  const firstItemIndex = firstItemIndexRef.current.value;
+  useEffect(() => {
+    if (!growingAboveRef.current) return;
+    let left = GROW_ABOVE_SETTLE_FRAMES;
+    let raf = 0;
+    const tick = () => {
+      if (--left > 0) { raf = requestAnimationFrame(tick); return; }
+      growingAboveRef.current = false;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  });
+
   // ── THE REST OF THE HISTORY, out of sight ─────────────────────────────────
   /**
    * The list holds only the TAIL of the thread: a tail-first open painted the
@@ -521,6 +564,8 @@ export function MessageList({
   paneAliveRef.current = paneAlive;
   const streamingNowRef = useRef(_currentStreaming);
   streamingNowRef.current = _currentStreaming;
+  const sessionKeyRef = useRef(topic.sessionKey);
+  sessionKeyRef.current = topic.sessionKey;
   const itemsRef = useRef(filteredMessages);
   itemsRef.current = filteredMessages;
   const carrierRef = useRef(carrierById);
@@ -544,7 +589,7 @@ export function MessageList({
    * of the "pane returns visible" branch already land that.
    */
   const restoreAnchorRef = useRef<{ id: string; offset?: number } | null>(null);
-  /** The click on the divider has been made and the rest is on its way. */
+  /** The rest is on its way, asked by a click on the divider or by the scroll heading up to it. */
   const [olderLoading, setOlderLoading] = useState(false);
 
   // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
@@ -1733,6 +1778,19 @@ export function MessageList({
       // Kept for `completeOutOfSight`: once the pane is hidden its geometry
       // reads zero, and this is the last honest distance from the bottom.
       lastDistanceFromBottomRef.current = Math.max(0, el.scrollHeight - st - el.clientHeight);
+      // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
+      // Fetched a few screens before the top, merged two screens before it, where the prepend
+      // (`firstItemIndex`) and the divider it lifts from the first row are both out of sight. Only on a
+      // gesture: our own pins and the list settling never pull it in.
+      if (gesto && st < el.clientHeight * OLDER_STAGE_SCREENS && isHistoryIncomplete(completenessRef.current)) {
+        if (st < el.clientHeight * OLDER_MERGE_SCREENS) {
+          // A reader faster than the network reaches the divider first: it says the rest is on its way.
+          setOlderLoading(true);
+          void requestHistoryCompletion(sessionKeyRef.current, 'apply').finally(() => setOlderLoading(false));
+        } else {
+          void requestHistoryCompletion(sessionKeyRef.current, 'stage');
+        }
+      }
       // La freccia si ri-sincronizza QUI, dove la geometria è già sotto mano.
       syncArrow(el);
       // Fondo VERO raggiunto a mano: qui si scioglie la presa, e serve un
@@ -2151,6 +2209,8 @@ export function MessageList({
           ref={virtuosoRef}
           scrollerRef={scrollerRef}
           data={filteredMessages}
+          // Decreases by the items prepended when the rest of the history lands: see `firstItemIndexRef`.
+          firstItemIndex={firstItemIndex}
           // CONGELATO al montaggio, e non è un dettaglio: questa prop dice a
           // Virtuoso da quale item partire, e ricalcolarla a ogni messaggio la
           // fa RI-APPLICARE — la lista strappava la vista dalla cima al fondo da
@@ -2181,6 +2241,8 @@ export function MessageList({
           followOutput={(isAtBottom: boolean) => {
             if (peekScrollToMessage(topic.id)) return false;
             if (_currentStreaming) return false;
+            // The list just grew at the TOP: nothing new to follow.
+            if (growingAboveRef.current) return false;
             // Anche questo è un pin, solo che lo esegue Virtuoso e quindi non
             // passa da `shouldPin`. La sua idea di «in fondo» è la stessa
             // fascia dei 150px: senza questa riga, chi era risalito di 149px si
@@ -2298,7 +2360,9 @@ export function MessageList({
             });
           }}
           increaseViewportBy={{ top: 400, bottom: 400 }}
-          itemContent={(idx, msg) => {
+          itemContent={(absoluteIdx, msg) => {
+            // Virtuoso hands out the index offset by `firstItemIndex`; the list is addressed by its own.
+            const idx = absoluteIdx - firstItemIndex;
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && msg === lastWord;
