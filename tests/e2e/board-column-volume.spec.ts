@@ -117,6 +117,14 @@ async function openProjectBoard(page: Page) {
 const cardsIn = (page: Page, status: string) =>
   page.getByTestId(`kanban-column-body-${status}`).locator("[data-task-card]");
 
+/** Waits `n` painted frames: room for a chain of pages to show itself. */
+const afterFrames = (page: Page, n: number) =>
+  page.evaluate((n) => new Promise((r) => {
+    let frames = 0;
+    const tick = (): void => { if (++frames >= n) r(null); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }), n);
+
 test.describe("Kanban — il volume di una colonna", () => {
   test.describe.configure({ timeout: 240_000 });
   // 1600: a 1280 le cinque colonne non ci stanno e Done finisce fuori dallo
@@ -237,5 +245,29 @@ test.describe("Kanban — il volume di una colonna", () => {
       const r = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${id}`);
       return (await r.json()).task.status;
     }, { timeout: 10000 }).toBe("backlog");
+  });
+
+  test("COLVOL-04: passare da griglia a lista non carica pagine da sole", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LIST-PAGE-01" });
+    await page.goto("/");
+    await openProjectBoard(page);
+    await expect(cardsIn(page, "done").first()).toBeVisible({ timeout: 20000 });
+    const toggle = page.getByTestId("board-layout-toggle");
+    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
+
+    // The switch takes the scroll away from the column body. An observer left on it saw the
+    // show-more row in view forever and chained every page of the archive, with nobody scrolling.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await afterFrames(page, 120);
+    expect(await cardsIn(page, "done").count(), "no page without a reader").toBe(COLUMN_PAGE);
+
+    // And the list still pages: the row brought into view adds one page, then waits.
+    await page.getByTestId("kanban-column-more-done").scrollIntoViewIfNeeded();
+    await expect.poll(() => cardsIn(page, "done").count(), { timeout: 10000 }).toBe(COLUMN_PAGE * 2);
+    await afterFrames(page, 10);
+    expect(await cardsIn(page, "done").count(), "one page per reach, not a chain").toBe(COLUMN_PAGE * 2);
   });
 });

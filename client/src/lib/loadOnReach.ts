@@ -3,8 +3,9 @@
  * infinite scroll of the lists that grow downwards (a board column, the
  * notification history, the commit history, the sessions to resume).
  *
- * The row loads when it ENTERS the view, one request at a time. A page that
- * lands moves the row, so what the observer said before it is stale: the
+ * The row loads when it ENTERS the view, one request at a time. Any change in
+ * the row count moves the row (a page that lands, an item that arrives while a
+ * page is on its way), so what the observer said before it is stale: the
  * controller asks for a fresh look (`remeasure`) and loads again only if the
  * row is truly still in view (a short page, a tall viewport). Trusting the old
  * answer chained page after page within a frame, before the observer could say
@@ -50,10 +51,10 @@ export function loadOnReach(load: () => void, remeasure: () => void): LoadOnReac
       maybeLoad();
     },
     settle(next) {
-      const landed = askedAt !== null && next.count > askedAt;
+      const moved = next.count !== state.count;
       state = next;
-      if (landed && visible) {
-        // The page moved the row: wait for the observer's fresh answer before asking again.
+      if (moved && visible) {
+        // The list moved the row: wait for the observer's fresh answer before asking again.
         visible = false;
         remeasure();
         return;

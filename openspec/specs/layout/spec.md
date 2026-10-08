@@ -3442,7 +3442,10 @@ la pagina successiva da sole quando la loro riga «mostra altri» entra in vista
 alla volta; una riga ancora in vista dopo una pagina arrivata SHALL chiedere di
 nuovo solo se quella pagina ha aggiunto righe: una pagina fallita o vuota aspetta
 che chi legge esca e rientri, invece di interrogare il server in un ciclo
-(`client/src/lib/loadOnReach.ts`). Mentre una card della board viene trascinata la
+(`client/src/lib/loadOnReach.ts`). Ogni cambio del numero di righe, anche una riga
+arrivata mentre una pagina è in viaggio, SHALL far guardare di nuovo la riga prima di
+chiedere; e il contenitore guardato SHALL essere quello che la scorre in quel momento,
+anche dopo un cambio di disposizione. Mentre una card della board viene trascinata la
 colonna NON SHALL crescere sotto il puntatore. La riga SHALL restare un bottone,
 per la tastiera e per un browser senza IntersectionObserver.
 
@@ -3460,3 +3463,10 @@ per la tastiera e per un browser senza IntersectionObserver.
 - **GIVEN** una card della board in trascinamento
 - **WHEN** la riga «mostra altri» di una colonna entra in vista
 - **THEN** la colonna non carica niente finché il trascinamento non finisce
+
+#### Scenario: cambiare disposizione non carica pagine da sole
+- **GIVEN** la board a griglia, con la colonna Done a una pagina e il suo archivio di centinaia di card
+- **WHEN** la persona passa alla disposizione a lista e non scorre
+- **THEN** la colonna Done resta a una pagina
+- **WHEN** la persona scorre fino alla riga «mostra altri» di Done
+- **THEN** arriva una pagina sola

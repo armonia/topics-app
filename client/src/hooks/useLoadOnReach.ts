@@ -4,7 +4,7 @@ import { loadOnReach, type ListState, type LoadOnReach } from '../lib/loadOnReac
 /** How far below the visible area the "show more" row starts loading: the page lands before the reader gets there. */
 const AHEAD_PX = 240;
 
-/** The element that scrolls the row: the observer's root, so the margin above counts inside it. */
+/** The element that scrolls the row now: the observer's root, so the margin above counts inside it. */
 function scrollParent(el: HTMLElement): Element | null {
   for (let p = el.parentElement; p; p = p.parentElement) {
     const { overflowY } = getComputedStyle(p);
@@ -26,23 +26,31 @@ export function useLoadOnReach(load: () => void, state: ListState): (el: HTMLEle
     latest.current = { load, state };
   });
   const ctl = useRef<LoadOnReach | null>(null);
-  // One controller and one observer per row element, settled at once with the list as it is.
+  // One controller per row element, settled at once with the list as it is.
   useEffect(() => {
     if (!row || typeof IntersectionObserver === 'undefined') return;
-    // A target observed anew always gets a first answer: that is the fresh look a landed page asks for.
-    const remeasure = (): void => {
-      io.unobserve(row);
+    let io: IntersectionObserver | null = null;
+    // A new observer always gives a first answer: that is the fresh look a moved list asks for. It is
+    // rebuilt on the element that scrolls the row NOW: a layout switch (a board column turned list) takes
+    // the scroll away from the old root, which then holds the row in view forever and pages chain.
+    const watch = (): void => {
+      io?.disconnect();
+      const root = scrollParent(row);
+      io = new IntersectionObserver((entries) => {
+        if (scrollParent(row) !== root) {
+          watch();
+          return;
+        }
+        for (const entry of entries) controller.seen(entry.isIntersecting);
+      }, { root, rootMargin: `0px 0px ${AHEAD_PX}px 0px` });
       io.observe(row);
     };
-    const controller = loadOnReach(() => latest.current.load(), remeasure);
-    const io = new IntersectionObserver((entries) => {
-      for (const entry of entries) controller.seen(entry.isIntersecting);
-    }, { root: scrollParent(row), rootMargin: `0px 0px ${AHEAD_PX}px 0px` });
-    io.observe(row);
+    const controller = loadOnReach(() => latest.current.load(), watch);
+    watch();
     ctl.current = controller;
     controller.settle(latest.current.state);
     return () => {
-      io.disconnect();
+      io?.disconnect();
       ctl.current = null;
     };
   }, [row]);
