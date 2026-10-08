@@ -180,6 +180,24 @@ export function subagentDepth(db: Db, sessionKey: string): number {
   return depth;
 }
 
+/**
+ * The session at the top of the spawn chain: the person's chat that started a
+ * child, a grandchild, and so on. Returns `sessionKey` itself when it is not a
+ * child. Used to put a child's browser into the window of the chat the person
+ * is looking at, instead of a layout tab of its own for every child.
+ */
+export function rootSessionKeyOf(db: Db, sessionKey: string): string {
+  let key = sessionKey;
+  const seen = new Set<string>();
+  while (!seen.has(key)) {
+    seen.add(key);
+    const row: SubagentRow | null = getSubagent(db, key) ?? getSubagentBySessionKey(db, key);
+    if (!row?.parentSessionKey) break;
+    key = row.parentSessionKey;
+  }
+  return key;
+}
+
 export function getSubagent(db: Db, id: string): SubagentRow | null {
   return attempt(null, () => {
     const r = db.query(`SELECT ${COLUMNS} FROM subagents WHERE id = ?`).get(id) as RawRow | null;

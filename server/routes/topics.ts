@@ -60,6 +60,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicTo
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { subagentWakeState } from "../lib/subagent-runtime";
+import { rootSessionKeyOf } from "../lib/subagent-store";
 import { requestSubagentWake, writeQueuedWakesAsRows } from "../services/subagent-wake";
 import { stopNativeChildrenOf } from "../lib/native-subagents";
 import { computeTopicChanges, resolveTopicChangeTarget, revsOfTarget } from "../lib/topic-changes";
@@ -1045,6 +1046,10 @@ export function createTopicsRouter(
     persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
     attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
     paneAttachedTo,
+    browserHostTopicOf: (topic) => {
+      const root = rootSessionKeyOf(ctx.db, topic.sessionKey);
+      return root === topic.sessionKey ? null : getTopicBySessionKey(root)?.id;
+    },
   }, browserService);
 
   /**

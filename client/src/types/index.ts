@@ -1009,6 +1009,12 @@ export interface WSBrowserNavigateMessage {
    * instead of an invisible Playwright phantom. Absent → legacy random id.
    */
   contextId?: string;
+  /**
+   * The chat whose window shows this browser when it is not `topicId`: a
+   * spawned child runs in a topic nobody has on screen, so its page goes into
+   * the window of the chat that spawned it instead of a layout tab of its own.
+   */
+  hostTopicId?: string;
 }
 /**
  * Open a browser pane in the same layout group as a specific pane, then

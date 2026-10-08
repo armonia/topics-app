@@ -246,15 +246,17 @@ export function useProjectBrowserPanes({
     const topicBelongsToThisProject = (topicId: string | undefined): boolean => topicMembership(topicId) !== null;
 
     const unsubWS = onWSMessage((msg: WSMessage) => {
-      const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
+      const m = msg as unknown as { type?: string; topicId?: string; hostTopicId?: string; url?: string; paneId?: string; contextId?: string };
       if (m.type === 'browser:navigate' && m.url) {
-        const membership = topicMembership(m.topicId);
+        // A spawned child's browser belongs where its parent chat is (see the
+        // same branch in usePaneOrdering).
+        const membership = topicMembership(m.hostTopicId ?? m.topicId);
         tracePaneAttach('navigate received', { projectPath, topicId: m.topicId ?? null, contextId: m.contextId ?? null, membership });
         // Bind the pane to the server-resolved contextId (== topic.id) so the
         // native CDP target registers under the id the agent's browser_* tools
         // resolve to (no invisible Playwright phantom). Falls back to topicId
         // (the chat-topic contextId) when the broadcast predates the field.
-        if (membership) ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
+        if (membership) ensureBrowserPaneAndNavigate(m.url, undefined, m.hostTopicId ?? m.topicId, m.contextId ?? m.topicId);
       }
       // Terminal-originated open: only the project window whose layout actually
       // contains the terminal pane reacts; it opens the browser beside that
