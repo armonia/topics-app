@@ -12,15 +12,19 @@
  *
  * The hooks carry `tool_response` as Claude Code 2.1.282 writes it
  * (`backgroundTaskId`, `agentId`, `taskId`, the cron's `id` and `recurring`),
- * copied from `tests/fixtures/claude-cli-2.1.282-*.ndjson`.
+ * copied from `tests/fixtures/claude-cli-2.1.282-*.ndjson`. A task that ends
+ * while a turn runs reports in the CLI's queue records alone (2.1.292, the
+ * notification absorbed mid-turn): they close it too, live and at a reattach.
  * @covers ATTN-03
  * @covers ATTN-12
  */
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, join } from 'path';
 import { createClaudeSessionTracker } from './claude-session-tracker';
+import { deriveTranscriptPath } from './claude-session-state';
 import { configureAttentionStore, resetAttentionStore, getAttention, countingTasks } from '../attention/store';
 
 // The store is a process singleton: leave it as the next file expects it.
@@ -78,6 +82,11 @@ const CRON_ONCE: Tool = { tool_name: 'CronCreate', tool_input: { cron: '57 9 25 
   tool_response: { id: 'afc60409', humanSchedule: '57 9 25 9 *', recurring: false, durable: false } };
 const CRON_LOOP: Tool = { tool_name: 'CronCreate', tool_input: { cron: '*/5 * * * *', prompt: 'check CI' },
   tool_response: { id: 'c0ffee01', humanSchedule: '*/5 * * * *', recurring: true, durable: false } };
+/** The background Bash of the recorded 2.1.292 session, and the queue records its end left in the transcript (sanitized). */
+const BASH_ABSORBED: Tool = { tool_name: 'Bash', tool_input: { command: 'make gates', description: 'Run all hand gates sequentially', run_in_background: true },
+  tool_response: { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: 'b76lzwo0d' } };
+const ABSORBED_LINES = readFileSync(join(import.meta.dir, '..', '..', 'tests', 'fixtures', 'claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl'), 'utf8')
+  .split('\n').filter(Boolean);
 const BASH_FG: Tool = { tool_name: 'Bash', tool_input: { command: 'bun test' },
   tool_response: { stdout: 'ok', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } };
 
@@ -147,6 +156,22 @@ describe('the phase at Stop counts every task in flight, by id, in the attention
       expect(countingTasks(subject)).toBe(1);
       tracker.ingestHook({ hook_event_name: 'Stop', session_id: sid } as never, (t += 200));
       expect(phaseOf(tracker, sid)).toBe('watching');
+    });
+
+    it(`${label}: a task whose notification is absorbed mid-turn leaves the map, and the Stop gives awaiting-user`, () => {
+      const { tracker, sid, subject } = make([]);
+      let t = T0;
+      const hook = (h: Record<string, unknown>) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200));
+      hook({ hook_event_name: 'UserPromptSubmit' });
+      hook({ hook_event_name: 'PreToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      hook({ hook_event_name: 'PostToolUse', tool_use_id: 'toolu_0', ...BASH_ABSORBED });
+      expect(countingTasks(subject)).toBe(1);
+      // The task ends while the turn still runs: no user line, only the queue's records.
+      for (const line of ABSORBED_LINES) tracker.ingestTranscriptLine(sid, line, (t += 200));
+      expect(countingTasks(subject)).toBe(0);
+      hook({ hook_event_name: 'Stop' });
+      expect(phaseOf(tracker, sid)).toBe('awaiting-user');
+      expect(getAttention(subject).background).toEqual([]);
     });
   }
 
@@ -224,5 +249,41 @@ describe('a terminal turn put to rest without a Stop is over for the attention s
     tracker.reapOnce(t + 2 * 60 * 60 * 1000);
     expect(phaseOf(tracker, sid)).toBe('dormant');
     expect(getAttention(subject)).toMatchObject({ state: 'working', background: [expect.objectContaining({ id: 'b7kapz0ad' })] });
+  });
+});
+
+/**
+ * A server restart reattaches a terminal without replaying its history: the
+ * offset snaps to the end of the transcript. A task whose notification was
+ * written meanwhile, or skipped by an older parser, still has to leave the map,
+ * or the terminal reads «working» until its PTY exits (ATTN-03).
+ */
+describe('a reattached terminal drops the tasks its transcript already reports finished', () => {
+  beforeEach(() => { resetAttentionStore(); configureAttentionStore({ db: () => null, sendPush: () => {}, recordRow: () => null, graceMs: 0 }); });
+
+  it('terminal: the notification sits in the transcript, the reattach takes its task out and replays no phase', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'bg-reattach-'));
+    try {
+      const cwd = '/work/project';
+      const { tracker, sid, subject } = terminalTracker([]);
+      let t = T0;
+      turn([BASH_ABSORBED]).forEach((h) => tracker.ingestHook({ ...h, session_id: sid } as never, (t += 200)));
+      expect(phaseOf(tracker, sid)).toBe('watching');
+      // Its end lands in the transcript while no server reads the file.
+      const path = deriveTranscriptPath(home, cwd, sid);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, ABSORBED_LINES.join('\n') + '\n');
+      // The restart: a new tracker reattaches the terminal; the store keeps its map, as its table does.
+      const after = createClaudeSessionTracker({ db: freshDb(), broadcast: () => {}, coalesceWindowMs: 5, dedupWindowMs: 100, rateLimitPerSec: 50, attentionSubject: subjectOf, homeDir: home });
+      after.registerTerminalSession(sid, { cwd, now: (t += 200) });
+      const deadline = Date.now() + 3_000;
+      while (countingTasks(subject) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+      expect(countingTasks(subject)).toBe(0);
+      expect(getAttention(subject)).toMatchObject({ background: [] });
+      expect(getAttention(subject).state).not.toBe('working');
+      expect(phaseOf(after, sid)).toBe('dormant');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

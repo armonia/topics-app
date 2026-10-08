@@ -149,6 +149,19 @@ function lineText(parsed: Record<string, unknown>): string {
 }
 
 /**
+ * Where a line carries its `<task-notification>`. One that lands while a turn
+ * runs never becomes a user line: Claude Code absorbs it mid-turn, and only its
+ * `queue-operation` enqueue names it (2.1.292,
+ * `tests/fixtures/claude-cli-2.1.292-absorbed-task-notification.transcript.jsonl`).
+ * The enqueue is written for every notification, delivered or absorbed.
+ */
+function notificationText(parsed: Record<string, unknown>): string {
+  if (parsed.type === "user") return lineText(parsed);
+  if (parsed.type === "queue-operation" && parsed.operation === "enqueue" && typeof parsed.content === "string") return parsed.content;
+  return "";
+}
+
+/**
  * The tasks a transcript line reports as finished. A Bash, an Agent, a
  * Workflow report once, at their end. A Monitor reports every event: only its
  * END closes it (a `<status>`, or an event that says it expired, ended or
@@ -160,8 +173,8 @@ function lineText(parsed: Record<string, unknown>): string {
 export function finishedTasksOfTranscriptLine(line: string, kindOf: (id: string) => string | null): string[] {
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(line); } catch { return []; }
-  if (!parsed || parsed.type !== "user") return [];
-  const text = lineText(parsed);
+  if (!parsed) return [];
+  const text = notificationText(parsed);
   if (!text.includes("<task-notification>")) return [];
   const out: string[] = [];
   for (const m of text.matchAll(TASK_NOTIFICATION)) {

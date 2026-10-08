@@ -660,6 +660,38 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     }
     terminalStates.set(claudeSessionId, state);
     scheduleBroadcast(state);
+    // A reattach replays no phase, but the tasks its history reports finished still leave the map.
+    if (jsonlPath && state.jsonlOffset) {
+      void catchUpTasks(state, jsonlPath, state.jsonlOffset).catch((err) => console.warn('[claude-session-tracker] task catch-up failed', err));
+    }
+  }
+
+  /**
+   * The tasks a reattached terminal still holds that its transcript already
+   * reports finished. A notification written while no server read the file, or
+   * one an older parser skipped (the absorbed enqueue of Claude Code 2.1.292),
+   * would keep the subject «working» until its PTY exits. Only the task map
+   * moves (`transcriptTasks`), read in chunks up to where the live tail starts.
+   */
+  async function catchUpTasks(state: ClaudeSessionState, jsonlPath: string, end: number): Promise<void> {
+    const subject = subjectOf(state);
+    if (!subject || countingTasks(subject) === 0) return;
+    const fh = await fsp.open(jsonlPath, 'r');
+    try {
+      const decoder = new TextDecoder();
+      const buf = Buffer.alloc(1 << 20);
+      let rest = '';
+      for (let at = 0; at < end && countingTasks(subject) > 0;) {
+        const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, end - at), at);
+        if (bytesRead === 0) break;
+        at += bytesRead;
+        const { lines, remainder } = splitJsonlChunk(rest + decoder.decode(buf.subarray(0, bytesRead), { stream: true }));
+        rest = remainder;
+        for (const line of lines) if (line.includes('<task-notification>')) transcriptTasks(subject, line);
+      }
+    } finally {
+      await fh.close();
+    }
   }
 
   function dropTerminalSession(claudeSessionId: string): void {

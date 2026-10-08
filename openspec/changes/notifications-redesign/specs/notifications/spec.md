@@ -181,8 +181,15 @@ La macchina delle fasi SHALL mettere `watching` allo `Stop` quando la sessione h
 un compito in volo, qualunque sia il tool che l'ha lanciato, e `awaiting-user` quando non
 ne ha.
 
+L'avviso di fine SHALL valere anche quando la CLI lo assorbe a metà turno: dalla 2.1.292
+non diventa una riga utente, e lo nomina solo il record di coda `queue-operation`
+`enqueue`, che la CLI scrive per ogni avviso, consegnato o assorbito.
+
 La mappa dei compiti SHALL sopravvivere a un ricarico del server finché il processo che
-la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15).
+la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15). Un terminale riattaccato
+dopo un ricarico SHALL rileggere dal suo transcript gli avvisi dei compiti ancora in
+volo, senza ripercorrere la fase: un avviso scritto mentre nessun server leggeva il file
+chiude il suo compito come gli altri.
 
 #### Scenario: Bash, Agent e Workflow in un terminale
 - **GIVEN** un terminale claude-code con hook
@@ -207,6 +214,16 @@ la tiene è vivo. La fine del processo SHALL svuotarla (ATTN-15).
 - **GIVEN** un terminale claude-code con hook
 - **WHEN** un turno crea un cron ricorrente e arriva `Stop`
 - **THEN** la fase SHALL essere `awaiting-user` e lo stato `finished(done)`
+
+#### Scenario: l'avviso assorbito a metà turno
+- **GIVEN** un terminale o una chat con un Bash in background in volo
+- **WHEN** il compito finisce mentre un turno gira, la CLI scrive solo i record di coda (`enqueue`, poi `remove` con `absorbed_mid_turn`) e arriva lo `Stop`
+- **THEN** il compito SHALL uscire dalla mappa e la fase SHALL essere `awaiting-user`
+
+#### Scenario: l'avviso scritto mentre il server non leggeva
+- **GIVEN** un terminale in `watching` per un Bash in background
+- **WHEN** il server si ricarica e il transcript contiene già l'avviso di fine di quel compito
+- **THEN** al riattacco il compito SHALL uscire dalla mappa, lo stato non SHALL essere `working` e la fase SHALL restare `dormant`
 
 ### Requirement: ATTN-04 — Una persona in mezzo è «ti serve», da qualunque porta arrivi
 
