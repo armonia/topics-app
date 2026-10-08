@@ -16,6 +16,12 @@
           "en": "",
           "scope": "claude-code",
           "breaking": false
+        },
+        {
+          "it": "il server gira sulla Bun di .bun-version, con un binario solo per Topics",
+          "en": "",
+          "scope": "prod",
+          "breaking": false
         }
       ],
       "perf": [],

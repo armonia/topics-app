@@ -12,6 +12,10 @@
         {
           "text": "un riavvolgimento abbandonato restituisce i frame che aveva scartato",
           "scope": "claude-code"
+        },
+        {
+          "text": "il server gira sulla Bun di .bun-version, con un binario solo per Topics",
+          "scope": "prod"
         }
       ],
       "perf": []

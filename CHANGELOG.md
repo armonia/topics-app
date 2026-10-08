@@ -7,6 +7,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **claude-code** · il segno lo lascia solo uno scan interrotto
 - **claude-code** · un riavvolgimento abbandonato restituisce i frame che aveva scartato
+- **prod** · il server gira sulla Bun di .bun-version, con un binario solo per Topics
 
 ### Sotto il cofano
 - **openspec** · VERIFICA del terzo giro, T18 e T19 in un file a parte
