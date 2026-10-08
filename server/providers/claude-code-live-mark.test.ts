@@ -1,16 +1,23 @@
 /**
- * A FAILED RE-ADOPTION'S LIVE MARK ENDS AT THE NEXT TURN (T19, verification).
+ * THE MARK A FAILED RE-ADOPTION LEAVES ENDS AT THE FIRST FRAME FOLDED AFTER IT
+ * (T19, verification).
  *
- * The server restarts with a turn in flight and re-adopts it. The adopted turn is
- * refused (here a rate limit on the CLI's stderr), with the child alive and our
- * cursor already at the end of its store: `finalizeFailedReattach` leaves
- * `reattachLive`, and nothing spent it, since the lag probe sees no gap. The next
- * turn, a healthy one on the same child, loses its attach halfway: its first
- * resync went live, to the store's end, past the turn's own tail and `result`.
- * The answer came out "a1,a2," and the turn hung until the watchdog.
+ * The server restarts with a turn in flight and re-adopts it. The adopted turn
+ * is refused (here a rate limit on the CLI's stderr) with the child alive, and
+ * `finalizeFailedReattach` leaves `reattachLive`: the next resync goes to the
+ * store's end. Nothing spent the mark while the frames after it were folded, so
+ * it outlived them, and the first resync of a turn that later lost its attach
+ * jumped past that turn's own tail, `result` included. The answer came out cut
+ * and the row hung until the watchdog.
  *
- * Red before `spendLiveMark`; green after, with the probe's ordinary resync
- * recovering the tail. The scenario and the CLI are the independent verifier's.
+ * Two turns hit it, one test each:
+ *  - the next healthy turn the person sends ("a1,a2," instead of "a1,a2,a3,");
+ *  - the refused turn itself, going on after the 529 as a woken turn. That one
+ *    is no send of ours, which is why spending the mark when a send starts was
+ *    not enough.
+ *
+ * Both are red on the code before `admitFrame` spent the mark. The scenarios
+ * and the CLI are the independent verifier's.
  *
  * @covers CCLI-04
  */
@@ -43,7 +50,7 @@ async function seedTopic(sessionKey: string, id: string) {
   ).run(id, id, id, sessionKey, now, now);
 }
 function counting() {
-  let received = ""; let deltas = 0; let dones = 0; let ended: string | null = null;
+  let received = ""; let deltas = 0; let ended: string | null = null;
   let resolveDone!: () => void;
   const done = new Promise<void>((r) => { resolveDone = r; });
   const end = (how: string) => { ended ??= how; resolveDone(); };
@@ -51,10 +58,10 @@ function counting() {
     onTextDelta: (d: string) => { received += d; deltas++; },
     onToolStart: () => {}, onToolResult: () => {}, onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
     onAborted: (info: any) => end(`aborted:${info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "?"}`),
-    onDone: () => { dones++; end("done"); },
+    onDone: () => end("done"),
     onError: (e: string) => end(`error:${e}`),
   };
-  return { handler, done, get text() { return received; }, get deltas() { return deltas; }, get dones() { return dones; }, get ended() { return ended; } };
+  return { handler, done, get text() { return received; }, get deltas() { return deltas; }, get ended() { return ended; } };
 }
 function storeSize(storeDir: string, sessionKey: string): number {
   const p = join(storeDir, `${sessionKey.replace(/[^A-Za-z0-9_.-]/g, "_")}.ndjson`);
@@ -91,10 +98,16 @@ afterAll(async () => {
   if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 });
 
-async function scenario(tag: string) {
+/**
+ * Turn 1 in flight across a restart, and its re-adoption refused for a rate
+ * limit with the child alive. `turn1Rest` is what the CLI writes once `g(1)`
+ * exists, `turn2` its answer to the next message; `G(n)` in them is gate n.
+ */
+async function refusedReadoption(tag: string, turn1Rest: string, turn2: string) {
   const sessionKey = `topic:live-mark-${tag}`;
   await seedTopic(sessionKey, `t-live-mark-${tag}`);
   const g = (n: number) => join(tempDir, `${tag}.g${n}`);
+  const gated = (body: string) => body.replace(/G\((\d)\)/g, (_m, d) => g(Number(d)));
   setEnv("TOPICS_CLAUDE_CLI_PATH", writeCli(`${tag}.sh`, `n=0
 while read line; do
   n=$((n+1))
@@ -103,11 +116,9 @@ while read line; do
     while [ ! -f '${g(0)}' ]; do sleep 0.02; done
     echo 'API Error: 529 {"type":"error","error":{"type":"overloaded_error"}} retrying' >&2
     while [ ! -f '${g(1)}' ]; do sleep 0.02; done
-    printf '%s\\n' '${text("t1b,")}' '${RESULT}'
+${gated(turn1Rest)}
   else
-    printf '%s\\n' '${text("a1,")}' '${text("a2,")}'
-    while [ ! -f '${g(2)}' ]; do sleep 0.02; done
-    printf '%s\\n' '${text("a3,")}' '${RESULT}'
+${gated(turn2)}
   fi
 done`));
   const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
@@ -129,48 +140,83 @@ done`));
   until = Date.now() + 10_000;
   while (!(pp()?.streamHandler === sr.handler && !pp()?.replaySilent) && Date.now() < until) await pause(20);
   await pause(200);
-  // The CLI reports an overload on stderr and keeps working on the turn > 10 s.
+  // The CLI reports an overload on stderr and keeps working on the turn for more than 10 s.
   writeFileSync(g(0), "");
   await Promise.race([sr.done, pause(14_000)]);
   await reattached;
-  // The CLI ends turn 1 (folded with no handler).
-  writeFileSync(g(1), "");
-  until = Date.now() + 5_000;
-  while (pp().consumedOffset < storeSize(client.storeDir, sessionKey) && Date.now() < until) await pause(20);
-  await pause(300);
-  // Production's probe ticks every 4 s: the cursor is at the end, so nothing consumes the flag.
-  await second.probeStreamLag(); await second.probeStreamLag(); await second.probeStreamLag();
-  const stickyBeforeTurn2 = pp().reattachLive === true;
-  // Turn 2, a healthy turn on the same child.
-  const ppBefore = pp();
-  const s2 = counting();
-  const t2 = second.sendChat(sessionKey, "second", s2.handler).catch((e: any) => `rejected:${e?.message}`);
-  until = Date.now() + 10_000;
-  while (s2.deltas < 2 && Date.now() < until) await pause(20);
-  expect(s2.text).toBe("a1,a2,");
-  expect(pp()).toBe(ppBefore);
-  // The attachment is lost (socket stays): the CLI writes a3 and the result to the store only.
-  client.detach(sessionKey);
-  await pause(100);
-  writeFileSync(g(2), "");
-  until = Date.now() + 5_000;
-  while (storeSize(client.storeDir, sessionKey) <= pp().consumedOffset && Date.now() < until) await pause(20);
-  await pause(200);
-  // The lag probe: two sightings of the same gap, the second re-attaches.
-  await second.probeStreamLag(); await second.probeStreamLag();
-  await Promise.race([s2.done, pause(3_000)]);
-  const res = { stickyBeforeTurn2, ended: s2.ended, text: s2.text };
-  second.stop();
-  try { client.kill(sessionKey); } catch { /* */ }
-  void t2;
-  return res;
+  expect(sr.ended, "the adopted turn is refused for the rate limit").toContain("RATE_LIMIT");
+  expect(pp().reattachLive, "and the failed re-adoption leaves its mark").toBe(true);
+  return { sessionKey, client, second, pp, g };
 }
 
-describe("claude-code provider · the live mark a failed re-adoption leaves", () => {
-  test("is spent when the next turn starts: a healthy turn that loses its attach gets its whole tail", async () => {
-    const r = await scenario("next-turn");
-    expect(r.stickyBeforeTurn2, "the re-adoption failed and left the mark, as in production").toBe(true);
-    expect(r.text).toBe("a1,a2,a3,");
-    expect(r.ended).toBe("done");
+/** The attach is lost (the socket stays), the CLI writes past gate `n` to the store only, and the lag probe sees the gap twice. */
+async function loseAttachThenProbe(ctx: Awaited<ReturnType<typeof refusedReadoption>>, n: number) {
+  const { sessionKey, client, second, pp, g } = ctx;
+  client.detach(sessionKey);
+  await pause(100);
+  writeFileSync(g(n), "");
+  const until = Date.now() + 5_000;
+  while (storeSize(client.storeDir, sessionKey) <= pp().consumedOffset && Date.now() < until) await pause(20);
+  await pause(200);
+  await second.probeStreamLag(); await second.probeStreamLag();
+}
+
+describe("claude-code provider · the mark a failed re-adoption leaves", () => {
+  test("the next turn, losing its attach, still gets its whole answer", async () => {
+    const ctx = await refusedReadoption("next-turn",
+      `    printf '%s\\n' '${text("t1b,")}' '${RESULT}'`,
+      `    printf '%s\\n' '${text("a1,")}' '${text("a2,")}'
+    while [ ! -f 'G(2)' ]; do sleep 0.02; done
+    printf '%s\\n' '${text("a3,")}' '${RESULT}'`);
+    const { sessionKey, client, second, pp, g } = ctx;
+    try {
+      // The CLI ends the refused turn, folded with no handler.
+      writeFileSync(g(1), "");
+      let until = Date.now() + 5_000;
+      while (pp().consumedOffset < storeSize(client.storeDir, sessionKey) && Date.now() < until) await pause(20);
+      await pause(300);
+      // Turn 2, a healthy one on the same child.
+      const child = pp();
+      const s2 = counting();
+      void second.sendChat(sessionKey, "second", s2.handler).catch(() => {});
+      until = Date.now() + 10_000;
+      while (s2.deltas < 2 && Date.now() < until) await pause(20);
+      expect(s2.text).toBe("a1,a2,");
+      expect(pp()).toBe(child);
+      await loseAttachThenProbe(ctx, 2);
+      await Promise.race([s2.done, pause(3_000)]);
+      expect(s2.text).toBe("a1,a2,a3,");
+      expect(s2.ended).toBe("done");
+    } finally {
+      second.stop();
+      try { client.kill(sessionKey); } catch { /* the child may be gone already */ }
+    }
+  }, 60_000);
+
+  test("the refused turn, going on as a woken turn, gets its tail when its attach is lost", async () => {
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const ctx = await refusedReadoption("woken",
+      `    printf '%s\\n' '${text("t1b,")}'
+    while [ ! -f 'G(2)' ]; do sleep 0.02; done
+    printf '%s\\n' '${text("t1c,")}' '${RESULT}'`,
+      `    printf '%s\\n' '${text("x,")}' '${RESULT}'`);
+    const { sessionKey, client, second, g } = ctx;
+    const wake = counting();
+    // The route adopts the wake into a row of its own.
+    ClaudeCodeProvider.observeWokenTurns((sk) => sk === sessionKey && second.adoptWokenTurn(sk, wake.handler));
+    try {
+      writeFileSync(g(1), "");
+      const until = Date.now() + 5_000;
+      while (wake.deltas < 1 && Date.now() < until) await pause(20);
+      expect(wake.text).toBe("t1b,");
+      await loseAttachThenProbe(ctx, 2);
+      await Promise.race([wake.done, pause(3_000)]);
+      expect(wake.text).toBe("t1b,t1c,");
+      expect(wake.ended).toBe("done");
+    } finally {
+      ClaudeCodeProvider.observeWokenTurns(() => false);
+      second.stop();
+      try { client.kill(sessionKey); } catch { /* the child may be gone already */ }
+    }
   }, 60_000);
 });

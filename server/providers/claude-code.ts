@@ -60,7 +60,7 @@ import {
   readCommandOutcome,
   readSyntheticText,
 } from "./claude/events";
-import { admitFrame, closeAfterTail, spendLiveMark } from "./claude/broker-cursor";
+import { admitFrame, closeAfterTail } from "./claude/broker-cursor";
 import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
 import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
@@ -983,7 +983,7 @@ interface PersistentProcess {
    *  with the live attach's reply it became the new turn's answer (T18, verification). */
   attachPending?: boolean;
   rewindFrom?: number; // the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`)
-  reattachLive?: boolean; // left by a failed re-adoption: the cursor is where its scan stopped, the next resync is live
+  reattachLive?: boolean; // left by a failed re-adoption: the cursor is where its scan stopped, the next resync is live unless a frame folds first
   exitTail?: Promise<void>; // the tail of a child that exited while we were detached, until it is folded (`closeAfterTail`)
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
@@ -1940,7 +1940,6 @@ export class ClaudeCodeProvider implements AIProvider {
     // write (spawn + write share the socket FIFO, but spawn's send is behind an
     // ensureConnected microtask). No-op in direct mode (ready resolved at spawn).
     await pp.ready;
-    if (pp.reattachLive) await spendLiveMark(pp, () => getAiBridgeClient().attachLive(sessionKey, 1)); // the turn starts past a failed re-adoption's history
     // Stopped, or taken off this turn, while the child was being spawned. No
     // send was waiting yet, so `abort()` had nothing to reject and told the
     // handler itself, and a SIGINT sent before the spawn reached nobody.

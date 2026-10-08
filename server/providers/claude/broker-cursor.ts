@@ -29,7 +29,7 @@ export interface BrokerCursor {
   aborting?: boolean;
   stoppedExit?: unknown;
   attachPending?: boolean;
-  /** The cursor was left by a failed re-adoption: the next re-attach is live (`resyncNow`). */
+  /** The cursor was left by a failed re-adoption: the next re-attach is live (`resyncNow`), unless a frame folds first (`admitFrame`). */
   reattachLive?: boolean;
   /** The tail being fetched by `closeAfterTail`, until the turn is closed. */
   exitTail?: Promise<void>;
@@ -53,18 +53,34 @@ export interface BrokerCursor {
  * again by the replay (43 numbers out of 600, T19). Now it is named by its
  * offset: until a frame starts exactly there, every frame is one the replay
  * will repeat, and is dropped; from there on the replay is contiguous.
+ *
+ * A FOLDED FRAME SPENDS THE MARK A FAILED RE-ADOPTION LEFT. `reattachLive` says
+ * the cursor stopped inside history that a re-attach must not replay. After the
+ * failure the frames that reach us are live ones, and the first one folded puts
+ * the cursor at the store's end: nothing behind it is left to skip. Left on, the
+ * mark outlived those frames, and the first resync of a later turn jumped to the
+ * store's end past that turn's own tail, `result` included (verification of T19,
+ * 08/10: "a1,a2," instead of "a1,a2,a3,", the row hung until the watchdog).
+ * Spending it when the next turn starts was refuted too: the refused turn goes
+ * on as a woken turn, which is no send of ours, and the round trip that spent it
+ * widened the window in which a wake folds into the new turn's row.
  */
 export function admitFrame(c: BrokerCursor, chunk: Buffer, offset: number): { chunk: Buffer; offset: number } | null {
   if (c.rewindFrom !== undefined) {
     if (offset !== c.rewindFrom) return null;
     c.rewindFrom = undefined;
-    return { chunk, offset };
+    return folded(c, chunk, offset);
   }
   if (offset < c.consumedOffset && !c.replayMute) {
     const seen = c.consumedOffset - offset;
     if (seen >= chunk.byteLength) return null;
-    return { chunk: chunk.subarray(seen), offset: c.consumedOffset };
+    return folded(c, chunk.subarray(seen), c.consumedOffset);
   }
+  return folded(c, chunk, offset);
+}
+
+function folded(c: BrokerCursor, chunk: Buffer, offset: number): { chunk: Buffer; offset: number } {
+  c.reattachLive = false;
   return { chunk, offset };
 }
 
@@ -122,32 +138,4 @@ export function closeAfterTail(
     )
     .then(() => { c.exitTail = undefined; close(wasAlive); })
     .catch((err) => console.error(`[claude-code] closing ${c.sessionKey} after its tail threw:`, err));
-}
-
-/**
- * A FAILED RE-ADOPTION'S MARK ENDS WHERE THE NEXT TURN BEGINS.
- *
- * `finalizeFailedReattach` leaves `reattachLive`: the cursor is where the scan
- * stopped, and the next resync starts at the store's end, past the history the
- * scan left unfolded (`resyncNow`). Nothing else spent the mark: with the cursor
- * already at the end the lag probe sees no gap and never resyncs. It outlived
- * whole turns, and the first resync of a later, healthy turn jumped to the end
- * past that turn's own tail, `result` included. The answer came out cut and the
- * turn hung until the watchdog (verification of T19, 08/10: "a1,a2," instead of
- * "a1,a2,a3,"; the turn adopted after the restart had been refused for a rate
- * limit, with its child alive).
- *
- * When a turn starts, everything already in the store is history: the cursor
- * moves to the end before the message goes, and the mark is spent. If the
- * daemon cannot be reached, the mark stays for the next resync, as before.
- */
-export async function spendLiveMark(c: BrokerCursor, attachLive: () => Promise<{ fromOffset: number }>): Promise<void> {
-  if (!c.reattachLive) return;
-  try {
-    const { fromOffset } = await attachLive();
-    c.consumedOffset = Math.max(c.consumedOffset, fromOffset);
-    c.reattachLive = false;
-  } catch (err) {
-    console.warn(`[claude-code] ${c.sessionKey}: could not move past a failed re-adoption's history before the turn (${err instanceof Error ? err.message : String(err)}); the next resync stays live`);
-  }
 }
