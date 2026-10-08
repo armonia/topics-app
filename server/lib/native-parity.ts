@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
+import { runBounded } from "./bounded-spawn";
 import { disabledSkillNames, skillDirs } from "./slash-command-source";
 import { thinkingGenerationOf } from "./thinking-generation";
 
@@ -153,17 +154,18 @@ export async function recallMemoryContext(prompt: string, cwd: string, home = ho
   const bin = findOnPath("memrecall", home);
   if (!bin) return null;
   try {
-    const proc = Bun.spawn([bin, "--hook"], {
-      stdin: new Blob([JSON.stringify({ prompt, cwd })]),
+    // Bounded like every external process of the server: the deadline kills the
+    // whole group, and a child that ignores SIGTERM is gone 500 ms later.
+    const r = await runBounded([bin, "--hook"], {
+      stdinData: JSON.stringify({ prompt, cwd }),
       stdout: "pipe",
       stderr: "ignore",
       env: process.env,
+      timeoutMs: 3000,
+      graceMs: 500,
     });
-    const timer = setTimeout(() => proc.kill(), 3000);
-    const out = await new Response(proc.stdout).text();
-    clearTimeout(timer);
-    if ((await proc.exited) !== 0 || !out.trim()) return null;
-    const ctx = JSON.parse(out)?.hookSpecificOutput?.additionalContext;
+    if (r.exitCode !== 0 || !r.stdout.trim()) return null;
+    const ctx = JSON.parse(r.stdout)?.hookSpecificOutput?.additionalContext;
     return typeof ctx === "string" && ctx.trim() ? ctx : null;
   } catch { return null; }
 }
