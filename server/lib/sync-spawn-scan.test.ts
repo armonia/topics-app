@@ -33,9 +33,9 @@ const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/lib/port-squatter.ts", snippet: "spawnSync(\"/usr/sbin/lsof\"", why: "who holds the server's own port, at boot when it is taken" },
   { file: "server/webrtc-bridge.ts", snippet: "spawnSync(\"pkill\"", why: "the orphan bridge reaped before its replacement is spawned, once per bridge start (must finish first, see the comment there)" },
   { file: "server/services/dispatch-capacity.ts", snippet: "spawnSync(VM_STAT_BIN", why: "macOS only, and only when the async 10 s sample of mem-signal.ts is missing (first beat, a failed probe)" },
-  { file: "server/lib/native-parity.ts", snippet: "spawnSync(\"git\", [\"-C\", cwd, \"rev-parse\"", why: "KNOWN DEBT, like the Keychain read below: the git common dir of the turn's folder, to find Claude Code's memory index (claudeMemoryDir), 1 s timeout, once per native turn's context (context/assemble.ts is synchronous)" },
+  { file: "server/lib/native-parity.ts", snippet: "spawnSync(\"git\", [\"-C\", cwd, \"rev-parse\"", why: "the git common dir of a turn's folder (claudeMemoryDir), 1 s timeout, only when the remembered answer is missing or older than GIT_ROOT_TTL_MS: the first assembly in a folder, or one unread for GIT_ROOT_IDLE_MS. Otherwise a timer asks git asynchronously and the turn reads the memo (T16); context/assemble.ts is synchronous" },
   { file: "server/pty-bridge-platform.mjs", snippet: "execFileSync('/bin/launchctl', ['managername']", why: "the launchd session of a bridge (guiSessionName), in the PTY and AI bridge processes, not the server's loop: once per pong, 2 s timeout" },
-  { file: "server/providers/native/auth.ts", snippet: "spawnSync(cmd, args", why: "KNOWN DEBT (T9 REPORT, «Trovato e non fatto»): the Keychain read, macOS only, once per native turn and per providers snapshot; making it async changes the credential chain of the native provider" },
+  { file: "server/providers/native/auth.ts", snippet: "spawnSync(cmd, args", why: "the Keychain, macOS only, for the callers synchronous by contract: `hasCredentials` (the `connected` getter, only when no credential file holds a pair), the plan in a providers snapshot, and the write of a renewal. The turn's path (getAccessToken, recoverAfter401) asks it asynchronously (T16)" },
 ];
 
 function walk(dir: string, out: string[]): void {
