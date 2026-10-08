@@ -287,3 +287,34 @@ rimesse sulla base locale con `cloud-ricuci`; la firma SSH della VM cade, autore
   (la prima come debito noto, accanto a quello di `auth.ts`). Sul Mac con la 1.3.8: 59/59, typecheck del server 0
   errori, `lint:server` exit 0. Avvisate T13 e T14 di contarle come rosse della base.
 - CI di `035c07fdc`: 17/17. T14 fusa in `35462d916`.
+
+## Una Bun sola e il sidecar avviato in CI (sessione madre)
+
+- `.bun-version` 1.4.2 per tutti i workflow (`bun-version-file`), per le release (il sidecar si compila con
+  quella) e per il Mac di produzione (`093068f60`); `CONTRIBUTING.md` dice come cambiarla. Il motivo: il feed
+  di T10 e D1 di V3 erano difetti della sola 1.3.8, che la CI con `latest` non poteva vedere.
+- Prima nessuno avviava il server compilato prima della release: la CI fa solo stub dei binari per `cargo
+  check`. Nuovo `sidecar-smoke.yml` (`a61404317`): a ogni modifica del server compila e avvia il sidecar su
+  macOS, Windows e Linux. Lo smoke ora è un cancello (200 su `/api/topics`, 503 sulle sessioni terminale, riga
+  delle migrazioni, nessun bridge PTY toccato); copia mutata (503 atteso → 418): exit 1.
+- Primo giro: Windows rosso con exit 143 DOPO «[smoke] OK». Su Windows `kill` è TerminateProcess, `wait` dà 143
+  e sotto `set -e` diventava l'uscita dello smoke; riprodotto sul Mac con `sleep`. Fix `0475d442d`: 3/3 verdi.
+
+## T16 · Turno nativo senza spawn sincroni — accettata, con un fix mio (fusa in `f58733660`)
+
+- Diff letto per intero. Portachiavi: `currentCredentials` asincrona con `runBounded` (stesso comando, 5 s),
+  candidati e ordine invariati, nessuna cache nuova; la corsa nuova (un rinnovo arrivato mentre un turno
+  aspetta `security`) chiusa e provata. `hasCredentials` chiede prima i file: stessa risposta, perché
+  `pickCredentials` dà `null` solo senza candidati.
+- **Portachiavi vero sul Mac** (solo booleani e tempi, token fresco quindi nessun rinnovo), base `7bf28d9cb` e
+  T16 alternate, 12 letture per giro: loop fermo per `getAccessToken` **23 / 27,7 → 1,2 / 1,1 ms** (mediane),
+  token letto ogni volta; `hasCredentials` **24,6 / 27,8 → 0,02 ms** (qui il file di jcode basta). Il dubbio del
+  REPORT (`security` da un gruppo di processi suo) è smentito: legge uguale.
+- Test di T16 sulla 1.3.8: 498/498. Restano sincroni, detti e motivati: `hasCredentials` su un Mac col solo
+  Portachiavi (1 `security` per chiamata, almeno 2 per turno), il piano nello snapshot, la scrittura di un rinnovo.
+- **Trovato in verifica**: il giro in background di `claudeMemoryDir` leggeva una scadenza di git come «non è un
+  repo» e per 10 s dava la memoria della sottocartella, contro il suo stesso commento. Fix: senza risposta resta
+  l'ultima. Test con `HEAD` sostituito da una FIFO (git si blocca mentre cerca il repo): rosso senza il fix su
+  1.4.2 e 1.3.8 (cartella `-sub`), verde con. `server/lib` + `providers/native` sul Mac: 3.316 pass, 0 fail.
+- Visto per caso: su Bun 1.3.8 **e 1.4.2** `Bun.spawn` senza `env` dà al figlio l'ambiente di avvio, non un
+  `process.env` cambiato dopo (con `env: process.env` lo vede). Il REPORT lo dava come difetto della sola 1.3.8.
