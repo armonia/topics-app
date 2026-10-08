@@ -1,9 +1,33 @@
 [
   {
-    "version": "2.2.457",
+    "version": "2.2.458",
     "date": "2026-10-08",
     "sections": {
       "new": [],
+      "fixes": [
+        {
+          "it": "il log di una riga si apre sotto di lei, come suo contenuto",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.2.457",
+    "date": "2026-10-08",
+    "sections": {
+      "new": [
+        {
+          "it": "la riga di un comando apre il suo log lì, ad accordion",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "i processi esterni arrivati con main dentro le guardie di T5",
@@ -39,6 +63,12 @@
           "it": "una scadenza di git non è «non è un repo»",
           "en": "",
           "scope": "native-parity",
+          "breaking": false
+        },
+        {
+          "it": "striscia senza tetto, e la presa di un toggle non perde il pin",
+          "en": "",
+          "scope": "chat",
           "breaking": false
         }
       ],

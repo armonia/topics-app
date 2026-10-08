@@ -2,7 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.458 — 2026-10-08
+
+### Correzioni
+- **chat** · il log di una riga si apre sotto di lei, come suo contenuto
+
 ## 2.2.457 — 2026-10-08
+
+### Novità
+- **chat** · la riga di un comando apre il suo log lì, ad accordion
 
 ### Correzioni
 - **server** · i processi esterni arrivati con main dentro le guardie di T5
@@ -11,6 +19,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **native-auth** · il turno legge il Portachiavi senza fermare il loop
 - **native-parity** · la radice git della memoria non si chiede più a ogni turno
 - **native-parity** · una scadenza di git non è «non è un repo»
+- **chat** · striscia senza tetto, e la presa di un toggle non perde il pin
 
 ### Sotto il cofano
 - **openspec** · REPORT di T14, runBounded nei runner di git
