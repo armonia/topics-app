@@ -86,6 +86,8 @@ export interface ChatMessage extends Message {
    */
   promptNumber?: number;
   media?: string[];               // Media file paths
+  /** `[width, height]` of each picture the row draws, by path, sent by the server so the picture has its box before its bytes (`components/Chat/mediaBox.ts`). */
+  mediaSizes?: Record<string, [number, number]>;
   partial?: boolean;              // True if message is still streaming
   queued?: boolean;               // True if message is queued to send (offline)
   /**
@@ -861,6 +863,8 @@ export interface WSMessageNewMessage {
   /** On the person's row: the key the send carried, so the window that sent it
    *  renames its bubble to this row (`hooks/ownBubble.ts`). */
   clientMessageId?: string;
+  /** The size of each picture the row draws, as on a history row. */
+  mediaSizes?: Record<string, [number, number]>;
   message?: { id: string; role: string; content: string; timestamp?: string };
 }
 
@@ -869,6 +873,8 @@ export interface WSMessageMediaMessage {
   type: 'message:media';
   sessionKey: string;
   media: string[];
+  /** The size of each of those pictures, when the server could read it. */
+  mediaSizes?: Record<string, [number, number]>;
 }
 
 /** Server requests the client to drop a session's local message buffer. */

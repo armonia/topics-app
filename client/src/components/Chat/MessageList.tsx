@@ -1551,6 +1551,26 @@ export function MessageList({
     // and remounts it collapsed. See `gestureUntilRef`.
     if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
   }, [filteredMessages, _currentStreaming, pinToBottom]);
+  // The bottom of a view at rest, kept in the same layout as the change, for
+  // rows that change while NO turn streams: the pictures stapled to the end of
+  // a turn (`message:media`), a reply landed while the reader was away, a row
+  // filled from a broadcast. Left to the append effect (two frames) or to the
+  // ResizeObserver below, the scroll lands after a layout that already pushed
+  // the footer down, and Chrome counts that as a layout shift even when it is
+  // fixed before the paint: measured on a bare scroller growing 300 px, a pin
+  // in the same task or in the next rAF counts 0, the same pin in a
+  // ResizeObserver callback counts 0.0197. Here: CLS 0.034 on a 320 px picture
+  // box, 0.039 on a 383 px reply (CHAT-MEDIA-BOX-01).
+  // A MICROTASK, not this effect: Virtuoso draws the changed row in a second
+  // commit that React runs synchronously after this one (its own layout effect
+  // publishes the new data), so the row is not grown yet here; the microtask
+  // runs after that commit and before the frame's layout.
+  // Only for a view resting at the bottom; `shouldPin` keeps the last word.
+  useLayoutEffect(() => {
+    if (_currentStreaming || lastDistanceFromBottomRef.current > 1) return;
+    if (Date.now() < gestureUntilRef.current) return;
+    queueMicrotask(() => pinToBottom({ now: true }));
+  }, [filteredMessages, _currentStreaming, pinToBottom]);
   /** Until when a tool body animates its height (`transcriptRowResize.ts`):
    *  its growth is pinned frame by frame even inside a gesture window, since a
    *  pinned row growing at the bottom never leaves Virtuoso's overscan. */

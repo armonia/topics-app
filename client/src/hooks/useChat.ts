@@ -10,6 +10,7 @@ import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
 import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
+import { mergeMediaSizes } from '../components/Chat/mediaBox';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting, rowsAboveLocalCopy } from './historyPaging';
@@ -1844,6 +1845,7 @@ export function useChat() {
         if (event.media?.length > 0) {
           updateLastMessage(sessionKey, {
             media: event.media,
+            ...(event.mediaSizes ? { mediaSizes: event.mediaSizes } : {}),
           });
         }
         break;
@@ -3168,7 +3170,7 @@ export function useChat() {
     }
   }, []);
 
-  const appendMediaToLastAssistant = useCallback((sessionKey: string, mediaPaths: string[]) => {
+  const appendMediaToLastAssistant = useCallback((sessionKey: string, mediaPaths: string[], mediaSizes?: Record<string, [number, number]>) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastAssistantIdx = sessionMessages.findLastIndex(m => m.role === 'assistant');
@@ -3178,6 +3180,7 @@ export function useChat() {
       updated[lastAssistantIdx] = {
         ...updated[lastAssistantIdx],
         media: [...(updated[lastAssistantIdx].media || []), ...mediaPaths],
+        mediaSizes: mergeMediaSizes(updated[lastAssistantIdx].mediaSizes, mediaSizes),
       };
       return { ...prev, [sessionKey]: updated };
     });
