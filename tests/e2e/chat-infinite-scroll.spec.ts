@@ -147,6 +147,15 @@ async function stillView(page: Page): Promise<number> {
   }, SCROLLER);
 }
 
+/** Waits `n` painted frames: time as the page lives it, not a fixed sleep. */
+async function afterFrames(page: Page, n: number): Promise<void> {
+  await page.evaluate((count) => new Promise<void>((resolve) => {
+    let left = count;
+    const tick = (): void => { if (--left <= 0) resolve(); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }), n);
+}
+
 async function viewHeight(page: Page): Promise<number> {
   return await page.locator(SCROLLER).evaluate((el) => (el as HTMLElement).clientHeight);
 }
@@ -178,6 +187,62 @@ test.describe("Infinite scroll della chat", () => {
 
   test.afterAll(async ({ request }) => {
     if (longTopic) await deleteTopic(request, longTopic.id).catch(() => {});
+  });
+
+  /** The long chat opened on its tail, with a counter of the requests for the rest. */
+  async function openOnTail(page: Page, request: APIRequestContext) {
+    await resetPaneStore(request, [longTopic.id]);
+    let older = 0;
+    page.on("request", (req) => {
+      if (req.url().includes(`/api/history/${encodeURIComponent(longKey)}`) && (req.postData() || "").includes('"before"')) older++;
+    });
+    await page.goto("/");
+    await page.getByTestId(`pane-tab-${longTopic.id}`).click();
+    const list = page.locator(SCROLLER);
+    await expect(list.getByText(seededText(SEEDED))).toBeVisible({ timeout: 15000 });
+    await expect(list).toHaveAttribute("data-history", "partial");
+    return { list, older: () => older };
+  }
+
+  // The wheel is not the only way up. A key that pages up, and a press held while the list moves (its
+  // scrollbar dragged), outlast the 400 ms an input counts for: each must count on its own (`readerGesture`).
+  test("Shift+Spazio, un passo per volta, porta il resto da solo", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
+    const { list, older } = await openOnTail(page, request);
+    // A click on a message gives the list the keyboard, and ends the re-pin of the opening.
+    await list.getByText(seededText(SEEDED - 1)).click();
+    let st = await stillView(page);
+    for (let i = 0; i < 300 && st > 0 && (await list.getAttribute("data-history")) !== "complete"; i++) {
+      await afterFrames(page, 30); // past the window of the key before
+      await page.keyboard.press("Shift+Space");
+      st = await stillView(page);
+    }
+    await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
+    expect(older(), "one request, asked by the keys").toBe(1);
+  });
+
+  test("una pressione tenuta mentre la lista sale, come la barra trascinata, porta il resto da solo", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-HIST-01" });
+    const { list, older } = await openOnTail(page, request);
+    const box = (await list.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    // What a scrollbar drag hands the page: the press, then scroll events only. Eight frames apart, so
+    // neither the press's own window nor a run of events carries them: only the press still held does.
+    await list.evaluate(async (el) => {
+      const frames = (n: number) => new Promise<void>((resolve) => {
+        let left = n;
+        const tick = (): void => { if (--left <= 0) resolve(); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      for (let i = 0; i < 400 && el.scrollTop > 0 && el.getAttribute("data-history") !== "complete"; i++) {
+        el.scrollTop = Math.max(0, el.scrollTop - 240);
+        await frames(8);
+      }
+    });
+    await page.mouse.up();
+    await expect(list).toHaveAttribute("data-history", "complete", { timeout: 10000 });
+    expect(older(), "one request, asked by the drag").toBe(1);
   });
 
   test("salendo, i messaggi precedenti arrivano da soli e le righe lette restano ferme", async ({ page, request, browserName }) => {

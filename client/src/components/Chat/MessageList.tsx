@@ -6,6 +6,7 @@ import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { CompactionDivider } from './CompactionDivider';
 import { LoadOlderDivider } from './LoadOlderDivider';
 import { countItemsAddedAbove } from './itemsAddedAbove';
+import { readerGesture } from './readerGesture';
 import { OLDER_MERGE_SCREENS, OLDER_STAGE_SCREENS } from '../../../../shared/history-paging';
 import { CompactionHoistContext } from './compactionHoist';
 import { splitCompactionSummary } from '../../lib/compactionSummary';
@@ -513,10 +514,12 @@ export function MessageList({
    */
   const firstItemIndexRef = useRef({ items: filteredMessages, value: FIRST_ITEM_INDEX_BASE });
   const growingAboveRef = useRef(false);
+  const paneAlive = usePaneAlive();
   {
     const track = firstItemIndexRef.current;
     if (track.items !== filteredMessages) {
-      const added = countItemsAddedAbove(track.items, filteredMessages, carrierById);
+      // Only on screen: a merge made while hidden is re-anchored when the pane returns (`restoreAnchorRef`).
+      const added = paneAlive ? countItemsAddedAbove(track.items, filteredMessages, carrierById) : 0;
       if (added > 0) {
         track.value -= added;
         growingAboveRef.current = true;
@@ -558,7 +561,6 @@ export function MessageList({
   );
   const missingAbove = isHistoryIncomplete(completeness) ? completeness.missing : 0;
   /** The pane has a box in the layout: hidden tabs (keep-alive) are `false`. */
-  const paneAlive = usePaneAlive();
   /** Mirrors for the closures that outlive a render (the ResizeObserver, the
    *  completion callback): they read the latest value, not the captured one. */
   const paneAliveRef = useRef(paneAlive);
@@ -1675,27 +1677,14 @@ export function MessageList({
       distanceFromBottom: Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight),
     }));
 
-    /**
-     * Fin quando uno scroll è ancora attribuibile a un INPUT dell'utente.
-     *
-     * L'evento `scroll` da solo non dice chi l'ha causato — lo emette anche
-     * Virtuoso quando rimisura — e su quella ambiguità è costruita la finestra
-     * di guardia. Ma gli input dell'utente sono osservabili: rotellina, dito,
-     * tasti, trascinamento della barra. Segnandoli, lo `scroll` che segue smette
-     * di essere ambiguo e può scavalcare la guardia.
-     *
-     * Serve una finestra e non un flag istantaneo perché l'input PRECEDE il
-     * movimento: al `keydown` di Home la vista è ancora in fondo, la distanza
-     * che conta si misura sullo `scroll` che arriva dopo.
-     */
-    const GESTURE_WINDOW_MS = 400;
-    let gestureUntil = 0;
+    // Whether a scroll follows an input of the reader's, and can override the guard window (`readerGesture`).
+    const gesture = readerGesture();
+    const releasePress = () => gesture.release(Date.now());
     const markGesture = (e?: Event) => {
-      gestureUntil = Date.now() + GESTURE_WINDOW_MS;
       // Shared with `totalListHeightChanged` and the general ResizeObserver
       // below: both need to suspect a growth that follows this same gesture,
       // not just the local scroll effect.
-      gestureUntilRef.current = gestureUntil;
+      gestureUntilRef.current = e?.type === 'pointerdown' ? gesture.press(Date.now()) : gesture.input(Date.now());
       // Il primo input CHIUDE la finestra di apertura, e non è un dettaglio: il
       // ri-pin di apertura è forzato, quindi finché quella finestra è aperta
       // combatterebbe con chi scrolla. `userTouchedRef` da solo non basta —
@@ -1717,7 +1706,7 @@ export function MessageList({
     const onKeyDown = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (SCROLL_KEYS.has(e.key)) markGesture();
+      if (SCROLL_KEYS.has(e.key) || (e.key === ' ' && e.shiftKey)) markGesture(); // Shift+Space pages up too
     };
     // INFINITE SCROLL (CHAT-HIST-01): heading up, the reader gets the rest of the thread without asking.
     // Fetched a few screens before the top, merged two screens before it, where the prepend
@@ -1759,7 +1748,7 @@ export function MessageList({
     };
     const onScroll = () => {
       const st = el.scrollTop;
-      const gesto = Date.now() < gestureUntil;
+      const gesto = gesture.scrolled(Date.now());
       if (!topRowFrame && isHistoryIncomplete(completenessRef.current)) topRowFrame = requestAnimationFrame(readTopRow);
       // I cali si SOMMANO, ma solo mentre l'utente ha le mani sopra.
       //
@@ -1828,6 +1817,8 @@ export function MessageList({
     el.addEventListener('touchmove', markGesture, { passive: true });
     // Trascinamento della barra di scorrimento: nessun wheel, nessun tasto.
     el.addEventListener('pointerdown', markGesture, { passive: true });
+    for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, releasePress, true);
+    window.addEventListener('blur', releasePress); // the window's own: an element's blur does not bubble
 
     // La pane torna VISIBILE dopo essere stata nascosta.
     //
@@ -1982,6 +1973,8 @@ export function MessageList({
       el.removeEventListener('touchstart', markGesture);
       el.removeEventListener('touchmove', markGesture);
       el.removeEventListener('pointerdown', markGesture);
+      for (const type of ['pointerup', 'pointercancel']) window.removeEventListener(type, releasePress, true);
+      window.removeEventListener('blur', releasePress);
     };
     // `_currentStreaming` NON sta qui: lo legge `streamingRef`. Vedi il commento
     // sul ref — rimontare i listener a ogni transizione di stream faceva

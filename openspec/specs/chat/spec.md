@@ -4510,7 +4510,9 @@ server la conferma senza aggiungere né togliere righe.
 I messaggi precedenti (`limit: 0` con il cursore `before` = id del più vecchio
 della pagina, WIRE-11) SHALL arrivare da soli: fusi nello store quando la pane
 non è a schermo (scheda dietro un'altra, viewport alta zero), oppure mentre chi
-legge risale verso di loro. Con un gesto vero (rotella, trascinamento) a meno di
+legge risale verso di loro. Con un gesto vero (rotella, dito, i tasti che salgono
+come PagSu e Shift+Spazio, una pressione tenuta come la barra trascinata, e lo
+scorrere che continua dopo, come l'inerzia di un colpo di dito) a meno di
 `OLDER_STAGE_SCREENS` schermate dalla cima della finestra caricata il client
 SHALL chiederli e tenerli da parte; a meno di `OLDER_MERGE_SCREENS` schermate
 SHALL fonderli (`shared/history-paging.ts`). Chi resta sulla coda senza scorrere
@@ -4574,6 +4576,11 @@ ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
 - **WHEN** la risposta arriva
 - **THEN** il resto entra senza click, la riga sparisce, e la riga che si stava leggendo resta dov'era, al più spostata dell'altezza della riga sparita
 - **AND** scorrendo ancora in alto il primo messaggio della chat è visibile
+
+#### Scenario: con la tastiera o trascinando la barra il resto arriva lo stesso
+- **GIVEN** una chat di tre pagine aperta sulla coda
+- **WHEN** la persona risale premendo Shift+Spazio un passo per volta, oppure tiene premuta la lista mentre la porta su, come trascinando la barra
+- **THEN** il resto arriva da solo, con una richiesta sola
 
 #### Scenario: scrivere nel composer o scorrere in giù non carica la storia
 - **GIVEN** una chat parziale di righe corte, aperta sulla coda, con la coda già dentro la fascia in cui salire carica
