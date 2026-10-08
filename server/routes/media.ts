@@ -11,11 +11,11 @@ import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-sessi
  * UPLOADS_DIR/CONTEXT_DIR config, the path allowlist helpers,
  * getTopicById/saveSingleTopic) + stdlib. No chat/provider coupling.
  *
- * `ctx.ALLOWED_UPLOAD_MIMES` non si usa più da qui: la politica sul tipo è la
- * DENY list qui sotto, e l'allowlist rifiutava allegati legittimi. Resta un
- * membro del contesto senza lettori — se nessuno la rivendica, va tolta da
- * `server/utils.ts` e da `server/types.ts` invece che lasciata a suggerire una
- * regola che non c'è.
+ * `ctx.ALLOWED_UPLOAD_MIMES` is no longer read from here: the type policy is the
+ * DENY list below, and the allowlist was refusing legitimate attachments. It stays a
+ * context member with no readers — if nobody claims it, it goes out of
+ * `server/utils.ts` and `server/types.ts` instead of being left to suggest a
+ * rule that is not there.
  */
 /** Il tetto per ogni upload, una volta sola. Era scritto tre volte in tre
  *  blocchi diversi — e in uno dei tre non era scritto affatto. */

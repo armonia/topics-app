@@ -1,3 +1,9 @@
+/**
+ * The chat end of a finished command: its last line arrives stripped of
+ * colour and cursor codes, including codes whose ESC byte was already lost.
+ *
+ * @covers CMDRUN-04
+ */
 import { describe, it, expect } from 'bun:test';
 import { stripAnsi } from './stripAnsi';
 

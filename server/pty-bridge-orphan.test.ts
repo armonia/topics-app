@@ -1,31 +1,31 @@
 /**
- * Il ponte PTY deve sapersi ritirare.
+ * The PTY bridge has to know how to retire.
  *
- * STORIA (misurata il 2026-08-14 su questa macchina). `ps` mostrava 20 ponti PTY
- * vivi con ZERO client e ZERO sessioni figlie, fino a 37 ore di età, 15 dei quali
- * puntavano a worktree già cancellate: ~365 MB fermi lì. Nessuno di quei processi
- * aveva mai scritto «Parent died» nel proprio log, cioè il monitor anti-orfano non
- * si era mai armato.
+ * HISTORY (measured 2026-08-14 on this machine). `ps` showed 20 live PTY bridges
+ * with ZERO clients and ZERO child sessions, up to 37 hours old, 15 of which
+ * pointed at already deleted worktrees: ~365 MB sitting there. None of those processes
+ * had ever written «Parent died» to its own log, meaning the orphan monitor had
+ * never armed itself.
  *
- * PERCHÉ. La guardia era `process.ppid === 1 && initialPpid !== 1`, e `initialPpid`
- * veniva letto DENTRO `start()`, dopo `await checkExistingBridge()` e
- * `await selfTest()` (fino a ~3s). Se il server che lo lanciava moriva in quella
- * finestra, il ponte leggeva già 1 come ppid iniziale: la guardia diventava falsa
- * per sempre e il monitor non poteva più scattare. A/B eseguito sul ponte di allora,
- * stesso spawn, unica variabile la vita del padre: padre morto subito → ponte vivo
- * dopo 5 minuti, log senza una riga di «Parent died»; padre vivo 6s → uscito nei
- * tempi previsti.
+ * WHY. The guard was `process.ppid === 1 && initialPpid !== 1`, and `initialPpid`
+ * was read INSIDE `start()`, after `await checkExistingBridge()` and
+ * `await selfTest()` (up to ~3s). If the server that launched it died in that
+ * window, the bridge already read 1 as its initial ppid: the guard stayed false
+ * forever and the monitor could never fire. A/B run on the bridge of that day,
+ * same spawn, only variable the life of the parent: parent dead at once → bridge alive
+ * after 5 minutes, log without a line of «Parent died»; parent alive 6s → out on
+ * schedule.
  *
- * COSA MISURA QUESTO FILE. I due pezzi che chiudono il buco: `--parent-pid` (chi ci
- * ha lanciato lo DICE, niente indovinelli sul ppid né sul momento in cui lo si
- * legge) e il backstop idle (nessun client, nessuna sessione → ci si ritira comunque),
- * che è la rete per i casi che nessun controllo sul padre può coprire — pid
- * riciclato, worktree spazzata via da sotto, `bun test` morto senza afterAll.
- * Gli altri due test tengono ferma la ragione per cui il ponte è detached: con un
- * padre vivo, o con un server attaccato, non deve morire.
+ * WHAT THIS FILE MEASURES. The two pieces that close the hole: `--parent-pid` (whoever
+ * launched it SAYS so, no guessing the ppid or when to read it)
+ * and the idle backstop (no client, no session → retire anyway),
+ * which is the net for the cases no check on the parent can cover — recycled pid,
+ * worktree swept from under it, `bun test` dead with no afterAll.
+ * The other two tests pin down why the bridge is detached: with a
+ * live parent, or with a server attached, it must not die.
  *
- * Nota: il ponte gira sotto **node** (node-pty non funziona sotto Bun), quindi si
- * spawna `node`, non `process.execPath`.
+ * Note: the bridge runs under **node** (node-pty does not work under Bun), so
+ * `node` is spawned, not `process.execPath`.
   * @covers PTYORPH-01
  */
 import { describe, test, expect, afterEach } from "bun:test";
@@ -233,10 +233,10 @@ describe("pong", () => {
     const client = net.connect(sock);
     cleanups.push(() => client.destroy());
     const pong = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      let buf = "";
+      let buffer = "";
       client.on("data", (d) => {
-        buf += d.toString();
-        for (const line of buf.split("\n")) {
+        buffer += d.toString();
+        for (const line of buffer.split("\n")) {
           try { const m = JSON.parse(line); if (m.type === "pong") resolve(m); } catch { /* riga a metà */ }
         }
       });

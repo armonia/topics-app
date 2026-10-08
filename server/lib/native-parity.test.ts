@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  claudeMemoryDir, readClaudeMemoryIndex, recallMemories, nativeWorkingDir,
+  claudeMemoryDir, readClaudeMemoryIndex, recallMemoryContext, nativeWorkingDir,
   readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
 
@@ -238,7 +238,7 @@ describe("listSkills — i casi che le facevano sparire", () => {
 });
 
 describe("Claude Code's memory on the native runtime", () => {
-  const enc = (p: string) => p.replace(/[/.]/g, "-");
+  const encodePath = (p: string) => p.replace(/[/.]/g, "-");
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { stdio: "ignore" });
   let savedPath: string | undefined;
@@ -262,7 +262,7 @@ describe("Claude Code's memory on the native runtime", () => {
       mkdirSync(join(repo, "sub"));
       const wt = join(repo, "..", `${repo.split("/").pop()}-wt`);
       git(repo, "worktree", "add", "-q", wt);
-      const want = join(home, ".claude", "projects", enc(repo), "memory");
+      const want = join(home, ".claude", "projects", encodePath(repo), "memory");
       expect(claudeMemoryDir(join(repo, "sub"), home)).toBe(want);
       expect(claudeMemoryDir(wt, home)).toBe(want);
       rmSync(wt, { recursive: true, force: true });
@@ -272,7 +272,7 @@ describe("Claude Code's memory on the native runtime", () => {
   });
 
   it("outside git the memory folder is the folder itself (the home, for a chat with no project)", () => {
-    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", enc(home), "memory"));
+    expect(claudeMemoryDir(home, home)).toBe(join(home, ".claude", "projects", encodePath(home), "memory"));
   });
 
   it("without a project the native turn runs in TOPICS_WORKSPACE", () => {
@@ -301,14 +301,14 @@ describe("Claude Code's memory on the native runtime", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "MEMORY.md"), "- qualcosa");
     // a memrecall that always answers: only the switch can make the recall silent
-    fakeMemrecall(`printf '%s' '{"hookSpecificOutput":{"additionalContext":"- scheda.md"}}'`);
+    fakeRecallCommand(`printf '%s' '{"hookSpecificOutput":{"additionalContext":"- scheda.md"}}'`);
     process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
     expect(readClaudeMemoryIndex(home, home)).toBeNull();
-    expect(await recallMemories("una domanda qualunque", home, home)).toBeNull();
+    expect(await recallMemoryContext("una domanda qualunque", home, home)).toBeNull();
   });
 
   /** A fake `memrecall` in the user's bin, the folder launchd's PATH does not have. */
-  function fakeMemrecall(body: string): string {
+  function fakeRecallCommand(body: string): string {
     mkdirSync(join(home, "bin"), { recursive: true });
     const bin = join(home, "bin", "memrecall");
     writeFileSync(bin, `#!/bin/sh\n${body}\n`);
@@ -319,17 +319,17 @@ describe("Claude Code's memory on the native runtime", () => {
 
   it("the recall gets the hook's JSON and returns its additionalContext", async () => {
     const seen = join(home, "stdin.json");
-    fakeMemrecall(`cat > ${seen}; printf '%s' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"- scheda.md: utile"}}'`);
-    expect(await recallMemories("come faccio il deploy", "/p", home)).toBe("- scheda.md: utile");
+    fakeRecallCommand(`cat > ${seen}; printf '%s' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"- scheda.md: utile"}}'`);
+    expect(await recallMemoryContext("come faccio il deploy", "/p", home)).toBe("- scheda.md: utile");
     expect(JSON.parse(readFileSync(seen, "utf-8"))).toEqual({ prompt: "come faccio il deploy", cwd: "/p" });
   });
 
   it("no memrecall, a failure or an empty answer: no recall, and the turn goes on", async () => {
     process.env.PATH = "/usr/bin:/bin";
-    expect(await recallMemories("domanda", "/p", home)).toBeNull();
-    fakeMemrecall("exit 2");
-    expect(await recallMemories("domanda", "/p", home)).toBeNull();
-    fakeMemrecall("exit 0");
-    expect(await recallMemories("domanda", "/p", home)).toBeNull();
+    expect(await recallMemoryContext("domanda", "/p", home)).toBeNull();
+    fakeRecallCommand("exit 2");
+    expect(await recallMemoryContext("domanda", "/p", home)).toBeNull();
+    fakeRecallCommand("exit 0");
+    expect(await recallMemoryContext("domanda", "/p", home)).toBeNull();
   });
 });

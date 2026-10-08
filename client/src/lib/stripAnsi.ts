@@ -7,9 +7,9 @@
  * byte was already lost on the way.
  */
 export const stripAnsi = (text: string) =>
-  // Il byte ESC è ciò che questa regex deve riconoscere per poterlo togliere.
-  // La regola serve a intercettare i byte di controllo finiti in un pattern per
-  // sbaglio; qui sono il soggetto.
+  // The ESC byte is what this regex has to recognize to strip it.
+  // The lint rule flags control bytes that slipped into a pattern by
+  // mistake; here they are the subject.
   // eslint-disable-next-line no-control-regex
   text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
       .replace(/\[(?:\d+;)*\d*[A-HJKSTfm]/g, '');

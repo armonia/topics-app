@@ -1,30 +1,30 @@
 /**
- * Le tre porte che scrivono e restituiscono file di provenienza ignota:
- * `/api/upload`, `/api/context-upload` e `/api/media`.
+ * The three doors that write and hand back files of unknown origin:
+ * `/api/upload`, `/api/context-upload` and `/api/media`.
  *
- * COSA MISURA, e perché la versione precedente di questo file non lo misurava.
+ * WHAT IT MEASURES, and why the previous version of this file did not measure it.
  *
- * 1. La politica sul tipo si IMPORTA da `./media`, non si ricopia qui. La copia
- *    locale (un `ALLOWED_UPLOAD_MIMES` scritto a mano in cima al test) diceva sì
- *    a `text/plain` mentre la rotta vera riceveva `text/plain;charset=utf-8` e
- *    rispondeva 400: un allegato `.txt` era rotto in produzione con la suite
- *    tutta verde. Un test che ridichiara la regola che deve sorvegliare non
- *    sorveglia niente.
+ * 1. The type policy is IMPORTED from `./media`, not copied here. The local
+ *    copy (a hand-written `ALLOWED_UPLOAD_MIMES` at the top of the test) said yes
+ *    to `text/plain` while the real route received `text/plain;charset=utf-8` and
+ *    answered 400: a `.txt` attachment was broken in production with the suite
+ *    all green. A test that re-declares the rule it has to watch watches
+ *    nothing.
  *
- * 2. Che cosa arriva davvero nel `type` di una parte multipart lo si MISURA
- *    (primo test), invece di darlo per scontato: sotto Bun `req.formData()`
- *    IGNORA il `Content-Type` dichiarato dal client e lo ri-deriva dal nome del
- *    file. Lo scenario «travestito» che il vecchio test diceva di provare non
- *    esiste in quella forma, e credere il contrario faceva sembrare coperto un
- *    asse che era scoperto.
+ * 2. What really lands in the `type` of a multipart part is MEASURED
+ *    (first test), not taken for granted: under Bun `req.formData()`
+ *    IGNORES the client-declared `Content-Type` and re-derives it from the file
+ *    name. The «disguised» scenario the old test claimed to try does not
+ *    exist in that shape, and believing otherwise made an uncovered
+ *    axis look covered.
  *
- * 3. La difesa si prova anche con `getMimeType` CIECO (tutto
- *    `application/octet-stream`): è la condizione reale per `.xhtml`, `.mjs`,
- *    `.svgz`, che la tabella del server non conosce.
+ * 3. The defense is also tried with a BLIND `getMimeType` (all
+ *    `application/octet-stream`): the real condition for `.xhtml`, `.mjs`,
+ *    `.svgz`, which the server table does not know.
  *
- * Il router è puro rispetto al disco tranne che per le cartelle iniettate,
- * quindi si prova per intero senza avviare il server, e la misura è il
- * CONTENUTO della cartella — non solo lo status.
+ * The router is pure against the disk except for the injected folders,
+ * so it is tried whole without starting the server, and the measure is the
+ * CONTENT of the folder — not just the status.
   * @covers MEDIA-01
  */
 

@@ -148,7 +148,7 @@ export function readClaudeMemoryIndex(cwd: string, home = homedir()): UserRules 
  * a suggestion must never cost the turn. Asynchronous because the server is one
  * process and a synchronous spawn would stall every other chat meanwhile.
  */
-export async function recallMemories(prompt: string, cwd: string, home = homedir()): Promise<string | null> {
+export async function recallMemoryContext(prompt: string, cwd: string, home = homedir()): Promise<string | null> {
   if (autoMemoryDisabled()) return null;
   const bin = findOnPath("memrecall", home);
   if (!bin) return null;

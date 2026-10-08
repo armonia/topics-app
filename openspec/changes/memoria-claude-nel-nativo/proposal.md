@@ -6,7 +6,7 @@ Una chat sul runtime nativo partiva senza memoria: niente `MEMORY.md`, niente ri
 
 ## What changes
 
-- `native-parity.ts`: `claudeMemoryDir` (stessa regola di Claude Code: radice git comune, anche dai worktree, `/` e `.` → `-`), `readClaudeMemoryIndex` (200 righe / 25k caratteri come Claude Code), `recallMemories` (lancia `memrecall --hook` con lo stesso JSON dell'hook, asincrono, muto oltre 3 s), `nativeWorkingDir`.
+- `native-parity.ts`: `claudeMemoryDir` (stessa regola di Claude Code: radice git comune, anche dai worktree, `/` e `.` → `-`), `readClaudeMemoryIndex` (200 righe / 25k caratteri come Claude Code), `recallMemoryContext` (lancia `memrecall --hook` con lo stesso JSON dell'hook, asincrono, muto oltre 3 s), `nativeWorkingDir`.
 - `assemble.ts`: blocco `user:MEMORY.md` nella cartella del turno (`TOPICS_WORKSPACE` senza progetto).
 - `adapt.ts`: il blocco è solo per il nativo (`NATIVE_ONLY_BLOCKS`), con slot `user-memory` deduplicato.
 - `routes/chat.ts`: sul nativo il richiamo va DOPO il testo del messaggio, in `<memory-recall>`, come l'hook della CLI.

@@ -20,7 +20,7 @@ import { scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
-import { nativeWorkingDir, recallMemories } from "../lib/native-parity";
+import { nativeWorkingDir, recallMemoryContext } from "../lib/native-parity";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
@@ -3848,7 +3848,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // suggestion is not a document, and as a deduplicated slot a turn
             // with no hits would tell the model the memory is "no longer in effect".
             if (topicProvider.name === "topics") {
-              const recall = await recallMemories(
+              const recall = await recallMemoryContext(
                 envelope.userMessage.content,
                 nativeWorkingDir(envelope.sessionMeta?.workingDir),
               );

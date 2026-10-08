@@ -128,7 +128,7 @@ describe("GUI session", () => {
     expect(guiSessionName("darwin", () => { throw new Error("Could not get manager name."); })).toBe("");
   });
 
-  // Il caso del 07/10/2026: ponte nato il 22/09, sessione grafica ripartita il 06/10.
+  // The case of 07/10/2026: bridge born 22/09, GUI session restarted 06/10.
   test("a bridge in a dead session is recycled when the server is in Aqua", () => {
     expect(bridgeOutsideGuiSession("", () => "Aqua")).toBe(true);
     expect(bridgeOutsideGuiSession("Background", () => "Aqua")).toBe(true);
@@ -139,7 +139,7 @@ describe("GUI session", () => {
     const server = () => { asked++; return "Aqua"; };
     expect(bridgeOutsideGuiSession("Aqua", server)).toBe(false);
     expect(bridgeOutsideGuiSession(undefined, server)).toBe(false);
-    // Il pong sano non deve costare un launchctl al server.
+    // A healthy pong must not cost the server a launchctl.
     expect(asked).toBe(0);
     expect(bridgeOutsideGuiSession("", () => "Background")).toBe(false);
   });
