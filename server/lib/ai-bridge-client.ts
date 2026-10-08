@@ -19,7 +19,7 @@ import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
 import { BridgeAckStalled, BridgeConnectionLost, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
-export { BridgeAckStalled, BridgeConnectionLost, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
+export { BridgeAckStalled, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";

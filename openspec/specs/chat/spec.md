@@ -2440,6 +2440,7 @@ lì il danno è totale, perché la riadozione l'ha già svuotata per riusarla.
 - **GIVEN** un riavvio sotto carico, e l'attesa della scansione dello store che scade al tetto assoluto mentre i suoi byte scorrono
 - **THEN** la riadozione SHALL aspettare la conferma in ritardo e proseguire: il turno aperto SHALL arrivare intero nella sua riga
 - **AND** le risposte già concluse NON SHALL ricomparire come un turno risvegliato
+- **AND** finché la scansione aspetta, il guardiano della rotta NON SHALL dichiarare morto il turno né fermarne il figlio: SHALL aspettare l'esito della riadozione
 
 ### Requirement: CCLI-05 — Un esito SENZA testo chiude comunque il turno
 

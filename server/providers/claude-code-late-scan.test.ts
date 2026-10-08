@@ -3,7 +3,7 @@
  *
  * Under load at boot the scan of a re-adoption (a muted replay of the whole
  * store, from 0) can outlast the 90 s cap while its bytes are still arriving.
- * The cap gave up, the re-adoption failed ("Riadozione del turno non riuscita",
+ * The cap gave up, the re-adoption failed ("Riadozione del turno non riuscita",  allow-italian: quotes the notice the chat shows
  * 60 times in the production log), and the replay went on arriving on the same
  * socket. Unmuted by then, it folded as a turn nobody had asked for: the wake
  * observer opened a row and every old answer of the session came back in it.
@@ -109,11 +109,11 @@ async function restartWithScanCapped(sessionKey: string, firstTurn: (p: any) => 
 
   const second = await newProvider();
   const wakes: string[] = [];
-  const woken = counting();
+  const wakeRow = counting();
   ClaudeCodeProvider.observeWokenTurns((sk: string) => {
     if (sk !== sessionKey) return false;
     wakes.push(sk);
-    return second.adoptWokenTurn(sk, woken.handler);
+    return second.adoptWokenTurn(sk, wakeRow.handler);
   });
   const realAttach = client.attach.bind(client);
   let capped = 0;
@@ -131,7 +131,7 @@ async function restartWithScanCapped(sessionKey: string, firstTurn: (p: any) => 
     second.stop();
     try { client.kill(sessionKey); } catch { /* already gone */ }
   };
-  return { client, second, row, wakes, woken, done, get capped() { return capped; } };
+  return { client, second, row, wakes, wakeRow, done, get capped() { return capped; } };
 }
 
 describe("claude-code provider · a re-adoption whose scan hits the cap", () => {
@@ -154,7 +154,7 @@ done`));
       expect(outcome).toBe("completed");
       expect(s.row.ended).not.toStartWith("error");
       expect(s.wakes).toEqual([]);
-      expect(s.woken.text).toBe("");
+      expect(s.wakeRow.text).toBe("");
       // The session goes on: the next message gets its own answer, only that.
       const t2 = counting();
       await s.second.sendChat(sessionKey, "second", t2.handler);

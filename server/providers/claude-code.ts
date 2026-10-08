@@ -3026,11 +3026,11 @@ export class ClaudeCodeProvider implements AIProvider {
    *  (auto-compact) must not be finalized as a timeout. */
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
-    // Alive AND mid-turn. A fresh idle child that took the key after a kill is
-    // alive too, and answering yes for it kept a dead stream on the extend path (silent but
-    // its child is ALIVE) for hours (2026-09-03, topic ada7e7db):
-    // the route was asking about the turn, and the turn's child was gone.
-    return !!pp && pp.alive && pp.streamHandler !== null;
+    // Alive AND mid-turn, or about to know: a re-adoption still scanning the store (`replayMute`) has no handler
+    // yet, and a route reading «dead» there would SIGINT the very turn its late ack is about to adopt (CCLI-04).
+    // A fresh idle child that took the key after a kill is alive too, and answering yes for it kept a dead
+    // stream on the extend path for hours (2026-09-03, topic ada7e7db): the turn's child was gone.
+    return !!pp && pp.alive && (pp.streamHandler !== null || pp.replayMute === true);
   }
 
   /**
@@ -3323,8 +3323,8 @@ export class ClaudeCodeProvider implements AIProvider {
       console.warn(`[claude-code] Stream resync for ${sessionKey}: nothing to re-attach, ${await this.whyNoResync(sessionKey, pp)}`);
       return false;
     }
-    if (pp.attachPending) {
-      console.warn(`[claude-code] Stream resync for ${sessionKey}: its first attach has not landed yet, so there is no offset to re-attach from`);
+    if (pp.attachPending || pp.replayMute) {
+      console.warn(`[claude-code] Stream resync for ${sessionKey}: its first attach (a spawn's, or a re-adoption's scan) has not landed yet, so there is no offset to re-attach from`);
       return false;
     }
     // ONE re-attach at a time per session. The reconnect chain, the route's

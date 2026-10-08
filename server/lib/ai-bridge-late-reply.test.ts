@@ -40,13 +40,13 @@ async function scene(onFrame: (frame: Frame, sock: net.Socket) => void): Promise
   if (server) await new Promise<void>((res) => server!.close(() => res()));
   try { rmSync(SOCK, { force: true }); } catch { /* already gone */ }
   const s = net.createServer((sock) => {
-    let buf = "";
+    let buffer = "";
     sock.on("data", (chunk: Buffer) => {
-      buf += chunk.toString();
+      buffer += chunk.toString();
       let nl: number;
-      while ((nl = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, nl);
-        buf = buf.slice(nl + 1);
+      while ((nl = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
         try { onFrame(JSON.parse(line), sock); } catch { /* unreadable frame */ }
       }
     });
@@ -78,7 +78,7 @@ const until = async (ok: () => boolean, ms = 5_000) => {
 /** The cap, as after 90 s of bytes flowing: the waiter sees it at its next tick. */
 const pastTheCap = () => setSystemTime(new Date(Date.now() + 120_000));
 const attachedReply = (rid: number) => JSON.stringify({ type: "attached", id: "topic:late", endOffset: 42, alive: true, exitCode: null, protocol: 4, rid }) + "\n";
-const lateReplies = (c: InstanceType<typeof AiBridgeClient>) => (c as unknown as { lateReplies: Map<number, unknown> }).lateReplies;
+const lateReplyMap = (c: InstanceType<typeof AiBridgeClient>) => (c as unknown as { lateReplies: Map<number, unknown> }).lateReplies;
 
 /** A daemon that echoes rids (it answers a `list` first) and keeps the attach unanswered. */
 async function slowAttach() {
@@ -112,10 +112,10 @@ describe("the reply to a request past its cap", () => {
       const whole = c.attachWhole("topic:late", 0);
       await until(() => seen.rid !== null);
       pastTheCap();
-      await until(() => lateReplies(c).size === 1);
+      await until(() => lateReplyMap(c).size === 1);
       seen.sock!.write(attachedReply(seen.rid!));
       expect(await whole).toMatchObject({ endOffset: 42, alive: true });
-      expect(lateReplies(c).size).toBe(0);
+      expect(lateReplyMap(c).size).toBe(0);
     } finally { setSystemTime(); }
   }, 15_000);
 
@@ -125,10 +125,10 @@ describe("the reply to a request past its cap", () => {
       const whole = c.attachWhole("topic:late", 0).then(() => null, (e: unknown) => e);
       await until(() => seen.rid !== null);
       pastTheCap();
-      await until(() => lateReplies(c).size === 1);
+      await until(() => lateReplyMap(c).size === 1);
       seen.sock!.destroy();
       expect(await whole).toBeInstanceOf(BridgeAckStalled);
-      expect(lateReplies(c).size).toBe(0);
+      expect(lateReplyMap(c).size).toBe(0);
     } finally { setSystemTime(); }
   }, 15_000);
 

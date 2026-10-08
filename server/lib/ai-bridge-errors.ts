@@ -26,7 +26,7 @@ export class BridgeConnectionLost extends Error {
  * the frame never left, here it left and nothing came back), but it shares the
  * one property that matters to whoever catches it: it can be RETRIED. It used to
  * be a bare `Error`, and bare meant final: one late ack and the turn died with
- * «Riadozione del turno non riuscita» in the chat, even when the `claude` child
+ * «Riadozione del turno non riuscita» in the chat, even when the `claude` child  allow-italian: quotes the notice the chat shows
  * was working fine inside the daemon.
  */
 export class BridgeAckStalled extends Error {
