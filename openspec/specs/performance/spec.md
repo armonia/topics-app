@@ -1119,7 +1119,8 @@ same order with the same values.
 - **GIVEN** a SELECT of more than 62 columns over every SQLite type, nulls and blobs included
 - **WHEN** its rows are read with `allWideRows`
 - **THEN** they SHALL deep-equal the rows of `.all()`, with the keys in the same order
-- **AND** a column list that is not made of plain identifiers SHALL be read with `.all()`
+- **AND** the keys SHALL come from the names the caller wrote the SELECT with, never from the order of `statement.columnNames` (Bun 1.3.8 lists it backwards past 62 columns)
+- **AND** a column list that is not made of plain identifiers, no list, or a list that is not the statement's columns SHALL be read with `.all()`
 
 #### Scenario: the feed drops only what no client reads
 - **GIVEN** cards whose dispatcher bookkeeping, delegated-run ids and unread stamps all have a value
