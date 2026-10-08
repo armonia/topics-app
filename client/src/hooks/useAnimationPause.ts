@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { isWindowAwake, onWindowAwakeChange } from '../state/windowAwake';
 
 /**
  * Pauses every CSS keyframe animation while the window is backgrounded — i.e.
@@ -23,21 +24,25 @@ import { useEffect } from 'react';
 export function useAnimationPause() {
   useEffect(() => {
     const root = document.documentElement;
-    const apply = () => {
-      // Backgrounded = the document is hidden (minimized / not the active tab) OR
-      // the window doesn't hold OS focus (another app is in front).
-      const inactive = document.hidden || !document.hasFocus();
-      root.classList.toggle('anims-paused', inactive);
-    };
+    const apply = () => syncAnimationPause(root);
     apply();
-    document.addEventListener('visibilitychange', apply);
-    window.addEventListener('blur', apply);
-    window.addEventListener('focus', apply);
+    const stopListening = onWindowAwakeChange(apply);
     return () => {
-      document.removeEventListener('visibilitychange', apply);
-      window.removeEventListener('blur', apply);
-      window.removeEventListener('focus', apply);
+      stopListening();
       root.classList.remove('anims-paused');
     };
   }, []);
+}
+
+/**
+ * Backgrounded is `isWindowAwake()`, the predicate the polls already use, and
+ * not `document.hidden || !document.hasFocus()`. A click inside a native
+ * browser pane makes the child WKWebView key, and the host document reads
+ * `hasFocus() === false` while the person is using the app: every loader froze,
+ * the streaming chat's spinner included, until focus came back to the host
+ * (08/10, "switching tab, the loaders stop"). The polls had this fixed; the
+ * animations, which `state/windowAwake.ts` says must stay in step, did not.
+ */
+export function syncAnimationPause(root: { classList: Pick<DOMTokenList, 'toggle'> }): void {
+  root.classList.toggle('anims-paused', !isWindowAwake());
 }

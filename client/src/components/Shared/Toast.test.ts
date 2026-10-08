@@ -53,7 +53,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  globals.requestAnimationFrame = originalRaf;
+  // Removed, not set to undefined: a key left behind still answers `in`.
+  if (originalRaf === undefined) delete globals.requestAnimationFrame;
+  else globals.requestAnimationFrame = originalRaf;
 });
 
 /** Quante identita' distinte ha visto il mittente = quante volte React lo avrebbe renderizzato. */

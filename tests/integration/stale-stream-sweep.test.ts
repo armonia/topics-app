@@ -15,6 +15,7 @@
 import { test, expect, describe } from "bun:test";
 import {
   sweepStaleStreams,
+  rescueByOwner,
   INTERRUPTED_MARKER,
   type SilenceMark,
   type StaleStreamSweepDeps,
@@ -497,5 +498,46 @@ describe("the sweeper stops the provider's turn, not only the row", () => {
     expect(sweepStaleStreams(h.deps).get(SK)).toBe("finalized");
     expect(h.rows.get(MSG)?.partial).toBe(false);
     expect(h.turnsEnded).toEqual([SK]);
+  });
+});
+
+/**
+ * A RESCUE THAT CANNOT ACT SAYS SO (T18). The re-attach used to be
+ * `owner?.resyncStream?.(sk)` in server.ts, its answer dropped: the log said
+ * "re-attaching the stream and waiting" and, for three of the four outcomes,
+ * nothing after it.
+ */
+describe("a rescue that cannot act says why", () => {
+  test("no owner: nothing to re-attach, said", async () => {
+    const said: string[] = [];
+    expect(await rescueByOwner(SK, null, (m) => said.push(m))).toBe(false);
+    expect(said).toEqual([expect.stringContaining("no provider owns the session")]);
+  });
+
+  test("an owner with no stream to re-attach: said, with its name", async () => {
+    const said: string[] = [];
+    expect(await rescueByOwner(SK, { name: "topics" }, (m) => said.push(m))).toBe(false);
+    expect(said).toEqual([expect.stringContaining("provider topics has no stream to re-attach")]);
+  });
+
+  test("the owner answers false: said", async () => {
+    const said: string[] = [];
+    const owner = { name: "claude-code", resyncStream: async () => false };
+    expect(await rescueByOwner(SK, owner, (m) => said.push(m))).toBe(false);
+    expect(said).toEqual([expect.stringContaining("did not re-attach")]);
+  });
+
+  test("the owner throws: said, with the error", async () => {
+    const said: string[] = [];
+    const owner = { name: "claude-code", resyncStream: async () => { throw new Error("ack timeout"); } };
+    expect(await rescueByOwner(SK, owner, (m) => said.push(m))).toBe(false);
+    expect(said).toEqual([expect.stringContaining("ack timeout")]);
+  });
+
+  test("a re-attach that lands adds nothing to the provider's own line", async () => {
+    const said: string[] = [];
+    const owner = { name: "claude-code", resyncStream: async () => true };
+    expect(await rescueByOwner(SK, owner, (m) => said.push(m))).toBe(true);
+    expect(said).toEqual([]);
   });
 });

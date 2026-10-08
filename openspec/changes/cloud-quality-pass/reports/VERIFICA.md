@@ -333,3 +333,86 @@ rimesse sulla base locale con `cloud-ricuci`; la firma SSH della VM cade, autore
 - Il commento falso trovato da T13 in `MessageList.tsx` («Nothing is lost by waiting») corretto qui. Resta
   aperto, raro e fuori recinto: una rotellata verso il fondo entro ~100 ms dal clic che apre l'ultima riga si
   ferma 14-122 px sopra il fondo.
+
+## T15 · Le perdite d'ordine della suite — accettata (fusa in `dc773b2e3`)
+
+- Diff letto: i fix stanno in chi sporca. `cleanupTestDataDir` rimette il `DATA_DIR` trovato prima del primo
+  setup senza risposta, quindi un file che non pulisce non passa la sua cartella al file dopo. La guardia del
+  preload chiede `k in globalThis`, e altri 12 file non lasciano più una chiave DOM a `undefined`.
+  RECAPTURE-01 era la VM senza WebKit: il test non si tocca.
+- Sul Mac, 5 corse per contesto per Bun:
+  - **Contesto 2 (`localStorage`):** 5/5 rossi prima, 0/5 dopo, su 1.3.8 e 1.4.2.
+  - **Contesto 1 (`system-notices`):** 0/5 già prima. Qui Bun non mette `browser-state-store` davanti.
+    Vale la guardia deterministica di T15 (file fixture numerati in processi figli): verde dopo; su una
+    worktree scratch senza il ripristino falliscono i 2 casi del ripristino.
+- I 16 file di test cambiati: 94 pass, 0 fail su 1.3.8 e 1.4.2.
+
+## Fuori traccia · Gli spinner fermi con il fuoco in una tab browser nativa (`924960ad4`)
+
+- Segnalazione di Attilio dell'08/10, arrivata da un'altra sessione: cambiando tab gli spinner della chat in
+  streaming si fermano fino al ritorno o a un ricarica.
+- Lato server lo stream c'era: alle 15:43 il topic in questione aveva tool avviati e conclusi.
+- Causa: `useAnimationPause` metteva `.anims-paused` con `document.hidden || !document.hasFocus()`. Un click in
+  una WKWebView figlia la rende key e l'ospite legge `hasFocus()` falso mentre si usa l'app. I poll lo
+  correggevano già con `isWindowAwake()` (RUNTIME-11: una vista figlia non ferma gli orologi), le
+  animazioni no.
+- Fix: lo stesso predicato, con `onWindowAwakeChange`. `useAnimationPause.test.ts` è verde su 1.3.8 e 1.4.2.
+  Con la vecchia condizione, su una copia scratch, il caso della pane nativa è rosso.
+- Prezzo, lo stesso già accettato per i poll: con pane browser native vive e l'app davvero dietro un'altra,
+  le animazioni girano.
+
+## T17 · Sul telefono la lista sotto la pagina di una tab browser — accettata (fusa in `bf3ce7b4f`)
+
+- Difetto dell'app, non del test. Sul telefono il cassetto della lista si dipinge dentro la radice
+  dell'app (`position: fixed`, un contesto di impilamento suo), cioè sotto lo strato delle pagine browser
+  appeso a `body`. Con una tab browser aperta la pagina copriva la lista intera, non solo il banner.
+- Fix:
+  - Mentre il cassetto è aperto lo strato va in `visibility: hidden` (`frameCover.ts`, chiamato da
+    `useSidebarSwipe`). Nessun frame staccato o ricaricato.
+  - Diff letto: solo lo strato tocca `visibility`, quindi i frame ereditano. L'hook è montato una volta in
+    `App.tsx`, che non si smonta, quindi la cleanup mancante qui non morde.
+  - Il modulo a parte tiene `hostedIframe` fuori dal chunk di avvio: +105 byte gz sul percorso critico.
+- Prova visiva (ramo `cloud/t17-banner-iframe-evidenza`), letta con l'OCR delle due metà del fotogramma:
+  prima il testo di example.com al posto della lista, dopo la lista con «cerca», «Nuova Task» e «Profilo».
+- Barre di T17, sulla VM:
+  - **B1:** 10/10 rossi → 10/10 verdi, in Chromium e in WebKit.
+  - **B2:** `usability-audit` ×3 verde nei due motori.
+  - **B3:** due mutazioni, entrambe rosse.
+  - Barra finale: gate 0, 16 spec e2e dell'area con 83 passate e nessun retry.
+  - L'unico rosso negli unit è `system-notices`, la perdita chiusa da T15 (`dc773b2e3`).
+- Aggiunto qui: la spec nuova nel `testMatch` del progetto `webkit`, come chiedeva il REPORT (il config era
+  nei file dei rami aperti). La prova di quella riga è la CI di #258.
+
+## T18 · Una chat in corso si riallinea da sola — accettata con un fix mio (fusa in `91ed43ff1`)
+
+- Sul Mac i 4 file di test di T18 danno 57 pass e 0 fail su 1.3.8 e 1.4.2. Riallineamento dal taglio:
+
+  | Caso | Tempo |
+  |---|---|
+  | Attacco perso | 6,8–7,4 s |
+  | Socket del broker caduto | 3,5 s |
+  | Turno «woken» | 8,0 s |
+  | Controllo (socket caduto, riconnessione riuscita) | 0,56–0,71 s |
+
+  Prima: mai entro 15 s.
+- Mutazione su una worktree scratch, sonda spenta: rossi «attacco perso», «socket caduto e prima riconnessione
+  fallita» (il debito di riaggancio si salda alla prossima richiesta, e senza sonda non ne parte nessuna) e
+  «woken». Il controllo resta verde.
+- **Trovato in verifica (verificatore indipendente, con un test che lo riproduce col demone vero).** Dopo un
+  riavvio il server adotta il figlio ancora vivo nel demone (`resumed`), e fino all'arrivo di `attachLive` il
+  suo `consumedOffset` vale 0. Se quell'aggancio tardava oltre un giro della sonda, cosa probabile sotto swap,
+  la sonda leggeva un buco da 0 e riattaccava da lì. Ripiegata nello stesso blocco della risposta
+  dell'aggancio, **la storia intera del figlio diventava la risposta del turno nuovo**. Sarebbe morso proprio
+  al riavvio di un deploy.
+- **Fix:** `attachPending` dallo spawn finché l'aggancio iniziale non atterra. `resyncStream` non parte da un
+  offset che non sappiamo, e la sonda salta quei processi. In più il riattacco della sonda fa un tentativo
+  solo: con un ack in stallo il buco aspetta 30 s invece di riciclare il socket di tutti i turni (il caveat
+  del verificatore).
+- Il test di regressione (l'ultimo `describe` di `claude-code-stream-lag.test.ts`, frame trattenuti come in un
+  loop in stallo) è rosso sul codice di prima (resync da 0) e verde col fix su 1.3.8 e 1.4.2.
+- Le altre tre affermazioni reggono:
+  - la guardia di `onData` non perde byte (ogni riavvolgimento voluto passa con `replayMute`/`replaySilent`);
+  - il routing con un solo proprietario dà lo stesso risultato;
+  - nessun bisogno di un demone nuovo (`list` con `endOffset` c'è dal 17/07).
+- Lasciato a T19: il figlio che esce mentre siamo staccati perde la coda del turno, e la fase 2 della
+  riadozione può ripiegare frame (doppi, non persi).

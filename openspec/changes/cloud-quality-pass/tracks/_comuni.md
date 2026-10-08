@@ -44,9 +44,18 @@ background e leggi il log; mai un `sleep` in primo piano.
    touch $P/chromium-$R/INSTALLATION_COMPLETE $P/chromium_headless_shell-$R/INSTALLATION_COMPLETE
    npx playwright install-deps chromium
    ```
-   WebKit esiste solo su `cdn.playwright.dev`: se non scende, il progetto `webkit` non gira e lo
-   scrivi. Un blocco di setup che non risolvi in 20 minuti va nel REPORT come blocco, con
-   l'errore esatto, e lavori su ciò che gira.
+5. WebKit, anche se giri solo `--project=chromium`: `npx playwright install --with-deps webkit`
+   (come la CI, `ci.yml` job e2e: `install --with-deps chromium webkit`). Il server fotografa
+   l'anteprima delle card con Playwright **WebKit** (`server/services/preview-browser.ts`), e
+   senza il motore `board-recapture-preview` RECAPTURE-01 è rosso 3 tentativi su 3 («Executable
+   doesn't exist at …/webkit-2272/pw_run.sh» nel log del test-server, poi l'anteprima non
+   compare in 90 s). Misurato in T15 (08/10): senza WebKit 1/1 rosso, con WebKit 6/6 verdi
+   (RECAPTURE-01 e -02, `--repeat-each=3 --retries=0`); `cdn.playwright.dev` dalla VM rispondeva
+   (34 s). WebKit esiste solo su `cdn.playwright.dev`: se non scende, RECAPTURE-01 e il progetto
+   `webkit` non girano e lo scrivi.
+
+Un blocco di setup che non risolvi in 20 minuti va nel REPORT come blocco, con l'errore esatto, e
+lavori su ciò che gira.
 
 ### La barra (si scrive una volta, si esegue sempre uguale)
 

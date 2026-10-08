@@ -193,6 +193,46 @@ describe("AiBridgeClient", () => {
     expect(Date.now() - t0).toBeLessThan(3000);   // e non si è aspettato nessun timeout
   });
 
+  test("a reconnect owed after a drop fires the re-attach callbacks, whoever reconnects", async () => {
+    // The `close` handler schedules ONE reconnect and fired the callbacks only
+    // when that one succeeded. On a machine in swap it can fail ("failed to
+    // connect after spawning daemon", the spawn cap): its `.catch` swallowed
+    // the error, the next request connected on its own, and nobody re-attached
+    // the live sessions, which stayed deaf until a watchdog (T18).
+    // A client of its own: the shared one may still hold a reconnect timer
+    // from the drops the tests above made, and its callback would count here.
+    const own = new AiBridgeClient();
+    await own.ensureConnected();
+    let fired = 0;
+    own.onReconnect(() => { fired++; });
+    const priv = own as unknown as { ensureConnected: () => Promise<void>; ready: boolean; socket: { destroy(): void } | null };
+    const real = priv.ensureConnected;
+    let failedOnce = false;
+    priv.ensureConnected = function (this: unknown) {
+      if (!failedOnce && !priv.ready) { failedOnce = true; return Promise.reject(new Error("ai-bridge: failed to connect after spawning daemon")); }
+      return real.call(this);
+    };
+    try {
+      priv.socket?.destroy();
+      const until = Date.now() + 5_000;
+      while (!failedOnce && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+      expect(failedOnce).toBe(true);
+    } finally {
+      delete (priv as { ensureConnected?: unknown }).ensureConnected;
+    }
+    try {
+      // Somebody else's request connects.
+      expect(Array.isArray(await own.list())).toBe(true);
+      const until = Date.now() + 2_000;
+      while (fired === 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+      // Once, not once per caller.
+      await new Promise((r) => setTimeout(r, 700));
+      expect(fired).toBe(1);
+    } finally {
+      own.dispose();
+    }
+  });
+
   test("il secondo tentativo è sicuro: uno spawn ripetuto RIPRENDE, non duplica", async () => {
     const id = "topic:cli-drop-idem";
     client.registerHandlers(id, { onData: () => {} });

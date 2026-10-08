@@ -87,10 +87,25 @@ function isUnderTestTmp(p: string): boolean {
 
 
 /**
+ * What `DATA_DIR` was before the first `setupTestDataDir` that no
+ * `cleanupTestDataDir` has answered yet; null when none is pending.
+ */
+let dataDirBeforeSetup: { value: string | undefined } | null = null;
+
+/**
  * Wipe `testDataDir` and point `process.env.DATA_DIR` at it. Call from
- * `beforeAll`. The cleanup is intentionally only the directory wipe:
- * letting each test own DATA_DIR keeps the global env mutation
- * visible at the test-file level.
+ * `beforeAll`, and pair it with `cleanupTestDataDir` in `afterAll`: the
+ * cleanup puts `DATA_DIR` back.
+ *
+ * WHY THE CLEANUP PUTS IT BACK. `server/db.ts` resolves the data folder as
+ * `process.env.DATA_DIR || <root>/data`, and `bun test` runs every file of a
+ * shard in one process. A `DATA_DIR` left behind sends every later
+ * `initDatabase(ownTmpRoot)` to the SAME folder: on 08/10/2026
+ * `server/attention/system-notices.test.ts` opened the `topics.db` that
+ * `born-seen.test.ts` had just written and found its `topic:front` row, red in
+ * every shard that ran `browser-state-store.test.ts` before them, green alone.
+ * The saved value is the one before the first unanswered setup, so a file that
+ * never cleans up does not hand its folder on through the next file's cleanup.
  *
  * Il path DEVE venire da `testTmpDir` (vedi sopra). Un path costante passa
  * i test da solo e li fa fallire a caso quando la suite gira due volte in
@@ -115,6 +130,7 @@ export function setupTestDataDir(testDataDir: string): void {
   // hold whatever the neighbours do, and closing is idempotent.
   closeDatabase();
   fs.rmSync(testDataDir, { recursive: true, force: true });
+  dataDirBeforeSetup ??= { value: process.env.DATA_DIR };
   process.env.DATA_DIR = testDataDir;
 }
 
@@ -134,6 +150,12 @@ export function setupTestDataDir(testDataDir: string): void {
 export async function cleanupTestDataDir(dir: string): Promise<void> {
   closeDatabase();
   fs.rmSync(dir, { recursive: true, force: true });
+  // Put back the DATA_DIR the setup found (see `setupTestDataDir`).
+  if (dataDirBeforeSetup) {
+    if (dataDirBeforeSetup.value === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = dataDirBeforeSetup.value;
+    dataDirBeforeSetup = null;
+  }
 }
 
 /**

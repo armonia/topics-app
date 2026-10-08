@@ -592,6 +592,9 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
+        // The phone list over a browser tab's page: the drawer paints inside the
+        // app's root, under the page layer, unless the layer steps aside (T17).
+        "**/browser-frame-under-phone-list.spec.ts",
         // The chat at rest: the pin loop documented in MessageList depends on
         // how the engine measures Virtuoso's rows, and WebKit is what ships.
         "**/chat-scroll-at-rest.spec.ts",
