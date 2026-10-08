@@ -1,99 +1,200 @@
-import { memo, useMemo } from 'react';
+import { memo, Suspense, useState, type MouseEvent } from 'react';
+import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Loader2, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { Bot, CircleCheck, Hourglass, Loader2, X } from 'lucide-react';
-import { useTerminalSessions } from '../../contexts/TopicsContext';
-import { dismissSubAgent, subAgentRowsFor, useEndedSubAgents, type SubAgentRow as Row } from '../../state/endedSubAgents';
+import { scriptsApi } from '../../lib/api';
+import { useToast } from '../Shared/Toast';
+import { listenLabel, listenUrl } from '../../../../shared/background-work';
+import type { LiveAgentRow, LiveCommandRow } from '../../../../shared/live-work';
+import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
+import { useLiveWork, visibleRows } from '../../state/liveWork';
+import { getSessionMessagesFromStore } from '../../state/messageStore';
+import { revealToolCall } from '../../state/revealToolCall';
+import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
+import { subscribeFrames } from '../../lib/wsFrameBus';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadProcessLog } from '../../state/pane/panePreload';
+import { DockedStripPanel } from './DockedStripPanel';
+import { findLaunchCard } from './liveWorkCard';
+import { useDisclosureToggle } from './transcriptDisclosure';
+import type { WSMessage } from '../../types';
+
+// The log opens on a click: its pane stays out of the entry chunk, as everywhere else
+// (`panePreload`). Imported statically here it added 2.8 kB gz to the entry and broke `check:bundle`.
+const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 
 /**
- * In-chat strip listing the sub-agents this topic spawned (via the MCP
- * `spawn_agent` tool → a claude-code PTY whose `parentSessionKey` is this
- * chat's `sessionKey`). It answers the user's "potrebbe uscire nella ui del
- * topic da cui parte": the sub-agent is now visible from the very chat it was
- * launched from, not only nested in the sidebar tree.
+ * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
+ * the sub-agents it spawned that are working or waiting for their prompt
+ * (native and CLI), and the processes it runs (`run_command`, a `run_script`
+ * of its agent), each with the line it is on. The rows come from the server
+ * (`state/liveWork.ts`); no rows, no strip.
  *
- * Clicking a row opens/focuses that sub-agent's terminal pane. Routing goes
- * through the `topics:open-terminal-pane` CustomEvent bus (handled in App.tsx)
- * so this leaf component doesn't need `handleTerminalClick` threaded down three
- * layout layers — the same handler the sidebar rows use, landing on the exact
- * (now non-blank) terminal pane.
+ * On 07/10 the Prince of Persia chat showed three sub-agents ended hours before
+ * and nothing of the 58 minutes Muse was working, which is what the person was
+ * waiting on. So an ended sub-agent stays one minute with its check, then
+ * leaves, and a command is a row like a sub-agent.
  *
- * The row's click stops at the row: see the comment on it for why.
+ * A row opens what it is: a CLI child's terminal, a native child's chat, a
+ * command's card in the transcript, the `run_command` that started it, opened
+ * with its live log and brought into view (`liveWorkCard.ts`). On 08/10 the
+ * row docked a second log over the strip instead, next to the card the agent
+ * already had. Only a command whose card this transcript does not hold
+ * (another session's, or history not loaded) docks its log above the rows
+ * (`DockedStripPanel`). A server has its address and «Open» on the row.
  *
- * A sub-agent that ENDS keeps its row, marked ended with the calm "done" check,
- * until the user dismisses it or the chat is archived: before, the row (and a
- * one-row strip with it) vanished the moment the process left the live roster,
- * which read as "the sub-agent disappeared". See state/endedSubAgents.ts.
+ * A command is also where it stops («Stop», the Processes panel's route) and
+ * where it says that its end will wake the chat. Both used to be two more
+ * rows under the transcript, the background line and a server's row
+ * (BGVIS-07/08), which named the same commands a second time: on 07/10 the
+ * Prince of Persia chat showed Muse and the clip server twice. The background
+ * line keeps the CLI's own work (a background Bash, a Monitor, an Agent),
+ * which no row here lists.
+ *
+ * Every click stops at the row: the chat panel around the strip focuses ITSELF
+ * on click (`ChatPanel` onClick={onFocus}), and left to bubble that focus
+ * landed after the terminal's and took the front back.
  */
-function SubAgentRow({ row }: { row: Row }) {
+
+const ROW = 'flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1 text-left text-mini hover:bg-app-hover transition-colors';
+const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 mr-1 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text';
+
+/** The log's live updates, on the frame bus every window already has. */
+const onScriptFrames = (handler: (msg: WSMessage) => void) =>
+  subscribeFrames((frame) => handler(frame as WSMessage), { types: ['scripts:output'] });
+
+function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
   const { id, name, state } = row;
-  const title = state === 'busy' ? tr('subagent.busy', { name })
+  const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
-    : state === 'ended' ? tr('subagent.ended', { name })
-    : tr('subagent.open', { name });
+    : tr('subagent.ended', { name });
+  const open = (e: MouseEvent) => {
+    e.stopPropagation();
+    // A native child has no terminal: its agentId is its chat's topic id.
+    if (row.runtime === 'topics') {
+      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: id, mode: 'permanent', reveal: true } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
+    }
+  };
+  const preview = state === 'ended' ? row.preview || tr('livework.finished') : row.preview;
   return (
-    <span
-      data-testid="subagent-row"
-      data-subagent-id={id}
-      data-state={state}
-      className={`flex items-center rounded-full border border-app-border bg-app-surface/60 text-mini max-w-[220px] ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}
-    >
-      <button
-        type="button"
-        onClick={(e) => {
-          // The chat panel around the strip focuses ITSELF on click
-          // (`ChatPanel` onClick={onFocus}). Left to bubble, that focus landed
-          // after the terminal's and took the front back: the row opened a tab
-          // the user never got to see.
-          e.stopPropagation();
-          window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
-        }}
-        title={title}
-        aria-label={title}
-        className={`flex min-w-0 items-center gap-1.5 rounded-full py-1 hover:bg-app-surface transition-colors ${state === 'ended' ? 'pl-2.5 pr-1' : 'px-2.5'}`}
-      >
-        {state === 'busy'
-          ? <Loader2 size={11} className="animate-spin text-blue-500 flex-shrink-0" />
+    <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
+      <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
+        {state === 'working'
+          ? <Loader2 size={11} aria-hidden="true" className="animate-spin text-blue-500 flex-shrink-0" />
           : state === 'waiting'
             ? <Hourglass size={11} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
-          : state === 'ended'
-            ? <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />
-            : <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/80 flex-shrink-0" />}
-        <span className="truncate">{name}</span>
+            : <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />}
+        <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
+        {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
       </button>
       {state === 'ended' && (
         <button
           type="button"
           data-testid="subagent-dismiss"
-          onClick={() => dismissSubAgent(id)}
+          onClick={(e) => { e.stopPropagation(); dismissSubAgent(id); }}
           title={tr('subagent.dismiss', { name })}
           aria-label={tr('subagent.dismiss', { name })}
-          className="flex-shrink-0 rounded-full p-1 mr-0.5 hover:bg-app-surface hover:text-app-text transition-colors"
+          className="flex-shrink-0 rounded-full p-1 mr-1 text-app-text-muted hover:bg-app-hover hover:text-app-text transition-colors"
         >
           <X size={11} aria-hidden="true" />
         </button>
       )}
-    </span>
+    </div>
   );
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicSessionKey }: { topicSessionKey: string }) {
+function CommandRow({ row, open, onOpen }: { row: LiveCommandRow; open: boolean; onOpen: (anchor: HTMLElement) => void }) {
   const tr = useT();
-  const terminals = useTerminalSessions();
-  const ended = useEndedSubAgents();
-  const rows = useMemo(() => subAgentRowsFor(topicSessionKey, terminals, ended), [topicSessionKey, terminals, ended]);
-  if (rows.length === 0) return null;
+  const toast = useToast();
+  const [stopping, setStopping] = useState(false);
+  // The server puts the page first when the command serves more than one port.
+  const first = row.listen[0];
+  const url = first ? listenUrl(first) : '';
+  const title = tr('livework.logTitle', { name: row.name });
+  const wakes = tr('chat.background.wakes');
+  // The row leaves once the server sees the process end; until then its Stop stays pressed.
+  const stop = async () => {
+    setStopping(true);
+    try { await scriptsApi.stop(row.id); } catch { toast.error(tr('livework.stopFailed', { name: row.name })); setStopping(false); }
+  };
+  return (
+    <div data-testid="live-command-row" data-process-id={row.id} data-open={open ? 'true' : 'false'} className="flex min-w-0 items-center" title={row.wakes ? `${row.command}\n${wakes}` : row.command}>
+      <button type="button" aria-expanded={open} aria-label={title} onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }} className={ROW}>
+        {first
+          ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
+        <span className="max-w-[40%] flex-shrink-0 truncate text-app-text">{row.name}</span>
+        {first && <span data-testid="live-work-address" className="flex-shrink-0 tabular-nums text-app-text-secondary">{row.listen.map(listenLabel).join(', ')}</span>}
+        <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate font-mono text-app-text-tertiary">{row.preview}</span>
+      </button>
+      {row.wakes && (
+        <span data-testid="live-work-wakes" role="img" aria-label={wakes} title={wakes} className="flex flex-shrink-0 px-1 text-app-text-secondary">
+          <AlarmClock size={11} aria-hidden="true" />
+        </span>
+      )}
+      {url && (
+        <button
+          type="button"
+          data-testid="live-work-open"
+          className={SIDE_BUTTON}
+          title={tr('chat.service.openTitle', { url })}
+          onClick={(e) => { e.stopPropagation(); openLink(url, { external: isExternalLinkGesture(e), origin: e.currentTarget }); }}
+        >
+          <ExternalLink className="h-3 w-3" aria-hidden="true" />{tr('chat.service.open')}
+        </button>
+      )}
+      <button
+        type="button"
+        data-testid="live-work-stop"
+        className={`${SIDE_BUTTON} disabled:opacity-50`}
+        disabled={stopping}
+        title={tr('livework.stopTitle', { name: row.name })}
+        onClick={(e) => { e.stopPropagation(); void stop(); }}
+      >
+        <Square className="h-3 w-3" aria-hidden="true" />{tr('chat.service.stop')}
+      </button>
+    </div>
+  );
+}
+
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId, sessionKey }: { topicId: string; sessionKey: string }) {
+  const dismissed = useDismissedSubAgents();
+  const rows = visibleRows(useLiveWork(topicId), dismissed);
+  const disclose = useDisclosureToggle();
+  // The log stays open when its command ends and its row leaves: its end is what one opens it to read.
+  const [log, setLog] = useState<{ id: string; name: string } | null>(null);
+  if (rows.length === 0 && !log) return null;
+
+  // The messages are read at the click, not subscribed to: the strip does not redraw on every token.
+  const openCommand = (row: LiveCommandRow, anchor: HTMLElement) => {
+    const card = log?.id === row.id ? null : findLaunchCard(getSessionMessagesFromStore(sessionKey), row);
+    if (card) {
+      revealToolCall({ topicId, ...card }, anchor.closest('[data-testid="chat-scroll-container"]') ?? document);
+      return;
+    }
+    // The docked log opens above the row: the transcript holds the row where it was (CHAT-FOLD-01).
+    disclose(anchor);
+    setLog(log?.id === row.id ? null : { id: row.id, name: row.name });
+  };
 
   return (
-    <div data-testid="subagents-strip" className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg/40 overflow-x-auto">
-      <span className="flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0">
-        <Bot size={12} />
-        <span>{tr('subagent.strip')}</span>
-      </span>
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        {rows.map((row) => (
-          <SubAgentRow key={row.id} row={row} />
-        ))}
+    <div data-testid="subagents-strip" className={`${CHAT_STRIP_NEUTRAL} overflow-hidden`}>
+      <DockedStripPanel open={!!log} testId="live-work-log">
+        {log && (
+          <div className="h-56">
+            <Suspense fallback={null}>
+              <ProcessLogPane key={log.id} processId={log.id} scriptName={log.name} onMessage={onScriptFrames} onClose={() => setLog(null)} />
+            </Suspense>
+          </div>
+        )}
+      </DockedStripPanel>
+      <div className="max-h-[7.5rem] overflow-y-auto">
+        {rows.map((row) => (row.kind === 'agent'
+          ? <AgentRow key={row.id} row={row} />
+          : <CommandRow key={row.id} row={row} open={log?.id === row.id} onOpen={(anchor) => openCommand(row, anchor)} />))}
       </div>
     </div>
   );

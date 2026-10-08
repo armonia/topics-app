@@ -493,7 +493,6 @@
       "RipresoBanner",
       "WokenBanner",
       "approxK",
-      "backticks",
       "cancelled",
       "hasPreContentRows",
       "hljsReady",
@@ -4787,8 +4786,7 @@
     "server/services/task-intake.ts": [
       "STOPWORDS",
       "idf",
-      "idfMap",
-      "tokenize"
+      "idfMap"
     ],
     "server/services/task-merge.test.ts": [
       "altrove",
@@ -5554,8 +5552,7 @@
       "NEIGHBOUR_THRESHOLD",
       "Neighbour",
       "STOPWORDS",
-      "findNeighbours",
-      "tokenizeTaskText"
+      "findNeighbours"
     ],
     "shared/task-title.test.ts": [
       "DETTATO"
@@ -7678,9 +7675,6 @@
       "testo",
       "viste",
       "voce"
-    ],
-    "tests/unit/product-metadata.test.ts": [
-      "undeclaredBackticks"
     ],
     "tests/unit/project-veil-tint-must-equal-base.test.ts": [
       "RADICE",

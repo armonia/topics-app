@@ -52,7 +52,7 @@ export async function installProbe(page: Page) {
         const scTop = sc.getBoundingClientRect().top;
         const scBottom = sc.getBoundingClientRect().bottom;
         if (spec!.docked) {
-          // The last row of the transcript still on screen above the strip.
+          // A strip at the end of the transcript: the last message row still on screen above it.
           const limit = header.getBoundingClientRect().top;
           above = rows.filter((m) => {
             const r = m.getBoundingClientRect();
@@ -216,8 +216,8 @@ export function faults(m: Measure, docked: boolean): string[] {
   const at = `${m.kind} ${m.where} ${m.phase}`;
   if (m.headerLost) out.push(`${at}: the header left the DOM`);
   if (m.headerJump > 1) out.push(`${at}: the clicked header moved ${m.headerJump}px`);
-  // A docked list opened at the bottom pushes the followed transcript up
-  // with it: that row moving is the point (`newestRowCovered` checks it).
+  // A strip's list opened at the bottom pushes the transcript above it up:
+  // that row moving is the point (`newestRowCovered` checks it).
   if (m.aboveJump > 1 && !(docked && m.where === "bottom")) out.push(`${at}: the row above moved ${m.aboveJump}px`);
   if (m.sideJump > 1) out.push(`${at}: the header moved ${m.sideJump}px sideways`);
   if (!docked && m.foldRuns > 1) out.push(`${at}: the fold changed height in ${m.foldRuns} separate runs (a reveal that pops)`);

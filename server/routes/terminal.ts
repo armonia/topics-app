@@ -13,6 +13,9 @@ import fs from "fs";
 import { homedir, tmpdir } from "os";
 import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
+// runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
+// module like any other, so there is no loose .mjs to miss and no runtime to run it.
+import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
@@ -53,7 +56,7 @@ import {
   setCliChildStopper, spawnNativeChild, stopNativeChild,
 } from "../lib/native-subagents";
 import {
-  FOREGROUND_WAIT_MS, bootChildSweep, childPhase, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
+  FOREGROUND_WAIT_MS, bootChildSweep, childPhase, cliChildPhaseNow, configureSubagentRuntime, holdForeground, noteChildSeeded, noteChildSteered,
   chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, reportChildEnd, startChildWatch, subagentLimitRefusal, waitForegroundLeg, type ChildRef,
 } from "../lib/subagent-runtime";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
@@ -102,26 +105,26 @@ interface TerminalSession {
   spawnPromptSnippet?: string;
 }
 
-/** Un id di sessione Claude finisce dritto in un argv (`--resume <id>`): passa
- *  solo se ha la forma di un uuid, mai una stringa arbitraria dal body. */
+/** A Claude session id lands straight in an argv (`--resume <id>`): it passes
+ *  only with uuid shape, never an arbitrary string from the body. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * L'id da riprendere quando si apre un NUOVO pane terminale, o `undefined` per
- * partire da una sessione nuova.
+ * The id to resume when a NEW terminal pane opens, or `undefined` to
+ * start from a fresh session.
  *
- * `createSession` sa già fare le due cose (`--resume <id>` se l'id c'è,
- * `--session-id <nuovo>` altrimenti), ma l'handler POST passava `undefined` e
- * basta: il client l'id lo mandava (`closedTabRecord.ts`) e il server lo
- * buttava. Riaprire una tab Claude Code chiusa faceva così ripartire una
- * sessione VUOTA con lo stesso aspetto — e non c'era modo di dire "apri QUESTA
- * sessione come pane terminale", pur avendone l'id.
+ * `createSession` already does both (`--resume <id>` when the id is there,
+ * `--session-id <new>` otherwise), but the POST handler passed `undefined` and
+ * that was it: the client was sending the id (`closedTabRecord.ts`) and the server
+ * threw it away. Reopening a closed Claude Code tab thus restarted an
+ * EMPTY session looking the same — with no way to say "open THIS
+ * session as a terminal pane", though holding its id.
  *
- * Due condizioni, nessuna delle due cosmetica:
- *  • solo per i tipi claude — su una shell un id di sessione non significa
- *    niente, e passarlo avvierebbe un `--resume` a un binario che non lo sa
- *    leggere;
- *  • solo se è un uuid — questo valore arriva da un body HTTP e finisce in un
+ * Two conditions, neither cosmetic:
+ *  • only for claude types — on a shell a session id means
+ *    nothing, and passing it would start a `--resume` on a binary that cannot
+ *    read it;
+ *  • only when a uuid — this value comes from an HTTP body and lands in an
  *    argv.
  */
 export function resumeIdForNewSession(
@@ -1253,6 +1256,12 @@ function handleBridgeMessage(msg: any) {
       // must not, or a daemon that accepts connections and answers nothing
       // would loop through soft resets forever and never be SIGTERMed.
       recycleArmedAt = 0;
+      // Ponte sopravvissuto alla sessione grafica (logout, crash di WindowServer):
+      // i terminali che fa nascere non hanno Portachiavi, appunti né browser.
+      // Rifatto, nasce dal server; reconcile riprende le sessioni claude con --resume.
+      if (bridgeOutsideGuiSession(msg.session, guiSessionName)) {
+        recycleBridge(`bridge outside the GUI session (launchctl managername: ${JSON.stringify(msg.session)})`);
+      }
       break;
     }
   }
@@ -2361,6 +2370,26 @@ function boardAgentCap(): number {
 /** Live children of a parent (present in the in-memory `sessions` map). */
 function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
   return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
+}
+
+/**
+ * A chat's live CLI children for the strip under the chat (chat-live-work): the
+ * phase read now (off the transcript after a restart, never on trust) and the
+ * tool the hooks say it is running. `routes/live-work.ts` makes the rows.
+ */
+export function liveCliChildren(parentSessionKey: string) {
+  const db = getDatabase();
+  return liveChildrenOf(parentSessionKey).map((s) => {
+    const row = getSubagent(db, s.id);
+    const tool = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId)?.lastTool : undefined;
+    return {
+      id: s.id, name: row?.name ?? s.name, createdAt: row?.createdAt ?? s.createdAt,
+      phase: row ? cliChildPhaseNow(row) : childPhase(s.id),
+      busy: terminalActivity.get(s.id)?.busy ?? false,
+      reportedAt: row?.reportedAt ?? null,
+      tool: tool ? { name: tool.name, input: tool.input as unknown } : null,
+    };
+  });
 }
 
 /**

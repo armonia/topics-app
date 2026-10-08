@@ -7,14 +7,16 @@
  * background line read only the CLI's own tasks.
  *
  * Real server turns from a fake CLI (`helpers/fake-claude-command.ts`) that
- * calls `run_command` mid-turn through the bridge's own code: the line names
- * the command, with a terminal icon, its running time and that it will wake
- * the chat, while that turn is open and sooner than the 15 s status poll (the
- * command starts right after a poll went out, so only the `background:changed`
- * push can name it in time); the turn ends and the line stays, with no
- * composer Stop that would stop nothing; a click opens the command's log in
- * the project window; the command ends, the line goes, and the answer to its
- * wake carries a banner naming the command, its exit code and its last line.
+ * calls `run_command` mid-turn through the bridge's own code: the command is a
+ * row of the strip under the chat, saying that its end will wake the chat,
+ * while that turn is open and sooner than the 15 s status poll (the command
+ * starts right after a poll went out, so only a push can show it in time), and
+ * the background line does not name it a second time (chat-live-work); the
+ * turn ends and the row stays, with its own Stop and no composer Stop that
+ * would stop nothing; a click on the row opens the card of the `run_command`
+ * that started it, with the command's live log (SUBSTRIP-02); the command ends,
+ * the row goes, and the answer to its wake carries a banner naming the
+ * command, its exit code and its last line.
  */
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,7 +53,7 @@ test.describe("a run_command in the chat", () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  test("the line names the command during the turn that started it and after, a click opens its log, and its wake names it with its exit code and last line", async ({ page, request, chatPage }) => {
+  test("the strip shows the command during the turn that started it and after, a click opens its card with its live log, and its wake names it with its exit code and last line", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-07" });
     dir = realpathSync(mkdtempSync(join(tmpdir(), "cmdwatch-")));
     const project = join(dir, "project");
@@ -77,40 +79,34 @@ test.describe("a run_command in the chat", () => {
       await expect(page.locator(STOP).first()).toBeVisible({ timeout: 10_000 });
       await expect.poll(() => statusReads, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
       writeFileSync(join(dir, "run"), "");
-      const line = page.locator(LINE);
-      const command = line.locator('[data-testid="background-work-task"][data-type="command"]');
-      // Named as a command, while its turn is open, sooner than the 15 s poll.
-      await expect(command).toContainText("CMDWATCH-JOB", { timeout: 5_000 });
+      const strip = page.getByTestId("subagents-strip");
+      const command = strip.locator('[data-testid="live-command-row"]').filter({ hasText: "CMDWATCH-JOB" });
+      // A row of the strip, while its turn is open, sooner than the 15 s poll,
+      // saying that its end wakes the chat.
+      await expect(command).toHaveCount(1, { timeout: 5_000 });
       await expect(page.getByText("STARTED").first()).toBeVisible({ timeout: 30_000 });
-      await expect(command.getByRole("img", { name: /^(Command|Comando)$/ })).toHaveCount(1);
-      await expect(command.getByTestId("background-work-running")).toHaveText(/^\s*\d+(s|m)$/);
-      await expect(command.getByTestId("background-work-wakes")).toHaveText(/(wakes the chat when it ends|sveglia la chat quando finisce)/);
+      await expect(command.getByTestId("live-work-wakes")).toHaveAttribute("aria-label", /^(wakes the chat when it ends|sveglia la chat quando finisce)$/);
       await expect(page.locator(STOP).first()).toBeVisible();
+      // Named once: the background line does not list it again.
+      await expect(page.locator(LINE)).toHaveCount(0);
 
-      // The turn ends; the command still runs, and the composer offers no Stop
-      // for it (its Stop is in the Processes pane).
+      // The turn ends; the command still runs, its row has its own Stop, and
+      // the composer offers none that would stop nothing.
       writeFileSync(join(dir, "release"), "");
       await expect(page.getByText("RUN-DONE").first()).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(STOP)).toHaveCount(0, { timeout: 15_000 });
-      await expect(command).toContainText("CMDWATCH-JOB");
-      // The running time moves: a clock from the command's start, not a stamp
-      // (the line's shared clock ticks every 10 s, `useSharedNow`).
-      const running = command.getByTestId("background-work-running");
-      const shown = (await running.textContent()) ?? "";
-      await expect(running).not.toHaveText(shown, { timeout: 15_000 });
+      await expect(command).toHaveCount(1);
+      await expect(command.getByTestId("live-work-stop")).toBeVisible();
 
-      // A click opens the command's log in the chat's project window.
-      const processId = await command.getAttribute("data-process-id");
-      expect(processId).toBeTruthy();
-      await command.getByTestId("background-work-open").click();
-      await expect(win.locator(`[role="tab"][data-pane-id="process-log:${processId}"]`)).toHaveCount(1, { timeout: 10_000 });
-      await expect(win.locator('[data-testid="process-log-output"]').last()).toBeVisible({ timeout: 10_000 });
-      // Back to the chat, as a person would.
-      await win.locator(`[role="tab"][data-pane-id="chat:${topic.id}"]`).click();
+      // A click on the row opens the card that started it, with the command's live log: no second log over the strip.
+      await command.getByRole("button").first().click();
+      const card = page.getByTestId("tool-call-row-toolu_cmdwatch");
+      await expect(card.getByTestId("shell-live-status")).toHaveAttribute("data-status", "running", { timeout: 10_000 });
+      await expect(strip.getByTestId("process-log-output")).toHaveCount(0);
 
-      // The command ends: the line goes, and the wake's answer names it, how it ended and its last line.
+      // The command ends: its row goes, and the wake's answer names it, how it ended and its last line.
       writeFileSync(join(dir, "finish"), "");
-      await expect(page.locator(LINE)).toHaveCount(0, { timeout: 10_000 });
+      await expect(command).toHaveCount(0, { timeout: 10_000 });
       await expect(page.getByText("CMD-WOKEN").first()).toBeVisible({ timeout: 30_000 });
       const banner = page.locator('[data-testid="woken-banner"][data-source="command"]');
       await expect(banner).toHaveCount(1, { timeout: 15_000 });

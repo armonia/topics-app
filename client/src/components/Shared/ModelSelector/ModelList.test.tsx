@@ -50,8 +50,8 @@ describe('«Esegui in Topics» (MSEL-07)', () => {
   test('on, with a model the engine serves: the band is lit and explains in a line', () => {
     const b = band(draw({ value: { provider: 'claude-code', model: 'claude-opus-5-5' }, topicsRouting: { enabled: true, onToggle: () => {} } }));
     expect(b).toMatchObject({ present: true, route: 'topics', checked: true, disabled: false });
-    // AC-32: the band says everything else goes direct.
-    expect(b.line).toBe('Claude gira in Topics col tuo abbonamento, senza un processo per chat. Gli altri vanno diretti.');
+    // AC-32: the band says everything else goes direct, in one line.
+    expect(b.line).toBe('Gli altri vanno diretti.');
   });
 
   test('on, with GPT-6.1-Sol: the band says it goes direct and why, and stays clickable', () => {
@@ -205,8 +205,10 @@ describe('Automatic and the footer (revision §3.7, §4.1)', () => {
     expect(markup).toMatch(/aria-describedby="(model-auto-hint-[^"]+)"[^>]*data-testid="model-row-automatic"/);
     expect(markup).toMatch(/class="sr-only">Usa il predefinito: Claude Code/);
   });
-  test('a list (phone) and the full variant show the long sentence', () => {
-    expect(draw()).toMatch(/model-row-automatic.*?Usa il predefinito: Claude Code/s);
+  test('compact hides the long sentence except on coarse pointers; full shows it', () => {
+    expect(draw()).toMatch(/model-row-automatic.*?id="model-auto-hint-[^"]*"[^>]*class="sr-only coarse:not-sr-only[^"]*"[^>]*>Usa il predefinito: Claude Code/s);
+    expect(draw()).toMatch(/aria-describedby="(model-auto-hint-[^"]+)"[^>]*data-testid="model-row-automatic"/);
+    expect(draw({ variant: 'full' })).toMatch(/model-row-automatic.*?id="model-auto-hint-[^"]*"[^>]*class="block text-mini[^"]*"[^>]*>Usa il predefinito: Claude Code/s);
     expect(draw({ layout: 'columns', variant: 'full' })).not.toContain('class="sr-only"');
   });
   test('the footer counts the providers: 9 ready, 1 error (AC-22)', () => {

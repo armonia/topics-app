@@ -55,3 +55,57 @@ describe('ProcessLogPane auto-scroll', () => {
     }
   });
 });
+
+/**
+ * AN EMPTY LOG SAYS WHAT IT IS WAITING FOR, AND SINCE WHEN (chat-live-work).
+ * On 07/10 Muse's row said «Waiting for output...» for 58 minutes while it
+ * wrote to a file: the pane could not tell «nothing yet» from «not here».
+ */
+describe('ProcessLogPane empty state', () => {
+  const startedAt = '2026-10-07T18:28:50.000Z';
+  const time = new Date(startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const text = (h: ReturnType<typeof mount>) =>
+    String(h.last().hosts.find(n => n.props['data-testid'] === 'process-log-output')?.props.children ?? '');
+
+  async function emptyLogSays(answer: Record<string, unknown>): Promise<{ before: string; after: string }> {
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    scriptsApi.output = (async () => { await gate; return { output: '', pending: '', offset: 0, done: false, status: 'running', startedAt, ...answer }; }) as typeof scriptsApi.output;
+    scriptsApi.list = (async () => ({ scripts: [] })) as unknown as typeof scriptsApi.list;
+    const h = mount(createElement(ProcessLogPane, { processId: 'p-empty', scriptName: 'muse' }));
+    try {
+      const before = text(h);
+      release();
+      await flush();
+      await flush();
+      h.rerender();
+      return { before, after: text(h) };
+    } finally {
+      h.unmount();
+    }
+  }
+
+  test('before the first answer it claims nothing', async () => {
+    const { before } = await emptyLogSays({});
+    expect(before).toBe('');
+  });
+
+  test('a command that prints nothing yet: since when it runs', async () => {
+    const { after } = await emptyLogSays({});
+    expect(after).toContain(time);
+    expect(after).not.toContain('Waiting for output...');
+  });
+
+  test('a command that writes to a file: that file, followed here', async () => {
+    const { after } = await emptyLogSays({ follows: '/tmp/fa-wallrunv2.log' });
+    expect(after).toContain('/tmp/fa-wallrunv2.log');
+    expect(after).toContain(time);
+  });
+
+  test('a file nobody can follow: which, and why', async () => {
+    const { after } = await emptyLogSays({ unfollowed: { target: '$LOG', reason: 'variable' } });
+    expect(after).toContain('$LOG');
+    expect(after).toMatch(/variabile|variable/);
+    expect(after).toContain(time);
+  });
+});

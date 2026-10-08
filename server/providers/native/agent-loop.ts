@@ -188,6 +188,26 @@ export interface AgentTurnOptions {
   retryPolicy?: RetryPolicy;
   /** Measured chars-per-token, owned by the CALLER like `history`. */
   calibration?: Calibration;
+  /**
+   * A line appended, as its own text block, to the person's message and to
+   * every round of tool results: the last thing the model reads before it
+   * writes. The chat passes the language here (`languageReminder`), because
+   * the system prompt alone lost to long runs of English tool output.
+   * Appended to the history and never removed, so each round's cached prefix
+   * stays the next round's prefix. Absent = the rounds are what they were.
+   */
+  reminder?: string;
+}
+
+/** Puts `text` at the end of the last message when the person wrote it (the
+ *  message a turn starts from); a history that ends otherwise is left alone. */
+function appendReminder(history: AgentMessage[], text: string): void {
+  const last = history[history.length - 1];
+  if (!last || last.role !== "user") return;
+  const block: Block = { type: "text", text };
+  last.content = typeof last.content === "string"
+    ? [{ type: "text", text: last.content }, block]
+    : [...last.content, block];
 }
 
 /**
@@ -783,6 +803,7 @@ export async function runAgentTurn(
   // turn-local otherwise; the recovery count is per TURN, not per round.
   const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
   const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
+  if (opts.reminder) appendReminder(opts.history, opts.reminder);
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
@@ -1029,7 +1050,7 @@ export async function runAgentTurn(
         return { turnEnd: end, text: finalText, usage: total };
       }
     }
-    opts.history.push({ role: "user", content: results });
+    opts.history.push({ role: "user", content: opts.reminder ? [...results, { type: "text", text: opts.reminder }] : results });
   }
 
   // Tetto raggiunto. È una fine anomala e va detta — ma va detta per quello che

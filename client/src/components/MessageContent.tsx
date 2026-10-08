@@ -40,6 +40,7 @@ import { CommandRunContext, type CommandRunTarget } from './Chat/commandRunConte
 import { useMediaBox } from './Chat/mediaBox';
 import { useCommandRun } from './Chat/useCommandRun';
 import { RunButtons, RunConfirmStrip } from './Chat/CodeBlockRunControls';
+import { stripAnsi } from '../lib/stripAnsi';
 
 // Only a block that has been run draws one: its output reader stays out of the first load.
 const CommandRunBlock = lazy(async () => {
@@ -1089,7 +1090,7 @@ function WokenBanner({ woken }: { woken: WakeBlock }) {
       <span className="min-w-0 break-words">
         {title}
         {text && (
-          <span data-testid="woken-event" className="mt-0.5 block max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-mini text-blue-900/80 dark:text-blue-200/80">{text}</span>
+          <span data-testid="woken-event" className="mt-0.5 block max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-mini text-blue-900/80 dark:text-blue-200/80">{stripAnsi(text)}</span>
         )}
       </span>
     </div>

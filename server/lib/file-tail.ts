@@ -50,6 +50,13 @@ export function readTail(tail: FileTail, maxBytes = TAIL_MAX_BYTES): { text: str
   }
   try {
     const size = fstatSync(fd).size;
+    // Shorter than what was read: its writer truncated it (a `> f` run again,
+    // a log rotated) and is writing it from the top. Without starting over,
+    // nothing more was read until the file grew past the old end.
+    if (size < tail.offset) {
+      tail.offset = 0;
+      tail.decoder = new TextDecoder();
+    }
     let skipped = 0;
     if (size - tail.offset > maxBytes) {
       skipped = size - maxBytes - tail.offset;

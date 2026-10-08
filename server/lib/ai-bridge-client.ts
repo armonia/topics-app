@@ -18,6 +18,9 @@ import { augmentPath } from "../utils/path-env";
 import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
+// runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
+// module like any other, so there is no loose .mjs to miss and no runtime to run it.
+import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 
 export interface SpawnOpts {
   cliPath: string;
@@ -54,15 +57,15 @@ export interface SessionInfo {
 }
 
 /**
- * Quanto si aspetta un ack, per tipo di richiesta.
+ * How long an ack is awaited, per request type.
  *
- * Erano 5 secondi per tutti, ed era la cifra sbagliata due volte. Un `list` è un
- * giro di andata e ritorno dentro il daemon: se non risponde in 5s è rotto.
- * Uno `spawn` deve forkare un processo `claude` — sotto carico (dieci pane vive,
- * un `bun test` in corso) 5 secondi si superano senza che niente sia guasto, e
- * il turno moriva con «ack timeout» a schermo. Ora ogni richiesta ha il suo
- * tempo, e — cosa che conta di più — un socket caduto NON aspetta più il
- * timeout: fallisce subito e si riprova (vedi `request`).
+ * It was 5 seconds for all, and that figure was wrong twice over. A `list` is a
+ * round trip inside the daemon: if it does not answer in 5s it is broken.
+ * A `spawn` has to fork a `claude` process — under load (ten live panes,
+ * a `bun test` running) 5 seconds get exceeded with nothing broken, and
+ * the turn died with «ack timeout» on screen. Now every request has its
+ * own time, and — what matters more — a dropped socket no longer waits out the
+ * timeout: it fails fast and is retried (see `request`).
  */
 // Env overrides for tests — production never sets these.
 // TOPICS_AI_BRIDGE_ACK_MS, TOPICS_AI_BRIDGE_WATCHDOG_MS, TOPICS_AI_BRIDGE_PONG_MS,
@@ -439,6 +442,13 @@ export class AiBridgeClient {
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
       if (Number.isInteger(msg.pid)) this.connectedDaemonPid = msg.pid;
+      // Demone sopravvissuto alla sessione grafica: ogni `claude` che fa nascere
+      // dice «Not logged in». Si rifà solo a mani vuote (live 0), per non tagliare
+      // un turno: SIGTERM, il 'close' riconnette e ensureConnected lo fa rinascere qui.
+      if (msg.live === 0 && Number.isInteger(msg.pid) && bridgeOutsideGuiSession(msg.session, guiSessionName)) {
+        console.warn(`[AI Bridge] daemon ${msg.pid} outside the GUI session (${JSON.stringify(msg.session)}): recycling it`);
+        try { process.kill(msg.pid, "SIGTERM"); } catch { /* già morto */ }
+      }
       return;
     }
     const id = msg.id as string | undefined;

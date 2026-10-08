@@ -998,8 +998,8 @@ export const scriptsApi = {
    * dice quante righe il ring buffer ha buttato senza che questo client le
    * vedesse.
    */
-  async output(processId: string, offset = 0): Promise<{ output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number }> {
-    return request<{ output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number }>(`/scripts/${processId}/output?offset=${offset}`);
+  async output(processId: string, offset = 0): Promise<ScriptOutput> {
+    return request<ScriptOutput>(`/scripts/${processId}/output?offset=${offset}`);
   },
 
   async stop(processId: string): Promise<{ ok: boolean }> {
@@ -1008,6 +1008,22 @@ export const scriptsApi = {
     });
   },
 };
+
+/**
+ * A piece of a process's log. `startedAt`, `follows` and `unfollowed` say what
+ * an empty log is waiting for (chat-live-work): since when, the file the
+ * command sends its stdout to, or the one nobody can follow and why.
+ */
+export interface ScriptOutput {
+  output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number;
+  startedAt?: string; follows?: string; unfollowed?: { target: string; reason: 'variable' | 'pattern' | 'cwd' };
+}
+
+/** What a chat has at work now: the rows of the strip under it (chat-live-work). */
+export const liveWorkApi = {
+  get: (topicId: string) => request<LiveWork>(`/topics/${encodeURIComponent(topicId)}/live-work`),
+};
+import type { LiveWork } from '../../../shared/live-work';
 
 /** A run of a command from the chat (CHAT-RUN-03): the server's row, one shape on both sides. */
 export type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';

@@ -24,16 +24,18 @@ hermetic(test);
  * does). For ~900 ms after each click, a sampler records in the last callback
  * before every paint:
  *   - the clicked header's top and left on screen;
- *   - the top of the message row right above it (for a strip docked over the
- *     composer: the last message row on screen);
+ *   - the top of the message row right above it (for a strip at the end of
+ *     the transcript: the last message row on screen above it);
  *   - the height of the fold (header plus body).
  *
  * THE INVARIANT, per frame: the header stays at the same Y (±1 px) and the
  * same X, nothing above it moves, and the fold changes height in ONE run (an
  * animation or an instant reveal), never a placeholder that pops to its real
- * size later. A strip docked over the composer opens its list ABOVE its
- * header: at the bottom the transcript follows it up, so there the rule is
- * that the newest row stays in sight above the strip instead of under it.
+ * size later. A strip at the end of the transcript (chat-strips-in-transcript)
+ * opens its list ABOVE its header: the header stays and the transcript above
+ * it moves up with the list, so there the rule is that the newest row stays in
+ * sight above the strip. Such a strip is on screen only at the end of the
+ * chat: it has no middle case.
  * Each test writes its measurements next to its result, and logs one line per
  * case (`ACCORDION kind case phase ...`) so a run on the old code
  * reads as the diagnosis table.
@@ -59,7 +61,7 @@ type Kind = {
   fold: (tag: string) => string;
   /** Opens by default: the first click closes it. */
   startsOpen?: boolean;
-  /** Docked over the composer: one instance, outside the transcript. */
+  /** One of the chat's strips: one instance, at the end of the transcript, opening upward. */
   docked?: boolean;
   /** Seen once open, to know the click did open it. */
   opened: (page: Page, tag: string) => Locator;
@@ -435,9 +437,9 @@ async function bringIntoView(page: Page, target: string) {
 }
 
 /**
- * Whether the newest row of the transcript is hidden under the block docked
- * over the composer: what is painted at the bottom of that row belongs to the
- * dock (an open strip, its list) and not to the row.
+ * Whether the newest row of the transcript is hidden under the composer's
+ * block: what is painted at the bottom of that row belongs to the block and
+ * not to the row.
  */
 async function newestRowCovered(page: Page): Promise<string | null> {
   return page.evaluate(() => {
@@ -453,9 +455,7 @@ async function newestRowCovered(page: Page): Promise<string | null> {
 }
 
 async function togglePhase(page: Page, kind: Kind, tag: string, where: Measure["where"], phase: Measure["phase"]): Promise<{ m: Measure; frames: Frame[] }> {
-  // A docked strip is always in sight, over the composer: wheeling "to it"
-  // scrolled the transcript to its bottom and turned the middle case into a
-  // second bottom case.
+  // A strip is measured only at the bottom, where it is in sight: no wheel first.
   if (!kind.docked) await bringIntoView(page, kind.click(tag));
   const header = (kind.header ?? kind.click)(tag);
   await startProbe(page, { header, fold: kind.fold(tag), docked: !!kind.docked });
@@ -519,20 +519,22 @@ test.describe("a fold opened by hand does not move the transcript", () => {
         if (under) covered.push(`${kind.name} bottom open: the newest row is ${under}`);
       }
 
-      // IN THE MIDDLE: wheeled up to an older instance (for a docked strip:
-      // the same strip, the transcript read two screens up).
-      if (kind.prepare) {
-        await wheelToMiddle(page, kind.fold(chat.mid));
-        await kind.prepare(page, chat.mid);
-      }
-      await wheelToMiddle(page, kind.docked ? `msg:Reply 9` : (kind.header ?? kind.click)(chat.mid).split(";;")[0]!);
-      const residual = await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
-      expect(residual, "the middle case is away from the bottom").toBeGreaterThan(300);
-      for (const phase of phases) {
-        const { m, frames } = await togglePhase(page, kind, chat.mid, "middle", phase);
-        results.push(m);
-        all[`middle-${phase}`] = frames;
-        if (phase === "open") await expect.soft(kind.opened(page, chat.mid), `${kind.name} middle: the click opened it`).toBeVisible();
+      // IN THE MIDDLE: wheeled up to an older instance. A strip has none: read
+      // two screens up, the end of the transcript it sits at is out of sight.
+      if (!kind.docked) {
+        if (kind.prepare) {
+          await wheelToMiddle(page, kind.fold(chat.mid));
+          await kind.prepare(page, chat.mid);
+        }
+        await wheelToMiddle(page, (kind.header ?? kind.click)(chat.mid).split(";;")[0]!);
+        const residual = await sc.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+        expect(residual, "the middle case is away from the bottom").toBeGreaterThan(300);
+        for (const phase of phases) {
+          const { m, frames } = await togglePhase(page, kind, chat.mid, "middle", phase);
+          results.push(m);
+          all[`middle-${phase}`] = frames;
+          if (phase === "open") await expect.soft(kind.opened(page, chat.mid), `${kind.name} middle: the click opened it`).toBeVisible();
+        }
       }
 
       const engine = testInfo.project.use.browserName ?? testInfo.project.name;

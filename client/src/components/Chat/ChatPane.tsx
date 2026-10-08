@@ -22,7 +22,7 @@ import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { providerLabel } from '../../../../shared/provider-labels';
 import { useConfirm } from '../../hooks/useConfirm';
-import { chatAcceptsFileDrag } from './chatFileDrop';
+import { chatAcceptsFileDrag, watchFileDragEnd } from './chatFileDrop';
 import { readPictureSize, sizesByPath, type PendingSize } from './attachmentSizes';
 import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
@@ -144,11 +144,6 @@ export interface ChatPaneProps {
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
-  // Session viewer
-  /** Optional content rendered inside the floating input bar, just above
-   *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
-   *  the board strip so it stays visible while typing. */
-  aboveInputSlot?: React.ReactNode;
   /**
    * Mount the topic's browser window on THIS pane instead of leaving it to a
    * parent.
@@ -187,7 +182,7 @@ function ChatPaneComponent({
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, regenerateMessage, deleteMessage, switchBranch,
-  aboveInputSlot, ownsBrowserWindow,
+  ownsBrowserWindow,
 }: ChatPaneProps) {
   const tr = useT();
   /** A command of this chat is stopped: the pane says so above the composer. */
@@ -1779,6 +1774,11 @@ function ChatPaneComponent({
     const f = Array.from(e.dataTransfer.files);
     if (f.length > 0) setPendingFiles(prev => [...prev, ...f]);
   }, [isGlobalOrchestrator]);
+  // A drag that ends anywhere else never reaches the two handlers above: see watchFileDragEnd.
+  useEffect(() => {
+    if (!fileDragOver) return;
+    return watchFileDragEnd(window, () => setFileDragOver(false));
+  }, [fileDragOver]);
 
   // Ref-stable so `MessageBubble`'s memo holds during streaming. These are
   // passed to EVERY visible bubble via MessageList → itemContent; when they were
@@ -1891,6 +1891,41 @@ function ChatPaneComponent({
    */
   const servedFromCache = useServedFromCache(topic.sessionKey);
 
+  /**
+   * The chat's state: its goal (or the agent's todo list), the work running
+   * now, the checkpoints, the files it wrote. Drawn at the end of the
+   * transcript, after the last message (chat-strips-in-transcript): what they
+   * say belongs to the conversation, not to the send, and docked over the
+   * composer they stayed hooked to it however far up one read (Attilio, 08/10:
+   * «dovrebbero restare a fondo chat»). A chat with no messages (empty, or its
+   * history still on the way) has no transcript to hold them: there they stay
+   * in the composer's block.
+   */
+  const strips = (
+    <>
+      {!isGlobalOrchestrator && goal ? (
+        <GoalBar
+          goal={goal}
+          fallback={latestTodo ?? undefined}
+          onClose={(status) => { void handleGoalClose(status); }}
+          onEdit={handleGoalEdit}
+          onStopLoop={() => { void handleGoalStopLoop(); }}
+          onPromote={() => { void handleGoalPromote(); }}
+        />
+      ) : (
+        latestTodo && <TodoStrip snapshot={latestTodo} />
+      )}
+      {!isGlobalOrchestrator && <SubAgentsStrip topicId={topic.id} sessionKey={topic.sessionKey} />}
+      {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
+      {/* What the agent wrote in this conversation, counted from its own write
+          tool calls: silent in a chat that wrote nothing. Hidden for the
+          coordinator, which by invariant has no project path and no worktree:
+          its rows would have no tree to open a diff against. */}
+      {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
+    </>
+  );
+  const stripsInTranscript = currentMessages.length > 0;
+
   return (
     <div
       ref={paneRootRef}
@@ -1985,20 +2020,18 @@ function ChatPaneComponent({
       />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
       <ChatTopicContext.Provider value={topic.id}>
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} footerStrips={stripsInTranscript ? strips : null} />
       </ChatTopicContext.Provider>
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
-      {/* `chat-measure` qui capa e CENTRA in un colpo solo tutto il blocco di
-          fondo — GoalBar, TodoStrip, SubAgentsStrip, la timeline dei
-          checkpoint, il composer e con lui il box della coda — sulla stessa
-          colonna della lista. Con `left-0 right-0` il posizionamento è
-          sovra-vincolato e lo risolvono i margini auto dell'utility, quindi il
-          blocco si centra invece di allargarsi. `inputAreaHeight` continua a
-          misurare giusto: il ResizeObserver legge `contentRect.height`, che è
-          l'altezza, non la larghezza. */}
+      {/* `chat-measure` caps and CENTRES the whole bottom block (the composer
+          and what belongs to the send above it) on the list's column. With
+          `left-0 right-0` the position is over-constrained and the utility's
+          auto margins resolve it, so the block centres instead of widening.
+          `inputAreaHeight` still measures right: the ResizeObserver reads
+          `contentRect.height`, the height, not the width. */}
       <div
         ref={inputAreaRef}
         data-testid="chat-input-area"
@@ -2039,26 +2072,7 @@ function ChatPaneComponent({
             onReject={() => handlePlanChoiceFromBar(false)}
           />
         )}
-        {!isGlobalOrchestrator && goal ? (
-          <GoalBar
-            goal={goal}
-            fallback={latestTodo ?? undefined}
-            onClose={(status) => { void handleGoalClose(status); }}
-            onEdit={handleGoalEdit}
-            onStopLoop={() => { void handleGoalStopLoop(); }}
-            onPromote={() => { void handleGoalPromote(); }}
-          />
-        ) : (
-          latestTodo && <TodoStrip snapshot={latestTodo} />
-        )}
-        {!isGlobalOrchestrator && <SubAgentsStrip topicSessionKey={topic.sessionKey} />}
-        {aboveInputSlot}
-        {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
-        {/* What the agent wrote in this conversation, counted from its own
-            write tool calls: silent in a chat that wrote nothing. Hidden for the
-            coordinator, which by invariant has no project path and no worktree:
-            its rows would have no tree to open a diff against. */}
-        {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
+        {!stripsInTranscript && strips}
         {/* FROZEN: the line sits IN FLOW above the composer, never over it. An
             overlaid strip would cover the one control a person can still use
             while the command is stopped, and writing in the chat is exactly

@@ -101,8 +101,8 @@ test.describe("desktop, 1280 × 900", () => {
   test("Opus and GPT in one view, the search, the keyboard and the band", async ({ page, request }) => {
     const picker = await openChat(page, request);
     await picker.click();
-    // MSEL-02: no intermediate level, every company side by side.
-    await expect(panel(page)).toHaveAttribute("data-layout", "columns");
+    // MSEL-02: no intermediate level, every company in one vertical list.
+    await expect(panel(page)).toHaveAttribute("data-layout", "list");
     await expect(modelRow(page, "claude-opus-5-5")).toBeVisible();
     await expect(modelRow(page, "gpt-6.1-sol")).toBeVisible();
     // MSEL-03: the search has the focus on desktop.
@@ -120,7 +120,7 @@ test.describe("desktop, 1280 × 900", () => {
     // MSEL-08: Esc gives the focus back to the trigger.
     await expect(picker).toBeFocused();
 
-    // ⌘⇧M from the composer opens; the arrows cross from Opus to GPT; Enter picks.
+    // ⌘⇧M from the composer opens; ↓ walks from Opus to GPT; Enter picks.
     await page.locator('[role="main"] textarea').first().click();
     await page.keyboard.press("ControlOrMeta+Shift+M");
     await expect(panel(page)).toBeVisible();
@@ -166,9 +166,9 @@ test.describe("desktop, 1280 × 900", () => {
     await page.keyboard.press("Escape");
   });
 
-  // Revision 2026-10-04 §3.4: no catch-all; OpenClaw's llama and qwen are
-  // Meta and Qwen, stacked in the fourth column after the three fixed ones.
-  test("five companies in a 900px window: inside the viewport, columns scroll under fixed headings", async ({ page, request }) => {
+  // MSEL-02 (amended 2026-10-06): no catch-all; OpenClaw's llama and qwen are
+  // Meta and Qwen, sections of the one vertical list after the three fixed ones.
+  test("five companies in a 900px window: inside the viewport, the list scrolls under a fixed band and search", async ({ page, request }) => {
     const picker = await openChat(page, request);
     await picker.click();
     const box = await panel(page).boundingBox();
@@ -177,24 +177,27 @@ test.describe("desktop, 1280 × 900", () => {
     expect(box!.y + box!.height).toBeLessThanOrEqual(900);
     await expect(panel(page).getByTestId("model-section-other")).toHaveCount(0);
     for (const maker of ["anthropic", "openai", "google", "meta", "qwen"]) {
-      const section = panel(page).getByTestId(`model-section-${maker}`);
-      await expect(section).toHaveAttribute("data-maker", maker);
-      await expect(section.getByTestId("model-section-heading")).toBeInViewport();
-      await expect(section.getByTestId("model-row").first()).toBeInViewport();
+      await expect(panel(page).getByTestId(`model-section-${maker}`)).toHaveAttribute("data-maker", maker);
     }
-    // Open every fold: the Anthropic column grows past its height and scrolls by itself.
-    for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
+    // The first section starts in view without scrolling.
     const anthropic = panel(page).getByTestId("model-section-anthropic");
-    const column = panel(page).getByTestId("model-column").first();
-    const scroll = await column.evaluate((el) => ({ overflowY: getComputedStyle(el).overflowY }));
+    await expect(anthropic.getByTestId("model-section-heading")).toBeInViewport();
+    await expect(anthropic.getByTestId("model-row").first()).toBeInViewport();
+    // Open every fold: the list grows past its height and scrolls by itself.
+    for (const older of await panel(page).getByTestId("model-section-older").all()) await older.click();
+    const sections = panel(page).getByTestId("model-selector-sections");
+    const scroll = await sections.evaluate((el) => ({ overflowY: getComputedStyle(el).overflowY }));
     expect(["auto", "scroll"]).toContain(scroll.overflowY);
     const heading = anthropic.getByTestId("model-section-heading");
     await expect(heading).toHaveCSS("position", "sticky");
-    // The band and the search do not move when a column scrolls.
+    // The band and the search do not move when the list scrolls; at the
+    // bottom the last section's heading is the one in view, held still.
     const searchBefore = await page.getByTestId("model-selector-search").boundingBox();
-    await column.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await sections.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     expect(await page.getByTestId("model-selector-search").boundingBox()).toEqual(searchBefore);
-    await expect(heading).toBeInViewport();
+    const last = panel(page).getByTestId("model-section-qwen").getByTestId("model-section-heading");
+    await expect(last).toBeInViewport();
+    await expect(last).toHaveCSS("position", "sticky");
     await page.keyboard.press("Escape");
   });
 

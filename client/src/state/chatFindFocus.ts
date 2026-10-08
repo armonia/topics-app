@@ -21,6 +21,8 @@ export interface ChatFindFocus {
   /** The searched word, for the clamped body to know whether to expand. */
   query: string;
   matchCase: boolean;
+  /** Set by a reveal from outside the transcript (`revealToolCall`): the tool row also scrolls itself into view. */
+  reveal?: boolean;
   seq: number;
 }
 
@@ -54,6 +56,11 @@ function useFocusSeq(pick: (f: ChatFindFocus) => boolean): number {
 /** A tool row: non-zero while the current result is inside this call. */
 export function useFindFocusTool(toolCallId: string | undefined): number {
   return useFocusSeq((f) => !!toolCallId && f.part === 'tool' && f.toolCallId === toolCallId);
+}
+
+/** A tool row brought here by `revealToolCall`: non-zero while that reveal is current. */
+export function useRevealTool(toolCallId: string | undefined): number {
+  return useFocusSeq((f) => !!toolCallId && !!f.reveal && f.part === 'tool' && f.toolCallId === toolCallId);
 }
 
 /** A tool group: non-zero (and which call) while the current result is in one of its calls. */
